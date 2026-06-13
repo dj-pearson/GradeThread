@@ -1466,3 +1466,26 @@ Branch: ralph/gradethread-build
   - PRE-EXISTING (not mine): route-metadata.test.ts fails on /verify (168>160 chars, from US-593). Untouched by US-596.
 - Timestamp: 2026-06-12
 ---
+
+## US-597: Surface + gamify the Items-Listed-Per-Week North Star
+- Status: COMPLETE
+- Files changed:
+  - src/lib/constants.ts (NORTH_STAR_WEEKLY_GOAL=10, NORTH_STAR_MILESTONES)
+  - src/lib/north-star.ts (NEW: pure computeNorthStar — weekly count, goal progress, Monday-anchored streak, lifetime/next-milestone)
+  - src/lib/north-star.test.ts (NEW: 9 vitest cases — week bucketing, streak grace/gap, milestones)
+  - src/components/flipdesk/north-star-card.tsx (NEW: gamified card — goal progress bar, flame streak badge, next milestone)
+  - src/pages/flipdesk/overview.tsx (mount NorthStarCard top of FlipDesk overview)
+  - supabase/migrations/00170_north_star_gamification.sql (NEW: north_star_weekly_log + north_star_milestone_log idempotency ledgers w/ RLS; RPCs north_star_weekly_counts / north_star_lifetime_counts)
+  - services/edge-functions/src/lib/email.ts (sendNorthStarWeeklyEmail + sendNorthStarMilestoneEmail, marketing-class w/ unsubscribe)
+  - services/edge-functions/src/routes/jobs-north-star.ts (NEW: handleNorthStarDigestCron — weekly digest + once-per milestone, streak from log history, marketing opt-out honored, job-secret + lock)
+  - services/edge-functions/src/main.ts (mount POST /api/jobs/north-star-digest)
+  - services/edge-functions/src/lib/cron-runs.ts (registry entry, Mon 14:00 UTC)
+  - LAUNCH_CHECKLIST.md + services/edge-functions/COOLIFY.md (scheduled-task docs)
+- Notes:
+  - North Star = listings.listed_at counted per Monday-anchored week (matches overview's listedThisWeek + flipdesk_prd North Star def). In-app surface computed client-side from items_full list_date (no extra fetch); emails computed server-side via RPC over listings⋈inventory_items.user_id.
+  - Idempotency: UNIQUE(user_id, week_start) and UNIQUE(user_id, milestone) — re-runs/overlap can't double-send; 23505 treated as already-handled. Log rows written even when opted-out so streak math stays correct.
+  - Streak grace: an empty CURRENT week doesn't break the chain (in progress); counts back from last week.
+  - Verified: npx tsc --noEmit (0), npm run build (0), vitest north-star (9/9), deno check of new/modified edge files (jobs-north-star.ts, email.ts, cron-runs.ts) clean.
+  - PRE-EXISTING (not mine): deno check src/main.ts surfaces 3 TS2769 errors in grade.ts re: c.get("correlationId") not in ContextVariableMap — untouched by this story.
+- Timestamp: 2026-06-12
+---

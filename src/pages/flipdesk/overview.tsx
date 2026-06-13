@@ -30,6 +30,7 @@ import {
   FLIPDESK_PIPELINE,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { NorthStarCard } from "@/components/flipdesk/north-star-card";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -218,6 +219,12 @@ export function FlipdeskOverviewPage() {
         </Card>
       ) : (
         <>
+      {/* North Star (US-597): weekly items-listed goal + streak. The PRD North
+          Star is Items-Listed-Per-Week — surface + gamify it front and center. */}
+      <div className="max-w-md">
+        <NorthStarCard items={items} />
+      </div>
+
       {/* Top metrics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

@@ -117,6 +117,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | ☐ | |
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | ☐ | full 2-way merge (push **and** pull); `/sync/pull` is an alias |
 | ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | ☐ | re-links parked payout/order/return events once the seller's handle/id hydrates (US-472) |
+| north-star-digest | `0 14 * * 1` | `/api/jobs/north-star-digest` | ☐ | weekly (Mon) items-listed encouragement + milestone emails, streak tracking (US-597) |
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`
 (same secret header) once after the final pre-launch deploy — it seals every

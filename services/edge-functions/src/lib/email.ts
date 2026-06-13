@@ -845,6 +845,114 @@ export async function sendTrialExpiringEmail(
   });
 }
 
+// ─── North Star: Items Listed Per Week (US-597) ──────────────────────
+
+interface NorthStarWeeklyData {
+  userId: string;
+  userName: string;
+  /** Items listed during the week being celebrated. */
+  itemsListed: number;
+  /** The weekly goal. */
+  goal: number;
+  /** Consecutive-week listing streak as of this week. */
+  streakWeeks: number;
+  /** All-time items listed. */
+  lifetimeListed: number;
+}
+
+// Weekly encouragement digest tied to listing activity. Marketing-class
+// (carries an unsubscribe link). Sent by the north-star digest cron.
+export async function sendNorthStarWeeklyEmail(
+  to: string,
+  data: NorthStarWeeklyData,
+): Promise<boolean> {
+  const goalMet = data.itemsListed >= data.goal;
+  const headline = goalMet
+    ? `🎉 You hit your weekly goal — ${data.itemsListed} listed!`
+    : data.itemsListed > 0
+      ? `You listed ${data.itemsListed} item${data.itemsListed === 1 ? "" : "s"} this week`
+      : "Your listing week is open — let's get the first one up";
+  const streakLine =
+    data.streakWeeks > 1
+      ? `<p style="margin: 0 0 16px; color: ${BRAND_RED}; font-size: 15px; font-weight: 600;">🔥 You're on a ${data.streakWeeks}-week listing streak — don't break the chain!</p>`
+      : data.streakWeeks === 1
+        ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">List an item next week to start a streak. 🔥</p>`
+        : "";
+  const body = goalMet
+    ? `Listing throughput is the number that moves inventory and revenue — and you're crushing it. Keep the momentum going.`
+    : data.itemsListed > 0
+      ? `You're ${Math.max(0, data.goal - data.itemsListed)} away from your weekly goal of ${data.goal}. A few more listings keeps your pipeline — and your sales — flowing.`
+      : `Items listed per week is the single biggest driver of your sales. Get one item up to keep your streak alive.`;
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${headline}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, ${body}
+    </p>
+    ${streakLine}
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 0 0 8px;">
+      <tr>
+        <td style="padding: 12px; background: ${BRAND_GRAY}; border-radius: 8px; text-align: center;">
+          <div style="font-size: 24px; font-weight: 700; color: ${BRAND_NAVY};">${data.itemsListed} / ${data.goal}</div>
+          <div style="font-size: 12px; color: #666;">this week</div>
+        </td>
+        <td style="width: 12px;"></td>
+        <td style="padding: 12px; background: ${BRAND_GRAY}; border-radius: 8px; text-align: center;">
+          <div style="font-size: 24px; font-weight: 700; color: ${BRAND_NAVY};">${data.lifetimeListed}</div>
+          <div style="font-size: 12px; color: #666;">all-time listed</div>
+        </td>
+      </tr>
+    </table>
+    ${ctaButton("List an item", `${SITE_URL}/dashboard/flipdesk/intake`)}
+  `;
+  const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
+  return await sendEmail({
+    to,
+    subject: goalMet
+      ? `🎉 Weekly goal hit — ${data.itemsListed} items listed`
+      : `Your week in listings: ${data.itemsListed} item${data.itemsListed === 1 ? "" : "s"}`,
+    html: emailLayout(content, { unsubscribeUrl }),
+    category: "north_star_weekly",
+  });
+}
+
+interface NorthStarMilestoneData {
+  userId: string;
+  userName: string;
+  /** The lifetime milestone just reached (e.g. 50). */
+  milestone: number;
+  /** All-time items listed. */
+  lifetimeListed: number;
+}
+
+// Celebrates crossing a lifetime items-listed milestone. Marketing-class.
+export async function sendNorthStarMilestoneEmail(
+  to: string,
+  data: NorthStarMilestoneData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 22px;">
+      🏆 ${data.milestone} items listed — what a milestone!
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, you've now listed <strong>${data.lifetimeListed}</strong> items on FlipDesk. Every listing is a shot at a sale — this is real throughput, and it compounds.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      Keep stacking weeks and watch the sales follow. On to the next milestone.
+    </p>
+    ${ctaButton("Keep listing", `${SITE_URL}/dashboard/flipdesk/intake`)}
+  `;
+  const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
+  return await sendEmail({
+    to,
+    subject: `🏆 You've listed ${data.milestone} items on FlipDesk`,
+    html: emailLayout(content, { unsubscribeUrl }),
+    category: "north_star_milestone",
+  });
+}
+
 // ─── Workspace invitation (team support) ─────────────────────────────
 
 interface WorkspaceInvitationData {

@@ -9076,8 +9076,8 @@
         "Respects the North Star metric defined in the PRD"
       ],
       "priority": 597,
-      "passes": false,
-      "notes": "[P2][Differentiation/Engagement] Deep-dive 2026-06-04. PRD North Star is Items-Listed-Per-Week but nothing surfaces or gamifies it; cheap retention loop."
+      "passes": true,
+      "notes": "[P2][Differentiation/Engagement] Deep-dive 2026-06-04. PRD North Star is Items-Listed-Per-Week but nothing surfaces or gamifies it; cheap retention loop. DONE 2026-06-12: NorthStarCard on FlipDesk overview (weekly items-listed goal progress + don't-break-the-chain streak + next milestone), pure helper src/lib/north-star.ts (+vitest). Weekly digest cron /api/jobs/north-star-digest (jobs-north-star.ts) sends encouragement + milestone emails tied to listings.listed_at; migration 00170 adds idempotency ledgers + aggregate RPCs (north_star_weekly_counts/lifetime_counts). Registered in cron-runs registry + LAUNCH_CHECKLIST/COOLIFY (Mon 14:00 UTC). Marketing opt-out honored."
     },
     {
       "id": "US-598",

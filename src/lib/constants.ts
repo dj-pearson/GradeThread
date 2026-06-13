@@ -575,6 +575,18 @@ export const FLIPDESK_PIPELINE: Array<{
   { status: "returned",     label: "Returned",     nextAction: "Relist or write off" },
 ];
 
+// ─── North Star: Items Listed Per Week (US-597) ──────────────────────
+// The PRD North Star metric is "Items Listed Per Week" — the throughput that
+// directly correlates with revenue and platform value. We surface a weekly
+// goal + a "don't break the chain" listing streak to keep resellers engaged
+// with that one behavior. Defaults are deliberately attainable for a part-time
+// flipper; the streak rewards consistency over volume.
+export const NORTH_STAR_WEEKLY_GOAL = 10;
+
+// Lifetime items-listed milestones that trigger a celebration email. Kept in
+// sync with the edge cron (jobs-north-star.ts NORTH_STAR_MILESTONES).
+export const NORTH_STAR_MILESTONES = [10, 25, 50, 100, 250, 500, 1000] as const;
+
 export const FLIPDESK_SOURCE_TYPES = [
   "thrift",
   "goodwill_auction",

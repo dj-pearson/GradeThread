@@ -68,6 +68,7 @@ import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
+import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
@@ -646,6 +647,10 @@ app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
 // challenger against the champion on seller keep-rate + sell-through and
 // promotes (eval-gated) / ends the trial. Handler enforces the job secret.
 app.post("/api/jobs/listing-prompt-promote", (c) => handleListingPromptPromoteCron(c));
+// US-597 North Star digest. Weekly (Monday) encouragement + milestone emails
+// tied to items-listed-per-week, with streak tracking. Handler enforces the
+// job secret. Schedule on Coolify cron (weekly, e.g. Mon 14:00 UTC).
+app.post("/api/jobs/north-star-digest", (c) => handleNorthStarDigestCron(c));
 // US-472 eBay parked-webhook drain. Re-links payout/order/return events that
 // arrived before the connection's account_handle/external_account_id hydrated,
 // and dead-letters the ones that never link. Handler enforces the job secret.
