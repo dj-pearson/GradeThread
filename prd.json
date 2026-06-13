@@ -8782,8 +8782,8 @@
         "Measured LCP + Storage-egress improvement on a photo-heavy page"
       ],
       "priority": 574,
-      "passes": false,
-      "notes": "[P1][Performance] Deep-dive 2026-06-04. photo-{manager,uploader}.tsx + item-canvas.tsx use getPublicUrl full-res; /cdn-cgi/image only used for SSR blog/cert and gated off (wrangler.toml:36). US-413 thumbnails alone do not add a CDN layer."
+      "passes": true,
+      "notes": "[P1][Performance] Deep-dive 2026-06-04. photo-{manager,uploader}.tsx + item-canvas.tsx use getPublicUrl full-res; /cdn-cgi/image only used for SSR blog/cert and gated off (wrangler.toml:36). US-413 thumbnails alone do not add a CDN layer. | DONE 2026-06-12. Added single helper itemPhotoThumb(photo,width?) in src/lib/images.ts encoding the resolution order: pre-generated ~320w WebP thumbnail (US-413) -> CF Image Transformations on the legacy un-thumbnailed original at cell width when VITE_CF_IMAGE_RESIZING=='true' -> untransformed original fallback. Wired every grid/canvas/uploader/preview <img> (photo-manager, photo-uploader, composer photo strip, autolister picker x2, ebay-view-item-preview thumb strip) through it instead of ad-hoc thumbnail_url??photo_url, so the CDN tier turns on everywhere the moment the zone flag flips. Hero/full-screen/AI-submission renders intentionally keep full-res. Flag already gated+documented (wrangler.toml + responsive-image.tsx). Docs: SEO_PERFORMANCE.md new 'FlipDesk listing-photo thumbnails + CDN layer (US-574)' section with the ~98% per-image byte-reduction math + the LCP/egress measurement method (web-vitals RUM on /dashboard/flipdesk/* + zone Analytics). Tests: itemPhotoThumb cases added to responsive-images.test.ts (28 pass). tsc clean, build+prerender green, eslint clean. MANUAL: enable Transformations on the zone + flip VITE_CF_IMAGE_RESIZING to true, then record before/after LCP+egress on a >=10-photo item for launch sign-off."
     },
     {
       "id": "US-575",

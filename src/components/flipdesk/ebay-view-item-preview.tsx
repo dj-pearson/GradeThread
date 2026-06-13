@@ -8,6 +8,7 @@ import {
   Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { itemPhotoThumb } from "@/lib/images";
 import type { ItemPhotoRow } from "@/types/database";
 
 export type PreviewViewport = "desktop" | "mobile";
@@ -135,7 +136,7 @@ export function EbayViewItemPreview(props: EbayViewItemPreviewProps) {
             )}
           >
             <img
-              src={photo.thumbnail_url ?? photo.photo_url}
+              src={itemPhotoThumb(photo, 96)}
               alt=""
               loading="lazy"
               className="h-full w-full object-cover"

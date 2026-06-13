@@ -92,3 +92,50 @@ images get a `srcset` + `loading=lazy`.
 > URLs 404; `onerror=redirect` only covers per-image transform failures, not the
 > feature being disabled. The rendered `src` fallback keeps the base image
 > working regardless.
+
+## FlipDesk listing-photo thumbnails + CDN layer (US-574)
+
+Public `item-photos` (the reseller's listing imagery) are the most photo-heavy
+surface in the app — the pipeline canvas, photo-manager grid, AutoLister picker,
+and eBay preview can each render dozens of cells at once. Serving the full-res
+original (≈2400w, multi-MB) into a 96–320px grid cell is pure wasted Storage
+egress and a slow LCP.
+
+Two-tier strategy:
+
+1. **Pre-generated thumbnails (primary).** On upload, `photo-uploader.tsx` /
+   `use-reconcile-commit.ts` bake a **~320w WebP** thumbnail through the same
+   canvas pipeline as the full image (EXIF-stripped, upright) and persist it as
+   `item_photos.thumbnail_url` / `thumbnail_storage_path` (US-413). No
+   Cloudflare feature is required — these are plain objects in the public
+   `item-photos` bucket.
+2. **Cloudflare Image Transformations (fallback for the legacy tail).** Rows
+   uploaded **before** thumbnail generation have no `thumbnail_url`. When the
+   zone supports Transformations (`VITE_CF_IMAGE_RESIZING="true"`), those
+   originals are routed through `/cdn-cgi/image/width=…` at the cell width so
+   even the long tail is downsized at the edge; when the flag is off they fall
+   back to the untransformed original (always 200s, just larger).
+
+Single helper — **`itemPhotoThumb(photo, width?)` in `src/lib/images.ts`** —
+encodes that order (thumbnail → CF-transformed original → original). Every
+grid/canvas/uploader/preview `<img>` calls it instead of an ad-hoc
+`thumbnail_url ?? photo_url`, so the CDN tier turns on everywhere the moment the
+flag flips. Hero / full-screen / AI-submission renders deliberately keep the
+original (they want full resolution).
+
+### Expected egress + LCP improvement
+
+A 320w WebP thumbnail is ≈15–30 KB versus a ≈1.5–3 MB full-res JPEG — roughly a
+**98% byte reduction per grid image**. On a 12-photo pipeline canvas that is
+~18–36 MB → ~0.2–0.4 MB of image transfer, which is the dominant LCP cost on
+that page once it was already past the SSR/text paint. **Measurement method**
+(run on a photo-heavy item with ≥10 photos, before/after this change):
+
+- **Storage egress:** Cloudflare zone Analytics → `item-photos` path, or the
+  Supabase Storage egress metric over a fixed browse session.
+- **LCP:** the in-app RUM (`src/lib/web-vitals.ts`) reports LCP for the
+  `/dashboard/flipdesk/*` routes; compare the p75 before/after, or use a Lighthouse
+  run against a seeded photo-heavy item.
+
+Record the before/after numbers in the launch sign-off; the flag flip + a
+re-measure is tracked alongside the US-306 Transformations enablement.

@@ -15,6 +15,7 @@ import {
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
+import { itemPhotoThumb } from "@/lib/images";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -375,7 +376,7 @@ function PhotoSlot({
         {filled && first ? (
           <div className="group relative h-full w-full">
             <img
-              src={first.thumbnail_url ?? first.photo_url}
+              src={itemPhotoThumb(first)}
               alt={PHOTO_TYPE_LABELS[photoType]}
               loading="lazy"
               className="h-full w-full object-cover"

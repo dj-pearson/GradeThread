@@ -81,6 +81,7 @@ import {
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
+import { itemPhotoThumb } from "@/lib/images";
 import {
   mapEbayCondition,
   type ItemAspectSource,
@@ -1638,7 +1639,7 @@ function ComposerPhoto({
       )}
     >
       <img
-        src={photo.thumbnail_url ?? photo.photo_url}
+        src={itemPhotoThumb(photo)}
         alt=""
         loading="lazy"
         className="h-full w-full object-cover"

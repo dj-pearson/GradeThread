@@ -28,6 +28,7 @@ import { supabase } from "@/lib/supabase";
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { useRemoveBackground } from "@/hooks/use-remove-bg";
+import { itemPhotoThumb } from "@/lib/images";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -270,7 +271,7 @@ function SortablePhoto({
     >
       <div className="relative aspect-square bg-muted/40">
         <img
-          src={photo.thumbnail_url ?? photo.photo_url}
+          src={itemPhotoThumb(photo)}
           alt={PHOTO_TYPE_LABELS[photo.photo_type]}
           loading="lazy"
           decoding="async"

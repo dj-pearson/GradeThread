@@ -46,3 +46,41 @@ export function buildSrcSet(
     .map((w) => `${cfImage(src, w, quality)} ${w}w`)
     .join(", ");
 }
+
+/** True when Cloudflare Image Transformations are confirmed enabled on the zone. */
+const CF_IMAGE_RESIZING_ENABLED =
+  import.meta.env.VITE_CF_IMAGE_RESIZING === "true";
+
+/**
+ * Canonical render width (px) of a FlipDesk photo grid/canvas/uploader cell.
+ * Pre-generated thumbnails (US-413) target ~320w, so grid `<img>`s never need
+ * the 2400w original.
+ */
+export const FLIPDESK_THUMB_WIDTH = 320;
+
+/**
+ * Best display source for a stored `item-photos` row in a grid/canvas/uploader
+ * cell (US-574 CDN/thumbnail layer). Resolution order:
+ *
+ *   1. The pre-generated thumbnail (`thumbnail_url`, ~320w WebP from US-413) —
+ *      so a photo-heavy grid pulls ~KBs, not the multi-MB full-res original.
+ *   2. For legacy rows that predate thumbnail generation (no `thumbnail_url`),
+ *      route the full-res original through Cloudflare Image Transformations at
+ *      `width` when the zone supports it (VITE_CF_IMAGE_RESIZING="true") so even
+ *      the long tail is downsized at the edge instead of served full-res.
+ *   3. Otherwise the original `photo_url` unchanged (always 200s, just larger).
+ *
+ * Safe to call with partial/empty rows (returns "" when neither URL exists).
+ * Hero / full-screen / AI-submission renders should NOT use this — they want
+ * the original.
+ */
+export function itemPhotoThumb(
+  photo: { thumbnail_url?: string | null; photo_url?: string | null },
+  width: number = FLIPDESK_THUMB_WIDTH,
+): string {
+  const thumb = photo.thumbnail_url;
+  if (thumb) return thumb;
+  const full = photo.photo_url ?? "";
+  if (!full) return "";
+  return CF_IMAGE_RESIZING_ENABLED ? cfImage(full, width) : full;
+}

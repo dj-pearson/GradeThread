@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1706,7 +1707,10 @@ export function FlipdeskAutolisterPage() {
                     className="absolute inset-0"
                   >
                     <img
-                      src={p.thumbnailUrl ?? p.url}
+                      src={itemPhotoThumb({
+                        thumbnail_url: p.thumbnailUrl,
+                        photo_url: p.url,
+                      })}
                       alt=""
                       loading="lazy"
                       className="h-full w-full object-cover"
@@ -1880,7 +1884,10 @@ export function FlipdeskAutolisterPage() {
                       )}
                     >
                       <img
-                        src={p.thumbnailUrl ?? p.url}
+                        src={itemPhotoThumb({
+                          thumbnail_url: p.thumbnailUrl,
+                          photo_url: p.url,
+                        })}
                         alt=""
                         loading="lazy"
                         className="h-full w-full object-cover"

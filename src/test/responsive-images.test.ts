@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cfImage, buildSrcSet } from "../lib/images";
+import { cfImage, buildSrcSet, itemPhotoThumb } from "../lib/images";
 import {
   cfImage as cfImageSsr,
   buildSrcSet as buildSrcSetSsr,
@@ -59,6 +59,31 @@ describe("buildSrcSet", () => {
   it("is empty for data:/empty src", () => {
     expect(buildSrcSet("", [100])).toBe("");
     expect(buildSrcSet("data:abc", [100])).toBe("");
+  });
+});
+
+describe("itemPhotoThumb (US-574 FlipDesk thumbnail/CDN layer)", () => {
+  it("prefers the pre-generated thumbnail over the full-res original", () => {
+    expect(
+      itemPhotoThumb({
+        thumbnail_url: "https://api.gradethread.com/x/thumbs/front.webp",
+        photo_url: "https://api.gradethread.com/x/front.jpg",
+      }),
+    ).toBe("https://api.gradethread.com/x/thumbs/front.webp");
+  });
+  it("falls back to the original when no thumbnail exists (resizing off)", () => {
+    // VITE_CF_IMAGE_RESIZING is unset in the test env, so the legacy original
+    // is returned untransformed (always 200s, just unoptimized).
+    expect(
+      itemPhotoThumb({
+        thumbnail_url: null,
+        photo_url: "https://api.gradethread.com/x/front.jpg",
+      }),
+    ).toBe("https://api.gradethread.com/x/front.jpg");
+  });
+  it("returns '' for an empty/partial row", () => {
+    expect(itemPhotoThumb({})).toBe("");
+    expect(itemPhotoThumb({ thumbnail_url: null, photo_url: null })).toBe("");
   });
 });
 
