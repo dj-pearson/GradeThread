@@ -47,6 +47,11 @@ export interface SupportQuery<Row = Record<string, unknown>>
   eq(column: string, value: unknown): SupportQuery<Row>;
   in(column: string, values: readonly unknown[]): SupportQuery<Row>;
   gte(column: string, value: unknown): SupportQuery<Row>;
+  textSearch(
+    column: string,
+    query: string,
+    opts?: { config?: string; type?: "plain" | "phrase" | "websearch" },
+  ): SupportQuery<Row>;
   order(column: string, opts?: { ascending?: boolean }): SupportQuery<Row>;
   limit(count: number): SupportQuery<Row>;
   maybeSingle(): PromiseLike<{ data: Row | null; error: { message: string } | null }>;
@@ -416,4 +421,102 @@ export async function getMyPlanAndLimits(
       aiActionsUsedThisMonth: num(u.ai_actions_used_this_month),
     },
   };
+}
+
+// ── Tool 7: knowledge-base retrieval (US-833) ──────────────────────
+//
+// This is the ONLY source of product/how-to knowledge the assistant may speak
+// from (US-835 forbids answering product questions from the model's training
+// priors). It keyword-searches the GIN-indexed `search_tsv` column on
+// support_kb_articles (migration 00183), filtered to PUBLISHED rows the caller's
+// audience is allowed to see, and returns concise snippets — never whole
+// articles — sized for the prompt budget. An empty result is an explicit signal
+// the engine maps to "I don't have that — want a human?" rather than inventing
+// an answer.
+
+// Audience the caller is permitted to read. 'public' (anonymous / pre-auth)
+// sees only public articles; 'subscriber' (an authenticated user) additionally
+// sees subscriber-only articles. Mirrors the RLS SELECT policies on 00183.
+export type KbAudience = "public" | "subscriber";
+
+export interface KbSearchResult {
+  slug: string;
+  title: string;
+  snippet: string;
+}
+
+export interface KbSearchArgs {
+  query: string;
+  audience: KbAudience;
+}
+
+// Top-K cap — the assistant only ever needs a handful of references, and the
+// snippets must fit the prompt budget.
+const KB_MAX_RESULTS = 5;
+const KB_SNIPPET_MAX = 240;
+
+// Audiences a caller may read, widest-first. A subscriber sees subscriber +
+// public; a public/anon caller sees public only. Never the reverse — a public
+// caller must NOT reach subscriber-only content.
+function visibleAudiences(audience: KbAudience): KbAudience[] {
+  return audience === "subscriber" ? ["public", "subscriber"] : ["public"];
+}
+
+// Build a concise, prompt-budget-sized snippet from an article body. Collapses
+// whitespace and, when possible, centres the window on the first query term so
+// the returned excerpt is actually about what was asked.
+function kbSnippet(body: string, query: string, max = KB_SNIPPET_MAX): string {
+  const text = body.replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const lower = text.toLowerCase();
+  let idx = -1;
+  for (const t of terms) {
+    const i = lower.indexOf(t);
+    if (i >= 0) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) return text.slice(0, max).trimEnd() + "…";
+
+  const start = Math.max(0, idx - Math.floor(max / 4));
+  const end = Math.min(text.length, start + max);
+  let snip = text.slice(start, end).trim();
+  if (start > 0) snip = "…" + snip;
+  if (end < text.length) snip = snip + "…";
+  return snip;
+}
+
+export async function searchKnowledgeBase(
+  args: KbSearchArgs,
+  db: SupportDb = defaultDb,
+): Promise<KbSearchResult[]> {
+  const query = (args.query ?? "").trim();
+  // No query → no fabrication, explicit empty set.
+  if (!query) return [];
+
+  const audiences = visibleAudiences(args.audience);
+
+  // FTS via the GIN tsvector index (idx_support_kb_articles_search_tsv).
+  // `websearch` is the most forgiving parse for free-text user questions. Only
+  // PUBLISHED rows in an allowed audience are ever matched. Fetch the body so we
+  // can derive a snippet locally; never return the whole article.
+  const { data, error } = await db
+    .from("support_kb_articles")
+    .select("slug, title, body_md")
+    .eq("is_published", true)
+    .in("audience", audiences)
+    .textSearch("search_tsv", query, { config: "english", type: "websearch" })
+    .limit(KB_MAX_RESULTS);
+  if (error || !data) return [];
+
+  return (data as Array<Record<string, unknown>>)
+    .slice(0, KB_MAX_RESULTS)
+    .map((r) => ({
+      slug: String(r.slug ?? ""),
+      title: String(r.title ?? ""),
+      snippet: kbSnippet(String(r.body_md ?? ""), query),
+    }));
 }

@@ -12263,8 +12263,8 @@
         "deno test passes"
       ],
       "priority": 833,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-830. Keyword/FTS now; an embeddings variant can be layered later behind the same function signature."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-830. Keyword/FTS now; an embeddings variant can be layered later behind the same function signature. DONE 2026-06-13: added searchKnowledgeBase({query, audience}) as Tool 7 in lib/support-tools.ts — websearch FTS over support_kb_articles.search_tsv (GIN index from 00183), filtered to is_published=true and the caller's visible audiences (public→[public]; subscriber→[public,subscriber]), capped at KB_MAX_RESULTS=5. Returns {slug,title,snippet} with a prompt-budget-sized snippet (<=240 chars, centred on the first query term) derived locally from body_md — never whole articles. Empty/whitespace query and zero matches both return an explicit [] (the engine maps this to 'I don't have that — want a human?', no fabrication). Added textSearch to the SupportQuery interface (real service-role client satisfies it; the in-memory fake simulates websearch_to_tsquery AND-semantics over title+body_md). New tests src/tests/support-kb-search_test.ts (7 cases: hit+snippet, draft excluded, public can't reach subscriber-only, subscriber sees both, miss→[], empty query→[], cap at 5) — all green; deno check + lint clean; existing tenant-isolation suite still passes."
     },
     {
       "id": "US-834",
