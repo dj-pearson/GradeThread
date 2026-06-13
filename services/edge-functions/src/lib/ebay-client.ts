@@ -2602,6 +2602,9 @@ export interface BrowseCompsArgs {
   q?: string;
   brand?: string;
   size?: string;
+  // UPC/EAN/ISBN barcode. When present, Browse matches the exact product —
+  // used by Scout's barcode buy-decision mode (US-592).
+  gtin?: string;
   // Maps to eBay conditionId. Defaults to "3000" (Used) for pre-owned resale.
   conditionId?: string;
   limit?: number;
@@ -2649,6 +2652,9 @@ export async function searchBrowseComps(
   const params = new URLSearchParams();
   if (args.categoryId) params.set("category_ids", args.categoryId);
   if (args.q && args.q.trim()) params.set("q", args.q.trim());
+  // gtin pins the exact product (barcode scan) — Browse accepts it alongside or
+  // instead of q/category.
+  if (args.gtin && args.gtin.trim()) params.set("gtin", args.gtin.trim());
   params.set("filter", filters.join(","));
   // aspect_filter requires a categoryId scope; only emit it when present.
   if (args.categoryId && aspectFilters.length > 0) {

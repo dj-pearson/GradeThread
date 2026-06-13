@@ -9011,8 +9011,8 @@
         "Extends the pipeline upstream of the current 'sourced' (already-bought) start"
       ],
       "priority": 592,
-      "passes": false,
-      "notes": "[P1][Differentiation] Deep-dive 2026-06-04. FlipDesk PRD §9.4 scopes scout/ROI but nothing in the 568 stories implements the buy-decision side; the reseller's highest-leverage moment and a unique grading-data win."
+      "passes": true,
+      "notes": "[P1][Differentiation] Deep-dive 2026-06-04. FlipDesk PRD §9.4 scopes scout/ROI but nothing in the 568 stories implements the buy-decision side; the reseller's highest-leverage moment and a unique grading-data win. IMPLEMENTED 2026-06-12: in-field buy-decision mode distinct from the ScoutAI arbitrage scan. New pure decideBuy() engine (scout-decision.ts, 7 unit tests) composes quickGrade (shadow grade from photo), condition-value (resale range), and sell-through into a buy/maybe/skip with ROI + breakeven. Endpoints POST /api/flipdesk/scout/appraise (photo data-URI OR barcode/UPC via new searchBrowseComps gtin support; q/brand/category/size fallback; cost->ROI) and POST /api/flipdesk/scout/buy (creates inventory_item at status sourced, extending the pipeline upstream of the already-bought start). Mobile-first web page src/pages/flipdesk/scout-buy.tsx at /dashboard/flipdesk/scout/buy + Buy Decision sidebar entry (compPulls gate). iOS reuses the same endpoint (native build is macOS-only)."
     },
     {
       "id": "US-593",

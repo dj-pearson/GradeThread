@@ -1366,3 +1366,30 @@ Branch: ralph/gradethread-build
 - Notes: Read-only cross-account aggregate view. New edge endpoint GET /api/admin/fraud/overview (admin JWT + AAL2 via /api/admin/* group) derives 4 signal families WITHOUT any new tables/migration: (1) repeat offenders = per-user counts of flagged + moderation-rejected submissions + chargebacks, sorted by weighted score; (2) velocity = 24h submission bursts AND rate_limit_counters buckets over threshold, parsing bucket_key "<scope>|<subject>" (user:/ip:/apikey:); (3) duplicate/shared-payment = >1 distinct user sharing one stripe_customer_id; (4) chargebacks = flipdesk_subscription_events rows where event_type ilike %dispute% (recorded by webhooks handleChargeDisputeCreated) plus submissions flagged payment_disputed. Each abuse signal queries a small targeted slice (flagged/rejected subset, active rate buckets, paying users) with hard caps surfaced via a `truncated` field instead of silent under-reporting. Frontend page uses Tabs+Table; every account links to /admin/users/:id which already hosts the audited per-user suspend/credit/impersonate actions — satisfying "links to per-user actions; complements per-submission moderation." Verified: tsc -b, npm run build, npm run lint (0 errors), deno check (main+route), deno lint — all pass.
 - Timestamp: 2026-06-12
 ---
+
+## US-592: Build Scout / buy-decision mode
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/scout-decision.ts (NEW — pure decideBuy engine)
+  - services/edge-functions/src/tests/scout-decision_test.ts (NEW — 7 tests, all pass)
+  - services/edge-functions/src/routes/flipdesk-scout.ts (added POST /appraise + POST /buy)
+  - services/edge-functions/src/lib/ebay-client.ts (added gtin/barcode support to searchBrowseComps)
+  - src/hooks/use-scout-appraise.ts (NEW — useScoutAppraise + useScoutBuy)
+  - src/pages/flipdesk/scout-buy.tsx (NEW — mobile-first buy-decision page)
+  - src/routes/index.tsx (route /dashboard/flipdesk/scout/buy)
+  - src/components/dashboard/sidebar.tsx (Buy Decision nav entry; ScoutAI end:true)
+- Notes:
+  - The existing /api/flipdesk/scout is the ScoutAI ARBITRAGE SCAN (US-615..620, "grade
+    listings you don't own"). US-592 is the distinct IN-FIELD single-item buy decision:
+    photo OR barcode input -> instant buy/maybe/skip BEFORE purchase.
+  - Reused quick-grade (shadow grade), condition-value (resale range), sell-through;
+    new pure decideBuy() composes them + cost into ROI/breakeven. Pure module = unit-tested.
+  - AC#4 "extends pipeline upstream of sourced": POST /buy creates an inventory_item at
+    status 'sourced' (acquired_source='scout'), connecting the pre-buy decision to the
+    existing already-bought pipeline start. No migration needed (status + columns exist).
+  - Barcode mode uses eBay Browse `gtin` query param (newly wired). iOS reuses the same
+    endpoint; native barcode-camera scanning is an iOS-app concern (macOS-only build).
+  - Verified: deno check + deno lint clean, 7 deno tests pass, tsc --noEmit clean,
+    npm run build green, eslint clean.
+- Timestamp: 2026-06-12
+---
