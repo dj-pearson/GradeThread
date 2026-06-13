@@ -12371,8 +12371,8 @@
         "Endpoints behind admin auth/MFA; npm run build passes"
       ],
       "priority": 840,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-830. The published set here is exactly what US-833 can retrieve and US-835 permits the bot to state."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-830. The published set here is exactly what US-833 can retrieve and US-835 permits the bot to state. IMPLEMENTED: edge route services/edge-functions/src/routes/admin-knowledge-base.ts (GET list w/ ?q=/category/audience/status FTS search, GET /:id, GET /:id/revisions w/ editor emails, POST create, PATCH edit+publish) mounted at /api/admin/knowledge-base (admin JWT + AAL2 MFA via the /api/admin/* group). edited_by: the 00183 revision trigger records auth.uid() which is NULL under the service-role client, so the handler stamps the just-written (article,version) revision with the acting admin id. Frontend page src/pages/admin/knowledge-base.tsx at /admin/support/kb (list/search/filter + Sheet editor with Edit/Preview/History tabs); dependency-free MarkdownPreview component (renders to React nodes, no dangerouslySetInnerHTML, only http(s)/mailto/relative hrefs). Sidebar nav 'Knowledge Base' added; Support nav set end:true so it doesn't stay active on the kb sub-route. No migration (table exists from 00183). tsc -b, npm run build, eslint, deno check, deno lint all pass."
     },
     {
       "id": "US-841",
