@@ -1,7 +1,10 @@
 // Pure double-billing precedence.
 
 import { assertEquals } from "@std/assert";
-import { decideAppstorePrecedence } from "../lib/appstore/precedence.ts";
+import {
+  appstoreSubscriptionBlocksStripe,
+  decideAppstorePrecedence,
+} from "../lib/appstore/precedence.ts";
 
 Deno.test("consumables always proceed, even with an active Stripe sub", () => {
   assertEquals(
@@ -43,5 +46,43 @@ Deno.test("subscription proceeds when no entitling Stripe sub", () => {
       "subscription",
     ),
     "proceed",
+  );
+});
+
+// ── Reverse direction (US-807): web Stripe mutation blocked by App Store ──
+
+Deno.test("Stripe subscribe/downgrade blocked by an entitling App Store sub", () => {
+  for (const status of ["active", "trialing", "past_due"]) {
+    assertEquals(
+      appstoreSubscriptionBlocksStripe({
+        billing_source: "appstore",
+        subscription_status: status,
+      }),
+      true,
+    );
+  }
+});
+
+Deno.test("Stripe mutation proceeds when App Store sub is not entitling", () => {
+  // Lapsed App Store subscription.
+  assertEquals(
+    appstoreSubscriptionBlocksStripe({
+      billing_source: "appstore",
+      subscription_status: "canceled",
+    }),
+    false,
+  );
+  // Stripe-billed user (the common case) — never blocked by this guard.
+  for (const status of ["active", "trialing", "past_due"]) {
+    assertEquals(
+      appstoreSubscriptionBlocksStripe({ billing_source: "stripe", subscription_status: status }),
+      false,
+    );
+  }
+  // Free / never-subscribed user (no billing source).
+  assertEquals(appstoreSubscriptionBlocksStripe({}), false);
+  assertEquals(
+    appstoreSubscriptionBlocksStripe({ billing_source: null, subscription_status: "active" }),
+    false,
   );
 });

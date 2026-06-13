@@ -27,6 +27,7 @@ import {
   useBillingSummary,
   useBillingPortal,
   isTrialing,
+  isAppstoreManaged,
   planLabel,
   ledgerLabel,
   pollBillingSummary,
@@ -54,6 +55,7 @@ import {
   Play,
   RefreshCw,
   ShoppingCart,
+  Smartphone,
   Sparkles,
   TrendingUp,
   X,
@@ -144,8 +146,12 @@ export function BillingPage() {
 
   const { subscription, grades, usage } = summary;
   const plan = FLIPDESK_PLANS[subscription.plan as FlipdeskPlanKey];
-  const trialing = isTrialing(subscription);
-  const pastDue = subscription.status === "past_due";
+  // US-807: subscription purchased in the iOS app — its lifecycle is owned by
+  // Apple, so the web page goes read-only for the subscription (no Stripe CTAs,
+  // no Stripe-specific banners) while credit packs + per-grade stay available.
+  const appstoreManaged = isAppstoreManaged(subscription);
+  const trialing = !appstoreManaged && isTrialing(subscription);
+  const pastDue = !appstoreManaged && subscription.status === "past_due";
   const paused = subscription.status === "paused";
   const canceling = subscription.cancel_at_period_end;
 
@@ -203,6 +209,24 @@ export function BillingPage() {
       </div>
 
       {/* Status banners */}
+      {appstoreManaged && (
+        <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+          <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />
+          <div className="flex-1 text-sm">
+            <p className="font-semibold">Your subscription is managed in the iOS app</p>
+            <p className="text-muted-foreground">
+              Your {planLabel(subscription.plan)} plan was purchased through the
+              App Store
+              {subscription.status === "past_due"
+                ? " and a recent renewal failed — update your payment in the iOS app"
+                : ""}
+              . To change, pause, or cancel it, open the GradeThread iOS app and
+              go to Settings → Subscription. Credit packs and per-grade purchases
+              are still available here.
+            </p>
+          </div>
+        </div>
+      )}
       {pastDue && (
         <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
@@ -384,37 +408,46 @@ export function BillingPage() {
 
             <Separator />
 
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => openPlanPicker()}>
-                <TrendingUp className="mr-2 h-4 w-4" />
-                Change plan
-              </Button>
-              {subscription.plan !== "free" && !paused && !canceling && (
-                <Button
-                  variant="outline"
-                  onClick={() => openPlanPicker(subscription.plan as FlipdeskPlanKey)}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Switch to {subscription.interval === "yearly" ? "monthly" : "annual"}
+            {/* US-807: App Store subscriptions are managed in the iOS app, so
+                we hide every Stripe subscription CTA and point the user there. */}
+            {appstoreManaged ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Smartphone className="h-4 w-4 shrink-0" />
+                <span>Manage this plan in the GradeThread iOS app.</span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => openPlanPicker()}>
+                  <TrendingUp className="mr-2 h-4 w-4" />
+                  Change plan
                 </Button>
-              )}
-              {subscription.plan !== "free" && !paused && !canceling && (
-                <Button variant="outline" onClick={() => setPauseOpen(true)}>
-                  <Pause className="mr-2 h-4 w-4" />
-                  Pause
-                </Button>
-              )}
-              {subscription.plan !== "free" && !canceling && (
-                <Button
-                  variant="ghost"
-                  className="text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40 dark:hover:text-red-300"
-                  onClick={() => setCancelOpen(true)}
-                >
-                  <X className="mr-2 h-4 w-4" />
-                  Cancel
-                </Button>
-              )}
-            </div>
+                {subscription.plan !== "free" && !paused && !canceling && (
+                  <Button
+                    variant="outline"
+                    onClick={() => openPlanPicker(subscription.plan as FlipdeskPlanKey)}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Switch to {subscription.interval === "yearly" ? "monthly" : "annual"}
+                  </Button>
+                )}
+                {subscription.plan !== "free" && !paused && !canceling && (
+                  <Button variant="outline" onClick={() => setPauseOpen(true)}>
+                    <Pause className="mr-2 h-4 w-4" />
+                    Pause
+                  </Button>
+                )}
+                {subscription.plan !== "free" && !canceling && (
+                  <Button
+                    variant="ghost"
+                    className="text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                    onClick={() => setCancelOpen(true)}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -11876,8 +11876,8 @@
         "Edge unit tests cover the new precedence branch; web build + existing billing tests pass"
       ],
       "priority": 807,
-      "passes": false,
-      "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Server columns already exist (migration 00104: billing_source, appstore_original_transaction_id, appstore_product_id) — this is read-path + guard work only."
+      "passes": true,
+      "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Server columns already exist (migration 00104: billing_source, appstore_original_transaction_id, appstore_product_id) — this is read-path + guard work only. DONE: added appstoreSubscriptionBlocksStripe() to lib/appstore/precedence.ts (mirror of decideAppstorePrecedence); /flipdesk/subscribe (refactored to the helper, dropped its extra query) AND /flipdesk/downgrade now return 409 {error:'ACTIVE_APPSTORE_SUBSCRIPTION', action:'manage_in_app'} for an entitling appstore sub; loadUser() + billing-summary now select billing_source + appstore_product_id and billing-summary returns them under subscription. Frontend: BillingSummary.subscription type extended, isAppstoreManaged() helper, billing.tsx shows a 'managed in the iOS app' banner + replaces the subscription CTA group with a pointer (credit packs + per-grade untouched), and suppresses Stripe-specific past_due/trial banners when appstore-managed. Tests: 2 new Deno cases in appstore-precedence_test.ts (5 pass); web tsc -b + build + past-due-banner.test pass; deno check/lint clean."
     },
     {
       "id": "US-808",

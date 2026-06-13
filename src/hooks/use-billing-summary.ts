@@ -49,6 +49,13 @@ export interface BillingSummary {
       currency: string;
       next_payment_at: string | null;
     } | null;
+    // US-807: which processor owns the subscription. When 'appstore', the
+    // subscription is managed in the iOS app — the web Billing page hides the
+    // plan-change / pause / cancel CTAs (credit packs + per-grade stay active)
+    // and the subscribe/downgrade endpoints reject with 409. NULL for users who
+    // have never subscribed; 'stripe' for web-billed subscriptions.
+    billing_source: "stripe" | "appstore" | null;
+    appstore_product_id: string | null;
   };
   grades: {
     credit_balance: number;
@@ -380,6 +387,18 @@ export function isTrialing(s: BillingSummary["subscription"]): boolean {
 
 export function isPaidPlan(plan: FlipdeskPlan): boolean {
   return plan !== "free";
+}
+
+// US-807: true when the subscription is owned by Apple's App Store (purchased in
+// the iOS app) and currently entitling. The web UI then surfaces an
+// "managed in the iOS app" card and hides Stripe subscription CTAs — credit
+// packs and per-grade purchases remain available (they're additive). Mirrors
+// the server guard appstoreSubscriptionBlocksStripe (lib/appstore/precedence.ts).
+export function isAppstoreManaged(s: BillingSummary["subscription"]): boolean {
+  return (
+    s.billing_source === "appstore" &&
+    (s.status === "active" || s.status === "trialing" || s.status === "past_due")
+  );
 }
 
 export function refreshBilling(qc: ReturnType<typeof useQueryClient>) {

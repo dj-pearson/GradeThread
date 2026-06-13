@@ -1863,3 +1863,16 @@ Branch: ralph/gradethread-build
   * Verified locally: deno schema-version_test + rls-guard_test both pass (10/0, 0 fail); `npm run verify:db` (supabase db reset --no-seed) applies all 00001..00181 cleanly from zero. No frontend files touched, so the web build is unaffected.
 - Timestamp: 2026-06-13
 ---
+
+## US-807: Web billing App Store awareness + symmetric purchase precedence
+- Status: COMPLETE
+- Files changed:
+  * services/edge-functions/src/lib/appstore/precedence.ts (new appstoreSubscriptionBlocksStripe helper — reverse-direction mirror)
+  * services/edge-functions/src/routes/payments.ts (loadUser selects billing_source; subscribe refactored to helper + dropped extra query; downgrade now 409s; billing-summary returns billing_source + appstore_product_id)
+  * services/edge-functions/src/tests/appstore-precedence_test.ts (2 new cases for the reverse branch)
+  * src/hooks/use-billing-summary.ts (BillingSummary.subscription type + isAppstoreManaged helper)
+  * src/pages/billing.tsx (managed-in-iOS banner, CTA group replaced with pointer, Stripe-specific banners gated off)
+  * prd.json (US-807 passes:true)
+- Notes: Server columns already existed (00104). The /flipdesk/subscribe guard was already present (US-?); this story added the symmetric /flipdesk/downgrade guard, the read-path fields, and the entire web-side awareness. Both endpoints return 409 {error:'ACTIVE_APPSTORE_SUBSCRIPTION', action:'manage_in_app'}. Consumables (credit packs, per-grade) intentionally never blocked. Verified: deno test appstore-precedence (5/0), deno check + lint clean, web tsc -b + npm run build + past-due-banner.test (3/3) all green.
+- Timestamp: 2026-06-13
+---

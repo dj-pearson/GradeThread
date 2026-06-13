@@ -6,6 +6,7 @@ import { isProduction } from "../lib/env.ts";
 import { captureServer } from "../lib/posthog.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
+import { appstoreSubscriptionBlocksStripe } from "../lib/appstore/precedence.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -104,7 +105,7 @@ async function loadUser(userId: string) {
   return await supabaseAdmin
     .from("users")
     .select(
-      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id",
+      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id, billing_source",
     )
     .eq("id", userId)
     .single();
@@ -283,16 +284,7 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
 
   // Don't let a Stripe subscription stack on top of an active App Store one
   // (avoids double-billing). The user must manage that plan in the iOS app.
-  const { data: billing } = await supabaseAdmin
-    .from("users")
-    .select("billing_source, subscription_status")
-    .eq("id", userId)
-    .maybeSingle();
-  const b = billing as { billing_source?: string; subscription_status?: string } | null;
-  if (
-    b?.billing_source === "appstore" &&
-    ["active", "trialing", "past_due"].includes(b.subscription_status ?? "")
-  ) {
+  if (appstoreSubscriptionBlocksStripe(user)) {
     return c.json({ error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_app" }, 409);
   }
 
@@ -753,7 +745,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
         "trial_ends_at, grade_credit_balance, grades_used_this_month, grade_reset_at, " +
         "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, flipdesk_subscription_id, " +
         "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at, " +
-        "usage_alert_thresholds, last_warning_at",
+        "usage_alert_thresholds, last_warning_at, billing_source, appstore_product_id",
     )
     .eq("id", userId)
     .single();
@@ -783,6 +775,8 @@ paymentRoutes.get("/billing-summary", async (c) => {
     ai_action_limit: number | null;
     usage_alert_thresholds: number[] | null;
     last_warning_at: Record<string, string> | null;
+    billing_source: string | null;
+    appstore_product_id: string | null;
   };
 
   const [
@@ -838,6 +832,10 @@ paymentRoutes.get("/billing-summary", async (c) => {
       pending_effective_at: u.pending_effective_at,
       // US-400: actual upcoming Stripe charge, or null (free / Stripe down).
       upcoming_invoice: upcomingInvoice,
+      // US-807: which processor owns the subscription. 'appstore' → the web UI
+      // hides plan-change/cancel CTAs and shows "managed in the iOS app".
+      billing_source: u.billing_source,
+      appstore_product_id: u.appstore_product_id,
     },
     grades: {
       credit_balance: u.grade_credit_balance,
@@ -1170,6 +1168,13 @@ paymentRoutes.post("/flipdesk/downgrade", async (c) => {
 
   const { data: user, error: userError } = await loadUser(userId);
   if (userError || !user) return c.json({ error: "User not found" }, 404);
+
+  // An App Store subscriber has no Stripe subscription to reschedule — their
+  // plan is managed in the iOS app. Reject before touching Stripe (US-807).
+  if (appstoreSubscriptionBlocksStripe(user)) {
+    return c.json({ error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_app" }, 409);
+  }
+
   if (!user.flipdesk_subscription_id) {
     return c.json({ error: "No subscription to downgrade" }, 400);
   }
