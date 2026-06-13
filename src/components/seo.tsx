@@ -120,7 +120,11 @@ export function SEO({
       <meta name="description" content={description} />
       <meta
         name="robots"
-        content={noindex ? "noindex, nofollow" : "index, follow"}
+        content={
+          noindex
+            ? "noindex, nofollow"
+            : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+        }
       />
       {keywords && keywords.length > 0 && (
         <meta name="keywords" content={keywords.join(", ")} />
