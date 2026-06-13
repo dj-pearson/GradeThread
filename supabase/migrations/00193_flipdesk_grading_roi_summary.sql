@@ -28,7 +28,7 @@ stable
 security invoker
 set search_path = public
 as $$
-  base as (
+  with base as (
     select
       (grade_value is not null) as is_graded,
       (list_date is not null)   as listed_hit,

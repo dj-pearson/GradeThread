@@ -164,7 +164,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/verify",
     title: "Verify a Condition Grade",
     description:
-      "Buying pre-owned clothing? Scan the QR code or enter a GradeThread certificate code to verify the condition grade before you pay — free, no account, on any marketplace.",
+      "Scan the QR code or enter a GradeThread certificate number to verify a pre-owned clothing condition grade before you buy — free, no account needed.",
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "HowTo",
@@ -173,9 +173,9 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     // US-849: public "what's my item worth?" condition-value tool — a
     // top-of-funnel lead magnet that reads the published Condition Index curve.
     path: "/whats-it-worth",
-    title: "What's My Item Worth? Used Clothing Value by Condition",
+    title: "What's My Used Clothing Worth?",
     description:
-      "Estimate what your used clothing is worth by brand, item, and condition grade — from real eBay sold-comparable data in the GradeThread Condition Index, then get a verifiable grade.",
+      "Estimate what your used clothing is worth by brand, item, and condition grade — from real eBay sold-comp data in the GradeThread Condition Index.",
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "FAQPage",

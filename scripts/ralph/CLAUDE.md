@@ -49,7 +49,15 @@ Key facts:
    bare `npm run build`, whenever a second agent loop may be running on this
    host: it serializes the build behind a shared cross-loop lock so two builds
    can't run at once and starve each other. See `docs/AGENT_COHABITATION.md`.)
-3. Verify all acceptance criteria are met
+3. Run `npm test` — fix ALL failing unit tests before committing. `npm run build`
+   only typechecks + builds; it does NOT run vitest, so skipping this ships a red
+   `main` (failing tests merge in unnoticed). This is mandatory, not optional.
+4. If you added or changed a SQL migration, run `npm run verify:db` (boots a
+   throwaway Supabase in Docker and applies ALL migrations from scratch) to catch
+   syntax / ordering errors. `npm run build` does NOT touch migrations, so a
+   broken migration (e.g. a missing `with` before a CTE) otherwise only fails in
+   the DB Migrations + Tenant Isolation CI jobs after you've already committed.
+5. Verify all acceptance criteria are met
 
 ### Committing:
 - Stage only the files you changed (not `node_modules`, `dist`, `.env`)

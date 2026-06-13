@@ -19,7 +19,9 @@ describe("prerender head-builder (US-292)", () => {
     expect(head).toContain(
       '<link rel="canonical" href="https://gradethread.com/">',
     );
-    expect(head).toContain('content="index, follow"');
+    expect(head).toContain(
+      'content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"',
+    );
     expect((head.match(/application\/ld\+json/g) ?? []).length).toBe(4);
   });
 

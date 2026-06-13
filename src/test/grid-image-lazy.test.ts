@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { itemPhotoThumb } from "@/lib/images";
 
 // US-413: list/grid/card views must not download full-resolution originals for
 // off-screen cards. Cloudflare Image Resizing is disabled on the zone, so we
@@ -28,11 +29,11 @@ function imgTagWithSrc(relPath: string, srcNeedle: string): string {
 
 // Each entry: [file, the dynamic src expression that identifies the grid img].
 const GRID_IMAGES: ReadonlyArray<readonly [string, string]> = [
-  // item_photos grids — must use thumbnail_url, fall back to photo_url only
-  // when no thumbnail has been generated yet.
-  ["src/components/flipdesk/photo-manager.tsx", "photo.thumbnail_url ?? photo.photo_url"],
-  ["src/components/flipdesk/photo-uploader.tsx", "first.thumbnail_url ?? first.photo_url"],
-  ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl ?? p.url"],
+  // item_photos grids — render via itemPhotoThumb(), which prefers thumbnail_url
+  // and falls back to photo_url (the fallback is asserted on the helper below).
+  ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
+  ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
+  ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl"],
   // Storefront cards — the edge serves thumbnail_url in this field (content-public.ts).
   ["src/pages/verified-seller.tsx", "listing.photo_url"],
   ["src/components/verified/graded-photo-panel.tsx", "src={url}"],
@@ -58,16 +59,24 @@ describe("grid/card images lazy-load (US-413)", () => {
 
 describe("item_photos grids prefer the stored thumbnail (US-413)", () => {
   // These three render from item_photos, which carries a generated thumbnail_url
-  // (migration 00035). Assert they reach for it before the full-res original.
-  const THUMBNAIL_FIRST: ReadonlyArray<readonly [string, string]> = [
-    ["src/components/flipdesk/photo-manager.tsx", "photo.thumbnail_url ?? photo.photo_url"],
-    ["src/components/flipdesk/photo-uploader.tsx", "first.thumbnail_url ?? first.photo_url"],
-    ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl ?? p.url"],
+  // (migration 00035). The thumbnail-first fallback (thumbnail_url ?? photo_url)
+  // is centralized in itemPhotoThumb() (src/lib/images.ts); assert each grid
+  // reaches for that helper rather than inlining the full-res original.
+  const USES_THUMB_HELPER: ReadonlyArray<readonly [string, string]> = [
+    ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
+    ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
+    ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl"],
   ];
-  for (const [file, expr] of THUMBNAIL_FIRST) {
-    it(`${file}: uses \`${expr}\``, () => {
+  for (const [file, expr] of USES_THUMB_HELPER) {
+    it(`${file}: grid <img> renders via itemPhotoThumb`, () => {
       const tag = imgTagWithSrc(file, expr);
-      expect(tag).toContain(expr);
+      expect(tag).toContain("itemPhotoThumb");
     });
   }
+
+  it("itemPhotoThumb() prefers thumbnail_url, then falls back to photo_url", () => {
+    expect(itemPhotoThumb({ thumbnail_url: "t.jpg", photo_url: "p.jpg" })).toBe("t.jpg");
+    expect(itemPhotoThumb({ thumbnail_url: null, photo_url: "p.jpg" })).toContain("p.jpg");
+    expect(itemPhotoThumb({ thumbnail_url: null, photo_url: null })).toBe("");
+  });
 });
