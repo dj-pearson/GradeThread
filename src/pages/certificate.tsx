@@ -37,7 +37,11 @@ import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CopyField } from "@/components/verified/copy-field";
-import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
+import {
+  certBadgeEmbedHtml,
+  certBadgeEmbedText,
+  certBadgeScriptEmbed,
+} from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
 import { edgeApiUrl } from "@/lib/edge-api";
@@ -945,8 +949,8 @@ export function CertificatePage() {
               </CardTitle>
               <CardDescription>
                 Paste it into your eBay, Poshmark, Mercari, Depop or Grailed
-                listing description. Buyers see the verified grade and can tap to
-                confirm it here.
+                listing — or your own store or blog. Buyers see the verified
+                grade and can tap to confirm it here.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -957,7 +961,11 @@ export function CertificatePage() {
                 />
               </div>
               <CopyField
-                label="HTML (listing descriptions)"
+                label="Script (websites &amp; blogs — Shopify, your own store)"
+                value={certBadgeScriptEmbed(id)}
+              />
+              <CopyField
+                label="HTML image (marketplace listing descriptions)"
                 value={certBadgeEmbedHtml(id)}
                 multiline
               />

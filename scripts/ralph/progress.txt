@@ -2262,3 +2262,11 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean; npm run lint clean (only pre-existing warnings, 0 errors); npm run build green (37 prerendered pages).
 - Timestamp: 2026-06-13
 ---
+
+## US-860: Embeddable certificate trust badge/widget for external sites
+- Status: COMPLETE
+- Files changed: functions/embed/cert/[id].ts (new), public/_routes.json, src/lib/verified.ts, src/lib/verified.test.ts, src/pages/certificate.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Shipped a public embed asset for the verified-grade badge. New Cloudflare Pages Function functions/embed/cert/[id].ts serves a tiny injectable JS widget (Content-Type application/javascript, 24h cache) that finds its own <script> tag (async-safe) and inserts a linked PNG badge (/badge/cert/:id) into the host DOM, with the click linking to /cert/:id?s=embed. Visibility guard (AC#4): it first confirms the cert via /api/content/public/certificates/:id (which hard-filters flagged/private reports per US-484/US-268) — a miss returns a 404 no-op script so nothing renders. DELIBERATELY chose script over iframe: the zone ships X-Frame-Options: DENY + CSP frame-ancestors 'none' for clickjacking defense, and Cloudflare Pages _headers JOINS duplicate header values with a comma (confirmed via CF community/docs) rather than letting a per-path rule override, so a same-origin iframe can't be framed cross-site without weakening app-wide security — a script injects into the host DOM and is immune to framing. verified.ts: certBadgeEmbedHtml + certBadgeEmbedText now carry ?s=embed (were missing it); added certificateShareUrl(), certBadgeScriptUrl(), certBadgeScriptEmbed(). Cert page embed card now offers three copy-paste snippets: Script (websites/blogs) + HTML <img> (marketplaces) + plain text. Added /embed/* to public/_routes.json (required by routes-json.test.ts parity guard).
+- Verification: npx tsc -b clean; npx tsc -p tsconfig.functions.json --noEmit clean; eslint clean on changed files; npm run build green (37 prerendered pages, exit 0); vitest verified.test.ts (+4 new tests) + routes-json.test.ts pass. 10 unrelated failures (grid-image-lazy, route-metadata, prerender) confirmed pre-existing on clean HEAD via git stash. No edge (deno) service files touched.
+- Timestamp: 2026-06-13
+---

@@ -36,6 +36,14 @@ export function certificateUrl(certId: string): string {
   return `${SITE_URL}/cert/${certId}`;
 }
 
+/**
+ * Certificate URL carrying a share-source param for attribution (US-769) — e.g.
+ * `?s=embed` for badge clicks coming from an off-platform listing/site.
+ */
+export function certificateShareUrl(certId: string, source: string): string {
+  return `${certificateUrl(certId)}?s=${source}`;
+}
+
 // Certificate ids are minted with crypto.randomUUID() (grading-pipeline.ts), so
 // every public cert id is a UUID. Used by the buyer-facing /verify lookup to
 // reject obvious junk before navigating to the certificate page.
@@ -69,10 +77,11 @@ export function certBadgeUrl(certId: string): string {
 /**
  * HTML snippet for a single item's verified badge — for pasting into an eBay /
  * Poshmark / Mercari listing description. A plain linked <img>, no script, so
- * it survives marketplace HTML sanitizers.
+ * it survives marketplace HTML sanitizers. The click carries ?s=embed for
+ * share-source attribution (US-769).
  */
 export function certBadgeEmbedHtml(certId: string): string {
-  const href = certificateUrl(certId);
+  const href = certificateShareUrl(certId, "embed");
   const img = certBadgeUrl(certId);
   return (
     `<a href="${href}" target="_blank" rel="noopener">` +
@@ -82,9 +91,26 @@ export function certBadgeEmbedHtml(certId: string): string {
   );
 }
 
+/** Script src for the injectable badge widget (US-860). */
+export function certBadgeScriptUrl(certId: string): string {
+  return `${SITE_URL}/embed/cert/${certId}`;
+}
+
+/**
+ * Script embed snippet (US-860). On a site that allows scripts (a personal
+ * store, Shopify, a blog) this injects the linked verified badge inline — the
+ * click carries ?s=embed (US-769). The <img> snippet (certBadgeEmbedHtml) is
+ * the fallback for marketplaces that strip <script>. An iframe isn't offered:
+ * the zone's anti-clickjacking headers (X-Frame-Options/frame-ancestors) block
+ * cross-site framing of our own pages.
+ */
+export function certBadgeScriptEmbed(certId: string): string {
+  return `<script async src="${certBadgeScriptUrl(certId)}"></script>`;
+}
+
 /** Plain-text fallback (for marketplaces that strip HTML entirely). */
 export function certBadgeEmbedText(certId: string): string {
-  return `✓ GradeThread Verified condition grade — verify: ${certificateUrl(certId)}`;
+  return `✓ GradeThread Verified condition grade — verify: ${certificateShareUrl(certId, "embed")}`;
 }
 
 /** HTML snippet linking to the seller's whole verified profile. */

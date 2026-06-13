@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { parseCertificateRef, validateHandle } from "./verified";
+import {
+  certBadgeEmbedHtml,
+  certBadgeEmbedText,
+  certBadgeScriptEmbed,
+  certBadgeScriptUrl,
+  certificateShareUrl,
+  parseCertificateRef,
+  validateHandle,
+} from "./verified";
 
 const UUID = "0f3a1b2c-4d5e-6f70-8a9b-0c1d2e3f4a5b";
 
@@ -37,6 +45,38 @@ describe("parseCertificateRef (US-593 buyer verify lookup)", () => {
     expect(parseCertificateRef("https://gradethread.com/pricing")).toBeNull();
     // A truncated / malformed UUID is rejected.
     expect(parseCertificateRef("0f3a1b2c-4d5e")).toBeNull();
+  });
+});
+
+describe("certificate embed badge (US-860)", () => {
+  it("the share URL carries the source param for attribution", () => {
+    expect(certificateShareUrl(UUID, "embed")).toBe(
+      `https://gradethread.com/cert/${UUID}?s=embed`,
+    );
+  });
+
+  it("the <img> embed snippet links through ?s=embed and uses the badge asset", () => {
+    const html = certBadgeEmbedHtml(UUID);
+    expect(html).toContain(`href="https://gradethread.com/cert/${UUID}?s=embed"`);
+    expect(html).toContain(`src="https://gradethread.com/badge/cert/${UUID}"`);
+    // No <script> — must survive marketplace HTML sanitizers.
+    expect(html).not.toContain("<script");
+  });
+
+  it("the script embed points at the public widget endpoint", () => {
+    expect(certBadgeScriptUrl(UUID)).toBe(
+      `https://gradethread.com/embed/cert/${UUID}`,
+    );
+    const snippet = certBadgeScriptEmbed(UUID);
+    expect(snippet).toBe(
+      `<script async src="https://gradethread.com/embed/cert/${UUID}"></script>`,
+    );
+  });
+
+  it("the plain-text fallback carries ?s=embed", () => {
+    expect(certBadgeEmbedText(UUID)).toContain(
+      `https://gradethread.com/cert/${UUID}?s=embed`,
+    );
   });
 });
 

@@ -6,6 +6,7 @@
     "/blog/*",
     "/og/*",
     "/badge/*",
+    "/embed/*",
     "/slab/*",
     "/condition-index/*",
     "/.well-known/*",

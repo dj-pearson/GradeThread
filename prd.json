@@ -12672,8 +12672,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 860,
-      "passes": false,
-      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Extends cert-share-actions.tsx + content-public.ts certificates. Every placement is a branded backlink. Pairs with the burned-in eBay badge (00145)."
+      "passes": true,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Extends cert-share-actions.tsx + content-public.ts certificates. Every placement is a branded backlink. Pairs with the burned-in eBay badge (00145). IMPL: new Pages Function functions/embed/cert/[id].ts serves a tiny injectable JS widget (Content-Type application/javascript) that inserts a linked PNG badge (/badge/cert/:id) into the host DOM, linking to /cert/:id?s=embed; only public, non-flagged certs resolve (fetches /api/content/public/certificates/:id which hard-filters flagged/private per US-484), else a 404 no-op script. Chose script over iframe deliberately: the zone ships X-Frame-Options: DENY + CSP frame-ancestors 'none' and Cloudflare Pages _headers JOINS duplicate header values, so a same-origin iframe can't be framed cross-site without weakening app-wide clickjacking defense. src/lib/verified.ts: certBadgeEmbedHtml/Text now carry ?s=embed; added certBadgeScriptUrl/certBadgeScriptEmbed/certificateShareUrl. Cert page (certificate.tsx) embed card now offers Script + HTML <img> + plain-text snippets. Added /embed/* to public/_routes.json (routes-json.test.ts guard). Build green (37 prerendered pages); verified.test.ts + routes-json.test.ts pass. Pre-existing unrelated failures (grid-image-lazy, route-metadata, prerender) confirmed present on clean HEAD."
     },
     {
       "id": "US-861",
