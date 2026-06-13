@@ -73,8 +73,11 @@ public final class ItemCanvasState {
     /// lands. Without this, the user had to back out to the list and re-open
     /// the item to see the approved fields. No-op while dirty so we never
     /// clobber in-progress edits. Returns true when it actually refreshed.
+    // `internal` (not `public`) because `LocalInventoryItem` is an internal
+    // type — same reason `init(item:)` above isn't public. The canvas view is
+    // in this module, so internal visibility is all it needs.
     @discardableResult
-    public func refreshFromItem(_ item: LocalInventoryItem) -> Bool {
+    func refreshFromItem(_ item: LocalInventoryItem) -> Bool {
         guard !isDirty else { return false }
         let fresh = ItemDraft(from: item, currencyFormatter: currencyFormatter)
         guard fresh != original else { return false }
