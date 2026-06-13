@@ -8961,8 +8961,8 @@
         "Suspended users are blocked server-side consistently across all surfaces"
       ],
       "priority": 588,
-      "passes": false,
-      "notes": "[P2][Admin] Deep-dive 2026-06-04. user-detail.tsx suspend just downgrades to free plan; moderation.tsx sets users.suspended — two divergent models."
+      "passes": true,
+      "notes": "[P2][Admin] Deep-dive 2026-06-04. user-detail.tsx suspend just downgrades to free plan; moderation.tsx sets users.suspended — two divergent models. DONE 2026-06-12: removed the plan-downgrade hack; user-detail.tsx Suspend/Reinstate now flips users.suspended via new audited+step-up edge route POST /api/admin/users/:id/suspend — the SAME flag the moderation Ban action sets and that grade.ts/api-v1.ts/flipdesk-grading.ts/referrals.ts already enforce server-side. Suspended badge + button now read targetUser.suspended."
     },
     {
       "id": "US-589",

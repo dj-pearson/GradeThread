@@ -185,6 +185,7 @@ export function AdminUserDetailPage() {
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [suspendStepUpOpen, setSuspendStepUpOpen] = useState(false);
   const [impersonateDialogOpen, setImpersonateDialogOpen] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
   const [impersonateStepUpOpen, setImpersonateStepUpOpen] = useState(false);
@@ -251,13 +252,6 @@ export function AdminUserDetailPage() {
             10
         ) / 10
       : 0;
-
-  // Determine if user is "suspended" (role set to 'user' by admin is not suspension;
-  // We'll treat plan === 'free' with stripe_customer_id as potentially suspended,
-  // but the simplest approach: we'll add a visual "suspended" concept.
-  // For now, we'll consider "suspended" as a conceptual action that sets plan to 'free'
-  // and adds audit log. Real suspension would need a DB column, but we can
-  // work within existing schema by treating plan downgrade + audit log as suspension.)
 
   async function handlePlanChange() {
     if (!targetUser || !pendingPlan || !adminProfile) return;
@@ -329,46 +323,52 @@ export function AdminUserDetailPage() {
     }
   }
 
+  // US-588: suspension is now ONE thing — the `users.suspended` flag, the same
+  // mechanism the moderation "Ban user" action sets and that every grading /
+  // referral surface enforces server-side. (The old behaviour here merely
+  // downgraded the plan to free, which blocked nothing.) Runs through the
+  // audited, step-up-gated edge endpoint; on STEP_UP_REQUIRED we open the
+  // authenticator dialog and retry.
   async function handleSuspendToggle() {
-    if (!targetUser || !adminProfile) return;
+    if (!targetUser) return;
+    const isSuspending = !targetUser.suspended;
     setActionLoading(true);
-
-    // Toggle: if user plan is "free" and they have a stripe_customer_id
-    // (were on a paid plan), we treat "unsuspend" as restoring starter.
-    // Otherwise "suspend" means downgrade to free.
-    // More practically: "suspend" sets plan to free, "unsuspend" restores starter.
-    const isSuspending = targetUser.plan !== "free";
-    const newPlan: UserPlan = isSuspending ? "free" : "starter";
-
     try {
-      const { error } = await supabase
-        .from("users")
-        .update({ plan: newPlan } as never)
-        .eq("id", targetUser.id);
-      if (error) throw error;
-
-      await createAuditLog({
-        admin_user_id: adminProfile.id,
-        action: isSuspending ? "suspend_user" : "unsuspend_user",
-        target_type: "user",
-        target_id: targetUser.id,
-        details: {
-          previous_plan: targetUser.plan,
-          new_plan: newPlan,
+      const res = await edgeFetch(
+        `/api/admin/users/${targetUser.id}/suspend`,
+        {
+          method: "POST",
+          json: { suspended: isSuspending },
+          silentGate: true,
         },
-      });
-
-      toast.success(
-        isSuspending ? "User suspended (plan set to Free)" : "User unsuspended (plan set to Starter)"
       );
+      if (res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        if (body?.code === "STEP_UP_REQUIRED") {
+          setSuspendStepUpOpen(true); // dialog's onVerified retries
+          return;
+        }
+        throw new Error(body?.error ?? "Forbidden");
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      toast.success(isSuspending ? "User suspended" : "User reinstated");
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", id] });
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      setSuspendDialogOpen(false);
     } catch (err) {
-      toast.error(isSuspending ? "Failed to suspend user" : "Failed to unsuspend user");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : isSuspending
+            ? "Failed to suspend user"
+            : "Failed to reinstate user",
+      );
       if (import.meta.env.DEV) console.error(err);
     } finally {
       setActionLoading(false);
-      setSuspendDialogOpen(false);
     }
   }
 
@@ -485,7 +485,7 @@ export function AdminUserDetailPage() {
         .toUpperCase()
     : targetUser.email[0]?.toUpperCase() ?? "?";
 
-  const isSuspended = targetUser.plan === "free" && targetUser.stripe_customer_id !== null;
+  const isSuspended = targetUser.suspended;
 
   return (
     <div className="space-y-6">
@@ -692,14 +692,14 @@ export function AdminUserDetailPage() {
                     Account Status
                   </label>
                   <Button
-                    variant={targetUser.plan === "free" ? "default" : "destructive"}
+                    variant={isSuspended ? "default" : "destructive"}
                     className="w-full"
                     onClick={() => setSuspendDialogOpen(true)}
                   >
-                    {targetUser.plan === "free" ? (
+                    {isSuspended ? (
                       <>
                         <CheckCircle className="mr-2 h-4 w-4" />
-                        Unsuspend
+                        Reinstate
                       </>
                     ) : (
                       <>
@@ -886,26 +886,29 @@ export function AdminUserDetailPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Suspend/Unsuspend Dialog */}
+      {/* Suspend/Reinstate Dialog (US-588) */}
       <AlertDialog open={suspendDialogOpen} onOpenChange={setSuspendDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {targetUser.plan === "free" ? "Unsuspend user" : "Suspend user"}
+              {isSuspended ? "Reinstate user" : "Suspend user"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {targetUser.plan === "free" ? (
+              {isSuspended ? (
                 <>
-                  This will restore{" "}
+                  This will lift the suspension on{" "}
                   <strong>{targetUser.full_name || targetUser.email}</strong>'s
-                  account to the <strong>Starter</strong> plan.
+                  account, restoring their ability to create submissions and use
+                  the platform.
                 </>
               ) : (
                 <>
-                  This will downgrade{" "}
+                  This will suspend{" "}
                   <strong>{targetUser.full_name || targetUser.email}</strong>'s
-                  account to the <strong>Free</strong> plan, effectively suspending
-                  their paid features. This action can be reversed.
+                  account. They will be blocked server-side from creating new
+                  submissions, grading, and redeeming referrals across all
+                  surfaces. Their plan is unchanged. This action can be reversed.
+                  You may be asked to confirm your authenticator first.
                 </>
               )}
             </AlertDialogDescription>
@@ -914,11 +917,20 @@ export function AdminUserDetailPage() {
             <AlertDialogCancel disabled={actionLoading}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleSuspendToggle} disabled={actionLoading}>
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {targetUser.plan === "free" ? "Unsuspend" : "Suspend"}
+              {isSuspended ? "Reinstate" : "Suspend"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* US-588: step-up re-auth for suspend/reinstate, then retry. */}
+      <MfaStepUpDialog
+        open={suspendStepUpOpen}
+        onOpenChange={setSuspendStepUpOpen}
+        onVerified={() => {
+          void handleSuspendToggle();
+        }}
+      />
 
       {/* US-270: step-up re-auth for the role change, then retry. */}
       <MfaStepUpDialog

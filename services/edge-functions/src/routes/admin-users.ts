@@ -189,3 +189,53 @@ adminUsersRoutes.post("/:id/role", async (c: Context<AdminEnv>) => {
 
   return c.json({ ok: true, role });
 });
+
+// POST /:id/suspend — suspend or reinstate a user account (US-588). This is the
+// single, canonical suspend mechanism: it flips `users.suspended`, the same
+// column the moderation "Ban user" action sets, and the same flag every grading
+// /referral surface checks server-side. (The old user-detail "suspend" merely
+// downgraded the plan to free, which blocked nothing server-side — divergent and
+// unreliable. Removed.) Suspending an account is destructive → require a fresh
+// MFA step-up, and audit the change so it's attributable to the acting admin.
+adminUsersRoutes.post("/:id/suspend", async (c: Context<AdminEnv>) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const targetId = c.req.param("id");
+  const actorId = c.get("userId");
+  if (targetId === actorId) {
+    return c.json({ error: "You cannot suspend your own account." }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  if (typeof body.suspended !== "boolean") {
+    return c.json({ error: "`suspended` (boolean) is required" }, 400);
+  }
+  const suspended: boolean = body.suspended;
+
+  const { data: target, error: lookupErr } = await supabaseAdmin
+    .from("users")
+    .select("id, suspended")
+    .eq("id", targetId)
+    .maybeSingle();
+  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  if (!target) return c.json({ error: "User not found" }, 404);
+
+  const previous = (target as { suspended: boolean | null }).suspended ?? false;
+
+  const { error: updateErr } = await supabaseAdmin
+    .from("users")
+    .update({ suspended })
+    .eq("id", targetId);
+  if (updateErr) return c.json({ error: updateErr.message }, 500);
+
+  await writeAuditLog(c, {
+    action: suspended ? "admin.suspend_user" : "admin.unsuspend_user",
+    targetType: "user",
+    targetId,
+    before: { suspended: previous },
+    after: { suspended },
+  });
+
+  return c.json({ ok: true, suspended });
+});
