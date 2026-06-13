@@ -131,6 +131,16 @@ struct ItemCanvasView: View {
                 state = ItemCanvasState(item: item, currencyFormatter: currencyFormatter)
             }
         }
+        // US-682: when a sync pull (or realtime push) updates the underlying
+        // row's editable fields while the canvas is open, fold the new values
+        // into the form snapshot — but only when the user hasn't started
+        // editing (refreshFromItem no-ops while dirty). This is what lets the
+        // freshly AI-extracted fields appear right after photo intake instead
+        // of requiring a back-out/re-enter to rebuild the snapshot. The
+        // ItemDraft key changes exactly when an editable field changes.
+        .onChange(of: ItemDraft(from: item, currencyFormatter: currencyFormatter)) { _, _ in
+            state?.refreshFromItem(item)
+        }
         .task { await consignorStore.load() }
         .alert(
             "Couldn't print label",

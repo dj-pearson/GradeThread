@@ -63,6 +63,29 @@ public final class ItemCanvasState {
         savePhase = .idle
     }
 
+    /// Re-seed the baseline + draft from a freshly-synced item — but ONLY
+    /// when the user has no pending edits. This lets a server update that
+    /// lands *while the canvas is open* flow into the form. The motivating
+    /// case (US-682): after photo intake the AI-extract step writes the
+    /// accepted fields to the remote row, then deep-links the canvas open;
+    /// the canvas first renders against the stale "Untitled item" local row
+    /// and only picks up the extracted brand/size/etc. once the sync pull
+    /// lands. Without this, the user had to back out to the list and re-open
+    /// the item to see the approved fields. No-op while dirty so we never
+    /// clobber in-progress edits. Returns true when it actually refreshed.
+    // `internal` (not `public`) because `LocalInventoryItem` is an internal
+    // type — same reason `init(item:)` above isn't public. The canvas view is
+    // in this module, so internal visibility is all it needs.
+    @discardableResult
+    func refreshFromItem(_ item: LocalInventoryItem) -> Bool {
+        guard !isDirty else { return false }
+        let fresh = ItemDraft(from: item, currencyFormatter: currencyFormatter)
+        guard fresh != original else { return false }
+        original = fresh
+        draft = fresh
+        return true
+    }
+
     /// Set savePhase and clear any draft-side enum normalization. Called
     /// from the view's save-task happy + failure paths.
     public func beginSaving() { savePhase = .saving }

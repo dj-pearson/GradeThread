@@ -14322,6 +14322,98 @@
       "priority": 966,
       "passes": false,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / iOS] Added 2026-06-12. Files: ios/GradeThread/Marketplaces/... negotiation inbox (US-673 read-only today), services/edge-functions/src/routes/flipdesk-ebay.ts offer endpoints. Verify the eBay Negotiation/Offer API endpoints exist before wiring."
+    },
+    {
+      "id": "US-967",
+      "title": "iOS: memoize per-render derived collections in list, money & dashboard views",
+      "description": "As an iOS reseller with a large inventory, I want list, Money, and Dashboard screens to stay smooth while I scroll and search, so the app doesn't hitch on every frame. Today several heavy derivations live in SwiftUI computed properties that re-run on every body evaluation (every keystroke, tab tap, and SwiftData @Query invalidation from sync), making them O(n) or worse per render.",
+      "acceptanceCriteria": [
+        "InventoryListView.filteredItems (InventoryFilter.apply over the full @Query result) and stageCounts are memoized in @State and recomputed only when the inputs (allItems, search text, stage, sort, saved criteria) actually change — not on every render.",
+        "MoneyView.titlesByItemId (and any sibling itemsById lookups) is built once per items-change via .onChange rather than rebuilt every body pass.",
+        "DashboardView.trendPoints (DashboardTrend.dailySeries, currently evaluated multiple times per render) is computed once and reused.",
+        "ItemCanvasView per-render derivations (e.g. parsedMeasurements, the ItemDraft used as an onChange key) are stabilized so realtime updates don't trigger redundant full refreshes.",
+        "No behavioral/visual change — same filtered results, counts, titles, and trend; verified by existing Inventory/Money/Dashboard tests plus a debounced-search smoke check.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 967,
+      "passes": false,
+      "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Inventory/InventoryListView.swift (filteredItems:543, stageCounts:555), ios/GradeThread/Money/MoneyView.swift (titlesByItemId:24), ios/GradeThread/Dashboard/DashboardView.swift (trendPoints:76, used 3x in body), ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift. Audit-confirmed: these are computed properties recomputed every SwiftUI body eval. Pure performance; no API/contract change."
+    },
+    {
+      "id": "US-968",
+      "title": "iOS: move realtime payload (de)serialization off the main actor",
+      "description": "As an iOS user receiving live inventory/sync updates, I want the UI to stay responsive while realtime rows arrive, so typing and scrolling don't stall when the sync channel is busy. Today RealtimeService is @MainActor and JSON-encodes each upserted record synchronously on the main thread before handing it to the sync engine.",
+      "acceptanceCriteria": [
+        "RealtimeService.applyUpsert no longer runs JSONEncoder().encode(record) (and any matching decode) on the main actor; serialization happens off the main thread (Task.detached or a background actor) with only the final state mutation hopping back to @MainActor.",
+        "Ordering/coalescing of realtime upserts is preserved — no dropped or reordered updates under a burst of changes.",
+        "RealtimeTests (and SyncTests) still pass; add coverage that a large record payload doesn't execute encode on the main actor.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 968,
+      "passes": false,
+      "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Persistence/RealtimeService.swift (@MainActor class:18, JSONEncoder().encode on main at applyUpsert:160). Distinct from US-792 (which fixed error-swallowing in poll loops). Pure performance/responsiveness."
+    },
+    {
+      "id": "US-969",
+      "title": "iOS: app-wide keyboard dismissal and field traversal",
+      "description": "As an iOS reseller filling in prices, amounts, titles, and specifics, I want a reliable way to dismiss the keyboard and move between fields, so I'm never stuck with a number pad covering the screen and no Return key. Today the app has zero keyboard toolbars, zero .scrollDismissesKeyboard, and only a single @FocusState across 278 files, while 11 fields use .decimalPad/.numberPad (which have no Return key to dismiss).",
+      "acceptanceCriteria": [
+        "Every .decimalPad/.numberPad field is dismissable — either a shared 'Done' keyboard toolbar accessory or an equivalent reusable modifier applied app-wide.",
+        "Scrollable forms (PublishDialog/ComposerForm, AutoLister, DetailsIntake, Expense, Revise, Snap) add .scrollDismissesKeyboard(.interactively) so scrolling dismisses the keyboard and fields aren't hidden behind it.",
+        "Multi-field forms (composer title/condition/description/price, details intake) support keyboard Next/Return traversal via @FocusState with .submitLabel and .onSubmit ordering.",
+        "Implemented as a small reusable component/modifier (consistent with the US-753 shared component direction) rather than copy-pasted per screen.",
+        "VoiceOver focus order is unaffected.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 969,
+      "passes": false,
+      "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Audit-confirmed counts across ios/GradeThread: 0 keyboard ToolbarItemGroup, 0 .scrollDismissesKeyboard, 1 @FocusState, 11 .keyboardType(.decimalPad). Files include Money/ExpenseFormSheet.swift, Marketplaces/Publish/{PublishDialog,ReviseListingSheet}.swift, DetailsIntake/DetailsIntakeView.swift, AutoLister/AutoListerView.swift, Snap/SnapView.swift."
+    },
+    {
+      "id": "US-970",
+      "title": "iOS: inline validation feedback for price and amount forms",
+      "description": "As an iOS reseller entering an expense, revising a listing price, or composing a draft, I want to know WHY Save is disabled, so I'm not left tapping a dead button. Today the Save button silently disables when the parsed amount/price is nil with no inline message explaining what's wrong. US-754 added inline validation to details intake only — money/price forms were not covered.",
+      "acceptanceCriteria": [
+        "ExpenseFormSheet shows an inline reason under the amount field when empty/invalid (e.g. 'Enter an amount greater than 0') instead of only disabling Save.",
+        "ReviseListingSheet and the publish ComposerForm price field show the same inline validation feedback, and display existing prices with consistent 2-decimal formatting.",
+        "Title fields with a length cap (e.g. eBay 80-char) show the counter in a warning color as the limit approaches and never silently swallow typed characters past the cap without indication.",
+        "Reuses the validation-feedback pattern established for details intake (US-754) for consistency.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 970,
+      "passes": false,
+      "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Money/ExpenseFormSheet.swift (Save .disabled(parsedAmount==nil):65, no footer), ios/GradeThread/Marketplaces/Publish/ReviseListingSheet.swift (title cap/counter), ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (ComposerForm price/title). Extends US-754 beyond details intake; distinct from US-789 (the $0-draft bug, already fixed)."
+    },
+    {
+      "id": "US-971",
+      "title": "iOS: consistent error-state retry affordance across data screens",
+      "description": "As an iOS user who hits a network error loading a screen, I want a visible 'Try again' button, so I don't have to back out and re-enter to recover. Today some full-screen error states render only an icon and message with no retry action — e.g. the reconciliation orphans failure view relies on a non-obvious pull-to-refresh.",
+      "acceptanceCriteria": [
+        "ReconciliationView.failureView gains a 'Retry' button that re-runs store.refresh(userId:).",
+        "Audit the other primary data screens (Marketplaces, Grades, AutoLister queue, Money cards) for failure states that lack an explicit retry action and add one consistently.",
+        "The retry control reuses a shared error-state component so look/behavior is uniform (aligns with US-753).",
+        "Retry shows its own loading state and clears the error on success.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 971,
+      "passes": false,
+      "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Marketplaces/Reconciliation/ReconciliationView.swift (failureView:117 — message only, no button). Sweep other *View error branches. Complements US-755 (offline indicator) which gates actions but doesn't add per-screen retry."
+    },
+    {
+      "id": "US-972",
+      "title": "iOS: consistent action feedback and destructive-action confirmations",
+      "description": "As an iOS reseller, I want clear confirmation when an important action succeeds and a guard before an action that silently overwrites or changes scope, so I trust what the app did and don't lose work. Today several flows complete silently (spinner vanishes, no toast/haptic) and a few overwriting actions have no confirmation or undo.",
+      "acceptanceCriteria": [
+        "Marketplace/publish actions (publish, revise, send-offer, mark-shipped, save template) emit a success HapticFeedback + brief toast on success and a clear error toast on failure.",
+        "Applying a listing template in the publish ComposerForm (which overwrites title/description) prompts for confirmation or supports undo before replacing existing content.",
+        "Switching the primary eBay account confirms the consequence (changes the default sync target) before applying.",
+        "Bulk-action undo affordances (e.g. InventoryListView BulkUndoBar) communicate their time window — the undo bar persists or shows a countdown rather than vanishing silently.",
+        "Reuses existing HapticFeedback + toast utilities; no new dependency.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 972,
+      "passes": false,
+      "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (templateMenu overwrite ~498), ios/GradeThread/Marketplaces/EbayAccountsView.swift (set-primary), ios/GradeThread/Inventory/InventoryListView.swift (BulkUndoBar 6s auto-dismiss ~209), ios/GradeThread/Haptics + Feedback utilities. Audit-confirmed silent-success in marketplace flows."
     }
   ]
 }
