@@ -8713,8 +8713,8 @@
         "Verified under a forced container restart during an in-flight grade"
       ],
       "priority": 569,
-      "passes": false,
-      "notes": "[P0][Ops/Reliability] Deep-dive 2026-06-04. grade.ts:79-92 + grading-pipeline.ts:85 run processSubmission(id).catch(...) fire-and-forget; US-407/525/559 cover sync/publish/autolister but NOT grading; US-495 only recovers stuck rows after the fact."
+      "passes": true,
+      "notes": "[P0][Ops/Reliability] Deep-dive 2026-06-04. grade.ts:79-92 + grading-pipeline.ts:85 run processSubmission(id).catch(...) fire-and-forget; US-407/525/559 cover sync/publish/autolister but NOT grading; US-495 only recovers stuck rows after the fact. | DONE 2026-06-12: lease-based grading claim (migration 00161 claim_grade_lease RPC: grading_lease_until + grading_attempts on submissions). Double-kick no-ops on live lease; expired lease is RESUMED by the reaper (stuck-submissions.ts now re-kicks instead of fail+refund); report-level idempotency (finalizeIfAlreadyGraded + shared applyTerminalCompletion) means a crash after the grade_report insert finalizes without re-billing Claude; poison guard fails+refunds after GRADING_MAX_ATTEMPTS (default 3). regrade reset clears lease+attempts. Tests: grading-durability_test.ts (claim mapping, double-kick, crash-resume, post-report finalize, poison). schema-version bumped to 00161."
     },
     {
       "id": "US-570",

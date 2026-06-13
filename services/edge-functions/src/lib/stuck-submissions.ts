@@ -1,25 +1,32 @@
-// Stuck-submission recovery (US-495).
+// Stuck-submission recovery (US-495 → US-569).
 //
 // Grading is kicked fire-and-forget (grade.ts → processSubmission().catch).
 // If the container crashes or is redeployed mid-grade, a submission can be
-// stranded in status='processing' forever — the paying user never gets a grade
-// OR a refund. This scheduled job sweeps those orphans:
+// stranded in status='processing' — the paying user never gets a grade. This
+// scheduled job sweeps those orphans:
 //
-//   1. Find submissions stuck in 'processing' past a threshold (default 20 min,
-//      comfortably beyond the worst-case grade wall-time).
-//   2. Mark each 'failed' and reverse its charge (refund credit, or flag a
-//      Stripe-paid one for manual refund) via the same path the pipeline's own
-//      error handler uses.
-//   3. Emit a metric + report to the error tracker so a spike of orphans (a bad
+//   1. Find submissions stuck in 'processing' whose grading LEASE has expired
+//      (the holder is presumed dead) past a stale threshold (default 20 min,
+//      comfortably beyond the worst-case grade wall-time + the 15-min lease).
+//   2. RESUME each by re-kicking the pipeline — grading is now durable +
+//      idempotent (US-569): the lease re-claim picks the work back up, and a
+//      crash that landed after the grade_report was written finalizes without
+//      re-billing Claude. This is the change from US-495's original behavior,
+//      which could only FAIL + REFUND orphans because re-running wasn't safe yet.
+//   3. POISON GUARD: a submission that has already burned its attempt budget
+//      (GRADING_MAX_ATTEMPTS crashed runs — e.g. an input that OOMs the
+//      container every time) is NOT resumed again; it's failed + refunded so it
+//      can't crash-loop forever.
+//   4. Emit metrics + report to the error tracker so a spike of orphans (a bad
 //      deploy, an Anthropic outage) is visible, not silent.
-//
-// We intentionally FAIL the orphan + refund rather than re-enqueue: re-running
-// processSubmission is not yet idempotent (it can double-bill Claude — that's
-// US-569), so a guaranteed refund is the safe, correct recovery today.
 
 import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
-import { processSubmission, reverseChargeForUngradedSubmission } from "./grading-pipeline.ts";
+import {
+  gradingMaxAttempts,
+  processSubmission,
+  reverseChargeForUngradedSubmission,
+} from "./grading-pipeline.ts";
 import { acquireJobLock } from "./job-lock.ts";
 import { captureException, logEvent, recordMetric } from "./observability.ts";
 
@@ -41,71 +48,142 @@ const BATCH_LIMIT = 100;
 
 export interface StuckSweepResult {
   scanned: number;
-  recovered: number;
+  /** Re-kicked (resumed) — grading will be picked back up. */
+  resumed: number;
+  /** Failed + refunded because the attempt budget was exhausted (poison). */
+  refunded: number;
+  /** Recovery errors (left for the next sweep). */
   failed: number;
 }
 
-export async function recoverStuckSubmissions(): Promise<StuckSweepResult> {
-  const staleBefore = new Date(Date.now() - staleThresholdMs()).toISOString();
+// Injectable data access so the resume/poison-guard orchestration is unit-
+// testable without a DB or a live Claude call (mirrors AbandonedSweepStore).
+export interface StuckSweepStore {
+  /**
+   * Processing orphans whose grading lease has expired (holder presumed dead),
+   * older than the stale threshold. grading_attempts drives the poison guard.
+   */
+  findStuck: (
+    staleBeforeIso: string,
+    nowIso: string,
+    limit: number,
+  ) => Promise<Array<{ id: string; grading_attempts: number }>>;
+  /** Re-kick the grading pipeline (fire-and-forget) to resume the orphan. */
+  resume: (id: string) => void;
+  /**
+   * Fail a poison orphan + reverse its charge, re-asserting status='processing'
+   * in the UPDATE. Returns true only if it actually owned the transition (a
+   * concurrent completion fails the match and is left alone).
+   */
+  failAndRefund: (id: string) => Promise<boolean>;
+}
 
-  const { data: rows, error } = await supabaseAdmin
-    .from("submissions")
-    .select("id, user_id, updated_at")
-    .eq("status", "processing")
-    .lt("updated_at", staleBefore)
-    .limit(BATCH_LIMIT);
+const defaultStuckStore: StuckSweepStore = {
+  findStuck: async (staleBeforeIso, nowIso, limit) => {
+    const { data, error } = await supabaseAdmin
+      .from("submissions")
+      .select("id, grading_attempts")
+      .eq("status", "processing")
+      // Only orphans whose lease has lapsed (or legacy rows with no lease). A
+      // live worker still holding the lease is skipped.
+      .or(`grading_lease_until.is.null,grading_lease_until.lt.${nowIso}`)
+      .lt("updated_at", staleBeforeIso)
+      .limit(limit);
+    if (error) {
+      captureException(error, { route: "stuck-submissions.scan" });
+      throw new Error(`stuck-submission scan failed: ${error.message}`);
+    }
+    return ((data ?? []) as Array<{ id: string; grading_attempts: number | null }>).map(
+      (r) => ({ id: r.id, grading_attempts: r.grading_attempts ?? 0 }),
+    );
+  },
+  resume: (id) => {
+    // Fire-and-forget; processSubmission's lease re-claim guards a concurrent
+    // kick and finalizes idempotently if the grade was actually already done.
+    processSubmission(id).catch((err) => {
+      captureException(err, {
+        route: "stuck-submissions.resume",
+        extra: { submissionId: id },
+      });
+    });
+  },
+  failAndRefund: async (id) => {
+    // Re-assert status='processing' so a concurrent grade that just completed
+    // (status flipped away) can't be double-refunded.
+    const { data: claimed } = await supabaseAdmin
+      .from("submissions")
+      .update({ status: "failed", grading_lease_until: null })
+      .eq("id", id)
+      .eq("status", "processing")
+      .select("id")
+      .maybeSingle();
+    if (!claimed) return false;
 
-  if (error) {
-    captureException(error, { route: "stuck-submissions.scan" });
-    throw new Error(`stuck-submission scan failed: ${error.message}`);
-  }
+    await reverseChargeForUngradedSubmission(
+      id,
+      "stuck in processing — attempt budget exhausted (orphan recovery)",
+    );
+    // Mirror into the FlipDesk bridge link so its UI doesn't hang forever.
+    await supabaseAdmin
+      .from("flipdesk_grading_submissions")
+      .update({ status: "failed", error: "Grading repeatedly stalled; auto-failed and charge reversed." })
+      .eq("submission_id", id);
+    return true;
+  },
+};
 
-  const stuck = (rows ?? []) as Array<{ id: string; user_id: string; updated_at: string }>;
+export async function recoverStuckSubmissions(
+  store: StuckSweepStore = defaultStuckStore,
+): Promise<StuckSweepResult> {
+  const now = Date.now();
+  const staleBefore = new Date(now - staleThresholdMs()).toISOString();
+  const nowIso = new Date(now).toISOString();
+
+  const stuck = await store.findStuck(staleBefore, nowIso, BATCH_LIMIT);
   if (stuck.length === 0) {
-    return { scanned: 0, recovered: 0, failed: 0 };
+    return { scanned: 0, resumed: 0, refunded: 0, failed: 0 };
   }
 
   // A non-zero count is itself the alert signal (US-495 AC#3): orphans mean a
-  // crash/redeploy stranded paid work.
+  // crash/redeploy stranded a grade run.
   recordMetric("submissions.stuck", stuck.length, {});
   captureException(
     new Error(`${stuck.length} submission(s) stuck in 'processing' beyond ${staleThresholdMs() / 60_000}m`),
     { level: "warn", route: "stuck-submissions", tags: { count: String(stuck.length) } },
   );
 
-  let recovered = 0;
+  const maxAttempts = gradingMaxAttempts();
+  let resumed = 0;
+  let refunded = 0;
   let failed = 0;
   for (const s of stuck) {
     try {
-      // Mark failed FIRST (so a concurrent grade that somehow completes can't be
-      // double-refunded — the refund RPC is keyed on payment_status, and a
-      // completed grade would have flipped status away from 'processing').
-      const { data: claimed } = await supabaseAdmin
-        .from("submissions")
-        .update({ status: "failed" })
-        .eq("id", s.id)
-        .eq("status", "processing") // still stuck? only then do we own the recovery
-        .select("id")
-        .maybeSingle();
-      if (!claimed) continue; // it completed or another sweep took it
-
-      await reverseChargeForUngradedSubmission(s.id, "stuck in processing (orphan recovery)");
-
-      // Mirror into the FlipDesk bridge link so its UI doesn't hang forever.
-      await supabaseAdmin
-        .from("flipdesk_grading_submissions")
-        .update({ status: "failed", error: "Grading stalled and was auto-failed; charge reversed." })
-        .eq("submission_id", s.id);
-
-      recovered += 1;
-      logEvent("info", "submission.recovered", { submissionId: s.id });
+      if (s.grading_attempts < maxAttempts) {
+        // Still within budget → resume (US-569). The pipeline re-claims the lease
+        // and either finishes the grade or finalizes an already-written report.
+        store.resume(s.id);
+        resumed += 1;
+        logEvent("info", "submission.resumed", { submissionId: s.id });
+      } else if (await store.failAndRefund(s.id)) {
+        // Poison: burned the attempt budget. Fail + refund so it can't crash-loop.
+        refunded += 1;
+        logEvent("warn", "submission.poison_failed", { submissionId: s.id });
+      }
     } catch (err) {
       failed += 1;
       captureException(err, { route: "stuck-submissions.recover", extra: { submissionId: s.id } });
     }
   }
 
-  return { scanned: stuck.length, recovered, failed };
+  if (refunded > 0) {
+    recordMetric("submissions.poison_failed", refunded, {});
+    captureException(
+      new Error(`${refunded} submission(s) exhausted the grading attempt budget and were failed + refunded`),
+      { level: "warn", route: "stuck-submissions.poison", tags: { count: String(refunded) } },
+    );
+  }
+
+  return { scanned: stuck.length, resumed, refunded, failed };
 }
 
 // US-773: sweep abandoned-checkout submissions (closed the Checkout tab, never

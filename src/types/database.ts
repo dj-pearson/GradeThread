@@ -404,6 +404,13 @@ export interface SubmissionRow {
   // badge is only AWARDED if the server-side checks also pass; opting in never
   // lowers a grade.
   verified_capture_opt_in: boolean;
+  // US-773/US-569: durable grading job state. grading_started_at is stamped on
+  // the first claim; grading_lease_until is the lease expiry (a live grade run
+  // owns the row until then; an expired lease is re-claimable/resumable);
+  // grading_attempts bounds resume retries of a poison submission.
+  grading_started_at: string | null;
+  grading_lease_until: string | null;
+  grading_attempts: number;
   created_at: string;
   updated_at: string;
 }

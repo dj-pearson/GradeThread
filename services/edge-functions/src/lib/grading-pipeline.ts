@@ -95,38 +95,70 @@ export async function reverseChargeForUngradedSubmission(
   }
 }
 
-// US-773: the atomic grading claim, extracted (with an injectable updater) so
-// the double-kick idempotency is unit-testable without a DB. The default updater
-// is a single conditional UPDATE: it sets grading_started_at ONLY when still NULL
-// (and the row is still gradeable), returning the row exclusively to the caller
-// that won the transition. Postgres serializes the row-level update, so of N
-// concurrent kicks exactly one gets a row back.
+// US-569: grading durability knobs.
+//
+// LEASE_SECONDS — how long one grade run owns the row before it's presumed dead
+// and re-claimable. Must comfortably exceed worst-case grade wall-time (AI
+// timeout ~120s + retries), but short enough that a crashed grade resumes
+// reasonably soon. MAX_ATTEMPTS — how many times a poison submission (one that
+// crashes the container every run) is resumed before the reaper fails + refunds
+// it for good. Both must match the values the reaper uses (stuck-submissions.ts).
+export function gradingLeaseSeconds(): number {
+  const raw = Number(Deno.env.get("GRADING_LEASE_SECONDS"));
+  return Number.isFinite(raw) && raw > 0 ? raw : 900; // 15 min
+}
+export function gradingMaxAttempts(): number {
+  const raw = Number(Deno.env.get("GRADING_MAX_ATTEMPTS"));
+  return Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : 3;
+}
+
+// US-569 (was US-773): the atomic grading claim, extracted (with an injectable
+// updater) so the lease/idempotency logic is unit-testable without a DB. The
+// default updater calls the claim_grade_lease RPC (migration 00161): a single
+// conditional UPDATE that LEASES a gradeable row to one caller. Of N concurrent
+// kicks exactly one gets 'claimed'; the rest see the live lease (or an existing
+// report) and no-op. Because the lease EXPIRES, a crashed run can be re-claimed
+// and resumed later — the difference from the old set-once grading_started_at.
+//
+// The RPC returns the rich codes claimed | done | leased | exhausted | gone; the
+// caller only needs four outcomes, so we collapse leased/exhausted/gone into the
+// single no-op "already" (the reaper does its own attempt accounting):
+//
+//   "claimed" → we own the grade run
+//   "done"    → an active report already exists → finalize, don't re-grade
+//   "already" → a live lease / poison / terminal row → no-op
+//   "error"   → transient DB error claiming → caller reports it
+export type GradingClaimResult = "claimed" | "done" | "already" | "error";
+
+// RPC status → caller outcome.
+type RpcClaimStatus = "claimed" | "done" | "leased" | "exhausted" | "gone";
+
 export type GradingClaimUpdater = (submissionId: string) => Promise<{
-  row: { id: string } | null;
+  // 'status' is the rich RPC result. 'row' is kept for backward-compatible fakes
+  // that only model the claimed/not-claimed (set-once) contract — a non-null row
+  // is treated as 'claimed', a null row as 'already' (no-op).
+  status?: RpcClaimStatus;
+  row?: { id: string } | null;
   error: { message?: string } | null;
 }>;
 
 const defaultGradingClaimUpdater: GradingClaimUpdater = async (submissionId) => {
-  const { data, error } = await supabaseAdmin
-    .from("submissions")
-    .update({ grading_started_at: new Date().toISOString(), status: "processing" })
-    .eq("id", submissionId)
-    .is("grading_started_at", null)
-    // Only claim a gradeable row. The status guard also stops a re-kick of a
-    // legacy completed/failed row (whose grading_started_at predates the column
-    // and is NULL) from re-grading.
-    .in("status", ["pending", "processing"])
-    .select("id")
-    .maybeSingle();
-  return { row: (data as { id: string } | null) ?? null, error };
+  const { data, error } = await supabaseAdmin.rpc("claim_grade_lease", {
+    p_submission_id: submissionId,
+    p_lease_seconds: gradingLeaseSeconds(),
+    p_max_attempts: gradingMaxAttempts(),
+  });
+  return { status: (data as RpcClaimStatus | null) ?? undefined, error };
 };
 
 export async function claimSubmissionForGrading(
   submissionId: string,
   update: GradingClaimUpdater = defaultGradingClaimUpdater,
-): Promise<"claimed" | "already" | "error"> {
-  const { row, error } = await update(submissionId);
+): Promise<GradingClaimResult> {
+  const { status, row, error } = await update(submissionId);
   if (error) return "error";
+  if (status) return status === "claimed" || status === "done" ? status : "already";
+  // Backward-compat for row-shaped fakes (the old set-once model).
   return row ? "claimed" : "already";
 }
 
@@ -228,6 +260,11 @@ export const defaultRegradeStore: RegradeStore = {
       .update({
         status: "pending",
         grading_started_at: null,
+        // US-569: clear the lease + attempt budget so the re-kick can re-claim.
+        // Without this, a submission that previously hit the attempt cap (status
+        // 'failed') would claim → 'exhausted' on regrade and never re-run.
+        grading_lease_until: null,
+        grading_attempts: 0,
         quality_feedback: null,
         flagged: false,
         flag_reason: null,
@@ -246,25 +283,152 @@ export const defaultRegradeStore: RegradeStore = {
   },
 };
 
+// US-569: the terminal "this submission is graded" write, shared by the normal
+// completion path and the idempotent resume/finalize path. Advances status to
+// 'completed', clears any abstention feedback, RELEASES the grading lease, and
+// re-syncs the linked FlipDesk item + grading-bridge rows. Every write is
+// idempotent (re-running just re-asserts the same terminal state), so a resume
+// after a crash between the report insert and the status flip is safe. Returns
+// the linked inventory item id (for the grade-ready deep link), or null.
+async function applyTerminalCompletion(
+  submissionId: string,
+  grade: {
+    gradeReportId: string;
+    overallScore: number;
+    gradeTier: string;
+    certificateUrl: string | null;
+  },
+): Promise<string | null> {
+  // Status + lease. Clearing grading_lease_until stops the reaper from ever
+  // re-touching a completed row.
+  await supabaseAdmin
+    .from("submissions")
+    .update({ status: "completed", quality_feedback: null, grading_lease_until: null })
+    .eq("id", submissionId);
+
+  // Sync a linked inventory item, if any.
+  let linkedItemId: string | null = null;
+  try {
+    const { data: linkedItem } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, status")
+      .eq("submission_id", submissionId)
+      .maybeSingle();
+    if (linkedItem) {
+      linkedItemId = (linkedItem as { id: string }).id;
+      const itemUpdate: Record<string, unknown> = {
+        grade_report_id: grade.gradeReportId,
+        grade_value: grade.overallScore,
+        grade_label: grade.gradeTier,
+        certificate_url: grade.certificateUrl,
+      };
+      if ((linkedItem as { status?: string }).status === "grading") {
+        itemUpdate.status = "graded";
+      }
+      await supabaseAdmin
+        .from("inventory_items")
+        .update(itemUpdate)
+        .eq("id", linkedItemId);
+    }
+  } catch (itemErr) {
+    console.error(
+      `[Pipeline] Inventory item sync error for submission ${submissionId}:`,
+      itemErr instanceof Error ? itemErr.message : String(itemErr),
+    );
+  }
+
+  // Sync the linked flipdesk_grading_submissions bridge row, if any.
+  try {
+    const nowIso = new Date().toISOString();
+    const { data: fdLink } = await supabaseAdmin
+      .from("flipdesk_grading_submissions")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .maybeSingle();
+    if (fdLink) {
+      await supabaseAdmin
+        .from("flipdesk_grading_submissions")
+        .update({ status: "completed", graded_at: nowIso, webhook_received_at: nowIso })
+        .eq("id", (fdLink as { id: string }).id);
+    }
+  } catch (fdErr) {
+    console.error(
+      `[Pipeline] FlipDesk grading sync error for submission ${submissionId}:`,
+      fdErr instanceof Error ? fdErr.message : String(fdErr),
+    );
+  }
+
+  return linkedItemId;
+}
+
+// US-569: idempotent resume. When a kick finds an already-graded submission (a
+// crash landed between the grade_report insert and the status='completed' flip),
+// finish the terminal wiring WITHOUT re-running or re-billing the AI. Returns
+// true if an active report existed (finalized or already complete), false if
+// there's nothing to finalize (the normal "no second grade" no-op).
+export async function finalizeIfAlreadyGraded(submissionId: string): Promise<boolean> {
+  const { data: report } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, overall_score, grade_tier, certificate_id")
+    .eq("submission_id", submissionId)
+    .is("superseded_at", null)
+    .maybeSingle();
+  if (!report) return false;
+
+  const r = report as {
+    id: string;
+    overall_score: number;
+    grade_tier: string;
+    certificate_id: string | null;
+  };
+  const { data: sub } = await supabaseAdmin
+    .from("submissions")
+    .select("status")
+    .eq("id", submissionId)
+    .maybeSingle();
+  // Already terminal-complete — nothing to finalize. (The reaper ignores
+  // non-'processing' rows, so a lingering lease on a completed row is harmless.)
+  if ((sub as { status?: string } | null)?.status === "completed") return true;
+
+  await applyTerminalCompletion(submissionId, {
+    gradeReportId: r.id,
+    overallScore: r.overall_score,
+    gradeTier: r.grade_tier,
+    certificateUrl: r.certificate_id ? certificateUrl(r.certificate_id) : null,
+  });
+  console.log(`[Pipeline] Resumed + finalized already-graded submission ${submissionId}`);
+  return true;
+}
+
 export async function processSubmission(submissionId: string) {
   const startTime = Date.now();
 
   console.log(`[Pipeline] Starting grading pipeline for submission ${submissionId}`);
 
-  // US-773: atomic single-claim guard against a double-kick (webhook + client
-  // ?pay_retry=1 both call processSubmission, and a second grade run double-bills
-  // Claude). Exactly one caller wins the claim; duplicates no-op.
+  // US-569: lease-based claim. The lease guards against a double-kick (webhook +
+  // client ?pay_retry=1 both call processSubmission, and a second grade run would
+  // double-bill Claude) AND, because it expires, lets a crashed run be resumed
+  // later. Exactly one caller wins 'claimed'; duplicates/resumes no-op or
+  // finalize.
   const claimResult = await claimSubmissionForGrading(submissionId);
   if (claimResult === "error") {
     // Transient DB error claiming the row — propagate so the caller's .catch
     // reports it. We have NOT started grading, so there's no spend to reverse.
     throw new Error(`Failed to claim submission ${submissionId} for grading`);
   }
-  if (claimResult === "already") {
-    // Already claimed by a prior/concurrent kick, or no longer gradeable. Don't
-    // run a second grade. This is the normal outcome of a double-kick.
+  if (claimResult === "done" || claimResult === "already") {
+    // 'done'  → an active grade_report already exists; a crash landed between the
+    //           report insert and the status='completed' flip. Finalize cheaply
+    //           (status + link sync) WITHOUT re-running or re-billing the AI.
+    // 'already' → a live lease, a poison (exhausted) row, or a terminal row.
+    //           finalizeIfAlreadyGraded no-ops when there's no active report, so
+    //           it's safe to call here too (it covers a race where a fake/older
+    //           claim path reports 'already' for a row that did get a report).
+    const finalized = await finalizeIfAlreadyGraded(submissionId);
     console.log(
-      `[Pipeline] Submission ${submissionId} already claimed (or not pending) — skipping duplicate grade run`,
+      `[Pipeline] Submission ${submissionId} claim=${claimResult} — ${
+        finalized ? "finalized existing grade (no re-grade)" : "skipping duplicate grade run"
+      }`,
     );
     return;
   }
@@ -760,86 +924,22 @@ export async function processSubmission(submissionId: string) {
       console.warn("[Pipeline] IndexNow submit failed:", e),
     );
 
-    // --- Step 7: Update submission status to 'completed' ---
+    // --- Step 7: Terminal completion (status + lease release + link sync) ---
     // Moderation flags were already evaluated and written ABOVE (US-484), before
     // the certificate became public — so this terminal write only advances the
-    // status and clears any prior abstention feedback. It deliberately does NOT
-    // touch flagged/flag_reason, leaving a withheld cert withheld.
-    const submissionUpdate: Record<string, unknown> = {
-      status: "completed",
-      quality_feedback: null,
-    };
-    await supabaseAdmin
-      .from("submissions")
-      .update(submissionUpdate)
-      .eq("id", submissionId);
-
-    // --- Step 7b: Sync a linked inventory item, if any ---
-    // Captured at function scope so the grade-ready notification (step 9) can
-    // deep-link straight to the FlipDesk item rather than the bare submission.
-    let linkedItemId: string | null = null;
-    try {
-      const { data: linkedItem } = await supabaseAdmin
-        .from("inventory_items")
-        .select("id, status")
-        .eq("submission_id", submissionId)
-        .maybeSingle();
-
-      if (linkedItem) {
-        linkedItemId = (linkedItem as { id: string }).id;
-        const itemUpdate: Record<string, unknown> = {
-          grade_report_id: gradeReport.id,
-          grade_value: compositeResult.overall_score,
-          grade_label: compositeResult.grade_tier,
-          // Public certificate URL — consumed by the FlipDesk grade card
-          // ("Open certificate") and embedded in listing descriptions
-          // (listing-templates.ts). Was never populated before, so both
-          // silently dropped the link.
-          certificate_url: certificateUrl(certificateId),
-        };
-        // Advance the lifecycle only if it's still mid-grading.
-        if (linkedItem.status === "grading") {
-          itemUpdate.status = "graded";
-        }
-        await supabaseAdmin
-          .from("inventory_items")
-          .update(itemUpdate)
-          .eq("id", linkedItem.id);
-      }
-    } catch (itemErr) {
-      console.error(
-        `[Pipeline] Inventory item sync error for submission ${submissionId}:`,
-        itemErr instanceof Error ? itemErr.message : String(itemErr)
-      );
-    }
-
-    // --- Step 7c: Sync linked flipdesk_grading_submissions, if any ---
-    // Same-process shortcut for the FlipDesk bridge — no need for the HMAC
-    // webhook dance since we share the DB. Tracks completion time + status
-    // so the FlipDesk UI can show "graded" without re-fetching the report.
-    try {
-      const nowIso = new Date().toISOString();
-      const { data: fdLink } = await supabaseAdmin
-        .from("flipdesk_grading_submissions")
-        .select("id")
-        .eq("submission_id", submissionId)
-        .maybeSingle();
-      if (fdLink) {
-        await supabaseAdmin
-          .from("flipdesk_grading_submissions")
-          .update({
-            status: "completed",
-            graded_at: nowIso,
-            webhook_received_at: nowIso,
-          })
-          .eq("id", (fdLink as { id: string }).id);
-      }
-    } catch (fdErr) {
-      console.error(
-        `[Pipeline] FlipDesk grading sync error for submission ${submissionId}:`,
-        fdErr instanceof Error ? fdErr.message : String(fdErr)
-      );
-    }
+    // status, clears any prior abstention feedback, and RELEASES the grading
+    // lease (US-569). It deliberately does NOT touch flagged/flag_reason, leaving
+    // a withheld cert withheld. applyTerminalCompletion is idempotent and shared
+    // with the resume/finalize path. linkedItemId is captured so the grade-ready
+    // notification (step 10) can deep-link straight to the FlipDesk item.
+    const linkedItemId = await applyTerminalCompletion(submissionId, {
+      gradeReportId: gradeReport.id,
+      overallScore: compositeResult.overall_score,
+      gradeTier: compositeResult.grade_tier,
+      // Public certificate URL — consumed by the FlipDesk grade card ("Open
+      // certificate") and embedded in listing descriptions (listing-templates.ts).
+      certificateUrl: certificateUrl(certificateId),
+    });
 
     const totalMs = Date.now() - startTime;
     console.log(
