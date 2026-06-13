@@ -183,6 +183,66 @@ final class ItemCanvasTests: XCTestCase {
         XCTAssertNil(cost, "empty string should parse to nil, not 0")
     }
 
+    // MARK: - refreshFromItem (US-682 post-intake sync into open canvas)
+
+    func test_canvasState_refreshFromItem_foldsInSyncedFields_whenClean() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        // Simulate the post-intake row: created as "Untitled item" with no
+        // AI fields yet, canvas opened against it.
+        let item = LocalInventoryItem(
+            id: "i1", userId: "u",
+            title: "Untitled item", status: "cataloged",
+            createdAt: .now, updatedAt: .now
+        )
+        context.insert(item)
+        let state = ItemCanvasState(item: item)
+        XCTAssertFalse(state.isDirty)
+
+        // Sync pull lands the AI-extracted fields onto the row.
+        item.title = "Patagonia fleece"
+        item.brand = "Patagonia"
+        item.size = "M"
+
+        let didRefresh = state.refreshFromItem(item)
+        XCTAssertTrue(didRefresh)
+        XCTAssertEqual(state.draft.title, "Patagonia fleece")
+        XCTAssertEqual(state.draft.brand, "Patagonia")
+        XCTAssertEqual(state.draft.size, "M")
+        XCTAssertFalse(state.isDirty, "refreshed values become the new clean baseline")
+    }
+
+    func test_canvasState_refreshFromItem_doesNotClobberUserEdits_whenDirty() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let item = makeItem(id: "i1", context: context)
+        let state = ItemCanvasState(item: item)
+
+        // User starts typing before the sync pull lands.
+        state.draft.title = "My title"
+        XCTAssertTrue(state.isDirty)
+
+        // A sync pull updates the underlying row in the background.
+        item.title = "Server title"
+        item.brand = "Server brand"
+
+        let didRefresh = state.refreshFromItem(item)
+        XCTAssertFalse(didRefresh, "should no-op while the user has pending edits")
+        XCTAssertEqual(state.draft.title, "My title", "user edit preserved")
+        XCTAssertEqual(state.draft.brand, "", "no server value folded in while dirty")
+    }
+
+    func test_canvasState_refreshFromItem_noChange_isNoOp() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let item = makeItem(id: "i1", context: context)
+        let state = ItemCanvasState(item: item)
+
+        let didRefresh = state.refreshFromItem(item)
+        XCTAssertFalse(didRefresh, "identical snapshot shouldn't report a refresh")
+        XCTAssertFalse(state.isDirty)
+    }
+
     // MARK: - Helpers
 
     private func makeContainer() throws -> ModelContainer {
