@@ -11,6 +11,7 @@ import {
   Camera,
   WifiOff,
   CloudUpload,
+  ScanBarcode,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -48,6 +49,8 @@ import {
   useAiExtract,
   type AiExtractResponse,
 } from "@/hooks/use-ai-extract";
+import { useProductLookup } from "@/hooks/use-product-lookup";
+import { BarcodeScannerDialog } from "@/components/flipdesk/barcode-scanner-dialog";
 import {
   ITEM_CATEGORIES,
   ITEM_STATUSES,
@@ -149,6 +152,10 @@ export function FlipdeskIntakePage() {
     Record<string, { source: string; confidence: number }>
   >({});
 
+  // US-598: barcode/UPC scan-to-autofill.
+  const productLookup = useProductLookup();
+  const [scannerOpen, setScannerOpen] = useState(false);
+
   // Alternate intake modes are separate workspaces.
   if (params.get("mode") === "bulk") return <BulkIntake />;
   if (params.get("mode") === "snap") return <SnapCatalog />;
@@ -189,6 +196,39 @@ export function FlipdeskIntakePage() {
       setAiPanelOpen(true);
     } catch {
       /* error toast handled by the hook */
+    }
+  }
+
+  // US-598: a scanned code resolves to product data we autofill into empty
+  // fields. The code is always saved as the SKU, match or not.
+  async function handleScanDetected(code: string) {
+    setScannerOpen(false);
+    const before = form;
+    patch("sku", code);
+    try {
+      const r = await productLookup.mutateAsync({ code });
+      setForm((f) => ({
+        ...f,
+        sku: r.sku || code,
+        brand: r.brand && !f.brand.trim() ? r.brand : f.brand,
+        style: r.style && !f.style.trim() ? r.style : f.style,
+        title: r.productTitle && !f.title.trim() ? r.productTitle : f.title,
+      }));
+      const filled: string[] = [];
+      if (r.brand && !before.brand.trim()) filled.push("brand");
+      if (r.style && !before.style.trim()) filled.push("style");
+      if (r.productTitle && !before.title.trim()) filled.push("title");
+      if (r.found && filled.length > 0) {
+        toast.success(`Autofilled ${filled.join(", ")} from the scan.`);
+      } else if (r.found) {
+        toast.success("Matched — code saved to SKU.");
+      } else {
+        toast.message("No product match", {
+          description: "Saved the code as the SKU — fill the rest in manually.",
+        });
+      }
+    } catch {
+      /* hook shows the error toast; the SKU is already set */
     }
   }
 
@@ -485,12 +525,33 @@ export function FlipdeskIntakePage() {
               placeholder="e.g. Lululemon Align Pant"
               aiMarked={aiFields.has("title")}
             />
-            <Field
-              label="SKU / Item #"
-              value={form.sku}
-              onChange={(v) => patch("sku", v)}
-              placeholder="optional"
-            />
+            <div className="space-y-1">
+              <Label htmlFor="sku-input">SKU / Item #</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="sku-input"
+                  value={form.sku}
+                  onChange={(e) => patch("sku", e.target.value)}
+                  placeholder="optional"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="flex-shrink-0"
+                  onClick={() => setScannerOpen(true)}
+                  disabled={productLookup.isPending}
+                  aria-label="Scan barcode or UPC"
+                  title="Scan barcode / UPC"
+                >
+                  {productLookup.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ScanBarcode className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
             <Field
               label="Brand"
               value={form.brand}
@@ -706,6 +767,12 @@ export function FlipdeskIntakePage() {
         currentValues={aiCurrentValues}
         fieldLabels={AI_FIELD_LABELS}
         onApply={applyAiFields}
+      />
+
+      <BarcodeScannerDialog
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onDetected={handleScanDetected}
       />
     </div>
   );

@@ -21,6 +21,7 @@ import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.t
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
+import { flipdeskProductRoutes } from "./routes/flipdesk-product.ts";
 import { flipdeskTemplatesRoutes } from "./routes/flipdesk-templates.ts";
 import {
   flipdeskAutolisterRoutes,
@@ -241,6 +242,7 @@ app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/flipdesk/scout/*", authMiddleware);
+app.use("/api/flipdesk/product/*", authMiddleware);
 app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
@@ -314,6 +316,7 @@ app.use("/api/flipdesk/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
+app.use("/api/flipdesk/product/*", workspaceMiddleware);
 app.use("/api/flipdesk/templates/*", workspaceMiddleware);
 app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 // Only /oauth/start needs the workspace owner (to stage imports under the
@@ -404,6 +407,9 @@ app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
 app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
 // US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
 app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
+// US-598: barcode/UPC lookup is a single cheap eBay Browse call — roomy budget
+// so scanning a haul item-by-item never trips the limiter.
+app.use("/api/flipdesk/product/*", rateLimiter(40, 60_000, "flipdesk-product"));
 // AutoLister batch enqueue is cheap to call but kicks off heavy background
 // work — cap submissions; per-item AI cost is governed by the quota check. The
 // cap applies to WRITES only (POST: batch enqueue, classify-photos, photo-qa,
@@ -545,6 +551,7 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
+app.route("/api/flipdesk/product", flipdeskProductRoutes);
 app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);

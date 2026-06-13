@@ -9088,8 +9088,8 @@
         "Resolves style codes and enriches the draft (complements US-544 normalization)"
       ],
       "priority": 598,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Deep-dive 2026-06-04. Barcode scanning exists only on iOS (US-179); no web scan-to-autofill."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Deep-dive 2026-06-04. Barcode scanning exists only on iOS (US-179); no web scan-to-autofill. DONE 2026-06-12: Web barcode/UPC scan-to-autofill. New edge route POST /api/flipdesk/product/lookup (flipdesk-product.ts) resolves a GTIN via eBay Browse (gtin search) + detectBrandInText(), or a sneaker style code via US-544 resolveStyleCode(); returns brand/style/productTitle/sku (identity only, no price comps). Web: BarcodeScannerDialog (native BarcodeDetector camera + hardware-scanner/manual entry, zero new deps), use-product-lookup hook, Scan button beside SKU on intake.tsx autofills empty brand/style/title and always sets SKU. detectBrandInText added to brand-normalize.ts + unit tests."
     },
     {
       "id": "US-599",

@@ -128,6 +128,33 @@ export function isKnownBrand(raw: string | null | undefined): boolean {
   return cleaned !== "" && brandKey(cleaned) in BRAND_ALIASES;
 }
 
+/** Unique canonical brand names, longest-first so multi-word brands ("Polo
+ *  Ralph Lauren") win over a contained shorter one ("Ralph Lauren"). */
+const CANONICAL_BRANDS: readonly string[] = Array.from(
+  new Set(Object.values(BRAND_ALIASES)),
+).sort((a, b) => b.length - a.length);
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Detect a known brand inside free text — e.g. an eBay product title from a
+ * barcode (UPC/EAN) match ("The North Face Men's Apex Jacket Medium" ->
+ * "The North Face"). Used by the barcode scan-to-autofill intake (US-598) to
+ * pull a canonical brand off a matched listing's title. Word-boundary matched
+ * (so "Gap" doesn't fire on "Gaps") and longest-brand-first. Returns the
+ * eBay-canonical brand string, or null when no known brand appears.
+ */
+export function detectBrandInText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  for (const brand of CANONICAL_BRANDS) {
+    const re = new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(brand)}(?![A-Za-z0-9])`, "i");
+    if (re.test(text)) return brand;
+  }
+  return null;
+}
+
 // ── Style-code resolution ─────────────────────────────────────────────────
 
 export interface StyleResolution {

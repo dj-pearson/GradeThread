@@ -1489,3 +1489,30 @@ Branch: ralph/gradethread-build
   - PRE-EXISTING (not mine): deno check src/main.ts surfaces 3 TS2769 errors in grade.ts re: c.get("correlationId") not in ContextVariableMap — untouched by this story.
 - Timestamp: 2026-06-12
 ---
+
+## US-598: Add web barcode/UPC scan-to-autofill intake
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/brand-normalize.ts (new detectBrandInText)
+  - services/edge-functions/src/routes/flipdesk-product.ts (new: POST /lookup)
+  - services/edge-functions/src/main.ts (mount + auth/workspace/rate-limit middleware)
+  - services/edge-functions/src/tests/brand-normalize_test.ts (detectBrandInText tests)
+  - src/hooks/use-product-lookup.ts (new hook)
+  - src/components/flipdesk/barcode-scanner-dialog.tsx (new scanner dialog)
+  - src/pages/flipdesk/intake.tsx (Scan button beside SKU + autofill handler)
+- Notes:
+  - Endpoint POST /api/flipdesk/product/lookup resolves a scanned code two ways:
+    GTIN (8-14 digits) -> eBay Browse gtin search -> productTitle + detectBrandInText;
+    or sneaker/streetwear style code -> US-544 resolveStyleCode (brand + aspects).
+    Returns product IDENTITY only (brand/style/title/sku) - NO price comps, so the
+    paid compPulls gate (US-619) is untouched. Light gate: requireFlipdesk with no
+    paid feature, so intake autofill works on every plan. Rate limited 40/min.
+  - Web scanner is dependency-free: native BarcodeDetector API for camera (Chromium/
+    Android), with feature-detection fallback to manual / hardware-scanner (USB/BT
+    guns type the code + Enter) entry that works in every browser.
+  - Autofill fills only EMPTY brand/style/title; SKU is always set to the scanned
+    code (match or not). Mirrors iOS US-179 (scan -> SKU).
+  - Verified: npx tsc --noEmit, npm run build, deno check/lint, deno test (20 passed),
+    eslint all clean.
+- Timestamp: 2026-06-12
+---

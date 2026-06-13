@@ -5,6 +5,7 @@ import { assertEquals } from "@std/assert";
 import {
   applyCanonicalBrandAndStyle,
   canonicalizeBrand,
+  detectBrandInText,
   isKnownBrand,
   resolveStyleCode,
 } from "../lib/brand-normalize.ts";
@@ -47,6 +48,39 @@ Deno.test("isKnownBrand only true for curated entries", () => {
   assertEquals(isKnownBrand("Acme Vintage Co"), false);
   assertEquals(isKnownBrand(null), false);
   assertEquals(isKnownBrand(""), false);
+});
+
+// ── detectBrandInText (US-598 barcode autofill) ────────────────────────────
+
+Deno.test("detectBrandInText pulls a canonical brand out of a product title", () => {
+  assertEquals(
+    detectBrandInText("The North Face Men's Apex Bionic Jacket Medium Black"),
+    "The North Face",
+  );
+  assertEquals(detectBrandInText("Nike Air Max 90 Running Shoes"), "Nike");
+  // Case-insensitive on the title side.
+  assertEquals(detectBrandInText("vintage CARHARTT duck chore coat"), "Carhartt");
+});
+
+Deno.test("detectBrandInText prefers the longest (most specific) brand", () => {
+  assertEquals(
+    detectBrandInText("Polo Ralph Lauren Oxford Shirt Large"),
+    "Polo Ralph Lauren",
+  );
+});
+
+Deno.test("detectBrandInText is word-boundary matched (no substring false hits)", () => {
+  // "Gap" must not fire inside "Gaps".
+  assertEquals(detectBrandInText("Closes the Gaps Performance Tee"), null);
+  // But a standalone token does match.
+  assertEquals(detectBrandInText("Gap 1969 Slim Jeans 32x30"), "Gap");
+});
+
+Deno.test("detectBrandInText returns null for no match / empty", () => {
+  assertEquals(detectBrandInText("Generic Cotton T-Shirt"), null);
+  assertEquals(detectBrandInText(""), null);
+  assertEquals(detectBrandInText(null), null);
+  assertEquals(detectBrandInText(undefined), null);
 });
 
 // ── resolveStyleCode ───────────────────────────────────────────────────────
