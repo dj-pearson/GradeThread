@@ -10,6 +10,7 @@ import {
 import { supabaseAdmin } from "./supabase.ts";
 import { captureServer } from "./posthog.ts";
 import { createVersionedCache } from "./coherent-cache.ts";
+import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
@@ -37,6 +38,9 @@ export interface PerImageAnalysis {
   // pre-grade quality gate (lib/image-quality.ts). Optional for back-compat;
   // a missing field defaults to "good" so the gate never abstains on absent data.
   quality?: PerImageQuality;
+  // US-583: Anthropic token usage for THIS per-image call, captured so the
+  // pipeline can record per-grade AI cost. Optional (eval traces omit it).
+  usage?: AiTokenUsage;
 }
 
 // US-332: per-image quality signals used by the pre-grade gate. blur/lighting/
@@ -166,6 +170,8 @@ export interface CompositeGradeResult {
   // accuracy tracker can attribute error rates per model, not just per
   // prompt version.
   model: string;
+  // US-583: Anthropic token usage for the composite call (per-grade AI cost).
+  usage?: AiTokenUsage;
 }
 
 // --- Constants ---
@@ -748,6 +754,8 @@ export async function analyzeImage(
       estimated_scores: parsed.estimated_scores,
       authenticity: normalizeAuthenticity(parsed.authenticity),
       quality: normalizeQuality(parsed.quality),
+      // US-583: token usage for per-grade AI-cost tracking.
+      usage: toAiTokenUsage(getDefaultModel(), response.usage),
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -1304,6 +1312,8 @@ export async function compositeGrade(
       image_authenticity: imageAuthenticity,
       prompt_version: promptVersion,
       model: compositeModel,
+      // US-583: token usage for per-grade AI-cost tracking.
+      usage: toAiTokenUsage(compositeModel, response.usage),
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;

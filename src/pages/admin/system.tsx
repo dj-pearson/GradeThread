@@ -2,8 +2,13 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { supabase } from "@/lib/supabase";
-import { fetchAdminSystemMetrics, type AdminSystemMetrics } from "@/lib/admin-aggregates";
-import { PLANS } from "@/lib/constants";
+import {
+  fetchAdminSystemMetrics,
+  fetchAdminRevenueMetrics,
+  type AdminSystemMetrics,
+  type AdminRevenueMetrics,
+} from "@/lib/admin-aggregates";
+import { FLIPDESK_PLANS, GRADETHREAD_TIERS, type FlipdeskPlanKey } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
@@ -22,6 +27,9 @@ import {
   Users,
   TrendingDown,
   Loader2,
+  Cpu,
+  Percent,
+  DollarSign,
 } from "lucide-react";
 import {
   LineChart,
@@ -46,11 +54,12 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
+// Authoritative FlipDesk paid tiers (the real subscription model, post US-201).
+const FLIPDESK_PAID_PLAN_ORDER: FlipdeskPlanKey[] = ["starter", "pro", "business"];
 const PLAN_COLORS: Record<string, string> = {
-  free: "#94a3b8",
   starter: "#0F3460",
-  professional: "#E94560",
-  enterprise: "#16a34a",
+  pro: "#E94560",
+  business: "#16a34a",
 };
 
 // ─── Health check types ─────────────────────────────────────────
@@ -75,10 +84,32 @@ interface StorageMetrics {
 }
 
 interface SubscriptionMetrics {
+  // MRR/ARPU/churn computed from authoritative subscription data (US-583):
+  // active paid subscriptions (subscription_status in active/past_due) priced
+  // from FLIPDESK_PLANS, and event-based 30-day churn — not legacy plan counts
+  // or a hard-coded enterprise estimate.
   mrr: number;
-  totalPaid: number;
-  planDistribution: Array<{ name: string; value: number; color: string }>;
+  arpu: number;
+  activePaid: number;
+  trialing: number;
+  pastDue: number;
   churnRatePercent: number;
+  canceledLast30d: number;
+  planDistribution: Array<{ name: string; value: number; color: string }>;
+}
+
+interface AiCostMetrics {
+  costTrackingActive: boolean;
+  cost24h: number;
+  cost30d: number;
+  grades30d: number;
+  avgCostPerGrade: number;
+  // Standard grade list price — the per-grade revenue baseline for margin.
+  gradePriceUsd: number;
+  grossMarginPerGrade: number;
+  grossMarginPercent: number;
+  tokens30d: number;
+  daily: Array<{ label: string; costUsd: number; grades: number }>;
 }
 
 interface TrafficPoint {
@@ -99,6 +130,7 @@ interface SystemData {
   queue: QueueMetrics;
   storage: StorageMetrics;
   subscriptions: SubscriptionMetrics;
+  aiCost: AiCostMetrics;
   hourlyTraffic: TrafficPoint[];
   dailyUsers: Array<{ label: string; uniqueUsers: number }>;
   errorRate: ErrorRatePoint[];
@@ -106,11 +138,12 @@ interface SystemData {
 
 // ─── Data processing ────────────────────────────────────────────
 //
-// US-415: all heavy aggregation now happens server-side in the
-// `admin_system_metrics` RPC (migration 00147). This page no longer downloads
-// the users / submissions / submission_images / grade_reports / sales tables —
-// it receives a compact, size-independent summary and only formats bucket
-// labels (in local time) and computes MRR from the plan counts + PLANS pricing.
+// US-415: heavy aggregation happens server-side in the `admin_system_metrics`
+// RPC (migration 00147). US-583 adds `admin_revenue_metrics` (migration 00163)
+// for AUTHORITATIVE financials: MRR/ARPU/churn from the real subscription
+// columns + AI token spend per grade. This page formats bucket labels (local
+// time) and derives MRR from active-subscription counts × FLIPDESK_PLANS pricing
+// (pricing stays in constants, never hard-coded).
 
 const HOUR_LABEL = (iso: string) =>
   `${new Date(iso).getHours().toString().padStart(2, "0")}:00`;
@@ -120,7 +153,11 @@ const DAY_LABEL = (iso: string) => {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 };
 
-function buildSystemData(metrics: AdminSystemMetrics, dbLatencyMs: number): SystemData {
+function buildSystemData(
+  metrics: AdminSystemMetrics,
+  revenue: AdminRevenueMetrics,
+  dbLatencyMs: number,
+): SystemData {
   // ── Health ──
   const health: HealthStatus = {
     database: dbLatencyMs < 500 ? "healthy" : dbLatencyMs < 2000 ? "degraded" : "down",
@@ -143,33 +180,76 @@ function buildSystemData(metrics: AdminSystemMetrics, dbLatencyMs: number): Syst
   const estimatedSizeMB = Math.round(totalImages * 0.5 * 100) / 100;
   const storage: StorageMetrics = { totalImages, estimatedSizeMB };
 
-  // ── Subscriptions ──
-  const planCounts = metrics.subscriptions.planCounts;
-  const planOrder: Array<keyof typeof PLANS> = ["free", "starter", "professional", "enterprise"];
-  const planDistribution = planOrder.map((key) => ({
-    name: PLANS[key].name,
-    value: planCounts[key] ?? 0,
+  // ── Subscriptions (US-583: authoritative) ──
+  const sub = revenue.subscriptions;
+
+  // Active paid subscriptions per FlipDesk tier — drives the pie. Free users
+  // aren't subscribers and don't appear; this is the paid-tier mix.
+  const planAgg: Record<string, number> = {};
+  for (const row of sub.byPlanInterval) {
+    planAgg[row.plan] = (planAgg[row.plan] ?? 0) + row.count;
+  }
+  const planDistribution = FLIPDESK_PAID_PLAN_ORDER.map((key) => ({
+    name: FLIPDESK_PLANS[key].name,
+    value: planAgg[key] ?? 0,
     color: PLAN_COLORS[key] ?? "#94a3b8",
   }));
 
-  const totalPaid = metrics.subscriptions.totalPaid;
-
-  // MRR = sum of monthly prices for all paid users. PLANS records priceMonthly
-  // as `number | null` (null = "Custom"); fall back to 0 for those. Enterprise
-  // is custom-priced, estimated at $499/mo.
+  // MRR = sum over active subscriptions of their monthly price (yearly / 12),
+  // priced from FLIPDESK_PLANS. No legacy plan counts, no $499 enterprise guess.
   let mrr = 0;
-  for (const key of planOrder) {
-    if (key === "free" || key === "enterprise") continue;
-    mrr += (planCounts[key] ?? 0) * (PLANS[key].priceMonthly ?? 0);
+  for (const row of sub.byPlanInterval) {
+    const plan = FLIPDESK_PLANS[row.plan as FlipdeskPlanKey];
+    if (!plan) continue;
+    const monthlyCents =
+      row.interval === "yearly" ? plan.priceYearlyCents / 12 : plan.priceMonthlyCents;
+    mrr += (monthlyCents / 100) * row.count;
   }
-  mrr += (planCounts["enterprise"] ?? 0) * 499;
+  mrr = Math.round(mrr);
 
-  const freeWithActivity = metrics.subscriptions.churnFreeWithActivity;
-  const churnRatePercent = totalPaid + freeWithActivity > 0
-    ? Math.round((freeWithActivity / (totalPaid + freeWithActivity)) * 1000) / 10
-    : 0;
+  const activePaid = sub.activePaid;
+  const arpu = activePaid > 0 ? Math.round(mrr / activePaid) : 0;
 
-  const subscriptions: SubscriptionMetrics = { mrr, totalPaid, planDistribution, churnRatePercent };
+  // Event-based 30-day churn: cancellations / (active + cancellations).
+  const churnDenom = activePaid + sub.canceledLast30d;
+  const churnRatePercent =
+    churnDenom > 0 ? Math.round((sub.canceledLast30d / churnDenom) * 1000) / 10 : 0;
+
+  const subscriptions: SubscriptionMetrics = {
+    mrr,
+    arpu,
+    activePaid,
+    trialing: sub.trialing,
+    pastDue: sub.pastDue,
+    churnRatePercent,
+    canceledLast30d: sub.canceledLast30d,
+    planDistribution,
+  };
+
+  // ── AI cost / gross margin (US-583) ──
+  const ai = revenue.ai;
+  const gradePriceUsd = GRADETHREAD_TIERS.standard.priceCents / 100;
+  const avgCostPerGrade = Math.round((ai.avgCostPerGradeUsd ?? 0) * 1e4) / 1e4;
+  const grossMarginPerGrade = Math.round((gradePriceUsd - avgCostPerGrade) * 1e4) / 1e4;
+  const grossMarginPercent =
+    gradePriceUsd > 0 ? Math.round((grossMarginPerGrade / gradePriceUsd) * 1000) / 10 : 0;
+
+  const aiCost: AiCostMetrics = {
+    costTrackingActive: ai.costTrackingActive,
+    cost24h: ai.last24h.costUsd,
+    cost30d: ai.last30d.costUsd,
+    grades30d: ai.last30d.grades,
+    avgCostPerGrade,
+    gradePriceUsd,
+    grossMarginPerGrade,
+    grossMarginPercent,
+    tokens30d: ai.last30d.inputTokens + ai.last30d.outputTokens,
+    daily: ai.daily.map((d) => ({
+      label: DAY_LABEL(d.start),
+      costUsd: Math.round(d.costUsd * 100) / 100,
+      grades: d.grades,
+    })),
+  };
 
   // ── Time-bucketed series (labels formatted client-side, local time) ──
   const hourlyTraffic: TrafficPoint[] = metrics.hourlyTraffic.map((b) => ({
@@ -192,7 +272,7 @@ function buildSystemData(metrics: AdminSystemMetrics, dbLatencyMs: number): Syst
       : 0,
   }));
 
-  return { health, queue, storage, subscriptions, hourlyTraffic, dailyUsers, errorRate };
+  return { health, queue, storage, subscriptions, aiCost, hourlyTraffic, dailyUsers, errorRate };
 }
 
 // ─── Health indicator component ─────────────────────────────────
@@ -251,13 +331,17 @@ export function AdminSystemPage() {
       const dbLatencyMs = Math.round(performance.now() - dbStart);
       if (pingRes.error) throw pingRes.error;
 
-      // All aggregation happens server-side (US-415): one compact summary, no
+      // All aggregation happens server-side (US-415/US-583): two compact
+      // summaries (system health + authoritative revenue/AI cost), no
       // full-table downloads.
-      const metrics = await fetchAdminSystemMetrics();
+      const [metrics, revenue] = await Promise.all([
+        fetchAdminSystemMetrics(),
+        fetchAdminRevenueMetrics(),
+      ]);
 
       setLastRefresh(new Date());
 
-      return buildSystemData(metrics, dbLatencyMs);
+      return buildSystemData(metrics, revenue, dbLatencyMs);
     },
     staleTime: 15 * 1000,
     // Auto-refresh every 30s, but only while the tab is visible so a
@@ -653,7 +737,7 @@ export function AdminSystemPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Plan Distribution</CardTitle>
-                <CardDescription>Users by subscription plan</CardDescription>
+                <CardDescription>Active subscribers by FlipDesk plan</CardDescription>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={250}>
@@ -697,14 +781,19 @@ export function AdminSystemPage() {
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">Paid Users</CardTitle>
+                  <CardTitle className="text-sm font-medium">Active Subscribers</CardTitle>
                   <Users className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {data?.subscriptions.totalPaid ?? 0}
+                    {data?.subscriptions.activePaid ?? 0}
                   </div>
-                  <CardDescription>Active subscribers</CardDescription>
+                  <CardDescription>
+                    Paying (active / past-due)
+                    {(data?.subscriptions.trialing ?? 0) > 0
+                      ? ` · ${data?.subscriptions.trialing} trialing`
+                      : ""}
+                  </CardDescription>
                 </CardContent>
               </Card>
               <Card>
@@ -716,7 +805,9 @@ export function AdminSystemPage() {
                   <div className={`text-2xl font-bold ${(data?.subscriptions.churnRatePercent ?? 0) > 5 ? "text-red-600 dark:text-red-400" : ""}`}>
                     {data?.subscriptions.churnRatePercent ?? 0}%
                   </div>
-                  <CardDescription>Estimated 30-day</CardDescription>
+                  <CardDescription>
+                    30-day · {data?.subscriptions.canceledLast30d ?? 0} canceled
+                  </CardDescription>
                 </CardContent>
               </Card>
               <Card>
@@ -726,11 +817,134 @@ export function AdminSystemPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    ${(data?.subscriptions.totalPaid ?? 0) > 0
-                      ? Math.round((data?.subscriptions.mrr ?? 0) / (data?.subscriptions.totalPaid ?? 1))
-                      : 0}
+                    ${data?.subscriptions.arpu ?? 0}
                   </div>
                   <CardDescription>Avg revenue per paid user</CardDescription>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI cost & gross margin (US-583) */}
+      {isLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-28" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-20" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div>
+          <h2 className="mb-3 text-lg font-semibold">AI Cost & Gross Margin</h2>
+          {!data?.aiCost.costTrackingActive && (
+            <p className="mb-3 text-sm text-muted-foreground">
+              No AI usage recorded yet — figures populate as grades are processed.
+            </p>
+          )}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* Daily AI cost chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">AI Cost per Day</CardTitle>
+                <CardDescription>Anthropic token spend, last 30 days</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart
+                    data={data?.aiCost.daily}
+                    margin={{ top: 5, right: 5, bottom: 5, left: -10 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis
+                      dataKey="label"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `$${Number(v)}`}
+                    />
+                    <Tooltip
+                      contentStyle={TOOLTIP_STYLE}
+                      formatter={(value, name) => {
+                        if (name === "costUsd") return [`$${Number(value).toFixed(2)}`, "AI Cost"];
+                        return [Number(value), "Grades"];
+                      }}
+                      labelFormatter={(label) => `Date: ${String(label)}`}
+                    />
+                    <Bar dataKey="costUsd" fill="#0F3460" name="costUsd" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Cost + margin cards */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">AI Cost (30d)</CardTitle>
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    ${(data?.aiCost.cost30d ?? 0).toFixed(2)}
+                  </div>
+                  <CardDescription>
+                    ${(data?.aiCost.cost24h ?? 0).toFixed(2)} last 24h ·{" "}
+                    {(data?.aiCost.tokens30d ?? 0).toLocaleString()} tokens
+                  </CardDescription>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Cost / Grade</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    ${(data?.aiCost.avgCostPerGrade ?? 0).toFixed(4)}
+                  </div>
+                  <CardDescription>
+                    {(data?.aiCost.grades30d ?? 0).toLocaleString()} grades (30d)
+                  </CardDescription>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Margin / Grade</CardTitle>
+                  <TrendingDown className="h-4 w-4 rotate-180 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${(data?.aiCost.grossMarginPerGrade ?? 0) < 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
+                    ${(data?.aiCost.grossMarginPerGrade ?? 0).toFixed(4)}
+                  </div>
+                  <CardDescription>
+                    vs ${(data?.aiCost.gradePriceUsd ?? 0).toFixed(2)} Standard price
+                  </CardDescription>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Gross Margin</CardTitle>
+                  <Percent className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${(data?.aiCost.grossMarginPercent ?? 0) < 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+                    {data?.aiCost.grossMarginPercent ?? 0}%
+                  </div>
+                  <CardDescription>Per Standard grade</CardDescription>
                 </CardContent>
               </Card>
             </div>

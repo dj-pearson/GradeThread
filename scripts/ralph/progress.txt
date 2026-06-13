@@ -1257,3 +1257,32 @@ Branch: ralph/gradethread-build
 - Notes: P1 Admin. Operator -> customer transactional messaging. New /api/admin/messages route (admin+AAL2 inherited from /api/admin/* group). POST /:userId resolves the recipient (service-role select scoped to that id), sends via the existing transactional email path (new sendAdminMessageEmail with category 'admin_message' -> failed live sends enqueue to email_deliveries outbox for durable retry), then records against the user: in-app notification (type 'system') + writeAuditLog 'admin.send_message' (recipient/subject/body_length/template_id/had_cta/email_accepted), both written even on SMTP failure (returns 202 delivered:false when queued). GET /templates exposes 3 canned seeds (support/billing/account). Rate-limited per-admin 20/min POST-only (scope 'admin-messages') added in main.ts after adminAuthMiddleware so userId is set. CAN-SPAM: TRANSACTIONAL only -- template omits marketing unsubscribe (can't opt out of account mail) but keeps postal footer; marketing stays on the US-627 broadcast engine. CTA URL validated http(s) + requires label. Frontend: 'Message' button in user-detail header opens a shadcn Dialog with template picker (prefills subject/body, free-form default), 200/5000 char caps, char counter; edgeFetch POST with toasts. GOTCHA: had to wrap the header action buttons (Message + existing 'View as user') in an ml-auto flex div since 'View as user' previously owned ml-auto. Verified: npx tsc --noEmit, npm run build (+prerender 29 routes), deno check src/main.ts, deno lint (admin-messages.ts + email.ts), eslint (user-detail.tsx) all green.
 - Timestamp: 2026-06-12
 ---
+
+## US-583: Add trustworthy revenue (MRR/churn) + per-grade AI-cost reporting
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00163_ai_usage_and_revenue_metrics.sql (new: ai_usage_events table + admin_revenue_metrics() RPC)
+  - services/edge-functions/src/lib/ai-usage.ts (new: model price table, cost calc, recordAiUsage)
+  - services/edge-functions/src/lib/ai-grading.ts (usage on PerImageAnalysis/CompositeGradeResult returns)
+  - services/edge-functions/src/lib/grading-pipeline.ts (fire-and-forget recordAiUsage after grade_report insert)
+  - src/lib/admin-aggregates.ts (AdminRevenueMetrics type + fetchAdminRevenueMetrics)
+  - src/pages/admin/system.tsx (authoritative MRR/ARPU/churn + AI Cost & Gross Margin section)
+  - prd.json (US-583 passes:true)
+- Notes:
+  - MRR/ARPU now computed from REAL subscription columns: active paid subs
+    (subscription_status in active/past_due, flipdesk_plan<>free) priced from
+    FLIPDESK_PLANS (yearly normalized /12). No legacy users.plan counts, no
+    hard-coded $499 enterprise estimate (enterprise isn't even a current tier).
+  - Churn is event-based: distinct users with customer.subscription.deleted in
+    the last 30d / (activePaid + canceled). Replaces the "free user with a
+    recent sale" activity guess.
+  - AI token spend tracked per grade (ai_usage_events rows share submission_id),
+    per day, and gross-margin per grade (Standard list price $2.99 - avg AI cost).
+    Cost computed at write time from a per-model price table (Opus 4.8 $5/$25,
+    Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5 per 1M; cache write 1.25x / read 0.1x),
+    overridable via AI_PRICE_* env vars so a price change needs no deploy.
+  - Pricing verified against the claude-api skill model table.
+  - Verified: npx tsc --noEmit, npm run build, deno check (edge libs + tests),
+    deno lint, eslint on changed FE files — all clean.
+- Timestamp: 2026-06-12
+---

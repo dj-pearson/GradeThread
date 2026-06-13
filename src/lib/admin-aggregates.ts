@@ -57,6 +57,34 @@ export interface AdminAuditFilterOptions {
   admins: Array<{ id: string; label: string }>;
 }
 
+// ── admin_revenue_metrics (US-583) ─────────────────────────────────────────
+// Authoritative subscription revenue + AI token spend. MRR is computed
+// client-side from `byPlanInterval` × FLIPDESK_PLANS pricing so prices live in
+// one place (constants), never hard-coded in the RPC.
+
+export interface AdminRevenueMetrics {
+  subscriptions: {
+    activePaid: number;
+    trialing: number;
+    pastDue: number;
+    byPlanInterval: Array<{ plan: string; interval: string; count: number }>;
+    canceledLast30d: number;
+  };
+  ai: {
+    costTrackingActive: boolean;
+    last24h: { costUsd: number; inputTokens: number; outputTokens: number; grades: number };
+    last30d: { costUsd: number; inputTokens: number; outputTokens: number; grades: number };
+    avgCostPerGradeUsd: number;
+    daily: Array<{
+      start: string;
+      costUsd: number;
+      grades: number;
+      inputTokens: number;
+      outputTokens: number;
+    }>;
+  };
+}
+
 type RpcClient = {
   rpc: ((
     fn: "admin_system_metrics",
@@ -69,7 +97,11 @@ type RpcClient = {
     ((
       fn: "admin_audit_log_filter_options",
       args?: Record<string, never>,
-    ) => Promise<{ data: AdminAuditFilterOptions | null; error: { message: string } | null }>);
+    ) => Promise<{ data: AdminAuditFilterOptions | null; error: { message: string } | null }>) &
+    ((
+      fn: "admin_revenue_metrics",
+      args?: Record<string, never>,
+    ) => Promise<{ data: AdminRevenueMetrics | null; error: { message: string } | null }>);
 };
 
 export async function fetchAdminSystemMetrics(): Promise<AdminSystemMetrics> {
@@ -97,4 +129,12 @@ export async function fetchAdminAuditFilterOptions(): Promise<AdminAuditFilterOp
   const { data, error } = await client.rpc("admin_audit_log_filter_options");
   if (error) throw new Error(error.message);
   return data ?? { actions: [], targetTypes: [], admins: [] };
+}
+
+export async function fetchAdminRevenueMetrics(): Promise<AdminRevenueMetrics> {
+  const client = supabase as unknown as RpcClient;
+  const { data, error } = await client.rpc("admin_revenue_metrics");
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("No revenue metrics returned");
+  return data;
 }

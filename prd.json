@@ -8899,8 +8899,8 @@
         "A dashboard surfaces these with no obviously-wrong heuristics"
       ],
       "priority": 583,
-      "passes": false,
-      "notes": "[P1][Admin] Deep-dive 2026-06-04. system.tsx MRR is a plan-count heuristic; churn is a 'free user with recent sales' guess; no AI-cost tracking at all."
+      "passes": true,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. system.tsx MRR is a plan-count heuristic; churn is a 'free user with recent sales' guess; no AI-cost tracking at all. | DONE 2026-06-12: migration 00163 adds ai_usage_events ledger + admin_revenue_metrics() RPC. MRR/ARPU now from active FlipDesk subs (subscription_status active/past_due) priced via FLIPDESK_PLANS (yearly/12); churn is event-based (customer.subscription.deleted in 30d); no legacy plan counts or $499 enterprise guess. lib/ai-usage.ts records per-call Anthropic tokens+USD cost (model price table, env-overridable) wired through ai-grading.ts (analyzeImage/compositeGrade usage) + grading-pipeline.ts. system.tsx surfaces authoritative subs + AI cost/day, cost/grade, gross margin per grade."
     },
     {
       "id": "US-584",

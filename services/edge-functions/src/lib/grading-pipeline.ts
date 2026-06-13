@@ -30,6 +30,7 @@ import { withImageBufferSlot } from "./grading-capacity.ts";
 import { captureServer } from "./posthog.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import { pushReviewNeeded } from "./transactional-push.ts";
+import { recordAiUsage } from "./ai-usage.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -921,6 +922,22 @@ export async function processSubmission(submissionId: string) {
       console.error("[Pipeline] Failed to create grade report:", reportError);
       throw new Error("Failed to create grade report record");
     }
+
+    // US-583: record per-call Anthropic token usage so the admin dashboard can
+    // report per-grade AI cost + gross margin. Fire-and-forget — a cost-tracking
+    // write must never fail or slow a completed paid grade.
+    void recordAiUsage({
+      userId: submission.user_id,
+      submissionId,
+      usages: [
+        ...perImageResults
+          .filter((r) => r.usage)
+          .map((r) => ({ phase: "per_image", usage: r.usage! })),
+        ...(compositeResult.usage
+          ? [{ phase: "composite", usage: compositeResult.usage }]
+          : []),
+      ],
+    });
 
     // US-626: nudge the seller (iOS) when their grade was flagged for a human
     // check. Best-effort — never blocks the pipeline.
