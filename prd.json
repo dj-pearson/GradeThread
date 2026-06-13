@@ -12627,8 +12627,8 @@
         "npm run build passes"
       ],
       "priority": 857,
-      "passes": false,
-      "notes": "[EPIC: Grade ROI & Value 2026-06-11] grade_outcomes table exists (00036) but is only used for model refinement today. Surface it to sellers."
+      "passes": true,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] grade_outcomes table exists (00036) but is only used for model refinement today. Surface it to sellers. SHIPPED 2026-06-13. Rather than read grade_outcomes directly (anonymized + opt-in only), surfaced the seller's OWN closed loop from the tenant-scoped items_full view (RLS): added itemSaleOutcome() + accountGradingRollup() to flipdesk-analytics.ts, and a new grade-outcome-card.tsx on item.tsx. Per-item line 'Graded 7.5 (Very Good) -> sold in 12 days for $42 net' shows for any graded, realized sale (isRealizedSale: finite sale_price, sale_status completed/null). Account rollup ('graded items sell ~N days faster and net ~$X more; grading pays for itself in M sales') is GATED on profile.share_sale_outcomes AND low-n-suppressed via meaningful (both graded/ungraded buckets need >= MIN_BUCKET_SIZE=5). Only states the signals the data supports (faster/net-higher) and never fabricates a lift; explicit 'not enough sales yet' / 'no measurable edge' fallbacks. GRADE_FEE_USD from GRADETHREAD_TIERS.standard. tsc --noEmit + npm run build + eslint clean."
     },
     {
       "id": "US-858",

@@ -2240,3 +2240,10 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean; eslint clean on all changed files; 5 unit tests in grade-roi-estimate.test.ts pass; npm run build green (37 prerendered pages).
 - Timestamp: 2026-06-13
 ---
+## US-857: Per-item grade -> sale-outcome feedback on item detail
+- Status: COMPLETE
+- Files changed: src/lib/flipdesk-analytics.ts, src/components/flipdesk/grade-outcome-card.tsx (new), src/pages/flipdesk/item.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Closed the grading-value loop on item detail. Added itemSaleOutcome() (per-item grade -> realized outcome) and accountGradingRollup() (account-level graded-vs-ungraded comparison) to flipdesk-analytics.ts, plus GRADE_FEE_USD from GRADETHREAD_TIERS.standard. New <GradeOutcomeCard> on item.tsx shows 'Graded 7.5 (Very Good) -> sold in 12 days for $42 net' for any graded realized sale (isRealizedSale: finite sale_price, sale_status completed/null), and an opt-in rollup 'graded items sell ~N days faster and net ~$X more; grading pays for itself in M sales'. Reads the seller's OWN items_full rows (RLS tenant-scoped) so the per-item line shows even without anonymized-sharing opt-in; the rollup is gated on profile.share_sale_outcomes AND low-n-suppressed (both buckets need MIN_BUCKET_SIZE=5). Never fabricates a lift — only states data-supported signals, with explicit 'not enough sales yet' / 'no measurable edge' fallbacks.
+- Verification: npx tsc --noEmit clean; npm run build green (37 prerendered pages); eslint clean on all 3 changed source files.
+- Timestamp: 2026-06-13
+---

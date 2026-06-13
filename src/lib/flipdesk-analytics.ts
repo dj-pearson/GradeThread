@@ -2,6 +2,7 @@
 // callers pass the cached ItemFullRow[] and a date range.
 
 import type { ItemFullRow } from "@/types/database";
+import { GRADETHREAD_TIERS } from "@/lib/constants";
 
 export type GroupKey = "category" | "brand" | "source";
 
@@ -284,6 +285,105 @@ export function gradeRoiEstimate(
     ungraded,
     priceLift,
     daysFaster,
+    meaningful:
+      graded.count >= MIN_BUCKET_SIZE && ungraded.count >= MIN_BUCKET_SIZE,
+  };
+}
+
+// ─── Grade → sale-outcome feedback (US-857) ──────────────────────
+
+/** Reference grading fee (one Standard grade) for the break-even framing. */
+export const GRADE_FEE_USD = GRADETHREAD_TIERS.standard.priceCents / 100;
+
+// A sale is "realized" when it has a finite sale price and isn't
+// cancelled/refunded/pending. Legacy rows predating sale_status (null) are
+// treated as realized, matching how items_full counts revenue/profit.
+function isRealizedSale(item: ItemFullRow): boolean {
+  if (item.sale_price == null || !Number.isFinite(item.sale_price)) return false;
+  const s = item.sale_status;
+  return s == null || s === "completed";
+}
+
+export interface ItemSaleOutcome {
+  grade: number;
+  gradeLabel: string | null;
+  salePrice: number;
+  netProfit: number | null;
+  daysToSell: number | null;
+  soldAt: string | null;
+}
+
+/**
+ * The grade → sale outcome for a single graded item that has sold — the
+ * "Graded 7.5 → sold in 12 days for $42 net" line on item detail. Reads the
+ * seller's OWN items_full row (tenant-scoped via RLS), so it surfaces even
+ * when the user hasn't opted into anonymized grade_outcomes sharing — the
+ * outcome shown is identical to what the closed-loop table captures. Returns
+ * null unless the item is a graded, realized sale.
+ */
+export function itemSaleOutcome(item: ItemFullRow): ItemSaleOutcome | null {
+  if (item.grade_value == null) return null;
+  if (!isRealizedSale(item)) return null;
+  return {
+    grade: item.grade_value,
+    gradeLabel: item.grade_label,
+    salePrice: item.sale_price as number,
+    netProfit:
+      item.net_profit != null && Number.isFinite(item.net_profit)
+        ? item.net_profit
+        : null,
+    daysToSell:
+      item.days_to_sell != null && Number.isFinite(item.days_to_sell)
+        ? item.days_to_sell
+        : null,
+    soldAt: item.sale_date,
+  };
+}
+
+export interface GradingRollup {
+  graded: RoiSide;
+  ungraded: RoiSide;
+  /** ungraded.medianDaysToSell − graded.medianDaysToSell; positive = faster. */
+  daysFaster: number | null;
+  /** graded.avgNetProfit − ungraded.avgNetProfit; positive = higher net. */
+  netHigher: number | null;
+  /** Sales for the per-sale net lift to cover one grade fee; null when no lift. */
+  paysForItselfInSales: number | null;
+  /** Both sides have >= MIN_BUCKET_SIZE realized sales — safe to surface. */
+  meaningful: boolean;
+}
+
+/**
+ * Account-level graded-vs-ungraded comparison across all realized sales:
+ * "your graded items sell ~N days faster / net ~$X more on average; grading
+ * pays for itself in M sales". Low-n suppression via `meaningful` (both sides
+ * need >= MIN_BUCKET_SIZE). Callers gate display on the share_sale_outcomes
+ * opt-in. Pure over the caller's own tenant-scoped items_full rows.
+ */
+export function accountGradingRollup(items: ItemFullRow[]): GradingRollup {
+  const sold = items.filter(isRealizedSale);
+  const graded = sideStats(sold.filter((i) => i.grade_value != null));
+  const ungraded = sideStats(sold.filter((i) => i.grade_value == null));
+
+  const daysFaster =
+    graded.medianDaysToSell != null && ungraded.medianDaysToSell != null
+      ? ungraded.medianDaysToSell - graded.medianDaysToSell
+      : null;
+  const netHigher =
+    graded.avgNetProfit != null && ungraded.avgNetProfit != null
+      ? graded.avgNetProfit - ungraded.avgNetProfit
+      : null;
+  const paysForItselfInSales =
+    netHigher != null && netHigher > 0
+      ? Math.ceil(GRADE_FEE_USD / netHigher)
+      : null;
+
+  return {
+    graded,
+    ungraded,
+    daysFaster,
+    netHigher,
+    paysForItselfInSales,
     meaningful:
       graded.count >= MIN_BUCKET_SIZE && ungraded.count >= MIN_BUCKET_SIZE,
   };

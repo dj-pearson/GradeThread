@@ -14,6 +14,7 @@ import { useItemsFull } from "@/hooks/use-items-full";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
+import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 
@@ -93,6 +94,11 @@ export function FlipdeskItemPage() {
           if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
         }}
       />
+
+      {/* US-857: once a graded item sells, close the loop — show its grade →
+          realized outcome, plus an account-level graded-vs-ungraded rollup
+          (gated on the share_sale_outcomes opt-in + low-n suppression). */}
+      <GradeOutcomeCard item={item} />
 
       {/* On the page, Save keeps the user here (the query refetches); only
           Cancel and the back button navigate away. */}
