@@ -18,6 +18,18 @@ services:
     restart: unless-stopped
     expose:
       - "8787"
+    # US-578: access-log retention/rotation. The app logs structured JSON to
+    # stdout/stderr; Docker's json-file driver caps on-host log disk at
+    # max-size × max-file = 10 MiB × 5 = 50 MiB per container (oldest file
+    # dropped on roll-over). This is the enforced LOCAL retention bound and the
+    # cost ceiling for on-box logs; longer-lived retention + the full log/trace
+    # cost budget are documented in OBSERVABILITY.md. Trim verbosity at the
+    # source with EDGE_TRACE_SAMPLE_RATE rather than growing these files.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     environment:
       - PORT=8787
       # Marks this as the production runtime. Security debug flags (e.g.
@@ -27,6 +39,11 @@ services:
       # /health/metrics so the load-test gate + ops can compute headroom. Keep in
       # sync with deploy.resources.limits.memory below.
       - EDGE_MEMORY_LIMIT_MB=2048
+      # US-578: edge trace/log sampling rate, the analogue of the frontend's
+      # Sentry tracesSampleRate: 0.1 (src/main.tsx). Samples ONLY successful
+      # (2xx/3xx) access lines + ok-outcome latency spans; every 4xx/5xx and all
+      # business counters are always logged at 100%. Tune in OBSERVABILITY.md.
+      - EDGE_TRACE_SAMPLE_RATE=0.1
       # US-573: max grading pipelines allowed to hold base64 image data resident
       # at once (the OOM bound — see grading-capacity.ts + CAPACITY.md). Tuned so
       # worst-case residency stays under the 2G limit's 30% headroom target.

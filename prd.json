@@ -8834,8 +8834,8 @@
         "A cost ceiling/budget for logs + traces is written down"
       ],
       "priority": 578,
-      "passes": false,
-      "notes": "[P2][Observability] Deep-dive 2026-06-04. src/main.tsx:18 sets frontend sampling; middleware/access-log.ts writes stdout with no retention; adjacent to US-497/508 but cost dimension uncovered."
+      "passes": true,
+      "notes": "Done. New services/edge-functions/OBSERVABILITY.md documents all three: (1) access-log retention/rotation — Docker json-file driver pinned in docker-compose.coolify.yml (max-size 10m × max-file 5 = 50 MiB/container hard local cap) + 30/90-day aggregator tiers; (2) edge trace sampling — EDGE_TRACE_SAMPLE_RATE [0,1] (prod 0.1, mirrors frontend tracesSampleRate) added in observability.ts shouldSampleTrace() (deterministic FNV-1a per correlation id), applied in access-log.ts (samples 2xx/3xx, ALWAYS logs 4xx/5xx) and timed() (samples ok spans, always error spans); recordMetric business counters + exceptions stay 100%; (3) cost ceiling/budget table (<=5 GB/replica/mo, <=50 USD/mo aggregator). Env documented in ENVIRONMENT.md + .env.example. Tests: src/tests/trace-sampling_test.ts (9 pass)."
     },
     {
       "id": "US-579",

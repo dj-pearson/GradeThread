@@ -65,6 +65,48 @@ export function newCorrelationId(): string {
   return crypto.randomUUID();
 }
 
+// ── Trace/log sampling (US-578) ─────────────────────────────────────
+// Bounds logging/tracing COST. This is the edge analogue of the frontend's
+// Sentry `tracesSampleRate: 0.1` (src/main.tsx). It governs ONLY high-volume
+// *success* traces — the per-request access line for 2xx/3xx responses and
+// ok-outcome latency spans from timed(). It NEVER samples away signal we must
+// keep at 100%: errors, warnings, exceptions, non-2xx access lines, and the
+// explicit business counters emitted via recordMetric(). So error-rate, audit,
+// and security visibility are unaffected by the rate — only the firehose of
+// healthy-request detail shrinks.
+//
+// Default 1.0 (log everything) preserves current behaviour; an operator opts
+// into sampling by setting EDGE_TRACE_SAMPLE_RATE (see OBSERVABILITY.md). The
+// env is read per call (not cached) so it is unit-testable and a redeploy is
+// not required to change it — the value is cheap to read and clamped to [0,1].
+export function traceSampleRate(): number {
+  const raw = Deno.env.get("EDGE_TRACE_SAMPLE_RATE");
+  if (raw === undefined || raw.trim() === "") return 1;
+  const rate = Number(raw);
+  if (!Number.isFinite(rate)) return 1; // fail open: keep all traces on misconfig
+  return Math.min(1, Math.max(0, rate));
+}
+
+// Deterministic, per-correlation-id sampling decision. A given request's id
+// always lands the same side of the threshold, so ALL of that request's trace
+// lines (access line + every timed() span) are kept together as a coherent
+// trace, or dropped together — never a half-sampled request. Under fractional
+// sampling an unkeyed trace is kept (we never let the hash path silently drop
+// something we can't sample coherently); an explicit rate of 0 still drops all.
+export function shouldSampleTrace(correlationId?: string): boolean {
+  const rate = traceSampleRate();
+  if (rate >= 1) return true;
+  if (rate <= 0) return false;
+  if (!correlationId) return true;
+  // FNV-1a 32-bit hash of the id → a stable fraction in [0,1).
+  let h = 0x811c9dc5;
+  for (let i = 0; i < correlationId.length; i++) {
+    h ^= correlationId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) / 0x1_0000_0000 < rate;
+}
+
 // ── Structured logging (US-497) ─────────────────────────────────────
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -134,7 +176,12 @@ export async function timed<T>(
   const start = Date.now();
   try {
     const out = await fn();
-    recordMetric(name, Date.now() - start, { ...tags, unit: "ms", outcome: "ok" });
+    // ok-outcome spans are the firehose — sample them (US-578). Error spans
+    // below are always kept so error/latency-of-failure signal stays intact.
+    const cid = typeof tags.correlationId === "string" ? tags.correlationId : undefined;
+    if (shouldSampleTrace(cid)) {
+      recordMetric(name, Date.now() - start, { ...tags, unit: "ms", outcome: "ok" });
+    }
     return out;
   } catch (err) {
     recordMetric(name, Date.now() - start, { ...tags, unit: "ms", outcome: "error" });

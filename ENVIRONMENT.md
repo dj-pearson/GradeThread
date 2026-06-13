@@ -54,6 +54,7 @@ Notes:
 | `PORT` | ⬜ Optional | Port the Hono server binds | Defaults to `8787` |
 | `SITE_URL` | ✅ Required (for billing) | Used to build Stripe checkout success/cancel return URLs | Your frontend URL, e.g. `https://gradethread.com` |
 | `EDGE_ENV` | ✅ Required (prod) | Deploy environment. **Defaults to `production` when unset (fail-closed).** When `production`, all security debug flags (e.g. `WEBHOOK_PAYOUT_DEBUG`) are ignored and signature verification can never be bypassed. Set to `development` only in local dev. | `production` in Coolify; `development` in `docker-compose.dev.yml` |
+| `EDGE_TRACE_SAMPLE_RATE` | ⬜ Optional | Trace/log sampling rate `[0,1]` — bounds logging cost (edge analogue of the frontend Sentry `tracesSampleRate: 0.1`). Samples **only** successful (2xx/3xx) access lines + ok-outcome latency spans; every 4xx/5xx and all business counters are **always** logged. Blank/invalid → `1.0` (log everything). See `services/edge-functions/OBSERVABILITY.md`. | `0.1` in Coolify |
 
 > **Note:** the edge service reaches Supabase over **HTTP** (`SUPABASE_URL` → Kong
 > → PostgREST), so it does **not** open raw Postgres sockets and needs no DB

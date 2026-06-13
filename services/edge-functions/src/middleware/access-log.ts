@@ -13,9 +13,15 @@
 // tasks can stamp it onto logs + captured exceptions, and echoed back in the
 // X-Request-Id response header. The access line is structured JSON.
 // US-508: the same line is the per-request latency/throughput metric.
+// US-578: the access line is the highest-volume log the edge emits, so it is
+// the main lever on logging cost. Successful (status < 400) lines are sampled
+// at EDGE_TRACE_SAMPLE_RATE (deterministic per correlation id, so a request's
+// access line and its timed() spans are kept/dropped together). Every 4xx/5xx
+// is ALWAYS logged — we never sample away error or audit signal. Retention,
+// rotation, and the cost budget are documented in OBSERVABILITY.md.
 import { createMiddleware } from "hono/factory";
 import { redact } from "../lib/log-redact.ts";
-import { logEvent, newCorrelationId } from "../lib/observability.ts";
+import { logEvent, newCorrelationId, shouldSampleTrace } from "../lib/observability.ts";
 
 export const accessLogger = createMiddleware(async (c, next) => {
   const start = Date.now();
@@ -41,11 +47,14 @@ export const accessLogger = createMiddleware(async (c, next) => {
   await next();
 
   const ms = Date.now() - start;
-  logEvent("info", "http.request", {
-    correlationId,
-    method,
-    path: safePath,
-    status: c.res.status,
-    durationMs: ms,
-  });
+  // Always log errors (4xx/5xx); sample successful requests to bound log cost.
+  if (c.res.status >= 400 || shouldSampleTrace(correlationId)) {
+    logEvent("info", "http.request", {
+      correlationId,
+      method,
+      path: safePath,
+      status: c.res.status,
+      durationMs: ms,
+    });
+  }
 });
