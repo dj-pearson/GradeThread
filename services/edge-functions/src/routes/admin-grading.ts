@@ -9,7 +9,7 @@ import {
   computeWeeklyAccuracySummary,
   exportTrainingDataset,
 } from "../lib/accuracy-tracking.ts";
-import { activatePromptVersion, runEval } from "../lib/grading-eval.ts";
+import { activatePromptVersion, runEval, runPromptDryRun } from "../lib/grading-eval.ts";
 import { invalidatePromptCache } from "../lib/ai-grading.ts";
 import {
   autoPromoteListingPrompt,
@@ -225,6 +225,98 @@ adminGradingRoutes.post("/prompts/:id/eval", async (c) => {
   } catch (err) {
     return c.json(
       { error: "Eval run failed", detail: err instanceof Error ? err.message : String(err) },
+      400,
+    );
+  }
+});
+
+// GET /sample-submissions — recently-graded submissions for the dry-run picker
+// (US-590). Every row is known to have images + garment info (it produced a
+// grade report), so it can be re-graded by the dry-run. Returns the live grade
+// for context. Platform-admin function over the whole corpus (no tenant scope).
+adminGradingRoutes.get("/sample-submissions", async (c) => {
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 30, 1), 100);
+  const { data: reports, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("submission_id, overall_score, grade_tier, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit * 3); // over-fetch: dedupe to one report per submission below
+  if (error) return c.json({ error: error.message }, 500);
+
+  // Keep the newest report per submission (the query is newest-first).
+  const seen = new Map<string, { overall_score: number; grade_tier: string }>();
+  for (const r of (reports ?? []) as Array<{
+    submission_id: string;
+    overall_score: number;
+    grade_tier: string;
+  }>) {
+    if (!seen.has(r.submission_id)) {
+      seen.set(r.submission_id, { overall_score: r.overall_score, grade_tier: r.grade_tier });
+    }
+    if (seen.size >= limit) break;
+  }
+  const ids = [...seen.keys()];
+  if (ids.length === 0) return c.json({ submissions: [] });
+
+  const { data: subs, error: subErr } = await supabaseAdmin
+    .from("submissions")
+    .select("id, title, garment_type, garment_category")
+    .in("id", ids);
+  if (subErr) return c.json({ error: subErr.message }, 500);
+
+  const byId = new Map(
+    ((subs ?? []) as Array<{
+      id: string;
+      title: string;
+      garment_type: string;
+      garment_category: string;
+    }>).map((s) => [s.id, s]),
+  );
+  const submissions = ids
+    .map((id) => {
+      const s = byId.get(id);
+      if (!s) return null;
+      const live = seen.get(id)!;
+      return {
+        id,
+        title: s.title,
+        garment_type: s.garment_type,
+        garment_category: s.garment_category,
+        current_score: live.overall_score,
+        current_tier: live.grade_tier,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+  return c.json({ submissions });
+});
+
+// POST /prompts/:id/dry-run — grade ONE chosen submission with the candidate
+// prompt AND the active prompt, returning both for side-by-side comparison
+// (US-590). Read-only spot-check (no persistence/gate); replaces the old fake
+// setTimeout "test". Body: { submission_id }.
+adminGradingRoutes.post("/prompts/:id/dry-run", async (c) => {
+  const id = c.req.param("id");
+  let body: { submission_id?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const submissionId = (body.submission_id ?? "").trim();
+  if (!submissionId) return c.json({ error: "submission_id is required" }, 400);
+
+  try {
+    const result = await runPromptDryRun(id, submissionId);
+    await auditLog(c, "dry_run_prompt", "ai_prompt_version", id, {
+      submission_id: submissionId,
+      stage: result.stage,
+      candidate_score: result.candidate.overall_score,
+      active_score: result.active.overall_score,
+    });
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: "Dry run failed", detail: err instanceof Error ? err.message : String(err) },
       400,
     );
   }

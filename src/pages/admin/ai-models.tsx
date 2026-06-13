@@ -113,6 +113,48 @@ interface EnrichedPromptVersion extends AiPromptVersionRow {
   agreedCount: number;
 }
 
+// US-590: real prompt dry-run (candidate vs active) against a sample submission.
+interface SampleSubmission {
+  id: string;
+  title: string;
+  garment_type: string;
+  garment_category: string;
+  current_score: number;
+  current_tier: string;
+}
+
+interface DryRunGrade {
+  overall_score: number;
+  grade_tier: string;
+  factor_scores: {
+    fabric_condition: number;
+    structural_integrity: number;
+    cosmetic_appearance: number;
+    functional_elements: number;
+    odor_cleanliness: number;
+  };
+  confidence_score: number;
+  needs_human_review: boolean;
+  ai_summary: string;
+  defects_found: number;
+  style_attributes: number;
+  prompt_version: string;
+}
+
+interface DryRunResponse {
+  submission: {
+    id: string;
+    title: string;
+    garment_type: string;
+    garment_category: string;
+    image_count: number;
+  };
+  stage: "per_image" | "composite";
+  candidate_uses_default: boolean;
+  candidate: DryRunGrade;
+  active: DryRunGrade;
+}
+
 const ACCURACY_THRESHOLD = 0.8; // 80% agreement rate
 
 const FACTOR_NAMES = [
@@ -130,6 +172,22 @@ const FACTOR_LABELS: Record<string, string> = {
   functional_elements: "Functional Elements",
   odor_cleanliness: "Odor & Cleanliness",
 };
+
+// US-590: the rows of the dry-run comparison table. Each pulls one value out of
+// a DryRunGrade so the Active/Candidate columns render from a single source.
+const DRY_RUN_ROWS: { label: string; get: (g: DryRunGrade) => string | number }[] = [
+  { label: "Overall score", get: (g) => g.overall_score.toFixed(1) },
+  { label: "Grade tier", get: (g) => g.grade_tier },
+  { label: "Fabric Condition", get: (g) => g.factor_scores.fabric_condition.toFixed(1) },
+  { label: "Structural Integrity", get: (g) => g.factor_scores.structural_integrity.toFixed(1) },
+  { label: "Cosmetic Appearance", get: (g) => g.factor_scores.cosmetic_appearance.toFixed(1) },
+  { label: "Functional Elements", get: (g) => g.factor_scores.functional_elements.toFixed(1) },
+  { label: "Odor & Cleanliness", get: (g) => g.factor_scores.odor_cleanliness.toFixed(1) },
+  { label: "Confidence", get: (g) => g.confidence_score.toFixed(2) },
+  { label: "Needs human review", get: (g) => (g.needs_human_review ? "Yes" : "No") },
+  { label: "Defects found", get: (g) => g.defects_found },
+  { label: "Style attributes", get: (g) => g.style_attributes },
+];
 
 const TOOLTIP_STYLE = {
   contentStyle: {
@@ -216,10 +274,14 @@ export function AdminAiModelsPage() {
   const [deleteTarget, setDeleteTarget] = useState<EnrichedPromptVersion | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Test prompt dialog
+  // Test prompt dialog (US-590: real dry-run, candidate vs active)
   const [testTarget, setTestTarget] = useState<EnrichedPromptVersion | null>(null);
-  const [testResult, setTestResult] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [dryRunResult, setDryRunResult] = useState<DryRunResponse | null>(null);
+  const [sampleSubs, setSampleSubs] = useState<SampleSubmission[]>([]);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [selectedSampleId, setSelectedSampleId] = useState<string>("");
 
   // Export loading state
   const [exportLoading, setExportLoading] = useState(false);
@@ -636,22 +698,64 @@ export function AdminAiModelsPage() {
     setEditPromptText(version.prompt_text);
   }
 
-  function handleTestPrompt(version: EnrichedPromptVersion) {
+  // US-590: open the dry-run dialog and lazily load a list of recently-graded
+  // submissions to test against. listing_gen prompts have their own eval path.
+  async function handleTestPrompt(version: EnrichedPromptVersion) {
     setTestTarget(version);
-    setTestResult(null);
+    setDryRunResult(null);
+    setTestError(null);
+    setSelectedSampleId("");
+    if (version.stage === "listing_gen") return;
+
+    if (sampleSubs.length === 0) {
+      setSampleLoading(true);
+      try {
+        const res = await edgeFetch(
+          "/api/admin/grading/sample-submissions?limit=30",
+          { silentGate: true },
+        );
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error ?? `HTTP ${res.status}`);
+        }
+        const data = (await res.json()) as { submissions: SampleSubmission[] };
+        setSampleSubs(data.submissions ?? []);
+      } catch (err) {
+        setTestError(
+          err instanceof Error ? err.message : "Failed to load sample submissions",
+        );
+      } finally {
+        setSampleLoading(false);
+      }
+    }
+  }
+
+  // US-590: run the candidate prompt + the active prompt against the chosen
+  // submission and show the two grades side-by-side.
+  async function handleRunDryRun() {
+    if (!testTarget || !selectedSampleId) return;
     setTestLoading(true);
-    // Simulate a dry run test — in production this would call the edge function
-    // with a sample submission and the selected prompt text
-    setTimeout(() => {
-      setTestResult(
-        `Dry run complete for "${version.version_name}".\n\n` +
-        `Prompt length: ${version.prompt_text.length} characters\n` +
-        `Status: Ready for production use\n\n` +
-        `Note: Full dry-run grading requires a connected AI service. ` +
-        `This test validates prompt structure and syntax only.`
+    setTestError(null);
+    setDryRunResult(null);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/grading/prompts/${testTarget.id}/dry-run`,
+        {
+          method: "POST",
+          json: { submission_id: selectedSampleId },
+          silentGate: true,
+        },
       );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.detail ?? data?.error ?? `HTTP ${res.status}`);
+      }
+      setDryRunResult((await res.json()) as DryRunResponse);
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : "Dry run failed");
+    } finally {
       setTestLoading(false);
-    }, 1500);
+    }
   }
 
   // ─── Compare helpers ──────────────────────────────────────────────
@@ -1891,30 +1995,150 @@ export function AdminAiModelsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ─── Test Prompt Dialog ─────────────────────────────────────── */}
+      {/* ─── Test Prompt Dialog (US-590: real candidate-vs-active dry-run) ─── */}
       <Dialog open={!!testTarget} onOpenChange={() => setTestTarget(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FlaskConical className="h-5 w-5 text-brand-red-text" />
-              Test Prompt: {testTarget?.version_name}
+              Dry-run: {testTarget?.version_name}
             </DialogTitle>
             <DialogDescription>
-              Dry run grading test on a sample submission.
+              Grade a real submission with this candidate prompt and the active
+              prompt, then compare the two outputs.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            {testLoading ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-3">
-                <Loader2 className="h-8 w-8 animate-spin text-brand-navy dark:text-foreground" />
-                <p className="text-sm text-muted-foreground">Running dry-run test...</p>
+            {testTarget?.stage === "listing_gen" ? (
+              <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+                Listing-generation prompts can't be grade-tested here. Use the
+                eval gate (golden listing cases) to validate them.
               </div>
-            ) : testResult ? (
-              <div className="rounded-lg border bg-muted/30 p-4">
-                <pre className="text-sm whitespace-pre-wrap font-mono">{testResult}</pre>
-              </div>
-            ) : null}
+            ) : (
+              <>
+                {/* Sample submission picker */}
+                <div className="space-y-2">
+                  <Label htmlFor="dry-run-sample">Sample submission</Label>
+                  {sampleLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading recently-graded submissions…
+                    </div>
+                  ) : sampleSubs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No graded submissions are available to test against yet.
+                    </p>
+                  ) : (
+                    <Select
+                      value={selectedSampleId}
+                      onValueChange={setSelectedSampleId}
+                      disabled={testLoading}
+                    >
+                      <SelectTrigger id="dry-run-sample">
+                        <SelectValue placeholder="Choose a submission to grade" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sampleSubs.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.title || "(untitled)"} — {s.garment_category} · CG{" "}
+                            {s.current_score.toFixed(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleRunDryRun}
+                    disabled={!selectedSampleId || testLoading || sampleLoading}
+                    className="bg-brand-navy hover:bg-brand-navy/90 text-white"
+                  >
+                    {testLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {testLoading ? "Grading…" : "Run dry-run"}
+                  </Button>
+                </div>
+
+                {testError && (
+                  <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                    {testError}
+                  </div>
+                )}
+
+                {dryRunResult && (
+                  <div className="space-y-3">
+                    {dryRunResult.candidate_uses_default && (
+                      <p className="text-xs text-muted-foreground">
+                        This version has no custom prompt text (code-default row),
+                        so the candidate and active grades are expected to match.
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Stage tested: <span className="font-medium">{dryRunResult.stage}</span>{" "}
+                      · {dryRunResult.submission.image_count} image
+                      {dryRunResult.submission.image_count === 1 ? "" : "s"}
+                    </p>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Metric</TableHead>
+                          <TableHead className="text-right">
+                            Active
+                            <div className="font-normal text-[10px] text-muted-foreground truncate max-w-[120px] ml-auto">
+                              {dryRunResult.active.prompt_version}
+                            </div>
+                          </TableHead>
+                          <TableHead className="text-right">
+                            Candidate
+                            <div className="font-normal text-[10px] text-muted-foreground truncate max-w-[120px] ml-auto">
+                              {dryRunResult.candidate.prompt_version}
+                            </div>
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {DRY_RUN_ROWS.map((row) => {
+                          const a = row.get(dryRunResult.active);
+                          const cand = row.get(dryRunResult.candidate);
+                          const diff = a !== cand;
+                          return (
+                            <TableRow key={row.label}>
+                              <TableCell className="font-medium">{row.label}</TableCell>
+                              <TableCell className="text-right tabular-nums">{a}</TableCell>
+                              <TableCell
+                                className={
+                                  "text-right tabular-nums " +
+                                  (diff ? "font-semibold text-brand-red-text" : "")
+                                }
+                              >
+                                {cand}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border bg-muted/30 p-3">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">
+                          Active summary
+                        </p>
+                        <p className="text-sm">{dryRunResult.active.ai_summary}</p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/30 p-3">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">
+                          Candidate summary
+                        </p>
+                        <p className="text-sm">{dryRunResult.candidate.ai_summary}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             <div className="flex justify-end">
               <Button variant="outline" onClick={() => setTestTarget(null)}>

@@ -8985,8 +8985,8 @@
         "Shows the candidate's output/factors vs the active prompt's for comparison"
       ],
       "priority": 590,
-      "passes": false,
-      "notes": "[P2][Admin/Grading] Deep-dive 2026-06-04. ai-models.tsx handleTestPrompt is a hard-coded setTimeout fake."
+      "passes": true,
+      "notes": "Completed 2026-06-12. Replaced the setTimeout fake with a real candidate-vs-active dry-run. New lib fn runPromptDryRun(promptVersionId, submissionId) in grading-eval.ts grades ONE chosen submission TWICE — once with the candidate prompt override and once with the active prompt — reusing analyzeImage/compositeGrade; per-image bytes downloaded once. For a composite-stage candidate per-image is computed once (shared) and only the composite call repeats; for a per-image-stage candidate the per-image pass runs twice. listing_gen rejected (use listing eval). Two edge routes on /api/admin/grading: GET /sample-submissions (recent graded submissions for the picker, deduped one-report-per-submission) and POST /prompts/:id/dry-run {submission_id} → {stage, candidate, active, candidate_uses_default, submission}; the dry-run is audited (dry_run_prompt) but read-only (no persistence/gate). ai-models.tsx handleTestPrompt now lazily loads sample submissions; handleRunDryRun calls the edge endpoint and the dialog shows a side-by-side comparison table (overall, tier, 5 factors, confidence, needs-review, defect/style counts — diffs highlighted) plus both AI summaries. Frontend DB type stage widened to include listing_gen (US-547 reality). tsc/build + deno check/lint green."
     },
     {
       "id": "US-591",

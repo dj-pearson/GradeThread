@@ -1398,7 +1398,8 @@ export interface AiPromptVersionRow {
   accuracy_score: number | null;
   total_grades: number;
   // Which grading stage this prompt drives + optional category scope (00050).
-  stage: "per_image" | "composite";
+  // listing_gen joined the stages for AutoLister listing prompts (US-547).
+  stage: "per_image" | "composite" | "listing_gen";
   garment_scope: string | null;
   eval_passed: boolean | null;
   eval_run_id: string | null;
@@ -1820,7 +1821,7 @@ export interface AiPromptVersionInsert {
   is_active?: boolean;
   accuracy_score?: number | null;
   total_grades?: number;
-  stage?: "per_image" | "composite";
+  stage?: "per_image" | "composite" | "listing_gen";
   garment_scope?: string | null;
   eval_passed?: boolean | null;
   eval_run_id?: string | null;

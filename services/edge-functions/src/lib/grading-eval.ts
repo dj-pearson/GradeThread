@@ -2,6 +2,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   analyzeImage,
   compositeGrade,
+  type CompositeGradeResult,
+  type FactorScores,
   type GarmentInfo,
   invalidatePromptCache,
   type PerImageAnalysis,
@@ -93,7 +95,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function downloadCaseImage(
+export async function downloadCaseImage(
   storagePath: string,
 ): Promise<{ dataUri: string } | { error: string }> {
   const { data, error } = await supabaseAdmin.storage
@@ -326,6 +328,192 @@ export async function runEval(
     thresholds,
     per_case: perCase,
     per_tag: perTag,
+  };
+}
+
+// ─── US-590: single-submission prompt dry-run ───────────────────────
+//
+// The admin "Test prompt" action runs a candidate prompt against ONE chosen
+// real submission and returns its grade side-by-side with the ACTIVE prompt's
+// grade for the same submission, so an operator can eyeball the divergence
+// before eval-gating/activating. Unlike runEval (the whole golden set, gated),
+// this is an interactive spot-check — no persistence, no gate.
+
+/** Flattened, UI-friendly view of a composite grade for the dry-run comparison. */
+export interface DryRunGrade {
+  overall_score: number;
+  grade_tier: string;
+  factor_scores: FactorScores;
+  confidence_score: number;
+  needs_human_review: boolean;
+  ai_summary: string;
+  defects_found: number;
+  style_attributes: number;
+  prompt_version: string;
+}
+
+export interface DryRunResult {
+  submission: {
+    id: string;
+    title: string;
+    garment_type: string;
+    garment_category: string;
+    image_count: number;
+  };
+  /** Which stage the candidate overrides; the other stage uses the active prompt. */
+  stage: "per_image" | "composite";
+  /** True when the candidate's prompt_text is empty (a code-default row) — the
+   *  candidate and active grades are then expected to match. */
+  candidate_uses_default: boolean;
+  candidate: DryRunGrade;
+  active: DryRunGrade;
+}
+
+function toDryRunGrade(r: CompositeGradeResult): DryRunGrade {
+  return {
+    overall_score: r.overall_score,
+    grade_tier: r.grade_tier,
+    factor_scores: r.factor_scores,
+    confidence_score: r.confidence_score,
+    needs_human_review: r.needs_human_review,
+    ai_summary: r.ai_summary,
+    defects_found: r.defects_found.length,
+    style_attributes: r.style_attributes.length,
+    prompt_version: r.prompt_version,
+  };
+}
+
+/**
+ * Grade ONE submission twice — once with the candidate prompt override and once
+ * with the active prompt — and return both for side-by-side comparison.
+ *
+ * For a composite-stage candidate the per-image analyses are computed ONCE
+ * (they're identical for both runs) and only the composite call is repeated, so
+ * the override is the only thing that differs. For a per-image-stage candidate
+ * the per-image pass itself changes, so it's run twice and each feeds its own
+ * composite. listing_gen prompts are not gradeable here (use the listing eval).
+ */
+export async function runPromptDryRun(
+  promptVersionId: string,
+  submissionId: string,
+): Promise<DryRunResult> {
+  const { data: version, error: versionError } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, version_name, prompt_text, stage")
+    .eq("id", promptVersionId)
+    .single();
+  if (versionError || !version) {
+    throw new Error(`Prompt version not found: ${promptVersionId}`);
+  }
+  const v = version as {
+    id: string;
+    version_name: string;
+    prompt_text: string | null;
+    stage: "per_image" | "composite" | "listing_gen";
+  };
+  if (v.stage === "listing_gen") {
+    throw new Error(
+      "listing_gen prompts can't be grade-tested. Use the listing eval gate instead.",
+    );
+  }
+
+  const { data: submission, error: subError } = await supabaseAdmin
+    .from("submissions")
+    .select("id, title, garment_type, garment_category, brand, description, style_attributes")
+    .eq("id", submissionId)
+    .single();
+  if (subError || !submission) {
+    throw new Error(`Submission not found: ${submissionId}`);
+  }
+  const s = submission as {
+    id: string;
+    title: string;
+    garment_type: string;
+    garment_category: string;
+    brand: string | null;
+    description: string | null;
+    style_attributes: string[] | null;
+  };
+
+  const { data: imageRows, error: imgError } = await supabaseAdmin
+    .from("submission_images")
+    .select("image_type, storage_path, display_order")
+    .eq("submission_id", submissionId)
+    .order("display_order", { ascending: true });
+  if (imgError) throw new Error(`Failed to load submission images: ${imgError.message}`);
+  const images = (imageRows ?? []) as Array<{ image_type: string; storage_path: string }>;
+  if (images.length === 0) {
+    throw new Error("Submission has no images to grade.");
+  }
+
+  // Download each image once; both runs reuse the bytes.
+  const downloaded: Array<{ image_type: string; dataUri: string }> = [];
+  for (const img of images) {
+    const dl = await downloadCaseImage(img.storage_path);
+    if ("error" in dl) throw new Error(`${img.storage_path}: ${dl.error}`);
+    downloaded.push({ image_type: img.image_type, dataUri: dl.dataUri });
+  }
+
+  const styleHint = Array.isArray(s.style_attributes) ? s.style_attributes : [];
+  const garmentInfo: GarmentInfo = {
+    garment_type: s.garment_type,
+    garment_category: s.garment_category,
+    brand: s.brand,
+    title: s.title,
+    description: s.description,
+    style_attributes: styleHint,
+  };
+
+  const override: ResolvedPrompt | undefined =
+    v.prompt_text && v.prompt_text.trim().length > 0
+      ? { text: v.prompt_text, versionName: v.version_name }
+      : undefined;
+
+  const analyzeAll = async (o?: ResolvedPrompt): Promise<PerImageAnalysis[]> => {
+    const out: PerImageAnalysis[] = [];
+    for (const im of downloaded) {
+      out.push(
+        await analyzeImage(
+          im.dataUri,
+          im.image_type,
+          s.garment_type,
+          s.garment_category,
+          styleHint,
+          o,
+        ),
+      );
+    }
+    return out;
+  };
+
+  let candidate: CompositeGradeResult;
+  let active: CompositeGradeResult;
+  if (v.stage === "per_image") {
+    const [perImageActive, perImageCandidate] = [
+      await analyzeAll(undefined),
+      await analyzeAll(override),
+    ];
+    active = await compositeGrade(perImageActive, garmentInfo, undefined);
+    candidate = await compositeGrade(perImageCandidate, garmentInfo, undefined);
+  } else {
+    // composite stage: per-image is shared; only the composite prompt differs.
+    const perImage = await analyzeAll(undefined);
+    active = await compositeGrade(perImage, garmentInfo, undefined);
+    candidate = await compositeGrade(perImage, garmentInfo, override);
+  }
+
+  return {
+    submission: {
+      id: s.id,
+      title: s.title,
+      garment_type: s.garment_type,
+      garment_category: s.garment_category,
+      image_count: downloaded.length,
+    },
+    stage: v.stage,
+    candidate_uses_default: override === undefined,
+    candidate: toDryRunGrade(candidate),
+    active: toDryRunGrade(active),
   };
 }
 
