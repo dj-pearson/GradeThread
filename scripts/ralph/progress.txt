@@ -2278,3 +2278,11 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean; deno check (4 edge files) clean; deno test photo-reuse+schema-version 19/19 pass (4 new originalPhotosVerified cases); npm run build:locked green (37 prerendered pages); npm test 684/684 pass (parity now green); npm run verify:db green (all 194 migrations apply from zero in Docker).
 - Timestamp: 2026-06-13
 ---
+
+## US-862: Viral share + referral CTAs across the app
+- Status: COMPLETE
+- Files changed: src/lib/share.ts (new), src/components/referral/invite-friend-card.tsx (new), src/pages/dashboard.tsx, src/pages/submission-detail.tsx, src/pages/verified-seller.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Pure amplification/placement on top of the already-wired referral + certificate-share backends — no new program logic. (1) New shareOrCopy() helper in src/lib/share.ts: native Web Share sheet with clipboard fallback + toast, returns "shared"/"copied"/"dismissed"/"failed" so callers fire the right analytics method (and we never copy after an explicit AbortError dismiss). (2) InviteFriendCard reuses GET /api/referrals/me (same TanStack query key "referrals-me" as referrals.tsx, so it shares cache) and surfaces the existing /signup?ref=CODE link with copy + share actions; renders null until the code resolves; placed on the dashboard right after FlipdeskPromoCard. (3) Post-grade prompt: a "Share your certificate" card in submission-detail.tsx shown when status==="completed" && certificate_id, reusing CertShareActions (its link already carries ?s=share for US-769 attribution). (4) "Share your store" button in verified-seller.tsx header → shareOrCopy of profileUrl(handle)?s=share, tracked as seller_profile_share. New analytics events: referral_share (surface=dashboard), seller_profile_share. Reused brand-red utility classes (border-brand-red/30 bg-brand-red/5, text-brand-red-text).
+- Verification: npx tsc --noEmit clean; npm run build:locked green (37 prerendered pages); npm test 684/684 pass; eslint clean on all 5 changed source files.
+- Timestamp: 2026-06-13
+---

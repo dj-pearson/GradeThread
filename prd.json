@@ -12702,8 +12702,8 @@
         "npm run build passes"
       ],
       "priority": 862,
-      "passes": false,
-      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Referral core already exists (referrals.tsx -> /api/referrals/me|redeem, /signup?ref=). This is amplification/placement only."
+      "passes": true,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Referral core already exists (referrals.tsx -> /api/referrals/me|redeem, /signup?ref=). This is amplification/placement only. | IMPLEMENTED: dashboard InviteFriendCard (reuses /api/referrals/me), post-grade share-certificate prompt in submission-detail (CertShareActions, ?s=share), share-your-store button on verified-seller profile. Shared shareOrCopy helper in src/lib/share.ts. No new program logic."
     },
     {
       "id": "US-863",

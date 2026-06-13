@@ -65,6 +65,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
+import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
@@ -1197,6 +1198,32 @@ export function SubmissionDetailPage() {
               </p>
             )}
             <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* US-862: post-grade share prompt — nudge the seller to share their
+          certificate at the moment the grade lands. Reuses CertShareActions,
+          whose shared link carries ?s=share for attribution (US-769). */}
+      {submission.status === "completed" && gradeReport?.certificate_id && (
+        <Card className="border-brand-red/30 bg-brand-red/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Share2 className="h-5 w-5 text-brand-red-text" />
+              Share your certificate
+            </CardTitle>
+            <CardDescription>
+              Show buyers this item is independently graded. Share the verified
+              certificate to your listing or socials — every view builds trust.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CertShareActions
+              certificateId={gradeReport.certificate_id}
+              title={submission.title}
+              score={gradeReport.overall_score}
+              tier={gradeReport.grade_tier}
+            />
           </CardContent>
         </Card>
       )}

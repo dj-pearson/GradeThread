@@ -35,6 +35,7 @@ const GradeCharts = lazy(() =>
 );
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
 import { FlipdeskPromoCard } from "@/components/flipdesk/flipdesk-promo-card";
+import { InviteFriendCard } from "@/components/referral/invite-friend-card";
 import { UsageMeters } from "@/components/billing/usage-meter";
 
 interface RecentSubmission extends SubmissionRow {
@@ -245,6 +246,9 @@ export function DashboardPage() {
 
       {/* FlipDesk cross-promotion (zero-inventory users only) */}
       <FlipdeskPromoCard itemCount={inventoryData?.totalItemCount} />
+
+      {/* US-862: invite a friend — amplifies the existing referral program */}
+      <InviteFriendCard />
 
       {/* Use-case tailored quick start */}
       {profile?.use_case === "developer" && (

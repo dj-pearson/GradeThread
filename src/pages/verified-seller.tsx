@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BadgeCheck, AlertTriangle, ExternalLink, ImageOff } from "lucide-react";
+import {
+  BadgeCheck,
+  AlertTriangle,
+  ExternalLink,
+  ImageOff,
+  Share2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -13,6 +20,9 @@ import { SEO } from "@/components/seo";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { profileUrl } from "@/lib/verified";
+import { shareOrCopy } from "@/lib/share";
+import { track } from "@/lib/analytics";
 
 interface RecentCert {
   id: string;
@@ -225,6 +235,24 @@ export function VerifiedSellerPage() {
       })
     : null;
 
+  // US-862: "share your store" — native share sheet / copy of the public
+  // profile link, carrying ?s=share for view attribution (US-769).
+  const shareStore = async () => {
+    const url = `${profileUrl(seller.handle)}?s=share`;
+    const result = await shareOrCopy({
+      title: `${seller.display_name} — GradeThread Verified Seller`,
+      text: `Shop ${seller.display_name}'s GradeThread Verified store — every item is independently AI condition-graded.`,
+      url,
+      copiedMessage: "Store link copied",
+    });
+    if (result === "shared" || result === "copied") {
+      track("seller_profile_share", {
+        handle: seller.handle,
+        method: result === "shared" ? "web_share" : "copy",
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <SEO
@@ -245,6 +273,15 @@ export function VerifiedSellerPage() {
           {seller.bio && (
             <p className="max-w-xl text-sm text-white/80">{seller.bio}</p>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={shareStore}
+            className="mt-1 border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+          >
+            <Share2 className="mr-1.5 h-4 w-4" />
+            Share your store
+          </Button>
         </div>
       </div>
 
