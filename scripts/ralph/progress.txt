@@ -1516,3 +1516,33 @@ Branch: ralph/gradethread-build
     eslint all clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-599: Ship the first real non-eBay marketplace connector
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/shopify-client.ts (NEW — OAuth + Admin REST + connection storage)
+  - services/edge-functions/src/lib/marketplace-adapters/shopify.ts (NEW — real publish/end adapter)
+  - services/edge-functions/src/lib/marketplace-adapters/{types,index}.ts (register shopify as a dispatch platform)
+  - services/edge-functions/src/lib/cross-listings.ts (auto-end delists Shopify siblings)
+  - services/edge-functions/src/routes/flipdesk-shopify.ts (NEW — oauth start/callback/disconnect, listings/pull sync)
+  - services/edge-functions/src/main.ts (import + auth/workspace/rate-limit middleware + mount)
+  - services/edge-functions/src/lib/env-validation.ts (shopify feature group)
+  - services/edge-functions/src/tests/shopify-client_test.ts (NEW), marketplace-adapters_test.ts (guard updated)
+  - src/lib/constants.ts (CROSS_LISTING_PLATFORMS += shopify; LIVE_CROSS_LISTING_PLATFORMS)
+  - src/pages/flipdesk/composer.tsx (shopify shown as live, not "saved locally")
+  - src/hooks/use-shopify.ts (NEW), src/pages/flipdesk/marketplaces.tsx (Shopify connect/sync card + callback toasts)
+- Notes:
+  - Chose Shopify because it's the only listed FlipDesk platform with a genuine public write API
+    (Poshmark/Mercari/Depop have none) — already specced pushMechanism:"api" in marketplace-specs.ts.
+    No DB migration needed: listing_platform enum already includes 'shopify' (00008).
+  - OAuth callback is HMAC-verified with the app secret before trusting shop/code; offline token
+    stored encrypted (AES-GCM, user_id AAD) like the eBay path. No token expiry/refresh for Shopify.
+  - Reconciliation is already marketplace-agnostic; the order-ingest sync feeds it shopify
+    payout_imports + sales so the existing amount/date matcher links them. estimateShopifyNet
+    models the 2.9% + $0.30 Shopify Payments fee.
+  - Pure-helper test must dynamic-import shopify-client after setting dummy SUPABASE_URL env
+    (module imports the service-role client at init).
+  - Verified: deno check src/main.ts, deno lint, deno test (shopify + adapters + reconciliation
+    + cross-listing-fields), npx tsc -b, npm run build, vitest marketplace-specs (81 passed).
+- Timestamp: 2026-06-12
+---

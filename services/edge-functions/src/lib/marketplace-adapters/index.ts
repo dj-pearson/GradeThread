@@ -1,4 +1,5 @@
 import { ebayAdapter } from "./ebay.ts";
+import { shopifyAdapter } from "./shopify.ts";
 import { poshmarkAdapter } from "./poshmark.ts";
 import { mercariAdapter } from "./mercari.ts";
 import { depopAdapter } from "./depop.ts";
@@ -8,6 +9,7 @@ export * from "./types.ts";
 
 const ADAPTERS: Record<CrossListingPlatform, MarketplaceAdapter> = {
   ebay: ebayAdapter,
+  shopify: shopifyAdapter,
   poshmark: poshmarkAdapter,
   mercari: mercariAdapter,
   depop: depopAdapter,

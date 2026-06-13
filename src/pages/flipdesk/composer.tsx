@@ -75,6 +75,7 @@ import {
 import {
   CROSS_LISTING_PLATFORMS,
   EBAY_CONDITION_OPTIONS,
+  LIVE_CROSS_LISTING_PLATFORMS,
   MARKETPLACE_LABELS,
   type CrossListingPlatform,
 } from "@/lib/constants";
@@ -1338,7 +1339,9 @@ export function FlipdeskComposerPage() {
                       <span className="font-medium">
                         {MARKETPLACE_LABELS[p]}
                       </span>
-                      {p !== "ebay" && (
+                      {!(LIVE_CROSS_LISTING_PLATFORMS as readonly string[]).includes(
+                        p,
+                      ) && (
                         <Badge variant="outline" className="text-[10px]">
                           saved locally — publish coming soon
                         </Badge>

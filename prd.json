@@ -9101,8 +9101,8 @@
         "Resolves the gap US-458 names (multi-marketplace promise vs eBay-only reality)"
       ],
       "priority": 599,
-      "passes": false,
-      "notes": "[P2][Differentiation/FlipDesk] Deep-dive 2026-06-04. MARKETPLACE_LABELS/LISTING_PLATFORMS promise Poshmark/Mercari/Depop/Grailed/Whatnot but everything is eBay-only."
+      "passes": true,
+      "notes": "[P2][Differentiation/FlipDesk] Deep-dive 2026-06-04. MARKETPLACE_LABELS/LISTING_PLATFORMS promise Poshmark/Mercari/Depop/Grailed/Whatnot but everything is eBay-only. [DONE 2026-06-12] Shipped Shopify as the first REAL non-eBay connector (Shopify has a documented OAuth2 + Admin REST API; Poshmark/Mercari/Depop have no public write API). New: lib/shopify-client.ts (OAuth consent + HMAC-verified callback + token exchange, offline token stored encrypted in marketplace_connections marketplace=shopify, AES-GCM AAD; createProduct/updateProduct/deleteProduct/getProductStatus/listPaidOrders Admin REST helpers), marketplace-adapters/shopify.ts (real publish=create/update product, end=delete product; registered in adapter registry), routes/flipdesk-shopify.ts (/oauth/start, public HMAC-verified /oauth/callback, /disconnect, /listings/pull = status-refresh + paid-order ingest). Crosslisting: shopify added to CROSS_LISTING_PLATFORMS + adapter registry so cross-push publishes live; cross-listings.ts auto-end now delists Shopify siblings. Reconciliation: order ingest writes marketplace=shopify payout_imports + sales rows that the (already marketplace-agnostic) matcher reconciles by amount/date (estimateShopifyNet 2.9%+$0.30). Frontend: use-shopify.ts hooks + Shopify connect/sync card on marketplaces page + composer marks shopify as live (not \"saved locally\"). env-validation feature group + main.ts wiring (auth/workspace/rate-limit/mount). Tests: shopify-client_test.ts (domain norm, OAuth HMAC, product payload, net estimate); adapters guard test updated. Resolves the US-458 multi-marketplace gap."
     },
     {
       "id": "US-600",

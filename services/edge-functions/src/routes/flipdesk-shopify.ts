@@ -1,0 +1,448 @@
+import { Hono } from "hono";
+import { supabaseAdmin } from "../lib/supabase.ts";
+import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { autoEndCrossListings } from "../lib/cross-listings.ts";
+import {
+  buildConsentUrl,
+  estimateShopifyNet,
+  exchangeCodeForToken,
+  getProductStatus,
+  getShopifyConnection,
+  getShopInfo,
+  isShopifyConfigured,
+  listPaidOrders,
+  normalizeShopDomain,
+  upsertShopifyConnection,
+  verifyOAuthHmac,
+} from "../lib/shopify-client.ts";
+
+// Shopify integration endpoints (US-599). Mounted at /api/flipdesk/shopify.
+//
+// Auth split mirrors the eBay module:
+//   - /oauth/start    → user-authed (initiates from inside the app)
+//   - /oauth/callback → public (Shopify redirects the browser here unauthed;
+//                       the `state` row identifies the user, and the request is
+//                       HMAC-verified with our app secret)
+//   - everything else → user-authed via main.ts middleware
+//
+// Required env: SHOPIFY_API_KEY, SHOPIFY_API_SECRET, SHOPIFY_REDIRECT_URI,
+//               SHOPIFY_SCOPES (optional), EDGE_ENCRYPTION_KEY.
+
+type ShopifyEnv = {
+  Variables: {
+    userId: string;
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
+  };
+};
+
+export const flipdeskShopifyRoutes = new Hono<ShopifyEnv>();
+
+function generateState(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function appUrl(pathOrUrl: string): string {
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  const origin = Deno.env.get("FLIPDESK_APP_ORIGIN") ??
+    Deno.env.get("GRADETHREAD_APP_ORIGIN") ??
+    "https://gradethread.com";
+  return `${origin.replace(/\/$/, "")}${
+    pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`
+  }`;
+}
+
+// ── OAuth: start ───────────────────────────────────────────────────
+// The user supplies their *.myshopify.com store handle. We validate it,
+// enforce the marketplace-connection cap, persist a single-use state row, and
+// return { consent_url } for the SPA to redirect to.
+flipdeskShopifyRoutes.get("/oauth/start", async (c) => {
+  if (!isShopifyConfigured()) {
+    return c.json({ error: "Shopify is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  const shop = normalizeShopDomain(c.req.query("shop"));
+  if (!shop) {
+    return c.json(
+      { error: "Enter your Shopify store domain, e.g. my-store.myshopify.com." },
+      400,
+    );
+  }
+  const redirectTo = sanitizeRelativePath(c.req.query("redirect_to"));
+
+  // US-382: enforce the marketplace-connection cap. A reconnect of an existing
+  // Shopify store must NOT count as a new marketplace (it updates the same row).
+  const { count: activeShopify } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("marketplace", "shopify")
+    .eq("is_active", true);
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "marketplaces", delta: (activeShopify ?? 0) > 0 ? 0 : 1 },
+    userId,
+  });
+  if (capGate) return capGate;
+
+  const state = generateState();
+  // Stash the chosen shop in redirect_to-adjacent state by reusing the state
+  // row's marketplace; the shop itself is re-derived from (and HMAC-verified in)
+  // the callback query, so it doesn't need persisting.
+  const { error } = await supabaseAdmin.from("oauth_states").insert({
+    state,
+    user_id: userId,
+    marketplace: "shopify",
+    redirect_to: redirectTo,
+    expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+  });
+  if (error) {
+    console.error("[flipdesk-shopify] failed to persist oauth state:", error);
+    return c.json({ error: "Could not start Shopify sign-in." }, 500);
+  }
+
+  let consentUrl: string;
+  try {
+    consentUrl = buildConsentUrl(shop, state);
+  } catch (err) {
+    console.error("[flipdesk-shopify] could not build consent URL:", err);
+    return c.json({ error: "Shopify is not configured on this server." }, 503);
+  }
+  console.log(`[flipdesk-shopify] consent URL built: host=${shop}`);
+  return c.json({ consent_url: consentUrl });
+});
+
+// ── OAuth: callback (PUBLIC) ───────────────────────────────────────
+flipdeskShopifyRoutes.get("/oauth/callback", async (c) => {
+  if (!isShopifyConfigured()) {
+    return c.json({ error: "Shopify is not configured on this server." }, 503);
+  }
+
+  const url = new URL(c.req.url);
+  const query: Record<string, string> = {};
+  for (const [k, v] of url.searchParams.entries()) query[k] = v;
+
+  const code = query.code;
+  const state = query.state;
+  const shop = normalizeShopDomain(query.shop);
+
+  // Read + delete the single-use state row up front so a replay can't reuse it,
+  // and so every exit path bounces back to the same claimed destination.
+  let redirectTo: string | null = null;
+  let stateUserId: string | null = null;
+  let stateFound = false;
+  let stateExpired = false;
+  if (state) {
+    const { data: stateRow } = await supabaseAdmin
+      .from("oauth_states")
+      .delete()
+      .eq("state", state)
+      .eq("marketplace", "shopify")
+      .select("user_id, redirect_to, expires_at")
+      .maybeSingle();
+    if (stateRow) {
+      stateFound = true;
+      redirectTo = sanitizeRelativePath(stateRow.redirect_to);
+      stateUserId = stateRow.user_id;
+      stateExpired = new Date(stateRow.expires_at).getTime() < Date.now();
+    }
+  }
+
+  const finish = (status: string) => {
+    const base = redirectTo ?? "/dashboard/flipdesk/marketplaces";
+    const sep = base.includes("?") ? "&" : "?";
+    return c.redirect(appUrl(`${base}${sep}shopify=${encodeURIComponent(status)}`));
+  };
+
+  // Verify Shopify's HMAC over the query BEFORE trusting shop/code — this is
+  // what authenticates the request as genuinely from Shopify.
+  if (!(await verifyOAuthHmac(query))) {
+    console.error("[flipdesk-shopify] OAuth callback HMAC verification failed");
+    return finish("invalid_signature");
+  }
+  if (!code || !state || !shop) {
+    return finish("cancelled");
+  }
+  if (!stateFound || !stateUserId) {
+    return finish("invalid_state");
+  }
+  if (stateExpired) {
+    return finish("state_expired");
+  }
+
+  try {
+    const tokens = await exchangeCodeForToken(shop, code);
+    const info = await getShopInfo(shop, tokens.access_token);
+    await upsertShopifyConnection({
+      userId: stateUserId,
+      shop,
+      accessToken: tokens.access_token,
+      scope: tokens.scope,
+      externalAccountId: info?.id ?? null,
+    });
+  } catch (err) {
+    console.error("[flipdesk-shopify] OAuth exchange failed:", err);
+    return finish("exchange_failed");
+  }
+
+  return finish("connected");
+});
+
+// ── Disconnect ─────────────────────────────────────────────────────
+// Shopify offline tokens are revoked by uninstalling the app from the store;
+// there's no token-revocation endpoint, so we deactivate + null the stored
+// token locally. Tenant-scoped to the workspace owner.
+flipdeskShopifyRoutes.post("/disconnect", async (c) => {
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
+    | string
+    | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const { error } = await supabaseAdmin
+    .from("marketplace_connections")
+    .update({
+      is_active: false,
+      access_token_encrypted: null,
+      refresh_token_encrypted: null,
+      token_expires_at: null,
+      refresh_error: "disconnected",
+    })
+    .eq("user_id", userId)
+    .eq("marketplace", "shopify");
+  if (error) {
+    return c.json({ error: "Could not disconnect Shopify." }, 500);
+  }
+  return c.json({ ok: true });
+});
+
+// ── Sync (pull) ────────────────────────────────────────────────────
+// One button does the round-trip, mirroring eBay's /listings/pull:
+//   1. Status-refresh every active Shopify listing (delete-on-Shopify /
+//      archived → mark ended locally).
+//   2. Ingest PAID orders → mark matching listings sold, create the sale row,
+//      auto-end cross-listing siblings, and write a payout_imports row so the
+//      (marketplace-agnostic) Reconciliation queue can match it.
+const STATUS_REFRESH_CAP = 200;
+
+flipdeskShopifyRoutes.post("/listings/pull", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const conn = await getShopifyConnection(userId);
+  if (!conn) {
+    return c.json({ error: "Connect your Shopify store first." }, 400);
+  }
+
+  let listingsSynced = 0;
+  let ended = 0;
+  let salesNew = 0;
+  let payoutsNew = 0;
+  const errors: string[] = [];
+
+  // 1 ── status refresh of active Shopify listings ──────────────────
+  const { data: activeRows } = await supabaseAdmin
+    .from("listings")
+    .select("id, platform_listing_id, inventory_items!inner(user_id)")
+    .eq("platform", "shopify")
+    .eq("is_active", true)
+    .eq("inventory_items.user_id", userId)
+    .not("platform_listing_id", "is", null)
+    .limit(STATUS_REFRESH_CAP);
+  for (
+    const row of (activeRows ?? []) as unknown as Array<{
+      id: string;
+      platform_listing_id: string | null;
+    }>
+  ) {
+    if (!row.platform_listing_id) continue;
+    try {
+      const status = await getProductStatus(
+        conn.shop,
+        conn.token,
+        row.platform_listing_id,
+      );
+      listingsSynced++;
+      // Deleted on Shopify ("gone") or no longer "active" (archived/draft) →
+      // mark the local row ended. A null status (transient read failure) or a
+      // genuinely active product is left untouched.
+      const goneOrInactive = status === "gone" ||
+        (status !== null && status.status != null && status.status !== "active");
+      if (goneOrInactive) {
+        await supabaseAdmin
+          .from("listings")
+          .update({ listing_status: "ended", is_active: false })
+          .eq("id", row.id);
+        ended++;
+      }
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // 2 ── order ingest (reconciliation feed) ─────────────────────────
+  const { data: connRow } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("last_synced_at")
+    .eq("user_id", userId)
+    .eq("marketplace", "shopify")
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const lastSynced =
+    (connRow as { last_synced_at: string | null } | null)?.last_synced_at ??
+      null;
+  // Default to a 90-day backfill on the first sync.
+  const sinceIso = lastSynced ??
+    new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
+
+  try {
+    const orders = await listPaidOrders(conn.shop, conn.token, sinceIso);
+    // Collect product ids referenced by the orders, then map → local listings.
+    const productIds = new Set<string>();
+    for (const o of orders) {
+      for (const li of o.lineItems) {
+        if (li.productId) productIds.add(li.productId);
+      }
+    }
+    const listingByProduct = new Map<
+      string,
+      { id: string; inventory_item_id: string; listing_status: string }
+    >();
+    if (productIds.size > 0) {
+      const { data: matchRows } = await supabaseAdmin
+        .from("listings")
+        .select(
+          "id, inventory_item_id, platform_listing_id, listing_status, inventory_items!inner(user_id)",
+        )
+        .eq("platform", "shopify")
+        .eq("inventory_items.user_id", userId)
+        .in("platform_listing_id", [...productIds]);
+      for (
+        const r of (matchRows ?? []) as unknown as Array<{
+          id: string;
+          inventory_item_id: string;
+          platform_listing_id: string;
+          listing_status: string;
+        }>
+      ) {
+        listingByProduct.set(r.platform_listing_id, {
+          id: r.id,
+          inventory_item_id: r.inventory_item_id,
+          listing_status: r.listing_status,
+        });
+      }
+    }
+
+    for (const order of orders) {
+      for (const li of order.lineItems) {
+        if (!li.productId) continue;
+        const listing = listingByProduct.get(li.productId);
+        if (!listing) continue;
+
+        const ref = `shopify:${order.id}:${li.productId}`;
+        const gross = li.price * (li.quantity > 0 ? li.quantity : 1);
+        const net = estimateShopifyNet(gross);
+        const soldAt = order.processedAt ?? new Date().toISOString();
+
+        // Mark the listing sold (idempotent).
+        if (listing.listing_status !== "sold") {
+          await supabaseAdmin
+            .from("listings")
+            .update({ listing_status: "sold", is_active: false })
+            .eq("id", listing.id);
+          await supabaseAdmin
+            .from("inventory_items")
+            .update({ status: "sold" })
+            .eq("id", listing.inventory_item_id);
+          // End the same garment's siblings on other marketplaces.
+          await autoEndCrossListings(userId, listing.id);
+        }
+
+        // Ensure a sale row exists for this listing (dedupe by listing_id).
+        const { data: existingSale } = await supabaseAdmin
+          .from("sales")
+          .select("id")
+          .eq("listing_id", listing.id)
+          .limit(1)
+          .maybeSingle();
+        if (!existingSale) {
+          const { error: saleErr } = await supabaseAdmin.from("sales").insert({
+            inventory_item_id: listing.inventory_item_id,
+            listing_id: listing.id,
+            sale_price: gross,
+            payout_amount: net,
+            payment_processing_fees: Math.max(0, Math.round((gross - net) * 100) / 100),
+            sold_at: soldAt,
+            sale_date: soldAt,
+            buyer_username: order.name || null,
+          });
+          if (saleErr) {
+            errors.push(`sale insert: ${saleErr.message}`);
+          } else {
+            salesNew++;
+          }
+        }
+
+        // Ensure a payout_imports row exists (dedupe by raw_payload->>external_id).
+        const { data: existingPayout } = await supabaseAdmin
+          .from("payout_imports")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("raw_payload->>external_id", ref)
+          .limit(1)
+          .maybeSingle();
+        if (!existingPayout) {
+          const { error: payoutErr } = await supabaseAdmin
+            .from("payout_imports")
+            .insert({
+              user_id: userId,
+              marketplace: "shopify",
+              import_method: "api_sync",
+              amount: net,
+              payout_date: soldAt.slice(0, 10),
+              reconciled: false,
+              raw_payload: {
+                external_id: ref,
+                payoutid: ref,
+                order_id: order.id,
+                order_name: order.name,
+                product_id: li.productId,
+                gross,
+                net,
+              },
+            });
+          if (payoutErr) {
+            errors.push(`payout insert: ${payoutErr.message}`);
+          } else {
+            payoutsNew++;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  // Stamp the sync time so the next pull only fetches new orders.
+  await supabaseAdmin
+    .from("marketplace_connections")
+    .update({ last_synced_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("marketplace", "shopify");
+
+  return c.json({
+    ok: true,
+    listings_synced: listingsSynced,
+    ended,
+    sales_new: salesNew,
+    payouts_new: payoutsNew,
+    errors,
+  });
+});

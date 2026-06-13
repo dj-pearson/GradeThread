@@ -1,15 +1,21 @@
 // Marketplace adapter interface for cross-listing dispatch (US-149).
 //
 // Each platform FlipDesk can push a draft to implements this interface. eBay
-// is fully wired (delegates to the US-121 publish pipeline); Poshmark, Mercari,
-// and Depop are stubs that return 501 so the cross-push endpoint can create
-// their denormalized listings rows today and publish them once each
-// integration ships — no caller changes needed.
+// and Shopify are fully wired (eBay → US-121 publish pipeline; Shopify → the
+// Admin API, US-599); Poshmark, Mercari, and Depop are stubs that return 501 so
+// the cross-push endpoint can create their denormalized listings rows today and
+// publish them once each integration ships — no caller changes needed.
 
-export type CrossListingPlatform = "ebay" | "poshmark" | "mercari" | "depop";
+export type CrossListingPlatform =
+  | "ebay"
+  | "shopify"
+  | "poshmark"
+  | "mercari"
+  | "depop";
 
 export const CROSS_LISTING_PLATFORMS: readonly CrossListingPlatform[] = [
   "ebay",
+  "shopify",
   "poshmark",
   "mercari",
   "depop",

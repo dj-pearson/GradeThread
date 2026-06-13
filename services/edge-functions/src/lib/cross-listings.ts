@@ -1,19 +1,22 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { withdrawOffer } from "./ebay-client.ts";
+import { deleteProduct, getShopifyConnection } from "./shopify-client.ts";
 
-// Auto-end of cross-listed siblings (US-149). When one listing in a
+// Auto-end of cross-listed siblings (US-149 + US-599). When one listing in a
 // cross-listing group (rows sharing listings.draft_id) sells, end the others
 // so the same garment isn't sold twice. Gated by the per-user
 // flipdesk_settings.auto_end_cross_listings toggle (absent row = enabled).
 //
-// Imports withdrawOffer directly from ebay-client (NOT via the marketplace
-// adapters) so flipdesk-ebay.ts → cross-listings.ts stays cycle-free: the
-// eBay adapter imports publishItemForOwner from flipdesk-ebay.ts.
+// Imports the upstream-end helpers DIRECTLY from ebay-client / shopify-client
+// (NOT via the marketplace adapters) so flipdesk-ebay.ts → cross-listings.ts
+// stays cycle-free: the eBay adapter imports publishItemForOwner from
+// flipdesk-ebay.ts. shopify-client has no back-edge into this module.
 
 interface SiblingRow {
   id: string;
   platform: string;
   platform_offer_id: string | null;
+  platform_listing_id: string | null;
   listing_status: string;
   inventory_items: { user_id: string };
 }
@@ -47,7 +50,7 @@ export async function autoEndCrossListings(
     const { data, error } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, platform, platform_offer_id, listing_status, inventory_items!inner(user_id)",
+        "id, platform, platform_offer_id, platform_listing_id, listing_status, inventory_items!inner(user_id)",
       )
       .eq("draft_id", draftId)
       .eq("inventory_items.user_id", ownerId)
@@ -72,6 +75,23 @@ export async function autoEndCrossListings(
         } catch (err) {
           console.warn(
             "[cross-listings] withdrawOffer during auto-end failed (continuing):",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+      // Shopify siblings (US-599) delist by deleting the product. Best-effort:
+      // a missing product / connection just leaves the local row to be marked
+      // ended below. The product id lives in platform_listing_id (Shopify has
+      // no separate "offer" concept).
+      if (row.platform === "shopify" && row.platform_listing_id) {
+        try {
+          const conn = await getShopifyConnection(ownerId);
+          if (conn) {
+            await deleteProduct(conn.shop, conn.token, row.platform_listing_id);
+          }
+        } catch (err) {
+          console.warn(
+            "[cross-listings] Shopify delist during auto-end failed (continuing):",
             err instanceof Error ? err.message : String(err),
           );
         }

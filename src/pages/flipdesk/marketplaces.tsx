@@ -51,17 +51,50 @@ import {
   useSyncEbayPolicies,
   type EbayConnection,
 } from "@/hooks/use-ebay";
+import {
+  useDisconnectShopify,
+  useShopifyConnection,
+  useStartShopifyOauth,
+  useSyncShopify,
+} from "@/hooks/use-shopify";
 
 // Marketplaces still "coming soon" — shown as a single muted row, not big
-// disabled cards, so they don't compete with the eBay setup that matters now.
+// disabled cards, so they don't compete with the live connectors that matter.
 const COMING_SOON = [
   "poshmark",
   "mercari",
-  "shopify",
   "depop",
   "grailed",
   "whatnot",
 ] as const;
+
+// User-facing copy for the Shopify OAuth callback result codes.
+const SHOPIFY_CALLBACK_MESSAGES: Record<
+  string,
+  { type: "success" | "info" | "error"; message: string }
+> = {
+  connected: {
+    type: "success",
+    message: "Shopify store connected. FlipDesk can now publish and sync products.",
+  },
+  cancelled: { type: "info", message: "Shopify sign-in cancelled." },
+  invalid_signature: {
+    type: "error",
+    message: "Shopify sign-in could not be verified. Please try again.",
+  },
+  invalid_state: {
+    type: "error",
+    message: "Shopify sign-in expired or was tampered with. Please try again.",
+  },
+  state_expired: {
+    type: "error",
+    message: "Shopify sign-in took too long and expired. Please try again.",
+  },
+  exchange_failed: {
+    type: "error",
+    message: "Could not complete Shopify sign-in. Please retry, and contact support if it persists.",
+  },
+};
 
 // User-facing copy for the result codes the OAuth callback may add to the URL.
 const CALLBACK_MESSAGES: Record<
@@ -652,6 +685,109 @@ function EbaySetup({
   );
 }
 
+// ── Shopify setup + sync card (US-599) ───────────────────────────────────
+// Shopify uses a single store-domain → OAuth → done flow (no policies/location
+// like eBay). Once connected, the same card runs the day-to-day sync.
+function ShopifySetup() {
+  const { data: connection, isLoading } = useShopifyConnection();
+  const startOauth = useStartShopifyOauth();
+  const disconnect = useDisconnectShopify();
+  const sync = useSyncShopify();
+  const [shop, setShop] = useState("");
+  const connected = !!connection;
+
+  const connect = () => {
+    const trimmed = shop.trim();
+    if (!trimmed) {
+      toast.error("Enter your Shopify store domain (e.g. my-store.myshopify.com).");
+      return;
+    }
+    startOauth.mutate({ shop: trimmed });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2">
+            <Plug className="h-5 w-5" />
+            Shopify
+          </CardTitle>
+          {connected ? (
+            <Badge className="bg-emerald-600 hover:bg-emerald-600">
+              <Check className="mr-1 h-3 w-3" />
+              Connected
+              {connection?.account_handle ? ` · ${connection.account_handle}` : ""}
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Not connected</Badge>
+          )}
+        </div>
+        <CardDescription>
+          Publish FlipDesk drafts as Shopify products and sync orders back for
+          reconciliation — a real list / sync / delist connection.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!connected ? (
+          <div className="space-y-2">
+            <Label htmlFor="shopify-domain" className="text-xs">
+              Store domain
+            </Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id="shopify-domain"
+                placeholder="my-store.myshopify.com"
+                value={shop}
+                onChange={(e) => setShop(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") connect();
+                }}
+                className="max-w-xs"
+                disabled={isLoading || startOauth.isPending}
+              />
+              <Button onClick={connect} disabled={startOauth.isPending} size="sm">
+                {startOauth.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Connect Shopify
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+            <Button onClick={() => sync.mutate()} disabled={sync.isPending} size="sm">
+              {sync.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              {sync.isPending ? "Syncing…" : "Sync from Shopify"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => disconnect.mutate()}
+              disabled={disconnect.isPending}
+            >
+              {disconnect.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Disconnect
+            </Button>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {connection?.last_synced_at
+                ? `Last synced ${formatAgo(connection.last_synced_at)}.`
+                : "Never synced yet."}
+            </span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function FlipdeskMarketplacesPage() {
   const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
@@ -751,16 +887,21 @@ export function FlipdeskMarketplacesPage() {
   // Surface the OAuth callback result once and strip it from the URL so a
   // reload doesn't re-toast.
   useEffect(() => {
-    const code = params.get("ebay");
-    if (!code) return;
-    const entry = CALLBACK_MESSAGES[code];
-    if (entry) {
+    const ebayCode = params.get("ebay");
+    const shopifyCode = params.get("shopify");
+    if (!ebayCode && !shopifyCode) return;
+    const show = (entry: { type: "success" | "info" | "error"; message: string }) => {
       if (entry.type === "success") toast.success(entry.message);
       else if (entry.type === "info") toast.info(entry.message);
       else toast.error(entry.message);
+    };
+    if (ebayCode && CALLBACK_MESSAGES[ebayCode]) show(CALLBACK_MESSAGES[ebayCode]);
+    if (shopifyCode && SHOPIFY_CALLBACK_MESSAGES[shopifyCode]) {
+      show(SHOPIFY_CALLBACK_MESSAGES[shopifyCode]);
     }
     const next = new URLSearchParams(params);
     next.delete("ebay");
+    next.delete("shopify");
     setParams(next, { replace: true });
   }, [params, setParams]);
 
@@ -895,14 +1036,17 @@ export function FlipdeskMarketplacesPage() {
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Active
         </h2>
-        <EbaySetup
-          connection={connection}
-          connLoading={connLoading}
-          syncing={syncing}
-          onSync={runSync}
-          onConnect={() => startOauth.mutate()}
-          oauthPending={startOauth.isPending}
-        />
+        <div className="space-y-4">
+          <EbaySetup
+            connection={connection}
+            connLoading={connLoading}
+            syncing={syncing}
+            onSync={runSync}
+            onConnect={() => startOauth.mutate()}
+            oauthPending={startOauth.isPending}
+          />
+          <ShopifySetup />
+        </div>
       </section>
 
       {/* More ways to sync — Google Sheets + CSV fallback */}

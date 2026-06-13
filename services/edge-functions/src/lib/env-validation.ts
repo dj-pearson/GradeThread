@@ -59,6 +59,9 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     ],
   },
   { name: "ebay", vars: ["EBAY_APP_ID", "EBAY_CERT_ID", "EBAY_DEV_ID", "EBAY_VERIFICATION_TOKEN"] },
+  // US-599: Shopify connector. Missing → the Shopify OAuth/list/sync/delist
+  // paths return 503; the rest of FlipDesk is unaffected.
+  { name: "shopify", vars: ["SHOPIFY_API_KEY", "SHOPIFY_API_SECRET", "SHOPIFY_REDIRECT_URI"] },
   { name: "smtp", vars: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_ADMIN_EMAIL"] },
   { name: "google_photos", vars: ["GOOGLE_PHOTOS_CLIENT_ID", "GOOGLE_PHOTOS_CLIENT_SECRET"] },
   // US-146: Google Sheets sync. Falls back to the shared GOOGLE_CLIENT_* if the

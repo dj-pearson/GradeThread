@@ -10,6 +10,7 @@ import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { flipdeskEbayRoutes } from "./routes/flipdesk-ebay.ts";
+import { flipdeskShopifyRoutes } from "./routes/flipdesk-shopify.ts";
 import {
   flipdeskWebhookRoutes,
   handleEbayPendingWebhooksCron,
@@ -233,6 +234,12 @@ app.use("/api/flipdesk/ebay/marketing/*", authMiddleware);
 app.use("/api/flipdesk/ebay/negotiation/*", authMiddleware);
 app.use("/api/flipdesk/ebay/messages", authMiddleware);
 app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
+// Shopify (US-599): everything authed EXCEPT /oauth/callback (Shopify
+// redirects the browser there unauthenticated; the `state` row identifies the
+// user and the request is HMAC-verified with our app secret).
+app.use("/api/flipdesk/shopify/oauth/start", authMiddleware);
+app.use("/api/flipdesk/shopify/disconnect", authMiddleware);
+app.use("/api/flipdesk/shopify/listings/*", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
@@ -308,6 +315,9 @@ app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/negotiation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/messages", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/messages/*", workspaceMiddleware);
+app.use("/api/flipdesk/shopify/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/shopify/disconnect", workspaceMiddleware);
+app.use("/api/flipdesk/shopify/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
 app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
@@ -451,6 +461,8 @@ app.use("/api/keys/*", rateLimiter(30, 60_000, "api-keys")); // incl. key creati
 app.use("/api/workspace/*", rateLimiter(30, 60_000, "workspace")); // incl. invitation sends
 app.use("/api/notifications/*", rateLimiter(60, 60_000, "notifications"));
 app.use("/api/flipdesk/ebay/oauth/start", rateLimiter(10, 60_000, "ebay-oauth"));
+app.use("/api/flipdesk/shopify/oauth/start", rateLimiter(10, 60_000, "shopify-oauth"));
+app.use("/api/flipdesk/shopify/listings/*", rateLimiter(30, 60_000, "shopify-listings"));
 // Policy reads/syncs are infrequent UI actions; this just blunts pathological spam.
 app.use("/api/flipdesk/ebay/policies", rateLimiter(30, 60_000, "ebay-policies"));
 app.use("/api/flipdesk/ebay/policies/*", rateLimiter(30, 60_000, "ebay-policies"));
@@ -543,6 +555,7 @@ app.route("/api/keys", apiKeyRoutes);
 app.route("/api/v1", apiV1Routes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/flipdesk/ebay", flipdeskEbayRoutes);
+app.route("/api/flipdesk/shopify", flipdeskShopifyRoutes);
 app.route("/api/flipdesk/webhooks", flipdeskWebhookRoutes);
 app.route("/api/flipdesk/grading", flipdeskGradingRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);

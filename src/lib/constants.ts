@@ -760,15 +760,18 @@ export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], stri
   other: "Other",
 };
 
-// Platforms selectable in the composer's "Push to" control (US-149). eBay
-// publishes live; the others create local listings rows via stub adapters
-// until their integrations ship.
+// Platforms selectable in the composer's "Push to" control (US-149). eBay and
+// Shopify (US-599) publish live via real APIs; the others create local listings
+// rows via stub adapters until their integrations ship.
 export const CROSS_LISTING_PLATFORMS = [
   "ebay",
+  "shopify",
   "poshmark",
   "mercari",
   "depop",
 ] as const;
+// Cross-list platforms that publish for real today (vs. saved-locally stubs).
+export const LIVE_CROSS_LISTING_PLATFORMS = ["ebay", "shopify"] as const;
 export type CrossListingPlatform = (typeof CROSS_LISTING_PLATFORMS)[number];
 
 // Stripe price IDs (US-202) — populated from import.meta.env at build time

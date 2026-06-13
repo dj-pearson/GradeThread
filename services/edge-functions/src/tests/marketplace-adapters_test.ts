@@ -42,10 +42,12 @@ Deno.test("stub adapters return a structured 501 from publish and end", async ()
   }
 });
 
-Deno.test("cross-listing platform guard accepts the four dispatch platforms only", () => {
+Deno.test("cross-listing platform guard accepts the dispatch platforms only", () => {
   for (const p of CROSS_LISTING_PLATFORMS) {
     assert(isCrossListingPlatform(p));
   }
+  // US-599: shopify is now a real dispatch platform.
+  assert(isCrossListingPlatform("shopify"));
   assert(!isCrossListingPlatform("grailed"));
   assert(!isCrossListingPlatform(""));
 });
