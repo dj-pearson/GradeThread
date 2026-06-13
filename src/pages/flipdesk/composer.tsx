@@ -67,6 +67,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useItemsFull } from "@/hooks/use-items-full";
+import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   DESCRIPTION_TEMPLATES,
   interpolateDescription,
@@ -172,6 +173,8 @@ export function FlipdeskComposerPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  // US-827/US-648: render description measurements in the seller's unit.
+  const measurementUnit = useMeasurementPrefs((s) => s.unit);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -449,7 +452,7 @@ export function FlipdeskComposerPage() {
   const primaryPhoto =
     order.find((p) => p.id === primaryPhotoId) ?? order[0] ?? null;
   const resolvedDescription = item
-    ? interpolateDescription(description, item)
+    ? interpolateDescription(description, item, measurementUnit)
     : description;
 
   const specifics = useMemo(() => {
@@ -482,7 +485,9 @@ export function FlipdeskComposerPage() {
 
   function applyTemplate() {
     if (!item) return;
-    setDescription(interpolateDescription(DESCRIPTION_TEMPLATES[group], item));
+    setDescription(
+      interpolateDescription(DESCRIPTION_TEMPLATES[group], item, measurementUnit),
+    );
     toast.info(`Applied the ${group} template.`);
   }
 

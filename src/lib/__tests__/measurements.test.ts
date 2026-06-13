@@ -1,0 +1,91 @@
+import { describe, it, expect } from "vitest";
+import {
+  applyMeasurementsBlock,
+  buildMeasurementLines,
+  formatMeasurementValue,
+  MEASUREMENTS_BLOCK_START,
+  resolveMeasurementAspects,
+} from "@/lib/measurements";
+
+// US-827: web mirror of the edge measurements module. Mirrors the edge test
+// suite so the two copies can't drift in behavior.
+
+describe("formatMeasurementValue (US-648 units)", () => {
+  it("renders inches by default", () => {
+    expect(formatMeasurementValue("chest", 21)).toBe("21 in");
+    expect(formatMeasurementValue("inseam", 32.5)).toBe("32.5 in");
+  });
+  it("converts inches to cm", () => {
+    expect(formatMeasurementValue("chest", 20, "cm")).toBe("50.8 cm");
+  });
+  it("renders shoe sizes and mm without conversion", () => {
+    expect(formatMeasurementValue("size_us", 10.5, "cm")).toBe("US 10.5");
+    expect(formatMeasurementValue("case_diameter", 42, "cm")).toBe("42 mm");
+  });
+  it("rejects non-positive / invalid values", () => {
+    expect(formatMeasurementValue("chest", 0)).toBeNull();
+    expect(formatMeasurementValue("chest", "x")).toBeNull();
+  });
+});
+
+describe("resolveMeasurementAspects", () => {
+  it("fills free-text measurement aspects present in the category", () => {
+    expect(
+      resolveMeasurementAspects(
+        { chest: 21, inseam: 32, sleeve: 25 },
+        { "Chest Size": [], Inseam: [], Brand: [] },
+      ),
+    ).toEqual({ "Chest Size": ["21 in"], Inseam: ["32 in"] });
+  });
+  it("never fills a SELECTION_ONLY style aspect", () => {
+    expect(
+      resolveMeasurementAspects(
+        { sleeve: 25 },
+        { "Sleeve Length": ["Short Sleeve", "Long Sleeve"] },
+      ),
+    ).toEqual({});
+  });
+  it("never overwrites an already-set aspect", () => {
+    expect(
+      resolveMeasurementAspects({ waist: 30 }, { "Waist Size": [] }, { "Waist Size": ["32"] }),
+    ).toEqual({});
+  });
+});
+
+describe("applyMeasurementsBlock (idempotency)", () => {
+  it("appends a block", () => {
+    const out = applyMeasurementsBlock("Hoodie.", { chest: 21 });
+    expect(out).toContain("Hoodie.");
+    expect(out).toContain("- Chest (pit to pit): 21 in");
+  });
+  it("never duplicates on re-apply", () => {
+    const once = applyMeasurementsBlock("Hoodie.", { chest: 21 });
+    const twice = applyMeasurementsBlock(once, { chest: 21 });
+    expect(twice).toBe(once);
+    expect(twice.split(MEASUREMENTS_BLOCK_START).length - 1).toBe(1);
+  });
+  it("refreshes on changed measurements and drops stale values", () => {
+    const first = applyMeasurementsBlock("Tee.", { chest: 20 });
+    const updated = applyMeasurementsBlock(first, { chest: 22 });
+    expect(updated).toContain("22 in");
+    expect(updated).not.toContain("20 in");
+  });
+  it("removes the block when cleared", () => {
+    const withBlock = applyMeasurementsBlock("Tee.", { chest: 20 });
+    expect(applyMeasurementsBlock(withBlock, {})).toBe("Tee.");
+  });
+  it("honors the cm preference", () => {
+    expect(applyMeasurementsBlock("Pants.", { inseam: 30 }, "cm")).toContain(
+      "- Inseam: 76.2 cm",
+    );
+  });
+});
+
+describe("buildMeasurementLines ordering", () => {
+  it("renders in canonical key order", () => {
+    expect(buildMeasurementLines({ inseam: 32, chest: 21 })).toEqual([
+      "- Chest (pit to pit): 21 in",
+      "- Inseam: 32 in",
+    ]);
+  });
+});

@@ -1,5 +1,6 @@
 import type { ItemFullRow } from "@/types/database";
 import { measurementGroupFor, type MeasurementGroup } from "./measurement-templates";
+import { buildMeasurementLines, type LengthUnit } from "./measurements";
 
 // Per-group description templates. Placeholders are filled by interpolate().
 export const DESCRIPTION_TEMPLATES: Record<MeasurementGroup, string> = {
@@ -91,13 +92,13 @@ Smoke-free home. Ships fast. Questions welcome.`,
 
 function measurementsBlock(
   measurements: Record<string, number | string> | null,
+  unit: LengthUnit,
 ): string {
-  if (!measurements || Object.keys(measurements).length === 0) {
-    return "(measurements available on request)";
-  }
-  return Object.entries(measurements)
-    .map(([k, v]) => `  ${k.replace(/_/g, " ")}: ${v}`)
-    .join("\n");
+  // US-827: render via the shared formatter so values carry units and honor the
+  // seller's in/cm preference (US-648), consistent with the edge draft build.
+  const lines = buildMeasurementLines(measurements, unit);
+  if (lines.length === 0) return "(measurements available on request)";
+  return lines.map((l) => `  ${l.replace(/^- /, "")}`).join("\n");
 }
 
 function gradeBlock(item: ItemFullRow): string {
@@ -115,6 +116,7 @@ function gradeBlock(item: ItemFullRow): string {
 export function interpolateDescription(
   template: string,
   item: ItemFullRow,
+  unit: LengthUnit = "in",
 ): string {
   const vars: Record<string, string> = {
     brand: item.brand ?? "",
@@ -125,7 +127,7 @@ export function interpolateDescription(
     condition:
       item.notes?.trim() ||
       (item.grade_label ? item.grade_label : "Pre-owned, good condition"),
-    measurements: measurementsBlock(item.measurements),
+    measurements: measurementsBlock(item.measurements, unit),
     grade: gradeBlock(item),
   };
   return template

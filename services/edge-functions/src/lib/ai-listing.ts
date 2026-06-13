@@ -39,6 +39,10 @@ import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { sourcesFor } from "./aspect-provenance.ts";
 import {
+  applyMeasurementsBlock,
+  resolveMeasurementAspects,
+} from "./measurements.ts";
+import {
   buildDisclosure,
   type DisclosureInput,
   type PerImageAnalysisLike,
@@ -1004,6 +1008,21 @@ export async function generateListing(
     Object.keys(allowedAspects),
   );
 
+  // 6c. US-827: fold captured measurements into the category's eBay measurement
+  // aspects (Inseam, Chest Size, Sleeve Length, …) via the registry mapping —
+  // only onto free-text aspects the category actually exposes, never clobbering
+  // a value the model/refiner already set. Stored values are inches.
+  if (measurements && Object.keys(allowedAspects).length > 0) {
+    const measurementAspects = resolveMeasurementAspects(
+      measurements,
+      allowedAspects,
+      itemSpecifics,
+    );
+    if (Object.keys(measurementAspects).length > 0) {
+      itemSpecifics = { ...itemSpecifics, ...measurementAspects };
+    }
+  }
+
   // 7. Price (US-542): prefer REALIZED/sold comps; price_is_estimated=false ONLY
   // when the price is backed by sold data. Active Browse comps are ASKING prices
   // (systematically high), so when we fall back to them we set the price but
@@ -1088,7 +1107,11 @@ export async function generateListing(
   // "Condition & Flaws" block to the listing body (where HTML renders) and seed
   // the plain disclosure into the condition field. This is the dispute-defense
   // artifact — buyers see exactly what the grader found.
-  let listingDescription = listing.description;
+  // US-827: append a clean, buyer-expected flat-lay measurements block to the
+  // description (idempotent — a regeneration strips the prior block first, never
+  // duplicating). Edge renders inches (the stored unit); the composer re-applies
+  // it in the seller's preferred unit (US-648) on edit.
+  let listingDescription = applyMeasurementsBlock(listing.description, measurements);
   let conditionDescription = listing.condition_description;
   if (gradeReportId) {
     const { data: report } = await supabaseAdmin

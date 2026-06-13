@@ -12172,8 +12172,8 @@
         "npm run verify + ios CI pass"
       ],
       "priority": 827,
-      "passes": false,
-      "notes": "[EPIC: Aspect Autofill 2026-06-11] From 2026-06-11 photo-AI audit. Measurements are captured + persisted today (PhotoSlotType measurement_* slots; ai-extract conditional brand-spec measurements) but go nowhere downstream."
+      "passes": true,
+      "notes": "[EPIC: Aspect Autofill 2026-06-11] From 2026-06-11 photo-AI audit. Measurements are captured + persisted today (PhotoSlotType measurement_* slots; ai-extract conditional brand-spec measurements) but go nowhere downstream. [IMPL 2026-06-13] New shared measurements module (services/edge-functions/src/lib/measurements.ts + web mirror src/lib/measurements.ts): canonical key->eBay measurement-aspect mapping (resolveMeasurementAspects fills only free-text aspects that exist in the category spec, never a SELECTION_ONLY style dropdown, never overwrites set values), unit-aware formatting (in/cm per US-648; shoe US-size + watch mm never convert), and a marker-delimited IDEMPOTENT description block (applyMeasurementsBlock). Wired into edge AutoLister generateListing (ai-listing.ts): measurement aspects merged into item_specifics + measurements block appended to listing_description (inches, the stored unit). Web composer (composer.tsx + listing-templates.ts) renders the block in the seller unit pref. AC3 (save->measured) already satisfied on web via resolveStatus/advanceItemStatus in item-canvas.tsx; iOS counterpart is US-815 (pending, not buildable on Windows host). Unit tests: edge src/tests/measurements_test.ts (17) + web src/lib/__tests__/measurements.test.ts (13). npm run build, tsc --noEmit, eslint, deno check/lint/test all green; iOS unaffected (no Swift changes)."
     },
     {
       "id": "US-828",
