@@ -9,6 +9,7 @@ import {
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { captureServer } from "./posthog.ts";
+import { createVersionedCache } from "./coherent-cache.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
@@ -347,8 +348,24 @@ export interface ResolvedPrompt {
   versionName: string;
 }
 
-const PROMPT_CACHE_TTL_MS = 60_000;
-const promptCache = new Map<string, { value: ResolvedPrompt; expiresAt: number }>();
+// US-571: the resolved-prompt cache is version-stamped through a shared Postgres
+// signal so an eval-gated activation propagates to every replica within the
+// signal micro-TTL (≈5s) instead of being served stale up to a local TTL. Bump
+// the signal from the write path via invalidatePromptCache().
+const PROMPT_CACHE_SIGNAL = "grading-prompt";
+const promptCache = createVersionedCache<ResolvedPrompt>({
+  signalKey: PROMPT_CACHE_SIGNAL,
+});
+
+/**
+ * US-571: invalidate the grading-prompt cache cluster-wide. Called from the
+ * prompt activation/deactivation paths (grading-eval.ts, admin-grading.ts) so a
+ * newly activated prompt version takes effect on every replica immediately
+ * (bounded by the signal micro-TTL), defending the migration-00050 eval gate.
+ */
+export async function invalidatePromptCache(): Promise<void> {
+  await promptCache.invalidate();
+}
 
 /**
  * Resolve the active prompt for a grading stage. Prefers a garment_scope-
@@ -363,46 +380,42 @@ async function resolveActivePrompt(
   codeDefault: ResolvedPrompt,
 ): Promise<ResolvedPrompt> {
   const cacheKey = `${stage}:${garmentScope ?? ""}`;
-  const now = Date.now();
-  const cached = promptCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) return cached.value;
+  return await promptCache.get(cacheKey, async () => {
+    let resolved = codeDefault;
+    try {
+      const { data, error } = await supabaseAdmin
+        .from("ai_prompt_versions")
+        .select("version_name, prompt_text, garment_scope")
+        .eq("stage", stage)
+        .eq("is_active", true);
 
-  let resolved = codeDefault;
-  try {
-    const { data, error } = await supabaseAdmin
-      .from("ai_prompt_versions")
-      .select("version_name, prompt_text, garment_scope")
-      .eq("stage", stage)
-      .eq("is_active", true);
-
-    if (!error && Array.isArray(data) && data.length > 0) {
-      const rows = data as Array<{
-        version_name: string;
-        prompt_text: string | null;
-        garment_scope: string | null;
-      }>;
-      const scoped = garmentScope
-        ? rows.find((r) => r.garment_scope === garmentScope)
-        : undefined;
-      const global = rows.find((r) => !r.garment_scope);
-      const picked = scoped ?? global;
-      if (picked) {
-        const text =
-          picked.prompt_text && picked.prompt_text.trim().length > 0
-            ? picked.prompt_text
-            : codeDefault.text;
-        resolved = { text, versionName: picked.version_name };
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const rows = data as Array<{
+          version_name: string;
+          prompt_text: string | null;
+          garment_scope: string | null;
+        }>;
+        const scoped = garmentScope
+          ? rows.find((r) => r.garment_scope === garmentScope)
+          : undefined;
+        const global = rows.find((r) => !r.garment_scope);
+        const picked = scoped ?? global;
+        if (picked) {
+          const text =
+            picked.prompt_text && picked.prompt_text.trim().length > 0
+              ? picked.prompt_text
+              : codeDefault.text;
+          resolved = { text, versionName: picked.version_name };
+        }
       }
+    } catch (err) {
+      console.error(
+        `[AI Grading] resolveActivePrompt fallback (${stage}/${garmentScope ?? "global"}):`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
-  } catch (err) {
-    console.error(
-      `[AI Grading] resolveActivePrompt fallback (${stage}/${garmentScope ?? "global"}):`,
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-
-  promptCache.set(cacheKey, { value: resolved, expiresAt: now + PROMPT_CACHE_TTL_MS });
-  return resolved;
+    return resolved;
+  });
 }
 
 export function buildUserPrompt(

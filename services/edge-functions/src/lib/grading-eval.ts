@@ -3,6 +3,7 @@ import {
   analyzeImage,
   compositeGrade,
   type GarmentInfo,
+  invalidatePromptCache,
   type PerImageAnalysis,
   type ResolvedPrompt,
 } from "./ai-grading.ts";
@@ -375,6 +376,10 @@ export async function activatePromptVersion(
     .update({ is_active: true })
     .eq("id", v.id);
   if (activateError) return { ok: false, reason: activateError.message };
+
+  // US-571: purge the grading-prompt cache cluster-wide so the newly activated
+  // version takes effect on every replica immediately, not after a local TTL.
+  await invalidatePromptCache();
 
   return { ok: true };
 }

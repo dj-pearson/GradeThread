@@ -15,6 +15,8 @@
 // configured" instead of crashing when env isn't wired yet — the rest of
 // the SEO infrastructure (US-307, US-309) still runs.
 
+import { createSharedTokenCache } from "./coherent-cache.ts";
+
 const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const SEARCH_ANALYTICS_ENDPOINT =
@@ -32,41 +34,38 @@ export function getGscSiteUrl(): string {
   return Deno.env.get("GSC_SITE_URL") ?? "";
 }
 
-// Cached access token (in-memory). Refreshed when within 60s of expiry.
-let cachedToken: { token: string; expiresAt: number } | null = null;
+// US-571: the GSC access token is shared across the cluster (not minted per
+// replica). Refreshed when within 60s of expiry.
+const tokenCache = createSharedTokenCache({
+  cacheKey: "gsc-access-token",
+  skewMs: 60_000,
+});
 
 async function getAccessToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedToken && cachedToken.expiresAt - 60_000 > now) {
-    return cachedToken.token;
-  }
+  return await tokenCache.get(async () => {
+    const email = Deno.env.get("GSC_SERVICE_ACCOUNT_EMAIL");
+    const rawKey = Deno.env.get("GSC_SERVICE_ACCOUNT_PRIVATE_KEY");
+    if (!email || !rawKey) {
+      throw new Error("GSC service account env not configured");
+    }
 
-  const email = Deno.env.get("GSC_SERVICE_ACCOUNT_EMAIL");
-  const rawKey = Deno.env.get("GSC_SERVICE_ACCOUNT_PRIVATE_KEY");
-  if (!email || !rawKey) {
-    throw new Error("GSC service account env not configured");
-  }
-
-  const assertion = await buildAssertion(email, rawKey);
-  const body = new URLSearchParams({
-    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-    assertion,
+    const assertion = await buildAssertion(email, rawKey);
+    const body = new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    });
+    const res = await fetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`GSC token exchange failed (${res.status}): ${text}`);
+    }
+    const json = await res.json() as { access_token: string; expires_in: number };
+    return { token: json.access_token, expiresInMs: json.expires_in * 1000 };
   });
-  const res = await fetch(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GSC token exchange failed (${res.status}): ${text}`);
-  }
-  const json = await res.json() as { access_token: string; expires_in: number };
-  cachedToken = {
-    token: json.access_token,
-    expiresAt: now + json.expires_in * 1000,
-  };
-  return json.access_token;
 }
 
 async function buildAssertion(email: string, pemKey: string): Promise<string> {

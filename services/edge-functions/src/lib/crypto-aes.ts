@@ -44,6 +44,13 @@ interface EncryptOptions {
 }
 
 // id → imported CryptoKey, lazily built and cached.
+//
+// US-571 (multi-replica coherence): this cache is intentionally per-process and
+// is NOT moved to the shared store. Its only inputs are the EDGE_ENCRYPTION_KEY*
+// env vars, which are identical on every replica and change only on a redeploy
+// (which restarts every process and clears the cache). It therefore cannot go
+// stale or diverge between replicas — unlike the minted-token / prompt caches,
+// which DID need the shared coherence store in coherent-cache.ts.
 const keyCache = new Map<string, CryptoKey>();
 // id → raw base64, parsed once from env.
 let keyRegistry: Map<string, string> | null = null;

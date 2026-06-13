@@ -8741,8 +8741,8 @@
         "Verified with >1 replica that an activated prompt version takes effect immediately everywhere"
       ],
       "priority": 571,
-      "passes": false,
-      "notes": "[P0][Ops/Reliability] Deep-dive 2026-06-04. ebay-client.ts:1962, gsc-client.ts:35, crypto-aes.ts:47, ai-grading.ts:326 hold per-process caches; not covered by US-501 (replicas) which ignores cache coherence."
+      "passes": true,
+      "notes": "[P0][Ops/Reliability] Deep-dive 2026-06-04. ebay-client.ts:1962, gsc-client.ts:35, crypto-aes.ts:47, ai-grading.ts:326 hold per-process caches; not covered by US-501 (replicas) which ignores cache coherence. IMPLEMENTED 2026-06-12: new lib/coherent-cache.ts + migration 00162_cache_coherence.sql (edge_shared_cache table; bump_cache_signal/get_cache_signal RPCs). createSharedTokenCache puts the eBay app token (ebay-client.ts) + GSC token (gsc-client.ts) in a cluster-shared, AES-encrypted-at-rest store so the cluster mints ~once/window instead of once/replica. createVersionedCache version-stamps the grading-prompt cache (ai-grading.ts); invalidatePromptCache() bumps the shared signal on activate (grading-eval.ts) + deactivate (admin-grading.ts), so an eval-gated activation propagates to every replica within the signal micro-TTL (~5s), not the data TTL. AES key cache left per-process (env-derived = coherent by construction; documented in crypto-aes.ts). Store calls fail-safe. 9 unit tests (incl. cross-replica propagation + encrypted round-trip). Follow-ups (out of scope): ai-listing.ts listing-prompt cache + apns.ts JWT have the same per-process shape."
     },
     {
       "id": "US-572",

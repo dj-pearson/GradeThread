@@ -13,6 +13,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import { withRetry, isRetryableError, isRateLimitError } from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
+import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
 
 // US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
 // without a deadline a bulk publish/sync can stall the container.
@@ -2842,47 +2843,50 @@ export async function searchSoldComps(
 // ── App token (client_credentials) ──────────────────────────────────
 // Used for Taxonomy + Browse — endpoints that don't need a seller context.
 
-interface AppTokenCache {
-  token: string;
-  expiresAt: number;
-}
 const DEFAULT_APP_SCOPE = "https://api.ebay.com/oauth/api_scope";
-// Cache one token per scope: Marketplace Insights (US-542) needs an extra scope
-// and would otherwise thrash a single global slot with the default-scope token.
-const appTokenCache = new Map<string, AppTokenCache>();
+// US-571: the app token is shared across the cluster (not minted per replica).
+// One cache per scope: Marketplace Insights (US-542) needs an extra scope and
+// would otherwise thrash a single slot with the default-scope token. The cache
+// key carries the eBay env so a sandbox token is never reused in production.
+const appTokenCaches = new Map<string, SharedTokenCache>();
+
+function appTokenCacheFor(scope: string): SharedTokenCache {
+  let cache = appTokenCaches.get(scope);
+  if (!cache) {
+    cache = createSharedTokenCache({
+      cacheKey: `ebay-app-token:${getEbayEnv()}:${scope}`,
+    });
+    appTokenCaches.set(scope, cache);
+  }
+  return cache;
+}
 
 export async function getAppAccessToken(
   scope: string = DEFAULT_APP_SCOPE,
 ): Promise<string> {
-  const cached = appTokenCache.get(scope);
-  if (cached && cached.expiresAt - Date.now() > 5 * 60_000) {
-    return cached.token;
-  }
-  const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    scope,
+  return await appTokenCacheFor(scope).get(async () => {
+    const body = new URLSearchParams({
+      grant_type: "client_credentials",
+      scope,
+    });
+    const res = await ebayFetch(`${apiHost()}/identity/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        Authorization: basicAuthHeader(),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`eBay app token request failed (${res.status}): ${text}`);
+    }
+    const payload = (await res.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
+    return { token: payload.access_token, expiresInMs: payload.expires_in * 1000 };
   });
-  const res = await ebayFetch(`${apiHost()}/identity/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      Authorization: basicAuthHeader(),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`eBay app token request failed (${res.status}): ${text}`);
-  }
-  const payload = (await res.json()) as {
-    access_token: string;
-    expires_in: number;
-  };
-  appTokenCache.set(scope, {
-    token: payload.access_token,
-    expiresAt: Date.now() + payload.expires_in * 1000,
-  });
-  return payload.access_token;
 }
 
 // ── US-673: Negotiation API (seller-initiated offers to buyers) ────────────

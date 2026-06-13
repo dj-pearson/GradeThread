@@ -10,6 +10,7 @@ import {
   exportTrainingDataset,
 } from "../lib/accuracy-tracking.ts";
 import { activatePromptVersion, runEval } from "../lib/grading-eval.ts";
+import { invalidatePromptCache } from "../lib/ai-grading.ts";
 import {
   autoPromoteListingPrompt,
   summarizeListingPromptPerformance,
@@ -248,6 +249,8 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
     .update({ is_active: false })
     .eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
+  // US-571: drop the now-removed override from every replica's prompt cache.
+  await invalidatePromptCache();
   await auditLog(c, "deactivate_prompt_version", "ai_prompt_version", id, {});
   return c.json({ ok: true });
 });
