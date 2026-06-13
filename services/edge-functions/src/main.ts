@@ -52,6 +52,7 @@ import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
 import { adminJobsRoutes } from "./routes/admin-jobs.ts";
+import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -586,6 +587,10 @@ app.route("/api/admin/messages", adminMessagesRoutes);
 // US-584 admin job/queue monitoring + manual retry/cancel + cron health. Admin
 // JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/jobs", adminJobsRoutes);
+// US-589 bulk admin operations (bulk credit grant / suspend-unsuspend / regrade).
+// Idempotency-keyed + audited; admin JWT + AAL2 via the /api/admin/* group,
+// with credit/suspend additionally requiring a fresh MFA step-up.
+app.route("/api/admin/bulk", adminBulkRoutes);
 // US-476/477 admin content moderation (approve/reject/ban) — audited
 // service-role routes (admin JWT + AAL2 via the /api/admin/* group).
 app.route("/api/admin/moderation", adminModerationRoutes);

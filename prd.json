@@ -8973,8 +8973,8 @@
         "Bulk actions are audited and idempotent"
       ],
       "priority": 589,
-      "passes": false,
-      "notes": "[P2][Admin] Deep-dive 2026-06-04. Every admin action is single-record today."
+      "passes": true,
+      "notes": "Completed. New edge module services/edge-functions/src/routes/admin-bulk.ts mounted at /api/admin/bulk (inherits admin JWT + AAL2). Three batch primitives: POST /credits (bulk grant_grade_credits, MFA step-up), POST /suspend (flip users.suspended for N targets, MFA step-up, acting admin skipped to prevent self-lockout), POST /regrade (regradeSubmission over N submissions). Idempotency via new migration 00167_bulk_admin_operations.sql: a bulk_admin_operations ledger keyed on a UNIQUE client idempotency_key — first delivery CLAIMs (insert) then executes + stores result; a duplicate collides on 23505 and replays the stored result (or 409 IN_PROGRESS). Protects the one non-idempotent primitive (additive credit grants). Each run writes one admin_audit_log row (writeAuditLog). normalizeTargetIds validates/dedupes/caps (MAX_TARGETS=200) UUID arrays; unit-tested in src/tests/bulk-admin_test.ts (6 tests pass). RLS-enabled-no-policies table (service-role only). deno check/lint/test all pass."
     },
     {
       "id": "US-590",
