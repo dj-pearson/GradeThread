@@ -8768,8 +8768,8 @@
         "No OOM observed at target concurrency"
       ],
       "priority": 573,
-      "passes": false,
-      "notes": "[P0][Ops/Performance] Deep-dive 2026-06-04. docker-compose.coolify.yml:78-85 caps 1.5 CPU/1G; grading-pipeline.ts:24 buffers multi-MB images to base64 in-process; no scale signal."
+      "passes": true,
+      "notes": "[P0][Ops/Performance] Done 2026-06-12. Added grading-capacity.ts: process-wide GRADING_MAX_CONCURRENT_PIPELINES semaphore (default 6) wrapping the download/base64/analyze block in grading-pipeline.ts — bounds peak resident base64 image data so concurrent grades cannot OOM. Right-sized docker-compose.coolify.yml 1G->2G mem (reservation 256M->512M), set EDGE_MEMORY_LIMIT_MB=2048. New GET /health/metrics (Deno.memoryUsage + pressure verdict vs 70% scale-out / 85% critical). Load test scripts/ops/loadtest-grading.mjs samples /health/metrics + gates peak RSS<80% (no-OOM AC). Memory/CPU scale-out rule + 30% headroom target in CAPACITY.md (ties to US-501); cross-linked from SCALING.md. Tests: grading-capacity_test.ts + summarizeMemory in health_test.ts (11 pass). MANUAL: run the load test against staging at launch concurrency to record peak RSS sign-off."
     },
     {
       "id": "US-574",

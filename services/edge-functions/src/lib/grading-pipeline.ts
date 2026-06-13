@@ -26,6 +26,7 @@ import {
   type ForensicInputImage,
 } from "./forensics.ts";
 import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
+import { withImageBufferSlot } from "./grading-capacity.ts";
 import { captureServer } from "./posthog.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import { pushReviewNeeded } from "./transactional-push.ts";
@@ -458,74 +459,85 @@ export async function processSubmission(submissionId: string) {
 
     console.log(`[Pipeline] Found ${images.length} images for submission ${submissionId}`);
 
-    // --- Step 3: Download images from storage and convert to base64 ---
-    const imageDataPromises = images.map(async (image) => {
-      const { data: fileData, error: downloadError } = await supabaseAdmin.storage
-        .from("submission-images")
-        .download(image.storage_path);
-
-      if (downloadError || !fileData) {
-        throw new Error(`Failed to download image: ${image.storage_path}`);
-      }
-
-      // Convert Blob to base64
-      const arrayBuffer = await fileData.arrayBuffer();
-      const base64 = uint8ToBase64(new Uint8Array(arrayBuffer));
-
-      // Determine media type from file extension
-      const ext = image.storage_path.split(".").pop()?.toLowerCase() || "jpg";
-      const mediaTypeMap: Record<string, string> = {
-        jpg: "image/jpeg",
-        jpeg: "image/jpeg",
-        png: "image/png",
-        gif: "image/gif",
-        webp: "image/webp",
-      };
-      const mediaType = mediaTypeMap[ext] || "image/jpeg";
-
-      // Return as data URI for analyzeImage
-      return {
-        imageType: image.image_type,
-        dataUri: `data:${mediaType};base64,${base64}`,
-      };
-    });
-
-    const imageData = await Promise.all(imageDataPromises);
-
-    // --- Step 4: Run analyzeImage() on each image in parallel ---
-    console.log(`[Pipeline] Running per-image analysis for ${imageData.length} images`);
-
     // Seller-declared design features (e.g. distressed, raw-hem) flow through
     // as a hint so the grader doesn't read intentional distressing as damage.
+    // Declared here (not inside the buffer-slot closure) because it's also used
+    // by the composite grade below.
     const styleHint: string[] = Array.isArray(submission.style_attributes)
       ? (submission.style_attributes as string[])
       : [];
 
-    const perImagePromises = imageData.map((img) =>
-      analyzeImage(
-        img.dataUri,
-        img.imageType,
-        submission.garment_type,
-        submission.garment_category,
-        styleHint
-      )
-    );
+    // --- Steps 3+4: download → base64 → per-image analysis, under a
+    // process-wide memory gate (US-573). The base64 data URIs stay resident
+    // for the whole analysis, so the slot is held across BOTH steps — this
+    // bounds how many submissions buffer multi-MB image data at once and is
+    // what keeps concurrent grading from OOM-ing the container. The closure
+    // scopes `imageData` so the base64 is GC-eligible the moment it returns.
+    const settledImages: SettledImage[] = await withImageBufferSlot(async () => {
+      // --- Step 3: Download images from storage and convert to base64 ---
+      const imageDataPromises = images.map(async (image) => {
+        const { data: fileData, error: downloadError } = await supabaseAdmin.storage
+          .from("submission-images")
+          .download(image.storage_path);
 
-    // US-485: allSettled (not all) so one flaky image doesn't fail the whole
-    // paid grade. analyzeImage already retries + has a bounded timeout via the
-    // Anthropic SDK (getAiMaxRetries / getAiTimeoutMs).
-    const settled = await Promise.allSettled(perImagePromises);
-    const settledImages: SettledImage[] = settled.map((s, i) => ({
-      imageType: imageData[i].imageType,
-      result: s.status === "fulfilled" ? s.value : null,
-    }));
-    settled.forEach((s, i) => {
-      if (s.status === "rejected") {
-        console.error(
-          `[Pipeline] analyzeImage failed for ${imageData[i].imageType} ` +
-            `(submission ${submissionId}): ${s.reason}`,
-        );
-      }
+        if (downloadError || !fileData) {
+          throw new Error(`Failed to download image: ${image.storage_path}`);
+        }
+
+        // Convert Blob to base64
+        const arrayBuffer = await fileData.arrayBuffer();
+        const base64 = uint8ToBase64(new Uint8Array(arrayBuffer));
+
+        // Determine media type from file extension
+        const ext = image.storage_path.split(".").pop()?.toLowerCase() || "jpg";
+        const mediaTypeMap: Record<string, string> = {
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          png: "image/png",
+          gif: "image/gif",
+          webp: "image/webp",
+        };
+        const mediaType = mediaTypeMap[ext] || "image/jpeg";
+
+        // Return as data URI for analyzeImage
+        return {
+          imageType: image.image_type,
+          dataUri: `data:${mediaType};base64,${base64}`,
+        };
+      });
+
+      const imageData = await Promise.all(imageDataPromises);
+
+      // --- Step 4: Run analyzeImage() on each image in parallel ---
+      console.log(`[Pipeline] Running per-image analysis for ${imageData.length} images`);
+
+      const perImagePromises = imageData.map((img) =>
+        analyzeImage(
+          img.dataUri,
+          img.imageType,
+          submission.garment_type,
+          submission.garment_category,
+          styleHint
+        )
+      );
+
+      // US-485: allSettled (not all) so one flaky image doesn't fail the whole
+      // paid grade. analyzeImage already retries + has a bounded timeout via the
+      // Anthropic SDK (getAiMaxRetries / getAiTimeoutMs).
+      const settled = await Promise.allSettled(perImagePromises);
+      const results: SettledImage[] = settled.map((s, i) => ({
+        imageType: imageData[i].imageType,
+        result: s.status === "fulfilled" ? s.value : null,
+      }));
+      settled.forEach((s, i) => {
+        if (s.status === "rejected") {
+          console.error(
+            `[Pipeline] analyzeImage failed for ${imageData[i].imageType} ` +
+              `(submission ${submissionId}): ${s.reason}`,
+          );
+        }
+      });
+      return results;
     });
 
     const { usable, failedRequired, failedOptional } = partitionImageResults(

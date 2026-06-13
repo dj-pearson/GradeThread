@@ -3,6 +3,10 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
 import { edgeEnv } from "../lib/env.ts";
+import {
+  gradingBufferConcurrency,
+  summarizeMemory,
+} from "../lib/grading-capacity.ts";
 
 export const healthRoutes = new Hono();
 
@@ -98,6 +102,27 @@ healthRoutes.get("/_throw", (c) => {
     return c.json({ error: "Not found" }, 404);
   }
   throw new Error("Forced test exception from /health/_throw (US-491 verification)");
+});
+
+// US-573: memory + capacity snapshot. Dependency-free (like liveness) so it can
+// be sampled at high frequency during a load test without touching the DB. It
+// exposes only process memory figures (RSS/heap vs. the configured container
+// limit) and the grading buffer-pipeline cap — no secrets — so it's safe to
+// leave unauthenticated, consistent with `/health` already exposing the release.
+// `scripts/ops/loadtest-grading.mjs` samples this to gate "no OOM at target
+// concurrency"; ops watches `memory.pressure` for the scale-out rule (CAPACITY.md).
+healthRoutes.get("/metrics", (c) => {
+  const rawLimit = Number(Deno.env.get("EDGE_MEMORY_LIMIT_MB"));
+  const limitMb = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : null;
+  const memory = summarizeMemory(Deno.memoryUsage(), limitMb);
+  return c.json({
+    service: "gradethread-edge-functions",
+    env: edgeEnv(),
+    release: releaseSha(),
+    memory,
+    grading: { buffer_pipeline_cap: gradingBufferConcurrency() },
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Readiness — dependency probe. 503 when a hard dependency is unreachable.

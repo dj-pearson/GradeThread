@@ -51,3 +51,13 @@ Self-hosted Supabase is single-node today. Plan:
 
 > **MANUAL:** document the host's resource limits + the scale-up path (vertical
 > first, then read replicas) here once capacity testing is done.
+
+## Edge container capacity / memory scale-out (US-573)
+
+The edge container's memory profile (dominated by in-process base64 image
+buffering), the right-sized limits (2G), the load test
+(`scripts/ops/loadtest-grading.mjs`), and the **memory/CPU scale-out rule +
+30% headroom target** that feeds the replica decision above are in
+[`CAPACITY.md`](CAPACITY.md). In short: scale out a replica when sustained RSS
+crosses 70% of the limit (`/health/metrics` `pressure: "elevated"`) or CPU
+crosses 70%.

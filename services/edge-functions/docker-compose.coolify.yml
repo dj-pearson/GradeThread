@@ -23,6 +23,14 @@ services:
       # Marks this as the production runtime. Security debug flags (e.g.
       # WEBHOOK_PAYOUT_DEBUG) are ignored when EDGE_ENV=production. (US-266)
       - EDGE_ENV=production
+      # US-573: the container memory limit (MiB) the app reports against on
+      # /health/metrics so the load-test gate + ops can compute headroom. Keep in
+      # sync with deploy.resources.limits.memory below.
+      - EDGE_MEMORY_LIMIT_MB=2048
+      # US-573: max grading pipelines allowed to hold base64 image data resident
+      # at once (the OOM bound — see grading-capacity.ts + CAPACITY.md). Tuned so
+      # worst-case residency stays under the 2G limit's 30% headroom target.
+      - GRADING_MAX_CONCURRENT_PIPELINES=6
     env_file:
       - .env
     healthcheck:
@@ -80,10 +88,19 @@ services:
       - traefik.http.middlewares.edge-bodylimit.buffering.memRequestBodyBytes=2097152
       - traefik.http.routers.edge-functions.middlewares=edge-cors,edge-bodylimit
     deploy:
+      # US-573: right-sized from 1.5 CPU / 1G after profiling the in-process
+      # base64 image buffering. The grading pipeline holds every submission's
+      # photos as base64 data URIs (~1.33× the raw bytes) resident across the
+      # vision analysis; worst-case (~8 photos near the 15 MiB upload cap) is
+      # ~100 MB resident per submission. GRADING_MAX_CONCURRENT_PIPELINES=6
+      # caps that to ~600 MB of base64; with the Deno baseline + caches + AI SDK
+      # buffers, 2G keeps peak RSS under the 70% scale-out line (≥30% headroom).
+      # Memory-based scale-out rule + the headroom target live in CAPACITY.md.
+      # Keep `memory` in sync with EDGE_MEMORY_LIMIT_MB above.
       resources:
         limits:
           cpus: "1.5"
-          memory: 1G
+          memory: 2G
         reservations:
           cpus: "0.25"
-          memory: 256M
+          memory: 512M

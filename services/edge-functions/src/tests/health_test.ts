@@ -47,3 +47,46 @@ Deno.test("not ready when both DB and env fail", () => {
   assertEquals(s.body.checks.database, "fail");
   assertEquals(s.body.checks.env, "missing");
 });
+
+// US-573: memory summary (/health/metrics) is pure and unit-tested here.
+const { summarizeMemory } = await import("../lib/grading-capacity.ts");
+const MB = 1048576;
+
+Deno.test("memory: ok pressure with comfortable headroom", () => {
+  const m = summarizeMemory(
+    { rss: 600 * MB, heapUsed: 200 * MB, heapTotal: 300 * MB, external: 100 * MB },
+    2048,
+  );
+  assertEquals(m.rss_mb, 600);
+  assertEquals(m.limit_mb, 2048);
+  assertEquals(m.rss_pct_of_limit, 29.3); // 600/2048
+  assertEquals(m.headroom_pct, 70.7);
+  assertEquals(m.pressure, "ok");
+});
+
+Deno.test("memory: elevated pressure crosses the 70% scale-out line", () => {
+  const m = summarizeMemory(
+    { rss: 1500 * MB, heapUsed: 0, heapTotal: 0, external: 0 },
+    2048,
+  );
+  assertEquals(m.pressure, "elevated"); // ~73%
+});
+
+Deno.test("memory: critical pressure at >=85%", () => {
+  const m = summarizeMemory(
+    { rss: 1800 * MB, heapUsed: 0, heapTotal: 0, external: 0 },
+    2048,
+  );
+  assertEquals(m.pressure, "critical"); // ~88%
+});
+
+Deno.test("memory: unknown pressure / null pct when no limit configured", () => {
+  const m = summarizeMemory(
+    { rss: 600 * MB, heapUsed: 0, heapTotal: 0, external: 0 },
+    null,
+  );
+  assertEquals(m.limit_mb, null);
+  assertEquals(m.rss_pct_of_limit, null);
+  assertEquals(m.headroom_pct, null);
+  assertEquals(m.pressure, "unknown");
+});
