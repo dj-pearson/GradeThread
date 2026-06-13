@@ -21,6 +21,10 @@ import {
 } from "../lib/performance-signals.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
+import {
+  assembleRecommendation,
+  recommendGradeBandedPrice,
+} from "../lib/grade-band-pricing.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import {
   decideNewPriceCents,
@@ -249,6 +253,51 @@ flipdeskPricingRoutes.post("/forecast", async (c) => {
   } catch {
     // Never break the composer on a comp/taxonomy hiccup — degrade to unknown.
     return c.json({ forecast: { sellThroughPct: 0, daysLow: 0, daysHigh: 0, label: "unknown", sampleSize: 0 }, value: null });
+  }
+});
+
+// ── POST /price ───────────────────────────────────────────────────
+// US-594: sold-comp, grade-banded price RECOMMENDATION. Unlike /forecast (which
+// scores a price the user already picked off active asks), this RECOMMENDS a
+// price from realized sales — eBay Marketplace Insights → the seller's own
+// private sales — positioned by the item's grade, with sell-through velocity and
+// the comp set + confidence that back it. Falls back to active asks only when no
+// sold data exists, flagged soldBacked=false so the UI can say so. The private-
+// sales comp set is tenant-scoped to the workspace owner (US-268).
+flipdeskPricingRoutes.post("/price", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { categoryId?: unknown; brand?: unknown; q?: unknown; size?: unknown; grade?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const brand = typeof body.brand === "string" ? body.brand.trim() : undefined;
+  const q = typeof body.q === "string" ? body.q.trim() : undefined;
+  const size = typeof body.size === "string" ? body.size.trim() : undefined;
+  const grade = typeof body.grade === "number" ? body.grade : null;
+  let categoryId = typeof body.categoryId === "string" ? body.categoryId.trim() : "";
+
+  if (!brand && !q && !categoryId) {
+    return jsonError(c, 400, "Provide at least a brand, query, or categoryId.");
+  }
+
+  try {
+    if (!categoryId) {
+      const cats = await suggestCategories([brand, q].filter(Boolean).join(" ").trim());
+      categoryId = cats[0]?.categoryId ?? "";
+    }
+    if (!categoryId) {
+      return c.json({ recommendation: assembleRecommendation({ realized: null, activeValue: null, gradeValue: grade }) });
+    }
+    const recommendation = await recommendGradeBandedPrice(
+      { ownerId, categoryId, q, brand, size, conditionId: gradeToConditionId(grade) },
+      grade,
+    );
+    return c.json({ recommendation });
+  } catch {
+    // Never break the composer on a comp/taxonomy hiccup — degrade to insufficient.
+    return c.json({ recommendation: assembleRecommendation({ realized: null, activeValue: null, gradeValue: grade }) });
   }
 });
 

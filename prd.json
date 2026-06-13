@@ -9037,8 +9037,8 @@
         "Surfaces confidence + the comp set behind each recommendation"
       ],
       "priority": 594,
-      "passes": false,
-      "notes": "[P1][Differentiation/Pricing] Deep-dive 2026-06-04. flipdesk-ebay.ts:1930 comps are eBay Browse active asking prices; sold-comp is a pending follow-up; US-460/542 only surface the limitation."
+      "passes": true,
+      "notes": "[P1][Differentiation/Pricing] Deep-dive 2026-06-04. flipdesk-ebay.ts:1930 comps are eBay Browse active asking prices; sold-comp is a pending follow-up; US-460/542 only surface the limitation. DONE 2026-06-12: new grade-band-pricing.ts engine unifies sold-comps (US-542) + grade banding (US-610) + sell-through (US-623). Pure core (positionRealizedByGrade/assembleRecommendation) prefers realized sales (eBay Insights→private sales), grade-positions within the realized band, folds in sell-through, and carries comp-set source/count + confidence; active asks are a flagged (soldBacked=false) fallback only. POST /api/flipdesk/pricing/price; surfaced in EbayCompsPanel via useGradeBandedPrice. Tests: grade-band-pricing_test.ts (9)."
     },
     {
       "id": "US-595",

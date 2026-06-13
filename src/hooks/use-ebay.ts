@@ -501,6 +501,82 @@ export function useEbayComps(args: EbayCompsArgs) {
   });
 }
 
+// ── Sold-comp, grade-banded price recommendation (US-594) ───────────
+
+export type PricingBasis = "ebay_sold" | "private_sales" | "active_estimated";
+
+export interface GradeBandedPrice {
+  recommendedCents: number | null;
+  lowCents: number | null;
+  highCents: number | null;
+  currency: string;
+  gradeValue: number | null;
+  basis: PricingBasis;
+  soldBacked: boolean;
+  sufficient: boolean;
+  confidence: number;
+  compSet: {
+    source: PricingBasis;
+    count: number;
+    currency: string;
+    lowCents: number | null;
+    medianCents: number | null;
+    highCents: number | null;
+  };
+  sellThrough: {
+    sellThroughPct: number;
+    daysLow: number;
+    daysHigh: number;
+    label: "fast" | "moderate" | "slow" | "unknown";
+    sampleSize: number;
+  };
+}
+
+export interface GradeBandedPriceArgs {
+  categoryId: string | null;
+  q?: string;
+  brand?: string;
+  size?: string;
+  grade: number | null;
+}
+
+// Recommends a price from REALIZED sales (eBay Insights → the seller's private
+// sales), grade-positioned, with sell-through + the comp set behind it. Falls
+// back to active asks only when no sold data exists (soldBacked=false). Distinct
+// from useEbayComps, which only ever shows the active-ask distribution.
+export function useGradeBandedPrice(args: GradeBandedPriceArgs) {
+  return useQuery({
+    queryKey: [
+      "grade_banded_price",
+      args.categoryId,
+      args.q ?? null,
+      args.brand ?? null,
+      args.size ?? null,
+      args.grade,
+    ],
+    enabled: !!(args.categoryId || args.brand || args.q),
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<GradeBandedPrice> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/pricing/price`, {
+        method: "POST",
+        headers: await ebayHeaders(),
+        body: JSON.stringify({
+          categoryId: args.categoryId ?? undefined,
+          q: args.q,
+          brand: args.brand,
+          size: args.size,
+          grade: args.grade,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Price recommendation failed.");
+      }
+      return (json as { recommendation: GradeBandedPrice }).recommendation;
+    },
+  });
+}
+
 // ── Category check (Week 5) ─────────────────────────────────────────
 
 export interface CategoryCheckEntry {

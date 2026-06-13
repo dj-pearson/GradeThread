@@ -1426,3 +1426,10 @@ Branch: ralph/gradethread-build
     eslint clean, vitest guard + helper tests pass (14/14).
 - Timestamp: 2026-06-12
 ---
+
+## US-594: Build a sold-comp, grade-banded pricing engine
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/lib/grade-band-pricing.ts (new), services/edge-functions/src/routes/flipdesk-pricing.ts (POST /price), services/edge-functions/src/tests/grade-band-pricing_test.ts (new, 9 tests), src/hooks/use-ebay.ts (useGradeBandedPrice), src/components/flipdesk/ebay-comps-panel.tsx (SoldCompRecommendation block), src/pages/flipdesk/composer.tsx (pass grade), prd.json
+- Notes: The three ingredients already existed but in isolation — sold-comps.ts (US-542) returned realized comps but condition-blind; condition-value.ts (US-610) grade-banded but off ACTIVE asks; sell-through.ts (US-623) was a velocity heuristic. New grade-band-pricing.ts unifies them: realized sales (eBay Insights -> seller's private sales) are the primary basis, grade-positioned within the realized [p25,median,p75] band (positionRealizedByGrade), with sell-through folded in and comp-set source/count + confidence carried on every recommendation. Active asks are only a clearly-flagged fallback (soldBacked=false, dampened confidence). Pure core (positionRealizedByGrade/assembleRecommendation) is unit-tested without eBay/DB; thin I/O wrapper recommendGradeBandedPrice fetches comps then assembles. Endpoint POST /api/flipdesk/pricing/price (tenant-scoped via workspaceOwnerId, US-268). UI: EbayCompsPanel now shows a sold-comp recommendation card (price, range, basis badge, confidence %, sell-through label/days, comp count, Use-as-target-price) above the active-comp grid. Verified: deno check + deno lint + 9 new deno tests pass; frontend tsc --noEmit, npm run build, eslint all clean.
+- Timestamp: 2026-06-12
+---

@@ -982,6 +982,7 @@ export function FlipdeskComposerPage() {
             brand={item.brand ?? null}
             size={item.size ?? null}
             q={item.item_title ?? ""}
+            grade={item.grade_value ?? null}
           />
 
           {/* Condition & price */}
