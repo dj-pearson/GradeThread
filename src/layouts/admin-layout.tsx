@@ -30,6 +30,7 @@ import {
   Server,
   DoorOpen,
   DollarSign,
+  LineChart,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -52,6 +53,7 @@ const adminNavItems = [
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
   { to: "/admin/reliability", icon: BarChart3, label: "Reliability", end: false, superAdminOnly: false },
   { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
+  { to: "/admin/condition-index", icon: LineChart, label: "Condition Index", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
   { to: "/admin/pricing", icon: DollarSign, label: "Plans & Pricing", end: false, superAdminOnly: false },
   { to: "/admin/waitlist", icon: DoorOpen, label: "Waitlist", end: false, superAdminOnly: false },

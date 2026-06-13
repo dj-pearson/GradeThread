@@ -79,7 +79,9 @@ export async function getIndexSeeds(): Promise<IndexSeed[]> {
 }
 
 // A curve needs at least this much total comp support to be PUBLISHED (US-622).
-const MIN_INDEX_TOTAL_SAMPLE = 8;
+// Exported so the admin curation surface (US-846) can flag entries that fall
+// below the publish threshold for pruning.
+export const MIN_INDEX_TOTAL_SAMPLE = 8;
 
 export interface IndexCurveDto {
   slug: string;
@@ -179,42 +181,51 @@ export async function getIndexCurveBySlug(slug: string): Promise<IndexCurveDto |
   return dto;
 }
 
+/**
+ * Rebuild ONE curve from fresh comps and persist it. Returns true on success.
+ * Shared by the cron (refreshConditionIndex) and the admin on-demand refresh
+ * (US-846) so the build+persist logic lives in exactly one place.
+ */
+export async function refreshIndexSeed(seed: IndexSeed): Promise<boolean> {
+  try {
+    const curve = await buildValueCurve({ categoryId: seed.categoryId, brand: seed.brand, q: seed.q });
+    const itemKey = normalizeItemKey({ categoryId: seed.categoryId, brand: seed.brand, q: seed.q });
+    const { error } = await supabaseAdmin
+      .from("condition_price_curves")
+      .upsert(
+        {
+          item_key: itemKey,
+          slug: seed.slug,
+          label: seed.label,
+          brand: seed.brand,
+          category_id: seed.categoryId,
+          query: seed.q ?? null,
+          currency: curve.currency,
+          curve: curve.points,
+          total_sample_size: curve.totalSampleSize,
+          refreshed_at: curve.refreshedAt,
+        },
+        { onConflict: "item_key" },
+      );
+    if (error) {
+      logEvent("warn", "condition-index.persist_failed", { slug: seed.slug });
+      return false;
+    }
+    return true;
+  } catch (err) {
+    captureException(err, { level: "warn", route: "condition-index.refresh", tags: { slug: seed.slug } });
+    return false;
+  }
+}
+
 // Cron: rebuild every curated curve from fresh comps and stamp its slug/label.
 export async function refreshConditionIndex(): Promise<{ refreshed: number; failed: number }> {
   let refreshed = 0;
   let failed = 0;
   const seeds = await getIndexSeeds();
   for (const seed of seeds) {
-    try {
-      const curve = await buildValueCurve({ categoryId: seed.categoryId, brand: seed.brand, q: seed.q });
-      const itemKey = normalizeItemKey({ categoryId: seed.categoryId, brand: seed.brand, q: seed.q });
-      const { error } = await supabaseAdmin
-        .from("condition_price_curves")
-        .upsert(
-          {
-            item_key: itemKey,
-            slug: seed.slug,
-            label: seed.label,
-            brand: seed.brand,
-            category_id: seed.categoryId,
-            query: seed.q ?? null,
-            currency: curve.currency,
-            curve: curve.points,
-            total_sample_size: curve.totalSampleSize,
-            refreshed_at: curve.refreshedAt,
-          },
-          { onConflict: "item_key" },
-        );
-      if (error) {
-        failed += 1;
-        logEvent("warn", "condition-index.persist_failed", { slug: seed.slug });
-      } else {
-        refreshed += 1;
-      }
-    } catch (err) {
-      failed += 1;
-      captureException(err, { level: "warn", route: "condition-index.refresh", tags: { slug: seed.slug } });
-    }
+    if (await refreshIndexSeed(seed)) refreshed += 1;
+    else failed += 1;
   }
   logEvent("info", "condition-index.refresh", { refreshed, failed });
   return { refreshed, failed };

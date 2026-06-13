@@ -12462,8 +12462,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 846,
-      "passes": false,
-      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845 (DB-driven catalog). Model after admin/seo.tsx and admin/reliability.tsx for the MFA-gated admin pattern."
+      "passes": true,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845 (DB-driven catalog). Model after admin/seo.tsx and admin/reliability.tsx for the MFA-gated admin pattern. | Implemented: admin-condition-index.ts edge route (GET list w/ sample depth+refreshed_at joined from condition_price_curves by slug, POST create, PUT edit/disable, DELETE prune, POST /:id/refresh single, POST /refresh all via job-lock) mounted at /api/admin/condition-index behind the /api/admin/* auth+AAL2 gate, all mutations audited. Extracted refreshIndexSeed() + exported MIN_INDEX_TOTAL_SAMPLE from condition-index.ts. Frontend src/pages/admin/condition-index.tsx (table w/ below-threshold flagging, create/edit dialog, per-row + bulk refresh) + /admin/condition-index route + admin sidebar nav. No migration (condition_index_seeds exists from 00190)."
     },
     {
       "id": "US-847",

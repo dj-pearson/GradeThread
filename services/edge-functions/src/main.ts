@@ -63,6 +63,7 @@ import { adminJobsRoutes } from "./routes/admin-jobs.ts";
 import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
+import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
@@ -689,6 +690,10 @@ app.route("/api/admin/moderation", adminModerationRoutes);
 // (repeat offenders, velocity / rate-limit abuse, duplicate-account /
 // shared-payment, chargebacks). Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/fraud", adminFraudRoutes);
+// US-846 Condition Index catalog curation — list/create/edit/disable
+// condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
+// /api/admin/* group; every mutation audited.
+app.route("/api/admin/condition-index", adminConditionIndexRoutes);
 // US-326 public transparency report. Lives at /api/grading/public (NOT
 // /api/grade/*, which is JWT-gated) so the unauthenticated /transparency page
 // can read platform-wide aggregate accuracy stats. Returns no per-tenant data.
