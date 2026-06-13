@@ -92,6 +92,7 @@ import { workspaceRoutes } from "./routes/workspace.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { legalRoutes } from "./routes/legal.ts";
 import { verifiedRoutes } from "./routes/verified.ts";
+import { supportAssistantRoutes } from "./routes/support-assistant.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
@@ -314,6 +315,12 @@ app.use("/api/flipdesk/google/sync/now", authMiddleware);
 // enforce per-action role checks (owner/admin required to invite, etc.).
 app.use("/api/workspace/*", authMiddleware);
 app.use("/api/workspace/*", workspaceMiddleware);
+
+// US-834: AI Support Assistant — authed + workspace-scoped (subscription gate +
+// tenant-scoped read tools live in the handler/engine). The subscriber/lockout
+// gate runs inside POST /message before any model call.
+app.use("/api/support/assistant/*", authMiddleware);
+app.use("/api/support/assistant/*", workspaceMiddleware);
 
 // Workspace context middleware — resolves X-Workspace-Owner into
 // workspaceOwnerId/workspaceRole so routes can write to the correct tenant
@@ -606,6 +613,8 @@ app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 app.route("/api/flipdesk/consignment", flipdeskConsignmentRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 app.route("/api/flipdesk/automations", flipdeskAutomationsRoutes);
+// US-834: AI Support Assistant (streaming chat + conversation history).
+app.route("/api/support/assistant", supportAssistantRoutes);
 // Condition-aware repricing cron. OUTSIDE /api/flipdesk so the user-JWT
 // middleware above doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync cron).

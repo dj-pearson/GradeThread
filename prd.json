@@ -12279,8 +12279,8 @@
         "deno test covers the gate (subscriber/locked) and the tool-loop iteration cap; npm run verify passes"
       ],
       "priority": 834,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-829/831/832/833. Mount alongside existing flipdesk routes in main.ts. Streaming bypasses the limiter's create() path — meter tokens explicitly post-stream. Tier gate policy (which plans get the bot) finalized in US-844 config."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-829/831/832/833. Mount alongside existing flipdesk routes in main.ts. Streaming bypasses the limiter's create() path — meter tokens explicitly post-stream. Tier gate policy (which plans get the bot) finalized in US-844 config. [DONE 2026-06-13] Engine in lib/support-assistant-engine.ts (pure gate evaluateAssistantGate, fixed tool allowlist ASSISTANT_TOOLS = 6 read-only US-832 tools + KB US-833 + escalate, bounded runAssistantLoop MAX_TOOL_ITERATIONS=5). Route routes/support-assistant.ts: POST /message (gate before model call, SSE via streamSSE, getAnthropicClient+getLightweightModel, persist user+assistant turns w/ token counts, incrementUsage post-stream), GET /conversations + /conversations/:id (user-scoped, no system rows). Mounted /api/support/assistant in main.ts w/ auth+workspace middleware. Minimal escalate (status->escalated, user-scoped) pending US-837 full lifecycle; minimal SUPPORT_SYSTEM_PROMPT pending US-835 hardening. Tests support-assistant-engine_test.ts (9): gate subscriber/locked, iteration cap, no-write registry. Full edge suite 1130 passed."
     },
     {
       "id": "US-835",
