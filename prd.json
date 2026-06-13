@@ -12248,8 +12248,8 @@
         "deno test + npm run verify pass"
       ],
       "priority": 832,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] This is the read-only + nothing-personal + per-tenant-wall guarantee in code. Reuse loadListingOwned/assemblePublishContext ownership patterns from flipdesk-ebay.ts. Tables: inventory_items, listings, sales, grade_reports, submissions, users (own non-sensitive fields only)."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] This is the read-only + nothing-personal + per-tenant-wall guarantee in code. Reuse loadListingOwned/assemblePublishContext ownership patterns from flipdesk-ebay.ts. Tables: inventory_items, listings, sales, grade_reports, submissions, users (own non-sensitive fields only). [DONE] services/edge-functions/src/lib/support-tools.ts: six read-only, tenant-scoped tools (getMyInventoryStatusCounts, getMyListingsSummary, getSalesSummary, getGradeReportForMyItem, getMyOpenSubmissions, getMyPlanAndLimits). No write/update/delete. Every query .eq(user_id, ownerId); parent-scoped tables (listings/sales/grade_reports) reached only via owned inventory_items ids; getGradeReportForMyItem loadOwned-verifies (id AND user_id) before any read. DTOs are explicit allowlists — no select(*); sales returns aggregates only (no buyer identity). db is injectable for unit testability. 6 cross-tenant unit tests added to tenant-isolation_test.ts (faithful in-memory fake DB, run in CI). deno check + lint + 1082 edge tests pass."
     },
     {
       "id": "US-833",

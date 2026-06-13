@@ -28,7 +28,7 @@
 //
 // Run:  deno task test   (or: deno test --allow-net --allow-env)
 
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 const BASE = Deno.env.get("TEST_EDGE_BASE_URL");
 const A_JWT = Deno.env.get("TEST_USER_A_JWT");
@@ -960,4 +960,225 @@ Deno.test({
       `B should see 0 messages in A's conversation, got ${JSON.stringify(rows)}`,
     );
   },
+});
+
+// ════════════════════════════════════════════════════════════════════
+// US-832: read-only support-tool layer — tenant scoping (no live DB).
+//
+// The six support tools (lib/support-tools.ts) run on the RLS-bypassing
+// service-role client, so their explicit `.eq("user_id", ownerId)` filters and
+// loadOwned ownership checks are the ENTIRE tenant wall. These tests exercise
+// that real filtering logic against a faithful in-memory fake DB that honours
+// eq/in/gte — so "user B impersonating ownership of user A's item/data gets
+// nothing" is asserted directly, with no env fixture required (runs in CI).
+// ════════════════════════════════════════════════════════════════════
+
+Deno.env.set(
+  "SUPABASE_URL",
+  Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321",
+);
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
+const ST = await import("../lib/support-tools.ts");
+type FakeRow = Record<string, unknown>;
+
+function makeFakeDb(
+  tables: Record<string, FakeRow[]>,
+): import("../lib/support-tools.ts").SupportDb {
+  function build(
+    table: string,
+  ): import("../lib/support-tools.ts").SupportQuery {
+    const filters: Array<{ kind: "eq" | "in" | "gte"; col: string; val: unknown }> = [];
+    let limitN: number | null = null;
+    let orderCol: string | null = null;
+    let orderAsc = true;
+    const apply = (): FakeRow[] => {
+      let rows = (tables[table] ?? []).slice();
+      for (const f of filters) {
+        if (f.kind === "eq") rows = rows.filter((r) => r[f.col] === f.val);
+        else if (f.kind === "in") {
+          rows = rows.filter((r) => (f.val as unknown[]).includes(r[f.col]));
+        } else if (f.kind === "gte") {
+          rows = rows.filter((r) => String(r[f.col]) >= String(f.val));
+        }
+      }
+      if (orderCol) {
+        const oc = orderCol;
+        rows.sort((a, b) => {
+          const av = String(a[oc]);
+          const bv = String(b[oc]);
+          const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+          return orderAsc ? cmp : -cmp;
+        });
+      }
+      if (limitN != null) rows = rows.slice(0, limitN);
+      return rows;
+    };
+    // deno-lint-ignore no-explicit-any
+    const q: any = {
+      select: () => q,
+      eq: (col: string, val: unknown) => {
+        filters.push({ kind: "eq", col, val });
+        return q;
+      },
+      in: (col: string, vals: readonly unknown[]) => {
+        filters.push({ kind: "in", col, val: vals });
+        return q;
+      },
+      gte: (col: string, val: unknown) => {
+        filters.push({ kind: "gte", col, val });
+        return q;
+      },
+      order: (col: string, opts?: { ascending?: boolean }) => {
+        orderCol = col;
+        orderAsc = opts?.ascending ?? true;
+        return q;
+      },
+      limit: (n: number) => {
+        limitN = n;
+        return q;
+      },
+      maybeSingle: () => Promise.resolve({ data: apply()[0] ?? null, error: null }),
+      // deno-lint-ignore no-explicit-any
+      then: (onF: any, onR: any) =>
+        Promise.resolve({ data: apply(), error: null }).then(onF, onR),
+    };
+    return q;
+  }
+  return { from: build };
+}
+
+const A = "user-a-0000-0000-0000-000000000001";
+const B = "user-b-0000-0000-0000-000000000002";
+const A_ITEM = "item-a-0000-0000-0000-000000000001";
+const B_ITEM = "item-b-0000-0000-0000-000000000002";
+const A_REPORT = "report-a-0000-0000-0000-00000000001";
+
+function seedDb() {
+  return makeFakeDb({
+    inventory_items: [
+      { id: A_ITEM, user_id: A, status: "listed", grade_report_id: A_REPORT },
+      { id: B_ITEM, user_id: B, status: "sourced", grade_report_id: null },
+    ],
+    listings: [
+      {
+        id: "listing-a", inventory_item_id: A_ITEM, listing_title: "A jacket",
+        listing_status: "active", platform: "ebay", listing_price: "50.00",
+        views: 10, watchers: 2, listed_at: "2026-06-01T00:00:00Z",
+      },
+      {
+        id: "listing-b", inventory_item_id: B_ITEM, listing_title: "B shirt",
+        listing_status: "draft", platform: "ebay", listing_price: "20.00",
+        views: 0, watchers: 0, listed_at: "2026-06-02T00:00:00Z",
+      },
+    ],
+    sales: [
+      {
+        inventory_item_id: A_ITEM, sale_price: "50.00", platform_fees: "5.00",
+        payment_processing_fees: "1.50", shipping_collected: "0",
+        shipping_cost: "4.00", grading_cost: "0", other_costs: "0",
+        net_profit: "39.50", sale_date: "2026-06-05T00:00:00Z",
+        buyer_username: "secretbuyer", buyer_id: "b-999",
+        tracking_number: "TRK123", payout_reference: "PR-1",
+      },
+    ],
+    grade_reports: [
+      {
+        id: A_REPORT, overall_score: "8.5", grade_tier: "Excellent",
+        fabric_condition_score: "9.0", structural_integrity_score: "8.0",
+        cosmetic_appearance_score: "8.5", functional_elements_score: "9.0",
+        odor_cleanliness_score: "8.0", ai_summary: "Great", confidence_score: "0.9",
+      },
+    ],
+    submissions: [
+      { id: "sub-a", user_id: A, title: "A sub", status: "processing", created_at: "2026-06-03T00:00:00Z" },
+      { id: "sub-b", user_id: B, title: "B sub", status: "completed", created_at: "2026-06-04T00:00:00Z" },
+    ],
+    users: [
+      { id: A, flipdesk_plan: "pro", subscription_status: "active", trial_ends_at: null, past_due_since: null, grades_used_this_month: 3, grade_reset_at: "2099-01-01T00:00:00Z", ai_actions_used_this_month: 7 },
+      { id: B, flipdesk_plan: "free", subscription_status: "active", trial_ends_at: null, past_due_since: null, grades_used_this_month: 0, grade_reset_at: "2099-01-01T00:00:00Z", ai_actions_used_this_month: 0 },
+    ],
+  });
+}
+
+// Stub matrix so getMyPlanAndLimits doesn't reach the network.
+const FAKE_MATRIX = {
+  free: { activeListingCap: 5, aiActionsPerMonth: 10, marketplacesCap: 1, includedStandardGradesPerMonth: 2, teamSeatCap: 0, gateFlags: {} },
+  starter: { activeListingCap: 25, aiActionsPerMonth: 25, marketplacesCap: 1, includedStandardGradesPerMonth: 10, teamSeatCap: 0, gateFlags: {} },
+  pro: { activeListingCap: 250, aiActionsPerMonth: 250, marketplacesCap: 3, includedStandardGradesPerMonth: 50, teamSeatCap: 2, gateFlags: {} },
+  business: { activeListingCap: -1, aiActionsPerMonth: -1, marketplacesCap: -1, includedStandardGradesPerMonth: -1, teamSeatCap: 10, gateFlags: {} },
+  // deno-lint-ignore no-explicit-any
+} as any;
+const loadFakeMatrix = () => Promise.resolve(FAKE_MATRIX);
+
+Deno.test("US-832: inventory counts are scoped to the caller's tenant", async () => {
+  const db = seedDb();
+  const b = await ST.getMyInventoryStatusCounts(B, db);
+  assertEquals(b.total, 1, "B sees only B's one item, never A's");
+  assertEquals(b.byStatus.listed ?? 0, 0, "B's item is not A's 'listed' item");
+  const a = await ST.getMyInventoryStatusCounts(A, db);
+  assertEquals(a.total, 1);
+  assertEquals(a.byStatus.listed, 1);
+});
+
+Deno.test("US-832: listings summary never leaks another tenant's listing", async () => {
+  const db = seedDb();
+  const b = await ST.getMyListingsSummary(B, {}, db);
+  assertEquals(b.length, 1);
+  assertEquals(b[0].title, "B shirt");
+  assert(b.every((l) => l.id !== "listing-a"), "B must not see A's listing");
+});
+
+Deno.test("US-832: sales summary is aggregate-only and tenant-scoped", async () => {
+  const db = seedDb();
+  // B owns no sales → all-zero aggregate, never A's sale.
+  const b = await ST.getSalesSummary(B, { period: "all" }, db);
+  assertEquals(b.count, 0);
+  assertEquals(b.gross, 0);
+  // A's own aggregate, with NO buyer identity fields on the DTO.
+  const a = await ST.getSalesSummary(A, { period: "all" }, db);
+  assertEquals(a.count, 1);
+  assertEquals(a.gross, 50);
+  assertEquals(a.net, 39.5);
+  const keys = Object.keys(a);
+  for (const forbidden of ["buyer_username", "buyer_id", "buyer", "tracking_number", "payout_reference"]) {
+    assert(!keys.includes(forbidden), `sales DTO must not expose ${forbidden}`);
+  }
+});
+
+Deno.test("US-832: grade report refuses an item the caller does not own", async () => {
+  const db = seedDb();
+  // B impersonates ownership of A's item id → null, no grade leaked.
+  const stolen = await ST.getGradeReportForMyItem(B, A_ITEM, db);
+  assertEquals(stolen, null, "B must get nothing for A's item");
+  // A reading A's own item → real report (positive control).
+  const mine = await ST.getGradeReportForMyItem(A, A_ITEM, db);
+  assert(mine !== null);
+  assertEquals(mine!.overallScore, 8.5);
+  assertEquals(mine!.tier, "Excellent");
+});
+
+Deno.test("US-832: open submissions are tenant-scoped and exclude terminal states", async () => {
+  const db = seedDb();
+  const b = await ST.getMyOpenSubmissions(B, db);
+  // B's only submission is 'completed' (terminal) → excluded.
+  assertEquals(b.length, 0);
+  const a = await ST.getMyOpenSubmissions(A, db);
+  assertEquals(a.length, 1);
+  assertEquals(a[0].status, "processing");
+});
+
+Deno.test("US-832: plan & limits reflect only the caller's own tenant", async () => {
+  const db = seedDb();
+  const a = await ST.getMyPlanAndLimits(A, db, loadFakeMatrix);
+  assert(a !== null);
+  assertEquals(a!.plan, "pro");
+  assertEquals(a!.usage.activeListings, 1, "A has one 'listed' item");
+  assertEquals(a!.usage.aiActionsUsedThisMonth, 7);
+  const b = await ST.getMyPlanAndLimits(B, db, loadFakeMatrix);
+  assertEquals(b!.plan, "free");
+  assertEquals(b!.usage.activeListings, 0, "B has no 'listed' items");
 });
