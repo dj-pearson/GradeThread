@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useItemsFull } from "@/hooks/use-items-full";
+import { useRepricingSuggestions } from "@/hooks/use-repricing";
 import { ErrorState } from "@/components/ui/error-state";
 import {
   Package,
@@ -13,6 +14,9 @@ import {
   Plus,
   Upload,
   Eye,
+  ShieldCheck,
+  TrendingDown,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -69,6 +73,45 @@ function daysSince(iso: string | null | undefined): number | null {
   return Math.floor((Date.now() - t) / DAY_MS);
 }
 
+// US-859: dismissed stale-listing nudges, persisted per browser so a seller who
+// has already acted on (or ignored) a nudge isn't shown it again. Keyed by item
+// id; kept tiny and resilient to storage being unavailable (private mode).
+const STALE_NUDGE_DISMISS_KEY = "gt:flipdesk:stale-nudge-dismissed";
+
+function readDismissedNudges(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STALE_NUDGE_DISMISS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? new Set(parsed.map(String)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function useDismissedStaleNudges() {
+  const [dismissed, setDismissed] = useState<Set<string>>(readDismissedNudges);
+
+  const dismiss = useCallback((id: string) => {
+    setDismissed((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      try {
+        localStorage.setItem(
+          STALE_NUDGE_DISMISS_KEY,
+          JSON.stringify([...next]),
+        );
+      } catch {
+        // Best-effort; still hidden for this session.
+      }
+      return next;
+    });
+  }, []);
+
+  return { dismissed, dismiss };
+}
+
 export function FlipdeskOverviewPage() {
   // Shared items_full read — single source of truth across FlipDesk (US-419).
   const {
@@ -78,6 +121,24 @@ export function FlipdeskOverviewPage() {
     isFetching,
     refetch,
   } = useItemsFull();
+
+  // US-859: dismissible "grade to boost trust" / "reprice or relist" nudges on
+  // stale listings. Reuse the existing repricing suggestions where available so
+  // the graded-item nudge can show a concrete recommendation. Failure here is
+  // non-fatal — the nudge falls back to a generic reprice/relist prompt.
+  const { dismissed: dismissedNudges, dismiss: dismissNudge } =
+    useDismissedStaleNudges();
+  const { data: repriceSuggestions = [] } = useRepricingSuggestions();
+  const repriceByItem = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of repriceSuggestions) {
+      if (s.reason_code === "OK") continue;
+      if (!map.has(s.inventory_item_id)) {
+        map.set(s.inventory_item_id, s.message);
+      }
+    }
+    return map;
+  }, [repriceSuggestions]);
 
   const stats = useMemo(() => {
     const now = Date.now();
@@ -437,24 +498,33 @@ export function FlipdeskOverviewPage() {
               {stats.staleListings.map(({ item, days }) => (
                 <li
                   key={item.id}
-                  className="flex items-center justify-between gap-3 rounded-md border p-2 hover:bg-muted/40"
+                  className="space-y-2 rounded-md border p-2 hover:bg-muted/40"
                 >
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      to={`/dashboard/flipdesk/items/${item.id}`}
-                      className="block truncate font-medium hover:underline"
-                    >
-                      {item.item_title}
-                    </Link>
-                    <div className="text-xs text-muted-foreground">
-                      {fmtMoney(item.list_price)}
-                      {item.brand ? ` · ${item.brand}` : ""}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        to={`/dashboard/flipdesk/items/${item.id}`}
+                        className="block truncate font-medium hover:underline"
+                      >
+                        {item.item_title}
+                      </Link>
+                      <div className="text-xs text-muted-foreground">
+                        {fmtMoney(item.list_price)}
+                        {item.brand ? ` · ${item.brand}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-destructive">
+                      <Clock className="h-3 w-3" />
+                      {days}d listed
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-destructive">
-                    <Clock className="h-3 w-3" />
-                    {days}d listed
-                  </div>
+                  {!dismissedNudges.has(item.id) && (
+                    <StaleNudge
+                      item={item}
+                      repriceMessage={repriceByItem.get(item.id) ?? null}
+                      onDismiss={() => dismissNudge(item.id)}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -537,5 +607,63 @@ function StatCard({
       <div className="mt-2 text-2xl font-bold tabular-nums">{value}</div>
       <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
     </Link>
+  );
+}
+
+// US-859: the actionable nudge on a stale listing. Ungraded items get a "grade
+// to boost trust" prompt into that item's grading flow; already-graded items
+// get a reprice/relist prompt (preferring a concrete repricing suggestion when
+// one exists). Dismissible via the X — persisted per browser by the caller.
+function StaleNudge({
+  item,
+  repriceMessage,
+  onDismiss,
+}: {
+  item: ItemFullRow;
+  repriceMessage: string | null;
+  onDismiss: () => void;
+}) {
+  const isGraded = item.grade_value != null;
+
+  const icon = isGraded ? (
+    <TrendingDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-navy dark:text-foreground" />
+  ) : (
+    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-navy dark:text-foreground" />
+  );
+
+  const text = isGraded
+    ? (repriceMessage ??
+      "No watchers in 2+ weeks — drop the price or relist to get fresh eyes.")
+    : "Grade this item to add a verified condition badge + certificate — graded listings earn more buyer trust.";
+
+  const cta = isGraded
+    ? { label: "Reprice", to: "/dashboard/flipdesk/repricing" }
+    : {
+        label: "Grade it",
+        to: `/dashboard/flipdesk/items/${item.id}#canvas-grading`,
+      };
+
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-brand-navy/30 bg-brand-navy/5 px-2.5 py-2">
+      {icon}
+      <p className="flex-1 text-xs text-foreground">{text}</p>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" asChild>
+          <Link to={cta.to}>
+            {cta.label}
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 text-muted-foreground"
+          onClick={onDismiss}
+          aria-label="Dismiss nudge"
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
   );
 }

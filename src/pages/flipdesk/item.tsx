@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useEffect, useMemo } from "react";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ import { ITEM_STATUS_LABELS } from "@/lib/constants";
 export function FlipdeskItemPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hash } = useLocation();
 
   // Shared items_full read — single source of truth across FlipDesk (US-419).
   const { data: items = [], isLoading } = useItemsFull();
@@ -31,6 +32,14 @@ export function FlipdeskItemPage() {
     () => items.find((it) => it.id === id) ?? null,
     [items, id],
   );
+
+  // Deep links like /items/:id#canvas-grading (US-859 stale-listing "grade it"
+  // nudge) should land on the grade section once the item has rendered.
+  useEffect(() => {
+    if (!hash || !item) return;
+    const el = document.getElementById(hash.slice(1));
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [hash, item]);
 
   function goBack() {
     navigate("/dashboard/flipdesk/items");

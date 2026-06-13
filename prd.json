@@ -12657,8 +12657,8 @@
         "npm run build passes"
       ],
       "priority": 859,
-      "passes": false,
-      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Overview already computes stale (0 watchers, 14+ days) + aging. Ties grading to the moment of need."
+      "passes": true,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Overview already computes stale (0 watchers, 14+ days) + aging. Ties grading to the moment of need. SHIPPED 2026-06-13. Enhanced the existing 'Stale listings' card on src/pages/flipdesk/overview.tsx: each stale row now carries an inline nudge keyed off item.grade_value — ungraded items get a 'Grade this item to add a verified condition badge + certificate' prompt that deep-links into that item's grading flow (/dashboard/flipdesk/items/:id#canvas-grading; added a hash-scroll effect to item.tsx so the link lands on the canvas grade section), while already-graded items get a reprice/relist prompt that prefers a concrete message from the existing useRepricingSuggestions() feed (skipping OK reason codes) and links to /dashboard/flipdesk/repricing. Tenant-scoped by construction (reuses useItemsFull -> items_full RLS view + the RLS-scoped repricing endpoint). Each nudge is dismissible via an X, persisted per-browser in localStorage (gt:flipdesk:stale-nudge-dismissed, resilient to private-mode), and the card stays capped at 5 rows so it doesn't overwhelm. New StaleNudge component + useDismissedStaleNudges hook colocated in overview.tsx. tsc --noEmit + eslint (no new errors) + npm run build (37 prerendered pages) all green."
     },
     {
       "id": "US-860",

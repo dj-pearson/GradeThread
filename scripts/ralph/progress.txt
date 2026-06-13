@@ -2254,3 +2254,11 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean; npm run build green (37 prerendered pages); eslint clean on all changed frontend files; edge schema-version_test.ts 9/9 pass. (DB lane not run locally — Docker; SQL mirrors the established 00148 aggregate pattern.)
 - Timestamp: 2026-06-13
 ---
+
+## US-859: Stale-listing 'grade to boost trust' nudges
+- Status: COMPLETE
+- Files changed: src/pages/flipdesk/overview.tsx, src/pages/flipdesk/item.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Turned the existing 'Stale listings' card (overview.tsx — active >14d, 0 watchers, already computed) into a conversion driver. Each stale row now renders an inline <StaleNudge> keyed off item.grade_value: UNGRADED items get a 'Grade this item to add a verified condition badge + certificate' prompt linking into that item's grading flow (/dashboard/flipdesk/items/:id#canvas-grading); GRADED items get a reprice/relist prompt that prefers a concrete message from the existing useRepricingSuggestions() feed (skips OK reason codes, falls back to a generic 'drop price or relist' line) and links to /dashboard/flipdesk/repricing. Added a small hash-scroll useEffect to item.tsx so the #canvas-grading deep link lands on the canvas grade section once the item renders. Tenant-scoped by construction (useItemsFull → items_full RLS view; repricing endpoint is RLS-scoped). Nudges are dismissible via an X, persisted per-browser in localStorage (gt:flipdesk:stale-nudge-dismissed) via a new useDismissedStaleNudges hook — resilient to storage being unavailable (private mode); card stays capped at 5 rows so it doesn't overwhelm the overview.
+- Verification: npx tsc --noEmit clean; npm run lint clean (only pre-existing warnings, 0 errors); npm run build green (37 prerendered pages).
+- Timestamp: 2026-06-13
+---
