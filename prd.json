@@ -14414,6 +14414,22 @@
       "priority": 972,
       "passes": false,
       "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (templateMenu overwrite ~498), ios/GradeThread/Marketplaces/EbayAccountsView.swift (set-primary), ios/GradeThread/Inventory/InventoryListView.swift (BulkUndoBar 6s auto-dismiss ~209), ios/GradeThread/Haptics + Feedback utilities. Audit-confirmed silent-success in marketplace flows."
+    },
+    {
+      "id": "US-973",
+      "title": "DefinedTerm/DefinedTermSet schema for the condition glossary (GEO)",
+      "description": "As an operator, I want every glossary term page and the condition-grading hub to emit schema.org DefinedTerm / DefinedTermSet, so AI answer-engines and search treat GradeThread as the canonical structured source for condition abbreviations (NWT, NWOT, EUC...) and the 5 grading factors. This directly targets the high-intent 'nwt vs nwot meaning'-style queries seeded in the topic bank (migration 00192). The glossary pages currently emit only FAQPage (glossaryJsonLd), so the definitions aren't machine-extractable as terms.",
+      "acceptanceCriteria": [
+        "Add definedTermLd(entry) plus a stable DefinedTermSet @id (e.g. `${SITE_URL}/#condition-glossary`) to src/lib/seo/json-ld.ts.",
+        "Each glossary entry page (/grading/:slug — tier + factor pages) emits a DefinedTerm: name=term, alternateName=expansion (when present), description=definition, url=absolute path, inDefinedTermSet referencing the set @id. Wire it through glossaryJsonLd(entry) in src/pages/marketing/marketing-jsonld.ts so BOTH the live <SEO> and the prerender (head-builder.ts jsonLdForRoute glossary branch) emit it identically.",
+        "The /condition-grading hub emits the DefinedTermSet (name, description, hasDefinedTerm listing every glossary term), mirrored in conditionGradingJsonLd and jsonLdForRoute.",
+        "The JSON-LD parity test (src/prerender/__tests__/jsonld-parity.test.tsx) covers the new nodes and passes; the prerendered HTML for a glossary page contains the DefinedTerm script.",
+        "Output validates with no errors in the Schema Markup Validator / Rich Results Test.",
+        "Type check passes; npm run build green."
+      ],
+      "priority": 973,
+      "passes": false,
+      "notes": "[GEO / Entity & Definitions] Added 2026-06-13. Complements US-855 cornerstone pages and the seeded topic bank (migration 00192 — 'nwt vs nwot meaning' etc.). Files: src/lib/seo/json-ld.ts (new definedTermLd + DefinedTermSet @id), src/pages/marketing/marketing-jsonld.ts (glossaryJsonLd + conditionGradingJsonLd), src/prerender/head-builder.ts (jsonLdForRoute glossary + /condition-grading branches), src/lib/seo/glossary.ts (GlossaryEntry: term/expansion/definition). CRITICAL: keep prerender<->runtime JSON-LD parity — add to glossaryJsonLd so both emit paths stay identical, and update jsonld-parity.test.tsx. Never emit a DefinedTerm without inDefinedTermSet linking to the hub set's @id. The robots max-image-preview directive already shipped separately (PR #78)."
     }
   ]
 }
