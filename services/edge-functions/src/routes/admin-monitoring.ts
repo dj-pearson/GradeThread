@@ -14,6 +14,14 @@ import {
 } from "../lib/support-abuse.ts";
 import type { FlipdeskPlan } from "../lib/pricing-config.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
+import {
+  computeCost,
+  computeDeflection,
+  computeEscalationBreakdown,
+  computeTopTopics,
+  type ConversationRow,
+} from "../lib/support-analytics.ts";
+import { estimateCost } from "../lib/ai-extract.ts";
 
 // US-841: admin abuse & usage monitoring for the AI Support Assistant.
 //
@@ -291,6 +299,75 @@ adminMonitoringRoutes.get("/flagged-messages", async (c) => {
   });
 
   return c.json({ messages });
+});
+
+// ── GET /metrics — assistant analytics & cost (US-842) ───────────────────────
+// Computes, over a trailing window (default 30 days, ?days=N capped to 90):
+//   • deflection rate (bot-resolved vs escalated to a human),
+//   • escalation breakdown by trigger + top reasons,
+//   • top topics (proxied by assistant tool usage — non-PII),
+//   • token + estimated-cost totals and the highest-cost conversations.
+// All computed from the persisted transcript (support_conversations +
+// support_messages) — no PostHog round-trip. Cross-tenant by design (admin gate).
+const MAX_METRICS_ROWS = 5000;
+
+adminMonitoringRoutes.get("/metrics", async (c) => {
+  const daysRaw = Number(c.req.query("days"));
+  const days = Number.isFinite(daysRaw)
+    ? Math.min(90, Math.max(1, Math.round(daysRaw)))
+    : 30;
+  const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  // Conversations in window → deflection + escalation breakdown.
+  const { data: convData, error: convErr } = await supabaseAdmin
+    .from("support_conversations")
+    .select("id, status, escalated_at, escalation_trigger, escalation_reason")
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(MAX_METRICS_ROWS);
+  if (convErr) {
+    console.error("[admin-monitoring] metrics conv read failed:", convErr.message);
+    return c.json({ error: "Could not load metrics" }, 500);
+  }
+  const conversations = (convData ?? []) as ConversationRow[];
+
+  // Assistant turns in window → cost + top topics (tool usage).
+  const { data: msgData, error: msgErr } = await supabaseAdmin
+    .from("support_messages")
+    .select("conversation_id, model, input_tokens, output_tokens, tool_calls")
+    .eq("role", "assistant")
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(MAX_METRICS_ROWS);
+  if (msgErr) {
+    console.error("[admin-monitoring] metrics msg read failed:", msgErr.message);
+    return c.json({ error: "Could not load metrics" }, 500);
+  }
+  const messages = (msgData ?? []) as Array<{
+    conversation_id: string;
+    model: string | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    tool_calls: unknown;
+  }>;
+
+  const truncated = conversations.length >= MAX_METRICS_ROWS ||
+    messages.length >= MAX_METRICS_ROWS;
+  if (truncated) {
+    console.warn(
+      `[admin-monitoring] metrics window hit the ${MAX_METRICS_ROWS}-row cap; ` +
+        "totals are a lower bound for this period.",
+    );
+  }
+
+  return c.json({
+    windowDays: days,
+    truncated,
+    deflection: computeDeflection(conversations),
+    escalation: computeEscalationBreakdown(conversations),
+    topTopics: computeTopTopics(messages),
+    cost: computeCost(messages, estimateCost),
+  });
 });
 
 // ── POST /unlock — manual unlock (clears users.support_assistant_locked_until)

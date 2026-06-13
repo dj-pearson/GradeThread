@@ -72,6 +72,9 @@ import {
   HUMAN_HANDLED_STATUSES,
   performEscalation,
 } from "../lib/support-escalation.ts";
+import { captureAssistantEvent } from "../lib/support-analytics.ts";
+import { estimateCost } from "../lib/ai-extract.ts";
+import { captureException, readCtxVar } from "../lib/observability.ts";
 
 export const supportAssistantRoutes = new Hono<{
   Variables: {
@@ -336,6 +339,11 @@ async function runPreTurnAbuseControls(
         })`,
         conversationId ?? undefined,
       );
+      captureAssistantEvent(userId, "assistant.abuse_flagged", {
+        type: "flood",
+        severity: rate.flood ? "high" : "medium",
+        conversation_id: conversationId,
+      });
     } else {
       dailyCapExceeded = true;
     }
@@ -361,6 +369,11 @@ async function runPreTurnAbuseControls(
         `classifier flag (${verdict.marker ?? "unknown"})`,
         conversationId ?? undefined,
       );
+      captureAssistantEvent(userId, "assistant.abuse_flagged", {
+        type: verdict.type,
+        severity: verdict.severity,
+        conversation_id: conversationId,
+      });
     }
   }
 
@@ -536,6 +549,21 @@ supportAssistantRoutes.post("/message", async (c) => {
     if (abuse.retryAfterSeconds !== undefined) {
       c.header("Retry-After", String(abuse.retryAfterSeconds));
     }
+    // US-842: surface a blocked turn. rate_limited covers the per-minute/day
+    // caps; a hard lockout is the accumulation of abuse_flagged events already
+    // emitted above, so we tag it as abuse_flagged for the deflection funnel.
+    if (abuse.code.startsWith("rate_limited")) {
+      captureAssistantEvent(userId, "assistant.rate_limited", {
+        code: abuse.code,
+        conversation_id: conversationIdArg,
+      });
+    } else if (abuse.code === "locked") {
+      captureAssistantEvent(userId, "assistant.abuse_flagged", {
+        type: "lockout",
+        severity: "high",
+        conversation_id: conversationIdArg,
+      });
+    }
     return c.json({ error: abuse.message, code: abuse.code }, abuse.status);
   }
 
@@ -668,6 +696,15 @@ supportAssistantRoutes.post("/message", async (c) => {
           guard.detail ?? "output guard tripped",
           conversationId,
         );
+        captureAssistantEvent(userId, "assistant.refused", {
+          conversation_id: conversationId,
+          reason: "output_guard",
+        });
+        captureAssistantEvent(userId, "assistant.abuse_flagged", {
+          type: guard.abuseType ?? "prompt_injection",
+          severity: "high",
+          conversation_id: conversationId,
+        });
       } else {
         finalText = guard.text;
         if (result.hitCap) {
@@ -753,6 +790,31 @@ supportAssistantRoutes.post("/message", async (c) => {
           .eq("user_id", userId);
       }
 
+      // US-842: lifecycle analytics (non-PII). message_sent always fires with
+      // the turn's token + estimated-cost accounting; then the mutually
+      // exclusive outcome — escalated, refused (already fired above), or
+      // answer_deflected (bot resolved it without a handoff).
+      captureAssistantEvent(userId, "assistant.message_sent", {
+        conversation_id: conversationId,
+        model,
+        input_tokens: result.inputTokens,
+        output_tokens: result.outputTokens,
+        est_cost_usd: estimateCost(model, result.inputTokens, result.outputTokens),
+        hit_cap: result.hitCap,
+      });
+      if (esc.decision.escalate) {
+        captureAssistantEvent(userId, "assistant.escalated", {
+          conversation_id: conversationId,
+          trigger: esc.decision.trigger,
+          reason: esc.decision.reason,
+        });
+      } else if (guard.safe) {
+        captureAssistantEvent(userId, "assistant.answer_deflected", {
+          conversation_id: conversationId,
+          hit_cap: result.hitCap,
+        });
+      }
+
       await stream.writeSSE({
         event: "done",
         data: JSON.stringify({
@@ -767,6 +829,16 @@ supportAssistantRoutes.post("/message", async (c) => {
       if (c.req.raw.signal.aborted) return; // client hit Stop — quiet exit
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[support-assistant] message stream failed:", msg);
+      // US-842: report engine errors to Sentry with conversation context but
+      // NO message PII (only the conversation id + ownership ids + turn count).
+      captureException(e, {
+        route: "support.assistant.message",
+        userId,
+        correlationId: readCtxVar(c, "correlationId"),
+        method: c.req.method,
+        url: c.req.path,
+        extra: { conversationId, ownerId, priorUnresolvedTurns },
+      });
       await stream.writeSSE({
         event: "error",
         data: JSON.stringify({ message: "The assistant hit an error." }),

@@ -108,6 +108,34 @@ interface FlaggedMessage {
   subject: string | null;
 }
 
+interface MetricsResponse {
+  windowDays: number;
+  truncated: boolean;
+  deflection: {
+    total: number;
+    escalated: number;
+    deflected: number;
+    deflectionRate: number;
+  };
+  escalation: {
+    byTrigger: Record<string, number>;
+    topReasons: Array<{ reason: string; count: number }>;
+  };
+  topTopics: Array<{ topic: string; count: number }>;
+  cost: {
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCostUsd: number;
+    conversationCount: number;
+    topConversations: Array<{
+      conversation_id: string;
+      input_tokens: number;
+      output_tokens: number;
+      cost_usd: number;
+    }>;
+  };
+}
+
 const ABUSE_TYPES = [
   "jailbreak_attempt",
   "prompt_injection",
@@ -149,6 +177,13 @@ function untilTime(iso: string | null): string {
 
 function humanType(type: string): string {
   return type.replace(/_/g, " ");
+}
+
+// Format a USD cost with enough precision to be meaningful at low volume.
+function usd(amount: number): string {
+  if (amount === 0) return "$0.00";
+  if (amount < 0.01) return `$${amount.toFixed(5)}`;
+  return `$${amount.toFixed(2)}`;
 }
 
 // A cell that warns (red) when a usage value is at/over its cap.
@@ -210,6 +245,18 @@ export function AdminMonitoringPage() {
     staleTime: 30 * 1000,
   });
 
+  const metricsQuery = useQuery({
+    queryKey: ["admin-monitoring", "metrics"],
+    queryFn: async (): Promise<MetricsResponse> => {
+      const res = await edgeFetch("/api/admin/support-monitoring/metrics");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Failed to load metrics");
+      return json as MetricsResponse;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
   const unlockMutation = useMutation({
     mutationFn: async (userId: string) => {
       const res = await edgeFetch("/api/admin/support-monitoring/unlock", {
@@ -234,6 +281,7 @@ export function AdminMonitoringPage() {
   const lockouts = usageQuery.data?.lockouts ?? [];
   const abuseEvents = abuseQuery.data ?? [];
   const flagged = flaggedQuery.data ?? [];
+  const metrics = metricsQuery.data;
 
   return (
     <div className="space-y-6">
@@ -296,12 +344,239 @@ export function AdminMonitoringPage() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="usage">
+      <Tabs defaultValue="metrics">
         <TabsList>
+          <TabsTrigger value="metrics">Metrics &amp; cost</TabsTrigger>
           <TabsTrigger value="usage">Usage &amp; lockouts</TabsTrigger>
           <TabsTrigger value="abuse">Abuse events</TabsTrigger>
           <TabsTrigger value="flagged">Flagged messages</TabsTrigger>
         </TabsList>
+
+        {/* ── Metrics & cost (US-842) ──────────────────────────────────────── */}
+        <TabsContent value="metrics" className="space-y-6">
+          {metricsQuery.isLoading
+            ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-24 w-full" />
+                ))}
+              </div>
+            )
+            : metricsQuery.isError || !metrics
+            ? (
+              <div className="flex items-center gap-2 p-6 text-sm text-brand-red-text">
+                <AlertTriangle className="h-4 w-4" />
+                {(metricsQuery.error as Error)?.message ?? "Failed to load metrics."}
+              </div>
+            )
+            : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Trailing {metrics.windowDays} days.{" "}
+                  {metrics.truncated &&
+                    "Showing a capped sample — totals are a lower bound."}
+                </p>
+
+                {/* Headline tiles. */}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Deflection rate
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {Math.round(metrics.deflection.deflectionRate * 100)}%
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {metrics.deflection.deflected} of {metrics.deflection.total}{" "}
+                        bot-resolved
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Escalated to human
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {metrics.deflection.escalated}
+                      </div>
+                      <p className="text-xs text-muted-foreground">conversations</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Estimated cost
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {usd(metrics.cost.totalCostUsd)}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {metrics.cost.conversationCount} conversations
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Tokens (in / out)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {metrics.cost.totalInputTokens.toLocaleString()} /{" "}
+                        {metrics.cost.totalOutputTokens.toLocaleString()}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        ~{usd(
+                          metrics.cost.conversationCount > 0
+                            ? metrics.cost.totalCostUsd /
+                              metrics.cost.conversationCount
+                            : 0,
+                        )} / conversation
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-2">
+                  {/* Escalation breakdown. */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Escalation reasons</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(metrics.escalation.byTrigger).length === 0
+                          ? (
+                            <span className="text-sm text-muted-foreground">
+                              No escalations in this window.
+                            </span>
+                          )
+                          : Object.entries(metrics.escalation.byTrigger).map((
+                            [trigger, count],
+                          ) => (
+                            <Badge key={trigger} variant="secondary">
+                              {humanType(trigger)}: {count}
+                            </Badge>
+                          ))}
+                      </div>
+                      {metrics.escalation.topReasons.length > 0 && (
+                        <ul className="space-y-1 text-sm">
+                          {metrics.escalation.topReasons.map((r) => (
+                            <li
+                              key={r.reason}
+                              className="flex items-center justify-between gap-2"
+                            >
+                              <span className="truncate text-muted-foreground">
+                                {r.reason}
+                              </span>
+                              <span className="font-medium">{r.count}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Top topics (tool usage). */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Top topics</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {metrics.topTopics.length === 0
+                        ? (
+                          <p className="text-sm text-muted-foreground">
+                            No tool activity in this window.
+                          </p>
+                        )
+                        : (
+                          <ul className="space-y-1 text-sm">
+                            {metrics.topTopics.map((t) => (
+                              <li
+                                key={t.topic}
+                                className="flex items-center justify-between gap-2"
+                              >
+                                <span className="text-muted-foreground">
+                                  {t.topic}
+                                </span>
+                                <span className="font-medium">{t.count}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Highest-cost conversations. */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">
+                      Highest-cost conversations
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {metrics.cost.topConversations.length === 0
+                      ? (
+                        <p className="p-8 text-center text-sm text-muted-foreground">
+                          No assistant turns in this window.
+                        </p>
+                      )
+                      : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Conversation</TableHead>
+                              <TableHead className="text-right">Tokens</TableHead>
+                              <TableHead className="text-right">Est. cost</TableHead>
+                              <TableHead className="text-right">Open</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {metrics.cost.topConversations.map((row) => (
+                              <TableRow key={row.conversation_id}>
+                                <TableCell className="font-mono text-xs">
+                                  {row.conversation_id.slice(0, 8)}
+                                </TableCell>
+                                <TableCell className="text-right text-sm">
+                                  {(row.input_tokens + row.output_tokens)
+                                    .toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-right text-sm font-medium">
+                                  {usd(row.cost_usd)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      navigate(
+                                        `/admin/support/${row.conversation_id}`,
+                                      )}
+                                  >
+                                    Open
+                                    <ExternalLink className="ml-1 h-3 w-3" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+        </TabsContent>
 
         {/* ── Usage & lockouts ─────────────────────────────────────────────── */}
         <TabsContent value="usage" className="space-y-6">

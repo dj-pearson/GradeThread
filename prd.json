@@ -12401,8 +12401,8 @@
         "npm run build passes; a metrics tile/panel renders in admin"
       ],
       "priority": 842,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Reuse existing PostHog + Sentry setup. Cost uses the model pricing for the lightweight model from ai-config."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Reuse existing PostHog + Sentry setup. Cost uses the model pricing for the lightweight model from ai-config. | IMPLEMENTED 2026-06-13: support-analytics.ts (PostHog assistant.* events: message_sent/answer_deflected/escalated/refused/rate_limited/abuse_flagged, non-PII; pure deflection/escalation/topTopics/cost aggregators). Wired events + Sentry captureException (conv context, no PII) into support-assistant.ts. New GET /api/admin/support-monitoring/metrics aggregates deflection rate, escalation breakdown, top topics (tool usage), token+cost (estimateCost) over a trailing window. New Metrics & cost tab in admin/monitoring.tsx (default view). Tests in support-analytics_test.ts. No migration needed."
     },
     {
       "id": "US-843",
