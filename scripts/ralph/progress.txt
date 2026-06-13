@@ -1974,3 +1974,16 @@ Branch: ralph/gradethread-build
   - deno check schema-version.ts clean; schema-version_test 9 passed (DB at 00183 matches expected).
 - Timestamp: 2026-06-13
 ---
+
+## US-811: App Store subscription expiry sweep (server scheduled task)
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/lib/appstore/expiry-sweep.ts (new), services/edge-functions/src/tests/appstore-expiry-sweep_test.ts (new), services/edge-functions/src/main.ts (import + POST /api/jobs/appstore-expiry-sweep route), LAUNCH_CHECKLIST.md (scheduled-tasks entry), prd.json
+- Notes:
+  - Backstop cron mirroring data-retention/trial-expiry: X-Internal-Job-Secret (requireJobSecret) + acquireJobLock("appstore-expiry-sweep", 300).
+  - Selection scoped to billing_source='appstore' + subscription_status IN ('active','trialing') + flipdesk_period_end older than a 72h grace window (env APPSTORE_SWEEP_GRACE_HOURS). Stripe rows never modified — excluded by the query filter AND the pure isLapseEligible() re-check; the conditional UPDATE re-asserts the same guard so a concurrent webhook reactivation isn't clobbered.
+  - Each lapse: flipdesk_plan='free', subscription_status='canceled', flipdesk_interval=null + flipdesk_subscription_events audit row id 'appstore:sweep:<user>:<period_end>' (event_type appstore.sweep.expired). Idempotent: lapsed rows fall out of the entitled-status filter so a re-run scans 0, and the deterministic event id collides (23505 ignored) on duplicates.
+  - Logic split into pure (isLapseEligible/buildLapseUpdate/sweepEventId) + injectable sweepExpiredAppstoreSubs(deps) so tests run with no DB. Test uses the dummy-env + dynamic-import pattern (expiry-sweep imports supabase.ts which throws at load without env).
+  - Optional Apple App Store Server API re-verify before lapsing was intentionally skipped — 72h grace + Apple's multi-day notification retries make the time-based backstop sufficient.
+  - Verified: 10 Deno tests pass (predicate + idempotency), deno check src/main.ts clean, deno lint clean. No migration (reuses existing columns) -> no EXPECTED_SCHEMA_VERSION bump.
+- Timestamp: 2026-06-13
+---

@@ -11935,8 +11935,8 @@
         "Deno tests cover the selection predicate + idempotency; deploy doc (LAUNCH_CHECKLIST scheduled tasks list) gains the new task entry"
       ],
       "priority": 811,
-      "passes": false,
-      "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Apple retries notifications, so this is a backstop — keep the grace window generous and log loudly when the sweep actually lapses someone."
+      "passes": true,
+      "notes": "DONE 2026-06-13. New lib/appstore/expiry-sweep.ts + cron POST /api/jobs/appstore-expiry-sweep (mirrors data-retention/trial-expiry: X-Internal-Job-Secret + 5-min job lock). Scoped to billing_source='appstore' + subscription_status IN ('active','trialing') + flipdesk_period_end past a 72h grace window (env-tunable via APPSTORE_SWEEP_GRACE_HOURS); Stripe rows never touched (filtered in the query AND re-checked by the pure isLapseEligible predicate, which the conditional UPDATE re-asserts to avoid clobbering a concurrent reactivation). Each lapse writes flipdesk_plan='free', subscription_status='canceled', flipdesk_interval=null and a flipdesk_subscription_events row id'd 'appstore:sweep:<user>:<period_end>' (event_type appstore.sweep.expired) — idempotent: lapsing flips the row off the entitled statuses so a re-run scans 0, and the deterministic event id collides (23505 ignored) on any duplicate. Logs loudly (warn) + recordMetric on every actual lapse. Optional Apple App Store Server API re-verify before lapsing was deliberately skipped — the 72h grace + Apple's own multi-day retries make the time-based backstop sufficient. 10 Deno tests (predicate + idempotency) pass; deno check + lint clean. LAUNCH_CHECKLIST scheduled-tasks table gains the entry (30 */6 * * *). No migration (reuses existing columns/table), so no EXPECTED_SCHEMA_VERSION bump."
     },
     {
       "id": "US-812",
