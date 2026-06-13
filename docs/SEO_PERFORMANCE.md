@@ -139,3 +139,31 @@ that page once it was already past the SSR/text paint. **Measurement method**
 
 Record the before/after numbers in the launch sign-off; the flag flip + a
 re-measure is tracked alongside the US-306 Transformations enablement.
+
+## Visibility-gated background polling (US-576)
+
+Several screens poll on a timer. Left ungated, every open-but-hidden tab keeps
+hitting the edge/DB forever. We gate each poller on `document.visibilityState`
+via the `useDocumentVisible()` hook (`src/hooks/use-document-visible.ts`): when
+the tab is hidden the interval is torn down, and on return to the foreground the
+poll reschedules (TanStack Query also fires an immediate `refetchOnWindowFocus`).
+
+| Surface | Before | After (visible) | After (hidden) |
+|---|---|---|---|
+| Notification center (`notification-center.tsx`) | 30s poll | 60s poll¹ | **0** (realtime INSERTs still deliver) |
+| Admin dashboard (`admin/dashboard.tsx`) | 60s poll | 60s poll | **0** |
+| Admin system (`admin/system.tsx`) | 30s poll | 30s poll | **0** |
+| Submission detail (`submission-detail.tsx`) | 5s `setInterval` while grading | 5s while grading | **0** (realtime still delivers status) |
+
+¹ Notification polling widened 30s→60s because realtime `postgres_changes`
+INSERTs are the primary delivery path; the poll is only a reconnect fallback.
+
+### Expected request-volume reduction per idle tab
+
+Per **hidden** tab, background request volume drops to **zero** for all four
+surfaces (down from 2 req/min on the notification center, 1–2 req/min on the
+admin pages, and 12 req/min on an in-flight submission detail). Across a typical
+session with several backgrounded tabs this removes the steady idle baseline
+entirely. **Measurement method:** open the surface, switch to another tab, and
+watch the Network panel (or the edge access log for that user) — confirm the
+recurring request stops within one interval of hiding and resumes on focus.

@@ -18,6 +18,7 @@ import {
   Eye,
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { Button } from "@/components/ui/button";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { Badge } from "@/components/ui/badge";
@@ -136,6 +137,7 @@ export function SubmissionDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { workspaceOwnerId } = useWorkspace();
+  const visible = useDocumentVisible();
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
   const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
@@ -254,17 +256,22 @@ export function SubmissionDetailPage() {
   // Re-fetch when submission status changes via realtime. We only care
   // about `.status` here — read it into a local so the deps array is
   // honest and we don't re-run on unrelated submission-row updates.
+  // Realtime (above) is the primary trigger; this 5s setInterval is a fallback
+  // while a grade is in flight. Gate it on tab visibility so a backgrounded tab
+  // stops polling every 5s, and refetch once on return to the foreground. (US-576)
   const submissionStatus = submission?.status;
   useEffect(() => {
     if (
-      !submissionStatus ||
-      submissionStatus === "processing" ||
-      submissionStatus === "pending"
+      visible &&
+      (!submissionStatus ||
+        submissionStatus === "processing" ||
+        submissionStatus === "pending")
     ) {
+      refetchData();
       const interval = setInterval(refetchData, 5000);
       return () => clearInterval(interval);
     }
-  }, [submissionStatus, refetchData]);
+  }, [visible, submissionStatus, refetchData]);
 
   useEffect(() => {
     if (!id) return;

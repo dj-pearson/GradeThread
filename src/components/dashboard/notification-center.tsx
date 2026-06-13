@@ -15,6 +15,7 @@ import {
   ArrowRightLeft,
   Banknote,
 } from "lucide-react";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -96,6 +97,7 @@ export function NotificationCenter() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const visible = useDocumentVisible();
 
   const { data: notifications = [] } = useQuery({
     queryKey: ["notifications", user?.id],
@@ -111,7 +113,10 @@ export function NotificationCenter() {
       return (data ?? []) as NotificationRow[];
     },
     enabled: !!user?.id,
-    refetchInterval: 30000, // poll every 30s
+    // Realtime INSERTs (below) are the primary delivery path; this poll is a
+    // fallback. Widened to 60s and gated on tab visibility so hidden tabs stop
+    // hitting the DB. (US-576)
+    refetchInterval: visible ? 60000 : false,
   });
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;

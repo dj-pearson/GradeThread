@@ -8808,8 +8808,8 @@
         "Measured reduction in background request volume per idle tab"
       ],
       "priority": 576,
-      "passes": false,
-      "notes": "[P2][Performance] Deep-dive 2026-06-04. notification-center.tsx:85, admin/{dashboard,system}.tsx, submission-detail.tsx:252 poll continuously per open tab; distinct from US-419 (dedupe)."
+      "passes": true,
+      "notes": "[P2][Performance] Deep-dive 2026-06-04. notification-center.tsx:85, admin/{dashboard,system}.tsx, submission-detail.tsx:252 poll continuously per open tab; distinct from US-419 (dedupe). | DONE 2026-06-12. New reusable hook src/hooks/use-document-visible.ts tracks document.visibilityState (visibilitychange listener). Wired into all four pollers: notification-center (refetchInterval visible?60000:false — widened 30s->60s since realtime INSERTs are the primary path), admin/dashboard (visible?60s:false), admin/system (visible?30s:false), submission-detail's 5s setInterval (gated on `visible` + immediate refetchData on return to foreground; realtime still delivers status). Hidden tabs now do ZERO background polling on all four surfaces. Hook unit test added (use-document-visible.test.tsx, 2 pass). Measurement method + per-idle-tab reduction table documented in docs/SEO_PERFORMANCE.md new 'Visibility-gated background polling (US-576)' section. tsc clean, eslint clean (2 pre-existing warnings only), build+prerender green."
     },
     {
       "id": "US-577",

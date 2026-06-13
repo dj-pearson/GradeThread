@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { supabase } from "@/lib/supabase";
 import type {
   UserRow,
@@ -215,6 +216,7 @@ function processAdminData(
 }
 
 export function AdminDashboardPage() {
+  const visible = useDocumentVisible();
   const { data, isLoading } = useQuery({
     queryKey: ["admin-dashboard"],
     queryFn: async () => {
@@ -245,7 +247,9 @@ export function AdminDashboardPage() {
       return processAdminData(users, submissions, gradeReports, disputes, sales, humanReviews);
     },
     staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000, // Auto-refresh every 60 seconds
+    // Auto-refresh every 60s, but only while the tab is visible so a
+    // backgrounded admin dashboard stops polling. (US-576)
+    refetchInterval: visible ? 60 * 1000 : false,
   });
 
   const kpis = data?.kpis;

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { supabase } from "@/lib/supabase";
 import { fetchAdminSystemMetrics, type AdminSystemMetrics } from "@/lib/admin-aggregates";
 import { PLANS } from "@/lib/constants";
@@ -239,6 +240,7 @@ function renderPieLabel(props: { name?: string | number; percent?: number }) {
 
 export function AdminSystemPage() {
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const visible = useDocumentVisible();
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["admin-system"],
@@ -258,7 +260,9 @@ export function AdminSystemPage() {
       return buildSystemData(metrics, dbLatencyMs);
     },
     staleTime: 15 * 1000,
-    refetchInterval: 30 * 1000, // Auto-refresh every 30 seconds
+    // Auto-refresh every 30s, but only while the tab is visible so a
+    // backgrounded system-health page stops polling. (US-576)
+    refetchInterval: visible ? 30 * 1000 : false,
   });
 
   return (
