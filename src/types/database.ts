@@ -2268,6 +2268,8 @@ export interface ReferralEventRow {
   referred_reward_credits: number | null;
   qualified_at: string | null;
   granted_at: string | null;
+  /** US-603: 'direct' (typed code) or 'affiliate' (earned-link attribution). */
+  attribution_source: string;
   created_at: string;
 }
 export interface ReferralEventInsert {
@@ -2277,9 +2279,31 @@ export interface ReferralEventInsert {
   reward_status?: ReferralRewardStatus;
   referrer_reward_credits?: number | null;
   referred_reward_credits?: number | null;
+  attribution_source?: string;
 }
 export type ReferralEventUpdate = Partial<
   Omit<ReferralEventRow, "id" | "referrer_user_id" | "referred_user_id" | "created_at">
+>;
+
+// US-603: one row per click on a "Graded by GradeThread" earned link / badge.
+export interface AffiliateClickRow {
+  id: string;
+  code: string;
+  source: string;
+  landing_path: string | null;
+  referrer_host: string | null;
+  converted_user_id: string | null;
+  created_at: string;
+}
+export interface AffiliateClickInsert {
+  code: string;
+  source?: string;
+  landing_path?: string | null;
+  referrer_host?: string | null;
+  converted_user_id?: string | null;
+}
+export type AffiliateClickUpdate = Partial<
+  Omit<AffiliateClickRow, "id" | "code" | "created_at">
 >;
 
 // ─── Update types ──────────────────────────────────────────────────
@@ -2813,6 +2837,11 @@ export interface Database {
         Row: ReferralEventRow;
         Insert: ReferralEventInsert;
         Update: ReferralEventUpdate;
+      };
+      affiliate_clicks: {
+        Row: AffiliateClickRow;
+        Insert: AffiliateClickInsert;
+        Update: AffiliateClickUpdate;
       };
     };
     Views: {

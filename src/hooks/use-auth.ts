@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import type {
   UserRow,
   WorkspaceMemberRow,
@@ -152,12 +153,18 @@ function initAuth() {
     }
   });
 
-  supabase.auth.onAuthStateChange((_event, newSession) => {
+  supabase.auth.onAuthStateChange((event, newSession) => {
     const s = useAuthStore.getState();
     s.setSession(newSession);
     s.setUser(newSession?.user ?? null);
     if (newSession?.user) {
       void loadProfileAndWorkspaces(newSession.user.id);
+      // US-603: attribute a captured ?ref= earned link once the user is signed
+      // in. Single-shot + idempotent server-side, so a returning user with no
+      // stored ref is a no-op.
+      if (event === "SIGNED_IN") {
+        void redeemStoredAffiliateRef();
+      }
     } else {
       s.reset();
     }

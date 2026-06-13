@@ -35,6 +35,9 @@ const PARENT_SCOPED = [
   "listing_generation_jobs",
   "workspace_invitations",
   "workspace_members",
+  // US-603: affiliate earned-link clicks. No user_id of their own — tenancy
+  // flows through the code → referral_codes.user_id the owner already holds.
+  "affiliate_clicks",
 ];
 
 // Tenant tables that are intentionally client-invisible: RLS is enabled and

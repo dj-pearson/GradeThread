@@ -11,8 +11,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { Gift, Copy, Check } from "lucide-react";
+import { affiliateBadgeEmbed, affiliateLink } from "@/lib/affiliate";
+import { Gift, Copy, Check, BadgeCheck } from "lucide-react";
 
 interface ReferralMe {
   code: string;
@@ -20,9 +22,17 @@ interface ReferralMe {
   referred_by: { status: string; code: string } | null;
 }
 
+interface AffiliateMe {
+  code: string;
+  clicks: { total: number; last30: number; converted: number };
+  conversions: number;
+}
+
 export function ReferralsPage() {
   const qc = useQueryClient();
   const [copied, setCopied] = useState(false);
+  const [copiedEmbed, setCopiedEmbed] = useState(false);
+  const [copiedBadgeLink, setCopiedBadgeLink] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
 
@@ -36,6 +46,16 @@ export function ReferralsPage() {
     },
   });
 
+  const { data: affiliate } = useQuery({
+    queryKey: ["affiliate-me"],
+    queryFn: async (): Promise<AffiliateMe> => {
+      const res = await edgeFetch("/api/affiliate/me");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load affiliate stats");
+      return json;
+    },
+  });
+
   const shareLink = data ? `${window.location.origin}/signup?ref=${data.code}` : "";
 
   const copy = async () => {
@@ -44,6 +64,20 @@ export function ReferralsPage() {
       await navigator.clipboard.writeText(shareLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
+    } catch {
+      toast.error("Couldn't copy — copy it manually.");
+    }
+  };
+
+  const badgeEmbed = data ? affiliateBadgeEmbed(data.code) : "";
+  const badgeLink = data ? affiliateLink(data.code, "badge") : "";
+
+  const copyTo = async (text: string, set: (v: boolean) => void) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      set(true);
+      setTimeout(() => set(false), 1800);
     } catch {
       toast.error("Couldn't copy — copy it manually.");
     }
@@ -145,6 +179,82 @@ export function ReferralsPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* US-603: affiliate / earned-link channel. Embed the badge anywhere a
+              shopper will see it (eBay listing, your site) — clicks that turn
+              into qualified signups earn the same grade credits as a referral. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BadgeCheck className="h-5 w-5 text-brand-red-text" /> Earned-link badge
+              </CardTitle>
+              <CardDescription>
+                Add a “Graded by GradeThread” badge to your listings or site. It
+                carries your referral code, so shoppers who join through it count
+                toward your rewards.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-center rounded-md border bg-muted/40 p-4">
+                <a
+                  href={badgeLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-brand-navy px-3 py-1.5 text-[13px] font-semibold text-white no-underline"
+                >
+                  <Check className="h-3.5 w-3.5" /> Graded by GradeThread
+                </a>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Embed code (HTML)</label>
+                <div className="flex gap-2">
+                  <Textarea
+                    readOnly
+                    value={badgeEmbed}
+                    rows={3}
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => copyTo(badgeEmbed, setCopiedEmbed)}
+                  >
+                    {copiedEmbed ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Or just the link</label>
+                <div className="flex gap-2">
+                  <Input readOnly value={badgeLink} className="font-mono text-sm" />
+                  <Button
+                    variant="outline"
+                    onClick={() => copyTo(badgeLink, setCopiedBadgeLink)}
+                  >
+                    {copiedBadgeLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              {affiliate && (
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-md bg-muted p-3">
+                    <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.total}</div>
+                    <div className="text-xs text-muted-foreground">Link clicks</div>
+                  </div>
+                  <div className="rounded-md bg-muted p-3">
+                    <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.last30}</div>
+                    <div className="text-xs text-muted-foreground">Last 30 days</div>
+                  </div>
+                  <div className="rounded-md bg-muted p-3">
+                    <div className="text-2xl font-bold tabular-nums">{affiliate.conversions}</div>
+                    <div className="text-xs text-muted-foreground">Signups</div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </div>

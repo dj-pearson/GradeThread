@@ -27,8 +27,9 @@ function genCode(len = 8): string {
 }
 
 // Provision the caller's referral code if they don't have one yet. Retries on
-// the (rare) unique-collision.
-async function ensureCode(userId: string): Promise<string> {
+// the (rare) unique-collision. Exported so the affiliate channel (US-603) can
+// resolve the caller's earned-link code without duplicating provisioning.
+export async function ensureCode(userId: string): Promise<string> {
   const { data: existing } = await supabaseAdmin
     .from("referral_codes")
     .select("code")
@@ -99,7 +100,7 @@ referralRoutes.post("/redeem", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
-  let body: { code?: unknown };
+  let body: { code?: unknown; source?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -107,6 +108,10 @@ referralRoutes.post("/redeem", async (c) => {
   }
   const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
   if (!code) return c.json({ error: "code is required" }, 400);
+  // US-603: attribution channel. Only 'affiliate' (a stored ?ref= captured off an
+  // earned link / "Graded by GradeThread" badge) is meaningful here; anything
+  // else is a manually-typed code → 'direct'.
+  const attributionSource = body.source === "affiliate" ? "affiliate" : "direct";
 
   // US-802: a suspended/deleted account must not accrue referral attribution
   // (which would later trigger a reward grant). Reject before inserting.
@@ -147,6 +152,7 @@ referralRoutes.post("/redeem", async (c) => {
     referred_user_id: userId,
     code,
     reward_status: "pending",
+    attribution_source: attributionSource,
   });
   if (error) {
     // Unique violation (raced) → treat as already redeemed.
@@ -155,6 +161,26 @@ referralRoutes.post("/redeem", async (c) => {
     }
     console.error("[referrals] redeem insert failed:", error);
     return c.json({ error: "Couldn't redeem that code." }, 500);
+  }
+
+  // US-603: best-effort close the loop on click attribution — stamp the most
+  // recent un-converted click for this code with the converting user, so the
+  // affiliate's click→conversion rate is real. Never blocks the redemption.
+  if (attributionSource === "affiliate") {
+    const { data: click } = await supabaseAdmin
+      .from("affiliate_clicks")
+      .select("id")
+      .eq("code", code)
+      .is("converted_user_id", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (click?.id) {
+      await supabaseAdmin
+        .from("affiliate_clicks")
+        .update({ converted_user_id: userId })
+        .eq("id", click.id);
+    }
   }
 
   return c.json({ ok: true });

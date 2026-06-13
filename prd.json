@@ -9151,8 +9151,8 @@
         "Attribution + payout/credit handling"
       ],
       "priority": 603,
-      "passes": false,
-      "notes": "[P3][Growth] Deep-dive 2026-06-04. No referral/affiliate program despite heavy SEO/content investment (US-291-435) that could amplify it."
+      "passes": true,
+      "notes": "[P3][Growth] Deep-dive 2026-06-04. No referral/affiliate program despite heavy SEO/content investment (US-291-435) that could amplify it. | Implemented 2026-06-13: referral codes + reward ledger already shipped (US-629); this adds the AFFILIATE earned-link channel on top — migration 00174 (affiliate_clicks + referral_events.attribution_source), public POST /api/affiliate/click + authed GET /api/affiliate/me, client capture/auto-redeem of ?ref= (lib/affiliate.ts wired into root-layout + use-auth), and a Graded-by-GradeThread badge/embed + funnel stats on the Referrals page. Affiliate conversions reuse the existing referral_events ledger + admin credit-grant for payout/credit handling."
     },
     {
       "id": "US-604",

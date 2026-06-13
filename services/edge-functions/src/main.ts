@@ -76,6 +76,7 @@ import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
 import { referralRoutes } from "./routes/referrals.ts";
+import { affiliateRoutes } from "./routes/affiliate.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
 import { contentSocialRoutes } from "./routes/content-social.ts";
 import { contentTopicsRoutes } from "./routes/content-topics.ts";
@@ -212,6 +213,9 @@ app.use("/api/legal/*", authMiddleware);
 app.use("/api/announcements/*", authMiddleware);
 // US-629 referral program — caller manages only their own code/attribution.
 app.use("/api/referrals/*", authMiddleware);
+// US-603: affiliate earned-link channel. /me is per-user (authed); /click is
+// PUBLIC (anonymous badge clicks), so authMiddleware is scoped to /me only.
+app.use("/api/affiliate/me", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);
@@ -483,6 +487,9 @@ app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is
 app.use("/api/legal/*", rateLimiter(30, 60_000, "legal"));
 app.use("/api/announcements/*", rateLimiter(60, 60_000, "announcements"));
 app.use("/api/referrals/*", rateLimiter(30, 60_000, "referrals"));
+// US-603: /click is unauthenticated (per-IP) so it must fail-closed against a
+// flood; /me rides the same scope but is keyed by user once authed.
+app.use("/api/affiliate/*", rateLimiter(60, 60_000, "affiliate", undefined, { failClosed: true }));
 app.use("/api/verified/*", rateLimiter(30, 60_000, "verified"));
 
 // Content AI endpoints — generation, research, image creation. Each
@@ -696,6 +703,7 @@ app.route("/api/admin/growth", adminGrowthRoutes);
 app.route("/api/announcements", announcementRoutes);
 // US-629 referral program (authed, per-user scoped).
 app.route("/api/referrals", referralRoutes);
+app.route("/api/affiliate", affiliateRoutes);
 // US-627 scheduled-campaign dispatch cron. OUTSIDE /api/admin so the wildcard
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
