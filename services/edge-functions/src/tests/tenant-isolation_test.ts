@@ -1182,3 +1182,84 @@ Deno.test("US-832: plan & limits reflect only the caller's own tenant", async ()
   assertEquals(b!.plan, "free");
   assertEquals(b!.usage.activeListings, 0, "B has no 'listed' items");
 });
+
+// ════════════════════════════════════════════════════════════════════
+// US-843: EVERY US-832 read tool returns nothing for a NON-OWNER caller.
+//
+// The tests above assert each tool is scoped to the caller; this block makes the
+// non-owner guarantee explicit and exhaustive: an attacker C who owns NOTHING —
+// and who supplies user A's real item/report ids — must get an empty/refusal
+// result from every tenant-scoped US-832 tool. A is the data-rich tenant from
+// seedDb(); C exists only as an authenticated caller with no rows of their own.
+// ════════════════════════════════════════════════════════════════════
+
+const C = "user-c-0000-0000-0000-000000000003";
+
+Deno.test("US-843: get_inventory_status → empty for a non-owner caller", async () => {
+  const counts = await ST.getMyInventoryStatusCounts(C, seedDb());
+  assertEquals(counts.total, 0, "C owns no inventory");
+  assertEquals(Object.keys(counts.byStatus).length, 0);
+});
+
+Deno.test("US-843: get_listings → empty for a non-owner caller", async () => {
+  const out = await ST.getMyListingsSummary(C, {}, seedDb());
+  assertEquals(out.length, 0, "C sees no listings, not even A's");
+});
+
+Deno.test("US-843: get_sales_summary → all-zero aggregate for a non-owner caller", async () => {
+  const out = await ST.getSalesSummary(C, { period: "all" }, seedDb());
+  assertEquals(out.count, 0);
+  assertEquals(out.gross, 0);
+  assertEquals(out.net, 0);
+});
+
+Deno.test("US-843: get_grade_report → null even when C supplies A's real itemId", async () => {
+  // C hands the tool A's actual item id AND A's actual report id — both rejected.
+  assertEquals(await ST.getGradeReportForMyItem(C, A_ITEM, seedDb()), null);
+  assertEquals(await ST.getGradeReportForMyItem(C, A_REPORT, seedDb()), null);
+});
+
+Deno.test("US-843: get_open_submissions → empty for a non-owner caller", async () => {
+  const out = await ST.getMyOpenSubmissions(C, seedDb());
+  assertEquals(out.length, 0, "C sees none of A's submissions");
+});
+
+Deno.test("US-843: get_plan_and_limits → null for a caller with no users row", async () => {
+  // C has no row in `users`, so the plan tool resolves to null (no data leaked).
+  const out = await ST.getMyPlanAndLimits(C, seedDb(), loadFakeMatrix);
+  assertEquals(out, null);
+});
+
+Deno.test("US-843: search_knowledge_base → a public caller cannot reach subscriber-only KB", async () => {
+  // The KB tool is audience-scoped rather than tenant-scoped: its non-owner
+  // boundary is that a 'public' (anonymous) audience never sees subscriber-only
+  // rows. The fake DB records the audiences the query filtered to.
+  let filteredAudiences: readonly unknown[] = [];
+  const kbDb: import("../lib/support-tools.ts").SupportDb = {
+    from() {
+      // deno-lint-ignore no-explicit-any
+      const q: any = {
+        select: () => q,
+        eq: () => q,
+        in: (_col: string, vals: readonly unknown[]) => {
+          filteredAudiences = vals;
+          return q;
+        },
+        gte: () => q,
+        textSearch: () => q,
+        order: () => q,
+        limit: () => q,
+        maybeSingle: () => Promise.resolve({ data: null, error: null }),
+        // deno-lint-ignore no-explicit-any
+        then: (onF: any, onR: any) => Promise.resolve({ data: [], error: null }).then(onF, onR),
+      };
+      return q;
+    },
+  };
+  await ST.searchKnowledgeBase({ query: "how do refunds work", audience: "public" }, kbDb);
+  assert(
+    !filteredAudiences.includes("subscriber"),
+    "a public caller must never query subscriber-only KB rows",
+  );
+  assert(filteredAudiences.includes("public"), "public rows are the only allowed audience");
+});

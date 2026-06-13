@@ -12416,8 +12416,8 @@
         "All tests pass on a clean run"
       ],
       "priority": 843,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] This is the durable proof of the user's non-negotiables. Depends on US-832/834/835/836. Co-located with existing tenant-isolation_test.ts (US-268)."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] This is the durable proof of the user's non-negotiables. Depends on US-832/834/835/836. Co-located with existing tenant-isolation_test.ts (US-268). [DONE 2026-06-13] Added services/edge-functions/src/tests/support-assistant-redteam_test.ts (22 cases): system-prompt extraction, tool/schema enumeration (incl. executeAssistantTool rejecting all non-allowlisted/mutating names + allowlist has no write tool), cross-tenant reads via the real engine dispatch, PII/payment/security leakage (poisoned rows prove DTO allowlists strip email/Stripe/API key/MFA/password/buyer fields), jailbreak styles (override/role-hijack/DAN/dev-mode/model-probe + injection inside PASTED listing text + encoded-payload output-guard backstop), scope/escalation + bounded-loop cap + forbidden-tool containment. Each case asserts safe refusal, absence of protected content, and the abuse event the route records (via simulateRouteAbuseDecision mirroring classifyJailbreakHeuristic + guardAssistantOutput, the two recordAbuseEvent triggers). Extended tenant-isolation_test.ts with 7 US-843 cases asserting every US-832 tool returns empty/null for a non-owner caller C (incl. KB audience boundary). Full edge suite: 1201 passed, 0 failed; deno lint + check clean. Auto-discovered by deno test in npm run verify."
     },
     {
       "id": "US-844",
