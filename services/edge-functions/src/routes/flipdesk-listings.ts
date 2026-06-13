@@ -464,3 +464,90 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     created: true,
   });
 });
+
+// ── US-717: extension auto-delist queue ───────────────────────────────────
+//
+// When a cross-listed item sells, auto-end (cross-listings.ts) ends the API
+// siblings via their delist API but can only QUEUE the extension siblings
+// (Poshmark/Mercari/Grailed) — those have no write API and live in the seller's
+// own browser. It stamps listings.delist_requested_at; the SaaS surface reads
+// the queue here, the GradeThread Lister extension ends each listing in the
+// seller's own tab, then the SaaS confirms back to clear the stamp.
+
+interface PendingDelistRow {
+  id: string;
+  platform: string;
+  listing_url: string | null;
+  inventory_item_id: string;
+  delist_requested_at: string;
+  inventory_items: { user_id: string; item_title: string | null };
+}
+
+// GET /pending-delists — extension siblings still awaiting an end on their
+// marketplace. Tenant-scoped via inventory_items.user_id (US-268).
+flipdeskListingsRoutes.get("/pending-delists", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, platform, listing_url, inventory_item_id, delist_requested_at, " +
+        "inventory_items!inner(user_id, item_title)",
+    )
+    .eq("inventory_items.user_id", ownerId)
+    .in("platform", [...EXTENSION_PLATFORMS])
+    .not("delist_requested_at", "is", null)
+    .order("delist_requested_at", { ascending: true });
+  if (error) {
+    return c.json({ error: "Could not load pending delists." }, 500);
+  }
+  const rows = (data ?? []) as unknown as PendingDelistRow[];
+  return c.json({
+    ok: true,
+    pending: rows.map((r) => ({
+      listing_id: r.id,
+      platform: r.platform,
+      listing_url: r.listing_url,
+      item_id: r.inventory_item_id,
+      item_title: r.inventory_items.item_title,
+      requested_at: r.delist_requested_at,
+    })),
+  });
+});
+
+// POST /delist-confirm — the extension ended the listing on the marketplace (or
+// the seller did manually); clear the queue stamp. Tenant-scoped: ownership of
+// the listing's parent item is verified before the write (US-268).
+flipdeskListingsRoutes.post("/delist-confirm", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { listing_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const listingId = typeof body.listing_id === "string" ? body.listing_id : "";
+  if (!listingId) return c.json({ error: "listing_id is required." }, 400);
+
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select("id, inventory_items!inner(user_id)")
+    .eq("id", listingId)
+    .maybeSingle();
+  if (error) return c.json({ error: "Could not load the listing." }, 500);
+  const row = data as { id: string; inventory_items: { user_id: string } } | null;
+  if (!row || row.inventory_items.user_id !== ownerId) {
+    return c.json({ error: "Listing not found." }, 404);
+  }
+
+  const { error: upErr } = await supabaseAdmin
+    .from("listings")
+    .update({
+      delist_requested_at: null,
+      listing_status: "ended",
+      is_active: false,
+    })
+    .eq("id", listingId);
+  if (upErr) return c.json({ error: "Could not confirm the delist." }, 500);
+  return c.json({ ok: true, listing_id: listingId });
+});

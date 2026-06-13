@@ -14,12 +14,15 @@
     const payload = Object.assign({ platform: "grailed", platformLabel: "Grailed" }, job.payload);
     let partial;
     try {
-      partial = await GT.runFlow(SEL.grailed, payload, { autoSubmit: false });
+      partial = job.kind === "delist"
+        ? await GT.runDelistFlow(SEL.grailed.delist, payload)
+        : await GT.runFlow(SEL.grailed, payload, { autoSubmit: false });
     } catch (err) {
       partial = {
         ok: false,
         manual: true,
-        error: "Grailed listing failed: " + (err && err.message ? err.message : String(err)),
+        error: "Grailed " + (job.kind === "delist" ? "delist" : "listing") +
+          " failed: " + (err && err.message ? err.message : String(err)),
         version: SEL.grailed.version,
       };
     }

@@ -881,9 +881,51 @@ export const CROSS_LISTING_PLATFORMS = [
   "mercari",
   "depop",
 ] as const;
-// Cross-list platforms that publish for real today (vs. saved-locally stubs).
-export const LIVE_CROSS_LISTING_PLATFORMS = ["ebay", "shopify"] as const;
+// Cross-list platforms that publish for real today via a server-side API
+// (US-599 Shopify, US-714 Depop). The extension platforms below are also "live"
+// but through the browser extension, not an API.
+export const LIVE_CROSS_LISTING_PLATFORMS = ["ebay", "shopify", "depop"] as const;
 export type CrossListingPlatform = (typeof CROSS_LISTING_PLATFORMS)[number];
+
+// US-717: how each marketplace is actually reached. The composer + Marketplaces
+// UI read this so a channel is never advertised as a clean API when it isn't.
+//   "api"       — server-side connector (OAuth + write API): eBay/Shopify/Depop.
+//   "extension" — the GradeThread Lister browser extension (US-716), which lists
+//                 from the seller's OWN logged-in tab: Poshmark/Mercari/Grailed.
+//   "none"      — no integration yet (manual only).
+export type MarketplaceMechanism = "api" | "extension" | "none";
+export const MARKETPLACE_MECHANISM: Record<
+  (typeof LISTING_PLATFORMS)[number],
+  MarketplaceMechanism
+> = {
+  ebay: "api",
+  shopify: "api",
+  depop: "api",
+  poshmark: "extension",
+  mercari: "extension",
+  grailed: "extension",
+  facebook: "none",
+  offerup: "none",
+  whatnot: "none",
+  other: "none",
+};
+
+// Cross-listable platforms fanned out server-side via POST /cross-push (the
+// US-708 adapter registry). Order = composer display order.
+export const API_CROSS_LISTING_PLATFORMS = [
+  "ebay",
+  "shopify",
+  "depop",
+] as const satisfies readonly CrossListingPlatform[];
+
+// Cross-listable platforms reached through the browser extension (US-716).
+export const EXTENSION_CROSS_LISTING_PLATFORMS = [
+  "poshmark",
+  "mercari",
+  "grailed",
+] as const satisfies readonly (typeof LISTING_PLATFORMS)[number][];
+export type ExtensionCrossListingPlatform =
+  (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number];
 
 // Stripe price IDs (US-202) — populated from import.meta.env at build time
 // by the setup script in US-203. Placeholders for local dev; production

@@ -14,12 +14,15 @@
     const payload = Object.assign({ platform: "mercari", platformLabel: "Mercari" }, job.payload);
     let partial;
     try {
-      partial = await GT.runFlow(SEL.mercari, payload, { autoSubmit: false });
+      partial = job.kind === "delist"
+        ? await GT.runDelistFlow(SEL.mercari.delist, payload)
+        : await GT.runFlow(SEL.mercari, payload, { autoSubmit: false });
     } catch (err) {
       partial = {
         ok: false,
         manual: true,
-        error: "Mercari listing failed: " + (err && err.message ? err.message : String(err)),
+        error: "Mercari " + (job.kind === "delist" ? "delist" : "listing") +
+          " failed: " + (err && err.message ? err.message : String(err)),
         version: SEL.mercari.version,
       };
     }

@@ -1763,3 +1763,30 @@ Branch: ralph/gradethread-build
   - Verify: npx tsc -b + eslint (changed files) + vitest (5/5) + npm run build all green; edge deno check (full graph) + deno lint + tenant-isolation/marketplace-adapters tests green.
 - Timestamp: 2026-06-13
 ---
+
+## US-717: Wire one-draft cross-listing fan-out + auto-delist across the real connector set
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00177_listings_delist_requested.sql (NEW) — listings.delist_requested_at + partial index (extension auto-delist queue).
+  - services/edge-functions/src/lib/schema-version.ts — EXPECTED_SCHEMA_VERSION 00176 → 00177.
+  - services/edge-functions/src/lib/cross-listings.ts — auto-end now QUEUES extension siblings (Poshmark/Mercari/Grailed) via delist_requested_at instead of silently marking them ended; API delist for eBay/Shopify/Depop unchanged.
+  - services/edge-functions/src/routes/flipdesk-listings.ts — GET /pending-delists (tenant-scoped queue read) + POST /delist-confirm (clears the stamp once ended).
+  - src/lib/constants.ts — MARKETPLACE_MECHANISM (api|extension|none), API_CROSS_LISTING_PLATFORMS, EXTENSION_CROSS_LISTING_PLATFORMS; LIVE_CROSS_LISTING_PLATFORMS += depop.
+  - src/lib/lister-extension.ts — sendDelistToLister + shared sendMessageToLister transport (GT_LISTER_DELIST).
+  - src/hooks/use-pending-delists.ts (NEW) — usePendingDelists + useRunDelist (extension end + confirm).
+  - src/components/flipdesk/pending-delist-banner.tsx (NEW) — listings-page banner for the queue.
+  - src/pages/flipdesk/listings.tsx — render PendingDelistBanner.
+  - src/pages/flipdesk/composer.tsx — mechanism-aware 'Push to' (API badge + cross-push; extension badge → Listing Kit on the same page).
+  - extension/background.js — GT_LISTER_DELIST handler + handleDelistRequest (kind:"delist" job).
+  - extension/selectors.js — per-platform `delist` selector blocks (Poshmark enabled; Mercari/Grailed flagged off).
+  - extension/content/common.js — GT.runDelistFlow (probe + fail-loud).
+  - extension/content/{poshmark,mercari,grailed}.js — branch on job.kind for list vs delist.
+  - src/lib/__tests__/marketplace-mechanism.test.ts (NEW, 7 cases).
+  - prd.json, scripts/ralph/progress.txt.
+- Notes:
+  - Most infra pre-existed (cross-push fan-out US-149/US-564, extension-writeback US-716, Platforms column US-149). The genuine deltas: honest mechanism split (API vs extension) in the composer, and extending auto-delist to the extension marketplaces.
+  - Extension marketplaces have NO write API and run only in the seller's own browser, so server-side auto-delist is impossible — it QUEUES (delist_requested_at) and the GradeThread Lister extension ends each listing in the seller's tab next time they're in GradeThread; the queue is surfaced on the listings page. The local sibling row is marked ended immediately (stops counting as live); the stamp tracks the marketplace-side action only.
+  - Delist selectors are versioned + fail-loud just like the US-716 list flows; only Poshmark is enabled (Mercari/Grailed degrade to 'end manually').
+  - Verify: tsc -b clean; deno check (full graph) clean; eslint + deno lint clean; vitest 12 passed (mechanism 7 + lister 5); deno schema-version 9 / marketplace-adapters / cross-listing-fields green; extension node --check green; npm run build green.
+- Timestamp: 2026-06-13
+---

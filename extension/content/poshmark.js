@@ -14,12 +14,15 @@
     const payload = Object.assign({ platform: "poshmark", platformLabel: "Poshmark" }, job.payload);
     let partial;
     try {
-      partial = await GT.runFlow(SEL.poshmark, payload, { autoSubmit: false });
+      partial = job.kind === "delist"
+        ? await GT.runDelistFlow(SEL.poshmark.delist, payload)
+        : await GT.runFlow(SEL.poshmark, payload, { autoSubmit: false });
     } catch (err) {
       partial = {
         ok: false,
         manual: true,
-        error: "Poshmark listing failed: " + (err && err.message ? err.message : String(err)),
+        error: "Poshmark " + (job.kind === "delist" ? "delist" : "listing") +
+          " failed: " + (err && err.message ? err.message : String(err)),
         version: SEL.poshmark.version,
       };
     }

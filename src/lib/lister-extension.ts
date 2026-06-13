@@ -128,8 +128,32 @@ export function buildListerPayload(opts: {
   };
 }
 
+// US-717: ask the extension to END a live listing on the seller's marketplace
+// (cross-listing auto-delist after the item sold elsewhere). Mirrors sendToLister
+// but carries the live listing URL instead of a draft payload.
+export interface ListerDelistPayload {
+  platform: ListerPlatform;
+  platformLabel: string;
+  listingId: string;
+  listingUrl: string;
+}
+
+export function sendDelistToLister(
+  payload: ListerDelistPayload,
+): Promise<ListerResult> {
+  return sendMessageToLister({ type: "GT_LISTER_DELIST", payload });
+}
+
 /** Send a payload to the extension; resolves with its result. */
 export function sendToLister(payload: ListerPayload): Promise<ListerResult> {
+  return sendMessageToLister({ type: "GT_LISTER_LIST", payload });
+}
+
+// Shared transport for both the list + delist messages.
+function sendMessageToLister(message: {
+  type: string;
+  payload: unknown;
+}): Promise<ListerResult> {
   return new Promise((resolve) => {
     const runtime = chromeRuntime();
     const id = listerExtensionId();
@@ -150,7 +174,7 @@ export function sendToLister(payload: ListerPayload): Promise<ListerResult> {
       130000,
     );
     try {
-      runtime.sendMessage(id, { type: "GT_LISTER_LIST", payload }, (response) => {
+      runtime.sendMessage(id, message, (response) => {
         window.clearTimeout(timer);
         if (runtime.lastError) {
           done({

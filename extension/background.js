@@ -52,6 +52,20 @@ function isValidPayload(p) {
   );
 }
 
+// US-717: an auto-delist job ends an already-published listing on the seller's
+// marketplace (the SaaS queues these when a cross-listed item sells elsewhere).
+// It needs the platform + the live listing URL to open.
+function isValidDelistPayload(p) {
+  return (
+    p &&
+    typeof p === "object" &&
+    typeof p.platform === "string" &&
+    SUPPORTED[p.platform] &&
+    typeof p.listingUrl === "string" &&
+    /^https:\/\//.test(p.listingUrl)
+  );
+}
+
 async function tosAccepted() {
   const out = await chrome.storage.local.get("tosAcceptedAt");
   return Boolean(out && out.tosAcceptedAt);
@@ -73,6 +87,18 @@ chrome.runtime.onMessageExternal.addListener(function (msg, sender, sendResponse
       platforms: SUPPORTED,
     });
     return false;
+  }
+
+  // US-717: end a live listing on the seller's marketplace (cross-listing
+  // auto-delist after a sale elsewhere).
+  if (msg && msg.type === "GT_LISTER_DELIST") {
+    const dp = msg.payload;
+    if (!isValidDelistPayload(dp)) {
+      sendResponse({ ok: false, error: "Invalid or unsupported delist payload." });
+      return false;
+    }
+    handleDelistRequest(dp, sendResponse);
+    return true; // async result
   }
 
   if (!msg || msg.type !== "GT_LISTER_LIST") {
@@ -124,6 +150,52 @@ async function handleListRequest(payload, sendResponse) {
           error:
             "Timed out waiting for the " + SUPPORTED[payload.platform] +
             " form. List manually if the tab didn't prefill.",
+        });
+      } catch (_e) { /* port may be gone */ }
+      delete pendingExternal[jobId];
+    }
+  }, 120000);
+}
+
+async function handleDelistRequest(payload, sendResponse) {
+  if (!(await tosAccepted())) {
+    sendResponse({
+      ok: false,
+      needsConsent: true,
+      error:
+        "Open the GradeThread Lister and accept the terms before delisting.",
+    });
+    return;
+  }
+
+  const jobId = makeJobId();
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: payload.listingUrl, active: true });
+  } catch (_e) {
+    sendResponse({ ok: false, error: "Couldn't open the marketplace tab." });
+    return;
+  }
+
+  // kind="delist" tells the per-platform content script to run the end-listing
+  // flow instead of the fill flow.
+  jobsByTab[tab.id] = {
+    jobId: jobId,
+    platform: payload.platform,
+    kind: "delist",
+    payload: payload,
+  };
+  pendingExternal[jobId] = sendResponse;
+
+  setTimeout(function () {
+    if (pendingExternal[jobId]) {
+      try {
+        pendingExternal[jobId]({
+          ok: false,
+          timedOut: true,
+          error:
+            "Timed out ending the " + SUPPORTED[payload.platform] +
+            " listing. End it manually if the tab didn't.",
         });
       } catch (_e) { /* port may be gone */ }
       delete pendingExternal[jobId];

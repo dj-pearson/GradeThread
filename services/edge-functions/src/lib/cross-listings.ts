@@ -24,6 +24,13 @@ interface SiblingRow {
   inventory_items: { user_id: string; sku: string | null };
 }
 
+// Marketplaces ended through the GradeThread Lister browser extension (US-716)
+// rather than a server-side API. They have no write API, so auto-end can't reach
+// them from the server — it QUEUES the delist (stamps delist_requested_at) and
+// the extension ends the listing in the seller's own tab next time they're in
+// GradeThread. Keep in sync with LISTER_EXTENSION_PLATFORMS (src/lib).
+const EXTENSION_DELIST_PLATFORMS = new Set(["poshmark", "mercari", "grailed"]);
+
 // Best-effort: never throws. Returns how many sibling listings were ended.
 export async function autoEndCrossListings(
   ownerId: string,
@@ -121,9 +128,22 @@ export async function autoEndCrossListings(
           );
         }
       }
+      // Extension marketplaces (Poshmark/Mercari/Grailed) have no delist API —
+      // we can't end them from the server. Mark the local row ended so it stops
+      // counting as live AND stamp delist_requested_at so the GradeThread Lister
+      // extension ends it in the seller's own tab next time they're in the app
+      // (the writeback clears the stamp). API siblings were already ended
+      // upstream above, so they need no stamp.
+      const update: Record<string, unknown> = {
+        listing_status: "ended",
+        is_active: false,
+      };
+      if (EXTENSION_DELIST_PLATFORMS.has(row.platform)) {
+        update.delist_requested_at = new Date().toISOString();
+      }
       const { error: updErr } = await supabaseAdmin
         .from("listings")
-        .update({ listing_status: "ended", is_active: false })
+        .update(update)
         .eq("id", row.id);
       if (updErr) {
         console.error(

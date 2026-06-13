@@ -34,6 +34,21 @@ const GT_LISTER_SELECTORS = {
     },
     submit:
       'button[data-test="listing-editor-submit"], button[type="submit"].listing-editor__submit, button.btn--primary[type="submit"]',
+    // US-717: end a live listing. On a Poshmark listing page the owner has an
+    // options/menu control exposing "Delete Listing", which opens a confirm
+    // modal. Probed + fail-loud like the fill flow.
+    delist: {
+      enabled: true,
+      version: "2026.06.1",
+      lastVerified: "2026-06-13",
+      required: ["menu", "remove"],
+      menu:
+        'button[data-test="listing-menu"], button.listing__menu, [data-et-name="listing_options"]',
+      remove:
+        '[data-test="delete-listing"], [data-et-name="delete_listing"], a[href*="delete"]',
+      confirm:
+        'button[data-test="confirm-delete"], button.btn--primary[data-et-name="yes"], button[data-et-name="confirm"]',
+    },
   },
 
   // ── Mercari — PHASE 2 (not yet enabled) ───────────────────────────────
@@ -53,6 +68,15 @@ const GT_LISTER_SELECTORS = {
       photoInput: 'input[type="file"][accept*="image"]',
     },
     submit: 'button[data-testid="ListButton"], button[type="submit"]',
+    delist: {
+      enabled: false,
+      version: "2026.06.0-draft",
+      lastVerified: null,
+      required: ["menu", "remove"],
+      menu: 'button[data-testid="ListingMenu"], button[aria-label*="menu"]',
+      remove: '[data-testid="Delete"], [data-testid="DeleteListing"]',
+      confirm: 'button[data-testid="ConfirmDelete"], button[type="submit"]',
+    },
   },
 
   // ── Grailed — PHASE 3 (not yet enabled) ───────────────────────────────
@@ -69,6 +93,15 @@ const GT_LISTER_SELECTORS = {
       photoInput: 'input[type="file"][accept*="image"]',
     },
     submit: 'button[type="submit"].listItem, button[type="submit"]',
+    delist: {
+      enabled: false,
+      version: "2026.06.0-draft",
+      lastVerified: null,
+      required: ["menu", "remove"],
+      menu: 'button[aria-label*="actions"], button.listing-actions',
+      remove: 'button[data-action="delete"], a[href*="delete"]',
+      confirm: 'button[data-action="confirm-delete"], button[type="submit"]',
+    },
   },
 };
 

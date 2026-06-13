@@ -171,5 +171,59 @@
     };
   };
 
+  // US-717: end a live listing on the marketplace (cross-listing auto-delist
+  // after the item sold elsewhere). Same fail-loud contract as runFlow — probe
+  // the required controls first, never guess. Returns:
+  //   { ok:true, delisted:true, version }            — ended on the marketplace
+  //   { ok:false, manual:true, error, version }       — degraded; end it manually
+  GT.runDelistFlow = async function (delistFlow, payload) {
+    const label = payload.platformLabel || payload.platform;
+    if (!delistFlow || !delistFlow.enabled) {
+      return {
+        ok: false,
+        manual: true,
+        error: label +
+          " auto-delist isn't enabled yet — please end this listing manually on " +
+          label + ".",
+        version: delistFlow && delistFlow.version,
+      };
+    }
+
+    const missing = await GT.probe({
+      required: delistFlow.required,
+      fields: { menu: delistFlow.menu, remove: delistFlow.remove },
+      submit: delistFlow.confirm,
+    });
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s page changed (delist selector v" + delistFlow.version +
+          " can't find: " + missing.join(", ") +
+          "). Please end the listing manually — the GradeThread Lister needs an update.",
+        version: delistFlow.version,
+      };
+    }
+
+    const menu = document.querySelector(delistFlow.menu);
+    if (menu) menu.click();
+    const remove = await GT.waitFor(delistFlow.remove, 6000);
+    if (!remove) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + " delete control didn't appear — end the listing manually.",
+        version: delistFlow.version,
+      };
+    }
+    remove.click();
+    if (delistFlow.confirm) {
+      const confirm = await GT.waitFor(delistFlow.confirm, 6000);
+      if (confirm) confirm.click();
+    }
+    GT.log("requested delist on " + payload.platform);
+    return { ok: true, delisted: true, version: delistFlow.version };
+  };
+
   self.GTLister = GT;
 })();

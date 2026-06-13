@@ -38,6 +38,7 @@ import {
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ItemCardList } from "@/components/flipdesk/item-card-list";
+import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1259,6 +1260,9 @@ export function FlipdeskListingsPage() {
           </Button>
         </div>
       </div>
+
+      {/* US-717: cross-listing auto-delist queue (extension marketplaces). */}
+      <PendingDelistBanner />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)}>
         <TabsList className="flex flex-wrap">

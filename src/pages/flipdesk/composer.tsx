@@ -75,9 +75,9 @@ import {
   templateGroupFor,
 } from "@/lib/listing-templates";
 import {
-  CROSS_LISTING_PLATFORMS,
+  API_CROSS_LISTING_PLATFORMS,
   EBAY_CONDITION_OPTIONS,
-  LIVE_CROSS_LISTING_PLATFORMS,
+  EXTENSION_CROSS_LISTING_PLATFORMS,
   MARKETPLACE_LABELS,
   type CrossListingPlatform,
 } from "@/lib/constants";
@@ -1317,17 +1317,19 @@ export function FlipdeskComposerPage() {
             )}
           </Card>
 
-          {/* Push to marketplaces (US-149) */}
+          {/* Push to marketplaces (US-149 + US-717). API platforms fan out via
+              cross-push; the extension platforms list from the seller's own
+              browser through the Listing Kit below. */}
           <Card>
             <CardHeader>
               <CardTitle>Push to</CardTitle>
               <CardDescription>
-                Cross-list this draft to multiple marketplaces. Each platform
-                gets its own price — leave it blank to use the price above.
+                Cross-list this draft. Each platform gets its own price — leave it
+                blank to use the price above.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {CROSS_LISTING_PLATFORMS.map((p) => {
+              {API_CROSS_LISTING_PLATFORMS.map((p) => {
                 const checked = pushPlatforms.has(p);
                 return (
                   <div
@@ -1344,13 +1346,9 @@ export function FlipdeskComposerPage() {
                       <span className="font-medium">
                         {MARKETPLACE_LABELS[p]}
                       </span>
-                      {!(LIVE_CROSS_LISTING_PLATFORMS as readonly string[]).includes(
-                        p,
-                      ) && (
-                        <Badge variant="outline" className="text-[10px]">
-                          saved locally — publish coming soon
-                        </Badge>
-                      )}
+                      <Badge variant="outline" className="text-[10px]">
+                        Connected via API
+                      </Badge>
                     </label>
                     {checked && (
                       <Input
@@ -1373,6 +1371,27 @@ export function FlipdeskComposerPage() {
                   </div>
                 );
               })}
+
+              {/* US-717: extension marketplaces are offered with their real
+                  mechanism badge. They have no write API, so they list from the
+                  seller's own logged-in tab via the Listing Kit below — not
+                  cross-push. */}
+              <div className="rounded-md border border-dashed p-2.5">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                  {EXTENSION_CROSS_LISTING_PLATFORMS.map((p) => (
+                    <span key={p} className="font-medium">
+                      {MARKETPLACE_LABELS[p]}
+                    </span>
+                  ))}
+                  <Badge variant="outline" className="text-[10px]">
+                    Via browser extension
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  No public API — list these from your own logged-in tab with the
+                  GradeThread Lister extension in the Listing Kit below.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
