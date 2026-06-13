@@ -8997,8 +8997,8 @@
         "Links to per-user actions; complements per-submission moderation"
       ],
       "priority": 591,
-      "passes": false,
-      "notes": "[P2][Admin/Fraud] Deep-dive 2026-06-04. Moderation is one-flagged-submission-at-a-time; no aggregate abuse/fraud view."
+      "passes": true,
+      "notes": "[P2][Admin/Fraud] Deep-dive 2026-06-04. Moderation is one-flagged-submission-at-a-time; no aggregate abuse/fraud view. [DONE 2026-06-12] Read-only cross-account abuse/fraud dashboard. Edge: GET /api/admin/fraud/overview (admin-fraud.ts, mounted /api/admin/fraud, admin JWT+AAL2) aggregates 4 signal families from existing data — repeat offenders (flagged/rejected submissions + chargebacks per user), velocity (24h submission bursts + rate_limit_counters hotspots parsed by subject), duplicate/shared-payment (>1 user sharing a stripe_customer_id), chargebacks (flipdesk_subscription_events dispute rows + payment_disputed flag). No new tables/migration. Frontend: src/pages/admin/fraud.tsx (Tabs+Tables), route /admin/fraud, sidebar \"Abuse & Fraud\". Every account links to /admin/users/:id where audited per-user actions (suspend/credit/impersonate) live — complements per-submission moderation."
     },
     {
       "id": "US-592",
