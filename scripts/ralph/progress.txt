@@ -2011,3 +2011,10 @@ Branch: ralph/gradethread-build
   - Verified: edge deno test (provenance 8, schema-version, drift, aspect-registry 15) green; deno check src/main.ts clean; deno lint clean; web tsc -b + build clean; eslint clean; vitest (provenance 4 + prefill/remap/normalize 23) green. schema-version test confirms DB expected 00184.
 - Timestamp: 2026-06-13
 ---
+
+## US-831: Schema + infra: assistant usage metering, abuse events, and lockouts
+- Status: COMPLETE
+- Files changed: supabase/migrations/00185_support_assistant_abuse.sql (new), services/edge-functions/src/lib/support-metering.ts (new), services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00184->00185), services/edge-functions/src/tests/rls-guard_test.ts (SERVICE_ROLE_ONLY += 2 tables), prd.json, scripts/ralph/progress.txt
+- Notes: Story said migration 00146 but the tree was at 00184 (concurrent epic work) — renumbered to 00185. Created support_assistant_usage (PK user_id+usage_date daily rollup), support_abuse_events (text+CHECK enums for type/severity, conversation_id FK ON DELETE SET NULL), and users.support_assistant_locked_until. Atomic daily upsert via increment_support_assistant_usage RPC (mirrors increment_rate_limit, 00045). Both tables RLS-on with zero policies = deny-all to clients; service-role bypasses — so they had to be registered in rls-guard_test's SERVICE_ROLE_ONLY allowlist or the guard fails. Helpers incrementUsage/recordAbuseEvent are best-effort (log+swallow) so metering never breaks a chat. Tables aren't in generated Database types -> `as never` casts (ai-usage.ts pattern). Verified: deno lint/check, rls-guard + schema-version tests pass, npm run verify:db (fresh migrate from zero) passes.
+- Timestamp: 2026-06-13
+---

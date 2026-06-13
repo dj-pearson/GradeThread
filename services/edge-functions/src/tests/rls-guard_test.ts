@@ -88,6 +88,15 @@ const SERVICE_ROLE_ONLY = new Set([
   // (migration 00165). Captured by the public edge route and managed ONLY by the
   // admin waitlist console via the service-role client; the SPA never reads it.
   "waitlist_entries",
+  // US-831 AI support assistant per-day usage rollup: RLS enabled, zero policies
+  // by design (migration 00185). Upserted by the assistant engine via the
+  // increment_support_assistant_usage RPC on the service-role client and read
+  // ONLY by the admin usage dashboard; the SPA never reads it.
+  "support_assistant_usage",
+  // US-831 AI support assistant abuse log: RLS enabled, zero policies by design
+  // (migration 00185). Appended by the abuse pipeline via the service-role
+  // client and read ONLY by the admin abuse-monitoring dashboard; never client-readable.
+  "support_abuse_events",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

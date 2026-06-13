@@ -12232,8 +12232,8 @@
         "npm run verify:db passes"
       ],
       "priority": 831,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Storage + helpers only; enforcement thresholds in US-836. locked_until is read by the engine gate (US-834) before any model call."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Storage + helpers only; enforcement thresholds in US-836. locked_until is read by the engine gate (US-834) before any model call. IMPLEMENTED: migration renumbered to 00185_support_assistant_abuse.sql (00146 from the story was stale; latest was 00184). Adds support_assistant_usage (PK user_id+usage_date, daily rollup), support_abuse_events (typed/severity-graded, conversation_id FK->support_conversations ON DELETE SET NULL), and users.support_assistant_locked_until. Atomic rollup via increment_support_assistant_usage RPC (mirrors increment_rate_limit). Both tables RLS-on/zero-policy (deny-all to clients) — registered in rls-guard_test SERVICE_ROLE_ONLY. Helpers incrementUsage/recordAbuseEvent in services/edge-functions/src/lib/support-metering.ts (best-effort, never throw). Bumped EXPECTED_SCHEMA_VERSION to 00185. verify:db passes."
     },
     {
       "id": "US-832",
