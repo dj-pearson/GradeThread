@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { withdrawOffer } from "./ebay-client.ts";
-import { deleteProduct, getShopifyConnection } from "./shopify-client.ts";
+import { getShopifyConnection } from "./shopify-client.ts";
+import { deleteProductGraphql } from "./shopify-graphql.ts";
 
 // Auto-end of cross-listed siblings (US-149 + US-599). When one listing in a
 // cross-listing group (rows sharing listings.draft_id) sells, end the others
@@ -87,7 +88,12 @@ export async function autoEndCrossListings(
         try {
           const conn = await getShopifyConnection(ownerId);
           if (conn) {
-            await deleteProduct(conn.shop, conn.token, row.platform_listing_id);
+            // US-710: delist via the GraphQL Admin API (productDelete).
+            await deleteProductGraphql(
+              conn.shop,
+              conn.token,
+              row.platform_listing_id,
+            );
           }
         } catch (err) {
           console.warn(

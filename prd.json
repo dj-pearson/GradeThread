@@ -10470,8 +10470,8 @@
         "A listings row is written per published product (platform='shopify', platform_listing_id=product/variant id, listing_url) so it shows in the grid + reconciliation"
       ],
       "priority": 710,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Shopify] Source: Cross_Listing.md §1 + Recommendations Phase 1. Hard ceiling 1000 points/query regardless of plan — design for bulk from day one. Depends on [[US-709]],[[US-708]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Shopify] Source: Cross_Listing.md §1 + Recommendations Phase 1. Hard ceiling 1000 points/query regardless of plan — design for bulk from day one. Depends on [[US-709]],[[US-708]]. DONE: GraphQL Admin API publish path in shopify-graphql.ts (productSet → inventorySetQuantities scoped to primary Location → publishablePublish to Online Store). Cost-based throttling reads extensions.cost.throttleStatus with leaky-bucket+exponential backoff on THROTTLED; bulkOperationRunMutation + stagedUploadsCreate helpers + requiresBulk(>250) guard for the 1000-point ceiling. Adapter publish/update/delist + cross-list auto-end now use GraphQL; productDelete is idempotent (not-found→gone). listings row written with platform_listing_id(numeric product id)+platform_offer_id(variant id)+listing_url. REST writes retired to fallback; REST read/sync feed unchanged."
     },
     {
       "id": "US-711",

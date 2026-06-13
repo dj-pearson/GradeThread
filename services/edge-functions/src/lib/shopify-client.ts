@@ -1,13 +1,16 @@
 // Shopify Admin API connector for FlipDesk (US-599) — the first REAL non-eBay
-// marketplace. Unlike the Poshmark/Mercari/Depop stubs (which have no public
-// write API), Shopify exposes a documented OAuth 2.0 + Admin REST API, so this
-// module does genuine list / sync / delist:
+// marketplace. This module owns OAuth + connection storage + the READ/SYNC feed
+// (product status + paid orders) over the Admin REST API:
 //
-//   list   → POST  /admin/api/<v>/products.json            (createProduct)
-//   sync   → GET   /admin/api/<v>/products/<id>.json        (getProduct)
-//            PUT   /admin/api/<v>/products/<id>.json        (updateProduct)
-//   delist → DELETE/admin/api/<v>/products/<id>.json        (deleteProduct)
+//   sync   → GET   /admin/api/<v>/products/<id>.json        (getProductStatus)
 //   recon  → GET   /admin/api/<v>/orders.json?...           (listPaidOrders)
+//
+// The WRITE path (publish / update / delist) moved to the GraphQL Admin API in
+// US-710 — see shopify-graphql.ts (productSet → inventorySetQuantities →
+// publishablePublish; productDelete to delist) so we honor the cost-based rate
+// limit. The REST createProduct/updateProduct/deleteProduct + buildProductPayload
+// below are retained only as a documented fallback (and unit-tested payload
+// builder); the live adapter no longer calls them.
 //
 // Tokens: Shopify's OAuth access token is OFFLINE (non-expiring) — far simpler
 // than eBay's refresh dance. We store it encrypted in marketplace_connections

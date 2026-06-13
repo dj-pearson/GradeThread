@@ -1,14 +1,15 @@
 import { supabaseAdmin } from "../supabase.ts";
 import {
   buildConsentUrl,
-  createProduct,
-  deleteProduct,
   getShopifyConnection,
   isShopifyConfigured,
   normalizeShopDomain,
-  type ShopifyProductInput,
-  updateProduct,
 } from "../shopify-client.ts";
+import {
+  deleteProductGraphql,
+  publishShopifyProduct,
+  type ShopifyGraphqlProductInput,
+} from "../shopify-graphql.ts";
 import { getMarketplaceSpec } from "../marketplace-specs.ts";
 import { mapSiblingListingFields } from "../cross-listing-fields.ts";
 import {
@@ -115,30 +116,34 @@ async function publishShopify(
   const spec = getMarketplaceSpec("shopify")!;
   const title = (row.listing_title ?? row.inventory_items.title ?? "Listing")
     .slice(0, spec.titleMaxLength ?? 255);
+  // body_html carries the grade-aware AI draft (condition/grade copy is already
+  // folded into listing_description upstream by mapSiblingListingFields).
   const bodyHtml = row.listing_description ?? "";
   const imageUrls = await resolveImageUrls(row.inventory_item_id, spec);
 
-  const input: ShopifyProductInput = {
+  // US-710: publish via the GraphQL Admin API (productSet → inventory →
+  // publishablePublish), an idempotent create-or-replace keyed by the stored
+  // product id. An empty platform_listing_id creates; a present one replaces.
+  const input: ShopifyGraphqlProductInput = {
+    productId: row.platform_listing_id,
     title,
-    bodyHtml,
+    descriptionHtml: bodyHtml,
     vendor: row.inventory_items.brand,
     productType: row.inventory_items.item_category,
     price: price > 0 ? price : (row.listing_price ?? 0),
     sku: row.inventory_items.sku,
-    quantity: 1,
     imageUrls,
-    status: "active",
+    status: "ACTIVE",
   };
 
   try {
-    const result = row.platform_listing_id
-      ? await updateProduct(conn.shop, conn.token, row.platform_listing_id, input)
-      : await createProduct(conn.shop, conn.token, input);
+    const result = await publishShopifyProduct(conn.shop, conn.token, input, 1);
 
     const { error: updErr } = await supabaseAdmin
       .from("listings")
       .update({
         platform_listing_id: result.productId,
+        platform_offer_id: result.variantId,
         listing_url: result.listingUrl,
         listing_status: "active",
         is_active: true,
@@ -180,7 +185,7 @@ async function endShopify(
     };
   }
   try {
-    await deleteProduct(conn.shop, conn.token, productId);
+    await deleteProductGraphql(conn.shop, conn.token, productId);
     await supabaseAdmin
       .from("listings")
       .update({ listing_status: "ended", is_active: false })
