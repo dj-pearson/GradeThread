@@ -8937,8 +8937,8 @@
         "Created promos sync to Stripe and are validated before activation"
       ],
       "priority": 586,
-      "passes": false,
-      "notes": "[P2][Admin/Billing] Deep-dive 2026-06-04. admin-billing.ts /coupons is read-only; 'create in Stripe dashboard' today."
+      "passes": true,
+      "notes": "[P2][Admin/Billing] Deep-dive 2026-06-04. admin-billing.ts /coupons is read-only; 'create in Stripe dashboard' today. DONE 2026-06-12: backend create+archive already shipped under US-630; US-586 adds the missing EDIT surface — POST /coupons/:id (update coupon name; Stripe discount fields are immutable) + POST /promotion-codes/:id (toggle active to pause/resume a promo without nuking the coupon). Both super_admin + MFA step-up + audited. GET /coupons now lists inactive promo codes too so the toggle round-trips. Frontend admin/coupons gains an Edit-name dialog + per-promo pause/activate buttons."
     },
     {
       "id": "US-587",

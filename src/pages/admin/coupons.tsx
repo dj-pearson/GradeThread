@@ -39,7 +39,7 @@ import {
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { useAuth } from "@/hooks/use-auth";
-import { AlertTriangle, Tag, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Tag, Plus, Trash2, Pencil, Pause, Play } from "lucide-react";
 
 interface AdminCoupon {
   id: string;
@@ -225,11 +225,64 @@ function CreateCouponDialog({
   );
 }
 
+// US-586: edit an existing coupon. Stripe only lets the name change once a
+// coupon is created, so that's all this exposes.
+function EditCouponDialog({
+  coupon,
+  onOpenChange,
+  onSubmit,
+  pending,
+}: {
+  coupon: AdminCoupon | null;
+  onOpenChange: (o: boolean) => void;
+  onSubmit: (name: string) => void;
+  pending: boolean;
+}) {
+  const [name, setName] = useState("");
+  // Re-seed the field each time a different coupon is opened.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (coupon && seededFor !== coupon.id) {
+    setName(coupon.name ?? "");
+    setSeededFor(coupon.id);
+  }
+
+  return (
+    <Dialog open={coupon != null} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit coupon</DialogTitle>
+          <DialogDescription>
+            A coupon's discount is fixed once created — only its internal name can
+            change. To change a discount, archive this and create a new one.
+            Requires a super-admin MFA step-up.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label>Internal name</Label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Spring sale"
+          />
+          <p className="font-mono text-xs text-muted-foreground">{coupon?.id}</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => onSubmit(name.trim())} disabled={pending}>
+            {pending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AdminCouponsPage() {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "super_admin";
   const [createOpen, setCreateOpen] = useState(false);
+  const [editCoupon, setEditCoupon] = useState<AdminCoupon | null>(null);
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [working, setWorking] = useState(false);
   const [retry, setRetry] = useState<null | (() => void)>(null);
@@ -291,6 +344,25 @@ export function AdminCouponsPage() {
       },
     );
 
+  const updateCoupon = (id: string, name: string) =>
+    run(
+      () => edgeFetch(`/api/admin/coupons/${id}`, { method: "POST", json: { name }, silentGate: true }),
+      () => {
+        toast.success("Coupon updated");
+        setEditCoupon(null);
+        qc.invalidateQueries({ queryKey: ["admin-coupons"] });
+      },
+    );
+
+  const togglePromo = (id: string, active: boolean) =>
+    run(
+      () => edgeFetch(`/api/admin/promotion-codes/${id}`, { method: "POST", json: { active }, silentGate: true }),
+      () => {
+        toast.success(active ? "Promo code activated" : "Promo code paused");
+        qc.invalidateQueries({ queryKey: ["admin-coupons"] });
+      },
+    );
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between">
@@ -334,7 +406,8 @@ export function AdminCouponsPage() {
             </div>
           ) : !data || data.coupons.length === 0 ? (
             <div className="p-6 text-center text-sm text-muted-foreground">
-              No coupons configured. Create one in the Stripe dashboard.
+              No coupons configured.
+              {isSuperAdmin ? " Use “New coupon” to create one." : " Ask a super-admin to create one."}
             </div>
           ) : (
             <Table>
@@ -373,6 +446,15 @@ export function AdminCouponsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={working}
+                          onClick={() => setEditCoupon(c)}
+                          title="Edit name"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="text-destructive"
                           disabled={working}
                           onClick={() => {
@@ -380,6 +462,7 @@ export function AdminCouponsPage() {
                               archiveCoupon(c.id);
                             }
                           }}
+                          title="Archive"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -398,11 +481,12 @@ export function AdminCouponsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Tag className="h-5 w-5" />
-            Active promotion codes
+            Promotion codes
           </CardTitle>
           <CardDescription>
             User-facing codes that map to a coupon. These are what customers
-            enter at checkout.
+            enter at checkout. Pause a code to stop redemptions without touching
+            the coupon.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -412,7 +496,7 @@ export function AdminCouponsPage() {
             </div>
           ) : !data || data.promotion_codes.length === 0 ? (
             <div className="p-6 text-center text-sm text-muted-foreground">
-              No active promotion codes.
+              No promotion codes.
             </div>
           ) : (
             <Table>
@@ -423,6 +507,7 @@ export function AdminCouponsPage() {
                   <TableHead>Redemptions</TableHead>
                   <TableHead>Expires</TableHead>
                   <TableHead>Status</TableHead>
+                  {isSuperAdmin && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -440,6 +525,23 @@ export function AdminCouponsPage() {
                         {p.active ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
+                    {isSuperAdmin && (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={working}
+                          onClick={() => togglePromo(p.id, !p.active)}
+                          title={p.active ? "Pause this code" : "Activate this code"}
+                        >
+                          {p.active ? (
+                            <Pause className="h-3.5 w-3.5" />
+                          ) : (
+                            <Play className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -449,12 +551,20 @@ export function AdminCouponsPage() {
       </Card>
 
       {isSuperAdmin && (
-        <CreateCouponDialog
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          onSubmit={createCoupon}
-          pending={working}
-        />
+        <>
+          <CreateCouponDialog
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            onSubmit={createCoupon}
+            pending={working}
+          />
+          <EditCouponDialog
+            coupon={editCoupon}
+            onOpenChange={(o) => { if (!o) setEditCoupon(null); }}
+            onSubmit={(name) => { if (editCoupon) updateCoupon(editCoupon.id, name); }}
+            pending={working}
+          />
+        </>
       )}
       <MfaStepUpDialog
         open={stepUpOpen}

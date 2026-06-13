@@ -1316,3 +1316,18 @@ Branch: ralph/gradethread-build
 - Notes: New waitlist_entries table + a waitlist_gating row reusing feature_flags (seeded OFF). Server-enforced gate (lib/access-gate.ts): fail-open, 30s cache; staff (reviewer/admin/super_admin) always pass, others need an approved/invited entry matched by user_id OR lowercased email. Gate middleware mounted AFTER authMiddleware on /api/grade/*, /api/flipdesk/grading/submit, /autolister/*, /ai/*, /scout/* (the expensive "do work" surfaces); read-only dashboard browsing stays open. Public capture POST /api/waitlist is rate-limited (10/min/IP, fail-closed) + idempotent upsert keyed on email (stored lowercased; plain column UNIQUE so it's a valid on_conflict target — a functional lower(email) index is NOT). Admin /api/admin/waitlist: list+status/cohort summary+gating state, manual add, PATCH status/cohort/notes, bulk invite (ids[] or cohort) that emails sendWaitlistInviteEmail + flips to invited, and PUT /gating master toggle — all audited. edge-fetch redirects to /waitlist-pending on 403 {code:"waitlist_required"}. WaitlistForm dynamically imports edge-fetch so the prerendered landing page doesn't pull the supabase client into its SSR graph (no VITE env at prerender). Verified: tsc --noEmit, npm run build (29 routes prerendered), eslint, deno lint+check, deno test access-gate_test.ts (3 pass), supabase db reset (00165 applies clean).
 - Timestamp: 2026-06-12
 ---
+
+## US-586: Allow in-app coupon/promo creation
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/routes/admin-billing.ts (new POST /coupons/:id edit-name + POST /promotion-codes/:id active toggle; GET /coupons now lists inactive promo codes; stale header comments refreshed)
+  - src/pages/admin/coupons.tsx (EditCouponDialog, edit/archive action buttons on coupons, pause/activate action on promo codes, copy updates)
+  - prd.json (US-586 passes:true)
+- Notes:
+  - Create + archive were ALREADY shipped under US-630 (CreateCouponDialog + POST /coupons + POST /coupons/:id/archive, super_admin + step-up + audited). US-586's gap was the "edit" half of "create/edit".
+  - Stripe coupons are immutable once created (percent_off/amount_off/duration can't change) — only `name`/metadata mutate. So coupon edit = name update; to change a discount you archive + recreate (surfaced in the dialog copy).
+  - Promo-code edit = toggle `active` (the only mutable field besides metadata). Pausing a code stops redemptions without touching the coupon or subscriptions already carrying it — the fast growth-experiment lever. Required widening GET /coupons to include inactive codes so a paused code can be re-activated from the list.
+  - Both new endpoints: super_admin role gate + requireStepUp (fresh MFA) + writeAuditLog (admin.coupon.update / admin.promotion_code.update). Frontend reuses the existing step-up-aware run() runner (silentGate + STEP_UP_REQUIRED retry).
+  - Verified: npx tsc --noEmit, npm run build (29 routes prerendered), eslint on coupons.tsx, deno check (admin-billing.ts + main.ts), deno lint admin-billing.ts — all clean.
+- Timestamp: 2026-06-12
+---

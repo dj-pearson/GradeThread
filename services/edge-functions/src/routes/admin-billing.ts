@@ -497,9 +497,9 @@ adminBillingRoutes.post("/charges/:id/refund", async (c) => {
 
 // ── GET /coupons (US-223) ────────────────────────────────────────
 //
-// Read-only listing of Stripe coupons + promotion codes. Admins create
-// coupons via the Stripe dashboard for the first pass; this endpoint just
-// makes them visible + shows redemption counts for tracking.
+// Listing of Stripe coupons + promotion codes with redemption counts. Creation
+// (POST /coupons), name edits (POST /coupons/:id) and promo-code pause/resume
+// (POST /promotion-codes/:id) are all available in-app to super_admins (US-586).
 adminBillingRoutes.get("/coupons", async (c) => {
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
@@ -507,7 +507,9 @@ adminBillingRoutes.get("/coupons", async (c) => {
   try {
     const [coupons, promoCodes] = await Promise.all([
       stripe.coupons.list({ limit: 50 }),
-      stripe.promotionCodes.list({ limit: 50, active: true }),
+      // Include inactive codes so the admin can re-activate a paused one
+      // (US-586 toggle). The UI badges active vs inactive.
+      stripe.promotionCodes.list({ limit: 50 }),
     ]);
 
     return c.json({
@@ -657,6 +659,97 @@ adminBillingRoutes.post("/coupons/:id/archive", async (c) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[admin-billing] coupon archive failed:", msg);
     return c.json({ error: `Archive failed: ${msg}` }, 500);
+  }
+});
+
+// ── POST /coupons/:id (US-586) ───────────────────────────────────
+//
+// Edit an existing coupon. Stripe makes a coupon's discount immutable once
+// created (percent_off/amount_off/duration can't change) — only `name` (and
+// metadata) are mutable. So "edit" here updates the internal name; to change a
+// discount you archive + recreate. super_admin + step-up; audited.
+//
+// Body: { name: string | null }
+adminBillingRoutes.post("/coupons/:id", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super admin required to edit coupons." }, 403);
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const couponId = c.req.param("id");
+
+  let body: { name?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (body.name !== null && typeof body.name !== "string") {
+    return c.json({ error: "name must be a string or null" }, 400);
+  }
+  // Stripe clears the name when an empty string is sent; pass through deliberately.
+  const name = body.name === null ? "" : (body.name as string).trim().slice(0, 200);
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const coupon = await stripe.coupons.update(couponId, { name });
+    await auditLog(c, "admin.coupon.update", "coupon", couponId, {
+      name: coupon.name,
+    });
+    return c.json({ ok: true, coupon_id: coupon.id, name: coupon.name });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[admin-billing] coupon update failed:", msg);
+    return c.json({ error: `Coupon update failed: ${msg}` }, 500);
+  }
+});
+
+// ── POST /promotion-codes/:id (US-586) ───────────────────────────
+//
+// Edit a promotion code. Stripe only lets you toggle `active` (the code string,
+// coupon and restrictions are fixed at creation). Pausing/resuming a code is the
+// fast lever for a growth experiment — stop redemptions without nuking the
+// underlying coupon or any subscriptions already carrying it. super_admin +
+// step-up; audited.
+//
+// Body: { active: boolean }
+adminBillingRoutes.post("/promotion-codes/:id", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super admin required to edit promotion codes." }, 403);
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const promoId = c.req.param("id");
+
+  let body: { active?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (typeof body.active !== "boolean") {
+    return c.json({ error: "active must be a boolean" }, 400);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const promo = await stripe.promotionCodes.update(promoId, { active: body.active });
+    await auditLog(c, "admin.promotion_code.update", "promotion_code", promoId, {
+      code: promo.code,
+      active: promo.active,
+    });
+    return c.json({ ok: true, promotion_code_id: promo.id, active: promo.active });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[admin-billing] promotion code update failed:", msg);
+    return c.json({ error: `Promotion code update failed: ${msg}` }, 500);
   }
 });
 
