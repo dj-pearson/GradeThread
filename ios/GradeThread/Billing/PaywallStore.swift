@@ -25,10 +25,15 @@ final class PaywallStore {
 
     private let service: StoreKitProviding
     private let billingFetcher: () async -> BillingSnapshot?
+    private let catalogLoader: () async -> [CatalogProduct]
     let userId: UUID
 
     var phase: Phase = .loading
     var prices: [String: String] = [:]
+    /// Reference display prices from the canonical server catalog (US-808),
+    /// keyed by product id. Used when StoreKit prices haven't loaded; the
+    /// hardcoded `IAPCatalog` entry remains the last-resort offline fallback.
+    var catalogFallback: [String: String] = [:]
     /// Selected subscription billing interval for display ("monthly"/"yearly").
     var interval: String = "monthly"
 
@@ -46,11 +51,13 @@ final class PaywallStore {
     init(
         userId: UUID,
         service: StoreKitProviding = StoreKitService(),
-        billingFetcher: @escaping () async -> BillingSnapshot? = PaywallStore.liveBillingFetcher
+        billingFetcher: @escaping () async -> BillingSnapshot? = PaywallStore.liveBillingFetcher,
+        catalogLoader: @escaping () async -> [CatalogProduct] = PaywallStore.liveCatalogLoader
     ) {
         self.userId = userId
         self.service = service
         self.billingFetcher = billingFetcher
+        self.catalogLoader = catalogLoader
     }
 
     // MARK: - Derived (pure, tested)
@@ -78,13 +85,21 @@ final class PaywallStore {
     }
 
     func price(for entry: IAPCatalogEntry) -> String {
-        prices[entry.productId] ?? entry.fallbackPrice
+        // StoreKit (real, localized) → server catalog reference → hardcoded fallback.
+        prices[entry.productId] ?? catalogFallback[entry.productId] ?? entry.fallbackPrice
     }
 
     // MARK: - Load
 
     func load() async {
         phase = .loading
+        // Refresh the canonical reference prices before StoreKit so the paywall
+        // never falls back to stale hardcoded prices when StoreKit is slow/offline.
+        let catalog = await catalogLoader()
+        if !catalog.isEmpty {
+            catalogFallback = Dictionary(
+                uniqueKeysWithValues: catalog.map { ($0.productId, $0.referencePriceDisplay) })
+        }
         prices = await service.loadPrices(ids: IAPCatalog.allIds)
         await refreshBilling()
         phase = .ready
@@ -158,5 +173,11 @@ final class PaywallStore {
         } catch {
             return nil
         }
+    }
+
+    /// Live canonical-catalog fetch (server source of truth, US-808). Impure;
+    /// injected so tests can stub it.
+    static let liveCatalogLoader: () async -> [CatalogProduct] = {
+        await CatalogService().loadCatalog()
     }
 }

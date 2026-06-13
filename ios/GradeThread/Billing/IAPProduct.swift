@@ -1,11 +1,18 @@
 import Foundation
 
-/// iOS StoreKit product catalog (pure). Mirrors the server PRODUCT_MAP in
-/// services/edge-functions/src/lib/appstore/products.ts — the product ids MUST
-/// match the App Store Connect identifiers and the server map exactly.
+/// iOS StoreKit product catalog — OFFLINE FALLBACK ONLY.
 ///
-/// Prices are shown from StoreKit when products load; `fallbackPrice` (web parity)
-/// is only a placeholder for when the product list can't be fetched.
+/// The canonical source is the server map in
+/// services/edge-functions/src/lib/appstore/products.ts, served at
+/// GET /api/payments/catalog and fetched + cached at runtime by `CatalogService`
+/// (see `PaywallStore.load()`). These hardcoded entries exist only so the paywall
+/// still renders tier/credit mappings and reference prices when the catalog can't
+/// be fetched AND StoreKit prices haven't loaded. Product ids MUST match the App
+/// Store Connect identifiers and the server map exactly — the drift test
+/// services/edge-functions/src/tests/iap-catalog-drift_test.ts fails the build if
+/// the ids, credits, plan/interval, or `fallbackPrice` here diverge from the
+/// server catalog. Apple controls the real charged price; `fallbackPrice` is
+/// reference/offline display only.
 
 enum IAPKind: Equatable {
     case subscription(plan: String, interval: String)

@@ -7,6 +7,7 @@ import { captureServer } from "../lib/posthog.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 import { appstoreSubscriptionBlocksStripe } from "../lib/appstore/precedence.ts";
+import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -722,6 +723,20 @@ paymentRoutes.post("/subscribe", async (c) => {
     console.error("Legacy subscribe checkout failed:", err);
     return c.json({ error: "Failed to create subscription checkout" }, 500);
   }
+});
+
+// ── GET /catalog ─────────────────────────────────────────────────
+//
+// US-808: the canonical IAP product catalog, derived from the single
+// server-side source (lib/appstore/products.ts). The iOS client fetches +
+// caches this for tier/credit mapping and offline-fallback display; its
+// hardcoded IAPProduct.swift entries are kept only as the offline fallback and
+// are asserted in sync by iap-catalog-drift_test.ts. Apple controls the real
+// charged price in App Store Connect — `referencePrice*` is reference only.
+// Reference data, no per-user fields, but mounted under the authed
+// /api/payments/* prefix (consumed post-signup on the paywall step).
+paymentRoutes.get("/catalog", (c) => {
+  return c.json({ version: CATALOG_VERSION, products: serializeCatalog() });
 });
 
 // ── GET /billing-summary ─────────────────────────────────────────

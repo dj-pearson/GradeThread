@@ -11891,8 +11891,8 @@
         "npm run verify (web+edge lanes) passes"
       ],
       "priority": 808,
-      "passes": false,
-      "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Apple controls real IAP prices in App Store Connect — the catalog's USD prices are reference/fallback only; the story is about id/credits/tier mapping integrity, not price authority."
+      "passes": true,
+      "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Apple controls real IAP prices in App Store Connect — the catalog's USD prices are reference/fallback only; the story is about id/credits/tier mapping integrity, not price authority. [DONE 2026-06-13] Canonical catalog is now CATALOG in services/edge-functions/src/lib/appstore/products.ts (PRODUCT_MAP + id lists derived from it — single server source). Served at GET /api/payments/catalog (version + products, reference price cents + display). iOS: new CatalogService fetches+caches the catalog (UserDefaults), PaywallStore.load() uses referencePriceDisplay as the price fallback ahead of the hardcoded IAPProduct entries (now offline-fallback-only with a comment pointing at the canonical source). Drift test iap-catalog-drift_test.ts parses IAPProduct.swift and fails on any id/credits/plan-interval/fallback-price divergence from the catalog. Reference prices mirror src/lib/constants.ts FLIPDESK_PLANS/CREDIT_PACKS (documented in products.ts header). Edge verify lane green (1030 tests)."
     },
     {
       "id": "US-809",

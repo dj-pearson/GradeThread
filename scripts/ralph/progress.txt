@@ -1891,3 +1891,18 @@ Branch: ralph/gradethread-build
 - Notes: Found the US-821 edge/web/migration core already implemented in the working tree (uncommitted) but missing AC5's edge unit tests and the iOS model update — completed both. Key design: the server gap-fill-persists canonical attributes during /extract (existing/user values always win), so BOTH web and iOS get persistence (AC3) centrally without re-porting logic. AC4 caveat: iOS AIExtractView is the US-686 auto-apply flow (no per-field review screen anymore — review moved to the item canvas), so attribute review chips belong on the canvas surface; deferred to an iOS-CI session (Swift can't compile on Windows). Verified: web tsc --noEmit + npm run build + eslint clean; deno check + deno lint clean; 8 canonical-attribute tests + 9 schema-version tests green.
 - Timestamp: 2026-06-13
 ---
+
+## US-808: Single-source IAP catalog: server-served product map + price-drift guard
+- Status: COMPLETE
+- Files changed:
+  * services/edge-functions/src/lib/appstore/products.ts (CATALOG is now THE canonical source — added title/blurb/referencePriceCents/referencePriceDisplay; PRODUCT_MAP + id lists + classifyProduct derived from it; added serializeCatalog()/CATALOG_VERSION/CatalogProductDTO)
+  * services/edge-functions/src/routes/payments.ts (GET /api/payments/catalog → {version, products})
+  * services/edge-functions/src/tests/iap-catalog-drift_test.ts (NEW — parses IAPProduct.swift, fails on id/credits/plan-interval/fallback-price drift vs the catalog)
+  * ios/GradeThread/Billing/IAPProduct.swift (header comment: offline-fallback-only, points at canonical source + drift test)
+  * ios/GradeThread/Billing/CatalogService.swift (NEW — fetch GET /api/payments/catalog, cache in UserDefaults, fall back to cache offline)
+  * ios/GradeThread/Billing/PaywallStore.swift (inject catalogLoader; load() populates catalogFallback; price() = StoreKit → catalog reference → hardcoded fallback)
+  * ios/GradeThreadTests/PaywallStoreTests.swift (2 tests: catalog reference price overrides hardcoded; empty catalog keeps hardcoded)
+  * prd.json (US-808 passes:true)
+- Notes: Single server-side source = no second copy (criteria #1). Endpoint sits under the authed /api/payments/* prefix (consumed post-signup on the paywall). Reference prices mirror src/lib/constants.ts FLIPDESK_PLANS (2900/29000/5900/59000/9900/99000) + CREDIT_PACKS (2499/5999/10999/19999) — all match the iOS fallbackPrice strings, documented in products.ts header (criteria #4). Drift test runs in verify:edge (deno test, --allow-read). iOS Swift can't compile on Windows; iOS CI is the safety net for CatalogService/PaywallStore + the 2 new XCTest cases. Verified: deno lint + deno check + full edge suite (1030 passed, 0 failed) + frozen lockfile all green. No web/src changes, so web lane unaffected.
+- Timestamp: 2026-06-13
+---

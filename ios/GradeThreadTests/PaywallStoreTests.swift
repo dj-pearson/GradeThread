@@ -9,9 +9,12 @@ final class PaywallStoreTests: XCTestCase {
 
     private func store(
         service: FakeStoreKit = FakeStoreKit(),
-        billing: PaywallStore.BillingSnapshot? = nil
+        billing: PaywallStore.BillingSnapshot? = nil,
+        catalog: [CatalogProduct] = []
     ) -> PaywallStore {
-        PaywallStore(userId: uid, service: service, billingFetcher: { billing })
+        PaywallStore(
+            userId: uid, service: service,
+            billingFetcher: { billing }, catalogLoader: { catalog })
     }
 
     private func sub(_ id: String) -> IAPCatalogEntry { IAPCatalog.entry(for: id)! }
@@ -63,6 +66,25 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "$59/mo")
         s.prices = ["com.gradethread.sub.pro.monthly": "£55.00"]
         XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "£55.00")
+    }
+
+    func test_load_usesServerCatalogReferencePriceOverHardcodedFallback() async {
+        let entry = CatalogProduct(
+            productId: "com.gradethread.sub.pro.monthly", kind: "subscription",
+            plan: "pro", interval: "monthly", credits: nil,
+            title: "Pro", blurb: "", referencePriceCents: 6900,
+            referencePriceDisplay: "$69/mo")
+        let s = store(catalog: [entry])
+        await s.load()
+        // StoreKit gave no price, so the server catalog reference price wins over
+        // the hardcoded IAPProduct fallback ("$59/mo").
+        XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "$69/mo")
+    }
+
+    func test_load_emptyCatalogKeepsHardcodedFallback() async {
+        let s = store(catalog: [])
+        await s.load()
+        XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "$59/mo")
     }
 
     func test_buy_success_refreshesBilling() async {
