@@ -92,6 +92,10 @@ const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grad
 const GradingStandardPage = lazy(() => import("@/pages/marketing/grading-standard").then(m => ({ default: m.GradingStandardPage })));
 const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").then(m => ({ default: m.TransparencyPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
+const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m => ({ default: m.DevelopersPage })));
+// US-596: white-label embeddable grade widget — bare (no app chrome), rendered
+// inside partner iframes. Dynamic per certificate, NOT in PUBLIC_ROUTES.
+const EmbedGradePage = lazy(() => import("@/pages/embed-grade").then(m => ({ default: m.EmbedGradePage })));
 const GradingGlossaryPage = lazy(() => import("@/pages/marketing/grading-glossary").then(m => ({ default: m.GradingGlossaryPage })));
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskPipelinePage = lazy(() => import("@/pages/flipdesk/pipeline").then(m => ({ default: m.FlipdeskPipelinePage })));
@@ -227,6 +231,7 @@ export const router = createBrowserRouter([
       { path: "/grading-standard", element: <SuspenseWrapper><GradingStandardPage /></SuspenseWrapper> },
       { path: "/transparency", element: <SuspenseWrapper><TransparencyPage /></SuspenseWrapper> },
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },
+      { path: "/developers", element: <SuspenseWrapper><DevelopersPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.
@@ -403,5 +408,12 @@ export const router = createBrowserRouter([
       // 404
       { path: "*", element: <SuspenseWrapper><NotFoundPage /></SuspenseWrapper> },
     ],
+  },
+  // US-596: white-label embed — intentionally OUTSIDE RootLayout so it carries
+  // no Toaster / cookie banner / dialogs when rendered inside a partner iframe.
+  {
+    path: "/embed/grade/:id",
+    element: <SuspenseWrapper><EmbedGradePage /></SuspenseWrapper>,
+    errorElement: <RouteErrorFallback />,
   },
 ]);

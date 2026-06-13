@@ -9,7 +9,9 @@ export default tseslint.config(
   // services/edge-functions is Deno code, linted by its own `deno lint` job.
   // The browser-targeted config here would double-lint it and conflict with
   // deno-lint-ignore directives, so it's excluded.
-  { ignores: ["dist", "services/edge-functions/**"] },
+  // The published SDK (sdk/) is a standalone zero-dep package with its own
+  // build/lint toolchain; the browser app config here would mis-lint it.
+  { ignores: ["dist", "services/edge-functions/**", "sdk/**"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

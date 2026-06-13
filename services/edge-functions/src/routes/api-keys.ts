@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateApiKey, normalizeScopes } from "../lib/api-key.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
+import { API_RATE_TIERS } from "../middleware/api-v1-rate.ts";
 
 type ApiKeysEnv = {
   Variables: {
@@ -45,6 +47,165 @@ apiKeyRoutes.get("/", async (c) => {
   }
 
   return c.json({ data: keys });
+});
+
+// US-596: usage/billing dashboard data — call volume from the api_usage_events
+// ledger plus the owner's current rate-limit tier + quota. Admin/owner only,
+// scoped to the workspace owner's usage.
+apiKeyRoutes.get("/usage", async (c) => {
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json(
+      { error: "Only the workspace owner and admins can view API usage" },
+      403,
+    );
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  const daysParam = parseInt(c.req.query("days") ?? "30", 10);
+  const days = Number.isFinite(daysParam) ? Math.min(365, Math.max(1, daysParam)) : 30;
+
+  // Resolve the owner's effective plan (mirrors api-key-auth's resolution) so
+  // the dashboard shows the SAME rate tier the live API enforces.
+  let plan = "free";
+  const { data: owner } = await supabaseAdmin
+    .from("users")
+    .select("role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+    .eq("id", userId)
+    .single();
+  if (owner) {
+    plan = owner.role === "super_admin"
+      ? "super_admin"
+      : effectivePlanFor(
+        owner.flipdesk_plan,
+        owner.subscription_status,
+        owner.trial_ends_at,
+        new Date(),
+        owner.past_due_since,
+      );
+  }
+  const tier = API_RATE_TIERS[plan] ?? API_RATE_TIERS.free;
+
+  const { data: summary, error } = await supabaseAdmin.rpc("api_usage_summary", {
+    p_user_id: userId,
+    p_days: days,
+  });
+  if (error) {
+    console.error("Failed to load API usage summary:", error);
+    return c.json({ error: "Failed to load API usage" }, 500);
+  }
+
+  return c.json({
+    data: {
+      summary,
+      plan,
+      rate_limits: {
+        read_per_minute: tier.read,
+        write_per_minute: tier.write,
+        window_seconds: 60,
+      },
+    },
+  });
+});
+
+// US-596: white-label branding for the embeddable grade widget. GET returns the
+// owner's stored config; PUT validates + persists it. Admin/owner only.
+interface PartnerBranding {
+  company_name?: string;
+  brand_color?: string;
+  logo_url?: string;
+  support_url?: string;
+}
+
+function sanitizeBranding(input: unknown): PartnerBranding | { error: string } {
+  if (input === null || typeof input !== "object") {
+    return { error: "branding must be an object" };
+  }
+  const b = input as Record<string, unknown>;
+  const out: PartnerBranding = {};
+
+  if (b.company_name !== undefined && b.company_name !== null && b.company_name !== "") {
+    if (typeof b.company_name !== "string" || b.company_name.length > 80) {
+      return { error: "company_name must be a string of 80 characters or fewer" };
+    }
+    out.company_name = b.company_name.trim();
+  }
+  if (b.brand_color !== undefined && b.brand_color !== null && b.brand_color !== "") {
+    if (typeof b.brand_color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(b.brand_color)) {
+      return { error: "brand_color must be a hex color like #0F3460" };
+    }
+    out.brand_color = b.brand_color;
+  }
+  for (const field of ["logo_url", "support_url"] as const) {
+    const v = b[field];
+    if (v !== undefined && v !== null && v !== "") {
+      if (typeof v !== "string" || v.length > 500) {
+        return { error: `${field} must be a string of 500 characters or fewer` };
+      }
+      let parsed: URL;
+      try {
+        parsed = new URL(v);
+      } catch {
+        return { error: `${field} must be a valid URL` };
+      }
+      if (parsed.protocol !== "https:") {
+        return { error: `${field} must be an https URL` };
+      }
+      out[field] = v;
+    }
+  }
+  return out;
+}
+
+apiKeyRoutes.get("/branding", async (c) => {
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json({ error: "Only the workspace owner and admins can manage branding" }, 403);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .select("partner_branding")
+    .eq("id", userId)
+    .single();
+  if (error) {
+    console.error("Failed to load partner branding:", error);
+    return c.json({ error: "Failed to load branding" }, 500);
+  }
+  return c.json({ data: (data?.partner_branding as PartnerBranding) ?? {} });
+});
+
+apiKeyRoutes.put("/branding", async (c) => {
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json({ error: "Only the workspace owner and admins can manage branding" }, 403);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  // White-label is a Business-plan feature, gated by the same flag as API access.
+  const gate = await requireFlipdesk(c, { feature: "apiAccess", userId });
+  if (gate) return gate;
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const branding = sanitizeBranding(body);
+  if ("error" in branding) {
+    return c.json({ error: branding.error }, 400);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update({ partner_branding: branding })
+    .eq("id", userId);
+  if (error) {
+    console.error("Failed to save partner branding:", error);
+    return c.json({ error: "Failed to save branding" }, 500);
+  }
+  return c.json({ data: branding });
 });
 
 // Create a new API key

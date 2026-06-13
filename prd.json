@@ -9063,8 +9063,8 @@
         "Documented rate limits, quotas, and pricing tier"
       ],
       "priority": 596,
-      "passes": false,
-      "notes": "[P1][Differentiation/API] Deep-dive 2026-06-04. Public grade API + keys exist (US-063-066) but positioned as internal plumbing; biggest TAM-expander the asset enables."
+      "passes": true,
+      "notes": "[P1][Differentiation/API] Deep-dive 2026-06-04. Public grade API + keys exist (US-063-066) but positioned as internal plumbing; biggest TAM-expander the asset enables. [DONE 2026-06-12] Productized public grading API: SDK (sdk/gradethread-js zero-dep typed client+README); sandbox POST/GET /api/v1/sandbox/grades (deterministic mocks, no credits/DB); usage/billing dashboard (migration 00169 api_usage_events + apiUsageMiddleware + api_usage_summary() RPC + GET /api/keys/usage + ApiUsagePanel); white-label (users.partner_branding + GET/PUT /api/keys/branding + WhiteLabelPanel iframe-snippet + bare /embed/grade/:id); prerendered /developers docs (auth, endpoints, SDK, sandbox, rate limits, quotas, pricing). tsc/build/lint/deno-check green."
     },
     {
       "id": "US-597",
@@ -14020,6 +14020,308 @@
       "priority": 946,
       "passes": false,
       "notes": "[Trial Conversion Drip Engine / Autonomy & Admin] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-947",
+      "title": "In-browser camera capture for web grading submission",
+      "description": "As a seller grading on mobile web, I want to shoot photos directly inside the submission flow instead of leaving for the phone camera, so grading is one continuous action. Today src/components/submission/photo-upload.tsx is file-input only, so each of the 4 required slots forces a leave-app/find-file/return round-trip on mobile.",
+      "acceptanceCriteria": [
+        "Each photo slot offers a 'Take photo' option (getUserMedia/WebRTC) on camera-capable devices, alongside the existing file picker.",
+        "Captured frames run the SAME client compression + EXIF extraction and server validateImageUpload() path as uploads (no bypass).",
+        "Permission denied or unsupported browser falls back gracefully to the file input with a clear message (no dead-end).",
+        "Live capture works for required and optional/defect slots; orientation is correct on iOS Safari.",
+        "Typecheck passes"
+      ],
+      "priority": 947,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Reuses photo-upload.tsx slot model + image-utils compression + lib/upload-validation.ts (US-276). Mirrors the iOS native CameraSession experience for web. Pairs with US-948."
+    },
+    {
+      "id": "US-948",
+      "title": "Per-slot photo guidance + completeness progress in submission flow",
+      "description": "As a first-time grader, I want shoot hints and a clear 'N of 4' progress indicator so I take gradeable photos the first time and don't land in the low-confidence retake loop. new-submission.tsx only disables Continue until all 4 are present (binary, no guidance), and photo-upload.tsx slots are unlabeled beyond Front/Back/Label/Detail.",
+      "acceptanceCriteria": [
+        "Each required slot shows a one-line shoot hint (e.g. 'Lay flat, full garment, neutral background'; 'Tag must be legible') and an example thumbnail.",
+        "Step header shows 'N of 4 required photos' and highlights which required slot is still missing.",
+        "When all 4 required photos are present and validated, the flow auto-advances to Review with a brief undo affordance.",
+        "Hints render correctly on mobile 2-col grid without shrinking tap targets.",
+        "Typecheck passes"
+      ],
+      "priority": 948,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Targets the needs_photos low-confidence loop at its source. Files: src/pages/new-submission.tsx (step/Continue logic ~lines 228-235, 524-531), src/components/submission/photo-upload.tsx. Pairs with US-947, US-949."
+    },
+    {
+      "id": "US-949",
+      "title": "One-tap retake on low-confidence and expired submissions",
+      "description": "As a seller whose grade came back needs_photos (or whose payment expired), I want to retake just the flagged photos without re-entering everything, so a low-confidence result isn't a dead end. Today submission-detail.tsx shows the needs_photos feedback (~lines 1056-1081) and expired state (~1082-1094) with NO retry path — the user must create a brand-new submission and the old one is orphaned.",
+      "acceptanceCriteria": [
+        "needs_photos and expired states show a 'Retake photos' CTA.",
+        "Retake prefills garment_type, category, title, brand from the prior submission and preserves any inventory item linkage.",
+        "The specific photo_requests the grader flagged are highlighted; passing photos can be reused.",
+        "The new submission references the prior one; the old submission is marked superseded (not orphaned) and excluded from active counts.",
+        "Typecheck passes"
+      ],
+      "priority": 949,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/submission-detail.tsx (needs_photos/expired branches), src/pages/new-submission.tsx (prefill). Server: tenant-scope the supersede update (US-268). May need a superseded_by column on submissions — check before adding; reuse existing status enum if a needs_photos/superseded value already exists."
+    },
+    {
+      "id": "US-950",
+      "title": "Show grade pricing and billing method before photo upload",
+      "description": "As a seller deciding whether to grade, I want to see tier cost and which billing method applies (included grade / credits / checkout) from step 1, so I'm not surprised by a payment wall after uploading photos. Today tier pricing and the payment-precedence summary only appear in the step-3 review (new-submission.tsx ~lines 638-706).",
+      "acceptanceCriteria": [
+        "A persistent cost summary on step 1 shows each tier's credit cost and the billing method that will apply, using the existing payment-precedence logic.",
+        "The summary updates live as the user changes tier.",
+        "If checkout will be required (no included grades, no credits), that is stated upfront, not mid-flow.",
+        "No change to the actual charge logic — display only.",
+        "Typecheck passes"
+      ],
+      "priority": 950,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Reuses the precedence computation already in new-submission.tsx (~lines 685-706). Pure presentation/reordering; no new endpoints."
+    },
+    {
+      "id": "US-951",
+      "title": "Local draft autosave and resume for web grading submission",
+      "description": "As a seller filling the grading wizard, I want my progress saved locally so a refresh or network blip doesn't lose my garment info and uploaded photos. The flow is fully online today with no draft/resume.",
+      "acceptanceCriteria": [
+        "Garment info and references to already-uploaded photos (storage URLs, NOT raw bytes) autosave to localStorage keyed per user.",
+        "Returning to new-submission detects a draft and offers 'Resume draft' or 'Start over'.",
+        "Draft is cleared on successful submit and on explicit discard.",
+        "No PII beyond what the form already holds; never persists image binaries.",
+        "Typecheck passes"
+      ],
+      "priority": 951,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/new-submission.tsx. Distinct from US-744 (iOS/PWA offline) — this is web-app resilience only. Keep storage URLs (signed-URL caveat from US-276) in mind: re-validate that staged uploads still resolve on resume."
+    },
+    {
+      "id": "US-952",
+      "title": "Snap-to-Value to certified-grade bridge (reuse the snap photo)",
+      "description": "As a seller who ran a free Snap-to-Value, I want to upgrade that exact item to a certified grade without re-shooting, so the funnel converts with zero rework. Today snap.tsx is a standalone estimate; certified grading means starting new-submission from scratch.",
+      "acceptanceCriteria": [
+        "Snap result shows an 'Upgrade to certified grade' CTA.",
+        "The snap image is pre-staged into the Front slot of new-submission (re-validated through the standard upload path).",
+        "Any AI-detected garment_type/category from snap prefills the garment-info form.",
+        "User only needs to add the remaining required photos to continue.",
+        "Typecheck passes"
+      ],
+      "priority": 952,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/snap.tsx -> src/pages/new-submission.tsx. Builds on completed Snap (US-612/613/614) and the grading bridge (US-736/746). Carry the snap image via storage ref, not a fresh upload, when possible."
+    },
+    {
+      "id": "US-953",
+      "title": "Per-item tier selection in bulk grading",
+      "description": "As a Professional/Enterprise seller bulk-grading, I want to choose turnaround tier (including per high-value item), so I'm not locked to Standard. bulk-submission.tsx currently submits every row at the hardcoded Standard tier.",
+      "acceptanceCriteria": [
+        "An optional CSV `tier` column is accepted with values standard|express|premium, validated against the allowlist.",
+        "A UI default-tier selector applies to rows that omit a tier.",
+        "Invalid tier values are reported per-row in the existing preview/validation table.",
+        "Payment precedence (included/credits/checkout) is applied per row at the chosen tier.",
+        "Typecheck passes"
+      ],
+      "priority": 953,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/bulk-submission.tsx (validateRow ~83-110, submit loop ~246-336), services/edge-functions/src/routes/grade.ts (/submit already accepts tier, defaults standard ~222). Tenant-scope each submission (US-268)."
+    },
+    {
+      "id": "US-954",
+      "title": "Background pre-flight blocker detection in AutoLister queue",
+      "description": "As a reseller publishing a batch, I want eBay publish blockers (missing category, required aspects, price range) flagged as items finish generating, so I fix them proactively instead of discovering them only when I hit Publish. Today autolister-queue.tsx runs /listings/validate solely inside the publish dialog (~326-397).",
+      "acceptanceCriteria": [
+        "As each generated item lands, the queue runs a bounded-concurrency pre-flight validation in the background.",
+        "Each item shows a status badge: ready / will-block(reason), before the user opens the publish dialog.",
+        "The publish dialog reuses the cached pre-flight results instead of re-running from scratch.",
+        "A will-block reason deep-links to the offending field in bulk-edit/composer.",
+        "All validation queries are tenant-scoped (US-268).",
+        "Typecheck passes"
+      ],
+      "priority": 954,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: src/pages/flipdesk/autolister-queue.tsx, services/edge-functions/src/routes/flipdesk-autolister.ts (/listings/validate). Complements the Aspect Autofill epic (US-821-828) which fills aspects; this surfaces what's still missing. Honor eBay rate limits with the existing bounded concurrency."
+    },
+    {
+      "id": "US-955",
+      "title": "Optional auto-publish of green drafts on batch completion",
+      "description": "As a high-volume reseller, I want to set a batch to auto-publish only its high-confidence (green), blocker-free drafts when generation finishes, so I get a true fire-and-forget path (e.g. generate overnight, listings go live). Today even green drafts require a manual 'Publish green' tap.",
+      "acceptanceCriteria": [
+        "Batch creation accepts an auto_publish_green flag.",
+        "On generation completion, only green AND pre-flight-clean drafts auto-publish via the existing durable publish worker; amber/red/blocked never auto-publish.",
+        "Auto-publish honors any per-item scheduled_publish_at (scheduled items wait).",
+        "The completion notification reports published vs skipped counts with reasons.",
+        "Quota/billing reservation and tenant-scoping (US-268) enforced exactly as manual publish.",
+        "Typecheck passes"
+      ],
+      "priority": 955,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: services/edge-functions/src/routes/flipdesk-autolister.ts (processBatch ~235-369, durable publish worker), src/pages/flipdesk/autolister.tsx (batch create) + autolister-queue.tsx. Depends on US-954 pre-flight to define 'clean'. Reuses confidence triage (US-550) and durable publish (US-559)."
+    },
+    {
+      "id": "US-956",
+      "title": "Clear the estimated-price flag when AI price confidence is high",
+      "description": "As a reseller, I want confidently-priced drafts to NOT show an 'est.' badge, so I only review prices the AI is unsure about. Today price_is_estimated is set true for every generated price regardless of ai_field_confidence.listing_price, so even 0.95-confidence prices are flagged.",
+      "acceptanceCriteria": [
+        "When ai_field_confidence.listing_price >= a configurable threshold (default 0.85), price_is_estimated is cleared and the 'est.' badge is hidden in drafts and bulk-edit.",
+        "Below threshold, behavior is unchanged.",
+        "The threshold lives in one place (constant/config), not scattered.",
+        "Manual price edits always clear the estimated flag as today.",
+        "Typecheck passes"
+      ],
+      "priority": 956,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: services/edge-functions/src/routes/flipdesk-autolister.ts (generation sets price_is_estimated), src/pages/flipdesk/autolister-drafts.tsx + autolister-bulk-edit.tsx (badge render). Small, high-signal cleanup."
+    },
+    {
+      "id": "US-957",
+      "title": "Inline photo QA feedback during AutoLister intake",
+      "description": "As a reseller, I want a quick photo-quality signal during upload/grouping, before I spend AI generation quota, so I can reshoot bad photos early. Today photo QA (US-537) runs only after generation, in autolister-queue.tsx.",
+      "acceptanceCriteria": [
+        "After upload and grouping, a fast vision pass scores each item's cover photo.",
+        "Items whose cover scores below ~60 show a non-blocking 'reshoot recommended' nudge before the Generate button.",
+        "The nudge never blocks generation (advisory only) and reuses the existing photo-QA endpoint.",
+        "QA runs with bounded concurrency and does not noticeably stall the intake UI.",
+        "Typecheck passes"
+      ],
+      "priority": 957,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: src/pages/flipdesk/autolister.tsx (intake/grouping), reuse the runPhotoQa endpoint from autolister-queue.tsx (US-537). Saves AI quota by catching unusable photos pre-generation."
+    },
+    {
+      "id": "US-958",
+      "title": "Unify listings, grid, and pipeline into one surface with shared state",
+      "description": "As a reseller managing inventory, I want one listings surface with Table/Spreadsheet/Kanban view modes that share filters, search, sort, and selection, so switching views doesn't reset my context. Today listings.tsx, grid.tsx, and pipeline.tsx are separate routes with isolated state.",
+      "acceptanceCriteria": [
+        "A single route hosts Triage(table)/Spreadsheet(grid)/Kanban(pipeline) as toggleable view modes.",
+        "Filters, search, sort, and current selection persist across view switches via URL params.",
+        "Tab/status counts are shared, not recomputed per view.",
+        "Switching views does not trigger a full data refetch storm (reuse cached query data).",
+        "Old routes redirect to the unified surface with equivalent params.",
+        "Typecheck passes"
+      ],
+      "priority": 958,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/{listings,grid,pipeline}.tsx. Builds on inventory consolidation (US-740) and sidebar IA (US-743). Pairs with virtualization (US-733). Largest of the manage stories — may warrant splitting during planning."
+    },
+    {
+      "id": "US-959",
+      "title": "Inline status change and expanded inline edits in listings table",
+      "description": "As a reseller, I want to change an item's status and edit cost/target/notes directly from the listings table on any tab, so I don't have to open a detail modal or jump to the spreadsheet for routine edits. Today only price is inline-editable, and only on the Active tab (listings.tsx ~1587-1627); status changes require the detail modal or a pipeline drag.",
+      "acceptanceCriteria": [
+        "Each row has a status control that advances item_status inline without opening the detail modal.",
+        "Cost, target, and notes are inline-editable on all relevant tabs using the existing InlineCell pattern.",
+        "Edits are optimistic with rollback + toast on server error.",
+        "All writes are tenant-scoped (US-268) and respect eBay sync for price where an offer exists.",
+        "Typecheck passes"
+      ],
+      "priority": 959,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/listings.tsx (InlineCell ~1587-1627, rows ~1524-1659), src/components/.../inline-cell.tsx. Mirror the price->eBay-offer fallback logic for status where applicable."
+    },
+    {
+      "id": "US-960",
+      "title": "Shipped-tab fulfillment: carrier, tracking, and delivered status",
+      "description": "As a reseller, I want to record carrier and tracking and mark items delivered from the Shipped tab, so I can fulfill orders inside FlipDesk. Today the Shipped status carries no carrier/tracking/delivery fields at all (listings.tsx ~209-214).",
+      "acceptanceCriteria": [
+        "Migration 00169 adds carrier, tracking_number, shipped_at, delivered_at to the sales/shipments model and exposes them on the items_full view.",
+        "Shipped tab shows tracking entry and a one-click 'Mark delivered'.",
+        "A bulk 'Prepare shipment' fills carrier + tracking across selected sold items and advances them to shipped.",
+        "RLS/tenant-scoping (US-268) verified on the new columns; cross-tenant regression test updated.",
+        "Typecheck passes"
+      ],
+      "priority": 960,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. NEW MIGRATION 00169_* (re-check max before creating; 00168 is current). Files: src/pages/flipdesk/listings.tsx (Sold/Shipped tabs, mark-shipped bulk ~867-897). Surface on items_full (security_invoker view, see 00111/00168 pattern)."
+    },
+    {
+      "id": "US-961",
+      "title": "Mobile bulk actions and quick-edit for listings management",
+      "description": "As a reseller on mobile, I want selection, bulk actions, filters, and quick-edit on the listings card view, so I'm not forced to a desktop. Today the mobile fallback (listings.tsx ~1519-1522, ItemCardList) has no checkboxes, no action bar, no filters, and no inline edit.",
+      "acceptanceCriteria": [
+        "Cards show selection checkboxes and a sticky bottom action bar mirroring the desktop bulk actions for the active tab.",
+        "A per-card quick-edit drawer edits title, price, status, and notes.",
+        "Filter and search are reachable on mobile (sheet/drawer).",
+        "Selection and filter state interoperate with the unified surface (US-958).",
+        "Typecheck passes"
+      ],
+      "priority": 961,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/listings.tsx (md:hidden card path), ItemCardList component. Depends on US-958/US-959 for shared state + inline-edit primitives."
+    },
+    {
+      "id": "US-962",
+      "title": "Bulk match-to-comp repricing across selected listings",
+      "description": "As a reseller, I want to select multiple active listings and reprice them to their condition-matched comp in one action with a preview, so repricing isn't a one-at-a-time chore on a separate page. Today repricing.tsx applies suggestions individually, and the only bulk price action in listings is a flat 'drop X%'.",
+      "acceptanceCriteria": [
+        "From a listings selection, 'Reprice to comp' computes a per-item suggested price reusing the repricing engine.",
+        "A dry-run preview shows current -> suggested deltas and any items skipped (no comps / below margin floor) before applying.",
+        "Apply updates the eBay offer (where present) and the local price, respecting the margin floor.",
+        "All reads/writes are tenant-scoped (US-268).",
+        "Typecheck passes"
+      ],
+      "priority": 962,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/repricing.tsx (suggestion engine), src/pages/flipdesk/listings.tsx (bulk actions ~987-1044, bulkPriceDrop). Reuse sold-comp pricing (US-460/542/594). Keep the apply path inside the existing eBay-offer-or-local fallback."
+    },
+    {
+      "id": "US-963",
+      "title": "Merge reconcile and reconciliation into one guided flow",
+      "description": "As a reseller, I want a single Reconcile area with clear tabs instead of two confusingly-named pages, so I know where to match payouts vs link photos. Today reconcile.tsx (photos->items) and reconciliation.tsx (eBay SKU match + payouts/fees) are separate routes with overlapping names.",
+      "acceptanceCriteria": [
+        "One /dashboard/flipdesk/reconcile route hosts 'Photos -> Items', 'eBay SKU match', and 'Payouts & fees' as tabs sharing layout and navigation.",
+        "The two old routes redirect to the appropriate tab; the sidebar shows a single Reconcile entry.",
+        "No functional regression: photo clustering/commit and payout matching/sync-history both work as before.",
+        "Session-restore behavior of each flow is preserved.",
+        "Typecheck passes"
+      ],
+      "priority": 963,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/reconcile.tsx + reconciliation.tsx, sidebar (src/components/dashboard/sidebar.tsx), routes/index.tsx. Pure consolidation/IA; preserve US-280-287 + US-148/157 behavior."
+    },
+    {
+      "id": "US-964",
+      "title": "iOS bulk-publish from AutoLister drafts",
+      "description": "As an iOS reseller, I want to multi-select AutoLister drafts and publish them in one action, so I finish the batch on my phone instead of opening each draft. Today drafts can be bulk-edited (US-820) but publishing is one-at-a-time via PublishDialog.",
+      "acceptanceCriteria": [
+        "DraftsLibraryView supports multi-select and a 'Publish N' action.",
+        "Each selected draft is validated; ready ones publish via EbayPublishService, blocked ones are skipped with a per-item reason.",
+        "A summary reports published vs skipped, reusing the publish result UI.",
+        "Local cache (LocalListing) updates optimistically and reconciles on sync.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 964,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / iOS] Added 2026-06-12. Files: ios/GradeThread/Marketplaces/.../DraftsLibraryView + DraftsBulkEditView, EbayPublishService, PublishDialog. Server publish endpoint already tenant-scopes (US-268). Closes the gap flagged in the iOS audit (publish stubbed for bulk)."
+    },
+    {
+      "id": "US-965",
+      "title": "iOS searchable eBay category picker and capture photo guidance",
+      "description": "As an iOS reseller, I want to search the eBay category tree and get per-slot capture hints, so picking deep clothing subcategories and shooting gradeable photos isn't tedious on a small screen. Today the category picker is a search-less tree browser and capture has no slot guidance.",
+      "acceptanceCriteria": [
+        "The category picker gains a text search over the taxonomy with leaf-node results.",
+        "Camera capture shows a per-slot guidance overlay (front/back/tag/detail) matching the web guidance (US-948).",
+        "Search and guidance respect VoiceOver/accessibility already established in the app.",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 965,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / iOS] Added 2026-06-12. Files: ios/GradeThread/Marketplaces/.../EbayCategorySpecificsView + EbayAspectsService, ios/GradeThread/Capture/CameraSession. Parity with web US-948."
+    },
+    {
+      "id": "US-966",
+      "title": "iOS negotiation inbox: send offer responses",
+      "description": "As an iOS reseller, I want to accept, decline, or counter best offers from the negotiation inbox, so I don't have to leave for the eBay app or web. Today the inbox (US-673) is read-only on iOS.",
+      "acceptanceCriteria": [
+        "The negotiation inbox supports accept / decline / counter actions per offer.",
+        "Actions call the edge eBay offer endpoints and update optimistically with sync reconciliation.",
+        "Errors (expired offer, eBay rejection) are surfaced clearly and the item state stays consistent.",
+        "Server offer endpoints are tenant-scoped (US-268).",
+        "iOS CI (Swift build + tests) passes"
+      ],
+      "priority": 966,
+      "passes": false,
+      "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / iOS] Added 2026-06-12. Files: ios/GradeThread/Marketplaces/... negotiation inbox (US-673 read-only today), services/edge-functions/src/routes/flipdesk-ebay.ts offer endpoints. Verify the eBay Negotiation/Offer API endpoints exist before wiring."
     }
   ]
 }

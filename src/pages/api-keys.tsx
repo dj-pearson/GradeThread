@@ -23,12 +23,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCheck } from "lucide-react";
+import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCheck, BookOpen, Code, FlaskConical } from "lucide-react";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { ApiUsagePanel } from "@/components/api/api-usage-panel";
+import { WhiteLabelPanel } from "@/components/api/white-label-panel";
 
 interface ApiKeyItem {
   id: string;
@@ -417,6 +419,57 @@ export function ApiKeysPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Developer resources (US-596): docs, SDK, and the free sandbox. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BookOpen className="h-5 w-5" />
+            Developer Resources
+          </CardTitle>
+          <CardDescription>
+            Everything you need to integrate the GradeThread grading API.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          <Link
+            to="/developers"
+            className="flex items-start gap-3 rounded-lg border p-4 transition hover:bg-accent"
+          >
+            <BookOpen className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
+            <div>
+              <p className="text-sm font-medium">API documentation</p>
+              <p className="text-xs text-muted-foreground">
+                Endpoints, auth, rate limits, quotas, and pricing.
+              </p>
+            </div>
+          </Link>
+          <div className="flex items-start gap-3 rounded-lg border p-4">
+            <Code className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
+            <div>
+              <p className="text-sm font-medium">JavaScript SDK</p>
+              <p className="text-xs text-muted-foreground">
+                <code className="rounded bg-muted px-1">npm i @gradethread/sdk</code>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 rounded-lg border p-4">
+            <FlaskConical className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
+            <div>
+              <p className="text-sm font-medium">Free sandbox</p>
+              <p className="text-xs text-muted-foreground">
+                <code className="rounded bg-muted px-1">/api/v1/sandbox/grades</code> — no credits.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Usage / billing dashboard (US-596). */}
+      <ApiUsagePanel />
+
+      {/* White-label embeddable results (US-596). */}
+      <WhiteLabelPanel />
 
       {/* Revoke Confirmation Dialog */}
       <Dialog open={!!revokeKeyId} onOpenChange={(open) => !open && setRevokeKeyId(null)}>

@@ -62,6 +62,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/grading-standard": "2026-06-01",
   "/transparency": "2026-06-01",
   "/verify": "2026-06-12",
+  "/developers": "2026-06-12",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -160,6 +161,16 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "HowTo",
+  },
+  {
+    // US-596: developer docs for the Grade-as-a-Service API (SDK, sandbox, rate
+    // limits, quotas, pricing, white-label).
+    path: "/developers",
+    title: "Grading API for Developers",
+    description:
+      "Embed GradeThread AI clothing condition grading via a REST API and JavaScript SDK — free sandbox, white-label embeds, documented rate limits and pricing.",
+    changefreq: "monthly",
+    priority: 0.7,
   },
   {
     path: "/privacy",

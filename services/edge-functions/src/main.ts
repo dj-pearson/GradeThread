@@ -94,6 +94,7 @@ import {
   apiV1Subject,
   apiV1WriteLimit,
 } from "./middleware/api-v1-rate.ts";
+import { apiUsageMiddleware } from "./lib/api-usage-log.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
@@ -515,6 +516,10 @@ app.use(
     errorBody: apiV1RateLimitBody,
   }),
 );
+// US-596: append a usage-ledger row per authenticated /api/v1 call (after the
+// auth + rate-limit gates, so only billable calls are logged) — powers the
+// partner usage/billing dashboard. Fire-and-forget; never blocks the response.
+app.use("/api/v1/*", apiUsageMiddleware);
 
 // Routes
 app.route("/health", healthRoutes);

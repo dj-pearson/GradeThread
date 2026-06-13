@@ -1440,3 +1440,29 @@ Branch: ralph/gradethread-build
 - Notes: Added flipdesk_return_reduction(p_period_start) RPC (security_invoker over items_full, mirrors flipdesk_sell_through pattern in 00148). Methodology: fulfilled = sale_status in (completed,refunded); return = refunded; rate = returns/fulfilled, per grade band (<=6 / 6.5-8 / 8.5-10 / ungraded) + graded/ungraded/overall rollups. New "Return reduction" tab at /dashboard/flipdesk/analytics/returns: headline multipliers (items graded <=6 return Nx more; graded return Nx less), per-band table, and an optional grade-backed condition-guarantee surface that generates a copyable listing blurb from the seller's own high-grade (8.5-10) track record. Sample-size guard MIN_RETURN_SAMPLE=10 keeps thin bands out of headlines. No edge route needed — RLS-respecting RPC. tsc/build/eslint all clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-596: Productize Grade-as-a-Service (B2B / white-label API)
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00169_api_productization.sql (api_usage_events ledger + RLS, users.partner_branding jsonb, api_usage_summary() RPC)
+  - services/edge-functions/src/lib/api-usage-log.ts (NEW: recordApiUsage + apiUsageMiddleware + normalizeApiPath)
+  - services/edge-functions/src/routes/api-v1.ts (sandbox POST/GET /sandbox/grades — deterministic mock grades, no credits/DB)
+  - services/edge-functions/src/routes/api-keys.ts (GET /usage, GET/PUT /branding)
+  - services/edge-functions/src/main.ts (mount apiUsageMiddleware on /api/v1/*)
+  - src/components/api/api-usage-panel.tsx, src/components/api/white-label-panel.tsx (NEW)
+  - src/pages/api-keys.tsx (Developer Resources card + usage + white-label panels)
+  - src/pages/marketing/developers.tsx (NEW: public prerendered API docs)
+  - src/pages/embed-grade.tsx (NEW: bare white-label /embed/grade/:id widget)
+  - src/routes/index.tsx (/developers route + bare /embed/grade/:id route outside RootLayout)
+  - src/lib/seo/public-routes.ts + src/prerender/entry-server.tsx (register /developers)
+  - sdk/gradethread-js/ (NEW: package.json, src/index.ts zero-dep typed SDK, README.md)
+  - eslint.config.js (ignore sdk/**)
+- Notes:
+  - AC1 (SDK + sandbox + usage/billing dashboard): all three shipped. Sandbox mirrors prod auth/scopes/envelope so only the URL path changes to go live.
+  - AC2 (white-label + embeddable): partner_branding stored via authed endpoint; /embed/grade/:id renders a brandable card from query params (iframe-safe, outside RootLayout so no Toaster/cookie banner) reading the public_grade_reports view (US-348 safe).
+  - AC3 (documented rate limits/quotas/pricing): /developers page documents tiers (matches API_RATE_TIERS), credit-metered quotas, and Business-plan pricing.
+  - Edge supabaseAdmin is untyped, so new table/column/rpc needed no database.ts changes.
+  - Verified: npx tsc --noEmit, npm run build (prerender of /developers OK), npm run lint (only 2 pre-existing warnings), SEO guard tests, deno check src/main.ts, deno lint — all pass.
+  - PRE-EXISTING (not mine): route-metadata.test.ts fails on /verify (168>160 chars, from US-593). Untouched by US-596.
+- Timestamp: 2026-06-12
+---

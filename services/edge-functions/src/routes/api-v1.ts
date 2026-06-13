@@ -602,6 +602,103 @@ apiV1Routes.get("/grades", async (c) => {
   });
 });
 
+// --- Sandbox (US-596) ------------------------------------------------------
+// A free, deterministic mock of the grading API so partners can build and test
+// an integration with no credits spent, no images uploaded, and no async wait.
+// Same auth + scope rules + response envelope as the live endpoints, so the
+// only code difference between sandbox and production is the URL path. Nothing
+// is written to the database; results are derived purely from the request.
+
+// Stable 0..1 hash of a seed string (FNV-1a) → deterministic sample grades.
+function sandboxSeed(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+const SANDBOX_TIERS: Array<{ min: number; tier: string }> = [
+  { min: 9.5, tier: "NWT" },
+  { min: 8.5, tier: "Excellent" },
+  { min: 7, tier: "Very Good" },
+  { min: 6, tier: "Good" },
+  { min: 5, tier: "Fair" },
+  { min: 0, tier: "Poor" },
+];
+
+function sandboxGrade(
+  seedInput: string,
+  opts: {
+    title?: string;
+    brand?: string;
+    description?: string;
+    garment_type?: string;
+    garment_category?: string;
+  } = {},
+) {
+  const s = sandboxSeed(seedInput || "sample");
+  const round = (n: number) => Math.round(n * 2) / 2; // half-point scale
+  const overall = round(5 + s * 4.5); // 5.0 – 9.5
+  const jitter = (k: string) => round(Math.max(1, Math.min(10, overall + (sandboxSeed(seedInput + k) - 0.5) * 2)));
+  const tier = SANDBOX_TIERS.find((t) => overall >= t.min)?.tier ?? "Good";
+  return {
+    id: `sandbox_${Math.floor(s * 1e9).toString(36)}`,
+    status: "completed" as const,
+    tier: "standard" as const,
+    garment_type: opts.garment_type ?? null,
+    garment_category: opts.garment_category ?? null,
+    title: opts.title ?? "Sample garment",
+    brand: opts.brand ?? null,
+    description: opts.description ?? null,
+    grade_report: {
+      id: `sandbox_report_${Math.floor(s * 1e9).toString(36)}`,
+      overall_score: overall,
+      grade_tier: tier,
+      fabric_condition_score: jitter("fabric"),
+      structural_integrity_score: jitter("structural"),
+      cosmetic_appearance_score: jitter("cosmetic"),
+      functional_elements_score: jitter("functional"),
+      odor_cleanliness_score: jitter("odor"),
+      confidence_score: Math.round((0.8 + s * 0.18) * 100) / 100, // 0.80–0.98
+      ai_summary:
+        "Sandbox grade. This is a deterministic sample response for integration testing — no real grading was performed and no credits were spent.",
+      detailed_notes: null,
+      model_version: "sandbox",
+      certificate_id: null,
+      created_at: "2026-01-01T00:00:00.000Z",
+    },
+  };
+}
+
+// POST /api/v1/sandbox/grades — mock submit (returns a completed grade inline).
+apiV1Routes.post("/sandbox/grades", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "submit")) {
+    return c.json(scopeDenied("submit"), 403);
+  }
+  let body: { title?: string; brand?: string; garment_type?: string; garment_category?: string } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // Body is optional in the sandbox — fall back to a generic sample.
+    body = {};
+  }
+  const grade = sandboxGrade(body.title ?? "sample", body);
+  return c.json({ data: grade, error: null, meta: { sandbox: true } }, 200);
+});
+
+// GET /api/v1/sandbox/grades/:id — mock fetch (any id returns a sample grade).
+apiV1Routes.get("/sandbox/grades/:id", (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const id = c.req.param("id");
+  const grade = sandboxGrade(id, { title: "Sample garment" });
+  grade.id = id;
+  return c.json({ data: grade, error: null, meta: { sandbox: true } });
+});
+
 // --- PATCH /api/v1/webhook — Set or update webhook URL ---
 apiV1Routes.patch("/webhook", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
