@@ -40,6 +40,29 @@ const PROD_REQUIRED = [
 export interface FeatureGroup {
   name: string;
   vars: string[];
+  /** Optional gate: when present and it returns false, the group is OFF — its
+   *  missing vars produce neither a boot warning nor a "degraded" readiness line
+   *  (the feature simply isn't in use). Omit for always-on optional features. */
+  enabledWhen?: (get: EnvGetter) => boolean;
+}
+
+// US-788: the appstore vars are only relevant when IAP is actually in use. We
+// consider IAP "enabled" when the operator opts in explicitly (IAP_ENABLED
+// truthy) OR has begun configuring it (any appstore var is set). A deploy with
+// none of these set is not running IAP, so its missing appstore vars are noise —
+// don't warn. A deploy that set SOME appstore vars (a half-configured IAP) IS
+// warned, which is exactly the launch-blocker US-788 guards against.
+const TRUTHY = new Set(["1", "true", "yes", "on"]);
+const APPSTORE_VARS = [
+  "APPLE_APP_APPLE_ID",
+  "APPLE_BUNDLE_ID",
+  "APPLE_ROOT_CA_G3_B64",
+  "APPSTORE_ENVIRONMENT",
+] as const;
+
+export function isIapEnabled(get: EnvGetter = realEnv): boolean {
+  if (TRUTHY.has((get("IAP_ENABLED") ?? "").trim().toLowerCase())) return true;
+  return APPSTORE_VARS.some((k) => has(get, k));
 }
 
 // Feature groups — missing → that feature degrades, the service still boots.
@@ -74,7 +97,8 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   // verifier also warns at init when APPLE_APP_APPLE_ID is unset in Production).
   {
     name: "appstore",
-    vars: ["APPLE_APP_APPLE_ID", "APPLE_BUNDLE_ID", "APPLE_ROOT_CA_G3_B64", "APPSTORE_ENVIRONMENT"],
+    vars: [...APPSTORE_VARS],
+    enabledWhen: isIapEnabled,
   },
 ];
 
@@ -100,10 +124,16 @@ export function assertRequiredEnv(get: EnvGetter = realEnv, env: string = edgeEn
   console.warn(`${msg} (non-production: starting anyway).`);
 }
 
-// Per-feature readiness: "ok" or "missing: A, B". Drives /health/ready.
+// Per-feature readiness: "ok", "missing: A, B", or "disabled" (an off,
+// enabledWhen-gated feature). Drives /health/ready (informational — it never
+// flips the service to not-ready; only DB + required env do that).
 export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string, string> {
   const out: Record<string, string> = {};
   for (const g of FEATURE_GROUPS) {
+    if (g.enabledWhen && !g.enabledWhen(get)) {
+      out[g.name] = "disabled";
+      continue;
+    }
     const miss = g.vars.filter((v) => !has(get, v));
     out[g.name] = miss.length === 0 ? "ok" : `missing: ${miss.join(", ")}`;
   }
@@ -111,9 +141,12 @@ export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string
 }
 
 // Loud, non-fatal startup log of feature-group gaps so a half-configured deploy
-// is visible without crashing.
+// is visible without crashing. An enabledWhen-gated feature that is OFF is
+// skipped — only a feature the deploy is actually trying to use gets warned about
+// (US-788: don't nag about appstore vars on a deploy that isn't running IAP).
 export function warnMissingFeatureGroups(get: EnvGetter = realEnv): void {
   for (const g of FEATURE_GROUPS) {
+    if (g.enabledWhen && !g.enabledWhen(get)) continue;
     const miss = g.vars.filter((v) => !has(get, v));
     if (miss.length > 0) {
       console.warn(`[BOOT] feature '${g.name}' is not fully configured — missing: ${miss.join(", ")}`);

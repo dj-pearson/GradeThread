@@ -2150,3 +2150,10 @@ Branch: ralph/gradethread-build
 - Verification: deno check src/main.ts clean; deno lint (admin-condition-index.ts + condition-index.ts) clean; npx tsc --noEmit clean; npm run build (tsc -b + 31-route prerender) green; eslint on changed frontend files 0 errors; edge tests schema-version(DB@00190)/rls-guard/condition-curve/condition-value 20 passed/0 failed.
 - Timestamp: 2026-06-13
 ---
+
+## US-788: App Store server-notification sandbox round-trip + ASC webhook registration
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/lib/appstore/verify-config.ts (new), services/edge-functions/src/lib/appstore/verify.ts, services/edge-functions/src/lib/env-validation.ts, services/edge-functions/src/tests/appstore-verify-config_test.ts (new), services/edge-functions/src/tests/env-validation_test.ts, services/edge-functions/.env.example, ios/APP_STORE_SUBMISSION.md, prd.json
+- Notes: Bulk of code/docs was pre-built by the US-786/788 agent-half (commit c39b24e) — verify.ts strict-validation, the appstore feature group, and the §6.8 runbook already existed. Completed the remaining AC gaps: (AC2) extracted APPLE_APP_APPLE_ID parsing + env-name + warn decision into a PURE, unit-tested verify-config.ts (verify.ts is impure/Apple-lib-bound and untestable); guards the Number("")===0 trap (empty/0/negative -> undefined). (AC3) IAP-gated the appstore env group via isIapEnabled (IAP_ENABLED truthy OR any APPLE_*/APPSTORE_* var set): warnMissingFeatureGroups stays silent + /health/ready shows "disabled" when IAP off; warns + "missing:" when enabled-but-incomplete. Added enabledWhen to FeatureGroup. (AC1/AC4) §6.4/6.7 explicitly assigned to operator with §6.8 step pointers; condensed checklist marked (OPERATOR); added IAP_ENABLED to .env.example. The ASC URL registration + sandbox purchase round-trip are inherently operator/human-gated (no ASC access from CI) — AC1/AC4 explicitly permit operator assignment with exact instructions, which §6.8 provides. Verified: deno lint + deno check + 50 appstore/env tests pass.
+- Timestamp: 2026-06-13
+---

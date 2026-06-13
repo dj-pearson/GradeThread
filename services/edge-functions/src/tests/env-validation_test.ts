@@ -3,7 +3,9 @@ import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   assertRequiredEnv,
   computeFeatureReadiness,
+  isIapEnabled,
   missingRequiredEnv,
+  warnMissingFeatureGroups,
 } from "../lib/env-validation.ts";
 
 // A fake env getter from a plain map.
@@ -82,12 +84,33 @@ Deno.test("a degraded feature group never makes the env REQUIRED check fail", ()
   assertRequiredEnv(envOf(PROD_OK), "production");
 });
 
-Deno.test("US-788: the appstore feature group reports missing IAP vars without crashing", () => {
+Deno.test("US-788: IAP off (no appstore vars) → appstore is 'disabled', never required", () => {
+  // PROD_OK has zero appstore vars and no IAP_ENABLED flag → IAP isn't in use.
   const env = { ...PROD_OK };
-  const r = computeFeatureReadiness(envOf(env));
-  assert(r.appstore.startsWith("missing:"), "appstore group should report missing");
-  assert(r.appstore.includes("APPLE_APP_APPLE_ID"));
+  assertEquals(isIapEnabled(envOf(env)), false);
+  assertEquals(computeFeatureReadiness(envOf(env)).appstore, "disabled");
+  // And the boot check never demands appstore vars.
   assertEquals(missingRequiredEnv(envOf(env), "production"), []);
+});
+
+Deno.test("US-788: IAP enabled (explicit flag) but unset → reports the missing vars", () => {
+  const env = { ...PROD_OK, IAP_ENABLED: "true" };
+  assertEquals(isIapEnabled(envOf(env)), true);
+  const r = computeFeatureReadiness(envOf(env));
+  assert(r.appstore.startsWith("missing:"), "enabled-but-unconfigured IAP should report missing");
+  assert(r.appstore.includes("APPLE_APP_APPLE_ID"));
+});
+
+Deno.test("US-788: a half-configured IAP (one var set) counts as enabled → degraded", () => {
+  // Setting only APPSTORE_ENVIRONMENT signals intent to run IAP.
+  const env = { ...PROD_OK, APPSTORE_ENVIRONMENT: "Sandbox" };
+  assertEquals(isIapEnabled(envOf(env)), true);
+  const r = computeFeatureReadiness(envOf(env));
+  assert(r.appstore.startsWith("missing:"));
+  assert(r.appstore.includes("APPLE_BUNDLE_ID"));
+});
+
+Deno.test("US-788: a fully-configured IAP reports 'ok'", () => {
   const ok = {
     ...PROD_OK,
     APPLE_APP_APPLE_ID: "123456789",
@@ -96,4 +119,30 @@ Deno.test("US-788: the appstore feature group reports missing IAP vars without c
     APPSTORE_ENVIRONMENT: "Production",
   };
   assertEquals(computeFeatureReadiness(envOf(ok)).appstore, "ok");
+});
+
+Deno.test("US-788: warnMissingFeatureGroups stays SILENT about appstore when IAP is off", () => {
+  const warnings: string[] = [];
+  const orig = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.join(" "));
+  try {
+    warnMissingFeatureGroups(envOf(PROD_OK)); // IAP off
+  } finally {
+    console.warn = orig;
+  }
+  assert(!warnings.some((w) => w.includes("appstore")), "should not nag about appstore when IAP off");
+  // But it still warns about always-on optional groups (e.g. ebay) that are unset.
+  assert(warnings.some((w) => w.includes("ebay")), "non-gated groups still warn");
+});
+
+Deno.test("US-788: warnMissingFeatureGroups WARNS about appstore once IAP is enabled but unset", () => {
+  const warnings: string[] = [];
+  const orig = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.join(" "));
+  try {
+    warnMissingFeatureGroups(envOf({ ...PROD_OK, IAP_ENABLED: "1" }));
+  } finally {
+    console.warn = orig;
+  }
+  assert(warnings.some((w) => w.includes("appstore")), "should warn about appstore when IAP enabled but unset");
 });

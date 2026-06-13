@@ -7,6 +7,11 @@
 import { Buffer } from "node:buffer";
 import { Environment, SignedDataVerifier } from "@apple/app-store-server-library";
 import type { DecodedRenewalLite, DecodedTransactionLite } from "./types.ts";
+import {
+  parseAppleAppId,
+  resolveAppstoreEnvironmentName,
+  shouldWarnMissingAppleAppId,
+} from "./verify-config.ts";
 
 // Structural views of the fields we read, so we don't couple to the library's
 // exported payload types.
@@ -34,17 +39,11 @@ function verifier(): SignedDataVerifier {
   if (cached) return cached;
   const bundleId = Deno.env.get("APPLE_BUNDLE_ID");
   const rootB64 = Deno.env.get("APPLE_ROOT_CA_G3_B64");
-  const envName = Deno.env.get("APPSTORE_ENVIRONMENT") ?? "Production";
-  // US-788: parse the app's Apple ID correctly. `Number("")` is 0 (a FINITE
-  // number), so the previous `Number(... ?? "")` + isFinite guard passed 0 —
-  // not undefined — when APPLE_APP_APPLE_ID was unset, which breaks Apple's
-  // strict transaction/notification validation in Production. Treat unset /
-  // non-positive as "not provided" (undefined).
-  const rawAppId = Deno.env.get("APPLE_APP_APPLE_ID")?.trim();
-  const parsedAppId = rawAppId ? Number(rawAppId) : NaN;
-  const appAppleId = Number.isFinite(parsedAppId) && parsedAppId > 0
-    ? parsedAppId
-    : undefined;
+  // US-788: env parsing lives in verify-config.ts (pure + unit-tested). The
+  // appAppleId parse guards the `Number("") === 0` trap that silently degraded
+  // Production JWS validation when APPLE_APP_APPLE_ID was unset.
+  const envName = resolveAppstoreEnvironmentName(Deno.env.get("APPSTORE_ENVIRONMENT"));
+  const appAppleId = parseAppleAppId(Deno.env.get("APPLE_APP_APPLE_ID"));
   if (!bundleId || !rootB64) {
     throw new Error(
       "App Store verification not configured (APPLE_BUNDLE_ID / APPLE_ROOT_CA_G3_B64).",
@@ -54,7 +53,7 @@ function verifier(): SignedDataVerifier {
   // Production verification needs the app's Apple ID to fully validate the JWS;
   // warn loudly if it's missing so a misconfigured prod deploy is visible rather
   // than silently degrading (US-788). Sandbox doesn't require it.
-  if (environment === Environment.PRODUCTION && appAppleId === undefined) {
+  if (shouldWarnMissingAppleAppId(envName, appAppleId)) {
     console.warn(
       "[appstore] APPLE_APP_APPLE_ID is unset in Production — StoreKit JWS " +
         "validation is degraded. Set it to the app's numeric Apple ID.",

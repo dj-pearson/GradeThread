@@ -304,7 +304,7 @@ Server grants credits idempotently via `grant_appstore_credits` RPC
 - [ ] **Review screenshot** uploaded (a paywall screenshot works for all)
 - [ ] Attach all 10 to the 1.0 version submission (first-time IAPs review WITH the binary)
 
-### 6.4 App Store Server Notifications (ASC → App Information)
+### 6.4 App Store Server Notifications (ASC → App Information) — **OPERATOR (see §6.8 step 1)**
 - **Version 2** notifications (the server's `SignedDataVerifier` handles V2 JWS only).
 - Production server URL: `https://functions.gradethread.com/api/webhooks/appstore`
 - Sandbox server URL: same URL. (The endpoint verifies against the environment
@@ -333,7 +333,7 @@ APPLE_APP_APPLE_ID=<numeric Apple ID from ASC App Information — set after the
 APPSTORE_ENVIRONMENT=Production
 ```
 
-### 6.7 Sandbox testing before submission
+### 6.7 Sandbox testing before submission — **OPERATOR (see §6.8 steps 3–7)**
 - Create a Sandbox Apple Account (ASC → Users and Access → Sandbox Testers).
 - On a staging edge deploy with `APPSTORE_ENVIRONMENT=Sandbox`, purchase each
   tier + one credit pack; verify `users.flipdesk_plan`, `billing_source='appstore'`,
@@ -343,19 +343,32 @@ APPSTORE_ENVIRONMENT=Production
 
 ### 6.8 Pre-submission IAP verification runbook (US-788) — run in order
 
-Code status (done): `lib/appstore/verify.ts` now parses `APPLE_APP_APPLE_ID`
-correctly (unset → `undefined`, not the silent `0` that broke Production JWS
-validation) and warns at verifier init if it's missing in Production. The
-webhook is idempotent (`processed_webhook_events`). What remains is OPERATOR
-execution + ASC config:
+Code status (done — verified by tests):
+- `APPLE_APP_APPLE_ID` parsing lives in `lib/appstore/verify-config.ts` (pure,
+  unit-tested in `tests/appstore-verify-config_test.ts`): unset/blank/`0`/negative
+  → `undefined`, NOT the silent `0` that broke Production JWS validation. The
+  verifier warns at init when it's missing in Production.
+- Unknown product IDs fail closed (`classifyProduct` → `null`), covered by
+  `tests/appstore-products_test.ts`.
+- The `appstore` env group is now IAP-GATED (`lib/env-validation.ts`,
+  `isIapEnabled`): a deploy NOT running IAP stays quiet and `/health/ready` shows
+  `appstore: disabled`; once IAP is enabled (`IAP_ENABLED` truthy or any
+  `APPLE_*`/`APPSTORE_*` var set) a half-configured deploy gets a loud boot warning
+  + `appstore: missing: …`. Covered by `tests/env-validation_test.ts`.
+- The webhook is idempotent (`processed_webhook_events`).
+
+What remains is OPERATOR execution + ASC config:
 
 1. **Register the V2 notification URLs in ASC** → App Information → App Store
    Server Notifications: set BOTH Production and Sandbox "Version 2" URLs to
    `https://functions.gradethread.com/api/webhooks/appstore` (§6.4).
-2. **Set the server env** on a staging edge deploy (§6.6) with
+2. **Set the server env** on a staging edge deploy (§6.6) with `IAP_ENABLED=1`,
    `APPSTORE_ENVIRONMENT=Sandbox` and the real `APPLE_BUNDLE_ID`,
    `APPLE_ROOT_CA_G3_B64`, `APPLE_APP_APPLE_ID`. Confirm the boot logs show NO
-   "[appstore] APPLE_APP_APPLE_ID is unset" warning.
+   "[BOOT] feature 'appstore' is not fully configured" warning and `GET
+   /health/ready` reports `features.appstore: "ok"` (it shows `"disabled"` until
+   IAP is enabled, `"missing: …"` if enabled-but-incomplete). Sandbox doesn't
+   require `APPLE_APP_APPLE_ID`, but set it so the prod flip is one var change.
 3. **Create a Sandbox tester** (ASC → Users and Access → Sandbox).
 4. **Purchase each product** (3 sub tiers + the 4 credit packs) in a sandbox
    build; after each, assert in the DB: subscriptions →
@@ -480,9 +493,9 @@ services); permissions rationale; account deletion location.
 - [ ] `https://gradethread.com/terms` live; Terms appended to description + EULA field
 - [ ] All 10 IAP products created, priced, screenshot'd, attached to version
 - [ ] Subscription group ranked; grace period ON
-- [ ] Server notifications V2 URL set (prod + sandbox)
-- [ ] `APPLE_BUNDLE_ID` / `APPLE_ROOT_CA_G3_B64` / `APPSTORE_ENVIRONMENT` set in Coolify
-- [ ] Sandbox purchase round-trip verified (sub + credits + cancel)
+- [ ] **(OPERATOR — §6.8 step 1)** Server notifications V2 URL set (prod + sandbox)
+- [ ] **(OPERATOR — §6.8 step 2)** `IAP_ENABLED` + `APPLE_BUNDLE_ID` / `APPLE_ROOT_CA_G3_B64` / `APPLE_APP_APPLE_ID` / `APPSTORE_ENVIRONMENT` set in Coolify; boot log shows no `appstore` warning and `/health/ready` shows `appstore: ok`
+- [ ] **(OPERATOR — §6.8 steps 3–7)** Sandbox purchase round-trip verified (sub + credits + cancel + EXPIRED lapse + re-deliver idempotency)
 - [ ] App Privacy labels transcribed (incl. new Purchases type)
 - [ ] Age rating questionnaire completed (expect 4+/13+)
 - [ ] Content rights: No third-party content
