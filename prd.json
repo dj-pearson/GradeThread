@@ -14430,6 +14430,66 @@
       "priority": 973,
       "passes": false,
       "notes": "[GEO / Entity & Definitions] Added 2026-06-13. Complements US-855 cornerstone pages and the seeded topic bank (migration 00192 — 'nwt vs nwot meaning' etc.). Files: src/lib/seo/json-ld.ts (new definedTermLd + DefinedTermSet @id), src/pages/marketing/marketing-jsonld.ts (glossaryJsonLd + conditionGradingJsonLd), src/prerender/head-builder.ts (jsonLdForRoute glossary + /condition-grading branches), src/lib/seo/glossary.ts (GlossaryEntry: term/expansion/definition). CRITICAL: keep prerender<->runtime JSON-LD parity — add to glossaryJsonLd so both emit paths stay identical, and update jsonld-parity.test.tsx. Never emit a DefinedTerm without inDefinedTermSet linking to the hub set's @id. The robots max-image-preview directive already shipped separately (PR #78)."
+    },
+    {
+      "id": "US-974",
+      "title": "Add a mobile Lighthouse profile for mobile-first CWV reporting",
+      "description": "As an operator, I want the Lighthouse CI to audit the core pages under a MOBILE profile in addition to desktop, so the SEO/Core-Web-Vitals report reflects what actually drives ranking (Google indexes mobile-first). Today lighthouserc.json uses preset:desktop only, so mobile LCP/INP regressions are invisible.",
+      "acceptanceCriteria": [
+        "A mobile Lighthouse config (mobile emulation + mobile throttling) audits the same core URLs as the desktop config.",
+        "The PR comment AND the Job Summary show desktop and mobile scores side by side, clearly labeled.",
+        "Stays non-blocking (warn + continue-on-error) and runs on pull_request, workflow_dispatch, and the weekly cron.",
+        "Workflow YAML is valid; total runtime stays reasonable (keep numberOfRuns low).",
+        "npm run build is unaffected."
+      ],
+      "priority": 974,
+      "passes": false,
+      "notes": "[SEO / Core Web Vitals] Added 2026-06-13. Files: lighthouserc.json (or add lighthouserc.mobile.json) + .github/workflows/lighthouse.yml. Builds on PR #78 (broadened desktop coverage to 13 core pages). Mobile-first indexing makes the mobile profile the one that matters for ranking; the report-comment script already renders a score table — extend it to two labeled sections."
+    },
+    {
+      "id": "US-975",
+      "title": "Image-optimization readiness: explicit dimensions, srcset correctness, image sitemap",
+      "description": "As an operator, I want public images to be Core-Web-Vitals-optimal and discoverable so that enabling Cloudflare Transformations (VITE_CF_IMAGE_RESIZING) delivers responsive images with zero layout shift and Google can index images. Today src/components/responsive-image.tsx is gated off (flag default false), public images ship full-size, and there is no image sitemap.",
+      "acceptanceCriteria": [
+        "responsive-image.tsx and the key landing/marketing/blog images carry explicit width/height (or aspect-ratio) to eliminate CLS, and emit a correct sizes/srcset when VITE_CF_IMAGE_RESIZING=true.",
+        "Add a dynamic image sitemap (functions/sitemap-images.xml.ts) listing public marketing/blog images with titles/captions, referenced from the sitemap index (functions/sitemap.xml.ts).",
+        "Audit prerendered pages and fix any <img> missing descriptive alt text.",
+        "docs/IMAGE_OPTIMIZATION.md documents the Cloudflare-dashboard enablement step + a verification check (curl a /cdn-cgi/image/... URL returns 200, not 404).",
+        "Typecheck + build green; the image sitemap validates and is in the sitemap index."
+      ],
+      "priority": 975,
+      "passes": false,
+      "notes": "[SEO / Core Web Vitals] Added 2026-06-13. CF Image Resizing is currently DISABLED (responsive-image.tsx VITE_CF_IMAGE_RESIZING gate; see cf-image-resizing-disabled memory). Enabling Transformations is an OPS step in the Cloudflare dashboard — document it, do NOT block the story on it. Files: src/components/responsive-image.tsx, functions/_shared/sitemap.ts, new functions/sitemap-images.xml.ts, functions/sitemap.xml.ts. The CLS/alt/srcset code work is the deliverable; the flag flip is the human step."
+    },
+    {
+      "id": "US-976",
+      "title": "Publish a 'State of Resale Condition' public data report (original, citable stats)",
+      "description": "As an operator, I want a public, periodically-refreshed data page surfacing GradeThread's proprietary AGGREGATE stats — return rate by grade band and sell-through by grade — with methodology, so AI answer-engines and journalists cite GradeThread by name. Publishing unique statistics is the single strongest GEO lever (LLMs disproportionately quote original data).",
+      "acceptanceCriteria": [
+        "New public route (e.g. /resale-condition-report) — prerendered or edge-SSR'd — with a citable stats table + charts, sourced ONLY from aggregate signals (return-reduction 00168, sell-through 00148, sold-comps 00594). No PII, no tenant data.",
+        "Emits Dataset + Article JSON-LD (author=Organization, datePublished, license, sample size, date range) so the data is machine-extractable and citable; includes a visible methodology section and a 'cite this' block with a canonical citation + permalink.",
+        "Registered in src/lib/seo/public-routes.ts + src/prerender/entry-server.tsx (CI sync guard) and included in the static sitemap; JSON-LD parity test covers it.",
+        "Numbers come from a documented, reproducible aggregation that refreshes on a schedule; the page states the date range + sample size.",
+        "Typecheck + build green; the route prerenders."
+      ],
+      "priority": 976,
+      "passes": false,
+      "notes": "[GEO / Original Data] Added 2026-06-13. Strongest GEO lever — get GradeThread NAMED in AI answers, not just crawled. Reuses aggregate-only signals: 00168 return-reduction RPC, 00148 sell-through, 00594 sold-comps. MUST be aggregate-only via security-invoker views/RPCs (US-268 tenant rules). Register route (public-routes + entry-server CI guard + sitemap-static). Use schema.org/Dataset + Article. Complements US-855 cornerstone pages and the seeded topic bank (00192)."
+    },
+    {
+      "id": "US-977",
+      "title": "Real bylined Person authors with author pages for blog E-E-A-T",
+      "description": "As an operator, I want blog posts attributed to a real, credentialed Person author (byline, bio, sameAs, dedicated author page), so Google and AI weight the content's expertise and trust (E-E-A-T) instead of a generic Organization author. Today functions/blog emits Article with a generic author and there are no author pages.",
+      "acceptanceCriteria": [
+        "Author profiles (name, role, bio, avatar, sameAs social links, knowsAbout) live in one source of truth; each blog post references an author.",
+        "Blog Article JSON-LD uses author: { @type: Person, name, url: <author page>, sameAs }; the visible byline links to that author page.",
+        "New /authors/:slug page (prerendered or edge-SSR) with the author's bio + their posts, emitting Person/ProfilePage JSON-LD; registered and in the sitemap.",
+        "The autonomous content scheduler assigns a real author to generated posts (not a generic Org byline).",
+        "Typecheck + build green."
+      ],
+      "priority": 977,
+      "passes": false,
+      "notes": "[SEO / E-E-A-T] Added 2026-06-13. Advances content-depth epic US-878. Files: functions/blog/[[path]].ts (Article author node ~246-250), functions/_shared/blog-render.ts (Person author helper ~770), the content scheduler author assignment, new /authors route in src/lib/seo/public-routes.ts + entry-server + sitemap. A Person author with sameAs strengthens BOTH Google trust signals and AI entity grounding."
     }
   ]
 }
