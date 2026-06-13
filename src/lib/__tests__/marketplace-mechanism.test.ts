@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   API_CROSS_LISTING_PLATFORMS,
   EXTENSION_CROSS_LISTING_PLATFORMS,
+  FLIPDESK_PLANS,
   LISTING_PLATFORMS,
   LIVE_CROSS_LISTING_PLATFORMS,
   MARKETPLACE_MECHANISM,
+  MARKETPLACE_TIER,
+  MARKETPLACE_TIER_LABEL,
 } from "@/lib/constants";
 
 // US-717: the composer + Marketplaces UI read MARKETPLACE_MECHANISM to show each
@@ -50,5 +53,70 @@ describe("MARKETPLACE_MECHANISM", () => {
 
   it("Depop is now a live API cross-list platform (US-714)", () => {
     expect(LIVE_CROSS_LISTING_PLATFORMS as readonly string[]).toContain("depop");
+  });
+});
+
+// US-718: the presentation tier is the single source of truth the Marketplaces
+// UI (web + iOS) reads. These guards keep it honest — no channel is advertised
+// above the integration that actually ships at launch.
+describe("MARKETPLACE_TIER (US-718)", () => {
+  it("classifies every listing platform with a labelled tier", () => {
+    for (const p of LISTING_PLATFORMS) {
+      const tier = MARKETPLACE_TIER[p];
+      expect(tier).toBeDefined();
+      expect(MARKETPLACE_TIER_LABEL[tier]).toBeTruthy();
+    }
+  });
+
+  it("only the live API connectors are tier 'api' (eBay + Shopify)", () => {
+    const apiTier = LISTING_PLATFORMS.filter(
+      (p) => MARKETPLACE_TIER[p] === "api",
+    );
+    expect(apiTier.sort()).toEqual(["ebay", "shopify"]);
+  });
+
+  it("Depop is api_pending — built but not advertised as live (US-713/714)", () => {
+    expect(MARKETPLACE_TIER.depop).toBe("api_pending");
+  });
+
+  it("Poshmark/Mercari/Grailed are the extension tier (US-716)", () => {
+    expect(MARKETPLACE_TIER.poshmark).toBe("extension");
+    expect(MARKETPLACE_TIER.mercari).toBe("extension");
+    expect(MARKETPLACE_TIER.grailed).toBe("extension");
+  });
+
+  it("a channel's mechanism is consistent with its tier", () => {
+    for (const p of LISTING_PLATFORMS) {
+      const tier = MARKETPLACE_TIER[p];
+      const mech = MARKETPLACE_MECHANISM[p];
+      if (tier === "api" || tier === "api_pending") expect(mech).toBe("api");
+      if (tier === "extension") expect(mech).toBe("extension");
+      if (tier === "coming_soon") expect(mech).toBe("none");
+    }
+  });
+});
+
+// US-718 AC2: plan copy must not advertise non-live API integrations and the
+// cap must reflect what actually works (paid tiers can connect >1 API channel).
+describe("FlipDesk plan honesty (US-718)", () => {
+  it("no plan advertises Poshmark/Mercari/Depop/Etsy as live API integrations", () => {
+    for (const plan of Object.values(FLIPDESK_PLANS)) {
+      for (const feature of plan.features) {
+        // The only legitimate mention of these channels is the extension bullet.
+        const isExtensionBullet = /Lister extension/i.test(feature);
+        if (isExtensionBullet) continue;
+        expect(feature).not.toMatch(/\b(poshmark|mercari|depop|etsy)\b/i);
+      }
+    }
+  });
+
+  it("paid tiers allow more than one marketplace connection (cross-list works)", () => {
+    expect(FLIPDESK_PLANS.starter.marketplacesCap).toBe(-1);
+    expect(FLIPDESK_PLANS.pro.marketplacesCap).toBe(-1);
+    expect(FLIPDESK_PLANS.business.marketplacesCap).toBe(-1);
+  });
+
+  it("Free stays eBay-only (single connection) as the upsell", () => {
+    expect(FLIPDESK_PLANS.free.marketplacesCap).toBe(1);
   });
 });

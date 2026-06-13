@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Circle,
+  Puzzle,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,7 +40,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { MARKETPLACE_LABELS } from "@/lib/constants";
+import { MARKETPLACE_LABELS, MARKETPLACE_TIER } from "@/lib/constants";
 import {
   useCreateEbayLocation,
   useDisconnectEbay,
@@ -58,15 +60,25 @@ import {
   useSyncShopify,
 } from "@/hooks/use-shopify";
 
-// Marketplaces still "coming soon" — shown as a single muted row, not big
-// disabled cards, so they don't compete with the live connectors that matter.
-const COMING_SOON = [
-  "poshmark",
-  "mercari",
-  "depop",
-  "grailed",
-  "whatnot",
-] as const;
+// US-718: the non-API channels, grouped by their REAL tier (read from the
+// MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
+// render as full live connector cards above; everything else lands here so the
+// UI never advertises a channel above the integration that actually ships.
+//   extension   — list from your own logged-in tab via the Lister extension.
+//   api_pending — connector built, awaiting platform approval (Depop).
+//   coming_soon — no integration yet.
+const EXTENSION_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
+  (k) => MARKETPLACE_TIER[k as keyof typeof MARKETPLACE_TIER] === "extension",
+) as (keyof typeof MARKETPLACE_TIER)[];
+const PENDING_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
+  (k) => MARKETPLACE_TIER[k as keyof typeof MARKETPLACE_TIER] === "api_pending",
+) as (keyof typeof MARKETPLACE_TIER)[];
+// "other" is an internal bucket, not a real channel — never surface it.
+const COMING_SOON_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
+  (k) =>
+    MARKETPLACE_TIER[k as keyof typeof MARKETPLACE_TIER] === "coming_soon" &&
+    k !== "other",
+) as (keyof typeof MARKETPLACE_TIER)[];
 
 // User-facing copy for the Shopify OAuth callback result codes.
 const SHOPIFY_CALLBACK_MESSAGES: Record<
@@ -1130,13 +1142,68 @@ export function FlipdeskMarketplacesPage() {
         </div>
       </section>
 
-      {/* Coming soon — muted single row, not big disabled cards */}
+      {/* US-718: extension tier — Poshmark/Mercari/Grailed have no public write
+          API, so they're listed from the seller's own logged-in tab via the
+          GradeThread Lister browser extension (US-716). Presented honestly as a
+          real, available capability — not "coming soon". */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Connect via browser extension
+        </h2>
+        <div className="rounded-lg border p-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-navy/10 text-brand-navy">
+              <Puzzle className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                {EXTENSION_CHANNELS.map((m) => (
+                  <span key={m} className="text-sm font-medium">
+                    {MARKETPLACE_LABELS[m]}
+                  </span>
+                ))}
+                <Badge variant="secondary" className="text-[10px]">
+                  GradeThread Lister
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                These platforms have no public listing API. Install the
+                GradeThread Lister browser extension and cross-list a finished
+                draft straight from your own logged-in tab — title, photos,
+                price and the grade badge are filled in for you.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Coming soon — api_pending (connector built, awaiting approval) +
+          channels with no integration yet. Muted rows, never a fake connect
+          flow for an unbuilt API path. */}
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Coming soon
         </h2>
-        <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-          {COMING_SOON.map((m) => MARKETPLACE_LABELS[m]).join(" · ")}
+        <div className="space-y-2">
+          {PENDING_CHANNELS.map((m) => (
+            <div
+              key={m}
+              className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-3 text-sm"
+            >
+              <span className="flex items-center gap-2 font-medium">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                {MARKETPLACE_LABELS[m]}
+              </span>
+              <Badge variant="outline" className="text-[10px]">
+                API ready · pending {MARKETPLACE_LABELS[m]} approval
+              </Badge>
+            </div>
+          ))}
+          {COMING_SOON_CHANNELS.length > 0 && (
+            <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+              {COMING_SOON_CHANNELS.map((m) => MARKETPLACE_LABELS[m]).join(" · ")}
+            </div>
+          )}
         </div>
       </section>
     </div>

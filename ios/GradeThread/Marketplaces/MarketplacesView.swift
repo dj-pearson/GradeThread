@@ -74,28 +74,51 @@ struct MarketplacesView: View {
         }
     }
 
-    // US-668: phased channel abstraction. Adding a second *live* channel means
-    // adding a `.live` case here + its connection card — the rest of the surface
+    // US-668 / US-718: phased channel abstraction. Each channel carries its REAL
+    // capability tier (mirrors web MARKETPLACE_TIER) so the app never advertises a
+    // channel above what actually ships. Adding a second *live in-app* channel
+    // means adding a `.api` connection card here; the rest of the surface
     // (and cross-listing entry points) iterate over this list.
+    private enum ChannelTier {
+        case api          // live API connector (eBay, Shopify) — managed on the web dashboard
+        case apiPending   // connector built, awaiting platform approval (Depop)
+        case extensionKit // listed via the GradeThread Lister browser extension (desktop)
+        case comingSoon   // no integration yet
+
+        var badge: String {
+            switch self {
+            case .api: return "Live · manage on web"
+            case .apiPending: return "Coming soon"
+            case .extensionKit: return "Browser extension"
+            case .comingSoon: return "Coming soon"
+            }
+        }
+    }
+
     private struct MarketplaceChannel: Identifiable {
         let id: String
         let label: String
         let systemImage: String
+        let tier: ChannelTier
     }
 
     private static let phasedChannels: [MarketplaceChannel] = [
-        .init(id: "poshmark", label: "Poshmark", systemImage: "bag"),
-        .init(id: "mercari", label: "Mercari", systemImage: "shippingbox"),
-        .init(id: "shopify", label: "Shopify", systemImage: "cart"),
-        .init(id: "depop", label: "Depop", systemImage: "tshirt"),
-        .init(id: "grailed", label: "Grailed", systemImage: "tag"),
-        .init(id: "whatnot", label: "Whatnot", systemImage: "video"),
+        .init(id: "shopify", label: "Shopify", systemImage: "cart", tier: .api),
+        .init(id: "poshmark", label: "Poshmark", systemImage: "bag", tier: .extensionKit),
+        .init(id: "mercari", label: "Mercari", systemImage: "shippingbox", tier: .extensionKit),
+        .init(id: "grailed", label: "Grailed", systemImage: "tag", tier: .extensionKit),
+        .init(id: "depop", label: "Depop", systemImage: "tshirt", tier: .apiPending),
+        .init(id: "whatnot", label: "Whatnot", systemImage: "video", tier: .comingSoon),
     ]
 
     private var comingSoonChannelsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("More channels")
                 .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("eBay + Shopify connect via API on the web dashboard. Poshmark, Mercari & Grailed cross-list from your own logged-in tab with the GradeThread Lister browser extension.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(Self.phasedChannels) { channel in
                 HStack(spacing: 12) {
@@ -109,7 +132,7 @@ struct MarketplacesView: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
                     Spacer()
-                    Text("Coming soon")
+                    Text(channel.tier.badge)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color.brandNavy)
                         .padding(.horizontal, 8)
@@ -120,7 +143,7 @@ struct MarketplacesView: View {
                 .padding(12)
                 .cardStyle(.flush)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(channel.label), coming soon")
+                .accessibilityLabel("\(channel.label), \(channel.tier.badge)")
             }
         }
     }

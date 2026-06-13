@@ -10586,8 +10586,8 @@
         "No code path treats a non-eBay platform as eBay (verified against US-599/US-708 registry)"
       ],
       "priority": 718,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Honesty] Source: Cross_Listing.md TL;DR + decision matrix. Directly resolves [[US-458]] and the labeling half of [[US-599]]; keeps the phased web/iOS surfaces honest."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Honesty] Source: Cross_Listing.md TL;DR + decision matrix. Directly resolves [[US-458]] and the labeling half of [[US-599]]; keeps the phased web/iOS surfaces honest. DONE 2026-06-13. Single source of truth = MARKETPLACE_TIER (constants.ts): api(eBay/Shopify) / api_pending(Depop, gated by DEPOP_ENABLED) / extension(Poshmark/Mercari/Grailed via Lister, US-716) / coming_soon(facebook/offerup/whatnot). Web Marketplaces page + iOS MarketplacesView now render channels by real tier (no fake connect flow); composer already mechanism-aware (US-717). AC2: paid tiers marketplacesCap 1→-1 (unblocks eBay+Shopify cross-list) + honest feature copy, Free stays eBay-only(1); mirrored in constants.ts FLIPDESK_PLANS, edge FALLBACK_MATRIX, DB migration 00178 (guarded UPDATE, idempotent), docs/PRICING.md. AC4: adapter registry guard test asserts non-eBay adapters report own platform (never eBay fallthrough). Tests: marketplace-mechanism.test.ts (+tier/plan honesty), marketplace-adapters_test.ts. Schema version bumped to 00178."
     },
     {
       "id": "US-719",

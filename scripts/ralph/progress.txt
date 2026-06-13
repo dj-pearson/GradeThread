@@ -1790,3 +1790,15 @@ Branch: ralph/gradethread-build
   - Verify: tsc -b clean; deno check (full graph) clean; eslint + deno lint clean; vitest 12 passed (mechanism 7 + lister 5); deno schema-version 9 / marketplace-adapters / cross-listing-fields green; extension node --check green; npm run build green.
 - Timestamp: 2026-06-13
 ---
+
+## US-718: Make Marketplaces UI + plan copy match real capability tiers (resolve US-458)
+- Status: COMPLETE
+- Files changed: src/lib/constants.ts (MARKETPLACE_TIER + MARKETPLACE_TIER_LABEL single source of truth; FLIPDESK_PLANS caps+copy; formatMarketplacesCap comment), src/pages/flipdesk/marketplaces.tsx (tier-driven sections — extension + api_pending + coming_soon, no hardcoded COMING_SOON), src/lib/__tests__/marketplace-mechanism.test.ts (tier + plan-honesty guards), services/edge-functions/src/lib/pricing-config.ts (FALLBACK_MATRIX caps), services/edge-functions/src/lib/schema-version.ts (00177→00178), services/edge-functions/src/tests/marketplace-adapters_test.ts (AC4: non-eBay adapters report own platform), supabase/migrations/00178_pricing_plans_marketplace_tiers.sql, docs/PRICING.md, ios/GradeThread/Marketplaces/MarketplacesView.swift (per-channel real tier badges).
+- Notes:
+  - AC1/AC3: MARKETPLACE_TIER is the single flag both web + iOS read — api (eBay/Shopify live), api_pending (Depop, built but gated behind DEPOP_ENABLED until approved → "coming soon", no connect flow), extension (Poshmark/Mercari/Grailed via GradeThread Lister, US-716), coming_soon (Facebook/OfferUp/Whatnot). Composer was already mechanism-aware from US-717.
+  - AC2: paid-tier marketplacesCap 1→-1 (cap=1 had silently BLOCKED connecting Shopify after eBay, breaking the shipped US-599/US-717 cross-list feature). Free stays eBay-only (cap 1) as the upsell. Caps+copy mirrored across constants, edge FALLBACK_MATRIX, DB seed (migration 00178 guarded UPDATE so operator overrides aren't clobbered), and docs. Honest copy: "eBay + Shopify listings & sync (live API)" + "Cross-list to Poshmark, Mercari & Grailed via the GradeThread Lister extension" — never advertises Poshmark/Mercari/Depop/Etsy as live API.
+  - AC4: adapter registry already rejects unknown platforms (resolveAdapter→null, no eBay fallthrough); added explicit test that poshmark/mercari/depop adapters report their own platform identity.
+  - Migration 00178 validated against a throwaway Postgres 16: correct transform + idempotent (second run = UPDATE 0); array lengths stable.
+  - Verify: tsc --noEmit clean; eslint clean; vitest 15 passed (mechanism+tier+plan honesty); npm run build green; deno lint clean; deno marketplace-adapters (10) + schema-version (9) + pricing-config + plan-gate (29) green.
+- Timestamp: 2026-06-13
+---

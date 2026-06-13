@@ -206,11 +206,12 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 29000,
     activeListingCap: 250,
     aiActionsPerMonth: 200,
-    marketplacesCap: 1,
+    marketplacesCap: -1,
     includedStandardGradesPerMonth: 10,
     features: [
       "250 active listings",
-      "eBay listings & sync (more marketplaces coming soon)",
+      "eBay + Shopify listings & sync (live API)",
+      "Cross-list to Poshmark, Mercari & Grailed via the GradeThread Lister extension",
       "200 AI actions / month",
       "10 Standard grades included / month",
       "Auto-import payouts",
@@ -233,11 +234,12 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 59000,
     activeListingCap: 1000,
     aiActionsPerMonth: 1000,
-    marketplacesCap: 1,
+    marketplacesCap: -1,
     includedStandardGradesPerMonth: 30,
     features: [
       "1,000 active listings",
-      "eBay listings & sync (more marketplaces coming soon)",
+      "eBay + Shopify listings & sync (live API)",
+      "Cross-list to Poshmark, Mercari & Grailed via the GradeThread Lister extension",
       "1,000 AI actions / month",
       "30 Standard grades included / month",
       "Bulk actions + scheduled actions",
@@ -263,11 +265,12 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 99000,
     activeListingCap: -1,
     aiActionsPerMonth: 5000,
-    marketplacesCap: 1,
+    marketplacesCap: -1,
     includedStandardGradesPerMonth: 75,
     features: [
       "Unlimited active listings",
-      "eBay listings & sync (more marketplaces coming soon)",
+      "eBay + Shopify listings & sync (live API)",
+      "Cross-list to Poshmark, Mercari & Grailed via the GradeThread Lister extension",
       "5,000 AI actions / month",
       "75 Standard grades included / month",
       "AI AutoLister — bulk photos to eBay listings",
@@ -292,10 +295,11 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
 
 export type FlipdeskPlanKey = "free" | "starter" | "pro" | "business";
 
-// Human label for a plan's marketplace cap. At launch FlipDesk publishes to
-// eBay only (other adapters are stubs that return 501 — see US-458), so a cap
-// of 1 reads as "eBay" rather than an ambiguous bare "1"; -1 stays "All" for
-// when additional marketplaces ship.
+// Human label for a plan's marketplace cap (number of live API connections a
+// tier may open). The Free tier is capped at 1, which is eBay-only, so a cap of
+// 1 reads as "eBay" rather than an ambiguous bare "1". Paid tiers use -1 → "All"
+// (eBay + Shopify today, Depop once approved; the Lister extension channels
+// don't consume a cap). See MARKETPLACE_TIER for the per-channel capability.
 export function formatMarketplacesCap(cap: number): string {
   if (cap === -1) return "All";
   if (cap === 1) return "eBay";
@@ -908,6 +912,46 @@ export const MARKETPLACE_MECHANISM: Record<
   offerup: "none",
   whatnot: "none",
   other: "none",
+};
+
+// US-718: the presentation TIER each marketplace is honestly advertised in,
+// derived from its real capability. This is the single source of truth the
+// Marketplaces UI (web + iOS US-668) reads so a channel is never shown above
+// the integration that actually ships at launch.
+//   "api"         — live server-side connector you can connect today: eBay, Shopify.
+//   "api_pending" — a real API connector is built but the channel is awaiting
+//                   platform approval, so there's NO connect flow yet: Depop
+//                   (US-713/714, gated behind DEPOP_ENABLED until approved).
+//   "extension"   — lists from the seller's own logged-in tab via the GradeThread
+//                   Lister browser extension (US-716): Poshmark/Mercari/Grailed.
+//   "coming_soon" — no integration of any kind yet.
+// Mechanism (api vs extension) answers "how is it reached"; tier answers
+// "what can the seller honestly do right now". Depop is mechanism=api but
+// tier=api_pending until approved.
+export type MarketplaceTier = "api" | "api_pending" | "extension" | "coming_soon";
+export const MARKETPLACE_TIER: Record<
+  (typeof LISTING_PLATFORMS)[number],
+  MarketplaceTier
+> = {
+  ebay: "api",
+  shopify: "api",
+  depop: "api_pending",
+  poshmark: "extension",
+  mercari: "extension",
+  grailed: "extension",
+  facebook: "coming_soon",
+  offerup: "coming_soon",
+  whatnot: "coming_soon",
+  other: "coming_soon",
+};
+
+// Short, human-facing label for each tier — used by the Marketplaces UI badges
+// so web and iOS describe a channel's capability with identical wording.
+export const MARKETPLACE_TIER_LABEL: Record<MarketplaceTier, string> = {
+  api: "Connected via API",
+  api_pending: "API · coming once approved",
+  extension: "Connect via browser extension",
+  coming_soon: "Coming soon",
 };
 
 // Cross-listable platforms fanned out server-side via POST /cross-push (the

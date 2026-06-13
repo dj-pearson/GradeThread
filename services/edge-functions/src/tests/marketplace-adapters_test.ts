@@ -148,6 +148,18 @@ Deno.test("stub mapDraftToListing is real — maps the shared draft to the sibli
   assert(mapped.listing_title && mapped.listing_title.length > 0);
 });
 
+// US-718 AC4: no code path treats a non-eBay platform as eBay. At the adapter
+// level that means each non-eBay adapter reports its OWN platform identity — a
+// silent eBay fallthrough would surface here as adapter.platform === "ebay".
+Deno.test("non-eBay adapters report their own platform — never eBay", () => {
+  assertEquals(poshmarkAdapter.platform, "poshmark");
+  assertEquals(mercariAdapter.platform, "mercari");
+  assertEquals(depopAdapter.platform, "depop");
+  for (const adapter of [poshmarkAdapter, mercariAdapter, depopAdapter]) {
+    assert(adapter.platform !== "ebay");
+  }
+});
+
 Deno.test("cross-listing platform guard accepts the dispatch platforms only", () => {
   for (const p of CROSS_LISTING_PLATFORMS) {
     assert(isCrossListingPlatform(p));

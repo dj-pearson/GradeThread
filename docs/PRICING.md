@@ -24,12 +24,26 @@ Annual ≈ 17% off (10 months for the price of 12 → 2 months free).
 | Tier | Monthly | Annual | Active listings | Marketplaces | AI actions/mo | Included Standard grades/mo | Notable gates |
 |---|---|---|---|---|---|---|---|
 | **Free** | $0 | $0 | 25 | eBay only (1) | 25 | 3 | — |
-| **Starter** | $29 | $290 | 250 | eBay + 1 (2) | 200 | 10 | Auto-import payouts |
-| **Pro** | $59 | $590 | 1,000 | All | 1,000 | 30 | Bulk actions, scheduled actions, comp pulls, auto-relist, AI AutoLister |
-| **Business** | $99 | $990 | Unlimited | All | 5,000 | 75 | Everything in Pro + sub-accounts, API access, payout reconciliation, priority support |
+| **Starter** | $29 | $290 | 250 | All (-1) | 200 | 10 | Auto-import payouts |
+| **Pro** | $59 | $590 | 1,000 | All (-1) | 1,000 | 30 | Bulk actions, scheduled actions, comp pulls, auto-relist, AI AutoLister |
+| **Business** | $99 | $990 | Unlimited | All (-1) | 5,000 | 75 | Everything in Pro + sub-accounts, API access, payout reconciliation, priority support |
 
 `activeListingCap` / `marketplacesCap` of `-1` in the constants means
 **unlimited / all**.
+
+**Marketplace capability tiers (US-718, single source of truth =
+`MARKETPLACE_TIER`).** "Marketplaces" above is the number of *API connections*
+a tier may open; it is not a count of every channel a seller can list to:
+- **Live API** (counts toward the cap): eBay, Shopify. A paid tier's cap of `-1`
+  lets a seller connect both (and Depop once approved) and fan a single draft out
+  across them. Free is capped at 1 (eBay only) as the upsell.
+- **Browser extension** (does NOT consume an API connection): Poshmark, Mercari,
+  Grailed — cross-listed from the seller's own logged-in tab via the GradeThread
+  Lister extension (US-716). Available on every paid tier.
+- **Pending approval**: Depop — the API connector is built (US-713/714) but stays
+  off behind `DEPOP_ENABLED` until the platform approves the app; advertised as
+  "coming soon", never as a live API integration.
+- **Coming soon** (no integration yet): Facebook, OfferUp, Whatnot.
 
 ### Gate flags per tier (`gateFlags`)
 
