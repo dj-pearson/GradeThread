@@ -26,6 +26,7 @@ import {
   Bell,
   Gift,
   Server,
+  DoorOpen,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -45,6 +46,7 @@ const adminNavItems = [
   { to: "/admin/reliability", icon: BarChart3, label: "Reliability", end: false, superAdminOnly: false },
   { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
+  { to: "/admin/waitlist", icon: DoorOpen, label: "Waitlist", end: false, superAdminOnly: false },
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
   { to: "/admin/jobs", icon: Server, label: "Jobs & Queues", end: false, superAdminOnly: false },

@@ -27,6 +27,7 @@ import {
   faqPageLd,
 } from "@/lib/seo/json-ld";
 import { LaunchBanner } from "@/components/launch-banner";
+import { WaitlistForm } from "@/components/waitlist-form";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import {
   CREDIT_PACKS,
@@ -630,15 +631,19 @@ export function LandingPage() {
           Join resellers who trust GradeThread to standardize their condition
           grading, build buyer confidence, and increase sales.
         </p>
-        <Link to="/signup" className="mt-8 inline-block">
-          <Button
-            size="lg"
-            className="bg-brand-red text-white hover:bg-brand-red/90"
-          >
-            Start Grading Free
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        </Link>
+        {/* US-585: staged-launch waitlist capture alongside the signup CTA. */}
+        <div className="mx-auto mt-8 flex max-w-xl flex-col items-center gap-4">
+          <WaitlistForm source="landing-cta" />
+          <Link to="/signup" className="inline-block">
+            <Button
+              size="lg"
+              className="bg-brand-red text-white hover:bg-brand-red/90"
+            >
+              Start Grading Free
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
       </section>
 
       {/* Footer */}

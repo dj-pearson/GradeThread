@@ -474,6 +474,46 @@ export async function sendWelcomeEmail(
   });
 }
 
+// ─── Waitlist invite (US-585) ───────────────────────────────────────
+
+/**
+ * Early-access invite: sent when an admin invites an approved waitlist entry to
+ * sign up. Best-effort (no durable retry) — re-invite is one click in the admin
+ * surface if it bounces.
+ */
+export async function sendWaitlistInviteEmail(
+  to: string,
+  data: { fullName?: string | null; cohort?: string | null },
+): Promise<boolean> {
+  const greeting = data.fullName ? `Hi ${escapeHtml(data.fullName)},` : "Hi there,";
+  const cohortLine = data.cohort
+    ? `<p style="margin: 0 0 24px; color: #666; font-size: 14px; line-height: 1.5;">You're part of our <strong>${escapeHtml(
+        data.cohort,
+      )}</strong> group.</p>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      You're in — welcome to GradeThread early access
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      ${greeting} your spot on the GradeThread waitlist has been approved. You can
+      create your account and start grading clothing with AI precision right now.
+    </p>
+    ${cohortLine}
+    ${ctaButton("Create your account", `${SITE_URL}/signup`)}
+    <p style="margin: 16px 0 0; color: #999; font-size: 13px; line-height: 1.5; text-align: center;">
+      Use this email address (${escapeHtml(to)}) when you sign up so we can match
+      your invite.
+    </p>
+  `;
+
+  return await sendEmail({
+    to,
+    subject: "Your GradeThread early-access invite is ready",
+    html: emailLayout(content),
+  });
+}
+
 // ─── Billing emails (US-222) ────────────────────────────────────────
 
 interface SubscriptionStartedData {

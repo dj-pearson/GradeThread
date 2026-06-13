@@ -120,6 +120,13 @@ export async function edgeFetch(
     if (res.status === 403) {
       const cloned = res.clone();
       const data = await cloned.json().catch(() => ({} as Record<string, unknown>));
+      // US-585: account is on the waitlist and gating is active. Route the user
+      // to the dedicated waitlist-pending page (unless already there).
+      if (data.code === "waitlist_required") {
+        if (!window.location.pathname.startsWith("/waitlist-pending")) {
+          window.location.href = "/waitlist-pending";
+        }
+      }
       if (data.error_code === "workspace_mfa_required") {
         toast.error("Two-factor authentication required", {
           id: "workspace_mfa_required",

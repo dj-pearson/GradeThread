@@ -42,6 +42,9 @@ import {
 } from "./routes/flipdesk-automations.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
+import { adminWaitlistRoutes } from "./routes/admin-waitlist.ts";
+import { waitlistRoutes } from "./routes/waitlist.ts";
+import { accessGateMiddleware } from "./lib/access-gate.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
@@ -238,6 +241,24 @@ app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
 app.use("/api/flipdesk/automations/*", authMiddleware);
+
+// US-585: waitlist / beta access gate. Mounted AFTER authMiddleware for each
+// path (so userId/user are set) on the core "do work" surfaces — grading and
+// the AI-listing/scout flows. When gating is off (default) this is a single
+// cached flag read and a no-op; when on, non-approved accounts get a 403
+// { code: "waitlist_required" } and the SPA shows the waitlist-pending page.
+// Read-only dashboard browsing stays open so an approved-later user isn't
+// staring at a broken shell. Webhooks / OAuth callbacks are NOT gated (no auth
+// ran there, and they resolve the user from a verified provider payload).
+app.use("/api/grade/*", accessGateMiddleware);
+app.use("/api/flipdesk/grading/submit", accessGateMiddleware);
+app.use("/api/flipdesk/autolister/*", accessGateMiddleware);
+app.use("/api/flipdesk/ai/*", accessGateMiddleware);
+app.use("/api/flipdesk/scout/*", accessGateMiddleware);
+
+// US-585: authenticated access-status check for the SPA. Public capture
+// (POST /api/waitlist) is unauthenticated + rate-limited below.
+app.use("/api/waitlist/me", authMiddleware);
 // Google Photos import — everything authed EXCEPT /oauth/callback (Google
 // redirects the browser there unauthenticated; the `state` row identifies the
 // user and the import is one-shot + tenant-scoped to the session's owner_id).
@@ -369,6 +390,9 @@ app.use(
     bypass: pagesOriginBypass,
   }),
 );
+// US-585: public waitlist capture is unauthenticated — cap per-IP and
+// fail-closed so a fresh-account spam flood can't fill the table.
+app.use("/api/waitlist", rateLimiter(10, 60_000, "waitlist", undefined, { failClosed: true, methods: ["POST"] }));
 app.use("/api/grade/*", rateLimiter(60, 60_000, "grade"));
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
@@ -492,6 +516,8 @@ app.use(
 // Routes
 app.route("/health", healthRoutes);
 app.route("/api/grade", gradeRoutes);
+// US-585: waitlist — public capture (POST /) + authed access check (GET /me).
+app.route("/api/waitlist", waitlistRoutes);
 app.route("/api/payments", paymentRoutes);
 // StoreKit IAP: verify is authed (/api/payments/* covers it); the App Store
 // Server Notifications webhook is unauthed (verified by Apple's JWS signature).
@@ -538,6 +564,8 @@ app.post("/api/jobs/publish-batch-reclaim", (c) => handlePublishBatchReclaimCron
 app.route("/api/admin", adminBillingRoutes);
 // US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
 app.route("/api/admin/feature-flags", adminFlagsRoutes);
+// US-585 waitlist/beta-gating admin surface (admin JWT + AAL2 via /api/admin/*).
+app.route("/api/admin/waitlist", adminWaitlistRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
 // US-474 admin dispute resolution. Service-role writes (grade_reports/disputes/
 // submissions) that used to no-op under RLS as browser calls; reseals the

@@ -8925,8 +8925,8 @@
         "Bulk invite + per-cohort tracking"
       ],
       "priority": 585,
-      "passes": false,
-      "notes": "[P1][Admin] Deep-dive 2026-06-04. Launch is 2026-04-01 with no waitlist/beta-gating table or admin surface."
+      "passes": true,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. Launch is 2026-04-01 with no waitlist/beta-gating table or admin surface. [DONE 2026-06-12] Migration 00165 (waitlist_entries + waitlist_gating feature flag). Edge: lib/access-gate.ts (fail-open gate + 30s cache), public POST /api/waitlist (rate-limited, idempotent upsert) + GET /api/waitlist/me, admin /api/admin/waitlist (list/summary/cohorts, add, PATCH, bulk invite w/ email, gating toggle). Gate middleware applied to /api/grade/*, flipdesk grading-submit/autolister/ai/scout. Frontend: admin/waitlist.tsx, waitlist-pending.tsx, waitlist-form.tsx on landing, edge-fetch redirects on 403 waitlist_required. Tests: access-gate_test.ts. db reset verified."
     },
     {
       "id": "US-586",

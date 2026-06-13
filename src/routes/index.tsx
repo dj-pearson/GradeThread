@@ -74,6 +74,7 @@ const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then
 // Public status page (US-500) — live component health probed from the
 // visitor's browser. Dynamic, NOT registered in PUBLIC_ROUTES (no prerender).
 const StatusPage = lazy(() => import("@/pages/status").then(m => ({ default: m.StatusPage })));
+const WaitlistPendingPage = lazy(() => import("@/pages/waitlist-pending").then(m => ({ default: m.WaitlistPendingPage })));
 const PrivacyPage = lazy(() => import("@/pages/legal/privacy").then(m => ({ default: m.PrivacyPage })));
 const TermsPage = lazy(() => import("@/pages/legal/terms").then(m => ({ default: m.TermsPage })));
 const CookiesPage = lazy(() => import("@/pages/legal/cookies").then(m => ({ default: m.CookiesPage })));
@@ -146,6 +147,7 @@ const AdminJobsPage = lazy(() => import("@/pages/admin/jobs").then(m => ({ defau
 const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log").then(m => ({ default: m.AdminAuditLogPage })));
 const AdminModerationPage = lazy(() => import("@/pages/admin/moderation").then(m => ({ default: m.AdminModerationPage })));
 const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
+const AdminWaitlistPage = lazy(() => import("@/pages/admin/waitlist").then(m => ({ default: m.AdminWaitlistPage })));
 const AdminTasksPage = lazy(() => import("@/pages/admin/tasks").then(m => ({ default: m.AdminTasksPage })));
 const AdminTaskBoardPage = lazy(() => import("@/pages/admin/task-board").then(m => ({ default: m.AdminTaskBoardPage })));
 const GrowthDashboardPage = lazy(() => import("@/pages/admin/growth/dashboard").then(m => ({ default: m.GrowthDashboardPage })));
@@ -227,6 +229,10 @@ export const router = createBrowserRouter([
 
       // System status (public, US-500)
       { path: "/status", element: <SuspenseWrapper><StatusPage /></SuspenseWrapper> },
+
+      // US-585: waitlist-pending — shown when a signed-in account isn't yet
+      // approved while the launch gate is active (edge-fetch redirects here).
+      { path: "/waitlist-pending", element: <SuspenseWrapper><WaitlistPendingPage /></SuspenseWrapper> },
 
       // Legal pages (public)
       { path: "/privacy", element: <SuspenseWrapper><PrivacyPage /></SuspenseWrapper> },
@@ -355,6 +361,7 @@ export const router = createBrowserRouter([
               { path: "/admin/jobs", element: <SuspenseWrapper><AdminJobsPage /></SuspenseWrapper> },
               { path: "/admin/audit-log", element: <SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper> },
               { path: "/admin/coupons", element: <SuspenseWrapper><AdminCouponsPage /></SuspenseWrapper> },
+              { path: "/admin/waitlist", element: <SuspenseWrapper><AdminWaitlistPage /></SuspenseWrapper> },
               { path: "/admin/moderation", element: <SuspenseWrapper><AdminModerationPage /></SuspenseWrapper> },
               { path: "/admin/tasks", element: <SuspenseWrapper><AdminTasksPage /></SuspenseWrapper> },
               { path: "/admin/tasks/:id", element: <SuspenseWrapper><AdminTaskBoardPage /></SuspenseWrapper> },
