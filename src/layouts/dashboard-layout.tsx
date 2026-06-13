@@ -13,6 +13,7 @@ import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
 import { AnnouncementBanner } from "@/components/announcements/announcement-banner";
 import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { ImpersonationBanner } from "@/components/admin/impersonation-banner";
+import { SupportChatWidget } from "@/components/support/support-chat-widget";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -59,6 +60,8 @@ export function DashboardLayout() {
       {/* Billing dialogs — moved here from RootLayout so their weight stays off
           public pages (402 hard-trigger + usage watcher are authed-only). */}
       <AppBillingDialogs />
+      {/* In-app, tier-gated AI support chat (US-838) */}
+      <SupportChatWidget />
       </div>
     </div>
   );
