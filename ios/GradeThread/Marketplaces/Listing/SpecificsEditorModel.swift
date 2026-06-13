@@ -30,6 +30,9 @@ final class SpecificsEditorModel {
 
     var specs: [AspectSpec] = []
     var values: [String: [String]] = [:]
+    /// US-825: per-aspect provenance (ai_extracted | inventory_derived | manual)
+    /// parallel to `values`. Drives the source badge; `unfilled` is computed.
+    var sources: [String: AspectProvenance] = [:]
     /// Aspect names whose current value came from the AI fill (for a badge).
     var aiFilled: Set<String> = []
 
@@ -66,10 +69,15 @@ final class SpecificsEditorModel {
 
     /// Seed from the item's persisted category/aspects, then load its spec.
     func start() async {
-        struct Row: Decodable { let ebay_category_id: String?; let ebay_aspects: [String: [String]]? }
+        struct Row: Decodable {
+            let ebay_category_id: String?
+            let ebay_aspects: [String: [String]]?
+            // US-825: persisted provenance parallel to ebay_aspects.
+            let ebay_aspect_sources: [String: String]?
+        }
         let rows: [Row]? = try? await SupabaseShared.client
             .from("inventory_items")
-            .select("ebay_category_id, ebay_aspects")
+            .select("ebay_category_id, ebay_aspects, ebay_aspect_sources")
             .eq("id", value: itemId)
             .limit(1)
             .execute()
@@ -77,6 +85,10 @@ final class SpecificsEditorModel {
         guard let row = rows?.first, let cat = row.ebay_category_id, !cat.isEmpty else { return }
         selectedCategoryId = cat
         if let existing = row.ebay_aspects { values = existing }
+        // US-825: restore the saved source badges (AI / Auto / You).
+        if let savedSources = row.ebay_aspect_sources {
+            sources = savedSources.compactMapValues(AspectProvenance.init(rawValue:))
+        }
         // AC4: prefetch the current category's aspect spec on open…
         await loadAspects(categoryId: cat)
         // …then deterministically fill any gaps from the item's own data (no AI),
@@ -146,6 +158,8 @@ final class SpecificsEditorModel {
         specs = newSpecs
         values = kept
         aiFilled = aiFilled.intersection(Set(kept.keys))
+        // US-825: drop provenance for values that didn't carry over.
+        sources = sources.filter { kept.keys.contains($0.key) }
         phase = .ready
         await refillDerived(categoryId: suggestion.categoryId)
     }
@@ -175,7 +189,14 @@ final class SpecificsEditorModel {
             let res = try await service.deriveAspects(
                 itemId: itemId, categoryId: categoryId, known: nonEmptyValues()
             )
+            let before = values
             values = Self.mergeDerived(into: values, derived: res.derived)
+            // US-825: anything the merge newly filled is inventory_derived.
+            for name in values.keys where (before[name]?.contains { !$0.isEmpty } != true) {
+                if (values[name]?.contains { !$0.isEmpty }) == true {
+                    sources[name] = .inventoryDerived
+                }
+            }
         } catch {
             // Non-fatal — the spec is loaded and the user can still fill manually.
         }
@@ -207,6 +228,8 @@ final class SpecificsEditorModel {
             )
             values = merged.values
             aiFilled.formUnion(merged.filled)
+            // US-825: AI-filled aspects carry ai_extracted provenance.
+            for name in merged.filled { sources[name] = .aiExtracted }
         } catch {
             errorMessage = message(error)
         }
@@ -220,11 +243,18 @@ final class SpecificsEditorModel {
         struct Patch: Encodable {
             let ebay_category_id: String
             let ebay_aspects: [String: [String]]
+            // US-825: provenance parallel to ebay_aspects, pruned to filled aspects.
+            let ebay_aspect_sources: [String: String]
         }
+        let filled = nonEmptyValues()
         do {
             try await SupabaseShared.client
                 .from("inventory_items")
-                .update(Patch(ebay_category_id: cat, ebay_aspects: nonEmptyValues()))
+                .update(Patch(
+                    ebay_category_id: cat,
+                    ebay_aspects: filled,
+                    ebay_aspect_sources: Self.storedSources(sources, values: filled)
+                ))
                 .eq("id", value: itemId)
                 .execute()
             return true
@@ -240,6 +270,7 @@ final class SpecificsEditorModel {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         values[aspect] = trimmed.isEmpty ? [] : [trimmed]
         aiFilled.remove(aspect)
+        markManualOrClear(aspect)
     }
 
     func toggleMulti(_ value: String, for aspect: String) {
@@ -247,6 +278,22 @@ final class SpecificsEditorModel {
         if let i = current.firstIndex(of: value) { current.remove(at: i) } else { current.append(value) }
         values[aspect] = current
         aiFilled.remove(aspect)
+        markManualOrClear(aspect)
+    }
+
+    /// US-825: a manual edit is `manual` provenance; clearing the field drops it.
+    private func markManualOrClear(_ aspect: String) {
+        if (values[aspect]?.contains { !$0.isEmpty }) == true {
+            sources[aspect] = .manual
+        } else {
+            sources[aspect] = nil
+        }
+    }
+
+    /// Provenance to badge for an aspect — only when it actually has a value.
+    func provenance(for aspect: String) -> AspectProvenance? {
+        guard (values[aspect]?.contains { !$0.isEmpty }) == true else { return nil }
+        return sources[aspect]
     }
 
     func isSelected(_ value: String, for aspect: String) -> Bool {
@@ -258,6 +305,19 @@ final class SpecificsEditorModel {
     }
 
     // MARK: - Pure helpers (unit-tested)
+
+    /// US-825: the source map to persist — pruned to aspects that actually have
+    /// a value, encoded as the shared provenance strings (so a cleared field
+    /// never leaves a stale source behind). Pure.
+    nonisolated static func storedSources(
+        _ sources: [String: AspectProvenance], values: [String: [String]]
+    ) -> [String: String] {
+        var out: [String: String] = [:]
+        for (name, prov) in sources where (values[name]?.contains { !$0.isEmpty }) == true {
+            out[name] = prov.rawValue
+        }
+        return out
+    }
 
     /// Required aspects with no non-empty value yet.
     nonisolated static func missingRequired(specs: [AspectSpec], values: [String: [String]]) -> [String] {

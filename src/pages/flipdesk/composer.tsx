@@ -89,6 +89,7 @@ import {
   mapEbayCondition,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
+import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import {
@@ -219,6 +220,12 @@ export function FlipdeskComposerPage() {
   const [livePickedAspects, setLivePickedAspects] = useState<
     Record<string, string[]> | null
   >(null);
+  // US-825: live provenance map + required-but-unfilled names lifted from the
+  // picker. The single Save persists the sources; the publish button uses the
+  // missing list to warn inline (same required-aspect rule the server blocks on).
+  const [livePickedSources, setLivePickedSources] =
+    useState<AspectSourceMap | null>(null);
+  const [missingRequired, setMissingRequired] = useState<string[]>([]);
   const [publishOpen, setPublishOpen] = useState(false);
   // US-552: inline AI rewrite — the in-flight action (for the spinner) and the
   // result fed into AiFillPanel for review/accept.
@@ -289,6 +296,7 @@ export function FlipdeskComposerPage() {
     queryFn: async (): Promise<{
       ebay_category_id: string | null;
       ebay_aspects: Record<string, string[]> | null;
+      ebay_aspect_sources: AspectSourceMap | null;
       ai_generated_aspects_at: string | null;
       color: string | null;
       material: string | null;
@@ -297,7 +305,7 @@ export function FlipdeskComposerPage() {
       const { data, error } = await supabase
         .from("inventory_items")
         .select(
-          "ebay_category_id, ebay_aspects, ai_generated_aspects_at, color, material, attributes",
+          "ebay_category_id, ebay_aspects, ebay_aspect_sources, ai_generated_aspects_at, color, material, attributes",
         )
         .eq("id", id!)
         .maybeSingle();
@@ -305,6 +313,7 @@ export function FlipdeskComposerPage() {
       return (data ?? null) as {
         ebay_category_id: string | null;
         ebay_aspects: Record<string, string[]> | null;
+        ebay_aspect_sources: AspectSourceMap | null;
         ai_generated_aspects_at: string | null;
         color: string | null;
         material: string | null;
@@ -595,6 +604,15 @@ export function FlipdeskComposerPage() {
         null;
       const resolvedAspects =
         liveAspects && Object.keys(liveAspects).length > 0 ? liveAspects : null;
+      // US-825: persist provenance parallel to the aspect map. Falls back to the
+      // saved sources when the picker hasn't reported (e.g. user never touched
+      // specifics this session). Empty map when there are no aspects.
+      const liveSources =
+        livePickedSources ??
+        listing?.item_specifics_sources ??
+        ebayMapping?.ebay_aspect_sources ??
+        null;
+      const resolvedSources = resolvedAspects ? (liveSources ?? {}) : {};
       const payload: ListingInsert = {
         inventory_item_id: item.id,
         platform: "ebay",
@@ -606,6 +624,7 @@ export function FlipdeskComposerPage() {
         ebay_condition_description: conditionDesc.trim() || null,
         platform_category_id: resolvedCategoryId,
         item_specifics_override: resolvedAspects,
+        item_specifics_sources: resolvedSources,
         scheduled_publish_at: localInputToIso(scheduledAt),
         // Saving = a human reviewed the price, so it's no longer an unverified
         // AI estimate.
@@ -662,6 +681,7 @@ export function FlipdeskComposerPage() {
           status: resolvedStatus,
           ebay_category_id: resolvedCategoryId,
           ebay_aspects: resolvedAspects,
+          ebay_aspect_sources: resolvedSources,
         } as never)
         .eq("id", item.id);
       if (sErr) throw sErr;
@@ -984,10 +1004,17 @@ export function FlipdeskComposerPage() {
                 ebayMapping?.ebay_aspects ??
                 null
               }
+              initialAspectSources={
+                (listing?.item_specifics_sources ??
+                  ebayMapping?.ebay_aspect_sources ??
+                  null) as AspectSourceMap | null
+              }
               seedQuery={item.item_title ?? ""}
               itemFields={itemAspectSource}
               onCategoryChange={setLivePickedCategoryId}
               onAspectsChange={setLivePickedAspects}
+              onSourcesChange={setLivePickedSources}
+              onMissingRequiredChange={setMissingRequired}
             />
           )}
 
@@ -1628,6 +1655,23 @@ export function FlipdeskComposerPage() {
           </Card>
         </div>
       </div>
+
+      {/* US-825: pre-publish required-aspect check — warn inline (using the same
+          required-aspect rule the server blocks on) instead of failing at publish.
+          Non-blocking: publish stays server-validated. */}
+      {missingRequired.length > 0 && (
+        <div className="flex items-start justify-end gap-2 text-right">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-destructive">
+              {missingRequired.length} required{" "}
+              {missingRequired.length === 1 ? "specific" : "specifics"} missing
+            </span>{" "}
+            ({missingRequired.slice(0, 4).join(", ")}
+            {missingRequired.length > 4 ? "…" : ""}) — eBay will reject publish
+            until these are filled in the specifics editor above.
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>

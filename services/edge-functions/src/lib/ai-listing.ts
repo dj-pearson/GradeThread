@@ -37,6 +37,7 @@ import {
 } from "./ebay-client.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { sourcesFor } from "./aspect-provenance.ts";
 import {
   buildDisclosure,
   type DisclosureInput,
@@ -1218,6 +1219,10 @@ export async function generateListing(
   const itemUpdate: Record<string, unknown> = {
     ebay_category_id: categoryId,
     ebay_aspects: itemSpecifics,
+    // US-825: everything AutoLister generated is AI-extracted provenance. This
+    // is a fresh AI pass, so the source map is rebuilt from the generated keys
+    // (a later deterministic refill / manual edit refines individual entries).
+    ebay_aspect_sources: sourcesFor(Object.keys(itemSpecifics), "ai_extracted"),
     ai_generated_aspects_at: new Date().toISOString(),
   };
   if (normalizedBrand && normalizedBrand !== item.brand) {

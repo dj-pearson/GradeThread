@@ -1987,3 +1987,27 @@ Branch: ralph/gradethread-build
   - Verified: 10 Deno tests pass (predicate + idempotency), deno check src/main.ts clean, deno lint clean. No migration (reuses existing columns) -> no EXPECTED_SCHEMA_VERSION bump.
 - Timestamp: 2026-06-13
 ---
+
+## US-825: Aspect provenance badges + pre-publish required-aspect check
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00184_aspect_provenance.sql (new — parallel jsonb ebay_aspect_sources + item_specifics_sources; schema decision documented)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00183 -> 00184)
+  - services/edge-functions/src/lib/aspect-provenance.ts (new — AspectProvenance type, requiredMissingAspects (single source of truth), sourcesFor, mergeSources)
+  - services/edge-functions/src/lib/ai-listing.ts (AI gen writes ebay_aspect_sources = ai_extracted)
+  - services/edge-functions/src/routes/flipdesk-ebay.ts (PublishItem/PublishListing gain source cols; selects fetch them; derive-persist merges inventory_derived sources; requiredMissing via shared helper; derive-aspects route returns sources)
+  - src/lib/aspect-provenance.ts (new — web mirror: requiredMissingAspectNames, PROVENANCE_BADGE, pruneSources, strongerSource)
+  - src/components/flipdesk/ebay-category-picker.tsx (sources state; AI/Auto/You badges; required-unfilled checklist at top; lifts sources + missing-required)
+  - src/pages/flipdesk/composer.tsx (fetch/persist sources; publish button shows 'N required specifics missing' inline)
+  - src/types/database.ts (ebay_aspect_sources on inventory_items Row/Insert; item_specifics_sources on listings Row/Insert)
+  - ios/.../EbayAspectsTypes.swift (AspectProvenance enum), SpecificsEditorModel.swift (sources map, write paths, storedSources, save persists), EbayCategorySpecificsView.swift (badges + missing checklist)
+  - services/edge-functions/src/tests/aspect-provenance_test.ts (new, 8), src/lib/__tests__/aspect-provenance.test.ts (new, 4), ios/GradeThreadTests/SpecificsEditorTests.swift (extended)
+- Notes:
+  - Schema decision (per AC): provenance is a PARALLEL jsonb map keyed by aspect name, alongside the value maps (not reshaping them) — additive, back-compatible, no backfill. `unfilled` is computed, never stored.
+  - Single required-aspect source of truth: requiredMissingAspects() (edge) drives the publish blocker; requiredMissingAspectNames() (web) + SpecificsEditorModel.missingRequired (iOS) use the identical rule, so blocker and client checklist can't disagree.
+  - Provenance precedence manual > ai_extracted > inventory_derived: a deterministic refill never downgrades an AI/user-attributed aspect; cleared values prune their source.
+  - Web picker derives client-side (remapAspectsForCategory) so it has all provenance signals locally; the server derive-aspects route still returns `sources` for iOS parity.
+  - iOS NOT compilable on this Windows host (no xcodebuild). Changes mirror existing model/view patterns exactly and extend the existing pure-helper tests; iOS CI (macOS) is the verifier. python no-ungated-print.py passes.
+  - Verified: edge deno test (provenance 8, schema-version, drift, aspect-registry 15) green; deno check src/main.ts clean; deno lint clean; web tsc -b + build clean; eslint clean; vitest (provenance 4 + prefill/remap/normalize 23) green. schema-version test confirms DB expected 00184.
+- Timestamp: 2026-06-13
+---

@@ -5,6 +5,12 @@ import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { resolveItemAspects } from "../lib/aspect-registry.ts";
 import type { RegistryAspect } from "../lib/aspect-registry.ts";
 import {
+  type AspectSourceMap,
+  mergeSources,
+  requiredMissingAspects,
+  sourcesFor,
+} from "../lib/aspect-provenance.ts";
+import {
   buildConsentUrl,
   createInventoryLocation,
   createOffer,
@@ -934,7 +940,10 @@ flipdeskEbayRoutes.post("/category/:id/derive-aspects", async (c) => {
       list,
       known,
     );
-    return c.json({ categoryId, derived, validAspectNames });
+    // US-825: tell the client these gap-fills are inventory_derived so its
+    // provenance badges and the source map it persists stay accurate.
+    const sources = sourcesFor(Object.keys(derived), "inventory_derived");
+    return c.json({ categoryId, derived, sources, validAspectNames });
   } catch (err) {
     console.error("[flipdesk-ebay] derive-aspects failed:", err);
     return c.json({ error: "Aspect derivation failed" }, 502);
@@ -4268,6 +4277,8 @@ interface PublishItem {
   certificate_url: string | null;
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
+  // US-825: per-aspect provenance parallel to ebay_aspects.
+  ebay_aspect_sources: AspectSourceMap | null;
   item_category: string | null;
   color: string | null;
   material: string | null;
@@ -4373,6 +4384,8 @@ interface PublishListing {
   price_range_high_cents: number | null;
   platform_category_id: string | null;
   item_specifics_override: Record<string, string[]> | null;
+  // US-825: per-aspect provenance parallel to item_specifics_override.
+  item_specifics_sources: AspectSourceMap | null;
   scheduled_publish_at: string | null;
   // Per-listing opt-in for the grade-badge + cert-link promotion (00027).
   badge_enabled: boolean | null;
@@ -4703,7 +4716,7 @@ async function assemblePublishContext(
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, item_category, color, material, style, attributes, status"
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, ebay_aspect_sources, item_category, color, material, style, attributes, status"
     )
     .eq("id", itemId)
     .maybeSingle();
@@ -4739,7 +4752,7 @@ async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -4837,26 +4850,40 @@ async function assemblePublishContext(
       const derived = deriveAspectsFromItem(item, list, aspectMap);
       if (Object.keys(derived).length > 0) {
         Object.assign(aspectMap, derived);
+        // US-825: record provenance for what we just auto-filled
+        // (inventory_derived), merged onto whatever sources already existed so
+        // an AI- or user-attributed aspect is never downgraded.
+        const priorSources =
+          (listing?.id
+            ? listing.item_specifics_sources
+            : item.ebay_aspect_sources) ?? {};
+        const sources = mergeSources(
+          priorSources,
+          sourcesFor(Object.keys(derived), "inventory_derived"),
+          aspectMap,
+        );
         // Persist so the offer payload AND the composer's specifics editor
         // reflect what we filled. item_specifics_override is the listing-level
         // canonical copy; mirror to the item when there's no listing row yet.
         if (listing?.id) {
           await supabaseAdmin
             .from("listings")
-            .update({ item_specifics_override: aspectMap })
+            .update({
+              item_specifics_override: aspectMap,
+              item_specifics_sources: sources,
+            })
             .eq("id", listing.id);
         } else {
           await supabaseAdmin
             .from("inventory_items")
-            .update({ ebay_aspects: aspectMap })
+            .update({ ebay_aspects: aspectMap, ebay_aspect_sources: sources })
             .eq("id", itemId);
         }
       }
 
-      requiredMissing = list
-        .filter((a) => a.aspectConstraint?.aspectRequired)
-        .map((a) => a.localizedAspectName ?? "")
-        .filter((n) => n && (aspectMap[n]?.length ?? 0) === 0);
+      // US-825: the SAME required-aspect rule the client pre-publish checklist
+      // uses (requiredMissingAspects) — blocker and checklist can't disagree.
+      requiredMissing = requiredMissingAspects(list, aspectMap);
       if (requiredMissing.length > 0) {
         // Diagnostic: log WHY each missing aspect couldn't be auto-filled —
         // its mode, a sample of eBay's allowed values, and the item text we

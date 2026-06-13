@@ -112,4 +112,30 @@ final class SpecificsEditorTests: XCTestCase {
         XCTAssertEqual(merged["Size"], ["Medium"])
         XCTAssertEqual(merged["Sleeve Length"], ["Long Sleeve"])
     }
+
+    // MARK: - US-825: provenance persistence
+
+    func test_storedSources_encodesFilledAspectsOnly() {
+        let sources: [String: AspectProvenance] = [
+            "Brand": .aiExtracted,
+            "Color": .inventoryDerived,
+            "Size": .manual,
+            "Style": .manual,        // cleared value → must be pruned
+        ]
+        let values = ["Brand": ["Nike"], "Color": ["Blue"], "Size": ["M"], "Style": [""]]
+        let stored = SpecificsEditorModel.storedSources(sources, values: values)
+        XCTAssertEqual(stored, [
+            "Brand": "ai_extracted",
+            "Color": "inventory_derived",
+            "Size": "manual",
+        ])
+    }
+
+    func test_provenance_rawValues_matchSharedStrings() {
+        // The persisted strings MUST match the web/edge provenance vocabulary.
+        XCTAssertEqual(AspectProvenance.aiExtracted.rawValue, "ai_extracted")
+        XCTAssertEqual(AspectProvenance.inventoryDerived.rawValue, "inventory_derived")
+        XCTAssertEqual(AspectProvenance.manual.rawValue, "manual")
+        XCTAssertEqual(AspectProvenance(rawValue: "ai_extracted"), .aiExtracted)
+    }
 }

@@ -20,8 +20,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00183_support_kb.sql)
-export const EXPECTED_SCHEMA_VERSION = "00183";
+// supabase/migrations/. (00184_aspect_provenance.sql)
+export const EXPECTED_SCHEMA_VERSION = "00184";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

@@ -132,13 +132,23 @@ struct EbayCategorySpecificsView: View {
                     .foregroundStyle(.secondary)
             }
         } else {
+            // US-825: pre-publish checklist — list the required-but-unfilled
+            // aspects at the very top so the seller sees exactly what's missing
+            // BEFORE saving/publishing, not as a publish-time failure.
             if !model.missing.isEmpty {
                 Section {
                     Label(
-                        "\(model.missing.count) required field\(model.missing.count == 1 ? "" : "s") still needed",
+                        "\(model.missing.count) required specific\(model.missing.count == 1 ? "" : "s") still missing",
                         systemImage: "exclamationmark.triangle.fill"
                     )
                     .foregroundStyle(Color.brandRed)
+                    ForEach(model.missing, id: \.self) { name in
+                        Text(name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("eBay won't publish until these are filled. Use AI fill or enter them below.")
                 }
             }
             Section {
@@ -193,13 +203,14 @@ struct EbayCategorySpecificsView: View {
                         }
                     }
                 } label: {
-                    LabeledContent(spec.name) {
+                    LabeledContent {
                         Text(multiSummary(model, spec)).foregroundStyle(.secondary)
+                    } label: {
+                        aspectLabel(model, spec)
                     }
                 }
             } else {
                 Picker(
-                    spec.name,
                     selection: Binding(
                         get: { model.firstValue(for: spec.name) },
                         set: { model.setSingle($0, for: spec.name) }
@@ -207,10 +218,12 @@ struct EbayCategorySpecificsView: View {
                 ) {
                     Text("—").tag("")
                     ForEach(spec.allowedValues, id: \.self) { Text($0).tag($0) }
+                } label: {
+                    aspectLabel(model, spec)
                 }
             }
         } else {
-            LabeledContent(spec.name) {
+            LabeledContent {
                 TextField(
                     "Value",
                     text: Binding(
@@ -220,7 +233,34 @@ struct EbayCategorySpecificsView: View {
                 )
                 .multilineTextAlignment(.trailing)
                 .autocorrectionDisabled()
+            } label: {
+                aspectLabel(model, spec)
             }
+        }
+    }
+
+    /// US-825: aspect name + provenance badge (AI / Auto / You) when filled.
+    @ViewBuilder
+    private func aspectLabel(_ model: SpecificsEditorModel, _ spec: AspectSpec) -> some View {
+        HStack(spacing: 6) {
+            Text(spec.name)
+            if let prov = model.provenance(for: spec.name) {
+                Text(prov.badgeLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(badgeColor(prov).opacity(0.15), in: Capsule())
+                    .foregroundStyle(badgeColor(prov))
+                    .accessibilityLabel(prov.badgeHint)
+            }
+        }
+    }
+
+    private func badgeColor(_ prov: AspectProvenance) -> Color {
+        switch prov {
+        case .aiExtracted: return Color.brandRed
+        case .inventoryDerived: return Color.brandNavy
+        case .manual: return .secondary
         }
     }
 

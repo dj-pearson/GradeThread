@@ -26,6 +26,13 @@ import {
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 import {
+  PROVENANCE_BADGE,
+  pruneSources,
+  requiredMissingAspectNames,
+  type AspectSourceMap,
+  type StoredAspectProvenance,
+} from "@/lib/aspect-provenance";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -40,6 +47,9 @@ interface Props {
   itemId: string;
   initialCategoryId: string | null;
   initialAspects: Record<string, string[]> | null;
+  // US-825: per-aspect provenance for the saved values, so reopening a draft
+  // shows the right source badges (AI / Auto / You) instead of guessing.
+  initialAspectSources?: AspectSourceMap | null;
   // When set, the picker uses this as the default query on first mount —
   // typically the item's title so the user lands on a relevant suggestion.
   seedQuery?: string;
@@ -55,6 +65,13 @@ interface Props {
   // writes these aspects to both the listing override and the inventory mirror,
   // so picker edits can't vanish by skipping a separate "Save specifics" click.
   onAspectsChange?: (aspects: Record<string, string[]>) => void;
+  // US-825: lift the live provenance map so the single Save persists it
+  // alongside the aspect values (parallel jsonb).
+  onSourcesChange?: (sources: AspectSourceMap) => void;
+  // US-825: lift the names of required-but-unfilled aspects for the chosen
+  // category so the composer's publish button can warn "N required specifics
+  // missing" BEFORE calling publish (same rule the server blocker uses).
+  onMissingRequiredChange?: (missing: string[]) => void;
 }
 
 // 250ms debounce — eBay's Taxonomy quota is generous but not free.
@@ -71,10 +88,13 @@ export function EbayCategoryPicker({
   itemId,
   initialCategoryId,
   initialAspects,
+  initialAspectSources,
   seedQuery,
   itemFields,
   onCategoryChange,
   onAspectsChange,
+  onSourcesChange,
+  onMissingRequiredChange,
 }: Props) {
   const [query, setQuery] = useState(seedQuery ?? "");
   const debounced = useDebounced(query.trim(), 250);
@@ -95,7 +115,15 @@ export function EbayCategoryPicker({
     initialAspects ?? {}
   );
 
-  // Aspect names the AI most recently filled — drives the "AI" badge.
+  // US-825: per-aspect provenance (ai_extracted | inventory_derived | manual).
+  // Drives the source badges. Seeded from the saved sources; updated by AI fill,
+  // deterministic derivation, and manual edits. `unfilled` is computed, not here.
+  const [sources, setSources] = useState<AspectSourceMap>(
+    initialAspectSources ?? {},
+  );
+
+  // Aspect names the AI most recently filled — drives the "AI" badge tooltip's
+  // confidence (the badge itself now comes from `sources`).
   const [aiFilled, setAiFilled] = useState<Set<string>>(new Set());
   // Per-aspect confidence for the "AI" badge tooltip / styling.
   const [aiMeta, setAiMeta] = useState<
@@ -117,6 +145,12 @@ export function EbayCategoryPicker({
   useEffect(() => {
     onAspectsChange?.(aspectValues);
   }, [aspectValues, onAspectsChange]);
+
+  // US-825: lift the live provenance map so the composer's single Save persists
+  // it parallel to the aspect values.
+  useEffect(() => {
+    onSourcesChange?.(sources);
+  }, [sources, onSourcesChange]);
 
   // US-824: deterministic, no-AI refill on category change. We read the live
   // aspect map / category path through refs so this effect depends only on the
@@ -148,7 +182,20 @@ export function EbayCategoryPicker({
   // Commit a remap result: keep still-valid values, add the derived gap-fills,
   // refresh the "sent as" hints, and clear AI/hint markers for dropped aspects.
   const commitRemap = (aspectList: EbayAspect[], result: AspectRemapResult) => {
-    setAspectValues({ ...result.kept, ...result.derived });
+    const nextValues = { ...result.kept, ...result.derived };
+    setAspectValues(nextValues);
+    // US-825: kept values keep their prior provenance; the gap-fills the remap
+    // just derived are inventory_derived. Dropped aspects fall away with prune.
+    setSources((prev) => {
+      const next: AspectSourceMap = {};
+      for (const k of Object.keys(result.kept)) {
+        if (prev[k]) next[k] = prev[k];
+      }
+      for (const k of Object.keys(result.derived)) {
+        next[k] = "inventory_derived";
+      }
+      return pruneSources(next, nextValues);
+    });
     const valid = new Set(aspectList.map((a) => a.localizedAspectName));
     setPrefillHints((prev) => {
       const merged: Record<string, AspectRewrite> = {};
@@ -251,9 +298,25 @@ export function EbayCategoryPicker({
     [aspects]
   );
 
+  // US-825: required-but-unfilled, computed with the SAME helper the server's
+  // publish blocker uses, so the pre-publish checklist and the blocker agree.
+  const missingRequiredNames = useMemo(
+    () => requiredMissingAspectNames(aspects, aspectValues),
+    [aspects, aspectValues],
+  );
   const missingRequired = required.filter(
     (a) => !aspectValues[a.localizedAspectName]?.length
   );
+
+  // Lift the missing-required names so the composer's publish button can warn
+  // inline before calling publish. Depend on a stable joined key (the names
+  // array gets a fresh identity each render) but lift the real array. Newline
+  // is a safe delimiter — eBay aspect names never contain one.
+  const missingKey = missingRequiredNames.join("\n");
+  useEffect(() => {
+    onMissingRequiredChange?.(missingRequiredNames);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingKey, onMissingRequiredChange]);
 
   function pickCategory(s: EbayCategorySuggestion) {
     setCategoryId(s.categoryId);
@@ -267,6 +330,7 @@ export function EbayCategoryPicker({
     setCategoryId(null);
     setCategoryPath(null);
     setAspectValues({});
+    setSources({});
     setAiFilled(new Set());
     setAiMeta({});
     setPrefillHints({});
@@ -276,14 +340,24 @@ export function EbayCategoryPicker({
   }
 
   function setAspect(name: string, value: string, cardinality: string) {
-    setAspectValues((prev) => {
-      if (cardinality === "MULTI") {
-        const existing = prev[name] ?? [];
-        return existing.includes(value)
-          ? { ...prev, [name]: existing.filter((v) => v !== value) }
-          : { ...prev, [name]: [...existing, value] };
-      }
-      return { ...prev, [name]: value ? [value] : [] };
+    // Compute the resulting value array so provenance can track whether the
+    // aspect is now filled (manual) or cleared (drop the source entry).
+    const existing = aspectValues[name] ?? [];
+    const nextArr =
+      cardinality === "MULTI"
+        ? existing.includes(value)
+          ? existing.filter((v) => v !== value)
+          : [...existing, value]
+        : value
+          ? [value]
+          : [];
+    setAspectValues((prev) => ({ ...prev, [name]: nextArr }));
+    // US-825: a manual edit is `manual` provenance; a cleared field drops out.
+    setSources((prev) => {
+      const next = { ...prev };
+      if (nextArr.length > 0) next[name] = "manual";
+      else delete next[name];
+      return next;
     });
     // A manual edit clears the AI marker for that aspect.
     setAiFilled((prev) => {
@@ -320,6 +394,7 @@ export function EbayCategoryPicker({
       const nextValues = { ...aspectValues };
       const nextAi = new Set(aiFilled);
       const nextMeta = { ...aiMeta };
+      const nextSources: AspectSourceMap = { ...sources };
       for (const [name, sug] of Object.entries(result.suggestions)) {
         const currentlySet = (nextValues[name]?.length ?? 0) > 0;
         const wasAi = nextAi.has(name);
@@ -327,11 +402,13 @@ export function EbayCategoryPicker({
         nextValues[name] = sug.values;
         nextAi.add(name);
         nextMeta[name] = { confidence: sug.confidence, source: sug.source };
+        nextSources[name] = "ai_extracted";
         added += 1;
       }
       setAspectValues(nextValues);
       setAiFilled(nextAi);
       setAiMeta(nextMeta);
+      setSources(nextSources);
       if (added === 0) {
         toast.info(
           "AI couldn't add anything new — try adding more photos or a tag shot."
@@ -490,13 +567,40 @@ export function EbayCategoryPicker({
 
         {aspects.length > 0 && (
           <div className="space-y-4">
+            {/* US-825: pre-publish checklist — surface required-but-unfilled
+                aspects at the very top so the seller sees exactly what's missing
+                BEFORE publishing, instead of failing later at publish. */}
+            {missingRequiredNames.length > 0 && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {missingRequiredNames.length} required{" "}
+                  {missingRequiredNames.length === 1 ? "specific" : "specifics"}{" "}
+                  still missing
+                </div>
+                <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                  {missingRequiredNames.map((name) => (
+                    <li
+                      key={name}
+                      className="rounded-full border border-destructive/40 px-2 py-0.5 text-[11px] text-destructive"
+                    >
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  eBay won't publish until these are filled. Use AI fill or enter
+                  them below.
+                </p>
+              </div>
+            )}
             {required.length > 0 && (
               <AspectGroup
                 title="Required"
                 tone="required"
                 aspects={required}
                 values={aspectValues}
-                aiFilled={aiFilled}
+                sources={sources}
                 aiMeta={aiMeta}
                 rewrites={prefillHints}
                 onChange={setAspect}
@@ -508,7 +612,7 @@ export function EbayCategoryPicker({
                 tone="recommended"
                 aspects={recommended}
                 values={aspectValues}
-                aiFilled={aiFilled}
+                sources={sources}
                 aiMeta={aiMeta}
                 rewrites={prefillHints}
                 onChange={setAspect}
@@ -520,7 +624,7 @@ export function EbayCategoryPicker({
                 tone="optional"
                 aspects={optional}
                 values={aspectValues}
-                aiFilled={aiFilled}
+                sources={sources}
                 aiMeta={aiMeta}
                 rewrites={prefillHints}
                 onChange={setAspect}
@@ -602,7 +706,7 @@ function AspectGroup({
   tone,
   aspects,
   values,
-  aiFilled,
+  sources,
   aiMeta,
   rewrites,
   onChange,
@@ -611,7 +715,7 @@ function AspectGroup({
   tone: "required" | "recommended" | "optional";
   aspects: EbayAspect[];
   values: Record<string, string[]>;
-  aiFilled: Set<string>;
+  sources: AspectSourceMap;
   aiMeta: Record<string, { confidence: number; source: string }>;
   rewrites: Record<string, AspectRewrite>;
   onChange: (name: string, value: string, cardinality: string) => void;
@@ -634,7 +738,7 @@ function AspectGroup({
             key={a.localizedAspectName}
             aspect={a}
             value={values[a.localizedAspectName] ?? []}
-            aiFilled={aiFilled.has(a.localizedAspectName)}
+            source={sources[a.localizedAspectName]}
             aiMetaItem={aiMeta[a.localizedAspectName]}
             rewrite={rewrites[a.localizedAspectName]}
             onChange={(v) =>
@@ -654,14 +758,14 @@ function AspectGroup({
 function AspectField({
   aspect,
   value,
-  aiFilled,
+  source,
   aiMetaItem,
   rewrite,
   onChange,
 }: {
   aspect: EbayAspect;
   value: string[];
-  aiFilled: boolean;
+  source?: StoredAspectProvenance;
   aiMetaItem?: { confidence: number; source: string };
   rewrite?: AspectRewrite;
   onChange: (v: string) => void;
@@ -680,16 +784,25 @@ function AspectField({
         className="flex items-center gap-1.5 text-xs"
       >
         {aspect.localizedAspectName}
-        {aiFilled && (
+        {/* US-825: provenance badge — AI / Auto (derived) / You (manual). */}
+        {source && value.length > 0 && (
           <span
-            className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary"
+            className={cn(
+              "rounded px-1 py-0.5 text-[9px] font-medium",
+              source === "ai_extracted" && "bg-primary/10 text-primary",
+              source === "inventory_derived" &&
+                "bg-brand-navy/10 text-brand-navy dark:text-foreground",
+              source === "manual" && "bg-muted text-muted-foreground",
+            )}
             title={
-              aiMetaItem
-                ? `AI-filled (${Math.round(aiMetaItem.confidence * 100)}% confident, ${aiMetaItem.source})`
-                : "AI-filled"
+              source === "ai_extracted" && aiMetaItem
+                ? `${PROVENANCE_BADGE.ai_extracted.title} (${Math.round(
+                    aiMetaItem.confidence * 100,
+                  )}% confident, ${aiMetaItem.source})`
+                : PROVENANCE_BADGE[source].title
             }
           >
-            AI
+            {PROVENANCE_BADGE[source].label}
           </span>
         )}
       </Label>

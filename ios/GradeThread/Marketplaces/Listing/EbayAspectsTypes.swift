@@ -73,6 +73,35 @@ struct AspectSpec: Identifiable, Equatable {
     }
 }
 
+// MARK: - Provenance (US-825)
+
+/// Where an aspect value came from — drives the source badge in the editor and
+/// is persisted parallel to `ebay_aspects` in `inventory_items.ebay_aspect_sources`.
+/// `unfilled` (an aspect in the spec with no value) is COMPUTED, never stored, so
+/// only the three stored cases get a raw value matching the web/edge strings.
+enum AspectProvenance: String, Equatable {
+    case aiExtracted = "ai_extracted"
+    case inventoryDerived = "inventory_derived"
+    case manual = "manual"
+
+    /// Short badge label shown next to the field.
+    var badgeLabel: String {
+        switch self {
+        case .aiExtracted: return "AI"
+        case .inventoryDerived: return "Auto"
+        case .manual: return "You"
+        }
+    }
+
+    var badgeHint: String {
+        switch self {
+        case .aiExtracted: return "Filled by AI from your photos/details"
+        case .inventoryDerived: return "Derived from this item's fields"
+        case .manual: return "You typed this"
+        }
+    }
+}
+
 // MARK: - AI extract-aspects
 
 struct AspectSuggestion: Decodable, Equatable {

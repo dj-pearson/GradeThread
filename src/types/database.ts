@@ -724,6 +724,9 @@ export interface InventoryItemRow {
   // eBay taxonomy mapping (migration 00030)
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
+  // US-825 (migration 00184): per-aspect provenance parallel to ebay_aspects —
+  // { aspectName: "ai_extracted" | "inventory_derived" | "manual" }.
+  ebay_aspect_sources: Record<string, string> | null;
   // AutoLister: when listing fields were last AI-generated (migration 00052)
   ai_generated_aspects_at: string | null;
   // AI photo-QA readiness (US-537, migration 00090)
@@ -839,6 +842,9 @@ export interface ListingRow {
   ebay_condition: string | null;
   ebay_condition_description: string | null;
   item_specifics_override: Record<string, string[]> | null;
+  // US-825 (migration 00184): per-aspect provenance parallel to
+  // item_specifics_override — { aspectName: "ai_extracted" | "inventory_derived" | "manual" }.
+  item_specifics_sources: Record<string, string> | null;
   return_policy_id: string | null;
   shipping_policy_id: string | null;
   payment_policy_id: string | null;
@@ -1795,6 +1801,7 @@ export interface InventoryItemInsert {
   ebay_category_query?: string | null;
   ebay_category_id?: string | null;
   ebay_aspects?: Record<string, string[]> | null;
+  ebay_aspect_sources?: Record<string, string> | null;
   ai_generated_aspects_at?: string | null;
   exclude_from_automations?: boolean;
 }
@@ -1830,6 +1837,7 @@ export interface ListingInsert {
   ebay_condition?: string | null;
   ebay_condition_description?: string | null;
   item_specifics_override?: Record<string, string[]> | null;
+  item_specifics_sources?: Record<string, string> | null;
   return_policy_id?: string | null;
   shipping_policy_id?: string | null;
   payment_policy_id?: string | null;
