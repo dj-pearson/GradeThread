@@ -92,6 +92,7 @@ import {
 } from "@/lib/ebay-prefill";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
+import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import {
   AiFillPanel,
@@ -1198,6 +1199,13 @@ export function FlipdeskComposerPage() {
                     </p>
                   </div>
                 )}
+                {/* US-848: grade-anchored value from the public Condition Index. */}
+                <ConditionIndexValueHint
+                  brand={item.brand}
+                  category={item.category}
+                  title={item.item_title}
+                  grade={item.grade_value}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="schedule-at">Schedule publish (optional)</Label>

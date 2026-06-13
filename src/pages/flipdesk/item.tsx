@@ -12,6 +12,7 @@ import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
 import { useItemsFull } from "@/hooks/use-items-full";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
+import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 
@@ -82,6 +83,14 @@ export function FlipdeskItemPage() {
       {/* On the page, Save keeps the user here (the query refetches); only
           Cancel and the back button navigate away. */}
       <ItemCanvas item={item} onCancel={goBack} />
+
+      {/* US-848: grade-anchored value from the public Condition Index curve. */}
+      <ConditionIndexValueHint
+        brand={item.brand}
+        category={item.category}
+        title={item.item_title}
+        grade={item.grade_value}
+      />
 
       {/* Auto-Disclosure Engine: condition & flaws + annotated defect photos. */}
       <DisclosurePanel itemId={item.id} />

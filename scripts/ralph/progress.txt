@@ -2168,3 +2168,11 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit -p tsconfig.functions.json clean; npx tsc --noEmit (app) clean; npm run build (tsc -b + 31-route prerender) green — prerender confirms every /grading/<slug> link target I emit is a real page; vitest condition-index-render (13 passed); eslint new test clean; deno check (condition-index.ts + public-grading.ts) + deno lint clean; edge condition-value/condition-curve/rls-guard tests 11 passed/0 failed.
 - Timestamp: 2026-06-13
 ---
+
+## US-848: Surface Condition Index value in the listing composer and item detail
+- Status: COMPLETE
+- Files changed: src/hooks/use-condition-index.ts (new), src/components/flipdesk/condition-index-value-hint.tsx (new), src/hooks/__tests__/use-condition-index.test.ts (new), src/pages/flipdesk/composer.tsx, src/pages/flipdesk/item.tsx, prd.json
+- Notes: The condition-value/curve helpers are server-side (Deno edge lib), so the frontend can't import them. Instead it consumes the existing PUBLIC Condition Index endpoints the SEO pages already use: GET /api/grading/public/condition-index (hub) and /condition-index/:slug (curve) — aggregate, cross-tenant-safe data (no per-user reads), thin curves already suppressed upstream. New use-condition-index.ts hook exposes useConditionIndexHub()/useConditionIndexCurve() (TanStack Query, 1h cache, unauthenticated+silentGate) plus pure helpers matchConditionIndexEntry() (brand-required exact match; disambiguates multiple same-brand curves by category/title keyword overlap, tie-broken on comp depth) and curveMedianAtGrade() (nearest point with a real median). ConditionIndexValueHint renders "Your grade 8.5 maps to ~$X median for <label>" deep-linking to /condition-index/<slug>, returns null when no brand-matched curve / no grade / no median (degrades silently). Wired into composer (under price/sell-through panel) and item detail (under ItemCanvas). noUncheckedIndexedAccess required guarding array[0] before reuse.
+- Verification: npx tsc -b clean; eslint changed files clean; vitest use-condition-index (11 passed); npm run build (tsc -b + 31-route prerender) green.
+- Timestamp: 2026-06-13
+---

@@ -12492,8 +12492,8 @@
         "npm run build passes"
       ],
       "priority": 848,
-      "passes": false,
-      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Pairs with US-856 (grade-ROI at intake). Reuse lib/condition-value.ts + condition-curve.ts."
+      "passes": true,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] SHIPPED 2026-06-13. The condition-value/curve helpers live server-side (Deno edge lib), and the public Condition Index already exposes aggregate, cross-tenant-safe read endpoints the SEO pages use — GET /api/grading/public/condition-index (hub) and /condition-index/:slug (curve). Rather than re-port the curve math to the browser, the frontend consumes those public endpoints. New src/hooks/use-condition-index.ts: useConditionIndexHub()/useConditionIndexCurve(slug) (TanStack Query, 1h staleTime, unauthenticated+silentGate reads) plus PURE tested helpers matchConditionIndexEntry() (brand-required exact match; disambiguates multiple same-brand curves by category/title keyword overlap, tie-broken on comp depth) and curveMedianAtGrade() (nearest curve point with a real median) and formatCurveCents(). New src/components/flipdesk/condition-index-value-hint.tsx renders 'Your grade 8.5 maps to ~$X median for <label>' deep-linking to /condition-index/<slug>; returns null when no brand-matched curve / no grade / no median (degrades silently, no fabricated value). Wired into composer.tsx (under the price/sell-through panel) and item.tsx (under ItemCanvas). Tenant-safe: only public aggregate endpoints, no per-user reads. Tests: src/hooks/__tests__/use-condition-index.test.ts (11). tsc -b + eslint + build green. Pairs with US-856."
     },
     {
       "id": "US-849",
