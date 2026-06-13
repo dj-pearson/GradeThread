@@ -301,6 +301,11 @@ export interface PlatformKitVariant {
   description: string;
   condition: { value: string; label: string } | null;
   category: string;
+  // US-722 category provenance: where the mapped category came from, an optional
+  // department/gender to confirm, and whether the seller must pick a category.
+  categorySource?: "seed" | "ai" | "admin" | "query" | null;
+  categoryDepartment?: string | null;
+  categoryNeedsPick?: boolean;
   brand: string | null;
   color: string | null;
   size: string | null;

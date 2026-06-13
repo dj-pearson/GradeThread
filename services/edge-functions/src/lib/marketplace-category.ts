@@ -1,4 +1,4 @@
-// US-722: seeded per-platform category mapping (deterministic, no AI cost).
+// US-722: per-platform category mapping — PURE layer (deterministic, no I/O).
 //
 // Maps a GradeThread garment/item category to a best-effort starting category
 // for each no-API marketplace. The platforms' real taxonomies also need a
@@ -7,15 +7,17 @@
 // editable category field (US-723). Unmapped → returns null and the caller
 // falls back to the natural-language category query.
 //
-// This is the seeded layer chosen for US-722. An admin-extensible DB override +
-// AI-suggested categories are a deliberate follow-up (see the PRD note); this
-// pure map covers the common garment types with zero per-item cost.
+// This file is the pure, unit-testable layer: the seeded map, the garment-key
+// normalizer, and the per-platform candidate-category hints used to constrain
+// the AI. The DB-backed cache/override + AI suggestion live in
+// marketplace-category-resolve.ts (which has Supabase/Anthropic I/O), mirroring
+// the platform-variants.ts (pure) / ai-listing.ts (I/O) split.
 
 import type { MarketplacePlatform } from "./marketplace-specs.ts";
 
 // Canonical GradeThread garment types (src/lib/constants.ts GARMENT_TYPES):
 // tops | bottoms | outerwear | dresses | footwear | accessories
-type GarmentKey =
+export type GarmentKey =
   | "tops"
   | "bottoms"
   | "outerwear"
@@ -73,7 +75,7 @@ const ITEM_CATEGORY_FALLBACK: Record<string, GarmentKey> = {
   accessories: "accessories",
 };
 
-function toGarmentKey(
+export function toGarmentKey(
   garmentCategory: string | null,
   itemCategory: string | null,
 ): GarmentKey | null {
@@ -89,6 +91,98 @@ export interface SeededCategory {
   /** Always "seed" here; reserved for future "ai" / "user" sources. */
   source: "seed";
 }
+
+// Platforms that use the curated no-API map. eBay resolves via the Taxonomy API
+// and Shopify is free-form — neither lives in the seeded/cached table.
+export const MAPPED_PLATFORMS: ReadonlySet<MarketplacePlatform> = new Set<
+  MarketplacePlatform
+>(["poshmark", "mercari", "depop", "grailed"]);
+
+// Candidate top-level categories per platform — the closed set the AI must
+// choose from when a garment type isn't seeded, so a suggestion can never be a
+// hallucinated category the platform doesn't have. Superset of the SEED values.
+export const PLATFORM_CATEGORY_HINTS: Partial<
+  Record<MarketplacePlatform, readonly string[]>
+> = {
+  poshmark: [
+    "Tops",
+    "Pants & Jumpsuits",
+    "Jackets & Coats",
+    "Dresses",
+    "Sweaters",
+    "Skirts",
+    "Shorts",
+    "Jeans",
+    "Shoes",
+    "Bags",
+    "Accessories",
+    "Intimates & Sleepwear",
+    "Swim",
+    "Activewear",
+  ],
+  mercari: [
+    "Tops & blouses",
+    "Pants",
+    "Coats & jackets",
+    "Dresses",
+    "Sweaters",
+    "Skirts",
+    "Shorts",
+    "Jeans",
+    "Shoes",
+    "Bags & purses",
+    "Accessories",
+    "Sleepwear & intimates",
+    "Swimwear",
+    "Activewear",
+  ],
+  depop: [
+    "Tops",
+    "Bottoms",
+    "Outerwear & Jackets",
+    "Dresses",
+    "Knitwear",
+    "Skirts",
+    "Shorts",
+    "Jeans",
+    "Shoes",
+    "Bags",
+    "Accessories",
+    "Swimwear",
+    "Activewear",
+  ],
+  grailed: [
+    "Tops",
+    "Bottoms",
+    "Outerwear",
+    "Dresses",
+    "Tailoring",
+    "Footwear",
+    "Accessories",
+  ],
+};
+
+// A resolved (or unresolved) platform category. `source` is "none" only when
+// unmapped; "seed"/"ai"/"admin" reflect where the mapping came from.
+export interface CategoryResolution {
+  status: "mapped" | "unmapped";
+  /** The platform-native category (leaf/path); null when unmapped. */
+  path: string | null;
+  /** Optional department/gender when known; null otherwise. */
+  department: string | null;
+  source: "seed" | "ai" | "admin" | "none";
+  /** True until a human confirms an AI suggestion (drives the kit's prompt). */
+  needsConfirmation: boolean;
+}
+
+/** The unmapped sentinel — caller falls back to the NL query + prompts a pick. */
+export const UNMAPPED_CATEGORY: CategoryResolution = {
+  status: "unmapped",
+  path: null,
+  department: null,
+  source: "none",
+  needsConfirmation: false,
+};
 
 /**
  * Resolves a starting category for a platform from the seeded map. Returns null

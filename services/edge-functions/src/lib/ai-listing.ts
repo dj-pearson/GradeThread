@@ -46,7 +46,7 @@ import {
   getMarketplaceSpec,
   type MarketplacePlatform,
 } from "./marketplace-specs.ts";
-import { resolveSeededCategory } from "./marketplace-category.ts";
+import { resolveMarketplaceCategory } from "./marketplace-category-resolve.ts";
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
 import {
   getEbaySearchDemandTerms,
@@ -1537,12 +1537,21 @@ export async function generatePlatformVariants(
     .select("id", { count: "exact", head: true })
     .eq("inventory_item_id", itemId);
 
-  // 5. Assemble + validate each variant. Category is the US-722 seeded leaf for
-  // the platform (the seller confirms the department in the kit), falling back
-  // to the base category query when the garment type isn't mapped.
-  const variants = platforms.map((p) => {
-    const seeded = resolveSeededCategory(p, item.garment_category, item.item_category);
-    return assemblePlatformVariant(
+  // 5. Resolve each platform's category (US-722): shared cache → seed → AI →
+  // unmapped. Cache/seed hits cost ~0; only an unseeded garment type triggers
+  // (and then caches) one cheap AI suggestion. Resolved in parallel.
+  const resolutions = await Promise.all(
+    platforms.map((p) =>
+      resolveMarketplaceCategory(p, item.garment_category, item.item_category)
+        .catch(() => null),
+    ),
+  );
+
+  // 6. Assemble + validate each variant. An unmapped/AI-guess category sets
+  // categoryNeedsPick so the kit surfaces a "pick a category" prompt rather than
+  // silently guessing; mapped seed/admin rows are trusted.
+  const variants = platforms.map((p, i) =>
+    assemblePlatformVariant(
       p,
       base,
       text.byPlatform[p] ?? { title: "", description: "", tags: [] },
@@ -1552,11 +1561,11 @@ export async function generatePlatformVariants(
         // unknown (the kit confirms the designer). Don't hard-fail.
         brandAllowed: true,
       },
-      seeded?.path ?? null,
-    );
-  });
+      resolutions[i] ?? null,
+    )
+  );
 
-  // 6. Persist, merging into any existing platform_fields.
+  // 7. Persist, merging into any existing platform_fields.
   const now = new Date().toISOString();
   const merged: Record<string, unknown> = { ...(d.platform_fields ?? {}) };
   for (const v of variants) {
@@ -1565,6 +1574,10 @@ export async function generatePlatformVariants(
       description: v.description,
       condition: v.condition,
       category: v.category,
+      // US-722 category provenance so the kit can prompt a pick when needed.
+      category_source: v.categorySource ?? null,
+      category_department: v.categoryDepartment ?? null,
+      category_needs_pick: v.categoryNeedsPick ?? false,
       brand: v.brand,
       color: v.color,
       size: v.size,

@@ -1802,3 +1802,26 @@ Branch: ralph/gradethread-build
   - Verify: tsc --noEmit clean; eslint clean; vitest 15 passed (mechanism+tier+plan honesty); npm run build green; deno lint clean; deno marketplace-adapters (10) + schema-version (9) + pricing-config + plan-gate (29) green.
 - Timestamp: 2026-06-13
 ---
+
+## US-722: Per-platform category taxonomy mapping (AI-assisted, cached)
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00179_marketplace_category_map.sql (NEW: shared cache/override table + 24 seed rows + RLS)
+  - services/edge-functions/src/lib/marketplace-category.ts (pure layer: + MAPPED_PLATFORMS, PLATFORM_CATEGORY_HINTS, CategoryResolution, UNMAPPED_CATEGORY, exported toGarmentKey/GarmentKey)
+  - services/edge-functions/src/lib/marketplace-category-resolve.ts (NEW: cache→seed→AI→unmapped resolver, injectable deps)
+  - services/edge-functions/src/lib/platform-variants.ts (PlatformVariant + categorySource/Department/NeedsPick; assembler accepts CategoryResolution)
+  - services/edge-functions/src/lib/ai-listing.ts (generatePlatformVariants resolves per-platform categories in parallel; persists provenance)
+  - services/edge-functions/src/routes/admin-category-map.ts (NEW: GET/PUT/DELETE admin overrides, audited)
+  - services/edge-functions/src/main.ts (mount /api/admin/category-map)
+  - services/edge-functions/src/lib/schema-version.ts (00178→00179)
+  - src/hooks/use-autolister.ts (PlatformKitVariant + category provenance fields)
+  - src/components/flipdesk/listing-kit.tsx (normalize reads provenance; amber "pick a category" prompt)
+  - services/edge-functions/src/tests/{marketplace-category-resolve,admin-category-map}_test.ts (NEW) + extended marketplace-category_test.ts
+- Notes:
+  - Resolution order: shared cache/override (marketplace_category_map) → deterministic seed (write-through) → AI suggestion CONSTRAINED to the platform's candidate hint list (Haiku-tier, cached needs_confirmation=true) → unmapped. Repeat items hit cache/seed = ~0 AI; only an unseeded garment type triggers (then caches) one cheap AI call.
+  - Table mirrors ebay_category_aspects (00030): shared across all sellers, UNIQUE(platform, gradethread_garment), authenticated-read RLS + service-role writes. No user_id → correctly NOT a tenant table (rls-guard doesn't flag it).
+  - eBay (Taxonomy API) + Shopify (free-form) intentionally excluded from the no-API map.
+  - Unmapped/unconfirmed-AI categories set category_needs_pick → Listing Kit shows a clear amber "pick a category" prompt (AC4).
+  - Verify: deno check + lint clean; new+existing edge tests green (1013 passed; the only 2 failures are the documented pre-existing rls-guard ai_usage_events/waitlist_entries on clean main, unrelated); tsc -b clean; npm run build green; eslint 0 errors.
+- Timestamp: 2026-06-13
+---

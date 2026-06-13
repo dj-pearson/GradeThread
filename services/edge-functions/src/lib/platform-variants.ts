@@ -15,6 +15,7 @@ import {
   type ValidationResult,
   validateListingForPlatform,
 } from "./marketplace-specs.ts";
+import type { CategoryResolution } from "./marketplace-category.ts";
 
 function clampConfidence(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
@@ -53,6 +54,13 @@ export interface PlatformVariant {
   description: string;
   condition: ConditionOption | null;
   category: string;
+  /** Where `category` came from (US-722). "query" = unmapped NL fallback. */
+  categorySource?: "seed" | "ai" | "admin" | "query";
+  /** Optional department/gender to pre-fill in the kit when known. */
+  categoryDepartment?: string | null;
+  /** True when the category is unmapped or an unconfirmed AI guess — the kit
+   *  surfaces a "pick a category" prompt rather than silently trusting it. */
+  categoryNeedsPick?: boolean;
   brand: string | null;
   color: string | null;
   size: string | null;
@@ -105,12 +113,39 @@ export function assemblePlatformVariant(
   base: PlatformVariantBase,
   text: PlatformText,
   ctx: { photoCount?: number; brandAllowed?: boolean } = {},
-  // US-722: the platform-mapped category (seeded). Falls back to the base's
-  // natural-language category query when not mapped.
-  categoryOverride?: string | null,
+  // US-722: the platform-mapped category. Either a bare string (legacy/seed
+  // leaf) or a full CategoryResolution (cache/seed/AI/unmapped). Falls back to
+  // the base's natural-language category query when unmapped/blank.
+  categoryOverride?: string | CategoryResolution | null,
 ): PlatformVariant {
   const spec = getMarketplaceSpec(platform);
   if (!spec) throw new Error(`No marketplace spec for ${platform}`);
+
+  // Normalize the category input into a path + provenance metadata.
+  let mappedPath: string | null = null;
+  let categorySource: PlatformVariant["categorySource"] | undefined;
+  let categoryDepartment: string | null | undefined;
+  let categoryNeedsPick = false;
+  if (typeof categoryOverride === "string") {
+    mappedPath = categoryOverride.trim() || null;
+  } else if (categoryOverride && typeof categoryOverride === "object") {
+    if (categoryOverride.status === "mapped" && categoryOverride.path) {
+      mappedPath = categoryOverride.path;
+      categorySource = categoryOverride.source === "none"
+        ? "query"
+        : categoryOverride.source;
+      categoryDepartment = categoryOverride.department;
+      categoryNeedsPick = categoryOverride.needsConfirmation;
+    } else {
+      // Unmapped — fall back to the NL query and prompt a pick.
+      categoryNeedsPick = true;
+    }
+  }
+  // No mapped path → the NL query is the category, and the seller must pick.
+  if (!mappedPath) {
+    categorySource = "query";
+    categoryNeedsPick = true;
+  }
 
   // Title: AI title trimmed to the platform's cap; blank when the platform has
   // no title field (Depop).
@@ -132,7 +167,10 @@ export function assemblePlatformVariant(
     title,
     description,
     condition: mapCondition(platform, base.gradeValue, base.gradeLabel),
-    category: categoryOverride?.trim() || base.categoryQuery,
+    category: mappedPath || base.categoryQuery,
+    categorySource,
+    categoryDepartment: categoryDepartment ?? null,
+    categoryNeedsPick,
     brand: base.brand,
     color: base.color,
     size: base.size,

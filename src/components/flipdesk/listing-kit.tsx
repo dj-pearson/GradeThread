@@ -322,6 +322,21 @@ function PlatformPanel({
         </div>
       )}
 
+      {variant.categoryNeedsPick && (
+        <div className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            We couldn’t confidently map this item to a {spec.label} category
+            {variant.categorySource === "ai" ? " (AI best-guess shown)" : ""}. Pick the
+            right category below before listing
+            {variant.categoryDepartment
+              ? ` — suggested department: ${variant.categoryDepartment}`
+              : ""}
+            .
+          </span>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="secondary" size="sm" onClick={copyAll}>
           <Copy className="mr-1.5 h-3.5 w-3.5" />
@@ -538,6 +553,9 @@ function normalize(platform: string, raw: Record<string, unknown>): PlatformKitV
     description: typeof raw.description === "string" ? raw.description : "",
     condition: cond && cond.value ? { value: cond.value, label: cond.label ?? cond.value } : null,
     category: typeof raw.category === "string" ? raw.category : "",
+    categorySource: (raw.category_source as PlatformKitVariant["categorySource"]) ?? null,
+    categoryDepartment: (raw.category_department as string | null) ?? null,
+    categoryNeedsPick: raw.category_needs_pick === true,
     brand: (raw.brand as string | null) ?? null,
     color: (raw.color as string | null) ?? null,
     size: (raw.size as string | null) ?? null,
