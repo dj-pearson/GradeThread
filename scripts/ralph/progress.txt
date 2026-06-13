@@ -1618,3 +1618,10 @@ Branch: ralph/gradethread-build
 - Notes: EmptyState + StatusBadge + STATUS_TONE_CLASSES/ITEM_STATUS_TONE already existed from prior work, so this story finished the job: added PageHeader and centralized the remaining duplicated helpers. getScoreColor/getScoreBorderColor/getProgressColor/getTierBadgeClasses + submission-status SUBMISSION_STATUS_TONE/getStatusBadgeClasses now live only in constants.ts (canonical media-kit emerald/amber/brand-red palette; added a `dispute` purple tone for disputed submissions). Dashboard/submissions previously used an old green/yellow/red score palette — now unified to the media-kit one. inventory-detail's item-status badge switched to <StatusBadge>. A palette change is now a single edit in constants.ts.
 - Timestamp: 2026-06-13
 ---
+
+## US-606: Add an in-app help/support launcher + shortcuts cheat-sheet
+- Status: COMPLETE
+- Files changed: src/components/dashboard/support-launcher.tsx (new), src/components/dashboard/header.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Criteria 2 (? shortcuts cheat-sheet via ShortcutsHelp, advertised by header keyboard button) and 3 (command palette extended with global actions: Billing, API Keys, Team, shortcuts, etc.) were already shipped by prior/concurrent work. The remaining gap was criterion 1: no in-app help/support launcher. Added SupportLauncher dropdown (HelpCircle icon) in the dashboard header with help center (/faq), how it works (/how-it-works), developer docs (/developers), keyboard shortcuts (dispatches OPEN_SHORTCUTS_EVENT), system status (/status), and Contact support (mailto:support@gradethread.com — matches error-state.tsx). tsc/build/lint clean.
+- Timestamp: 2026-06-13
+---

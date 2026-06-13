@@ -24,6 +24,7 @@ import {
 import { MobileNav } from "@/components/dashboard/sidebar";
 import { NotificationCenter } from "@/components/dashboard/notification-center";
 import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
+import { SupportLauncher } from "@/components/dashboard/support-launcher";
 import { WorkspaceSwitcher } from "@/components/dashboard/workspace-switcher";
 
 export function Header() {
@@ -64,6 +65,8 @@ export function Header() {
 
       <div className="flex items-center gap-2">
         <NotificationCenter />
+
+        <SupportLauncher />
 
         <Button
           variant="ghost"

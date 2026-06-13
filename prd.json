@@ -9190,8 +9190,8 @@
         "Command palette extended with global actions (Billing, API Keys, Team, theme toggle, help) beyond FlipDesk-only"
       ],
       "priority": 606,
-      "passes": false,
-      "notes": "[P2][UX] Deep-dive 2026-06-04. No in-app help/support anywhere; useKeyboardShortcuts only binds 'n'; command palette is FlipDesk-only."
+      "passes": true,
+      "notes": "[P2][UX] Deep-dive 2026-06-04. No in-app help/support anywhere; useKeyboardShortcuts only binds 'n'; command palette is FlipDesk-only. DONE 2026-06-13: Shortcuts cheat-sheet (ShortcutsHelp, ? key, header button) and global command palette already shipped via concurrent work; added missing in-app help/support launcher — new SupportLauncher dropdown in dashboard header (help center/FAQ, how-it-works, developer docs, shortcuts, system status, mailto support)."
     },
     {
       "id": "US-607",
