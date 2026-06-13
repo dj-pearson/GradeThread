@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   deriveAspectsFromItem,
+  type AspectRewrite,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 
@@ -89,6 +90,11 @@ export function EbayCategoryPicker({
   const [aiMeta, setAiMeta] = useState<
     Record<string, { confidence: number; source: string }>
   >({});
+  // US-823: aspects whose prefilled value was normalized to eBay's allowed list
+  // (e.g. "M" → "Medium") — drives the "sent as" hint under the field.
+  const [prefillHints, setPrefillHints] = useState<
+    Record<string, AspectRewrite>
+  >({});
 
   const suggestQuery = useEbayCategorySuggest(debounced);
   const aspectsQuery = useEbayCategoryAspects(categoryId);
@@ -111,6 +117,8 @@ export function EbayCategoryPicker({
     if (!aspectsQuery.data) return;
     const aspectList = aspectsQuery.data.aspects.aspects ?? [];
     const valid = new Set(aspectList.map((a) => a.localizedAspectName));
+    // Filled synchronously inside the updater below, then committed to state.
+    const rewrites: Record<string, AspectRewrite> = {};
     setAspectValues((prev) => {
       const next: Record<string, string[]> = {};
       for (const [k, v] of Object.entries(prev)) {
@@ -123,10 +131,19 @@ export function EbayCategoryPicker({
         }
       }
       if (itemFields) {
-        const derived = deriveAspectsFromItem(itemFields, aspectList, next);
+        const derived = deriveAspectsFromItem(itemFields, aspectList, next, rewrites);
         for (const [k, v] of Object.entries(derived)) next[k] = v;
       }
       return next;
+    });
+    // Drop hints for aspects that are no longer valid for this category.
+    setPrefillHints((prev) => {
+      const merged: Record<string, AspectRewrite> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (valid.has(k)) merged[k] = v;
+      }
+      for (const [k, v] of Object.entries(rewrites)) merged[k] = v;
+      return merged;
     });
   }, [aspectsQuery.data, itemFields]);
 
@@ -176,6 +193,7 @@ export function EbayCategoryPicker({
     setAspectValues({});
     setAiFilled(new Set());
     setAiMeta({});
+    setPrefillHints({});
     onCategoryChange?.(null);
   }
 
@@ -194,6 +212,13 @@ export function EbayCategoryPicker({
       if (!prev.has(name)) return prev;
       const next = new Set(prev);
       next.delete(name);
+      return next;
+    });
+    // …and the prefill "sent as" hint — the value is now the user's own.
+    setPrefillHints((prev) => {
+      if (!prev[name]) return prev;
+      const next = { ...prev };
+      delete next[name];
       return next;
     });
   }
@@ -390,6 +415,7 @@ export function EbayCategoryPicker({
                 values={aspectValues}
                 aiFilled={aiFilled}
                 aiMeta={aiMeta}
+                rewrites={prefillHints}
                 onChange={setAspect}
               />
             )}
@@ -401,6 +427,7 @@ export function EbayCategoryPicker({
                 values={aspectValues}
                 aiFilled={aiFilled}
                 aiMeta={aiMeta}
+                rewrites={prefillHints}
                 onChange={setAspect}
               />
             )}
@@ -412,6 +439,7 @@ export function EbayCategoryPicker({
                 values={aspectValues}
                 aiFilled={aiFilled}
                 aiMeta={aiMeta}
+                rewrites={prefillHints}
                 onChange={setAspect}
               />
             )}
@@ -450,6 +478,7 @@ function AspectGroup({
   values,
   aiFilled,
   aiMeta,
+  rewrites,
   onChange,
 }: {
   title: string;
@@ -458,6 +487,7 @@ function AspectGroup({
   values: Record<string, string[]>;
   aiFilled: Set<string>;
   aiMeta: Record<string, { confidence: number; source: string }>;
+  rewrites: Record<string, AspectRewrite>;
   onChange: (name: string, value: string, cardinality: string) => void;
 }) {
   return (
@@ -480,6 +510,7 @@ function AspectGroup({
             value={values[a.localizedAspectName] ?? []}
             aiFilled={aiFilled.has(a.localizedAspectName)}
             aiMetaItem={aiMeta[a.localizedAspectName]}
+            rewrite={rewrites[a.localizedAspectName]}
             onChange={(v) =>
               onChange(
                 a.localizedAspectName,
@@ -499,12 +530,14 @@ function AspectField({
   value,
   aiFilled,
   aiMetaItem,
+  rewrite,
   onChange,
 }: {
   aspect: EbayAspect;
   value: string[];
   aiFilled: boolean;
   aiMetaItem?: { confidence: number; source: string };
+  rewrite?: AspectRewrite;
   onChange: (v: string) => void;
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
@@ -586,6 +619,13 @@ function AspectField({
             <option key={v.localizedValue} value={v.localizedValue} />
           ))}
         </datalist>
+      )}
+      {rewrite && value[0] === rewrite.to && (
+        <p className="text-[10px] text-muted-foreground">
+          <span className="font-medium">“{rewrite.from}”</span> matched eBay's
+          value — will be sent as{" "}
+          <span className="font-medium">“{rewrite.to}”</span>.
+        </p>
       )}
     </div>
   );

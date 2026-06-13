@@ -12112,8 +12112,8 @@
         "No normalization ever fires for FREE_TEXT aspects (original value passes through)"
       ],
       "priority": 823,
-      "passes": false,
-      "notes": "[EPIC: Aspect Autofill 2026-06-11] From 2026-06-11 aspects audit. Conservative by design: a wrong auto-mapped aspect is worse than an empty one. Depends on US-822 registry plumbing."
+      "passes": true,
+      "notes": "[EPIC: Aspect Autofill 2026-06-11] From 2026-06-11 aspects audit. Conservative by design: a wrong auto-mapped aspect is worse than an empty one. Depends on US-822 registry plumbing. DONE: new aspect-normalize.ts (mirrored edge services/edge-functions/src/lib + web src/lib) exposes normalizeAspectValue(value, spec) with curated synonym tables (size, size_type, material, color, department) plus parenthetical-abbr and single-unambiguous-whole-word fallbacks; cascade = exact -> plural -> synonym -> token, returns null on no-confident-match, FREE_TEXT passes through untouched. Wired into the US-822 resolver fillAspect (edge aspect-registry.ts) and the web deriveAspectsFromItem (ebay-prefill.ts), so server publish, web composer prefill, and server-driven iOS prefill all use it. Composer shows a 'sent as' hint via deriveAspectsFromItem's optional rewrites out-param threaded through EbayCategoryPicker (prefillHints state, cleared on manual edit). Tests: aspect-normalize_test.ts (deno, 12) + aspect-normalize.test.ts (vitest, incl. rewrite reporting) covering match/rewrite/ambiguity-refusal/null + FREE_TEXT pass-through; added a resolver end-to-end case (M->Medium) to aspect-registry_test.ts."
     },
     {
       "id": "US-824",

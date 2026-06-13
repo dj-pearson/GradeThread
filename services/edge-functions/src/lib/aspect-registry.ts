@@ -19,6 +19,8 @@
 // (department, size_type, sleeve_length, neckline, pattern, fit, closure,
 // features, garment_care, country_of_manufacture, vintage, theme, mpn).
 
+import { normalizeAspectValue } from "./aspect-normalize.ts";
+
 // ─── Registry data shape ───────────────────────────────────────────
 
 export interface AspectMappingEntry {
@@ -251,19 +253,20 @@ function canonicalValues(entry: AspectMappingEntry, item: RegistryItem): string[
 }
 
 // Fill a single aspect from candidate value(s), honoring its constraint:
-// SELECTION_ONLY only accepts values matching an allowed value (case- and
-// trailing-plural-insensitive, matching the legacy behavior); FREE_TEXT/
-// SUGGESTED take the raw value(s). Multiple values are sent only when BOTH the
-// canonical field is multi AND the aspect is MULTI-cardinality.
+// SELECTION_ONLY only accepts a value that resolves (via normalizeAspectValue —
+// exact, plural, curated synonyms, conservative token fallback) to one of its
+// allowed values; FREE_TEXT/SUGGESTED take the raw value(s). Multiple values are
+// sent only when BOTH the canonical field is multi AND the aspect is MULTI.
 function fillAspect(aspect: RegistryAspect, values: string[], entryMulti: boolean): string[] {
   const allowMulti = entryMulti && aspect.multi === true;
   if ((aspect.mode ?? "") === "SELECTION_ONLY") {
-    const allowed = (aspect.allowedValues ?? []).filter((v) => v.length > 0);
-    const norm = (s: string) => s.toLowerCase().trim().replace(/s$/, "");
     const matched: string[] = [];
     for (const v of values) {
-      const cand = norm(v);
-      const hit = allowed.find((a) => norm(a) === cand);
+      const hit = normalizeAspectValue(v, {
+        name: aspect.name,
+        mode: aspect.mode,
+        allowedValues: aspect.allowedValues,
+      });
       if (hit && !matched.includes(hit)) matched.push(hit);
     }
     if (matched.length === 0) return [];

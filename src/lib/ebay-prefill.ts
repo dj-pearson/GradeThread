@@ -11,6 +11,13 @@
 
 import type { EbayAspect } from "@/hooks/use-ebay";
 import registry from "@/lib/ebay-aspect-registry.json";
+import { normalizeAspectValue } from "@/lib/aspect-normalize";
+
+/** A value the composer rewrote to match eBay's allowed list ("M" → "Medium"). */
+export interface AspectRewrite {
+  from: string;
+  to: string;
+}
 
 interface AspectMappingEntry {
   key: string;
@@ -130,11 +137,14 @@ function canonicalValues(
 }
 
 // Fill a single aspect from candidate value(s), honoring its constraint.
+// SELECTION_ONLY values resolve through normalizeAspectValue (US-823) — exact,
+// plural, curated synonyms, conservative token fallback — and we report any
+// substantive rewrite (more than a casing change) so the composer can show it.
 function fillAspect(
   aspect: EbayAspect,
   values: string[],
   entryMulti: boolean,
-): string[] {
+): { values: string[]; rewrites: AspectRewrite[] } {
   const allowMulti =
     entryMulti &&
     aspect.aspectConstraint?.itemToAspectCardinality === "MULTI";
@@ -142,26 +152,37 @@ function fillAspect(
     const allowed = (aspect.aspectValues ?? [])
       .map((v) => v.localizedValue ?? "")
       .filter((v) => v.length > 0);
-    // Plural-tolerant: eBay sometimes pluralizes values ("Unisex Adults").
-    const norm = (s: string) => s.toLowerCase().trim().replace(/s$/, "");
     const matched: string[] = [];
+    const rewrites: AspectRewrite[] = [];
     for (const v of values) {
-      const cand = norm(v);
-      const hit = allowed.find((a) => norm(a) === cand);
-      if (hit && !matched.includes(hit)) matched.push(hit);
+      const hit = normalizeAspectValue(v, {
+        name: aspect.localizedAspectName,
+        mode: "SELECTION_ONLY",
+        allowedValues: allowed,
+      });
+      if (hit && !matched.includes(hit)) {
+        matched.push(hit);
+        if (hit.trim().toLowerCase() !== v.trim().toLowerCase()) {
+          rewrites.push({ from: v, to: hit });
+        }
+      }
     }
-    if (matched.length === 0) return [];
-    return allowMulti ? matched : [matched[0]!];
+    if (matched.length === 0) return { values: [], rewrites: [] };
+    const out = allowMulti ? matched : [matched[0]!];
+    return { values: out, rewrites: rewrites.filter((r) => out.includes(r.to)) };
   }
-  return allowMulti ? values : [values[0]!];
+  return { values: allowMulti ? values : [values[0]!], rewrites: [] };
 }
 
 // Map structured item data onto a category's aspects via the shared registry.
 // Returns only aspects NOT already set in `existing` (user-set values win).
+// When `rewritesOut` is supplied, it is populated with the (first) value rewrite
+// per aspect so the composer can surface "M → will be sent as Medium".
 export function deriveAspectsFromItem(
   item: ItemAspectSource,
   aspectList: EbayAspect[],
   existing: Record<string, string[]>,
+  rewritesOut?: Record<string, AspectRewrite>,
 ): Record<string, string[]> {
   const category = item.item_category ?? null;
   const out: Record<string, string[]> = {};
@@ -178,7 +199,12 @@ export function deriveAspectsFromItem(
     const values = canonicalValues(entry, item);
     if (!values || values.length === 0) continue;
     const filled = fillAspect(aspect, values, entry.multi);
-    if (filled.length > 0) out[name] = filled;
+    if (filled.values.length > 0) {
+      out[name] = filled.values;
+      if (rewritesOut && filled.rewrites[0]) {
+        rewritesOut[name] = filled.rewrites[0];
+      }
+    }
   }
   return out;
 }

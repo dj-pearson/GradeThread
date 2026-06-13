@@ -1924,3 +1924,22 @@ Branch: ralph/gradethread-build
 - Notes: One definition of canonical-field -> eBay-aspect mapping, replacing the 3-copy duplication. Edge consumes the TS registry directly; web vendors a generated JSON copy + a deno drift guard (same pattern as SEO public-routes / US-808 IAP drift). iOS prefill is server-driven (no Swift mapping table — EbayAspectsTypes only flattens the server's aspect spec), so it consumes the registry transitively with nothing to drift. SELECTION_ONLY validation (case + trailing-plural tolerant) and the Regular-size-type/department-inference defaults are preserved exactly; the 7-mapping legacy regression is asserted. Verified: deno check + lint clean, new deno tests 15/15 green, web tsc -b + eslint clean, new vitest 10/10 green, npm run build green. Pre-existing unrelated failures on clean HEAD (grid-image-lazy US-413 + seo route-metadata /verify US-435) confirmed via stash — not caused by this story.
 - Timestamp: 2026-06-13
 ---
+
+## US-823: Aspect value normalization layer (synonyms + size expansion)
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/aspect-normalize.ts (NEW — canonical normalizeAspectValue + curated tables)
+  - src/lib/aspect-normalize.ts (NEW — verbatim web mirror)
+  - services/edge-functions/src/lib/aspect-registry.ts (fillAspect now calls normalizeAspectValue)
+  - src/lib/ebay-prefill.ts (fillAspect normalized + reports rewrites; deriveAspectsFromItem gains optional rewritesOut param)
+  - src/components/flipdesk/ebay-category-picker.tsx (prefillHints state + "sent as" hint under each field)
+  - services/edge-functions/src/tests/aspect-normalize_test.ts (NEW, deno)
+  - src/lib/__tests__/aspect-normalize.test.ts (NEW, vitest)
+  - services/edge-functions/src/tests/aspect-registry_test.ts (added M->Medium resolver case)
+- Notes:
+  - Cascade: exact -> plural(legacy) -> curated synonyms -> parenthetical "Label (ABBR)" -> single unambiguous whole-word. Returns null when no confident match (never guess); FREE_TEXT passes through unchanged.
+  - Curated groups are conservative: only well-established equivalences. Deliberately did NOT merge plus-size numerics (1X/2X) with alpha sizes, nor distinct semantic colors (Beige != Tan) — only orthographic color variants (Grey->Gray).
+  - The two aspect-normalize.ts copies are byte-identical (same hand-mirror pattern as the existing resolver logic; registry DATA stays single-sourced via the JSON + drift guard). iOS is server-driven, so it benefits transitively with no Swift change.
+  - Verified: npx tsc -b clean, npm run build OK, eslint clean, deno lint clean, vitest 17 passed, deno test 27 passed.
+- Timestamp: 2026-06-13
+---

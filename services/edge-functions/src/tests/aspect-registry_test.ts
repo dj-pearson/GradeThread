@@ -80,6 +80,18 @@ Deno.test("legacy: department inferred from text and validated against SELECTION
   assertEquals(resolveItemAspects(item, [sel("Department", ["Women"])], {}), {});
 });
 
+Deno.test("US-823: resolver normalizes a SELECTION_ONLY value (size M → Medium)", () => {
+  const item: RegistryItem = { item_category: "clothing", size: "M", material: "Poly" };
+  assertEquals(
+    resolveItemAspects(
+      item,
+      [sel("Size", ["Small", "Medium", "Large"]), sel("Material", ["Cotton", "Polyester"])],
+      {},
+    ),
+    { Size: ["Medium"], Material: ["Polyester"] },
+  );
+});
+
 Deno.test("legacy: SELECTION_ONLY plural tolerance (Unisex Adult ↔ Unisex Adults)", () => {
   const item: RegistryItem = { item_category: "clothing", title: "unisex tee" };
   assertEquals(
