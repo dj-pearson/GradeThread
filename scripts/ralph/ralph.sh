@@ -90,14 +90,41 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
 
-  # Run the selected tool with the ralph prompt
+  # Per-iteration timeout (seconds). A single iteration that exceeds this is
+  # treated as hung and killed so the LOOP survives instead of stalling forever.
+  # The 2026-06-12 hang (prerender.mjs never exiting -> foreground `npm run build`
+  # never returns -> `claude --print` never closes) would have stalled here with
+  # no cap. Override with RALPH_ITER_TIMEOUT=<seconds>. Default 2400s (40 min).
+  TIMEOUT_SECS="${RALPH_ITER_TIMEOUT:-2400}"
+  TMP_OUT="$(mktemp)"
+
+  # Run the selected tool with the ralph prompt. We use a real pipeline (not
+  # command substitution) so PIPESTATUS reflects `timeout`'s exit code, and tee
+  # both streams live output and captures it to $TMP_OUT for the COMPLETE check.
+  set +e
   if [[ "$TOOL" == "amp" ]]; then
-    OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+    timeout "${TIMEOUT_SECS}s" amp --dangerously-allow-all < "$SCRIPT_DIR/prompt.md" 2>&1 | tee "$TMP_OUT"
   else
-    # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output
+    timeout "${TIMEOUT_SECS}s" claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee "$TMP_OUT"
   fi
-  
+  RC=${PIPESTATUS[0]}
+  set -e
+  OUTPUT="$(cat "$TMP_OUT")"
+  rm -f "$TMP_OUT"
+
+  if [ "$RC" -eq 124 ]; then
+    echo ""
+    echo "⚠️  Iteration $i exceeded ${TIMEOUT_SECS}s and was killed (likely a hung build). Sweeping and continuing."
+  fi
+
+  # Sweep any GradeThread build helpers this iteration left behind (prerender /
+  # tsc / vite), so a process pileup can never starve the next iteration. Safe:
+  # only matches node procs running THIS repo's build (see kill-stray-builds.ps1).
+  if command -v cygpath >/dev/null 2>&1; then
+    powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$SCRIPT_DIR/kill-stray-builds.ps1")" 2>/dev/null || true
+  fi
+
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
