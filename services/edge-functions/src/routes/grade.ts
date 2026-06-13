@@ -9,6 +9,7 @@ import {
   type GradeTier,
   type PrecedenceResult,
   runPaymentPrecedence,
+  tierSupportsAuthenticityAddon,
 } from "../lib/grade-billing.ts";
 import { captureException } from "../lib/observability.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
@@ -218,6 +219,11 @@ gradeRoutes.post("/submit", async (c) => {
   // checks in verified-capture.ts pass at grading time. Never lowers a grade.
   const verifiedCaptureOptIn =
     (formData.get("verified_capture_opt_in") as string | null) === "true";
+  // US-601: premium authenticity / counterfeit-confidence add-on opt-in. Only
+  // HONORED on a paid Premium/Express tier (the higher per-tier charge covers it)
+  // and when the kill-switch flag is on — both enforced just below.
+  const authenticityAddonOptIn =
+    (formData.get("authenticity_addon") as string | null) === "true";
   const tierRaw = (formData.get("tier") as string | null) ?? "standard";
   const tier: GradeTier = GRADE_TIERS.includes(tierRaw as GradeTier)
     ? (tierRaw as GradeTier)
@@ -300,6 +306,13 @@ gradeRoutes.post("/submit", async (c) => {
     }, 403);
   }
 
+  // US-601: honor the authenticity add-on only on a paid Premium/Express tier
+  // AND when the kill-switch flag is on. Standard grades never include it.
+  const authenticityAddon =
+    authenticityAddonOptIn &&
+    tierSupportsAuthenticityAddon(tier) &&
+    (await isFeatureEnabled("authenticity_addon"));
+
   // Create submission (unpaid). user_id is the workspace owner so the row
   // is visible to all workspace members via the additive RLS.
   const { data: submission, error: submissionError } = await supabaseAdmin
@@ -313,6 +326,7 @@ gradeRoutes.post("/submit", async (c) => {
       description: description?.trim() || null,
       style_attributes: styleAttributes,
       verified_capture_opt_in: verifiedCaptureOptIn,
+      authenticity_addon: authenticityAddon,
       status: "pending",
       payment_status: "unpaid",
     })

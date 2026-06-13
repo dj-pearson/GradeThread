@@ -18,7 +18,14 @@ import {
   TIER_CREDIT_COST,
   TIER_PRICE_CENTS,
   tierPriceDollars,
+  tierSupportsAuthenticityAddon,
 } from "../lib/grade-pricing.ts";
+
+Deno.test("tierSupportsAuthenticityAddon: premium/express only (US-601)", () => {
+  assert(!tierSupportsAuthenticityAddon("standard"));
+  assert(tierSupportsAuthenticityAddon("premium"));
+  assert(tierSupportsAuthenticityAddon("express"));
+});
 
 Deno.test("isGradeTier accepts only the three tiers", () => {
   assert(isGradeTier("standard"));

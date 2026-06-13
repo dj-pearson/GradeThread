@@ -839,6 +839,43 @@ export function CertificatePage() {
                 </div>
               </div>
             )}
+
+            {/* US-601: premium authenticity / counterfeit-confidence add-on.
+                Shown only when the seller purchased it. A SEPARATE garment-
+                authenticity signal — clearly distinct from the "Authenticity
+                check" (photo-tamper) above. A confidence estimate, with its
+                limitations disclosed. */}
+            {gradeReport.authenticity_addon_included && (
+              <div className="flex items-start gap-3">
+                <ShieldCheck
+                  className={cn(
+                    "mt-0.5 h-5 w-5 flex-shrink-0",
+                    gradeReport.authenticity_counterfeit_risk === "low"
+                      ? "text-green-600 dark:text-green-400"
+                      : gradeReport.authenticity_counterfeit_risk === "high"
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-yellow-600 dark:text-yellow-400"
+                  )}
+                />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    Authenticity check (counterfeit confidence)
+                    {gradeReport.authenticity_confidence_label
+                      ? ` — ${gradeReport.authenticity_confidence_label} confidence`
+                      : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {gradeReport.authenticity_summary ||
+                      "Garment authenticity was assessed against the claimed brand."}
+                  </p>
+                  {gradeReport.authenticity_limitations && (
+                    <p className="text-xs italic text-muted-foreground">
+                      {gradeReport.authenticity_limitations}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

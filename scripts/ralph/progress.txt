@@ -1563,3 +1563,30 @@ Branch: ralph/gradethread-build
 - Notes: A base consignors table already existed (00107 / US-676, iOS). US-600 layers the WEB portal + Stripe Connect payouts + intake e-sign + P&L on top — so 00171 only ALTERs (never renames) the existing columns (contact_email/contact_phone/default_split_pct) to keep iOS ConsignorService working. Split economics use NET proceeds (sale_price - platform/processing fees) per 00107's stated semantics. Independent grading needs no new table — consigned items are normal inventory_items carrying grade_value/certificate_url. Verified: tsc --noEmit, npm run build, deno check, deno lint, and `npm run verify:db` (migration applies cleanly from zero).
 - Timestamp: 2026-06-13
 ---
+
+## US-601: Add an authenticity/counterfeit-confidence signal
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00172_authenticity_addon.sql (new) — submissions.authenticity_addon, grade_reports.authenticity_assessment, feature_flags seed, public_grade_reports view appends buyer-safe authenticity fields
+  - services/edge-functions/src/lib/ai-authenticity.ts (new) — assessAuthenticity() dedicated garment-authenticity vision pass + pure helpers (deriveCounterfeitRisk, normalizeAuthenticityAssessment, selectAuthenticityImages) + AUTHENTICITY_LIMITATIONS disclosure constant
+  - services/edge-functions/src/lib/grading-pipeline.ts — run add-on inside buffer-slot closure when purchased; persist; detailed note; record AI usage (phase 'authenticity')
+  - services/edge-functions/src/routes/grade.ts — parse opt-in; honor only on Premium/Express + feature flag; persist authenticity_addon
+  - services/edge-functions/src/lib/grade-pricing.ts + grade-billing.ts — tierSupportsAuthenticityAddon() pure gate + re-export
+  - services/edge-functions/src/lib/feature-flags.ts — add 'authenticity_addon' FeatureKey
+  - services/edge-functions/src/lib/schema-version.ts — bump EXPECTED_SCHEMA_VERSION 00162 -> 00172 (was already stale; required by schema-version_test)
+  - src/types/database.ts — CounterfeitRisk + AuthenticityAssessment; submissions.authenticity_addon; grade_reports.authenticity_assessment; PublicGradeReportRow public fields; Insert types
+  - src/lib/constants.ts — AUTHENTICITY_ADDON_TIERS, tierSupportsAuthenticityAddon, COUNTERFEIT_RISK_LABELS
+  - src/pages/new-submission.tsx — opt-in toggle (Premium/Express only) + formData field
+  - src/pages/submission-detail.tsx — owner Authenticity Check card (confidence, risk, red flags, supporting signals, limitations)
+  - src/pages/certificate.tsx — public buyer-facing counterfeit-confidence section with limitations disclosure
+  - services/edge-functions/src/tests/ai-authenticity_test.ts (new) + grade-pricing_test.ts — pure-logic tests
+- Notes:
+  - The signal is deliberately SEPARATE from (a) the condition grade and (b) the photo-tamper check (image_authenticity, US-336-338). The prompt tells the model to ignore photo editing/screenshots and condition/wear, judging brand authenticity only. AC #2 satisfied.
+  - "Premium add-on" modeled WITHOUT rebuilding billing precedence: gated to the paid Premium/Express tiers (whose higher charge covers it) + opt-in + feature flag. Standard grades never include it. Server re-enforces tier+flag regardless of client.
+  - counterfeit_risk is derived deterministically in code (deriveCounterfeitRisk), not trusted to the model. limitations is always the fixed AUTHENTICITY_LIMITATIONS constant. AC #3 (confidence + limitations disclosed) satisfied on owner + public surfaces.
+  - Pipeline runs the add-on INSIDE the existing withImageBufferSlot closure to reuse resident base64 (keeps the memory gate as the concurrency bound). Best-effort: a failure resolves null so a flaky add-on never fails a paid grade. Rare quality-gate abstention wastes one call but charges nothing extra.
+  - Public view exposes only coarse buyer-safe fields (addon_included, confidence_label, counterfeit_risk, summary, limitations); raw red_flags stay server-side (a wrong public counterfeit claim would be harmful) — mirrors the image_authenticity.tells treatment.
+  - PRE-EXISTING FAILURES (NOT this story): src/tests/plan-gate_test.ts + src/tests/rls-guard_test.ts fail on a clean tree (git stash confirmed) — introduced by US-600 / migration 00171 (rls-guard flags a tenant table missing restrictive RLS). Needs a follow-up; out of scope for US-601.
+  - Verified: deno check src/main.ts, deno lint, deno test (ai-authenticity + grade-pricing 25 pass; full suite 967 pass / only the 2 pre-existing US-600 failures remain), npx tsc --noEmit, npm run build, eslint.
+- Timestamp: 2026-06-13
+---

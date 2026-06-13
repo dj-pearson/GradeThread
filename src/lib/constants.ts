@@ -437,6 +437,30 @@ export const GRADE_FACTORS = {
 
 export type GradeFactorKey = keyof typeof GRADE_FACTORS;
 
+// US-601: premium authenticity / counterfeit-confidence add-on. Offered only on
+// the paid Premium/Express tiers (mirrors tierSupportsAuthenticityAddon on the
+// edge). The add-on is a SEPARATE garment-authenticity signal — distinct from
+// the condition grade and from photo-tamper detection.
+export const AUTHENTICITY_ADDON_TIERS: readonly GradeTierKey[] = [
+  "premium",
+  "express",
+] as const;
+
+export function tierSupportsAuthenticityAddon(tier: GradeTierKey): boolean {
+  return AUTHENTICITY_ADDON_TIERS.includes(tier);
+}
+
+// Buyer-facing labels + styling for the coarse counterfeit-risk bucket.
+export const COUNTERFEIT_RISK_LABELS: Record<
+  "low" | "elevated" | "high" | "indeterminate",
+  { label: string; tone: "good" | "warn" | "alert" | "neutral" }
+> = {
+  low: { label: "Low counterfeit risk", tone: "good" },
+  elevated: { label: "Elevated counterfeit risk", tone: "warn" },
+  high: { label: "High counterfeit risk", tone: "alert" },
+  indeterminate: { label: "Could not assess", tone: "neutral" },
+};
+
 // Listing platforms
 export const LISTING_PLATFORMS = [
   "ebay",

@@ -9,6 +9,7 @@ import {
   type GarmentInfo,
   type CompositeGradeResult,
 } from "./ai-grading.ts";
+import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
@@ -439,7 +440,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, created_at")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, authenticity_addon, created_at")
       .eq("id", submissionId)
       .single();
 
@@ -468,13 +469,28 @@ export async function processSubmission(submissionId: string) {
       ? (submission.style_attributes as string[])
       : [];
 
+    // US-601: premium authenticity / counterfeit-confidence add-on. Only runs
+    // when the seller purchased it at submit (gated to Premium/Express tiers in
+    // grade.ts). A SEPARATE garment-authenticity vision pass — distinct from the
+    // condition grade and from the photo-tamper check (image_authenticity).
+    const wantAuthenticity =
+      (submission as { authenticity_addon?: boolean }).authenticity_addon === true;
+    const authenticityGarmentInfo: GarmentInfo = {
+      garment_type: submission.garment_type,
+      garment_category: submission.garment_category,
+      brand: submission.brand,
+      title: submission.title,
+      description: submission.description,
+      style_attributes: styleHint,
+    };
+
     // --- Steps 3+4: download → base64 → per-image analysis, under a
     // process-wide memory gate (US-573). The base64 data URIs stay resident
     // for the whole analysis, so the slot is held across BOTH steps — this
     // bounds how many submissions buffer multi-MB image data at once and is
     // what keeps concurrent grading from OOM-ing the container. The closure
     // scopes `imageData` so the base64 is GC-eligible the moment it returns.
-    const settledImages: SettledImage[] = await withImageBufferSlot(async () => {
+    const bufferResult = await withImageBufferSlot(async () => {
       // --- Step 3: Download images from storage and convert to base64 ---
       const imageDataPromises = images.map(async (image) => {
         const { data: fileData, error: downloadError } = await supabaseAdmin.storage
@@ -522,10 +538,32 @@ export async function processSubmission(submissionId: string) {
         )
       );
 
+      // US-601: run the premium authenticity add-on (when purchased) in parallel
+      // with per-image analysis, INSIDE this buffer slot so it reuses the same
+      // resident base64 data (the memory gate stays the concurrency bound). The
+      // add-on is opt-in/low-volume; on the rare quality-gate abstention the one
+      // extra call is wasted but never charged separately. Best-effort: a failure
+      // resolves to null so a flaky add-on never fails the paid grade.
+      const authPromise: Promise<AuthenticityAssessment | null> = wantAuthenticity
+        ? assessAuthenticity(
+            imageData.map((img) => ({ imageType: img.imageType, dataUri: img.dataUri })),
+            authenticityGarmentInfo,
+          ).catch((err) => {
+            console.error(
+              `[Pipeline] authenticity add-on failed for submission ${submissionId}:`,
+              err instanceof Error ? err.message : String(err),
+            );
+            return null;
+          })
+        : Promise.resolve(null);
+
       // US-485: allSettled (not all) so one flaky image doesn't fail the whole
       // paid grade. analyzeImage already retries + has a bounded timeout via the
       // Anthropic SDK (getAiMaxRetries / getAiTimeoutMs).
-      const settled = await Promise.allSettled(perImagePromises);
+      const [settled, authenticityAssessment] = await Promise.all([
+        Promise.allSettled(perImagePromises),
+        authPromise,
+      ]);
       const results: SettledImage[] = settled.map((s, i) => ({
         imageType: imageData[i].imageType,
         result: s.status === "fulfilled" ? s.value : null,
@@ -538,8 +576,12 @@ export async function processSubmission(submissionId: string) {
           );
         }
       });
-      return results;
+      return { settledImages: results, authenticityAssessment };
     });
+
+    const settledImages: SettledImage[] = bufferResult.settledImages;
+    const authenticityAssessment: AuthenticityAssessment | null =
+      bufferResult.authenticityAssessment;
 
     const { usable, failedRequired, failedOptional } = partitionImageResults(
       settledImages,
@@ -677,6 +719,19 @@ export async function processSubmission(submissionId: string) {
           ? ` Images: ${authenticity.flagged_image_types.join(", ")}.`
           : "";
       detailedNotes["authenticity_summary"] = `${authenticity.summary}${tells}${where}`;
+    }
+
+    // US-601: premium counterfeit-confidence add-on note (owner/admin facing).
+    // Clearly labeled as garment authenticity, distinct from the photo-tamper
+    // "authenticity_summary" note above.
+    if (authenticityAssessment) {
+      const flags = authenticityAssessment.red_flags.length > 0
+        ? ` Red flags: ${authenticityAssessment.red_flags.join("; ")}.`
+        : "";
+      detailedNotes["counterfeit_confidence"] =
+        `${authenticityAssessment.summary} ` +
+        `Authenticity confidence ${(authenticityAssessment.authenticity_confidence * 100).toFixed(0)}% ` +
+        `(counterfeit risk: ${authenticityAssessment.counterfeit_risk}).${flags}`;
     }
 
     // US-337: photo-reuse detection. The same photo appearing under a DIFFERENT
@@ -897,6 +952,11 @@ export async function processSubmission(submissionId: string) {
         // US-340: Verified Capture provenance result. Structured detail kept for
         // admin review; the public view exposes only the pass/fail boolean.
         verified_capture: verifiedCapture,
+        // US-601: premium authenticity / counterfeit-confidence add-on result.
+        // Null when the add-on was not purchased. A confidence signal only;
+        // limitations are embedded. The public cert view exposes only coarse,
+        // buyer-safe fields (label/risk/summary/limitations), never raw red_flags.
+        authenticity_assessment: authenticityAssessment,
         // US-341: forensic manipulation pass fused with the vision signal.
         // Stored only when an original was retained (else the pass didn't run);
         // internal anti-fraud data, never exposed on the public certificate.
@@ -935,6 +995,10 @@ export async function processSubmission(submissionId: string) {
           .map((r) => ({ phase: "per_image", usage: r.usage! })),
         ...(compositeResult.usage
           ? [{ phase: "composite", usage: compositeResult.usage }]
+          : []),
+        // US-601: per-grade cost of the premium authenticity add-on.
+        ...(authenticityAssessment?.usage
+          ? [{ phase: "authenticity", usage: authenticityAssessment.usage }]
           : []),
       ],
     });

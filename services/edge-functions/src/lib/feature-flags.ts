@@ -14,7 +14,12 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { logEvent } from "./observability.ts";
 
-export type FeatureKey = "grading" | "autolister" | "content_ai" | "repricing";
+export type FeatureKey =
+  | "grading"
+  | "autolister"
+  | "content_ai"
+  | "repricing"
+  | "authenticity_addon";
 
 const CACHE_TTL_MS = 30_000;
 const cache = new Map<string, { enabled: boolean; expires: number }>();

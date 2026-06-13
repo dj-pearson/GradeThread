@@ -28,6 +28,7 @@ export {
   TIER_CREDIT_COST,
   TIER_PRICE_CENTS,
   tierPriceDollars,
+  tierSupportsAuthenticityAddon,
 } from "./grade-pricing.ts";
 export type { GradeTier } from "./grade-pricing.ts";
 

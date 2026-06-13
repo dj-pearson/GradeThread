@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { BadgeCheck, Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { BadgeCheck, Check, ChevronLeft, ChevronRight, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
-import { GRADETHREAD_TIERS } from "@/lib/constants";
+import { GRADETHREAD_TIERS, tierSupportsAuthenticityAddon } from "@/lib/constants";
 import type { GradeTierKey } from "@/lib/constants";
 import type { InventoryItemRow } from "@/types/database";
 import { supabase } from "@/lib/supabase";
@@ -149,6 +149,9 @@ export function NewSubmissionPage() {
   // default; only meaningful when every photo carries device + timestamp EXIF
   // (the server re-verifies recency/consistency/no-reuse before awarding it).
   const [verifiedCaptureOptIn, setVerifiedCaptureOptIn] = useState(false);
+  // US-601: opt-in for the premium authenticity / counterfeit-confidence add-on.
+  // Only offered on Premium/Express tiers (the higher tier charge covers it).
+  const [authenticityAddonOptIn, setAuthenticityAddonOptIn] = useState(false);
   const [checkoutState, setCheckoutState] = useState<CheckoutRequiredState | null>(
     null
   );
@@ -302,6 +305,12 @@ export function NewSubmissionPage() {
       formData.append(
         "verified_capture_opt_in",
         verifiedCaptureOptIn && provenanceAvailable ? "true" : "false"
+      );
+      // US-601: authenticity add-on opt-in. Only sent true when the tier supports
+      // it; the server re-checks the tier + the feature flag before honoring it.
+      formData.append(
+        "authenticity_addon",
+        authenticityAddonOptIn && tierSupportsAuthenticityAddon(tier) ? "true" : "false"
       );
 
       // Append images, their types, perceptual hashes, and provenance EXIF as
@@ -680,6 +689,44 @@ export function NewSubmissionPage() {
                       })}
                     </div>
                   </div>
+
+                  {/* US-601: premium authenticity / counterfeit-confidence
+                      add-on. A SEPARATE garment-authenticity check (logos, tags,
+                      stitching, hardware) — not a condition score and not the
+                      photo-tamper check. Offered only on Premium/Express tiers;
+                      the tier price covers it. Confidence + limitations are
+                      disclosed on the report/certificate. */}
+                  {tierSupportsAuthenticityAddon(tier) ? (
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:border-primary/40">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 accent-primary"
+                        checked={authenticityAddonOptIn}
+                        onChange={(e) => setAuthenticityAddonOptIn(e.target.checked)}
+                      />
+                      <div className="space-y-0.5">
+                        <p className="flex items-center gap-1.5 text-sm font-medium">
+                          <ShieldCheck className="h-4 w-4 text-brand-navy dark:text-foreground" />
+                          Add an authenticity check
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Included with {GRADETHREAD_TIERS[tier].label}. We assess
+                          whether the garment looks like a genuine example of its
+                          claimed brand (logos, tags, stitching, hardware) and add an
+                          authenticity-confidence signal to your report. It's a
+                          confidence estimate from photos — not a definitive
+                          authentication or guarantee — and is separate from the
+                          condition grade.
+                        </p>
+                      </div>
+                    </label>
+                  ) : (
+                    <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                      <ShieldCheck className="mr-1 inline h-3.5 w-3.5" />
+                      An authenticity / counterfeit-confidence check is available on
+                      the Premium and Express tiers.
+                    </p>
+                  )}
 
                   {/* Payment estimate — mirrors the server precedence */}
                   <div className="rounded-lg bg-muted/50 p-4 text-sm">

@@ -412,6 +412,9 @@ export interface SubmissionRow {
   // badge is only AWARDED if the server-side checks also pass; opting in never
   // lowers a grade.
   verified_capture_opt_in: boolean;
+  // US-601: the seller purchased the premium authenticity/counterfeit-confidence
+  // add-on for this submission (Premium/Express tiers only).
+  authenticity_addon: boolean;
   // US-773/US-569: durable grading job state. grading_started_at is stamped on
   // the first claim; grading_lease_until is the lease expiry (a live grade run
   // owns the row until then; an expired lease is re-claimable/resumable);
@@ -480,6 +483,29 @@ export interface VerifiedCaptureResult {
   total: number;
   max_age_days: number;
   checked_at: string;
+}
+
+// US-601: premium authenticity / counterfeit-confidence add-on result, persisted
+// on grade_reports.authenticity_assessment. A SEPARATE garment-authenticity
+// signal — distinct from the condition grade and from the photo-tamper check
+// (ImageAuthenticity). A CONFIDENCE estimate, never a definitive authentication;
+// the limitations are always disclosed. Null when the add-on was not purchased.
+export type CounterfeitRisk = "low" | "elevated" | "high" | "indeterminate";
+
+export interface AuthenticityAssessment {
+  assessed: boolean;
+  // 0.0–1.0 confidence that the garment is a GENUINE example of the claimed brand.
+  authenticity_confidence: number;
+  counterfeit_risk: CounterfeitRisk;
+  brand_assessed: string | null;
+  signals_examined: string[];
+  // Owner/admin-only — never published raw on a public certificate.
+  red_flags: string[];
+  supporting_signals: string[];
+  summary: string;
+  limitations: string;
+  model: string;
+  prompt_version: string;
 }
 
 // US-341: server-side forensic manipulation pass fused with the US-336 vision
@@ -552,6 +578,9 @@ export interface GradeReportRow {
   // US-340: Verified Capture provenance result. Null for grades produced before
   // the check / when the seller did not opt in.
   verified_capture: VerifiedCaptureResult | null;
+  // US-601: premium authenticity / counterfeit-confidence add-on result. Null
+  // when the add-on was not purchased (migration 00172).
+  authenticity_assessment: AuthenticityAssessment | null;
   // US-341: forensic manipulation pass fused with the vision signal. Null unless
   // a retained original made the pass run (migration 00139). Internal — never
   // exposed on the public certificate view.
@@ -615,6 +644,14 @@ export interface PublicGradeReportRow {
   // "Verified Capture" badge). Only the pass/fail boolean is public — the raw
   // device/recency reasons stay server-side.
   verified_capture_passed: boolean;
+  // US-601: premium authenticity add-on, buyer-safe projection. Coarse fields
+  // only — the raw red_flags/signals stay server-side. Null/false when the
+  // add-on wasn't purchased.
+  authenticity_addon_included: boolean;
+  authenticity_confidence_label: "high" | "moderate" | "low" | null;
+  authenticity_counterfeit_risk: CounterfeitRisk | null;
+  authenticity_summary: string | null;
+  authenticity_limitations: string | null;
 }
 
 export interface DisputeRow {
@@ -1613,6 +1650,7 @@ export interface SubmissionInsert {
   description?: string | null;
   style_attributes?: string[];
   verified_capture_opt_in?: boolean;
+  authenticity_addon?: boolean;
 }
 
 export interface SubmissionImageInsert {
@@ -1641,6 +1679,7 @@ export interface GradeReportInsert {
   confidence_score: number;
   needs_human_review?: boolean;
   verified_capture?: VerifiedCaptureResult | null;
+  authenticity_assessment?: AuthenticityAssessment | null;
   forensic_analysis?: ForensicTamperAssessment | null;
   model_version: string;
   prompt_version?: string | null;

@@ -13,6 +13,14 @@ export function isGradeTier(value: unknown): value is GradeTier {
   );
 }
 
+// US-601: the premium authenticity / counterfeit-confidence add-on is offered
+// only on the paid Premium/Express tiers — the higher per-tier charge covers it,
+// so there is no separate billing path. Standard grades never include it. Pure +
+// unit-tested; the route ALSO checks the seller opt-in + the feature flag.
+export function tierSupportsAuthenticityAddon(tier: GradeTier): boolean {
+  return tier === "premium" || tier === "express";
+}
+
 // Mirrors src/lib/constants.ts FLIPDESK_PLANS.includedStandardGradesPerMonth.
 // Keyed on the current flipdesk_plan column (NOT the legacy `plan` column).
 export const INCLUDED_STANDARD_PER_MONTH: Record<string, number> = {

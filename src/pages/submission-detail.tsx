@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Image as ImageIcon,
   Eye,
+  ShieldCheck,
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
@@ -44,7 +45,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { GRADE_FACTORS, DISPUTE_REASONS } from "@/lib/constants";
+import { GRADE_FACTORS, DISPUTE_REASONS, COUNTERFEIT_RISK_LABELS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -936,6 +937,86 @@ export function SubmissionDetailPage() {
                   </CardContent>
                 </Card>
               )}
+
+            {/* US-601: premium authenticity / counterfeit-confidence add-on.
+                A SEPARATE garment-authenticity signal — distinct from the
+                condition grade and from photo-tamper detection. A confidence
+                estimate, with limitations disclosed. */}
+            {gradeReport.authenticity_assessment?.assessed && (() => {
+              const auth = gradeReport.authenticity_assessment!;
+              const risk = COUNTERFEIT_RISK_LABELS[auth.counterfeit_risk];
+              const tone =
+                risk.tone === "good"
+                  ? "text-green-600 dark:text-green-400"
+                  : risk.tone === "alert"
+                    ? "text-red-600 dark:text-red-400"
+                    : risk.tone === "warn"
+                      ? "text-yellow-600 dark:text-yellow-400"
+                      : "text-muted-foreground";
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <ShieldCheck className={cn("h-4 w-4", tone)} />
+                      Authenticity Check
+                    </CardTitle>
+                    <CardDescription>
+                      A premium counterfeit-confidence signal — separate from the
+                      condition grade and from photo-tamper detection.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className={cn("font-semibold", tone)}>{risk.label}</span>
+                      {auth.counterfeit_risk !== "indeterminate" && (
+                        <span className="text-muted-foreground">
+                          {(auth.authenticity_confidence * 100).toFixed(0)}% authentic-confidence
+                        </span>
+                      )}
+                    </div>
+                    {auth.brand_assessed && (
+                      <p className="text-xs text-muted-foreground">
+                        Assessed against: <span className="font-medium">{auth.brand_assessed}</span>
+                      </p>
+                    )}
+                    <p className="leading-relaxed">{auth.summary}</p>
+                    {auth.red_flags.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-red-600 dark:text-red-400">
+                          Potential concerns
+                        </p>
+                        <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                          {auth.red_flags.map((f, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500" />
+                              {f}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {auth.supporting_signals.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-green-600 dark:text-green-400">
+                          Consistent with authentic
+                        </p>
+                        <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                          {auth.supporting_signals.map((s, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-green-500" />
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <p className="rounded-md bg-muted/60 px-3 py-2 text-xs italic text-muted-foreground">
+                      {auth.limitations}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            })()}
           </div>
 
           {/* Right column: Confidence + Defects + Images */}
