@@ -28,6 +28,7 @@ shows on `/health/ready` → `features`. Authoritative lists with per-var commen
 | `STRIPE_SECRET_KEY` | Coolify (Stripe → Developers) | `stripe trigger checkout.session.completed` lands in logs | ☐ |
 | `STRIPE_WEBHOOK_SECRET` | Coolify (Stripe → Webhooks → signing secret) | webhook returns 200, not 400 sig-fail | ☐ |
 | `FLIPDESK_INTERNAL_JOB_SECRET` | Coolify | a cron **Run Now** returns `{ok:true}` (§3) | ☐ |
+| `CONTENT_INTERNAL_JOB_SECRET` | Coolify (own secret, ≠ FlipDesk) | `content-scheduler-tick` **Run Now** returns JSON (§3); `docs/CONTENT_SCHEDULER.md` | ☐ |
 | `EDGE_ENCRYPTION_KEY` | Coolify (`openssl rand -base64 32`) | connect an eBay account → token stored | ☐ |
 | `CERT_SIGNING_KEY` | Coolify (`openssl rand -hex 32`) | `/api/content/public/certificates/<id>/verify` → `signed:true` | ☐ |
 | `API_KEY_PEPPER` | Coolify (set BEFORE issuing prod API keys) | issue + use an API key | ☐ |
@@ -89,10 +90,15 @@ and confirm the expected output. All hit `http://localhost:8787` (in-container,
 skips Traefik/WAF) with header `X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET`.
 A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COOLIFY.md`.
 
+> The `content-scheduler-tick` task is the **one exception** to the shared
+> header: it authenticates with `X-Internal-Job-Secret: $CONTENT_INTERNAL_JOB_SECRET`
+> (its own secret) and a healthy idle run returns `{"skipped":true,...}`, not
+> `{"ok":true}`. See `docs/CONTENT_SCHEDULER.md` for the safe low-cadence rollout.
+
 > **COOLIFY.md drift (fix at launch):** its table predates four jobs —
 > `growth-dispatch`, `reprice-rules`, `sync-reaper`, `google-sheet-sync` are
 > registered in `main.ts` but missing from that table. This checklist is the
-> authoritative set (18 tasks).
+> authoritative set (19 tasks).
 
 | Task | Schedule | Endpoint (POST) | Run Now ✓ | By / Date |
 |---|---|---|---|---|
@@ -119,6 +125,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | ☐ | full 2-way merge (push **and** pull); `/sync/pull` is an alias |
 | ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | ☐ | re-links parked payout/order/return events once the seller's handle/id hydrates (US-472) |
 | north-star-digest | `0 14 * * 1` | `/api/jobs/north-star-digest` | ☐ | weekly (Mon) items-listed encouragement + milestone emails, streak tracking (US-597) |
+| content-scheduler-tick | `0 * * * *` | `/api/content/scheduler/tick` | ☐ | **uses `CONTENT_INTERNAL_JOB_SECRET`**; idle returns `{skipped:true}`. Hourly tick enforces per-day cadence + promotes scheduled drafts. Start with autopilot OFF — `docs/CONTENT_SCHEDULER.md` (US-852) |
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`
 (same secret header) once after the final pre-launch deploy — it seals every

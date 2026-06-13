@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { SEO } from "@/components/seo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useContentStats } from "@/hooks/use-content";
+import { useContentSettings, useContentStats } from "@/hooks/use-content";
 import { PRODUCT_LABELS } from "@/lib/constants";
 
 // At-a-glance health for the content module. No external analytics —
@@ -14,6 +14,7 @@ import { PRODUCT_LABELS } from "@/lib/constants";
 //   - What's the most recent activity?
 export function ContentAnalyticsPage() {
   const { data: stats, isLoading } = useContentStats();
+  const { data: settings } = useContentSettings();
 
   if (isLoading || !stats) {
     return (
@@ -109,6 +110,69 @@ export function ContentAnalyticsPage() {
           subtitle={`${formatTokens(stats.ai_usage_30d.input_tokens)} in / ${formatTokens(stats.ai_usage_30d.output_tokens)} out`}
         />
       </div>
+
+      {/* Autopilot status — what mode the scheduler is running in right now.
+          Confirms the safe-rollout state at a glance (US-852). */}
+      {settings && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Autopilot</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {settings.publishing_paused && (
+              <div className="mb-3 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive">
+                Publishing is paused — the scheduler tick is doing nothing
+                (kill-switch). Manual publishing still works.
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <AutopilotStat
+                label="Blog autopilot"
+                on={settings.auto_publish_blog && !settings.publishing_paused}
+                detail={`${settings.post_cadence_per_day_blog}/day cadence`}
+              />
+              <AutopilotStat
+                label="Social autopilot"
+                on={settings.auto_publish_social && !settings.publishing_paused}
+                detail={`${settings.post_cadence_per_day_social}/day cadence`}
+              />
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">
+                  Weekly ceiling
+                </p>
+                <p className="mt-1 text-lg font-semibold">
+                  {settings.max_auto_publishes_per_week}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  hard cap, blog + social
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">
+                  Min topics in bank
+                </p>
+                <p className="mt-1 text-lg font-semibold">
+                  {settings.min_topics_in_bank}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  auto-refills in batches of {settings.topics_refill_batch}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              When an autopilot is off, the scheduler still generates drafts at
+              cadence — they just wait for a manual publish. Tune everything in{" "}
+              <Link
+                to="/admin/content/settings"
+                className="underline underline-offset-2"
+              >
+                Content Settings
+              </Link>
+              .
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Topic bank levels */}
       <Card>
@@ -271,6 +335,26 @@ function Stat({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function AutopilotStat({
+  label,
+  on,
+  detail,
+}: {
+  label: string;
+  on: boolean;
+  detail: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs uppercase text-muted-foreground">{label}</p>
+      <p className="mt-1">
+        <Badge variant={on ? "default" : "secondary"}>{on ? "On" : "Off"}</Badge>
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
+    </div>
   );
 }
 

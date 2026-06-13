@@ -1,0 +1,152 @@
+# Content Scheduler — Cron Wiring & Safe Rollout
+
+The autonomous content engine publishes on-brand blog + social posts with **no
+human in the loop**. This doc covers how the cron is wired, the env var it needs,
+and the **safe low-cadence rollout** to turn it on without spamming live channels.
+
+- Edge handler: `services/edge-functions/src/routes/content-scheduler.ts`
+- Admin config: `/admin/content/settings` (cadence, models, toggles, kill-switch)
+- Admin observability: `/admin/content/analytics` (autopilot state, recent
+  publishes per surface/product, topic-bank levels, webhook health)
+
+> **Dependencies:** the knowledge base (US-850, migration `00191`) and the topic
+> bank (US-851, migration `00192`) must be seeded before turning autopilot on, or
+> the first ticks will refill from research instead of publishing.
+
+---
+
+## What one tick does
+
+`POST /api/content/scheduler/tick` is idempotent and safe to call on a cron. Each
+tick, in order:
+
+1. **Kill-switch check** — if `content_settings.publishing_paused` is true, the
+   tick does **nothing** and returns `{skipped, reason:"publishing paused"}`.
+2. **Promote scheduled drafts** — any `blog_posts`/`social_posts` with
+   `status='scheduled'` and `scheduled_for <= now` are published (with optimistic
+   concurrency), regardless of cadence. So the cron doubles as the
+   scheduled-post processor — no separate cron needed.
+3. **Pick a surface** — `blog` if today's blog count < `post_cadence_per_day_blog`,
+   else `social` if under `post_cadence_per_day_social`, else skip ("cadence met").
+4. **Pick a product** — whichever of `gradethread`/`flipdesk` has fewer posts in
+   the last 14 days (keeps the two balanced).
+5. **Refill the topic bank** — if the chosen (surface, product) slice has fewer
+   than `min_topics_in_bank` queued topics, research a `topics_refill_batch` of
+   new ones first.
+6. **Generate** the post from the next queued topic.
+7. **Safety gate** (`reviewContentSafety`) — the autonomous path is the only one
+   with no human review, so it must pass. On fail the post is **held** as a draft
+   (`safety_status='held'`) with notes for a human; the topic stays `assigned`.
+8. **Weekly ceiling** — if AI posts published in the last 7 days ≥
+   `max_auto_publishes_per_week`, the tick still generates but demotes to draft
+   instead of publishing (hard cap independent of daily cadence).
+9. **Publish** (only if the surface's `auto_publish_*` flag is on) → stamp
+   `published_at` → mark topic `used` → append to history index → dispatch
+   Make.com webhook → purge Cloudflare cache (blog) → write a system audit row.
+
+If `auto_publish_*` is **off**, the tick stops at step 6/7 and leaves a `draft`
+for a human to publish from the dashboard.
+
+Other endpoints on the same router (same auth):
+- `POST /api/content/scheduler/test` — `{ok:true,ts}` ping to validate secret + URL.
+- `GET  /api/content/scheduler/summary?days=7` — weekly-digest JSON (what
+  published, topics added/used, webhook success rate, bank levels).
+
+---
+
+## Auth
+
+The scheduler router accepts **either** of:
+
+- **Internal job secret** — header `X-Internal-Job-Secret: $CONTENT_INTERNAL_JOB_SECRET`
+  (constant-time compared; `CONTENT_INTERNAL_JOB_SECRET_OLD` is also accepted
+  during a zero-downtime rotation window).
+- **Signed request** (preferred for Make.com) — header `X-Internal-Job-Signature`
+  is an HMAC bound to method+path with a freshness window and single-use replay
+  rejection, so the secret never crosses the wire.
+- **Admin JWT** — the dashboard "Generate next" buttons fall through to
+  `authMiddleware + adminAuthMiddleware`.
+
+> `CONTENT_INTERNAL_JOB_SECRET` is its **own** secret, distinct from
+> `FLIPDESK_INTERNAL_JOB_SECRET`. Set it in Coolify before wiring the cron.
+
+---
+
+## Wiring the cron
+
+Run the tick **hourly**. Cadence is enforced inside the tick (per-day counts), so
+an hourly cron with `post_cadence_per_day_blog=1` publishes ~1 blog/day — the
+extra ticks just return "cadence met". An hourly tick also means a scheduled post
+fires within ~1h of its `scheduled_for`.
+
+### Option A — Coolify scheduled task (recommended; in-container, skips WAF)
+
+Coolify → edge service → **Scheduled Tasks** → add:
+
+| Field | Value |
+|---|---|
+| Name | `content-scheduler-tick` |
+| Schedule | `0 * * * *` (hourly) |
+| Command | see below |
+
+```sh
+curl -fsS -X POST http://localhost:8787/api/content/scheduler/tick \
+  -H "X-Internal-Job-Secret: $CONTENT_INTERNAL_JOB_SECRET" \
+  -H "Content-Type: application/json" -d '{}'
+```
+
+Click **Run Now** once and confirm a JSON body (`{"skipped":true,...}` is a
+healthy idle response; `{"status":"published"|"draft"|"held",...}` means it acted).
+`localhost:8787` hits the container directly, skipping Traefik/WAF — same pattern
+as every other job in `LAUNCH_CHECKLIST.md` §3.
+
+### Option B — Make.com scenario
+
+1. **Scheduler** module → every 1 hour.
+2. **HTTP → Make a request**: `POST https://functions.gradethread.com/api/content/scheduler/tick`,
+   header `X-Internal-Job-Secret` = your secret (or compute the signed
+   `X-Internal-Job-Signature`), body `{}`.
+3. The publish webhooks (`make_webhook_blog` / `_social_long` / `_social_short`)
+   are configured separately in **Content Settings** and fire *from* the edge
+   when a post publishes — they are the downstream of this tick, not the trigger.
+
+---
+
+## Safe rollout (start LOW)
+
+Do this in order; each step is reversible from **Content Settings**.
+
+1. **Seed & verify** the knowledge base + topic bank are non-empty
+   (`/admin/content/analytics` → Topic bank levels — no slice should be red).
+2. **Wire the cron with autopilot OFF.** Defaults ship safe:
+   `auto_publish_blog=false`, `auto_publish_social=false`,
+   `publishing_paused=false`, cadence blog `1`/day + social `2`/day,
+   `max_auto_publishes_per_week=10`. The tick now generates **drafts only**.
+3. **Review a few generated drafts** in Blog/Social lists. Confirm voice, claims,
+   and that the safety gate isn't over-/under-holding.
+4. **Turn on social autopilot first** (lower stakes), keep blog manual. Drop
+   social cadence to `1`/day for the first week. Watch
+   `/admin/content/analytics` → Autopilot + Recent activity + Webhook success.
+5. **Turn on blog autopilot** once social looks good. Keep the weekly ceiling low
+   (e.g. `7`) until you trust it.
+6. **Tune up** cadence/ceiling gradually. Everything is a number field in
+   Content Settings; no deploy needed.
+
+**Emergency stop:** flip **Pause all publishing** in Content Settings
+(`publishing_paused=true`). The next tick does nothing — no auto-publish, no
+scheduled-draft promotion. Manual dashboard publishing still works.
+
+---
+
+## Verifying it end-to-end
+
+- **Manual tick:** Blog/Social list pages have a "Generate next" button
+  (`useSchedulerTick`) that POSTs `/tick` with an admin JWT — use it to dry-run
+  without waiting for the cron.
+- **What published & when:** `/admin/content/analytics` → Autopilot status +
+  Recent activity (per surface/product, with timestamps) + Published-30d
+  breakdown.
+- **Webhooks:** Content Settings → Recent webhook deliveries (retry failures
+  one-click); Analytics → Webhook success KPI.
+- **Audit trail:** every autonomous publish/hold writes a system audit row
+  (`content.blog_publish`, `content.social_publish`, `content.blog_held`, …).
