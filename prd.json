@@ -8886,8 +8886,8 @@
         "Respects CAN-SPAM/marketing-vs-transactional rules (transactional support comms only)"
       ],
       "priority": 582,
-      "passes": false,
-      "notes": "[P1][Admin] Deep-dive 2026-06-04. Only auto-dispute emails exist today; no ad-hoc operator-to-customer comms."
+      "passes": true,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. Only auto-dispute emails exist today; no ad-hoc operator-to-customer comms. | DONE 2026-06-12. Edge: new admin-messages.ts mounted at /api/admin/messages (admin+AAL2 via the /api/admin/* group). POST /:userId sends through the existing transactional email path — new sendAdminMessageEmail() template in email.ts (category 'admin_message' so a failed live send is enqueued to the email_deliveries outbox for durable retry). GET /templates exposes 3 canned support/billing/account seeds. Recorded against the user: in-app notification (type 'system', subject+truncated body, optional CTA link) + writeAuditLog action 'admin.send_message' (records recipient, subject, body length, template id, cta flag, email_accepted) — written even on SMTP failure so there's a trail. Rate-limited per-admin (20/min, POST-only, scope 'admin-messages') in main.ts. CAN-SPAM: this is TRANSACTIONAL support/account mail only — the template omits the marketing unsubscribe link (you can't opt out of account mail) but keeps the postal-address footer; marketing/campaign sends still go through the US-627 broadcast engine which honors opt-out. CTA URL validated to http(s) + requires a label. Frontend: user-detail.tsx gains a 'Message' button in the header opening a compose Dialog (template picker → prefill subject/body, free-form default, 200/5000 caps) → edgeFetch POST, toasts on send/queued. Verified: npx tsc --noEmit, npm run build (+prerender), deno check src/main.ts, deno lint (admin-messages.ts/email.ts), eslint (user-detail.tsx) all green."
     },
     {
       "id": "US-583",

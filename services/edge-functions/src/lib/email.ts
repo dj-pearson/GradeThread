@@ -57,6 +57,16 @@ interface WelcomeData {
   userName: string;
 }
 
+interface AdminMessageData {
+  userName: string;
+  /** Subject line — also rendered as the email heading. */
+  subject: string;
+  /** Plain-text body; blank lines split paragraphs, single newlines → <br>. */
+  body: string;
+  ctaLabel?: string | null;
+  ctaUrl?: string | null;
+}
+
 // ─── Core Send Function ─────────────────────────────────────────────
 
 // Public send: attempts delivery once, and on failure of a CRITICAL email
@@ -1148,6 +1158,51 @@ export async function sendBroadcastEmail(
     to,
     subject: data.subject,
     html: emailLayout(content, { unsubscribeUrl }),
+  });
+}
+
+/**
+ * Ad-hoc operator → customer message (US-582). This is TRANSACTIONAL support /
+ * account mail: it omits the marketing unsubscribe link (you cannot opt out of
+ * service comms about your own account) but still carries the CAN-SPAM postal
+ * address via the standard transactional footer. The admin route gates this so
+ * it is ONLY ever used for transactional support/account communication, never
+ * marketing — that distinction is what keeps the no-unsubscribe footer compliant.
+ */
+export async function sendAdminMessageEmail(
+  to: string,
+  data: AdminMessageData,
+): Promise<boolean> {
+  const paragraphs = data.body
+    .split(/\n{2,}/)
+    .map(
+      (p) =>
+        `<p style="margin: 0 0 16px; color: #444; font-size: 15px; line-height: 1.6;">${
+          escapeHtml(p).replace(/\n/g, "<br>")
+        }</p>`,
+    )
+    .join("");
+
+  const content = `
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)},
+    </p>
+    <h2 style="margin: 0 0 16px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${escapeHtml(data.subject)}
+    </h2>
+    ${paragraphs}
+    ${data.ctaLabel && data.ctaUrl ? ctaButton(data.ctaLabel, data.ctaUrl) : ""}
+    <p style="margin: 24px 0 0; color: #999; font-size: 13px; line-height: 1.5;">
+      This is a service message from the GradeThread support team regarding your
+      account. If you have questions, just reply to this email.
+    </p>
+  `;
+
+  return await sendEmail({
+    to,
+    subject: data.subject,
+    html: emailLayout(content),
+    category: "admin_message", // US-582: durable retry on transient SMTP failure
   });
 }
 

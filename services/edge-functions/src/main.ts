@@ -46,6 +46,7 @@ import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
+import { adminMessagesRoutes } from "./routes/admin-messages.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
@@ -306,6 +307,13 @@ app.use("/api/keys/*", workspaceMiddleware);
 app.use("/api/admin/*", authMiddleware);
 app.use("/api/admin/*", adminAuthMiddleware);
 
+// US-582: ad-hoc operator → customer email. Cap per-admin sends so a compromised
+// or fat-fingered admin session can't blast mail; keyed by the authed admin user
+// (default subject) since the JWT+role check above already ran.
+app.use("/api/admin/messages/*", rateLimiter(20, 60_000, "admin-messages", undefined, {
+  methods: ["POST"],
+}));
+
 // Content module (blog + social): admin-only EXCEPT /api/content/public/*
 // which is anonymous (powers the SSR worker for /blog). We carve the
 // public surface out by listing the protected sub-paths explicitly
@@ -518,6 +526,9 @@ app.route("/api/admin/users", adminUsersRoutes);
 // + AAL2 via the /api/admin/* group; start additionally requires super_admin +
 // a fresh MFA step-up (it mints a real session as the target user).
 app.route("/api/admin/impersonation", adminImpersonationRoutes);
+// US-582 ad-hoc admin → customer transactional messaging. Admin JWT + AAL2 via
+// the /api/admin/* group; per-admin rate-limited above; audited + recorded.
+app.route("/api/admin/messages", adminMessagesRoutes);
 // US-476/477 admin content moderation (approve/reject/ban) — audited
 // service-role routes (admin JWT + AAL2 via the /api/admin/* group).
 app.route("/api/admin/moderation", adminModerationRoutes);

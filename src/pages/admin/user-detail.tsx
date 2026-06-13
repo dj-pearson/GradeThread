@@ -43,6 +43,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
   ArrowLeft,
   User,
   Mail,
@@ -55,6 +66,8 @@ import {
   CheckCircle,
   Loader2,
   Eye,
+  MessageSquare,
+  Send,
 } from "lucide-react";
 import { startImpersonation } from "@/lib/impersonation";
 import { toast } from "sonner";
@@ -84,6 +97,38 @@ const ROLE_COLORS: Record<string, string> = {
   admin: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
   super_admin: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
 };
+
+// US-582: transactional message starting points. Mirrors the seed templates in
+// services/edge-functions/src/routes/admin-messages.ts — the admin can edit any
+// field before sending, and the server only ever sends the subject/body it gets.
+const MESSAGE_TEMPLATES: { id: string; label: string; subject: string; body: string }[] = [
+  {
+    id: "support_followup",
+    label: "Support follow-up",
+    subject: "Following up on your GradeThread support request",
+    body:
+      "Thanks for reaching out to GradeThread support.\n\n" +
+      "[Write your response here.]\n\n" +
+      "If there's anything else we can help with, just reply to this email.",
+  },
+  {
+    id: "payment_reminder",
+    label: "Payment / billing notice",
+    subject: "Action needed on your GradeThread account",
+    body:
+      "We noticed an issue with the most recent payment on your account.\n\n" +
+      "[Describe the billing issue and the action needed.]\n\n" +
+      "You can update your billing details from the Billing page in your dashboard.",
+  },
+  {
+    id: "account_notice",
+    label: "Account notice",
+    subject: "An update about your GradeThread account",
+    body:
+      "We're reaching out with an important update about your account.\n\n" +
+      "[Write the account notice here.]",
+  },
+];
 
 function formatRole(role: string): string {
   if (role === "super_admin") return "Super Admin";
@@ -143,6 +188,11 @@ export function AdminUserDetailPage() {
   const [impersonateDialogOpen, setImpersonateDialogOpen] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
   const [impersonateStepUpOpen, setImpersonateStepUpOpen] = useState(false);
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
+  const [msgTemplate, setMsgTemplate] = useState<string>("free");
+  const [msgSubject, setMsgSubject] = useState("");
+  const [msgBody, setMsgBody] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-user-detail", id],
@@ -348,6 +398,60 @@ export function AdminUserDetailPage() {
     }
   }
 
+  // US-582: prefill compose fields from a canned template (or clear for free-form).
+  function applyTemplate(templateId: string) {
+    setMsgTemplate(templateId);
+    const tpl = MESSAGE_TEMPLATES.find((t) => t.id === templateId);
+    if (tpl) {
+      setMsgSubject(tpl.subject);
+      setMsgBody(tpl.body);
+    } else {
+      setMsgSubject("");
+      setMsgBody("");
+    }
+  }
+
+  // US-582: send a transactional support/account email to this user. Goes through
+  // the admin-gated, rate-limited, audited edge endpoint; the user also gets an
+  // in-app copy. Not for marketing — this is account/support comms only.
+  async function handleSendMessage() {
+    if (!targetUser) return;
+    if (!msgSubject.trim() || !msgBody.trim()) {
+      toast.error("Subject and message are both required.");
+      return;
+    }
+    setSendingMessage(true);
+    try {
+      const res = await edgeFetch(`/api/admin/messages/${targetUser.id}`, {
+        method: "POST",
+        json: {
+          subject: msgSubject.trim(),
+          body: msgBody.trim(),
+          templateId: msgTemplate === "free" ? null : msgTemplate,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 202) {
+        toast.error(data?.error || "Failed to send message");
+        return;
+      }
+      toast.success(
+        data?.delivered === false
+          ? "Message recorded — delivery queued for retry."
+          : "Message sent.",
+      );
+      setMessageDialogOpen(false);
+      setMsgTemplate("free");
+      setMsgSubject("");
+      setMsgBody("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send message");
+      if (import.meta.env.DEV) console.error(err);
+    } finally {
+      setSendingMessage(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -391,19 +495,28 @@ export function AdminUserDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h1 className="text-2xl font-bold">User Details</h1>
-        {adminProfile?.role === "super_admin" &&
-          targetUser.role !== "admin" &&
-          targetUser.role !== "super_admin" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto"
-              onClick={() => setImpersonateDialogOpen(true)}
-            >
-              <Eye className="mr-2 h-4 w-4" />
-              View as user
-            </Button>
-          )}
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMessageDialogOpen(true)}
+          >
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Message
+          </Button>
+          {adminProfile?.role === "super_admin" &&
+            targetUser.role !== "admin" &&
+            targetUser.role !== "super_admin" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImpersonateDialogOpen(true)}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                View as user
+              </Button>
+            )}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -848,6 +961,82 @@ export function AdminUserDetailPage() {
           void handleImpersonate();
         }}
       />
+
+      {/* US-582: compose & send a transactional support/account email. */}
+      <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Message {targetUser.full_name || targetUser.email}</DialogTitle>
+            <DialogDescription>
+              Sends a transactional email to <strong>{targetUser.email}</strong> and
+              records an in-app copy. For account &amp; support comms only — not
+              marketing. This action is logged.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="msg-template">Template</Label>
+              <Select value={msgTemplate} onValueChange={applyTemplate}>
+                <SelectTrigger id="msg-template">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="free">Free-form</SelectItem>
+                  {MESSAGE_TEMPLATES.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="msg-subject">Subject</Label>
+              <Input
+                id="msg-subject"
+                value={msgSubject}
+                maxLength={200}
+                placeholder="Subject line"
+                onChange={(e) => setMsgSubject(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="msg-body">Message</Label>
+              <Textarea
+                id="msg-body"
+                value={msgBody}
+                maxLength={5000}
+                rows={8}
+                placeholder="Write your message…"
+                onChange={(e) => setMsgBody(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {msgBody.length}/5000 — blank lines start new paragraphs.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setMessageDialogOpen(false)}
+              disabled={sendingMessage}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendMessage}
+              disabled={sendingMessage || !msgSubject.trim() || !msgBody.trim()}
+            >
+              {sendingMessage ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 h-4 w-4" />
+              )}
+              Send message
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
