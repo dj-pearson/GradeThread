@@ -10,6 +10,12 @@ name: Lighthouse CI
 on:
   pull_request:
     branches: [main]
+  # On-demand: run it any time from the Actions tab to get a fresh SEO/CWV snapshot.
+  workflow_dispatch: {}
+  # Weekly health snapshot of main (Mondays 09:00 UTC) — results land in the run's
+  # Job Summary so SEO/CWV trends are visible without opening a PR.
+  schedule:
+    - cron: "0 9 * * 1"
 
 concurrency:
   group: lighthouse-${{ github.ref }}
@@ -42,8 +48,8 @@ jobs:
           temporaryPublicStorage: true
           uploadArtifacts: true
 
-      - name: Comment results on PR
-        if: always() && github.event_name == 'pull_request'
+      - name: Report results (job summary + PR comment)
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
@@ -80,6 +86,13 @@ jobs:
                 "",
                 "_Reports expire after ~7 days (temporary public storage)._",
               ].join("\n");
+
+              // Always write to the run's Job Summary so scheduled / manual
+              // (workflow_dispatch) runs have readable output, not just PRs.
+              await core.summary.addRaw(body).write();
+
+              // The upsert PR comment only applies to pull_request events.
+              if (context.eventName !== "pull_request") return;
 
               const marker = "## 🔦 Lighthouse CI";
               const { owner, repo } = context.repo;
