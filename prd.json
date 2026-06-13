@@ -12356,8 +12356,8 @@
         "All endpoints are behind the existing admin auth + MFA gate; npm run build passes"
       ],
       "priority": 839,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Model after admin/reviews.tsx (MFA-gated edge endpoints) and admin/disputes.tsx (user notifications on status change). Depends on US-829/837."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Model after admin/reviews.tsx (MFA-gated edge endpoints) and admin/disputes.tsx (user notifications on status change). Depends on US-829/837. [DONE 2026-06-13] Edge: services/edge-functions/src/routes/admin-support.ts (GET /conversations?status=, GET /conversations/:id w/ tool_calls, POST /:id/reply→human_agent+awaiting_user+notify, POST /:id/resolve→resolved|closed+resolved_at+notify) mounted /api/admin/support under admin+MFA group. Frontend: src/pages/admin/support.tsx (status filter, transcript Sheet w/ tool-usage chips, reply+resolve/close), route /admin/support[/:id] (matches escalation adminThreadPath deep link), nav item + escalated badge in admin-layout. No migration needed (status enum/human_agent/resolved_at/assigned_admin_id/tool_calls already exist from 00181/00188)."
     },
     {
       "id": "US-840",

@@ -5,6 +5,7 @@ import {
   FileText,
   MessageSquare,
   Scale,
+  Headset,
   Brain,
   Wrench,
   ScrollText,
@@ -43,6 +44,7 @@ const adminNavItems = [
   { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false, superAdminOnly: false },
   { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false, superAdminOnly: false },
   { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
+  { to: "/admin/support", icon: Headset, label: "Support", end: false, superAdminOnly: false },
   { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false, superAdminOnly: false },
   { to: "/admin/fraud", icon: ShieldX, label: "Abuse & Fraud", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
@@ -109,6 +111,18 @@ export function AdminLayout() {
     refetchInterval: 60 * 1000,
   });
 
+  // US-839: escalated support conversations awaiting a human, for the nav badge.
+  const { data: escalatedCount } = useQuery({
+    queryKey: ["admin-support-escalated-count"],
+    queryFn: async (): Promise<number> => {
+      const res = await edgeFetch("/api/admin/support/conversations?status=escalated");
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? (json.conversations?.length ?? 0) : 0;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
   const initials = profile?.full_name
     ? profile.full_name
         .split(" ")
@@ -147,6 +161,11 @@ export function AdminLayout() {
               {item.to === "/admin/reviews" && (reviewCount ?? 0) > 0 && (
                 <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
                   {reviewCount}
+                </span>
+              )}
+              {item.to === "/admin/support" && (escalatedCount ?? 0) > 0 && (
+                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+                  {escalatedCount}
                 </span>
               )}
             </NavLink>

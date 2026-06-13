@@ -53,6 +53,7 @@ import { waitlistRoutes } from "./routes/waitlist.ts";
 import { accessGateMiddleware } from "./lib/access-gate.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
+import { adminSupportRoutes } from "./routes/admin-support.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
@@ -648,6 +649,11 @@ app.route("/api/admin/grading", adminGradingRoutes);
 // submissions) that used to no-op under RLS as browser calls; reseals the
 // certificate on a grade adjustment. Admin JWT + MFA via the /api/admin/* group.
 app.route("/api/admin/disputes", adminDisputesRoutes);
+// US-839 admin support inbox — read/reply/resolve escalated AI-assistant
+// conversations. Service-role writes (human_agent message + status flips) that
+// would no-op under RLS as browser calls; notifies the user on reply/resolve.
+// Admin JWT + MFA via the /api/admin/* group.
+app.route("/api/admin/support", adminSupportRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
 // US-581 super-admin impersonation / "view as" + audited start/stop. Admin JWT
 // + AAL2 via the /api/admin/* group; start additionally requires super_admin +
