@@ -610,6 +610,37 @@ export const FLIPDESK_SOURCE_TYPE_LABELS: Record<
   other: "Other",
 };
 
+// US-600: consignment mode labels.
+export const CONSIGNOR_STATUSES = ["active", "paused", "archived"] as const;
+
+export const CONSIGNOR_STATUS_LABELS: Record<
+  (typeof CONSIGNOR_STATUSES)[number],
+  string
+> = {
+  active: "Active",
+  paused: "Paused",
+  archived: "Archived",
+};
+
+export const CONSIGNOR_PAYOUT_STATUSES = [
+  "pending",
+  "processing",
+  "paid",
+  "failed",
+  "canceled",
+] as const;
+
+export const CONSIGNOR_PAYOUT_STATUS_LABELS: Record<
+  (typeof CONSIGNOR_PAYOUT_STATUSES)[number],
+  string
+> = {
+  pending: "Pending",
+  processing: "Processing",
+  paid: "Paid",
+  failed: "Failed",
+  canceled: "Canceled",
+};
+
 export const ITEM_CATEGORIES = [
   "clothing",
   "shoes",

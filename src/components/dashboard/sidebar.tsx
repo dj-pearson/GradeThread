@@ -27,6 +27,7 @@ import {
   Zap,
   Eye,
   CalendarClock,
+  Handshake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,7 @@ const navGroups: NavGroup[] = [
       // showing two overlapping tools. The route still works via deep link.
       { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false, hiddenWhenFlipdeskFlag: "autolister" },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
+      { to: "/dashboard/flipdesk/consignment", icon: Handshake, label: "Consignment", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
       { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },

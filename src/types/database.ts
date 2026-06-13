@@ -136,6 +136,14 @@ export type FlipdeskSourceType =
   | "retail_arbitrage"
   | "consignment"
   | "other";
+// US-600: consignment mode.
+export type ConsignorStatus = "active" | "paused" | "archived";
+export type ConsignorPayoutStatus =
+  | "pending"
+  | "processing"
+  | "paid"
+  | "failed"
+  | "canceled";
 export type ItemCategory =
   | "clothing"
   | "shoes"
@@ -682,6 +690,10 @@ export interface InventoryItemRow {
   // US-538: opt-in — AutoLister auto-attaches AI defect-callout photos
   // composited from the verified grade report (migration 00152).
   annotate_defect_photos: boolean;
+  // US-600: consignment mode. consignor_id set ⇒ item is consigned.
+  // consignment_split_pct snapshots the split at intake (null ⇒ use consignor's).
+  consignor_id: string | null;
+  consignment_split_pct: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -890,6 +902,89 @@ export interface SourceRow {
   created_at: string;
   updated_at: string;
 }
+
+// US-600: consignment mode. Base table from 00107 (US-676); the status /
+// Stripe-Connect / intake columns are added in 00171.
+export interface ConsignorRow {
+  id: string;
+  user_id: string;
+  name: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+  default_split_pct: number;
+  notes: string | null;
+  // 00171 web-portal additions.
+  status: ConsignorStatus;
+  stripe_connect_account_id: string | null;
+  payouts_enabled: boolean;
+  intake_signed_at: string | null;
+  intake_signature_name: string | null;
+  intake_agreement_version: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConsignorInsert {
+  user_id: string;
+  name: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  default_split_pct?: number;
+  status?: ConsignorStatus;
+  notes?: string | null;
+}
+
+export type ConsignorUpdate = Partial<
+  Omit<ConsignorRow, "id" | "user_id" | "created_at" | "updated_at">
+>;
+
+export interface ConsignorPnlRow {
+  consignor_id: string;
+  user_id: string;
+  name: string;
+  default_split_pct: number;
+  status: ConsignorStatus;
+  payouts_enabled: boolean;
+  total_items: number;
+  items_sold: number;
+  gross_revenue: number;
+  net_proceeds: number;
+  consignor_share: number;
+  store_share: number;
+  payouts_paid: number;
+  payouts_pending: number;
+  balance_owed: number;
+}
+
+export interface ConsignorPayoutRow {
+  id: string;
+  user_id: string;
+  consignor_id: string;
+  sale_id: string | null;
+  inventory_item_id: string | null;
+  amount: number;
+  status: ConsignorPayoutStatus;
+  stripe_transfer_id: string | null;
+  note: string | null;
+  error: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConsignorPayoutInsert {
+  user_id: string;
+  consignor_id: string;
+  sale_id?: string | null;
+  inventory_item_id?: string | null;
+  amount: number;
+  status?: ConsignorPayoutStatus;
+  note?: string | null;
+}
+
+export type ConsignorPayoutUpdate = Partial<
+  Omit<ConsignorPayoutRow, "id" | "user_id" | "consignor_id" | "created_at" | "updated_at">
+>;
 
 export interface ItemPhotoRow {
   id: string;
@@ -2470,6 +2565,22 @@ export interface Database {
         Row: SourceRow;
         Insert: SourceInsert;
         Update: SourceUpdate;
+      };
+      consignors: {
+        Row: ConsignorRow;
+        Insert: ConsignorInsert;
+        Update: ConsignorUpdate;
+      };
+      consignor_payouts: {
+        Row: ConsignorPayoutRow;
+        Insert: ConsignorPayoutInsert;
+        Update: ConsignorPayoutUpdate;
+      };
+      consignor_pnl: {
+        // Read-only security-invoker view (US-600).
+        Row: ConsignorPnlRow;
+        Insert: never;
+        Update: never;
       };
       item_photos: {
         Row: ItemPhotoRow;

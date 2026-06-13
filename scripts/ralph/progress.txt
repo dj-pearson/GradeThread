@@ -1546,3 +1546,20 @@ Branch: ralph/gradethread-build
     + cross-listing-fields), npx tsc -b, npm run build, vitest marketplace-specs (81 passed).
 - Timestamp: 2026-06-12
 ---
+
+## US-600: Build consignment mode
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00171_consignment_mode.sql (new) — ALTERs existing 00107 consignors table (status, Stripe Connect, intake e-sign cols); new consignor_payouts ledger + consignor_pnl security-invoker view
+  - services/edge-functions/src/routes/flipdesk-consignment.ts (new) — consignor CRUD, intake e-sign, Stripe Connect Express onboarding + payout transfers; service-role, tenant-scoped
+  - services/edge-functions/src/main.ts — mount + auth/workspace/rate-limit wiring for /api/flipdesk/consignment
+  - services/edge-functions/src/tests/tenant-isolation_test.ts — 3 cross-tenant cases + required resource id
+  - services/edge-functions/scripts/seed-tenant-isolation-fixture.ts — seeds TEST_USER_A_CONSIGNOR_ID
+  - src/types/database.ts — Consignor/ConsignorPayout/ConsignorPnl types; inventory consignor cols; Database table entries
+  - src/lib/constants.ts — CONSIGNOR_STATUS / CONSIGNOR_PAYOUT_STATUS labels
+  - src/hooks/use-consignors.ts (new) — useConsignors + useConsignorPayouts via edgeFetch
+  - src/pages/flipdesk/consignment.tsx (new) — portal: P&L cards/table, edit dialog, intake e-sign, Stripe Connect, payout + history dialogs
+  - src/routes/index.tsx, src/components/dashboard/sidebar.tsx — route + nav
+- Notes: A base consignors table already existed (00107 / US-676, iOS). US-600 layers the WEB portal + Stripe Connect payouts + intake e-sign + P&L on top — so 00171 only ALTERs (never renames) the existing columns (contact_email/contact_phone/default_split_pct) to keep iOS ConsignorService working. Split economics use NET proceeds (sale_price - platform/processing fees) per 00107's stated semantics. Independent grading needs no new table — consigned items are normal inventory_items carrying grade_value/certificate_url. Verified: tsc --noEmit, npm run build, deno check, deno lint, and `npm run verify:db` (migration applies cleanly from zero).
+- Timestamp: 2026-06-13
+---

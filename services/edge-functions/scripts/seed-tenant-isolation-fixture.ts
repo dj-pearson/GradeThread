@@ -11,7 +11,7 @@
 //   2. mints an access-token JWT for each via password sign-in;
 //   3. seeds the resources A owns (inventory item, listing, sync run, reconcile
 //      session, payout import, sync conflict, api key, template, repricing rule,
-//      generation batch, grading submission);
+//      generation batch, grading submission, consignor);
 //   4. prints `KEY=VALUE` lines on stdout for the workflow to append to
 //      $GITHUB_ENV, so `deno test` runs the suite for real with
 //      TENANT_ISOLATION_REQUIRED=1.
@@ -209,6 +209,13 @@ async function main(): Promise<void> {
     "flipdesk_grading_submissions",
     { inventory_item_id: itemId },
   );
+
+  // US-600: consignment mode.
+  out.TEST_USER_A_CONSIGNOR_ID = await insert("consignors", {
+    user_id: aId,
+    name: "Tenant-A consignor",
+    default_split_pct: 50,
+  });
 
   log(`seeded fixture for A=${aId} B=${bId}`);
 

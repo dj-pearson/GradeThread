@@ -78,6 +78,7 @@ const REQUIRED_RESOURCE_IDS = [
   "TEST_USER_A_PAYOUT_ID",
   "TEST_USER_A_CONFLICT_ID",
   "TEST_USER_A_RECONCILE_SESSION",
+  "TEST_USER_A_CONSIGNOR_ID",
 ];
 
 Deno.test({
@@ -851,5 +852,56 @@ Deno.test({
       !ids.includes(aRunId),
       `B's sync-runs leaked A's run ${aRunId}`,
     );
+  },
+});
+
+// US-600: consignment mode. B must not update, sign intake for, or pay A's
+// consignor; B's consignor list must never include A's consignor.
+Deno.test({
+  name: "B cannot update A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/consignment/consignors/${id}`,
+      {
+        method: "PATCH",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ split_pct: 99 }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "PATCH consignor (A's)");
+  },
+});
+
+Deno.test({
+  name: "B cannot pay out A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/payouts`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ consignor_id: id, amount: 1.0 }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST payout (A's consignor)");
+  },
+});
+
+Deno.test({
+  name: "B's consignor list never includes A's consignor",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONSIGNOR_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_CONSIGNOR_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/consignment/consignors`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      consignors?: Array<{ id: string }>;
+    };
+    const ids = (body.consignors ?? []).map((r) => r.id);
+    assert(!ids.includes(aId), `B's consignor list leaked A's consignor ${aId}`);
   },
 });
