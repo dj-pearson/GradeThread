@@ -9024,8 +9024,8 @@
         "A buyer-facing 'verify this grade' entry point marketed to buyers, not just sellers"
       ],
       "priority": 593,
-      "passes": false,
-      "notes": "[P1][Differentiation] Deep-dive 2026-06-04. Certificates + verified-seller profile exist but the grade only lives inside an eBay description link; no embeddable badge/QR/buyer verify entry."
+      "passes": true,
+      "notes": "[P1][Differentiation] Deep-dive 2026-06-04. Certificates + verified-seller profile exist but the grade only lives inside an eBay description link; no embeddable badge/QR/buyer verify entry. IMPLEMENTED 2026-06-12: AC1 (embeddable badge) + AC2 (QR-to-cert) were already built by the badge/slab/QR work (certBadgeEmbedHtml in src/lib/verified.ts + /badge/cert/:id image function; QR on the cert page + /slab/cert/:id with ?s=qr — all marketplace/in-person ready). AC3 (the remaining gap) is the NEW buyer-facing 'verify this grade' entry point: public /verify page (src/pages/marketing/verify.tsx) marketed to buyers ('For buyers'), a no-login lookup where a buyer pastes a scanned QR / certificate code or link and is routed to the official certificate. New pure parseCertificateRef() (src/lib/verified.ts, unit-tested in verified.test.ts) extracts a cert UUID from a bare id or any-origin /cert/<id> URL (strips ?s=/hash), rejecting junk before navigating (no guaranteed 404). Registered in PUBLIC_ROUTES + entry-server (prerendered) + routes + marketing footer nav; HowTo + FAQPage JSON-LD via verifyJsonLd() wired into head-builder so prerendered head and live SPA match. Also fixed a pre-existing SEO-guard red: added /waitlist-pending (a transient noindex flow page added by a concurrent agent) to the guard's flow-exclusion set. Verified: tsc --noEmit clean, npm run build green (/verify prerendered with HowTo JSON-LD), eslint clean, vitest guard+helper tests pass."
     },
     {
       "id": "US-594",

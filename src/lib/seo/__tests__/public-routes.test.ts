@@ -16,7 +16,13 @@ const allRouterPaths = [...routesSrc.matchAll(/path:\s*"([^"]+)"/g)].map(
 );
 
 const DISALLOWED_PREFIXES = ["/dashboard", "/admin", "/auth"];
-const AUTH_OR_FLOW_EXACT = new Set(["/login", "/signup", "/accept-invite"]);
+const AUTH_OR_FLOW_EXACT = new Set([
+  "/login",
+  "/signup",
+  "/accept-invite",
+  // Transient post-action confirmation page; noindex, not a static landing page.
+  "/waitlist-pending",
+]);
 
 /** A router path that should have a static, indexable registry entry. */
 function isStaticPublic(p: string): boolean {

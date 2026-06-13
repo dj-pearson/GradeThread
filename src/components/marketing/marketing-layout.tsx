@@ -140,6 +140,10 @@ export function MarketingLayout({
               <Link to="/transparency" className="hover:text-foreground">
                 Transparency
               </Link>
+              {/* US-593: buyer-facing verify entry point, not just seller pages. */}
+              <Link to="/verify" className="hover:text-foreground">
+                Verify a Grade
+              </Link>
             </nav>
           </div>
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">

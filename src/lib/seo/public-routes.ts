@@ -61,6 +61,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/condition-grading": "2026-06-01",
   "/grading-standard": "2026-06-01",
   "/transparency": "2026-06-01",
+  "/verify": "2026-06-12",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -148,6 +149,17 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "Dataset",
+  },
+  {
+    // US-593: buyer-facing "verify this grade" entry point — a no-login lookup
+    // that resolves a scanned QR / pasted certificate code to the certificate.
+    path: "/verify",
+    title: "Verify a Condition Grade",
+    description:
+      "Buying pre-owned clothing? Scan the QR code or enter a GradeThread certificate code to verify the condition grade before you pay — free, no account, on any marketplace.",
+    changefreq: "monthly",
+    priority: 0.8,
+    jsonLdType: "HowTo",
   },
   {
     path: "/privacy",

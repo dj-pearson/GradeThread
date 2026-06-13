@@ -1393,3 +1393,36 @@ Branch: ralph/gradethread-build
     npm run build green, eslint clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-593: Make the grade portable + buyer-trusted across platforms
+- Status: COMPLETE
+- Files changed:
+  - src/pages/marketing/verify.tsx (NEW — buyer-facing /verify lookup page)
+  - src/lib/verified.ts (NEW parseCertificateRef() + CERT_ID_RE)
+  - src/lib/verified.test.ts (NEW — parseCertificateRef + validateHandle unit tests)
+  - src/pages/marketing/marketing-jsonld.ts (verifyJsonLd + VERIFY_STEPS/VERIFY_FAQS)
+  - src/prerender/head-builder.ts (wired /verify into MARKETING_LD)
+  - src/prerender/entry-server.tsx (registered /verify for prerender)
+  - src/routes/index.tsx (route /verify + lazy import)
+  - src/lib/seo/public-routes.ts (PUBLIC_ROUTES + ROUTE_LAST_MODIFIED /verify)
+  - src/components/marketing/marketing-layout.tsx (footer "Verify a Grade" link)
+  - src/lib/seo/__tests__/public-routes.test.ts (excluded /waitlist-pending — pre-existing red)
+- Notes:
+  - AC1 (embeddable badge) + AC2 (QR-to-cert) were ALREADY built by the badge/slab/QR
+    work (US-762..770): certBadgeEmbedHtml() + /badge/cert/:id image, QR on the cert page,
+    /slab/cert/:id with ?s=qr — all marketplace- and in-person-ready. The only remaining
+    gap was AC3, the buyer-facing verify entry point.
+  - AC3: new public /verify page MARKETED TO BUYERS (no login). Buyer pastes a scanned QR /
+    certificate code or link; parseCertificateRef() (pure, unit-tested) extracts the cert
+    UUID from a bare id or any-origin /cert/<id> URL (strips ?s= / hash), rejecting junk
+    before navigating (so we never route to a guaranteed 404). Navigates to /cert/:id?s=verify.
+  - Discoverability: added to PUBLIC_ROUTES (prerendered + sitemap + IndexNow), routes,
+    and the marketing footer nav. HowTo + FAQPage JSON-LD via verifyJsonLd() wired into
+    head-builder so the prerendered <head> and live SPA emit identical structured data.
+  - Fixed a PRE-EXISTING SEO-guard failure (not introduced here): /waitlist-pending (a
+    transient noindex gated-flow page added by a concurrent agent) was failing the
+    public-routes guard; added it to the guard's flow-exclusion set alongside /login etc.
+  - Verified: tsc --noEmit clean, npm run build green (/verify prerendered w/ HowTo JSON-LD),
+    eslint clean, vitest guard + helper tests pass (14/14).
+- Timestamp: 2026-06-12
+---

@@ -36,6 +36,31 @@ export function certificateUrl(certId: string): string {
   return `${SITE_URL}/cert/${certId}`;
 }
 
+// Certificate ids are minted with crypto.randomUUID() (grading-pipeline.ts), so
+// every public cert id is a UUID. Used by the buyer-facing /verify lookup to
+// reject obvious junk before navigating to the certificate page.
+export const CERT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Extract a certificate id from raw buyer input (US-593). Accepts either a bare
+ * certificate id or a full certificate URL of ANY origin — e.g. what a buyer
+ * pastes after scanning a QR or copying a link: `https://gradethread.com/cert/<id>?s=qr`.
+ * Query string, hash, and surrounding whitespace are stripped. Returns the
+ * lowercased id, or null when no valid certificate id is present (the caller
+ * shows an error rather than navigating to a guaranteed 404).
+ */
+export function parseCertificateRef(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Pull the id out of a /cert/<id> URL or path, else treat the whole input as
+  // the candidate. Then drop any trailing query/hash/whitespace from a paste.
+  const urlMatch = trimmed.match(/\/cert\/([^/?#\s]+)/i);
+  const candidate = (urlMatch?.[1] ?? trimmed).split(/[?#\s]/)[0] ?? "";
+  const token = candidate.trim().toLowerCase();
+  return CERT_ID_RE.test(token) ? token : null;
+}
+
 /** Per-listing badge image URL for a certificate id. */
 export function certBadgeUrl(certId: string): string {
   return `${SITE_URL}/badge/cert/${certId}`;

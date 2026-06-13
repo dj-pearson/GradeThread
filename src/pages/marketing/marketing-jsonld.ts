@@ -175,6 +175,59 @@ export function transparencyJsonLd(): JsonLd[] {
   return [transparencyDatasetLd(), faqPageLd(TRANSPARENCY_FAQS)];
 }
 
+// ── /verify (US-593) ────────────────────────────────────────────────
+// Buyer-facing "verify this grade" entry point: how a buyer confirms a
+// GradeThread condition grade before they pay, on or off eBay.
+export const VERIFY_STEPS = [
+  {
+    name: "Scan the QR code or open the certificate link",
+    text: "Every GradeThread certificate carries a QR code and a unique link. Scan the code on the listing, badge, or item tag with your phone camera, or tap the seller's certificate link.",
+  },
+  {
+    name: "Or enter the certificate code",
+    text: "No link handy? Paste the certificate URL or its code into the verify box on gradethread.com/verify to pull up the official certificate.",
+  },
+  {
+    name: "Check the grade against the photos",
+    text: "The certificate shows the overall 1.0–10.0 grade, its tier, a factor-by-factor breakdown, and the actual garment photos — so you can confirm the condition matches what you're buying.",
+  },
+  {
+    name: "Confirm it's authentic",
+    text: "Each certificate is tamper-evident: GradeThread re-derives its integrity signature on load and shows a verified check, so you know the grade hasn't been altered.",
+  },
+];
+
+export const VERIFY_FAQS = [
+  {
+    q: "How do I verify a GradeThread grade as a buyer?",
+    a: "Scan the QR code on the listing or item, open the seller's certificate link, or paste the certificate URL or code at gradethread.com/verify. The official certificate shows the grade, factor breakdown, and garment photos so you can confirm condition before you pay — no account needed.",
+  },
+  {
+    q: "Does this work for Poshmark, Mercari, Depop, or an in-person sale?",
+    a: "Yes. A GradeThread certificate isn't tied to eBay. The QR code and verify link work on any marketplace and for face-to-face sales — scan or open it from wherever the seller shared the grade.",
+  },
+  {
+    q: "How do I know the certificate is genuine and not edited?",
+    a: "Certificates are tamper-evident. When a certificate loads, GradeThread re-derives its content hash and signature on the server and displays a verified check. An altered grade fails that check, and a certificate that was withdrawn or never existed simply won't resolve.",
+  },
+  {
+    q: "Do I need an account to verify a grade?",
+    a: "No. Verifying a grade is free and requires no login. Only the seller who graded the item needs a GradeThread account.",
+  },
+];
+
+export function verifyJsonLd(): JsonLd[] {
+  return [
+    howToLd({
+      name: "How to verify a GradeThread condition grade",
+      description:
+        "Scan the QR code or enter the certificate code to confirm a pre-owned clothing condition grade before you buy — on or off eBay, no account required.",
+      steps: VERIFY_STEPS,
+    }),
+    faqPageLd(VERIFY_FAQS),
+  ];
+}
+
 // ── /grading/* glossary hub (US-303) ────────────────────────────────
 // Absolute breadcrumb trail (GradeThread → Condition grading → <term>) for a
 // glossary entry. Shared by the live page (via MarketingLayout's `breadcrumbs`

@@ -33,6 +33,7 @@ import {
   conditionGradingJsonLd,
   gradingStandardJsonLd,
   transparencyJsonLd,
+  verifyJsonLd,
   glossaryJsonLd,
   glossaryBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
@@ -74,6 +75,7 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/condition-grading": conditionGradingJsonLd,
   "/grading-standard": gradingStandardJsonLd,
   "/transparency": transparencyJsonLd,
+  "/verify": verifyJsonLd,
 };
 
 /** JSON-LD nodes for a given route. Mirrors what each page renders via <SEO>. */

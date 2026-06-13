@@ -38,6 +38,7 @@ import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
 import { TransparencyPage } from "@/pages/marketing/transparency";
+import { VerifyGradePage } from "@/pages/marketing/verify";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
 import { StatusPage } from "@/pages/status";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
@@ -52,6 +53,7 @@ const PAGES: Record<string, React.ReactNode> = {
   "/condition-grading": <ConditionGradingPage />,
   "/grading-standard": <GradingStandardPage />,
   "/transparency": <TransparencyPage />,
+  "/verify": <VerifyGradePage />,
   "/privacy": <PrivacyPage />,
   "/terms": <TermsPage />,
   "/cookies": <CookiesPage />,
