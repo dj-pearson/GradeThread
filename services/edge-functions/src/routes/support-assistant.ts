@@ -26,12 +26,13 @@ import {
   getLightweightModel,
   isCachingEnabled,
 } from "../lib/ai-config.ts";
-import { incrementUsage } from "../lib/support-metering.ts";
+import { incrementUsage, recordAbuseEvent } from "../lib/support-metering.ts";
 import {
   ASSISTANT_TOOLS,
   type AssistantStep,
   evaluateAssistantGate,
   executeAssistantTool,
+  guardAssistantOutput,
   MAX_TOOL_ITERATIONS,
   runAssistantLoop,
   SUPPORT_SYSTEM_PROMPT,
@@ -237,8 +238,11 @@ supportAssistantRoutes.post("/message", async (c) => {
       data: JSON.stringify({ conversationId }),
     });
 
-    const onText = (text: string) =>
-      stream.writeSSE({ event: "delta", data: JSON.stringify({ text }) });
+    // US-835: the model's text is BUFFERED, not forwarded live — the output
+    // guard must run on the complete answer BEFORE any of it reaches the client,
+    // so a leak can never be returned (not even transiently as a delta). We
+    // collect the model deltas here and stream only the guarded result below.
+    const onText = (_text: string) => Promise.resolve();
 
     try {
       const step = makeStreamingStep(onText, c.req.raw.signal);
@@ -248,11 +252,36 @@ supportAssistantRoutes.post("/message", async (c) => {
         maxIterations: MAX_TOOL_ITERATIONS,
       });
 
-      let finalText = result.finalText;
-      if (result.hitCap) {
-        // The model still wanted tools at the cap — close out gracefully.
-        finalText = (finalText ? finalText + "\n\n" : "") + TOOL_CAP_FALLBACK;
-        await onText((result.finalText ? "\n\n" : "") + TOOL_CAP_FALLBACK);
+      // US-835 OUTPUT GUARD — deterministic backstop on the model's answer.
+      const guard = guardAssistantOutput(result.finalText);
+      let finalText: string;
+      if (!guard.safe) {
+        // Leakage detected: discard the offending content, return ONLY the
+        // standard refusal, and record the abuse event (US-831). Never escalate
+        // the user's lockout here — that's US-836's threshold logic.
+        finalText = guard.text;
+        await recordAbuseEvent(
+          userId,
+          guard.abuseType ?? "prompt_injection",
+          "high",
+          guard.detail ?? "output guard tripped",
+          conversationId,
+        );
+      } else {
+        finalText = guard.text;
+        if (result.hitCap) {
+          // Model still wanted tools at the cap — close out gracefully.
+          finalText = (finalText ? finalText + "\n\n" : "") + TOOL_CAP_FALLBACK;
+        }
+      }
+
+      // Stream the guarded answer to the client (single delta — the SSE contract
+      // is unchanged; the client still accumulates `delta.text`).
+      if (finalText) {
+        await stream.writeSSE({
+          event: "delta",
+          data: JSON.stringify({ text: finalText }),
+        });
       }
 
       // Persist the assistant turn + token accounting.
@@ -285,7 +314,11 @@ supportAssistantRoutes.post("/message", async (c) => {
 
       await stream.writeSSE({
         event: "done",
-        data: JSON.stringify({ conversationId, hitCap: result.hitCap }),
+        data: JSON.stringify({
+          conversationId,
+          hitCap: result.hitCap,
+          guarded: !guard.safe,
+        }),
       });
     } catch (e) {
       if (c.req.raw.signal.aborted) return; // client hit Stop — quiet exit
