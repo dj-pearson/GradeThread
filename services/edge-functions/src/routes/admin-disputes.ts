@@ -10,6 +10,7 @@ import {
   type FactorScores,
 } from "../lib/human-review.ts";
 import { applyGradeAdjustment } from "../lib/grade-adjustment.ts";
+import { purgeCertificateCache } from "../lib/cloudflare-purge.ts";
 import {
   type CheckedUpdateClient,
   updateByIdChecked,
@@ -232,6 +233,14 @@ adminDisputesRoutes.post("/:id/resolve", async (c) => {
     }
     console.error("[admin-disputes] resolve: status update failed:", err);
     return c.json({ error: "Failed to resolve dispute" }, 500);
+  }
+
+  // US-577: a grade change makes the public certificate's edge-cached SSR page +
+  // share images stale — purge them so buyers/crawlers see the new score now.
+  if (adjustGrade && report.certificate_id) {
+    purgeCertificateCache(report.certificate_id).catch((e) =>
+      console.warn("[admin-disputes] cert cache purge failed:", e),
+    );
   }
 
   await auditLog(c, "dispute_resolved", disputeId, {

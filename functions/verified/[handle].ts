@@ -21,6 +21,7 @@ import {
   SSR_CACHE_CONTROL,
   formatDate,
   twitterSiteHandle,
+  withEdgeCache,
   type PagesEnv,
 } from "../_shared/blog-render";
 
@@ -83,7 +84,10 @@ const platformLabel = (p: string): string => PLATFORM_LABELS[p] ?? p;
 
 type Ctx = EventContext<PagesEnv, "handle", Record<string, unknown>>;
 
-export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
+export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
+  withEdgeCache(context, () => renderSellerProfile(context));
+
+async function renderSellerProfile(context: Ctx): Promise<Response> {
   const { params, env } = context;
   const handle = String(params.handle ?? "").trim();
   if (!handle) return notFoundResponse(env);
@@ -303,4 +307,4 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       },
     },
   );
-};
+}

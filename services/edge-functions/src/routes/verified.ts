@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
+import { purgeSellerProfileCache } from "../lib/cloudflare-purge.ts";
 
 // GradeThread Verified — seller-profile management (US: revolutionary-flipping).
 //
@@ -201,6 +202,20 @@ verifiedRoutes.put("/profile", async (c) => {
       return jsonError(c, 409, "That handle is already taken.");
     }
     return failSafe(c, 500, "Couldn't update your profile.", error, "verified.update");
+  }
+
+  // US-577: the public /verified/:handle SSR page (+ OG card) is edge-cached, so
+  // an edit/toggle would otherwise show stale for up to an hour. Purge the new
+  // handle and — on a rename — the old one too. Best-effort, fire-and-forget.
+  const purgeHandles = new Set<string>();
+  if (data?.verified_handle) purgeHandles.add(data.verified_handle);
+  if (current?.verified_handle && current.verified_handle !== data?.verified_handle) {
+    purgeHandles.add(current.verified_handle);
+  }
+  for (const h of purgeHandles) {
+    purgeSellerProfileCache(h).catch((e) =>
+      console.warn("[verified] profile cache purge failed:", e),
+    );
   }
 
   return c.json({

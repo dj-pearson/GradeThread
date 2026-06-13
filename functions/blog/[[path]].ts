@@ -32,6 +32,7 @@ import {
   wasUpdatedAfterPublish,
   twitterSiteHandle,
   socialProfileUrls,
+  withEdgeCache,
   type PagesEnv,
   type PublicPost,
   type PublicPostListItem,
@@ -53,7 +54,10 @@ interface TagResponse {
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;
 
-export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
+export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
+  withEdgeCache(context, () => routeBlog(context));
+
+async function routeBlog(context: Ctx): Promise<Response> {
   const { request, env } = context;
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, ""); // strip trailing slash
@@ -74,7 +78,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     return renderPost(env, segments[0] ?? "");
   }
   return notFoundResponse(env);
-};
+}
 
 async function renderIndex(env: PagesEnv): Promise<Response> {
   const data = await fetchJson<IndexResponse>(env, "/api/content/public/posts?limit=20");

@@ -167,3 +167,56 @@ session with several backgrounded tabs this removes the steady idle baseline
 entirely. **Measurement method:** open the surface, switch to another tab, and
 watch the Network panel (or the edge access log for that user) — confirm the
 recurring request stops within one interval of hiding and resumes on focus.
+
+## Edge-cached dynamic public SSR surfaces (US-577)
+
+The shared/crawled public pages are server-rendered by Cloudflare Pages
+Functions, not static HTML: certificates (`functions/cert/[id].ts`), verified
+seller profiles (`functions/verified/[handle].ts`), and the blog
+(`functions/blog/[[path]].ts`). These are the surfaces link-preview bots and
+search/AI crawlers hammer, and they re-render the same HTML for every hit.
+
+**Why a Cache-Control header alone isn't enough.** Every SSR response already
+carries `SSR_CACHE_CONTROL` (`public, max-age=300, s-maxage=3600,
+stale-while-revalidate=86400`). But Cloudflare Pages Functions are **not** cached
+by the colo by default — `s-maxage` only instructs *downstream* shared caches, so
+without more the colo re-renders on every request. We wrap each render in the
+**Cache API** (`caches.default`) via `withEdgeCache()` in
+`functions/_shared/blog-render.ts`, which gives a genuine edge HIT on repeat
+requests:
+
+- Keyed on **origin + pathname** (query string ignored) so `?utm_*`-tagged share
+  links collapse onto one entry and can't fragment or poison the cache.
+- Only `GET` `200` responses with a public `Cache-Control` are stored — the blog
+  `preview` route (`private, no-store`) and 404/503s are passed through untouched.
+- Adds `x-gt-cache: HIT|MISS` so a HIT is verifiable, and stores via `waitUntil()`
+  so the first (MISS) response isn't blocked.
+- Degrades to a plain render when `caches` is unavailable (local `wrangler`).
+
+**Purge on publish / score-change.** A cached page must not outlive its data.
+The existing `lib/cloudflare-purge.ts` plumbing is extended with
+`buildCertPurgeFiles()` / `buildSellerPurgeFiles()` and best-effort wrappers
+`purgeCertificateCache()` / `purgeSellerProfileCache()` (no-op + no DB hit when
+`CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ZONE_ID` are unset; never throw). They evict
+the cert SSR page **plus** its OG/badge/slab image renderers (all encode the
+score), or the profile SSR page + its OG card. Wired into every write that
+changes the data:
+
+| Trigger | Code | Purges |
+|---|---|---|
+| Dispute resolved with a grade change | `routes/admin-disputes.ts` | `/cert/:id` (+ og/badge/slab) |
+| Review-queue grade adjustment | `routes/admin-grading.ts` | `/cert/:id` (+ og/badge/slab) |
+| Seller edits/toggles their profile (incl. handle rename → old+new) | `routes/verified.ts` | `/verified/:handle` (+ og) |
+| Blog publish/edit/unpublish | `routes/content-blog.ts`, `content-scheduler.ts` (pre-existing) | `/blog/:slug`, `/blog`, sitemap, rss |
+
+### Verifying a cache HIT
+
+```bash
+# First request warms the colo (MISS); the second is served from the edge (HIT).
+curl -sI https://gradethread.com/cert/<id> | grep -i 'x-gt-cache\|cache-control'
+curl -sI https://gradethread.com/cert/<id> | grep -i 'x-gt-cache'   # → x-gt-cache: HIT
+```
+
+After a grade change or profile edit the next request is a MISS again (the write
+purged the URL), then HITs resume. The `withEdgeCache` HIT/MISS contract and the
+private/error skip guards are unit-tested in `src/test/edge-cache.test.ts`.

@@ -132,6 +132,77 @@ export function imageResizingEnabled(env: PagesEnv): boolean {
 export const SSR_CACHE_CONTROL =
   "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
 
+// ─── Edge read-through cache (US-577) ─────────────────────────────────────
+// Cloudflare Pages Functions are NOT cached by the colo by default — the
+// `s-maxage` in SSR_CACHE_CONTROL only governs *downstream* shared caches, so
+// without this every crawler/share/repeat hit re-renders. Wrapping the render
+// in the Cache API (caches.default) gives a real edge HIT on repeat requests;
+// publish/score-change writes call purgeCloudflareCache() (cloudflare-purge.ts)
+// to evict by URL, so changes still appear immediately.
+//
+//   - Keyed on origin + pathname (query string ignored), so utm-tagged share
+//     links share one entry and can't fragment or poison the cache.
+//   - Only GET 200 responses are stored.
+//   - Adds `x-gt-cache: HIT|MISS` so a HIT is verifiable with `curl -I`.
+//   - cache.put runs in waitUntil() so the first (MISS) response isn't blocked.
+//   - Degrades to a plain render when `caches` is unavailable (local/preview).
+interface EdgeCacheCtx {
+  request: Request;
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+// Minimal structural type for the Cloudflare Cache API (caches.default), so this
+// module stays importable from the Vitest/`src` side where the workers `Cache`
+// lib type isn't loaded.
+interface EdgeCache {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
+}
+
+export async function withEdgeCache(
+  context: EdgeCacheCtx,
+  build: () => Promise<Response>,
+): Promise<Response> {
+  const { request } = context;
+  const store = (globalThis as { caches?: { default?: EdgeCache } }).caches
+    ?.default;
+  if (!store || request.method !== "GET") return build();
+
+  const url = new URL(request.url);
+  const cacheKey = new Request(`${url.origin}${url.pathname}`, { method: "GET" });
+
+  const cached = await store.match(cacheKey);
+  if (cached) {
+    const headers = new Headers(cached.headers);
+    headers.set("x-gt-cache", "HIT");
+    return new Response(cached.body, {
+      status: cached.status,
+      statusText: cached.statusText,
+      headers,
+    });
+  }
+
+  const response = await build();
+  // Only cache successful, publicly-cacheable responses. Skips error/redirect
+  // statuses and any private path (e.g. the blog `preview` route serves
+  // `private, no-store` — caching it would leak an unpublished draft, and
+  // Cloudflare's cache.put rejects no-store anyway).
+  const cc = (response.headers.get("Cache-Control") ?? "").toLowerCase();
+  if (response.status !== 200 || cc.includes("no-store") || cc.includes("private")) {
+    return response;
+  }
+
+  const headers = new Headers(response.headers);
+  headers.set("x-gt-cache", "MISS");
+  const stored = new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+  context.waitUntil(store.put(cacheKey, stored.clone()));
+  return stored;
+}
+
 const HTML_ESCAPE: Record<string, string> = {
   "&": "&amp;",
   "<": "&lt;",

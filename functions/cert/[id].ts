@@ -21,6 +21,7 @@ import {
   siteUrl,
   SSR_CACHE_CONTROL,
   twitterSiteHandle,
+  withEdgeCache,
   type PagesEnv,
 } from "../_shared/blog-render";
 
@@ -62,7 +63,10 @@ const FACTORS: Array<{ key: keyof PublicCertificate; label: string; weight: numb
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;
 
-export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
+export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
+  withEdgeCache(context, () => renderCertificate(context));
+
+async function renderCertificate(context: Ctx): Promise<Response> {
   const { params, env } = context;
   const id = String(params.id ?? "");
   if (!id) return notFoundResponse(env);
@@ -184,7 +188,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       },
     },
   );
-};
+}
 
 // "outerwear" / "very_good" → "Outerwear" / "Very Good". Null-safe.
 function formatLabel(value: string | null): string | null {

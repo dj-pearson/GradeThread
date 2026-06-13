@@ -27,6 +27,7 @@ import {
   scoreToGradeTier,
 } from "../lib/human-review.ts";
 import { applyGradeAdjustment } from "../lib/grade-adjustment.ts";
+import { purgeCertificateCache } from "../lib/cloudflare-purge.ts";
 import {
   type CheckedUpdateClient,
   updateByIdChecked,
@@ -1387,6 +1388,14 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
     }
     console.error("[admin-grading] adjust: grade_reports update failed:", err);
     return c.json({ error: "Failed to update grade" }, 500);
+  }
+
+  // US-577: re-grade changed the score — evict the certificate's edge-cached SSR
+  // page + share images so the corrected grade is served immediately.
+  if (report.certificate_id) {
+    purgeCertificateCache(report.certificate_id).catch((e) =>
+      console.warn("[admin-grading] cert cache purge failed:", e),
+    );
   }
 
   await auditLog(c, "grading.review_adjusted", "grade_report", report.id, {

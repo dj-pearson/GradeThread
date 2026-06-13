@@ -43,6 +43,67 @@ export async function buildBlogPurgeFiles(slug: string): Promise<string[]> {
   ];
 }
 
+// US-577: every public surface that re-renders a certificate's grade — the SSR
+// HTML page plus the three image renderers (OG share card, embeddable badge,
+// "slab" graphic), all of which encode the numeric score and so go stale on a
+// score change (dispute resolution / review adjustment).
+export async function buildCertPurgeFiles(certId: string): Promise<string[]> {
+  const base = await loadPublicSiteUrl();
+  const id = encodeURIComponent(certId);
+  return [
+    `${base}/cert/${id}`,
+    `${base}/og/cert/${id}`,
+    `${base}/badge/cert/${id}`,
+    `${base}/slab/cert/${id}`,
+  ];
+}
+
+// US-577: a verified seller's public profile SSR page + its OG share card. The
+// profile aggregates the seller's certified grades, so it goes stale when the
+// profile is edited/toggled (and, indirectly, when one of their grades changes).
+export async function buildSellerPurgeFiles(handle: string): Promise<string[]> {
+  const base = await loadPublicSiteUrl();
+  const h = encodeURIComponent(handle);
+  return [`${base}/verified/${h}`, `${base}/og/verified/${h}`];
+}
+
+/** True only when the Cloudflare purge API is configured (token + zone set). */
+export function cloudflarePurgeConfigured(): boolean {
+  return !!Deno.env.get("CLOUDFLARE_API_TOKEN") && !!Deno.env.get("CLOUDFLARE_ZONE_ID");
+}
+
+// US-577: best-effort convenience wrappers used by the publish/score-change
+// write paths. They short-circuit (and skip the content_settings lookup) when
+// Cloudflare isn't configured, and never throw — a purge failure must not fail
+// the originating mutation. Fire-and-forget with `.catch()` at the call site.
+export async function purgeCertificateCache(certId: string): Promise<void> {
+  if (!certId || !cloudflarePurgeConfigured()) return;
+  try {
+    const files = await buildCertPurgeFiles(certId);
+    await purgeCloudflareCache({ files });
+  } catch (e) {
+    console.warn(
+      `[cloudflare-purge] cert ${certId} purge skipped: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+}
+
+export async function purgeSellerProfileCache(handle: string): Promise<void> {
+  if (!handle || !cloudflarePurgeConfigured()) return;
+  try {
+    const files = await buildSellerPurgeFiles(handle);
+    await purgeCloudflareCache({ files });
+  } catch (e) {
+    console.warn(
+      `[cloudflare-purge] seller ${handle} purge skipped: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+}
+
 export async function purgeCloudflareCache(opts: PurgeOptions): Promise<void> {
   const token = Deno.env.get("CLOUDFLARE_API_TOKEN");
   const zone = Deno.env.get("CLOUDFLARE_ZONE_ID");
