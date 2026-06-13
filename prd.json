@@ -12447,8 +12447,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 845,
-      "passes": false,
-      "notes": "[EPIC: Condition Index Authority 2026-06-11] Builds on condition-index.ts / condition-curve.ts / public-grading.ts (/condition-index) and functions/condition-index/[[path]].ts. This is the single biggest authority lever. Foundation for US-846/847/848/849."
+      "passes": true,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Builds on condition-index.ts / condition-curve.ts / public-grading.ts (/condition-index) and functions/condition-index/[[path]].ts. This is the single biggest authority lever. Foundation for US-846/847/848/849. [IMPL 2026-06-13] Added migration 00190_condition_index_seeds (condition_index_seeds table, RLS deny-all/service-role only, 54 seeds = 8 backfill + 46 new). condition-index.ts getIndexSeeds() reads enabled seeds by priority, falls back to CURATED_INDEX when empty/unreachable; refreshConditionIndex() now iterates the table. MIN_INDEX_TOTAL_SAMPLE suppression unchanged. Schema version bumped 00189->00190."
     },
     {
       "id": "US-846",

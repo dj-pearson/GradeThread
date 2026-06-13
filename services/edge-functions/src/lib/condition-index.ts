@@ -26,6 +26,10 @@ export interface IndexSeed {
   q?: string;
 }
 
+// Fallback catalog. The live catalog now lives in the condition_index_seeds
+// table (US-845) so it can grow without a deploy; this array is used ONLY when
+// the table is empty (fresh DB / migration not yet applied) so the Index never
+// goes dark.
 export const CURATED_INDEX: IndexSeed[] = [
   { slug: "patagonia-better-sweater", label: "Patagonia Better Sweater", brand: "Patagonia", categoryId: "11450", q: "Better Sweater" },
   { slug: "patagonia-jackets", label: "Patagonia Jackets", brand: "Patagonia", categoryId: "57988", q: "jacket" },
@@ -36,6 +40,43 @@ export const CURATED_INDEX: IndexSeed[] = [
   { slug: "lululemon-leggings", label: "Lululemon Leggings", brand: "Lululemon", categoryId: "11450", q: "align leggings" },
   { slug: "ralph-lauren-polo", label: "Ralph Lauren Polo Shirts", brand: "Ralph Lauren", categoryId: "11450", q: "polo" },
 ];
+
+interface IndexSeedRow {
+  slug: string;
+  label: string;
+  brand: string;
+  category_id: string;
+  q: string | null;
+}
+
+/**
+ * The live curated catalog (US-845). Reads enabled seeds from
+ * condition_index_seeds, ordered by priority. Falls back to CURATED_INDEX when
+ * the table is empty or unreachable so the Index never goes dark.
+ */
+export async function getIndexSeeds(): Promise<IndexSeed[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("condition_index_seeds")
+      .select("slug, label, brand, category_id, q")
+      .eq("enabled", true)
+      .order("priority", { ascending: true })
+      .order("label", { ascending: true });
+    if (error) throw error;
+    const rows = (data ?? []) as IndexSeedRow[];
+    if (rows.length === 0) return CURATED_INDEX;
+    return rows.map((r) => ({
+      slug: r.slug,
+      label: r.label,
+      brand: r.brand,
+      categoryId: r.category_id,
+      q: r.q ?? undefined,
+    }));
+  } catch (err) {
+    captureException(err, { level: "warn", route: "condition-index.seeds" });
+    return CURATED_INDEX;
+  }
+}
 
 // A curve needs at least this much total comp support to be PUBLISHED (US-622).
 const MIN_INDEX_TOTAL_SAMPLE = 8;
@@ -142,7 +183,8 @@ export async function getIndexCurveBySlug(slug: string): Promise<IndexCurveDto |
 export async function refreshConditionIndex(): Promise<{ refreshed: number; failed: number }> {
   let refreshed = 0;
   let failed = 0;
-  for (const seed of CURATED_INDEX) {
+  const seeds = await getIndexSeeds();
+  for (const seed of seeds) {
     try {
       const curve = await buildValueCurve({ categoryId: seed.categoryId, brand: seed.brand, q: seed.q });
       const itemKey = normalizeItemKey({ categoryId: seed.categoryId, brand: seed.brand, q: seed.q });
