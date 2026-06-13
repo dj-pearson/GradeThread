@@ -1906,3 +1906,21 @@ Branch: ralph/gradethread-build
 - Notes: Single server-side source = no second copy (criteria #1). Endpoint sits under the authed /api/payments/* prefix (consumed post-signup on the paywall). Reference prices mirror src/lib/constants.ts FLIPDESK_PLANS (2900/29000/5900/59000/9900/99000) + CREDIT_PACKS (2499/5999/10999/19999) — all match the iOS fallbackPrice strings, documented in products.ts header (criteria #4). Drift test runs in verify:edge (deno test, --allow-read). iOS Swift can't compile on Windows; iOS CI is the safety net for CatalogService/PaywallStore + the 2 new XCTest cases. Verified: deno lint + deno check + full edge suite (1030 passed, 0 failed) + frozen lockfile all green. No web/src changes, so web lane unaffected.
 - Timestamp: 2026-06-13
 ---
+
+## US-822: Single-source canonical-attribute -> eBay-aspect mapping registry
+- Status: COMPLETE
+- Files changed:
+  * services/edge-functions/src/lib/aspect-registry.ts (NEW — single-source ASPECT_REGISTRY data + resolveItemAspects() + inferDepartment + serializeRegistry)
+  * services/edge-functions/src/routes/flipdesk-ebay.ts (deriveAspectsFromItem rewritten as thin adapter over the registry; inferDepartment removed; PublishItem + publish select now carry inventory_items.attributes; AspectSpecRaw gains itemToAspectCardinality)
+  * src/lib/ebay-prefill.ts (now consumes the vendored registry JSON; resolve logic mirrors the edge resolver, driven by shared data)
+  * src/lib/ebay-aspect-registry.json (NEW — vendored web copy, generated from the edge source)
+  * src/pages/flipdesk/composer.tsx (side-query fetches attributes; feeds them into itemAspectSource so new attributes prefill in the composer)
+  * scripts/sync-aspect-registry.mjs + scripts/sync-aspect-registry.deno.ts (NEW — `npm run sync:aspects` regenerates the vendored copy)
+  * package.json (sync:aspects script), tsconfig.app.json (resolveJsonModule)
+  * services/edge-functions/src/tests/aspect-registry_test.ts (NEW — 14 deno cases: 7-mapping legacy regression, attributes, features multi, SELECTION_ONLY, shoes vertical, AC4 preserve)
+  * services/edge-functions/src/tests/aspect-registry-drift_test.ts (NEW — deno drift guard: vendored JSON must byte-match serializeRegistry())
+  * src/lib/__tests__/ebay-prefill.test.ts (NEW — 10 vitest cases mirroring the resolver)
+  * prd.json (US-822 passes:true)
+- Notes: One definition of canonical-field -> eBay-aspect mapping, replacing the 3-copy duplication. Edge consumes the TS registry directly; web vendors a generated JSON copy + a deno drift guard (same pattern as SEO public-routes / US-808 IAP drift). iOS prefill is server-driven (no Swift mapping table — EbayAspectsTypes only flattens the server's aspect spec), so it consumes the registry transitively with nothing to drift. SELECTION_ONLY validation (case + trailing-plural tolerant) and the Regular-size-type/department-inference defaults are preserved exactly; the 7-mapping legacy regression is asserted. Verified: deno check + lint clean, new deno tests 15/15 green, web tsc -b + eslint clean, new vitest 10/10 green, npm run build green. Pre-existing unrelated failures on clean HEAD (grid-image-lazy US-413 + seo route-metadata /verify US-435) confirmed via stash — not caused by this story.
+- Timestamp: 2026-06-13
+---

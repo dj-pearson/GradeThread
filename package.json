@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build && node scripts/prerender.mjs",
     "prerender": "node scripts/prerender.mjs",
     "og:image": "node scripts/generate-og-image.mjs",
+    "sync:aspects": "node scripts/sync-aspect-registry.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

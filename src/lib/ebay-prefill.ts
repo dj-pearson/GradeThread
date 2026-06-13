@@ -1,13 +1,34 @@
-// Client-side mirrors of the publish-time auto-fill logic in
-// services/edge-functions/src/routes/flipdesk-ebay.ts (inferDepartment,
-// deriveAspectsFromItem, mapEbayCondition). The server applies these at
-// publish; mirroring them in the composer means the user SEES the same values
-// prefilled instead of facing empty dropdowns for data they already entered.
-// Keep both sides in sync when changing the mapping rules.
+// Client-side prefill of a category's eBay aspects from an item's structured
+// data — so the composer SHOWS the values the server would fill at publish
+// instead of empty dropdowns for data the user already entered.
+//
+// US-822: the field→aspect MAPPING is no longer hand-duplicated here. It comes
+// from the single-source registry vendored as ebay-aspect-registry.json
+// (generated from services/edge-functions/src/lib/aspect-registry.ts via
+// `npm run sync:aspects`; a CI drift guard fails if this copy diverges). This
+// module only holds the thin resolve LOGIC mirrored from the edge resolver,
+// driven entirely by that shared data.
 
 import type { EbayAspect } from "@/hooks/use-ebay";
+import registry from "@/lib/ebay-aspect-registry.json";
 
-// The structured item columns aspect prefill can draw from.
+interface AspectMappingEntry {
+  key: string;
+  source: "column" | "attribute";
+  column?: string;
+  attribute?: string;
+  multi: boolean;
+  aspects: string[];
+  byCategory?: Record<string, string[]>;
+  infer?: "department";
+  clothingDefault?: string;
+}
+const ASPECT_REGISTRY = registry as {
+  version: number;
+  entries: AspectMappingEntry[];
+};
+
+// The structured item data aspect prefill can draw from.
 export interface ItemAspectSource {
   title: string | null;
   brand: string | null;
@@ -18,10 +39,12 @@ export interface ItemAspectSource {
   description: string | null;
   condition_notes: string | null;
   item_category: string | null;
+  // US-821 canonical attributes (inventory_items.attributes jsonb).
+  attributes?: Record<string, string | string[]> | null;
 }
 
 // Department (Men/Women/Boys/…) inferred from free-text fields — mirrors the
-// server's inferDepartment. Order matters: most specific first; \b avoids
+// registry's inferDepartment. Order matters: most specific first; \b avoids
 // "men" matching inside "women".
 export function inferDepartment(item: ItemAspectSource): string | null {
   const text = [
@@ -51,55 +74,111 @@ export function inferDepartment(item: ItemAspectSource): string | null {
   return null;
 }
 
-// Map structured item columns onto a category's aspects. Returns only aspects
-// NOT already set in `existing`. SELECTION_ONLY aspects fill only when the
-// value matches an eBay-allowed value (case- and plural-insensitive);
-// FREE_TEXT/SUGGESTED aspects take the raw value.
+// Effective (lowercased) aspect-name candidates for an entry in a vertical.
+function effectiveCandidates(
+  entry: AspectMappingEntry,
+  category: string | null,
+): string[] {
+  const extra = (category && entry.byCategory?.[category]) || [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of [...extra, ...entry.aspects]) {
+    const l = name.toLowerCase();
+    if (!seen.has(l)) {
+      seen.add(l);
+      out.push(l);
+    }
+  }
+  return out;
+}
+
+// The value(s) an entry contributes for this item, or null when absent.
+function canonicalValues(
+  entry: AspectMappingEntry,
+  item: ItemAspectSource,
+): string[] | null {
+  if (entry.source === "column") {
+    const v = entry.column
+      ? (item as unknown as Record<string, unknown>)[entry.column]
+      : undefined;
+    const s = typeof v === "string" ? v.trim() : "";
+    return s ? [s] : null;
+  }
+  const attrs = item.attributes ?? {};
+  const raw = entry.attribute ? attrs[entry.attribute] : undefined;
+  if (entry.multi) {
+    const arr = Array.isArray(raw)
+      ? raw
+      : typeof raw === "string"
+        ? [raw]
+        : [];
+    const cleaned = arr.map((x) => String(x).trim()).filter((x) => x.length > 0);
+    if (cleaned.length > 0) return cleaned;
+  } else {
+    const s = Array.isArray(raw) ? raw[0] : raw;
+    const t = typeof s === "string" ? s.trim() : "";
+    if (t) return [t];
+  }
+  if (entry.infer === "department") {
+    const d = inferDepartment(item);
+    if (d) return [d];
+  }
+  if (entry.clothingDefault && item.item_category === "clothing") {
+    return [entry.clothingDefault];
+  }
+  return null;
+}
+
+// Fill a single aspect from candidate value(s), honoring its constraint.
+function fillAspect(
+  aspect: EbayAspect,
+  values: string[],
+  entryMulti: boolean,
+): string[] {
+  const allowMulti =
+    entryMulti &&
+    aspect.aspectConstraint?.itemToAspectCardinality === "MULTI";
+  if (aspect.aspectConstraint?.aspectMode === "SELECTION_ONLY") {
+    const allowed = (aspect.aspectValues ?? [])
+      .map((v) => v.localizedValue ?? "")
+      .filter((v) => v.length > 0);
+    // Plural-tolerant: eBay sometimes pluralizes values ("Unisex Adults").
+    const norm = (s: string) => s.toLowerCase().trim().replace(/s$/, "");
+    const matched: string[] = [];
+    for (const v of values) {
+      const cand = norm(v);
+      const hit = allowed.find((a) => norm(a) === cand);
+      if (hit && !matched.includes(hit)) matched.push(hit);
+    }
+    if (matched.length === 0) return [];
+    return allowMulti ? matched : [matched[0]!];
+  }
+  return allowMulti ? values : [values[0]!];
+}
+
+// Map structured item data onto a category's aspects via the shared registry.
+// Returns only aspects NOT already set in `existing` (user-set values win).
 export function deriveAspectsFromItem(
   item: ItemAspectSource,
   aspectList: EbayAspect[],
   existing: Record<string, string[]>,
 ): Record<string, string[]> {
-  const isClothing = item.item_category === "clothing";
-  const concepts: Array<{ names: string[]; value: string | null }> = [
-    { names: ["brand"], value: item.brand },
-    { names: ["size"], value: item.size },
-    { names: ["color", "colour"], value: item.color },
-    {
-      names: ["material", "fabric type", "outer shell material"],
-      value: item.material,
-    },
-    { names: ["style", "type"], value: item.style },
-    // Most clothing is "Regular"; a safe default the seller can change.
-    { names: ["size type"], value: isClothing ? "Regular" : null },
-    { names: ["department"], value: inferDepartment(item) },
-  ];
-
+  const category = item.item_category ?? null;
   const out: Record<string, string[]> = {};
   for (const aspect of aspectList) {
     const name = (aspect.localizedAspectName ?? "").trim();
     if (!name) continue;
     if ((existing[name]?.length ?? 0) > 0) continue;
+    if (out[name]) continue;
     const lname = name.toLowerCase();
-    const match = concepts.find(
-      (cpt) => cpt.value && cpt.value.trim() && cpt.names.includes(lname),
+    const entry = ASPECT_REGISTRY.entries.find((e) =>
+      effectiveCandidates(e, category).includes(lname),
     );
-    const candidate = match?.value?.trim();
-    if (!candidate) continue;
-
-    if (aspect.aspectConstraint?.aspectMode === "SELECTION_ONLY") {
-      const allowed = (aspect.aspectValues ?? [])
-        .map((v) => v.localizedValue ?? "")
-        .filter((v) => v.length > 0);
-      // Plural-tolerant: eBay sometimes pluralizes values ("Unisex Adults").
-      const norm = (s: string) => s.toLowerCase().trim().replace(/s$/, "");
-      const cand = norm(candidate);
-      const hit = allowed.find((v) => norm(v) === cand);
-      if (!hit) continue;
-      out[name] = [hit];
-    } else {
-      out[name] = [candidate];
-    }
+    if (!entry) continue;
+    const values = canonicalValues(entry, item);
+    if (!values || values.length === 0) continue;
+    const filled = fillAspect(aspect, values, entry.multi);
+    if (filled.length > 0) out[name] = filled;
   }
   return out;
 }

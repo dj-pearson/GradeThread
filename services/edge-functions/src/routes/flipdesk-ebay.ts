@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
+import { resolveItemAspects } from "../lib/aspect-registry.ts";
+import type { RegistryAspect } from "../lib/aspect-registry.ts";
 import {
   buildConsentUrl,
   createInventoryLocation,
@@ -4206,6 +4208,8 @@ interface PublishItem {
   color: string | null;
   material: string | null;
   style: string | null;
+  // US-821 canonical attributes (jsonb). US-822 maps these onto eBay aspects.
+  attributes: Record<string, string | string[]> | null;
   status: string;
 }
 
@@ -4385,105 +4389,35 @@ type PublishContext = PublishContextOk | PublishContextErr;
 // eBay getCategoryAspects raw aspect shape (subset we read).
 interface AspectSpecRaw {
   localizedAspectName?: string;
-  aspectConstraint?: { aspectRequired?: boolean; aspectMode?: string };
+  aspectConstraint?: {
+    aspectRequired?: boolean;
+    aspectMode?: string;
+    itemToAspectCardinality?: string; // "SINGLE" | "MULTI"
+  };
   aspectValues?: Array<{ localizedValue?: string }>;
 }
 
-// eBay's "Department" aspect is required + SELECTION_ONLY for most clothing
-// categories, and we have no column for it — but the gender is almost always
-// in the title/style ("Men's Nike Hoodie"). Infer the canonical eBay value
-// from the item's text; the SELECTION_ONLY allowed-value check then validates
-// it against the category's real list before we fill it. Returns null when no
-// signal is present (→ falls through to the composer).
-function inferDepartment(item: PublishItem): string | null {
-  // Pull from every free-text field that might carry a gender/age signal —
-  // condition_notes and size ("Women's M", "Boys 10/12") often name it even when
-  // the title doesn't.
-  const text = [
-    item.title,
-    item.style,
-    item.description,
-    item.condition_notes,
-    item.size,
-  ]
-    .filter((s): s is string => typeof s === "string" && s.length > 0)
-    .join(" ")
-    .toLowerCase();
-  if (!text) return null;
-  const has = (re: RegExp) => re.test(text);
-  // Order matters: most specific first. \b avoids "men" matching inside "women".
-  if (has(/\bmaternity\b/)) return "Maternity";
-  if (has(/\b(baby|infant|newborn|toddler|onesie)\b/)) return "Baby";
-  if (has(/\bboys?\b/)) return "Boys";
-  if (has(/\bgirls?\b/)) return "Girls";
-  if (has(/\b(kids?|youth|juniors?|children'?s?|child)\b/)) return "Unisex Kids";
-  if (has(/\bunisex\b/)) return "Unisex Adult";
-  if (
-    has(/\b(women'?s?|womens|woman'?s?|womenswear|ladies'?|lady'?s?|female|misses)\b/)
-  ) {
-    return "Women";
-  }
-  if (has(/\b(men'?s?|mens|man'?s?|menswear|male)\b/)) return "Men";
-  return null;
-}
-
-// Map an item's structured columns onto a category's aspects so we can fill
-// required specifics without the AI pass. Returns only aspects NOT already in
-// `existing`. SELECTION_ONLY aspects are filled only when the column value
-// matches one of eBay's allowed values (case-insensitive); FREE_TEXT/SUGGESTED
-// aspects accept the raw value. Aspect names are matched case-insensitively
-// against eBay's localizedAspectName plus a few synonyms eBay uses across
-// clothing categories.
+// Map an item's canonical fields (legacy columns + US-821 attributes) onto a
+// category's aspects so we can fill required specifics without an AI pass.
+// US-822: this is now a thin adapter over the single-source ASPECT_REGISTRY —
+// it normalizes eBay's raw aspect shape into the registry's RegistryAspect and
+// delegates the field→aspect mapping + SELECTION_ONLY validation to
+// resolveItemAspects. Returns only aspects NOT already in `existing`; user-set
+// values are never overwritten.
 function deriveAspectsFromItem(
   item: PublishItem,
   aspectList: AspectSpecRaw[],
   existing: Record<string, string[]>,
 ): Record<string, string[]> {
-  const isClothing = item.item_category === "clothing";
-  const concepts: Array<{ names: string[]; value: string | null }> = [
-    { names: ["brand"], value: item.brand },
-    { names: ["size"], value: item.size },
-    { names: ["color", "colour"], value: item.color },
-    {
-      names: ["material", "fabric type", "outer shell material"],
-      value: item.material,
-    },
-    { names: ["style", "type"], value: item.style },
-    // Most clothing is "Regular"; a safe default the seller can change in the
-    // composer. Gated to clothing so we don't mis-fill other verticals.
-    { names: ["size type"], value: isClothing ? "Regular" : null },
-    // Department (Men/Women/Unisex…) inferred from the title/style.
-    { names: ["department"], value: inferDepartment(item) },
-  ];
-
-  const out: Record<string, string[]> = {};
-  for (const aspect of aspectList) {
-    const name = (aspect.localizedAspectName ?? "").trim();
-    if (!name) continue;
-    if ((existing[name]?.length ?? 0) > 0) continue; // already set
-    const lname = name.toLowerCase();
-    const match = concepts.find(
-      (cpt) => cpt.value && cpt.value.trim() && cpt.names.includes(lname),
-    );
-    const candidate = match?.value?.trim();
-    if (!candidate) continue;
-
-    if (aspect.aspectConstraint?.aspectMode === "SELECTION_ONLY") {
-      const allowed = (aspect.aspectValues ?? [])
-        .map((v) => v.localizedValue ?? "")
-        .filter((v) => v.length > 0);
-      // Plural-tolerant: eBay sometimes pluralizes values (e.g. "Unisex
-      // Adults"). Compare with trailing "s" stripped from both sides.
-      const norm = (s: string) => s.toLowerCase().trim().replace(/s$/, "");
-      const cand = norm(candidate);
-      const hit = allowed.find((v) => norm(v) === cand);
-      if (!hit) continue; // can't safely fill a constrained value we don't match
-      out[name] = [hit];
-    } else {
-      out[name] = [candidate];
-    }
-  }
-  return out;
+  const aspects: RegistryAspect[] = aspectList.map((a) => ({
+    name: a.localizedAspectName ?? "",
+    mode: a.aspectConstraint?.aspectMode,
+    multi: a.aspectConstraint?.itemToAspectCardinality === "MULTI",
+    allowedValues: (a.aspectValues ?? [])
+      .map((v) => v.localizedValue ?? "")
+      .filter((v) => v.length > 0),
+  }));
+  return resolveItemAspects(item, aspects, existing);
 }
 
 // Per-user GLOBAL default for the grade-badge + cert-link promotion (00145).
@@ -4705,7 +4639,7 @@ async function assemblePublishContext(
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, item_category, color, material, style, status"
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, item_category, color, material, style, attributes, status"
     )
     .eq("id", itemId)
     .maybeSingle();

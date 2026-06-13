@@ -292,11 +292,12 @@ export function FlipdeskComposerPage() {
       ai_generated_aspects_at: string | null;
       color: string | null;
       material: string | null;
+      attributes: Record<string, string | string[]> | null;
     } | null> => {
       const { data, error } = await supabase
         .from("inventory_items")
         .select(
-          "ebay_category_id, ebay_aspects, ai_generated_aspects_at, color, material",
+          "ebay_category_id, ebay_aspects, ai_generated_aspects_at, color, material, attributes",
         )
         .eq("id", id!)
         .maybeSingle();
@@ -307,6 +308,7 @@ export function FlipdeskComposerPage() {
         ai_generated_aspects_at: string | null;
         color: string | null;
         material: string | null;
+        attributes: Record<string, string | string[]> | null;
       } | null;
     },
   });
@@ -326,6 +328,7 @@ export function FlipdeskComposerPage() {
             description: item.item_description,
             condition_notes: item.notes,
             item_category: item.category,
+            attributes: ebayMapping?.attributes ?? null,
           }
         : null,
     [item, ebayMapping],

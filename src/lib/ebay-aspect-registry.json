@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "key": "brand",
+      "source": "column",
+      "column": "brand",
+      "multi": false,
+      "aspects": [
+        "Brand"
+      ]
+    },
+    {
+      "key": "size",
+      "source": "column",
+      "column": "size",
+      "multi": false,
+      "aspects": [
+        "Size"
+      ],
+      "byCategory": {
+        "shoes": [
+          "US Shoe Size",
+          "Shoe Size"
+        ]
+      }
+    },
+    {
+      "key": "color",
+      "source": "column",
+      "column": "color",
+      "multi": false,
+      "aspects": [
+        "Color",
+        "Colour"
+      ]
+    },
+    {
+      "key": "material",
+      "source": "column",
+      "column": "material",
+      "multi": false,
+      "aspects": [
+        "Material",
+        "Fabric Type",
+        "Outer Shell Material"
+      ],
+      "byCategory": {
+        "shoes": [
+          "Upper Material"
+        ]
+      }
+    },
+    {
+      "key": "style",
+      "source": "column",
+      "column": "style",
+      "multi": false,
+      "aspects": [
+        "Style",
+        "Type"
+      ]
+    },
+    {
+      "key": "department",
+      "source": "attribute",
+      "attribute": "department",
+      "infer": "department",
+      "multi": false,
+      "aspects": [
+        "Department"
+      ]
+    },
+    {
+      "key": "size_type",
+      "source": "attribute",
+      "attribute": "size_type",
+      "clothingDefault": "Regular",
+      "multi": false,
+      "aspects": [
+        "Size Type"
+      ]
+    },
+    {
+      "key": "sleeve_length",
+      "source": "attribute",
+      "attribute": "sleeve_length",
+      "multi": false,
+      "aspects": [
+        "Sleeve Length"
+      ]
+    },
+    {
+      "key": "neckline",
+      "source": "attribute",
+      "attribute": "neckline",
+      "multi": false,
+      "aspects": [
+        "Neckline"
+      ]
+    },
+    {
+      "key": "pattern",
+      "source": "attribute",
+      "attribute": "pattern",
+      "multi": false,
+      "aspects": [
+        "Pattern"
+      ]
+    },
+    {
+      "key": "fit",
+      "source": "attribute",
+      "attribute": "fit",
+      "multi": false,
+      "aspects": [
+        "Fit",
+        "Garment Fit"
+      ]
+    },
+    {
+      "key": "closure",
+      "source": "attribute",
+      "attribute": "closure",
+      "multi": false,
+      "aspects": [
+        "Closure",
+        "Closure Type",
+        "Fastening"
+      ]
+    },
+    {
+      "key": "features",
+      "source": "attribute",
+      "attribute": "features",
+      "multi": true,
+      "aspects": [
+        "Features"
+      ]
+    },
+    {
+      "key": "garment_care",
+      "source": "attribute",
+      "attribute": "garment_care",
+      "multi": false,
+      "aspects": [
+        "Garment Care",
+        "Care Instructions"
+      ]
+    },
+    {
+      "key": "country_of_manufacture",
+      "source": "attribute",
+      "attribute": "country_of_manufacture",
+      "multi": false,
+      "aspects": [
+        "Country/Region of Manufacture",
+        "Country of Manufacture"
+      ]
+    },
+    {
+      "key": "vintage",
+      "source": "attribute",
+      "attribute": "vintage",
+      "multi": false,
+      "aspects": [
+        "Vintage"
+      ]
+    },
+    {
+      "key": "theme",
+      "source": "attribute",
+      "attribute": "theme",
+      "multi": false,
+      "aspects": [
+        "Theme",
+        "Character",
+        "Character Family"
+      ]
+    },
+    {
+      "key": "mpn",
+      "source": "attribute",
+      "attribute": "mpn",
+      "multi": false,
+      "aspects": [
+        "MPN",
+        "Manufacturer Part Number"
+      ]
+    }
+  ]
+}
