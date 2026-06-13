@@ -25,6 +25,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
+  LoadingRegion,
+  SkeletonRows,
+  TableLoadingSkeleton,
+} from "@/components/ui/skeletons";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -193,9 +198,9 @@ export function FlipdeskConsignmentPage() {
         </CardHeader>
         <CardContent className="px-0">
           {isLoading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              Loading consignors…
-            </div>
+            <LoadingRegion label="Loading consignors" className="px-4">
+              <TableLoadingSkeleton rows={5} columns={5} />
+            </LoadingRegion>
           ) : error ? (
             <div className="py-12 text-center text-sm text-destructive">
               Failed to load consignors: {String(error)}
@@ -754,9 +759,9 @@ function PayoutHistoryDialog({
           </DialogDescription>
         </DialogHeader>
         {isLoading ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            Loading…
-          </div>
+          <LoadingRegion label="Loading payouts">
+            <SkeletonRows rows={3} />
+          </LoadingRegion>
         ) : payouts.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
             No payouts yet.

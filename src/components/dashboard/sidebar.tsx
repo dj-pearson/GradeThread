@@ -61,7 +61,17 @@ type NavItem = {
   // bulk-photo→item tool) is hidden once AutoLister becomes available.
   hiddenWhenFlipdeskFlag?: keyof FlipdeskGateFlags;
 };
-type NavGroup = { title?: string; items: NavItem[]; adminOnly?: boolean };
+// A subgroup is a labeled, independently-collapsible cluster of nav items
+// rendered *inside* a parent group. Used to break the long FlipDesk list into
+// manageable sections (US-609) so the section doesn't feel overwhelming.
+type NavSubgroup = { title: string; items: NavItem[] };
+type NavGroup = {
+  title?: string;
+  // A group renders either a flat list of `items` OR a set of `subgroups`.
+  items?: NavItem[];
+  subgroups?: NavSubgroup[];
+  adminOnly?: boolean;
+};
 
 const navGroups: NavGroup[] = [
   {
@@ -78,34 +88,62 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    // The FlipDesk section is split into labeled, independently-collapsible
+    // subgroups (US-609) so its ~20 destinations stay manageable. Overview +
+    // Inventory sit at the top as the two everyday entry points.
     title: "FlipDesk",
-    items: [
-      { to: "/dashboard/flipdesk", icon: Gauge, label: "Overview", end: true },
-      // Inventory is one surface now. Its in-page tabs switch between
-      // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
-      { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
-      { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
-      { to: "/dashboard/flipdesk/autolister/drafts", icon: ClipboardList, label: "Drafts", end: false, requiresFlipdeskFlag: "autolister" },
-      { to: "/dashboard/flipdesk/scheduled-drops", icon: CalendarClock, label: "Scheduled drops", end: false },
-      { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
-      { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
-      // Reconcile is the ungated bulk-photo→item tool. Once a plan unlocks
-      // AutoLister (Pro+), AutoLister supersedes it, so hide Reconcile to avoid
-      // showing two overlapping tools. The route still works via deep link.
-      { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false, hiddenWhenFlipdeskFlag: "autolister" },
-      { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
-      { to: "/dashboard/flipdesk/consignment", icon: Handshake, label: "Consignment", end: false },
-      { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
-      { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
-      { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
-      { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
-      { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
-      { to: "/dashboard/flipdesk/automations", icon: Zap, label: "Automations", end: false },
-      { to: "/dashboard/flipdesk/scout", icon: Radar, label: "ScoutAI", end: true, requiresFlipdeskFlag: "compPulls" },
-      { to: "/dashboard/flipdesk/scout/buy", icon: ScanBarcode, label: "Buy Decision", end: false, requiresFlipdeskFlag: "compPulls" },
-      { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: true },
-      { to: "/dashboard/flipdesk/analytics/performance", icon: Eye, label: "Listing Performance", end: false },
-      { to: "/dashboard/flipdesk/community", icon: Users, label: "Community Insights", end: false },
+    subgroups: [
+      {
+        title: "Catalog",
+        items: [
+          { to: "/dashboard/flipdesk", icon: Gauge, label: "Overview", end: true },
+          // Inventory is one surface now. Its in-page tabs switch between
+          // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
+          { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
+        ],
+      },
+      {
+        title: "List & sell",
+        items: [
+          { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
+          { to: "/dashboard/flipdesk/autolister/drafts", icon: ClipboardList, label: "Drafts", end: false, requiresFlipdeskFlag: "autolister" },
+          { to: "/dashboard/flipdesk/scheduled-drops", icon: CalendarClock, label: "Scheduled drops", end: false },
+          { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
+          // Reconcile is the ungated bulk-photo→item tool. Once a plan unlocks
+          // AutoLister (Pro+), AutoLister supersedes it, so hide Reconcile to
+          // avoid showing two overlapping tools. The route still works via deep link.
+          { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false, hiddenWhenFlipdeskFlag: "autolister" },
+        ],
+      },
+      {
+        title: "Sourcing",
+        items: [
+          { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
+          { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
+          { to: "/dashboard/flipdesk/consignment", icon: Handshake, label: "Consignment", end: false },
+          { to: "/dashboard/flipdesk/scout", icon: Radar, label: "ScoutAI", end: true, requiresFlipdeskFlag: "compPulls" },
+          { to: "/dashboard/flipdesk/scout/buy", icon: ScanBarcode, label: "Buy Decision", end: false, requiresFlipdeskFlag: "compPulls" },
+        ],
+      },
+      {
+        title: "Channels & money",
+        items: [
+          { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
+          { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
+          { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
+          { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
+          { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
+        ],
+      },
+      {
+        title: "Automate & insights",
+        items: [
+          { to: "/dashboard/flipdesk/automations", icon: Zap, label: "Automations", end: false },
+          { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: true },
+          { to: "/dashboard/flipdesk/analytics/performance", icon: Eye, label: "Listing Performance", end: false },
+          { to: "/dashboard/flipdesk/community", icon: Users, label: "Community Insights", end: false },
+        ],
+      },
     ],
   },
   {
@@ -156,9 +194,41 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     });
   }
 
+  function isItemVisible(item: NavItem): boolean {
+    if (item.requires && !can(item.requires)) return false;
+    if (item.requiresFlipdeskFlag && !flipdeskFlags[item.requiresFlipdeskFlag]) {
+      return false;
+    }
+    if (item.hiddenWhenFlipdeskFlag && flipdeskFlags[item.hiddenWhenFlipdeskFlag]) {
+      return false;
+    }
+    return true;
+  }
+
   function groupHasActiveRoute(items: NavItem[]): boolean {
     return items.some((item) =>
       item.end ? pathname === item.to : pathname.startsWith(item.to),
+    );
+  }
+
+  function renderNavLink(item: NavItem) {
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.end}
+        onClick={onNavigate}
+        className={({ isActive }) =>
+          `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+            isActive
+              ? "bg-white/15 text-white"
+              : "text-white/70 hover:bg-white/10 hover:text-white"
+          }`
+        }
+      >
+        <item.icon className="h-5 w-5" />
+        {item.label}
+      </NavLink>
     );
   }
 
@@ -167,20 +237,19 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       {navGroups
         .filter((g) => !g.adminOnly || isAdmin)
         .map((group, gi) => {
-        const visibleItems = group.items.filter((item) => {
-          if (item.requires && !can(item.requires)) return false;
-          if (item.requiresFlipdeskFlag && !flipdeskFlags[item.requiresFlipdeskFlag]) {
-            return false;
-          }
-          if (item.hiddenWhenFlipdeskFlag && flipdeskFlags[item.hiddenWhenFlipdeskFlag]) {
-            return false;
-          }
-          return true;
-        });
-        if (visibleItems.length === 0) return null;
+        const directItems = (group.items ?? []).filter(isItemVisible);
+        // Subgroups, each filtered for visibility; drop any that end up empty.
+        const subgroups = (group.subgroups ?? [])
+          .map((sg) => ({ ...sg, items: sg.items.filter(isItemVisible) }))
+          .filter((sg) => sg.items.length > 0);
+        const allItems = [
+          ...directItems,
+          ...subgroups.flatMap((sg) => sg.items),
+        ];
+        if (allItems.length === 0) return null;
         // A collapsed section is force-opened while it contains the active
         // route, so the current page's nav item is never hidden.
-        const hasActive = groupHasActiveRoute(visibleItems);
+        const hasActive = groupHasActiveRoute(allItems);
         const isCollapsed =
           !!group.title && (collapsed[group.title] ?? false) && !hasActive;
         return (
@@ -203,24 +272,33 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           )}
           {!isCollapsed && (
             <>
-              {visibleItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  onClick={onNavigate}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-white/15 text-white"
-                        : "text-white/70 hover:bg-white/10 hover:text-white"
-                    }`
-                  }
-                >
-                  <item.icon className="h-5 w-5" />
-                  {item.label}
-                </NavLink>
-              ))}
+              {directItems.map(renderNavLink)}
+              {subgroups.map((sg) => {
+                // Subgroup collapse state is namespaced under its parent so two
+                // subgroups with the same label in different sections never clash.
+                const key = group.title ? `${group.title}:${sg.title}` : sg.title;
+                const sgHasActive = groupHasActiveRoute(sg.items);
+                const sgCollapsed = (collapsed[key] ?? false) && !sgHasActive;
+                return (
+                  <div key={sg.title} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(key)}
+                      aria-expanded={!sgCollapsed}
+                      className="flex w-full items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[0.7rem] font-medium uppercase tracking-wide text-white/35 transition-colors hover:text-white/60"
+                    >
+                      {sg.title}
+                      <ChevronDown
+                        className={cn(
+                          "h-3 w-3 transition-transform",
+                          sgCollapsed && "-rotate-90",
+                        )}
+                      />
+                    </button>
+                    {!sgCollapsed && sg.items.map(renderNavLink)}
+                  </div>
+                );
+              })}
               {/* Pinned saved views render below the FlipDesk group */}
               {group.title === "FlipDesk" && (
                 <PinnedViews onNavigate={onNavigate} />

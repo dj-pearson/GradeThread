@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
 import { useItemsFull } from "@/hooks/use-items-full";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
@@ -141,9 +143,10 @@ export function FlipdeskPrepPage() {
 
   if (isLoading) {
     return (
-      <div className="py-12 text-center text-sm text-muted-foreground">
-        Loading prep queue…
-      </div>
+      <LoadingRegion label="Loading prep queue" className="space-y-4 p-6">
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-64 w-full" />
+      </LoadingRegion>
     );
   }
 

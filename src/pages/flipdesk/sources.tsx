@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import {
   Select,
   SelectContent,
@@ -199,9 +200,9 @@ export function FlipdeskSourcesPage() {
         </CardHeader>
         <CardContent className="px-0">
           {isLoading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              Loading sources…
-            </div>
+            <LoadingRegion label="Loading sources" className="px-4">
+              <TableLoadingSkeleton rows={5} columns={4} />
+            </LoadingRegion>
           ) : error ? (
             <div className="py-12 text-center text-sm text-destructive">
               Failed to load sources: {String(error)}

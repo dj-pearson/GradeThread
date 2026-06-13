@@ -19,6 +19,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/skeletons";
 import {
   Select,
   SelectContent,
@@ -221,10 +223,10 @@ export function FlipdeskAutolisterQueuePage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading batch…
-      </div>
+      <LoadingRegion label="Loading batch" className="space-y-4 p-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+      </LoadingRegion>
     );
   }
 

@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import {
   Select,
   SelectContent,
@@ -519,10 +520,9 @@ export function FlipdeskAutolisterDraftsPage() {
         </CardHeader>
         <CardContent className="px-0">
           {isLoading ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading drafts…
-            </div>
+            <LoadingRegion label="Loading drafts" className="px-4">
+              <SkeletonRows rows={5} />
+            </LoadingRegion>
           ) : drafts.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
               <Boxes className="h-8 w-8 text-muted-foreground/50" />

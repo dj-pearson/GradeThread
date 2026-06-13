@@ -42,6 +42,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -746,9 +748,11 @@ export function FlipdeskComposerPage() {
 
   if (isLoading) {
     return (
-      <div className="py-12 text-center text-sm text-muted-foreground">
-        Loading item…
-      </div>
+      <LoadingRegion label="Loading item" className="space-y-4 p-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </LoadingRegion>
     );
   }
 
@@ -946,9 +950,10 @@ export function FlipdeskComposerPage() {
               wipe. */}
           {listingLoading || ebayMappingLoading ? (
             <Card>
-              <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading eBay item specifics…
+              <CardContent className="py-6">
+                <LoadingRegion label="Loading eBay item specifics">
+                  <SkeletonRows rows={4} />
+                </LoadingRegion>
               </CardContent>
             </Card>
           ) : (

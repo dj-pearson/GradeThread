@@ -70,6 +70,8 @@ import { csvBlob, downloadBlob } from "@/lib/download";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ErrorState } from "@/components/ui/error-state";
+import { LoadingRegion } from "@/components/ui/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
@@ -458,11 +460,21 @@ export function FlipdeskPipelinePage() {
           </CardContent>
         </Card>
       ) : isLoading ? (
-        <Card>
-          <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            Loading pipeline…
-          </CardContent>
-        </Card>
+        <LoadingRegion label="Loading pipeline" className="overflow-x-auto pb-4">
+          <div
+            className="flex gap-3"
+            style={{ minWidth: "max-content" }}
+            aria-hidden="true"
+          >
+            {FLIPDESK_PIPELINE.map((step) => (
+              <div key={step.status} className="w-64 flex-shrink-0 space-y-2">
+                <Skeleton className="h-9 w-full rounded-md" />
+                <Skeleton className="h-20 w-full rounded-md" />
+                <Skeleton className="h-20 w-full rounded-md" />
+              </div>
+            ))}
+          </div>
+        </LoadingRegion>
       ) : (
         <DndContext
           sensors={sensors}

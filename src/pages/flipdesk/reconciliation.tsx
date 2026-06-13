@@ -360,9 +360,9 @@ export function FlipdeskReconciliationPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              Loading sales…
-            </div>
+            <LoadingRegion label="Loading sales">
+              <SkeletonRows rows={4} />
+            </LoadingRegion>
           ) : flagged.length === 0 ? (
             <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -762,9 +762,9 @@ function ReviewQueueCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            Loading queue…
-          </div>
+          <LoadingRegion label="Loading queue">
+            <SkeletonRows rows={4} />
+          </LoadingRegion>
         ) : queue.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />

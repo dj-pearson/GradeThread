@@ -9227,8 +9227,8 @@
         "flipdesk pipeline (and other text 'Loading…' cards) use the standard Skeleton treatment"
       ],
       "priority": 609,
-      "passes": false,
-      "notes": "[P3][UX] Deep-dive 2026-06-04. sidebar.tsx FlipDesk group is 13 flat items; flipdesk/pipeline.tsx uses plain text loading while others use Skeleton."
+      "passes": true,
+      "notes": "[P3][UX] Deep-dive 2026-06-04. sidebar.tsx FlipDesk group is 13 flat items; flipdesk/pipeline.tsx uses plain text loading while others use Skeleton. [DONE 2026-06-13] Split the flat FlipDesk sidebar group into 5 labeled, independently-collapsible subgroups (Catalog / List & sell / Sourcing / Channels & money / Automate & insights) reusing the US-743 collapse infra (subgroup state namespaced as `FlipDesk:<sub>`, force-open while it holds the active route). Converted plain-text \"Loading…\" cards to the standard LoadingRegion+Skeleton treatment across pipeline, sources, consignment, reconciliation, autolister-drafts, composer, item, prep, autolister-queue, autolister-bulk-edit (grid/listings/expenses/repricing/verified/overview already used it)."
     },
     {
       "id": "US-610",

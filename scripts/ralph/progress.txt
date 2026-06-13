@@ -1632,3 +1632,10 @@ Branch: ralph/gradethread-build
 - Notes: Wrapped the ~1000-line single-scroll settings page in the existing Tabs primitive — 8 sections: Profile, Security, Notifications, AI, FlipDesk, Data, Storage, Danger. Deep-linkable via ?tab=<value> search param (useSearchParams with replace history; unknown/missing → profile). All existing handlers/logic untouched — pure JSX reorg. Security consolidates MFA + change-password + sign-out-everywhere; Notifications holds prefs + usage alerts. Tabs render in any DOM order (Radix), so SignOutAllCard moved adjacent to Security group, PhotoArchive → Storage, DangerZone → Danger. TabsList uses flex-wrap h-auto for the 8-tab strip on small screens. tsc --noEmit + npm run build + eslint all clean.
 - Timestamp: 2026-06-13
 ---
+
+## US-609: Group/collapse the FlipDesk sidebar and standardize loading patterns
+- Status: COMPLETE
+- Files changed: src/components/dashboard/sidebar.tsx; src/pages/flipdesk/{pipeline,sources,consignment,reconciliation,autolister-drafts,item,prep,composer,autolister-queue,autolister-bulk-edit}.tsx; prd.json
+- Notes: Group-level collapse already existed (US-743). Remaining gap was (1) the 20-item flat FlipDesk group and (2) text loaders. Split FlipDesk into 5 labeled, independently-collapsible subgroups (Catalog / List & sell / Sourcing / Channels & money / Automate & insights) via a new NavSubgroup type; subgroup collapse state namespaced as `FlipDesk:<sub>`, force-opened while holding the active route, persisted in the same gt-sidebar-collapsed key. Extracted renderNavLink + isItemVisible helpers. Converted plain-text "Loading…" cards to the standard LoadingRegion + Skeleton/SkeletonRows/TableLoadingSkeleton treatment. Many flipdesk pages (grid, listings, expenses, repricing, verified, overview) already used the standard treatment. Left spinner-only loaders (scheduled-drops, inline eBay-policy spinner) as-is since AC targeted text "Loading…" cards. tsc/build/eslint all clean.
+- Timestamp: 2026-06-13
+---
