@@ -10455,8 +10455,8 @@
         "Tenant-scoped throughout (US-268); deno check + typecheck pass"
       ],
       "priority": 709,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Shopify] Source: Cross_Listing.md §1. GraphQL Admin API 2026-01, token never expires unless revoked. API is free (15% rev-share only above $1M lifetime app revenue). Depends on [[US-708]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Shopify] Source: Cross_Listing.md §1. GraphQL Admin API 2026-01, token never expires unless revoked. API is free (15% rev-share only above $1M lifetime app revenue). Depends on [[US-708]]. | IMPLEMENTED: Shopify connector already built under US-599 (OAuth 2.0 auth-code flow with state CSRF per US-274 + Shopify HMAC verification in shopify-client.ts/flipdesk-shopify.ts; AES-GCM token storage via crypto-aes.ts reused from eBay; real Connect/Disconnect/Sync card in marketplaces.tsx; tenant-scoped throughout; MarketplaceAdapter contract in marketplace-adapters/shopify.ts per US-708). US-709 closed by expanding DEFAULT_SCOPES to the full required set (write_products,read_products,write_inventory,read_inventory,read_orders,write_assigned_fulfillment_orders). DEVIATION: kept the Deno-native custom OAuth/HMAC client rather than @shopify/shopify-api (Node-oriented; the existing client provides equivalent OAuth+HMAC+session+state-CSRF and is already shipped/tested). deno check + shopify tests pass."
     },
     {
       "id": "US-710",

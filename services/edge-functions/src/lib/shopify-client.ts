@@ -19,7 +19,9 @@
 //   SHOPIFY_API_KEY       the app's client id
 //   SHOPIFY_API_SECRET    the app's client secret (also HMAC key for callbacks)
 //   SHOPIFY_REDIRECT_URI  https://functions.gradethread.com/api/flipdesk/shopify/oauth/callback
-//   SHOPIFY_SCOPES        optional; default "write_products,read_products,read_orders"
+//   SHOPIFY_SCOPES        optional; default = the US-709 publish+inventory+orders
+//                         set (write_products,read_products,write_inventory,
+//                         read_inventory,read_orders,write_assigned_fulfillment_orders)
 //   EDGE_ENCRYPTION_KEY   (shared with the eBay path)
 
 import { supabaseAdmin } from "./supabase.ts";
@@ -30,7 +32,11 @@ import { fetchWithTimeout } from "./circuit-breaker.ts";
 // deliberately (the payload shapes below are stable across recent versions).
 export const SHOPIFY_API_VERSION = "2024-10";
 const SHOPIFY_TIMEOUT_MS = 20_000;
-const DEFAULT_SCOPES = "write_products,read_products,read_orders";
+// US-709: request the full publish + inventory + order/fulfillment scope set so
+// the connector can create/update products, manage stock levels, read paid
+// orders for reconciliation, and act on assigned fulfillment orders.
+const DEFAULT_SCOPES =
+  "write_products,read_products,write_inventory,read_inventory,read_orders,write_assigned_fulfillment_orders";
 
 // All env reads trim whitespace (copy-paste guard) and treat "" as unset —
 // mirrors ebay-client's readEnv so a stray space can't break the OAuth host.
