@@ -242,6 +242,13 @@ contentTopicsRoutes.post("/check-keyword", async (c) => {
 // Generates fresh topic candidates via the lightweight model, dedup-
 // filters against history + bank, and inserts the survivors as 'queued'.
 // Response includes counts so the UI can show "Added 7 (3 dupes rejected)".
+//
+// Refill mode (US-851): when `count` is omitted the endpoint tops the bank
+// back up TOWARD content_settings.min_topics_in_bank — it counts the queued
+// topics already in this (surface, product_focus) bucket and only asks the
+// model for the shortfall. If the bucket is already at/above the minimum it
+// returns inserted:0 without calling the model. An explicit `count` overrides
+// this and always requests that many (the admin "Research N more" button).
 contentTopicsRoutes.post("/research", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     surface: ContentSurface;
@@ -254,10 +261,46 @@ contentTopicsRoutes.post("/research", async (c) => {
   }
 
   try {
+    let count = body.count;
+    let alreadyFull = false;
+    if (count === undefined) {
+      const [{ data: settings }, { count: queued }] = await Promise.all([
+        supabaseAdmin
+          .from("content_settings")
+          .select("min_topics_in_bank")
+          .eq("id", 1)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("content_topics")
+          .select("id", { count: "exact", head: true })
+          .eq("surface", body.surface)
+          .eq("product_focus", body.product_focus)
+          .eq("status", "queued"),
+      ]);
+      const minimum = (settings as { min_topics_in_bank?: number } | null)
+        ?.min_topics_in_bank ?? 3;
+      const shortfall = minimum - (queued ?? 0);
+      if (shortfall <= 0) {
+        alreadyFull = true;
+        count = 0;
+      } else {
+        count = shortfall;
+      }
+    }
+
+    if (alreadyFull) {
+      return c.json({
+        inserted: 0,
+        rejected_duplicates: 0,
+        topics: [],
+        meta: { skipped: "bank_at_minimum" },
+      });
+    }
+
     const result = await researchTopics({
       surface: body.surface,
       productFocus: body.product_focus,
-      count: body.count,
+      count,
       model: body.model,
     });
 

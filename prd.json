@@ -12537,8 +12537,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 851,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] Builds on content-topics.ts + content-ai-research.ts + topic-bank.tsx. Depends on US-850 for brand-aligned research."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Builds on content-topics.ts + content-ai-research.ts + topic-bank.tsx. Depends on US-850 for brand-aligned research. DONE 2026-06-13: migration 00192_seed_topic_bank.sql seeds 44 'queued' topics (12 blog + 10 social per gradethread/flipdesk), idempotent via NOT EXISTS on (surface, product_focus, lower(primary_keyword)) mirroring idx_content_topics_primary_keyword. scripts/seed-topic-bank.sql is the byte-identical manual psql copy. POST /topics/research now refills toward content_settings.min_topics_in_bank when count is omitted (counts queued in the bucket, requests only the shortfall, returns inserted:0 meta.skipped=bank_at_minimum when already full); dedup against content_history_index unchanged. EXPECTED_SCHEMA_VERSION bumped to 00192. Seeded topics surface on the existing topic-bank.tsx admin page. Verified: deno check + 1217 edge tests pass, npm run build passes."
     },
     {
       "id": "US-852",

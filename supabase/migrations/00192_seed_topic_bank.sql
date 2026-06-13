@@ -1,18 +1,19 @@
--- Seed the content topic bank (2026-06-12).
+-- US-851: seed the content topic bank so the autonomous scheduler has
+-- something to pull from. The scheduler picks the oldest 'queued' topic per
+-- (surface, product_focus) and refills via /topics/research toward
+-- content_settings.min_topics_in_bank — but on a fresh prod instance the bank
+-- is empty, so nothing ever generates. This migration seeds 44 prioritized
+-- candidate topics (12 blog + 10 social per product) targeting high-intent
+-- queries GradeThread/FlipDesk uniquely answer.
 --
--- NOTE: the CANONICAL seed is migration supabase/migrations/00192_seed_topic_bank.sql,
--- which the self-hosted deploy process applies automatically. This file is a
--- byte-identical manual convenience copy for ad-hoc runs against an instance
--- where the migration hasn't been applied yet. Both are idempotent and dedup on
--- the same key, so running one after the other is a safe no-op.
+-- Idempotent: a candidate is skipped when a topic with the same
+-- (surface, product_focus, lower(primary_keyword)) already exists — mirrors the
+-- /topics/bulk + /topics/research dedup keyed on the lower(primary_keyword)
+-- index (idx_content_topics_primary_keyword). Re-running is a safe no-op.
 --
--- 12 SEO blog topics per product + 10 social hooks per product, all
--- status='queued' so the scheduler pulls them oldest-first. Safe to re-run:
--- rows are skipped when a topic with the same (surface, product_focus,
--- lower(primary_keyword)) already exists — mirrors the /topics/bulk dedup.
---
--- Run in Supabase Studio (SQL editor) on the self-hosted instance, or:
---   psql "$DATABASE_URL" -f scripts/seed-topic-bank.sql
+-- Mirrors scripts/seed-topic-bank.sql (the manual psql convenience copy); this
+-- migration is the canonical seed applied by the self-hosted deploy process.
+-- Aggregate brand/marketing config — no PII, no tenant data.
 
 WITH candidates (surface, product_focus, title, angle, primary_keyword, secondary_keywords, search_intent) AS (
   VALUES
@@ -345,10 +346,3 @@ WHERE NOT EXISTS (
     AND t.product_focus = c.product_focus
     AND lower(t.primary_keyword) = lower(c.primary_keyword)
 );
-
--- Expected on first run: 44 rows inserted (12+12 blog, 10+10 social).
-SELECT surface, product_focus, count(*) AS queued
-FROM public.content_topics
-WHERE status = 'queued'
-GROUP BY surface, product_focus
-ORDER BY surface, product_focus;
