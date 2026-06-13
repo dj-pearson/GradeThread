@@ -15,7 +15,7 @@ import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { notifyUser } from "./notify.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
-import { detectPhotoReuse } from "./photo-reuse.ts";
+import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
   evaluateVerifiedCapture,
   verifiedCaptureBoost,
@@ -751,6 +751,19 @@ export async function processSubmission(submissionId: string) {
         `${reuse.summary} (${reuse.matches.length} image(s), closest ${closest} bits).`;
     }
 
+    // US-861: derive the POSITIVE "original photos verified" buyer-trust signal
+    // from the same scan. True only when we actually compared hashable images
+    // and none matched a DIFFERENT account (stock/stolen-listing tell). A
+    // cross-account match instead flags the submission below (moderation), so
+    // this badge only ever appears on cleared, un-reused photos. Positive-only:
+    // when the scan couldn't run (checked === 0) the signal is simply absent —
+    // never a negative public claim. The public cert exposes only the boolean.
+    const originalPhotos = {
+      verified: originalPhotosVerified(reuse),
+      checked: reuse.checked,
+      checked_at: new Date().toISOString(),
+    };
+
     // US-340: Verified Capture — opt-in provenance booster + badge. A POSITIVE
     // signal only: it can earn a badge + a small confidence boost but NEVER
     // lowers a grade, and missing EXIF is never penalized. Anti-gaming checks
@@ -952,6 +965,10 @@ export async function processSubmission(submissionId: string) {
         // US-340: Verified Capture provenance result. Structured detail kept for
         // admin review; the public view exposes only the pass/fail boolean.
         verified_capture: verifiedCapture,
+        // US-861: POSITIVE "original photos verified" anti-fraud signal derived
+        // from the photo-reuse scan. Only the `verified` boolean is exposed on
+        // the public certificate (no hashes/match details leak).
+        original_photos: originalPhotos,
         // US-601: premium authenticity / counterfeit-confidence add-on result.
         // Null when the add-on was not purchased. A confidence signal only;
         // limitations are embedded. The public cert view exposes only coarse,

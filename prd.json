@@ -12687,8 +12687,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 861,
-      "passes": false,
-      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] photo-reuse.ts already does the detection for moderation. This is a differentiator no competitor exposes."
+      "passes": true,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] photo-reuse.ts already does the detection for moderation. This is a differentiator no competitor exposes. [IMPLEMENTED 2026-06-13] Positive-only badge wired end-to-end: migration 00194 adds grade_reports.original_photos jsonb + appends original_photos_verified bool to public_grade_reports view; photo-reuse.ts adds checked count + pure originalPhotosVerified(); grading-pipeline persists it; content-public + functions/cert SSR + certificate.tsx render badge; only boolean exposed. EXPECTED_SCHEMA_VERSION 00193->00194."
     },
     {
       "id": "US-862",

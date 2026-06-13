@@ -13,7 +13,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { hammingHex } = await import("../lib/photo-reuse.ts");
+const { hammingHex, originalPhotosVerified } = await import("../lib/photo-reuse.ts");
 
 Deno.test("identical hashes → distance 0", () => {
   assertEquals(hammingHex("abcdef0123456789", "abcdef0123456789"), 0);
@@ -41,4 +41,32 @@ Deno.test("malformed or wrong-length inputs → max distance (no false match)", 
   assertEquals(hammingHex("xyz", "0000000000000000"), 64);
   assertEquals(hammingHex("000000000000000", "0000000000000000"), 64); // 15 chars
   assertEquals(hammingHex("", ""), 64);
+});
+
+// US-861: originalPhotosVerified is the POSITIVE "original photos verified"
+// signal derived from a reuse result. Positive-only: it must be true ONLY when
+// the scan actually ran (checked > 0) AND no cross-account match was found.
+const base = { matched: false, cross_user: false, matches: [], summary: "" };
+
+Deno.test("verified when photos were checked and no cross-account reuse", () => {
+  assertEquals(originalPhotosVerified({ ...base, checked: 3 }), true);
+});
+
+Deno.test("a same-account relist (matched, not cross_user) still counts as original", () => {
+  assertEquals(
+    originalPhotosVerified({ ...base, matched: true, cross_user: false, checked: 2 }),
+    true,
+  );
+});
+
+Deno.test("NOT verified when a cross-account match was found (the fraud tell)", () => {
+  assertEquals(
+    originalPhotosVerified({ ...base, matched: true, cross_user: true, checked: 2 }),
+    false,
+  );
+});
+
+Deno.test("positive-only: scan that couldn't run (checked 0) is NOT a negative claim", () => {
+  // No hashable images / DB error → checked 0 → no badge, but never asserts reuse.
+  assertEquals(originalPhotosVerified({ ...base, checked: 0 }), false);
 });

@@ -823,6 +823,25 @@ export function CertificatePage() {
               </div>
             )}
 
+            {/* US-861: "Original photos verified" badge — shown only when the
+                photo-reuse scan ran and found no cross-account match (the
+                stock/stolen-listing tell). A positive-only trust signal; its
+                absence is never a negative claim, and flagged/reused submissions
+                stay withheld from this public surface entirely. */}
+            {gradeReport.original_photos_verified && (
+              <div className="flex items-start gap-3">
+                <ImageIcon className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
+                <div>
+                  <p className="text-sm font-medium">Original photos verified</p>
+                  <p className="text-xs text-muted-foreground">
+                    These images were checked against our database and don&apos;t
+                    match photos from any other seller — they&apos;re the
+                    seller&apos;s own, not stock or reused listing photos.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* US-601: premium authenticity / counterfeit-confidence add-on.
                 Shown only when the seller purchased it. A SEPARATE garment-
                 authenticity signal — clearly distinct from the "Authenticity

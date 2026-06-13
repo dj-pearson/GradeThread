@@ -53,9 +53,33 @@ export interface PhotoReuseResult {
   cross_user: boolean;
   matches: PhotoReuseMatch[];
   summary: string;
+  // How many of THIS submission's images carried a valid phash and were actually
+  // compared against the candidate set. 0 means the scan could not run (no
+  // hashable images, or a DB hiccup) — distinct from "ran and found nothing".
+  // This powers the POSITIVE "original photos verified" signal (US-861).
+  checked: number;
 }
 
-const EMPTY: PhotoReuseResult = { matched: false, cross_user: false, matches: [], summary: "" };
+const EMPTY: PhotoReuseResult = {
+  matched: false,
+  cross_user: false,
+  matches: [],
+  summary: "",
+  checked: 0,
+};
+
+/**
+ * POSITIVE-only buyer-trust signal (US-861): true when we actually compared this
+ * submission's photos against the corpus AND none matched a DIFFERENT account
+ * (stock/stolen-listing tell). Same-account relists still count as "original".
+ * Pure — derived solely from the reuse result, so it's unit-testable.
+ *
+ * Returns false (NOT a negative claim — just "no badge") whenever the scan
+ * couldn't run: no hashable images or a DB error leave `checked === 0`.
+ */
+export function originalPhotosVerified(result: PhotoReuseResult): boolean {
+  return result.checked > 0 && !result.cross_user;
+}
 
 /**
  * Detect whether this submission's photos reuse images from other submissions.
@@ -82,7 +106,13 @@ export async function detectPhotoReuse(opts: {
       .neq("submission_id", opts.submissionId)
       .order("created_at", { ascending: false })
       .limit(CANDIDATE_LIMIT);
-    if (error || !candidates || candidates.length === 0) return EMPTY;
+    // A DB error means we COULDN'T check — leave checked at 0 (no positive claim).
+    if (error) return EMPTY;
+    // No candidate corpus → we DID scan our images and found nothing to match
+    // against, so they are genuinely un-reused (checked = our hashable count).
+    if (!candidates || candidates.length === 0) {
+      return { ...EMPTY, checked: mine.length };
+    }
 
     // Resolve owners so we can tell a cross-account reuse from a self-relist.
     const subIds = [...new Set(candidates.map((c) => c.submission_id as string))];
@@ -115,12 +145,12 @@ export async function detectPhotoReuse(opts: {
       }
     }
 
-    if (matches.length === 0) return EMPTY;
+    if (matches.length === 0) return { ...EMPTY, checked: mine.length };
     const n = matches.length;
     const summary = crossUser
       ? `${n} photo${n > 1 ? "s" : ""} match an image previously submitted by a different account — possible reused or stolen listing photos.`
       : `${n} photo${n > 1 ? "s" : ""} match an image from a previous submission on this account.`;
-    return { matched: true, cross_user: crossUser, matches, summary };
+    return { matched: true, cross_user: crossUser, matches, summary, checked: mine.length };
   } catch (err) {
     console.error(
       "[photo-reuse] detection failed:",

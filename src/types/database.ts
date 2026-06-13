@@ -485,6 +485,18 @@ export interface VerifiedCaptureResult {
   checked_at: string;
 }
 
+// US-861: "original photos verified" anti-fraud signal, persisted on
+// grade_reports.original_photos. Derived from the photo-reuse scan (US-337): a
+// POSITIVE signal only — `verified: true` means the photos were compared and
+// none matched a DIFFERENT account (stock/stolen tell). `checked` is the count
+// of hashable images actually compared (0 = scan couldn't run → no badge, never
+// a negative claim). The public view exposes only the verified boolean.
+export interface OriginalPhotosResult {
+  verified: boolean;
+  checked: number;
+  checked_at: string;
+}
+
 // US-601: premium authenticity / counterfeit-confidence add-on result, persisted
 // on grade_reports.authenticity_assessment. A SEPARATE garment-authenticity
 // signal — distinct from the condition grade and from the photo-tamper check
@@ -578,6 +590,9 @@ export interface GradeReportRow {
   // US-340: Verified Capture provenance result. Null for grades produced before
   // the check / when the seller did not opt in.
   verified_capture: VerifiedCaptureResult | null;
+  // US-861: "original photos verified" anti-fraud signal. Null for grades
+  // produced before the check (migration 00194).
+  original_photos: OriginalPhotosResult | null;
   // US-601: premium authenticity / counterfeit-confidence add-on result. Null
   // when the add-on was not purchased (migration 00172).
   authenticity_assessment: AuthenticityAssessment | null;
@@ -652,6 +667,10 @@ export interface PublicGradeReportRow {
   authenticity_counterfeit_risk: CounterfeitRisk | null;
   authenticity_summary: string | null;
   authenticity_limitations: string | null;
+  // US-861: true when this submission's photos were compared and none matched a
+  // different account ("Original photos verified" badge). Positive-only — the
+  // raw reuse-scan counts stay server-side.
+  original_photos_verified: boolean;
 }
 
 export interface DisputeRow {
@@ -1752,6 +1771,7 @@ export interface GradeReportInsert {
   confidence_score: number;
   needs_human_review?: boolean;
   verified_capture?: VerifiedCaptureResult | null;
+  original_photos?: OriginalPhotosResult | null;
   authenticity_assessment?: AuthenticityAssessment | null;
   forensic_analysis?: ForensicTamperAssessment | null;
   model_version: string;

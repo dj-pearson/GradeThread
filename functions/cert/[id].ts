@@ -45,6 +45,8 @@ interface PublicCertificate {
   hero_image_url: string | null;
   // US-340: true when the seller's opt-in provenance checks passed.
   verified_capture_passed?: boolean;
+  // US-861: true when the photo-reuse scan found no cross-account match.
+  original_photos_verified?: boolean;
 }
 
 interface CertResponse {
@@ -138,6 +140,11 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   ${
     cert.verified_capture_passed
       ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:0.85rem;font-weight:600">&#10003; Verified Capture</p>`
+      : ""
+  }
+  ${
+    cert.original_photos_verified
+      ? `<p style="display:inline-block;margin:0 0 16px 8px;padding:4px 12px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:0.85rem;font-weight:600">&#10003; Original photos verified</p>`
       : ""
   }
   ${heroHtml}

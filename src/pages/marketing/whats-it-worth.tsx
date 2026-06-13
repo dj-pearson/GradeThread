@@ -91,7 +91,7 @@ export function WhatsItWorthPage() {
 
   return (
     <MarketingLayout
-      title="What's My Item Worth? Used Clothing Value by Condition"
+      title="What's My Used Clothing Worth?"
       description="Estimate what your used clothing is worth by brand, item, and condition grade — from real eBay sold-comparable data in the GradeThread Condition Index, then get a verifiable grade."
       canonicalPath="/whats-it-worth"
       jsonLd={whatsItWorthJsonLd()}
