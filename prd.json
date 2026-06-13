@@ -12386,8 +12386,8 @@
         "Endpoints behind admin auth/MFA; npm run build passes"
       ],
       "priority": 841,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-831/836. Manual unlock + alerts close the abuse-monitoring loop the user asked for."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-831/836. Manual unlock + alerts close the abuse-monitoring loop the user asked for. IMPLEMENTED: edge route services/edge-functions/src/routes/admin-monitoring.ts mounted at /api/admin/support-monitoring (admin+AAL2 MFA via /api/admin/* group): GET /usage (today's per-user message/token/escalation rollups joined to effective plan + US-836 caps, plus current lockouts), GET /abuse-events (?type/?severity filters), GET /flagged-messages (US-829 flagged), GET /thresholds, POST /unlock (clears support_assistant_locked_until, audited via writeAuditLog; lockout_count intentionally preserved for the cooldown ladder). Frontend src/pages/admin/monitoring.tsx at /admin/support/monitoring (nav item 'Assistant Monitoring' in admin-layout.tsx): Active-limits card + tabs for Usage&lockouts (manual Unlock), Abuse events (filters + conversation deep-links), Flagged messages. tsc/build/eslint + deno check/lint all green."
     },
     {
       "id": "US-842",

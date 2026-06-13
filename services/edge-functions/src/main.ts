@@ -54,6 +54,7 @@ import { accessGateMiddleware } from "./lib/access-gate.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
+import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
@@ -655,6 +656,12 @@ app.route("/api/admin/disputes", adminDisputesRoutes);
 // would no-op under RLS as browser calls; notifies the user on reply/resolve.
 // Admin JWT + MFA via the /api/admin/* group.
 app.route("/api/admin/support", adminSupportRoutes);
+// US-841 abuse & usage monitoring for the AI assistant — recent abuse events,
+// per-user usage rollups vs the US-836 caps, current lockouts + manual unlock,
+// and flagged messages. Service-role reads (usage/abuse/messages are RLS-no-
+// policy, never client-readable) + the unlock write. Admin JWT + AAL2 MFA via
+// the /api/admin/* group. Distinct prefix avoids overlap with the inbox above.
+app.route("/api/admin/support-monitoring", adminMonitoringRoutes);
 // US-840 support knowledge-base authoring/publishing/versioning — the single
 // control surface for the corpus the AI assistant may speak from. Service-role
 // writes (support_kb_articles has no client write policy, 00183); admin JWT +

@@ -46,6 +46,7 @@ const adminNavItems = [
   { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
   { to: "/admin/support", icon: Headset, label: "Support", end: true, superAdminOnly: false },
   { to: "/admin/support/kb", icon: BookOpen, label: "Knowledge Base", end: false, superAdminOnly: false },
+  { to: "/admin/support/monitoring", icon: Activity, label: "Assistant Monitoring", end: false, superAdminOnly: false },
   { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false, superAdminOnly: false },
   { to: "/admin/fraud", icon: ShieldX, label: "Abuse & Fraud", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
