@@ -45,7 +45,10 @@ Key facts:
 
 ### After coding:
 1. Run `npx tsc --noEmit` — fix all TypeScript errors before committing
-2. Run `npm run build` — fix any build errors
+2. Run `npm run build:locked` — fix any build errors. (Use `build:locked`, NOT a
+   bare `npm run build`, whenever a second agent loop may be running on this
+   host: it serializes the build behind a shared cross-loop lock so two builds
+   can't run at once and starve each other. See `docs/AGENT_COHABITATION.md`.)
 3. Verify all acceptance criteria are met
 
 ### Committing:
