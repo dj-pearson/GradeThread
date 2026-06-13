@@ -2887,6 +2887,13 @@ export async function publishItemForOwner(
     ctx.summary.description,
   );
 
+  // US-766: attach the QR-bearing Digital Slab as the lead or a supplementary
+  // listing image when the seller opted in (per-listing slab_image_mode or the
+  // global default). Mutates `photos` in place — AFTER the badge burn so the
+  // grade badge lands on the real hero, not the slab — so the slab reaches both
+  // the single-SKU and variation publish paths and the reachability probe below.
+  await applySlabImagePromotion(ownerId, item, listing, photos);
+
   // US-473: pre-publish image reachability. eBay fetches imageUrls server-side
   // at publish; an unreachable URL fails the whole publish with an opaque error
   // (and our proxy can surface a 502). HEAD-probe the URLs first and turn a
@@ -4301,6 +4308,10 @@ interface PublishListing {
   scheduled_publish_at: string | null;
   // Per-listing opt-in for the grade-badge + cert-link promotion (00027).
   badge_enabled: boolean | null;
+  // US-766: per-listing Digital-Slab image mode (00180). 'off' | 'hero' |
+  // 'extra' — include the QR-bearing slab as the lead or a supplementary
+  // listing image. null/'off' falls back to the user's global default.
+  slab_image_mode: string | null;
   // US-555: per-listing eBay business-policy overrides (bulk-assigned in the
   // AutoLister grid). When set they win over the account-level defaults at
   // publish; null falls back to the seller's default policy set. Column names
@@ -4579,6 +4590,81 @@ async function applyGradeBadgePromotion(
   return next;
 }
 
+// US-766: Digital-Slab listing image. The slab is the QR-bearing "graded photo"
+// rendered at /slab/cert/:id (functions/slab/cert/[id].ts, US-763) from the
+// PUBLIC certificate — so reusing it here costs no extra compositing and never
+// touches private data. We request ?format=square because eBay galleries are
+// square. Returns null when the item has no public certificate (slab would
+// 404 to the transparent fallback).
+function slabImageUrlForItem(item: PublishItem): string | null {
+  const cert = item.certificate_url?.trim();
+  if (!cert) return null;
+  // certificate_url is "<site>/cert/<id>" (indexnow.ts certificateUrl). The
+  // slab lives at the sibling "<site>/slab/cert/<id>". Rewrite the first
+  // "/cert/" segment so we never hard-code the site origin here.
+  if (!cert.includes("/cert/")) return null;
+  const base = cert.replace("/cert/", "/slab/cert/");
+  return `${base}${base.includes("?") ? "&" : "?"}format=square`;
+}
+
+// A storage/render URL is the slab if it lives under the /slab/cert/ path —
+// used to avoid attaching it twice across relists/re-publishes.
+function isSlabUrl(url: string): boolean {
+  return url.includes("/slab/cert/");
+}
+
+// Per-user GLOBAL default for attaching the Digital Slab as a supplementary
+// listing image (00180). Absent settings row ⇒ false.
+async function autoSlabImageDefault(userId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("flipdesk_settings")
+    .select("auto_slab_image")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as { auto_slab_image: boolean } | null)?.auto_slab_image === true;
+}
+
+// US-766: when slab attachment is active, inject the slab image into `photos`
+// (in place, so it flows to BOTH the single-SKU and variation publish paths)
+// as the lead ('hero', index 0) or a supplementary ('extra', appended) picture.
+// Effective mode = per-listing slab_image_mode when 'hero'/'extra'; otherwise
+// the global default contributes 'extra'. Gated on a graded item with a public
+// certificate. Best-effort: any miss leaves the original photos untouched —
+// the slab must never block a publish. Runs AFTER the grade-badge burn so the
+// badge lands on the real hero, not the slab.
+async function applySlabImagePromotion(
+  userId: string,
+  item: PublishItem,
+  listing: PublishListing | null,
+  photos: PublishPhoto[],
+): Promise<void> {
+  const listingMode = listing?.slab_image_mode;
+  let mode: "off" | "hero" | "extra" =
+    listingMode === "hero" || listingMode === "extra" ? listingMode : "off";
+  if (mode === "off" && (await autoSlabImageDefault(userId))) {
+    mode = "extra";
+  }
+  if (mode === "off" || item.grade_value == null) return;
+
+  const slabUrl = slabImageUrlForItem(item);
+  if (!slabUrl) return;
+
+  // Idempotent across relists: never attach the slab twice.
+  if (photos.some((p) => p.public_url && isSlabUrl(p.public_url))) return;
+
+  const slabPhoto: PublishPhoto = {
+    id: `slab-${item.id}`,
+    public_url: slabUrl,
+    // Sort below the real photos for 'extra'; ahead of them for 'hero'.
+    sort_order: mode === "hero" ? -1 : Number.MAX_SAFE_INTEGER,
+  };
+  if (mode === "hero") {
+    photos.unshift(slabPhoto);
+  } else {
+    photos.push(slabPhoto);
+  }
+}
+
 async function assemblePublishContext(
   userId: string,
   itemId: string
@@ -4655,7 +4741,7 @@ async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")

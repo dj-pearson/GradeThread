@@ -122,7 +122,9 @@ import type {
   ItemPhotoRow,
   ListingInsert,
   ListingRow,
+  SlabImageMode,
 } from "@/types/database";
+import { slabImageUrl, SLAB_MODE_LABELS } from "@/lib/slab-image";
 
 const TITLE_MAX = 80;
 
@@ -188,6 +190,9 @@ export function FlipdeskComposerPage() {
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
   const [badgeEnabled, setBadgeEnabled] = useState(false);
+  // US-766: how the QR-bearing Digital Slab (US-763) is attached to the
+  // listing's marketplace images — off / lead (hero) / supplementary (extra).
+  const [slabMode, setSlabMode] = useState<SlabImageMode>("off");
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -360,6 +365,7 @@ export function FlipdeskComposerPage() {
     setPriceCompSource(listing?.price_comp_source ?? null);
     setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
     setBadgeEnabled(listing?.badge_enabled ?? false);
+    setSlabMode((listing?.slab_image_mode as SlabImageMode | undefined) ?? "off");
     // US-561: promote by default unless this listing explicitly opted out. Seed
     // the rate from the seller's saved value; the suggestion effect fills it in
     // once the resolved category is known (when no saved rate exists yet).
@@ -604,6 +610,9 @@ export function FlipdeskComposerPage() {
         is_active: false,
         primary_photo_id: primaryPhotoId,
         badge_enabled: badgeEnabled,
+        // US-766: persist the Digital-Slab image choice (off/hero/extra). The
+        // slab is injected server-side at publish (flipdesk-ebay.ts).
+        slab_image_mode: slabMode,
         // US-561: persist the Promoted Listings choice. Opt-out when the toggle
         // is off; otherwise store the accepted/adjusted rate (a blank box falls
         // back to the category suggestion at publish, so persist null then).
@@ -779,6 +788,9 @@ export function FlipdeskComposerPage() {
     shippingCost: item.shipping_cost,
   });
   const showBadgeOverlay = badgeEnabled && item.grade_value != null;
+  // US-766: the Digital Slab is only available once the item has a public
+  // certificate (graded + certified). Preview the square (eBay) variant.
+  const slabPreviewUrl = slabImageUrl(item.certificate_url, "square");
 
   // US-558: resolve the assigned (default) shipping + return policy names so the
   // preview can show what buyers will actually see at checkout.
@@ -1457,6 +1469,49 @@ export function FlipdeskComposerPage() {
                     onCheckedChange={(v) => toggleBadge(v)}
                   />
                 </div>
+              </div>
+
+              {/* US-766: attach the QR-bearing Digital Slab (graded photo) as the
+                  lead or a supplementary listing image. Gated on a public
+                  certificate — the slab renders from the cert. */}
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border p-3">
+                <div className="flex items-start gap-3">
+                  {slabPreviewUrl && slabMode !== "off" && (
+                    <img
+                      src={slabPreviewUrl}
+                      alt="Digital Slab preview"
+                      loading="lazy"
+                      className="h-16 w-16 flex-shrink-0 rounded border object-cover"
+                    />
+                  )}
+                  <div className="space-y-0.5">
+                    <Label
+                      htmlFor="slab-mode"
+                      className="text-sm font-medium"
+                    >
+                      Add the certified graded photo (Digital Slab)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {!slabPreviewUrl
+                        ? "Grade and certify this item to attach its Digital Slab."
+                        : "On publish, adds the PSA-style graded photo with a scannable certificate QR — as your lead image or an extra one."}
+                    </p>
+                  </div>
+                </div>
+                <Select
+                  value={slabMode}
+                  disabled={!slabPreviewUrl}
+                  onValueChange={(v) => setSlabMode(v as SlabImageMode)}
+                >
+                  <SelectTrigger id="slab-mode" className="h-8 w-[12rem] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">{SLAB_MODE_LABELS.off}</SelectItem>
+                    <SelectItem value="hero">{SLAB_MODE_LABELS.hero}</SelectItem>
+                    <SelectItem value="extra">{SLAB_MODE_LABELS.extra}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>

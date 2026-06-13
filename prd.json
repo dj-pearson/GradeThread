@@ -11264,8 +11264,8 @@
         "Tenant-scoped per US-268; no cross-tenant image access"
       ],
       "priority": 766,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][FlipDesk/Distribution] Puts the grade on the marketplace thumbnail itself. Extends grade-badge.ts (today: client corner badge, no QR) to optionally use the QR-bearing slab."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][FlipDesk/Distribution] Puts the grade on the marketplace thumbnail itself. Extends grade-badge.ts (today: client corner badge, no QR) to optionally use the QR-bearing slab. IMPLEMENTED 2026-06-13: migration 00180 adds listings.slab_image_mode (off/hero/extra) + flipdesk_settings.auto_slab_image (global default). Edge: applySlabImagePromotion in flipdesk-ebay.ts injects the /slab/cert/:id?format=square render into the photos array (in place → reaches single-SKU + variation publish paths) AFTER the grade-badge burn so the badge lands on the real hero; eBay 24-image cap honored via toEbayImageUrls; idempotent across relists (isSlabUrl guard). Reuses the US-763 slab render (public-cert-only, no new compositor, no cross-tenant access — derived from the owned item.certificate_url). Composer: Select (lead/supplementary/off) + live square preview, gated on a public certificate. Marketplaces: global default toggle. Helper src/lib/slab-image.ts + test src/test/slab-image.test.ts. tsc -b, eslint, build, deno lint/check, schema-version + vitest all green."
     },
     {
       "id": "US-767",

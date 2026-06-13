@@ -761,6 +761,11 @@ export interface AiFieldSource {
   accepted: boolean;
 }
 
+// US-766: how the Digital Slab (QR-bearing graded photo) is attached to a
+// listing's marketplace images. 'off' = not attached; 'hero' = lead image;
+// 'extra' = supplementary image.
+export type SlabImageMode = "off" | "hero" | "extra";
+
 export interface ListingRow {
   id: string;
   inventory_item_id: string;
@@ -783,6 +788,9 @@ export interface ListingRow {
   // Listing-composer picks (migration 00027)
   primary_photo_id: string | null;
   badge_enabled: boolean;
+  // US-766: Digital-Slab image mode (migration 00180). 'off' | 'hero' |
+  // 'extra' — attach the QR-bearing graded photo as lead or supplementary.
+  slab_image_mode: SlabImageMode;
   // eBay handles (migrations 00031, 00034)
   platform_offer_id: string | null;
   platform_category_id: string | null;
@@ -1447,6 +1455,9 @@ export interface FlipdeskSettingsRow {
   // Global default (migration 00145): burn the grade badge onto the hero photo
   // and append the certificate link to the description for graded listings.
   auto_grade_badge: boolean;
+  // Global default (US-766, migration 00180): attach the QR-bearing Digital
+  // Slab as a supplementary image on graded listings by default.
+  auto_slab_image: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1455,6 +1466,7 @@ export interface FlipdeskSettingsInsert {
   user_id: string;
   auto_end_cross_listings?: boolean;
   auto_grade_badge?: boolean;
+  auto_slab_image?: boolean;
 }
 
 export type FlipdeskSettingsUpdate = Partial<
@@ -1765,6 +1777,7 @@ export interface ListingInsert {
   views?: number;
   primary_photo_id?: string | null;
   badge_enabled?: boolean;
+  slab_image_mode?: SlabImageMode;
   // eBay handles (migrations 00031, 00034)
   platform_offer_id?: string | null;
   platform_category_id?: string | null;

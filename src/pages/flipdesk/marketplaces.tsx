@@ -929,13 +929,17 @@ export function FlipdeskMarketplacesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("flipdesk_settings")
-        .select("auto_end_cross_listings, auto_grade_badge")
+        .select("auto_end_cross_listings, auto_grade_badge, auto_slab_image")
         .eq("user_id", user!.id)
         .maybeSingle();
       if (error) throw error;
       return (
         data as
-          | { auto_end_cross_listings: boolean; auto_grade_badge: boolean }
+          | {
+              auto_end_cross_listings: boolean;
+              auto_grade_badge: boolean;
+              auto_slab_image: boolean;
+            }
           | null
       );
     },
@@ -948,8 +952,12 @@ export function FlipdeskMarketplacesPage() {
   const autoGradeBadge = !settingsLoaded
     ? undefined
     : fdSettings?.auto_grade_badge ?? false;
+  const autoSlabImage = !settingsLoaded
+    ? undefined
+    : fdSettings?.auto_slab_image ?? false;
   const [autoEndSaving, setAutoEndSaving] = useState(false);
   const [gradeBadgeSaving, setGradeBadgeSaving] = useState(false);
+  const [slabImageSaving, setSlabImageSaving] = useState(false);
 
   async function toggleAutoEnd(next: boolean) {
     if (!user) return;
@@ -1000,6 +1008,34 @@ export function FlipdeskMarketplacesPage() {
       );
     } finally {
       setGradeBadgeSaving(false);
+    }
+  }
+
+  // US-766: per-user default for attaching the QR-bearing Digital Slab as a
+  // supplementary listing image on graded, certified items.
+  async function toggleSlabImage(next: boolean) {
+    if (!user) return;
+    setSlabImageSaving(true);
+    try {
+      const { error } = await supabase
+        .from("flipdesk_settings")
+        .upsert(
+          { user_id: user.id, auto_slab_image: next } as never,
+          { onConflict: "user_id" },
+        );
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["flipdesk_settings", user.id] });
+      toast.success(
+        next
+          ? "Certified listings will include the Digital Slab as an extra image."
+          : "Digital Slab off by default — choose it per listing in the composer.",
+      );
+    } catch (err) {
+      toast.error(
+        `Couldn't save the setting: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setSlabImageSaving(false);
     }
   }
 
@@ -1138,6 +1174,26 @@ export function FlipdeskMarketplacesPage() {
             checked={autoGradeBadge ?? false}
             disabled={gradeBadgeSaving || autoGradeBadge === undefined}
             onCheckedChange={(v) => void toggleGradeBadge(v)}
+          />
+        </div>
+        {/* US-766: Digital Slab on the listing thumbnail */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-slab-image" className="text-sm font-medium">
+              Attach the Digital Slab (graded photo) to certified listings
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Adds the PSA-style graded photo — with a scannable certificate QR —
+              as a supplementary listing image when a certified item is
+              published, so the grade rides on the marketplace itself. Choose
+              lead vs supplementary per listing in the composer.
+            </p>
+          </div>
+          <Switch
+            id="auto-slab-image"
+            checked={autoSlabImage ?? false}
+            disabled={slabImageSaving || autoSlabImage === undefined}
+            onCheckedChange={(v) => void toggleSlabImage(v)}
           />
         </div>
       </section>
