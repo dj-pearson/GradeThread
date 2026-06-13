@@ -1,13 +1,21 @@
 import { supabaseAdmin } from "../supabase.ts";
 import {
+  buildConsentUrl,
   createProduct,
   deleteProduct,
   getShopifyConnection,
+  isShopifyConfigured,
+  normalizeShopDomain,
   type ShopifyProductInput,
   updateProduct,
 } from "../shopify-client.ts";
 import { getMarketplaceSpec } from "../marketplace-specs.ts";
-import type { AdapterResult, MarketplaceAdapter } from "./types.ts";
+import { mapSiblingListingFields } from "../cross-listing-fields.ts";
+import {
+  type AdapterResult,
+  type MarketplaceAdapter,
+  notImplemented,
+} from "./types.ts";
 
 // Shopify adapter (US-599) — the first REAL non-eBay publish path. cross-push
 // (flipdesk-listings.ts) creates/maps the Shopify `listings` row, then calls
@@ -189,6 +197,56 @@ async function endShopify(
 
 export const shopifyAdapter: MarketplaceAdapter = {
   platform: "shopify",
+
+  connect(input) {
+    if (!isShopifyConfigured()) {
+      return Promise.resolve({
+        ok: false as const,
+        status: 503,
+        error: "Shopify is not configured.",
+      });
+    }
+    const shop = normalizeShopDomain(input.shop);
+    if (!shop) {
+      return Promise.resolve({
+        ok: false as const,
+        status: 400,
+        error: "Enter your Shopify store domain (e.g. my-store.myshopify.com).",
+      });
+    }
+    try {
+      return Promise.resolve({
+        ok: true as const,
+        consentUrl: buildConsentUrl(shop, input.state),
+      });
+    } catch (err) {
+      return Promise.resolve({
+        ok: false as const,
+        status: 500,
+        error: err instanceof Error ? err.message : "Could not start Shopify connect.",
+      });
+    }
+  },
+
+  // Shopify issues a non-expiring offline access token, so there's nothing to
+  // refresh — confirm the connection still exists instead.
+  async refreshToken(input) {
+    const conn = await getShopifyConnection(input.ownerId);
+    return conn
+      ? { ok: true }
+      : { ok: false, status: 400, error: "Shopify is not connected." };
+  },
+
   publish: (input) => publishShopify(input.ownerId, input.listingRowId, input.price),
-  end: (input) => endShopify(input.ownerId, input.listingRowId, input.platformListingId),
+  // Shopify publish is create-or-update keyed by platform_listing_id, so an
+  // update is the same call.
+  updateListing: (input) => publishShopify(input.ownerId, input.listingRowId, input.price),
+  delist: (input) => endShopify(input.ownerId, input.listingRowId, input.platformListingId),
+
+  // Shopify changes flow back via webhooks (flipdesk-webhooks), not a batch pull.
+  syncListings: () => Promise.resolve(notImplemented("shopify")),
+  syncOrders: () => Promise.resolve(notImplemented("shopify")),
+
+  mapDraftToListing: (input) =>
+    mapSiblingListingFields("shopify", input.source, input.price, input.variant),
 };

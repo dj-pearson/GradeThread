@@ -1,9 +1,5 @@
-import { type MarketplaceAdapter, notImplemented } from "./types.ts";
+import { makeStubAdapter } from "./stub.ts";
 
-// Stub (US-149): cross-push creates the Mercari listings row locally; this
-// adapter starts publishing it once the Mercari integration ships.
-export const mercariAdapter: MarketplaceAdapter = {
-  platform: "mercari",
-  publish: () => Promise.resolve(notImplemented("mercari")),
-  end: () => Promise.resolve(notImplemented("mercari")),
-};
+// Stub (US-708): cross-push maps + creates the Mercari listings row locally;
+// its publish/connect/sync return a typed 501 until the integration ships.
+export const mercariAdapter = makeStubAdapter("mercari");

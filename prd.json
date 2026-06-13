@@ -10440,8 +10440,8 @@
         "Typecheck + lint + deno check pass"
       ],
       "priority": 708,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Architecture] Keystone for cross-listing. Source: Cross_Listing.md. marketplace_connections + LISTING_PLATFORMS/MARKETPLACE_LABELS are already generic; only the connector layer is eBay-only. Prereq for US-709..US-717. Supersedes the stubbed-adapter AC in [[US-149]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Architecture] Keystone for cross-listing. Source: Cross_Listing.md. marketplace_connections + LISTING_PLATFORMS/MARKETPLACE_LABELS are already generic; only the connector layer is eBay-only. Prereq for US-709..US-717. Supersedes the stubbed-adapter AC in [[US-149]]. DONE: expanded src/lib/marketplace-adapters/types.ts to the full MarketplaceAdapter contract (connect/refreshToken, publish, updateListing, delist, syncListings, syncOrders, mapDraftToListing); single typed NotImplementedResult (501) assignable to every result union. eBay adapter wraps existing code with no behavior change (publish/updateListing→publishItemForOwner, delist→withdrawOffer, connect→buildConsentUrl, refreshToken→getUserAccessToken, sync→triggerEbaySyncForUser, map→mapSiblingListingFields); Shopify likewise (sync=NotImplemented, webhooks-driven). Stubs now via makeStubAdapter factory (stub.ts) — every wired method returns typed 501, mapDraftToListing real. Registry index.ts adds resolveAdapter(rawPlatform)→adapter|null; flipdesk-listings.ts cross-push resolves via it and emits 501 for unknown platforms (closes US-599 silent-eBay-fallthrough). marketplace_connections (00008, scopes[] col) is the single token store for all adapters. Renamed adapter.end→delist (only caller was the test). deno check/lint/test green."
     },
     {
       "id": "US-709",

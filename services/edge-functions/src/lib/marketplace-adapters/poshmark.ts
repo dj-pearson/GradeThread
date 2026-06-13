@@ -1,9 +1,5 @@
-import { type MarketplaceAdapter, notImplemented } from "./types.ts";
+import { makeStubAdapter } from "./stub.ts";
 
-// Stub (US-149): cross-push creates the Poshmark listings row locally; this
-// adapter starts publishing it once the Poshmark integration ships.
-export const poshmarkAdapter: MarketplaceAdapter = {
-  platform: "poshmark",
-  publish: () => Promise.resolve(notImplemented("poshmark")),
-  end: () => Promise.resolve(notImplemented("poshmark")),
-};
+// Stub (US-708): cross-push maps + creates the Poshmark listings row locally;
+// its publish/connect/sync return a typed 501 until the integration ships.
+export const poshmarkAdapter = makeStubAdapter("poshmark");

@@ -3,8 +3,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   type AdapterResult,
   type CrossListingPlatform,
-  getAdapter,
   isCrossListingPlatform,
+  resolveAdapter,
 } from "../lib/marketplace-adapters/index.ts";
 import {
   getMarketplaceSpec,
@@ -226,8 +226,23 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
   const results: Partial<Record<CrossListingPlatform, PlatformPushResult>> = {};
 
   for (const platform of platforms) {
-    const adapter = getAdapter(platform);
     const price = priceFor(platform);
+    // US-708: resolve the adapter from the platform via the registry. An
+    // unknown platform yields a typed 501 NotImplemented rather than silently
+    // falling through to eBay (the US-599 gap).
+    const adapter = resolveAdapter(platform);
+    if (!adapter) {
+      results[platform] = toPushResult(
+        {
+          ok: false,
+          status: 501,
+          error: `${platform} cross-listing isn't supported yet.`,
+        },
+        "",
+        price,
+      );
+      continue;
+    }
 
     if (platform === draft.platform) {
       // The source draft IS this platform's row (eBay today) — publish it
