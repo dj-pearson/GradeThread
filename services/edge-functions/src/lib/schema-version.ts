@@ -20,8 +20,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00192_seed_topic_bank.sql)
-export const EXPECTED_SCHEMA_VERSION = "00192";
+// supabase/migrations/. (00193_flipdesk_grading_roi_summary.sql)
+export const EXPECTED_SCHEMA_VERSION = "00193";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

@@ -139,6 +139,35 @@ export interface RoiBucket {
 
 export const MIN_BUCKET_SIZE = 5;
 
+/** One side (graded / ungraded) of the overall Grading-ROI headline. */
+export interface RoiSummarySide {
+  listed: number;
+  sold: number;
+  sellThrough: number | null; // 0..1, null when nothing listed
+  avgNetProfit: number | null;
+  medianDaysToSell: number | null;
+}
+
+/**
+ * The account-wide graded-vs-ungraded headline that fronts the Grading-ROI view:
+ * sell-through %, median days-to-sell, and net-profit lift. Computed server-side
+ * by flipdesk_grading_roi_summary() (migration 00193) so the payload is a single
+ * bounded object regardless of inventory size. `meaningful` mirrors
+ * accountGradingRollup(): both sides need >= MIN_BUCKET_SIZE realized sales.
+ */
+export interface GradingRoiSummary {
+  graded: RoiSummarySide;
+  ungraded: RoiSummarySide;
+  /** graded.sellThrough − ungraded.sellThrough; positive = graded sells more. */
+  sellThroughLift: number | null;
+  /** graded.avgNetProfit − ungraded.avgNetProfit; positive = graded nets more. */
+  netProfitLift: number | null;
+  /** ungraded.medianDaysToSell − graded.medianDaysToSell; positive = faster. */
+  daysFaster: number | null;
+  /** Both sides have >= MIN_BUCKET_SIZE realized sales — safe to headline. */
+  meaningful: boolean;
+}
+
 function sideStats(items: ItemFullRow[]): RoiSide {
   const profit = items
     .map((i) => i.net_profit)

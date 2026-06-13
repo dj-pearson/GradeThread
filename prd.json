@@ -12642,8 +12642,8 @@
         "npm run build passes"
       ],
       "priority": 858,
-      "passes": false,
-      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Builds directly on existing gradingRoiBuckets()/sellThroughByGroup(). Feeds the public proof in US-865."
+      "passes": true,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Builds directly on existing gradingRoiBuckets()/sellThroughByGroup(). Feeds the public proof in US-865. DONE: New bounded server RPC flipdesk_grading_roi_summary() (migration 00193) returns the overall graded-vs-ungraded headline (sell-through %, median days-to-sell, avg net profit + lifts); flipdesk_grading_roi() now also returns medianDaysToSell per side. Grading-ROI tab leads with a RoiHeadline proof card (3 stat tiles + meaningful-gated lead sentence), low-n samples shown muted/de-emphasized, buckets table gained a Days-faster column. Added reusable ShareOutcomesToggle (share_sale_outcomes opt-in) at the top of the view. All aggregation stays server-side/bounded so it scales on large accounts. tsc + npm run build + eslint + edge schema-version tests green; EXPECTED_SCHEMA_VERSION bumped to 00193."
     },
     {
       "id": "US-859",

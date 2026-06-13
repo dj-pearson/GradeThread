@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import type {
   SellThroughRow,
   RoiBucket,
+  GradingRoiSummary,
   GroupKey,
 } from "@/lib/flipdesk-analytics";
 
@@ -27,6 +28,13 @@ type RpcClient = {
       args?: Record<string, never>,
     ) => Promise<{
       data: RoiBucket[] | null;
+      error: { message: string } | null;
+    }>) &
+    ((
+      fn: "flipdesk_grading_roi_summary",
+      args?: Record<string, never>,
+    ) => Promise<{
+      data: GradingRoiSummary | null;
       error: { message: string } | null;
     }>);
 };
@@ -59,4 +67,17 @@ export async function fetchGradingRoi(): Promise<RoiBucket[]> {
   const { data, error } = await client.rpc("flipdesk_grading_roi");
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+
+/**
+ * The account-wide graded-vs-ungraded headline (sell-through %, median days-to-
+ * sell, net-profit lift) that fronts the Grading-ROI view. A single bounded
+ * jsonb object — independent of inventory size. Returns null when the function
+ * has no data to summarize (empty account).
+ */
+export async function fetchGradingRoiSummary(): Promise<GradingRoiSummary | null> {
+  const client = supabase as unknown as RpcClient;
+  const { data, error } = await client.rpc("flipdesk_grading_roi_summary");
+  if (error) throw new Error(error.message);
+  return data ?? null;
 }

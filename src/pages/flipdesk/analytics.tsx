@@ -9,6 +9,9 @@ import {
   ShieldCheck,
   Undo2,
   Copy,
+  Clock,
+  Percent,
+  DollarSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,11 +39,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuthStore } from "@/stores/auth-store";
-import { MIN_BUCKET_SIZE, type GroupKey } from "@/lib/flipdesk-analytics";
+import {
+  MIN_BUCKET_SIZE,
+  type GroupKey,
+  type GradingRoiSummary,
+} from "@/lib/flipdesk-analytics";
 import {
   fetchSellThrough,
   fetchGradingRoi,
+  fetchGradingRoiSummary,
 } from "@/lib/flipdesk-analytics-server";
+import { ShareOutcomesToggle } from "@/components/flipdesk/share-outcomes-toggle";
 import {
   fetchReturnReduction,
   gradedReturnAdvantage,
@@ -272,8 +281,14 @@ function GradingRoiReport() {
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchGradingRoi(),
   });
+  const { data: summary = null, isLoading: summaryLoading } = useQuery({
+    queryKey: ["items_full", "analytics", "grading-roi-summary", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchGradingRoiSummary(),
+  });
 
-  if (isLoading) return <Loading />;
+  if (isLoading || summaryLoading) return <Loading />;
 
   const meaningful = buckets.filter((b) => b.meaningful);
   const callouts = meaningful
@@ -282,11 +297,19 @@ function GradingRoiReport() {
 
   return (
     <div className="space-y-4">
+      <RoiHeadline summary={summary} />
+
+      <Card>
+        <CardContent className="pt-6">
+          <ShareOutcomesToggle />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Award className="h-4 w-4" />
-            Does grading lift profit?
+            Where grading lifts profit most
           </CardTitle>
           <CardDescription>
             Graded vs ungraded sold items, bucketed by category and sale-price
@@ -345,7 +368,8 @@ function GradingRoiReport() {
                   <TableHead className="text-right">
                     Ungraded avg profit
                   </TableHead>
-                  <TableHead className="text-right">Lift</TableHead>
+                  <TableHead className="text-right">Profit lift</TableHead>
+                  <TableHead className="text-right">Days faster</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -388,6 +412,29 @@ function GradingRoiReport() {
                         ? `${b.netProfitLift > 0 ? "+" : ""}${usd(b.netProfitLift)}`
                         : "—"}
                     </TableCell>
+                    {(() => {
+                      const faster =
+                        b.graded.medianDaysToSell != null &&
+                        b.ungraded.medianDaysToSell != null
+                          ? b.ungraded.medianDaysToSell -
+                            b.graded.medianDaysToSell
+                          : null;
+                      return (
+                        <TableCell
+                          className={`text-right tabular-nums ${
+                            faster != null && faster > 0
+                              ? "text-emerald-700 dark:text-emerald-300"
+                              : faster != null && faster < 0
+                                ? "text-destructive"
+                                : ""
+                          }`}
+                        >
+                          {faster != null
+                            ? `${faster > 0 ? "+" : ""}${Math.round(faster)}d`
+                            : "—"}
+                        </TableCell>
+                      );
+                    })()}
                   </TableRow>
                 ))}
               </TableBody>
@@ -395,6 +442,154 @@ function GradingRoiReport() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+// US-858: the first thing a seller sees on the Grading-ROI tab — the overall
+// graded-vs-ungraded proof (sell-through %, median days-to-sell, net-profit
+// lift) computed server-side over the whole account. Headlined only when the
+// sample is statistically meaningful (>= MIN_BUCKET_SIZE realized sales each
+// side); otherwise the numbers are shown muted with a "too early to call" note
+// so nothing is overstated on thin data.
+function RoiHeadline({ summary }: { summary: GradingRoiSummary | null }) {
+  const s = summary;
+  const hasAny =
+    !!s && (s.graded.sold > 0 || s.ungraded.sold > 0);
+
+  // Build the lead sentence only from signals the data actually supports.
+  const parts: string[] = [];
+  if (s?.meaningful) {
+    if (s.daysFaster != null && Math.round(s.daysFaster) >= 1) {
+      parts.push(`sell ${Math.round(s.daysFaster)} day${
+        Math.round(s.daysFaster) === 1 ? "" : "s"
+      } faster`);
+    }
+    if (s.netProfitLift != null && s.netProfitLift > 0) {
+      parts.push(`net ${usd(s.netProfitLift)} more`);
+    }
+    if (s.sellThroughLift != null && s.sellThroughLift > 0) {
+      parts.push(`sell through ${pct(s.sellThroughLift)} more often`);
+    }
+  }
+  const lead = parts.length > 0 ? parts.join(", ") : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Award className="h-4 w-4" />
+          Does grading pay off?
+        </CardTitle>
+        <CardDescription>
+          Your graded items vs your ungraded items across every sale. We only
+          headline the lift once both sides have at least {MIN_BUCKET_SIZE}{" "}
+          sales — too small to trust otherwise.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!hasAny ? (
+          <p className="py-2 text-center text-sm text-muted-foreground">
+            No sales yet. Once graded and ungraded items start selling, we&apos;ll
+            show whether grading lifts your sell-through, speed, and profit.
+          </p>
+        ) : (
+          <>
+            {lead ? (
+              <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                Your graded items <span className="font-bold text-emerald-700 dark:text-emerald-300">{lead}</span>{" "}
+                than your ungraded items.
+              </p>
+            ) : (
+              <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                {s?.meaningful
+                  ? "Across your sales so far, graded items haven't shown a measurable edge yet."
+                  : `Too early to call — need ${MIN_BUCKET_SIZE}+ graded and ${MIN_BUCKET_SIZE}+ ungraded sales to compare reliably (${
+                      s?.graded.sold ?? 0
+                    } graded, ${s?.ungraded.sold ?? 0} ungraded so far).`}
+              </p>
+            )}
+
+            <div
+              className={`grid gap-3 sm:grid-cols-3 ${
+                s?.meaningful ? "" : "opacity-60"
+              }`}
+            >
+              <RoiStatTile
+                icon={Percent}
+                label="Sell-through"
+                graded={pct(s?.graded.sellThrough)}
+                ungraded={pct(s?.ungraded.sellThrough)}
+              />
+              <RoiStatTile
+                icon={Clock}
+                label="Median days to sell"
+                graded={
+                  s?.graded.medianDaysToSell != null
+                    ? `${Math.round(s.graded.medianDaysToSell)}d`
+                    : "—"
+                }
+                ungraded={
+                  s?.ungraded.medianDaysToSell != null
+                    ? `${Math.round(s.ungraded.medianDaysToSell)}d`
+                    : "—"
+                }
+              />
+              <RoiStatTile
+                icon={DollarSign}
+                label="Avg net profit"
+                graded={usd(s?.graded.avgNetProfit)}
+                ungraded={usd(s?.ungraded.avgNetProfit)}
+              />
+            </div>
+
+            {!s?.meaningful && (
+              <p className="text-center text-xs text-muted-foreground">
+                Shown for reference — not yet a large enough sample to headline.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RoiStatTile({
+  icon: Icon,
+  label,
+  graded,
+  ungraded,
+}: {
+  icon: typeof Percent;
+  label: string;
+  graded: string;
+  ungraded: string;
+}) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </p>
+      <div className="mt-2 flex items-baseline justify-between gap-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Graded
+          </p>
+          <p className="text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+            {graded}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Ungraded
+          </p>
+          <p className="text-lg font-semibold tabular-nums text-muted-foreground">
+            {ungraded}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
