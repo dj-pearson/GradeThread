@@ -12522,8 +12522,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 850,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] Keys verified in content-ai-*.ts. Prereq for US-851/852 producing quality output."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Done. Migration 00191_seed_content_knowledge.sql seeds all six keys the generators read verbatim (brand.voice, blog.gradethread.style, blog.flipdesk.style, social.long.style, social.short.style, seo.pillars) with substantive on-brand bodies + the four-theme SEO pillar map. Uses ON CONFLICT (key) DO UPDATE so it refreshes drifted/thin baseline rows (00041 used DO NOTHING and could never refresh) without duplicating the UNIQUE key -> idempotent. EXPECTED_SCHEMA_VERSION bumped to 00191. Admin /admin/content/knowledge page (src/pages/content/knowledge.tsx) lists+edits via use-content hooks; generators load keys live from DB so edits take effect next generation. Verified: edge deno check on content-ai-{blog,social,research}.ts + schema-version, deno schema-version tests (9 pass), npm run build green (tsc -b + vite + 32-page prerender, 0 errors)."
     },
     {
       "id": "US-851",
