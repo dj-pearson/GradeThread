@@ -47,6 +47,37 @@ export function isHumanHandled(status: SupportConversationStatus): boolean {
   return status === "escalated" || status === "awaiting_user";
 }
 
+// ── Eligibility (US-844) ──────────────────────────────────────────────────────
+
+// What the widget needs from the single launch + tier-eligibility config the
+// engine consumes (support-assistant-config.ts). `enabled` is the launch
+// kill-switch (false => render nothing); `eligible` is subscription + tier
+// policy (false => show the upsell).
+export interface SupportEligibility {
+  enabled: boolean;
+  eligible: boolean;
+  phase: string;
+  code?: string;
+}
+
+export function useSupportAssistantEligibility(enabled: boolean) {
+  return useQuery({
+    queryKey: ["support", "eligibility"],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<SupportEligibility> => {
+      const res = await edgeFetch("/api/support/assistant/eligibility", {
+        silentGate: true,
+      });
+      if (!res.ok) {
+        // Treat any failure as "off" — fail closed, matching the server.
+        return { enabled: false, eligible: false, phase: "off" };
+      }
+      return (await res.json()) as SupportEligibility;
+    },
+  });
+}
+
 // ── Conversation history ────────────────────────────────────────────────────
 
 export function useSupportConversations(enabled: boolean) {

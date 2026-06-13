@@ -19,17 +19,26 @@ export type FeatureKey =
   | "autolister"
   | "content_ai"
   | "repricing"
-  | "authenticity_addon";
+  | "authenticity_addon"
+  | "support_assistant";
 
 const CACHE_TTL_MS = 30_000;
 const cache = new Map<string, { enabled: boolean; expires: number }>();
 
-export async function isFeatureEnabled(key: FeatureKey): Promise<boolean> {
+// `defaultEnabled` controls the fail behaviour for a MISSING row or a DB read
+// error. It defaults to true (fail-open) for availability of established
+// flows; pass false for a pre-launch flow that must stay OFF unless an operator
+// has explicitly enabled it (the support assistant, US-844).
+export async function isFeatureEnabled(
+  key: FeatureKey,
+  opts: { defaultEnabled?: boolean } = {},
+): Promise<boolean> {
+  const failDefault = opts.defaultEnabled ?? true;
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && hit.expires > now) return hit.enabled;
 
-  let enabled = true; // fail-open default
+  let enabled = failDefault; // fail default (open unless overridden)
   try {
     const { data, error } = await supabaseAdmin
       .from("feature_flags")
@@ -41,7 +50,7 @@ export async function isFeatureEnabled(key: FeatureKey): Promise<boolean> {
     } else if (data) {
       enabled = (data as { enabled: boolean }).enabled;
     }
-    // No row → stays enabled (fail-open).
+    // No row → stays at failDefault (fail-open unless the caller opted out).
   } catch {
     logEvent("warn", "feature_flag.read_error", { key });
   }

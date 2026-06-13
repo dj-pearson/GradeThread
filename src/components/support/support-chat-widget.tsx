@@ -30,6 +30,7 @@ import {
   fetchSupportConversation,
   isHumanHandled,
   streamSupportMessage,
+  useSupportAssistantEligibility,
   useSupportConversations,
   type SupportConversationStatus,
   type SupportGateError,
@@ -73,13 +74,15 @@ function statusBannerText(status: SupportConversationStatus): string | null {
 }
 
 export function SupportChatWidget() {
-  const profile = useAuthStore((s) => s.profile);
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
 
-  const eligible =
-    profile?.subscription_status === "active" ||
-    profile?.subscription_status === "trialing";
+  // US-844: the launch + tier-eligibility config lives server-side (the SPA
+  // can't read feature_flags). The edge tells us whether the assistant is
+  // launched at all (`enabled`) and whether this caller may chat (`eligible`).
+  const eligibilityQuery = useSupportAssistantEligibility(Boolean(user?.id));
+  const launched = eligibilityQuery.data?.enabled ?? false;
+  const eligible = eligibilityQuery.data?.eligible ?? false;
 
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"chat" | "history">("chat");
@@ -224,6 +227,10 @@ export function SupportChatWidget() {
   const humanHandled = isHumanHandled(status);
   const banner = statusBannerText(status);
   const notSubscribedGate = gate?.code === "not_subscribed" || !eligible;
+
+  // Flipping the launch kill-switch off (or any signed-out / fetch-failed
+  // state) fully removes the assistant — no launcher, no Sheet.
+  if (!launched) return null;
 
   return (
     <>

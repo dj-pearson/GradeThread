@@ -46,6 +46,11 @@ import {
 } from "../lib/support-abuse.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import type { FlipdeskPlan } from "../lib/pricing-config.ts";
+import {
+  isPlanEligibleForAssistant,
+  isSupportAssistantLaunched,
+  SUPPORT_ASSISTANT_PHASE,
+} from "../lib/support-assistant-config.ts";
 import { notifyUser } from "../lib/notify.ts";
 import {
   sendSupportAbuseAlertEmail,
@@ -94,27 +99,75 @@ const MAX_HISTORY_MESSAGES = 20;
 // Cap a single user message length (defense against flood/abuse + prompt budget).
 const MAX_MESSAGE_CHARS = 4000;
 
-// ── Gate: resolve subscription (owner) + lockout (user), then decide ──────────
+// ── Gate: launch flag + tier eligibility + subscription/lockout, then decide ──
+// US-844: the gate now composes the single launch + tier-eligibility config
+// (support-assistant-config.ts) with the US-834 entitlement floor:
+//   0. Launch kill-switch OFF (fail-closed)  → not_available (fully disabled).
+//   1. subscription not active/trialing       → not_subscribed (evaluateAssistantGate).
+//   2. plan not eligible at the rollout phase  → not_subscribed (upsell).
+//   3. caller locked out                       → locked (evaluateAssistantGate).
 async function loadGateAndDecide(userId: string, ownerId: string) {
-  // subscription_status lives on the workspace owner (billing). lockout is on
-  // the chatting user (per-abuser). One read when they're the same id.
+  // 0. Master launch flag. OFF = the assistant is fully disabled fleet-wide.
+  if (!(await isSupportAssistantLaunched())) {
+    return {
+      allowed: false as const,
+      status: 403 as const,
+      code: "not_available",
+      message: "The support assistant isn't available right now.",
+    };
+  }
+
+  // subscription_status + plan inputs live on the workspace owner (billing).
+  // lockout + admin role are on the chatting user. One read when they're the
+  // same id.
   const ids = userId === ownerId ? [userId] : [userId, ownerId];
   const { data } = await supabaseAdmin
     .from("users")
-    .select("id, subscription_status, support_assistant_locked_until")
+    .select(
+      "id, subscription_status, support_assistant_locked_until, role, flipdesk_plan, trial_ends_at, past_due_since",
+    )
     .in("id", ids);
   const rows = (data ?? []) as Array<{
     id: string;
     subscription_status: string | null;
     support_assistant_locked_until: string | null;
+    role: string | null;
+    flipdesk_plan: string | null;
+    trial_ends_at: string | null;
+    past_due_since: string | null;
   }>;
   const ownerRow = rows.find((r) => r.id === ownerId) ?? null;
   const userRow = rows.find((r) => r.id === userId) ?? null;
-  return evaluateAssistantGate({
+
+  // 1 + 3: entitlement floor (subscription status + per-abuser lockout).
+  const base = evaluateAssistantGate({
     subscription_status: ownerRow?.subscription_status ?? null,
     support_assistant_locked_until: userRow?.support_assistant_locked_until ??
       null,
   });
+  if (!base.allowed) return base;
+
+  // 2: tier eligibility at the current rollout phase. Platform admins always
+  // pass (staff dogfooding, any phase).
+  const isAdmin = userRow?.role === "admin" || userRow?.role === "super_admin";
+  const plan = effectivePlanFor(
+    ownerRow?.flipdesk_plan ?? "free",
+    ownerRow?.subscription_status ?? null,
+    ownerRow?.trial_ends_at ?? null,
+    new Date(),
+    ownerRow?.past_due_since ?? null,
+  ) as FlipdeskPlan;
+  if (!isPlanEligibleForAssistant(plan, { isAdmin })) {
+    return {
+      allowed: false as const,
+      status: 403 as const,
+      code: "not_subscribed",
+      message:
+        "The support assistant is included on our paid plans. Upgrade to chat " +
+        "with the assistant about grading, listings, and your account.",
+    };
+  }
+  return { allowed: true as const };
 }
 
 // ── Abuse controls (US-836): rate caps + jailbreak/flood detection + lockout ──
@@ -844,6 +897,65 @@ supportAssistantRoutes.post("/message", async (c) => {
         data: JSON.stringify({ message: "The assistant hit an error." }),
       });
     }
+  });
+});
+
+// ── GET /eligibility — does the widget render, and may this caller chat? ──────
+// US-844: the SINGLE config (support-assistant-config.ts) that gates the engine
+// also gates the widget — the frontend can't read feature_flags directly, so it
+// asks here. `enabled` is the launch kill-switch (off => the widget renders
+// nothing); `eligible` is subscription + tier-policy (off => the widget shows an
+// upsell). Lockout is deliberately NOT folded in — a locked-out subscriber is
+// still "eligible" and learns of the pause inline when they send.
+supportAssistantRoutes.get("/eligibility", async (c) => {
+  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+
+  if (!(await isSupportAssistantLaunched())) {
+    return c.json({
+      enabled: false,
+      eligible: false,
+      phase: SUPPORT_ASSISTANT_PHASE,
+    });
+  }
+
+  const ids = userId === ownerId ? [userId] : [userId, ownerId];
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select(
+      "id, subscription_status, role, flipdesk_plan, trial_ends_at, past_due_since",
+    )
+    .in("id", ids);
+  const rows = (data ?? []) as Array<{
+    id: string;
+    subscription_status: string | null;
+    role: string | null;
+    flipdesk_plan: string | null;
+    trial_ends_at: string | null;
+    past_due_since: string | null;
+  }>;
+  const ownerRow = rows.find((r) => r.id === ownerId) ?? null;
+  const userRow = rows.find((r) => r.id === userId) ?? null;
+
+  const subscribed = evaluateAssistantGate({
+    subscription_status: ownerRow?.subscription_status ?? null,
+    support_assistant_locked_until: null,
+  }).allowed;
+  const isAdmin = userRow?.role === "admin" || userRow?.role === "super_admin";
+  const plan = effectivePlanFor(
+    ownerRow?.flipdesk_plan ?? "free",
+    ownerRow?.subscription_status ?? null,
+    ownerRow?.trial_ends_at ?? null,
+    new Date(),
+    ownerRow?.past_due_since ?? null,
+  ) as FlipdeskPlan;
+  const eligible = subscribed && isPlanEligibleForAssistant(plan, { isAdmin });
+
+  return c.json({
+    enabled: true,
+    eligible,
+    phase: SUPPORT_ASSISTANT_PHASE,
+    code: eligible ? undefined : "not_subscribed",
   });
 });
 

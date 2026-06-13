@@ -12431,8 +12431,8 @@
         "npm run verify passes with the assistant disabled by default until launch"
       ],
       "priority": 844,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Final story. Tier policy referenced by US-834 gate + US-838 widget. Keep flag OFF by default so partial merges never expose the bot in prod."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Final story. Tier policy referenced by US-834 gate + US-838 widget. Keep flag OFF by default so partial merges never expose the bot in prod. [DONE 2026-06-13] Single config: support-assistant-config.ts (launch flag support_assistant seeded OFF in 00189 + SUPPORT_ASSISTANT_PHASE tier policy: paid tiers, free never, admins always). Engine gate (loadGateAndDecide) + new GET /eligibility both consume it; widget renders nothing when flag off. 8 published KB articles seeded. SUPPORT_ASSISTANT.md documents architecture/allowlist/thresholds/escalation/abuse/rollout. feature-flags.ts gained fail-closed defaultEnabled option. Flag OFF by default."
     },
     {
       "id": "US-845",
