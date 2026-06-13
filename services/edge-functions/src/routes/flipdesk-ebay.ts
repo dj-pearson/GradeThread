@@ -11,6 +11,11 @@ import {
   sourcesFor,
 } from "../lib/aspect-provenance.ts";
 import {
+  type PublishAspectDiagnostic,
+  reconcilePublishAspects,
+  type ReconcileSpec,
+} from "../lib/aspect-reconcile.ts";
+import {
   buildConsentUrl,
   createInventoryLocation,
   createOffer,
@@ -2866,6 +2871,9 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
   return c.json({
     ok: result.blockers.length === 0,
     blockers: result.blockers,
+    // US-828: aspects that won't be sent for value-validation reasons, so the
+    // composer can warn "X was not sent" before the seller publishes.
+    aspectDiagnostics: result.aspectDiagnostics,
     summary: result.summary,
   });
 });
@@ -4422,6 +4430,9 @@ interface PublishContextOk {
   // null when blockers includes a missing-policy entry. Push must re-check.
   policies: PolicySet | null;
   blockers: string[];
+  // US-828: aspect values omitted from the eBay payload for value-validation
+  // reasons, so the client can surface "X was not sent" (empty = nothing dropped).
+  aspectDiagnostics: PublishAspectDiagnostic[];
   sku: string;
   summary: {
     title: string;
@@ -4836,6 +4847,16 @@ async function assemblePublishContext(
     (item.ebay_aspects as Record<string, string[]> | null) ??
     {};
   let requiredMissing: string[] = [];
+  // US-828: aspects the publish path declined to send for VALUE-validation
+  // reasons (a SELECTION_ONLY value not in eBay's allowed set, even after the
+  // US-823 normalizer). Surfaced in the publish/validate response so the client
+  // can say "X was not sent" instead of the value vanishing silently.
+  let aspectDiagnostics: PublishAspectDiagnostic[] = [];
+  // The map actually sent to eBay — `aspectMap` minus value-validation omissions
+  // (with near-misses normalized). Kept separate from the PERSISTED aspectMap so
+  // the draft retains the seller's flagged values for them to fix (US-828 keeps
+  // unmatched values visible rather than dropping them at generation).
+  let sanitizedAspects: Record<string, string[]> = aspectMap;
   if (categoryId) {
     try {
       const aspectsResp = await getCategoryAspects(categoryId);
@@ -4881,9 +4902,38 @@ async function assemblePublishContext(
         }
       }
 
+      // US-828: validate aspect VALUES against the category spec before the
+      // offer build. SELECTION_ONLY near-misses are normalized (US-823) so they
+      // publish; values eBay still won't accept are OMITTED from the outgoing
+      // payload and recorded as diagnostics. Unknown aspect names + free-text
+      // pass through unchanged, so this only ever omits for value-validation
+      // reasons. The PERSISTED aspectMap is untouched — the draft keeps the
+      // flagged value for the seller to fix.
+      const reconcileSpecs: ReconcileSpec[] = list
+        .map((a) => ({
+          name: a.localizedAspectName ?? "",
+          mode: a.aspectConstraint?.aspectMode ?? "FREE_TEXT",
+          allowedValues: (a.aspectValues ?? [])
+            .map((v) => v.localizedValue ?? "")
+            .filter((v) => v.length > 0),
+        }))
+        .filter((s) => s.name.length > 0);
+      const reconciled = reconcilePublishAspects(aspectMap, reconcileSpecs);
+      sanitizedAspects = reconciled.aspects;
+      aspectDiagnostics = reconciled.omitted;
+      if (aspectDiagnostics.length > 0) {
+        console.warn(
+          `[flipdesk-ebay] omitted ${aspectDiagnostics.length} aspect value(s) for ` +
+            `item ${itemId} (category ${categoryId}) — not in eBay's allowed set: ` +
+            JSON.stringify(aspectDiagnostics),
+        );
+      }
+
       // US-825: the SAME required-aspect rule the client pre-publish checklist
       // uses (requiredMissingAspects) — blocker and checklist can't disagree.
-      requiredMissing = requiredMissingAspects(list, aspectMap);
+      // Run on the sanitized map so a required aspect whose only value was
+      // invalid (and thus omitted) correctly surfaces as a fixable blocker.
+      requiredMissing = requiredMissingAspects(list, sanitizedAspects);
       if (requiredMissing.length > 0) {
         // Diagnostic: log WHY each missing aspect couldn't be auto-filled —
         // its mode, a sample of eBay's allowed values, and the item text we
@@ -5109,7 +5159,9 @@ async function assemblePublishContext(
     condition,
     conditionDescription,
     categoryId: categoryId ?? "",
-    aspects: aspectMap,
+    // US-828: send the value-validated map (near-misses normalized, invalid
+    // SELECTION_ONLY values omitted), not the raw persisted aspectMap.
+    aspects: sanitizedAspects,
     quantity,
     bestOfferEnabled,
     bestOfferAutoAccept,
@@ -5137,6 +5189,7 @@ async function assemblePublishContext(
     photos: photosWithUrl,
     policies,
     blockers,
+    aspectDiagnostics,
     sku,
     summary,
   };

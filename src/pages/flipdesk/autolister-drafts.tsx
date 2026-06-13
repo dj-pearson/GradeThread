@@ -48,6 +48,7 @@ import { useEbayConnection } from "@/hooks/use-ebay";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
+import type { AspectReviewEntry } from "@/types/database";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
 // only at a ?batch= URL, so a reseller who generates today and reviews tomorrow
@@ -68,6 +69,9 @@ interface DraftRow {
   price_comp_source: string | null;
   platform_category_id: string | null;
   needs_review: boolean | null;
+  // US-828: per-aspect needs-review entries from generation reconciliation; its
+  // length drives the "N to fix" count badge on the row.
+  aspect_review: AspectReviewEntry[] | null;
 }
 
 // US-548: sort options for the cockpit.
@@ -119,7 +123,7 @@ export function FlipdeskAutolisterDraftsPage() {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review",
+          "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review, aspect_review",
         )
         .eq("listing_status", "draft")
         .not("batch_id", "is", null)
@@ -634,8 +638,18 @@ export function FlipdeskAutolisterDraftsPage() {
                           <Badge
                             variant="outline"
                             className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
+                            title={
+                              d.aspect_review && d.aspect_review.length > 0
+                                ? `eBay specifics to fix: ${d.aspect_review
+                                    .map((a) => a.aspect)
+                                    .join(", ")}`
+                                : undefined
+                            }
                           >
-                            Needs review
+                            {/* US-828: show how many specifics need reconciling. */}
+                            {d.aspect_review && d.aspect_review.length > 0
+                              ? `${d.aspect_review.length} to fix`
+                              : "Needs review"}
                           </Badge>
                         ) : (
                           <Badge

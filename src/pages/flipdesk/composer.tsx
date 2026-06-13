@@ -1020,6 +1020,11 @@ export function FlipdeskComposerPage() {
               onAspectsChange={setLivePickedAspects}
               onSourcesChange={setLivePickedSources}
               onMissingRequiredChange={setMissingRequired}
+              // US-828: highlight the aspect rows generation reconciliation
+              // flagged (a value not in eBay's allowed set / an invented aspect).
+              needsReviewAspects={(listing?.aspect_review ?? []).map(
+                (a) => a.aspect,
+              )}
             />
           )}
 

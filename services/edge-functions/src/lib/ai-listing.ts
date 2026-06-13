@@ -39,6 +39,11 @@ import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { sourcesFor } from "./aspect-provenance.ts";
 import {
+  type AspectReviewEntry,
+  reconcileGeneratedAspects,
+  specsFromEbayAspectSpecs,
+} from "./aspect-reconcile.ts";
+import {
   applyMeasurementsBlock,
   resolveMeasurementAspects,
 } from "./measurements.ts";
@@ -924,6 +929,10 @@ export async function generateListing(
   //    drive the call; eBay-rejected free-text values for SELECTION_ONLY
   //    aspects get dropped, required gaps get filled when supported.
   let itemSpecifics: Record<string, string[]> = listing.item_specifics;
+  // US-828: the resolved category aspect spec, lifted so the generation-time
+  // reconciliation pass (step 6d) can validate names+values against it after the
+  // brand/measurement folds have run.
+  let aspectSpecs: EbayAspectSpec[] = [];
   // US-541: per-aspect confidence from the refine pass, for needs_review triage.
   const fieldConfidence: Record<string, number> = {};
   let extractCost = 0;
@@ -940,6 +949,7 @@ export async function generateListing(
       // Keep the name-keyed map for legacy paths that read allowedAspects.
       allowedAspects = extractAllowedAspects(rawAspectsResponse);
       const specs = buildAspectSpecsForCategory(rawAspectsResponse);
+      aspectSpecs = specs;
       if (specs.length > 0) {
         try {
           // US-545: on common apparel categories the item-specifics are
@@ -1020,6 +1030,30 @@ export async function generateListing(
     );
     if (Object.keys(measurementAspects).length > 0) {
       itemSpecifics = { ...itemSpecifics, ...measurementAspects };
+    }
+  }
+
+  // 6d. US-828: reconcile the assembled specifics against the category spec —
+  // validate every aspect NAME and VALUE, normalize SELECTION_ONLY near-misses
+  // through the US-823 normalizer, and capture anything still unmatched as
+  // needs-review on the draft (kept visibly, never silently dropped). This
+  // closes the value-validation hole the name-only fallback (above) left: a
+  // SELECTION_ONLY aspect that kept its original AI value when the refiner
+  // omitted it gets one more normalization pass here, and an invalid value is
+  // surfaced for the seller instead of discovered as a publish-time omission.
+  let aspectReview: AspectReviewEntry[] = [];
+  if (aspectSpecs.length > 0) {
+    const reconciled = reconcileGeneratedAspects(
+      itemSpecifics,
+      specsFromEbayAspectSpecs(aspectSpecs),
+    );
+    itemSpecifics = reconciled.aspects;
+    aspectReview = reconciled.review;
+    if (aspectReview.length > 0) {
+      console.warn(
+        `[AI Listing] ${aspectReview.length} aspect(s) need review for item ${itemId}: ` +
+          JSON.stringify(aspectReview),
+      );
     }
   }
 
@@ -1147,7 +1181,11 @@ export async function generateListing(
   }
 
   // US-541: route low-confidence drafts to review.
-  const needsReview = listingNeedsReview(listing.confidence, fieldConfidence);
+  // US-828: also flag the draft when reconciliation left aspects unmatched —
+  // the seller must reconcile them before they silently drop at publish.
+  const needsReview =
+    listingNeedsReview(listing.confidence, fieldConfidence) ||
+    aspectReview.length > 0;
 
   // US-546 (AC3): record the A/B title variants. Variant "A" is the chosen,
   // published title; "B" is the model's optional alternate (omitted when it
@@ -1180,6 +1218,10 @@ export async function generateListing(
     ai_confidence: listing.confidence,
     ai_field_confidence: Object.keys(fieldConfidence).length > 0 ? fieldConfidence : null,
     needs_review: needsReview,
+    // US-828: the per-aspect needs-review list (name + unmatched values +
+    // reason) so the drafts cockpit + composer can surface exactly which
+    // specifics to fix, instead of an opaque "needs review" boolean.
+    aspect_review: aspectReview.length > 0 ? aspectReview : null,
     // US-546: A/B title variants (AC3) + the demand terms fed to the prompt (AC2)
     // for transparency/debug. active_title_variant tracks the live label.
     title_variants: titleVariants,

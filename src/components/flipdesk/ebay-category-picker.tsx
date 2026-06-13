@@ -72,6 +72,10 @@ interface Props {
   // category so the composer's publish button can warn "N required specifics
   // missing" BEFORE calling publish (same rule the server blocker uses).
   onMissingRequiredChange?: (missing: string[]) => void;
+  // US-828: aspect names flagged needs-review by generation-time reconciliation
+  // (a value not in eBay's allowed set, or an invented aspect). The matching
+  // rows are highlighted so the seller fixes them before they drop at publish.
+  needsReviewAspects?: string[] | null;
 }
 
 // 250ms debounce — eBay's Taxonomy quota is generous but not free.
@@ -95,6 +99,7 @@ export function EbayCategoryPicker({
   onAspectsChange,
   onSourcesChange,
   onMissingRequiredChange,
+  needsReviewAspects,
 }: Props) {
   const [query, setQuery] = useState(seedQuery ?? "");
   const debounced = useDebounced(query.trim(), 250);
@@ -134,6 +139,20 @@ export function EbayCategoryPicker({
   const [prefillHints, setPrefillHints] = useState<
     Record<string, AspectRewrite>
   >({});
+
+  // US-828: loose-keyed (case/punctuation-insensitive) set of aspect names the
+  // generation reconciler flagged, so AspectField can highlight the matching
+  // rows regardless of eBay's exact display casing.
+  const needsReviewSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const name of needsReviewAspects ?? []) {
+      const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (key) s.add(key);
+    }
+    return s;
+  }, [needsReviewAspects]);
+  const isNeedsReview = (name: string): boolean =>
+    needsReviewSet.has(name.toLowerCase().replace(/[^a-z0-9]/g, ""));
 
   const suggestQuery = useEbayCategorySuggest(debounced);
   const aspectsQuery = useEbayCategoryAspects(categoryId);
@@ -603,6 +622,7 @@ export function EbayCategoryPicker({
                 sources={sources}
                 aiMeta={aiMeta}
                 rewrites={prefillHints}
+                isNeedsReview={isNeedsReview}
                 onChange={setAspect}
               />
             )}
@@ -615,6 +635,7 @@ export function EbayCategoryPicker({
                 sources={sources}
                 aiMeta={aiMeta}
                 rewrites={prefillHints}
+                isNeedsReview={isNeedsReview}
                 onChange={setAspect}
               />
             )}
@@ -627,6 +648,7 @@ export function EbayCategoryPicker({
                 sources={sources}
                 aiMeta={aiMeta}
                 rewrites={prefillHints}
+                isNeedsReview={isNeedsReview}
                 onChange={setAspect}
               />
             )}
@@ -709,6 +731,7 @@ function AspectGroup({
   sources,
   aiMeta,
   rewrites,
+  isNeedsReview,
   onChange,
 }: {
   title: string;
@@ -718,6 +741,7 @@ function AspectGroup({
   sources: AspectSourceMap;
   aiMeta: Record<string, { confidence: number; source: string }>;
   rewrites: Record<string, AspectRewrite>;
+  isNeedsReview: (name: string) => boolean;
   onChange: (name: string, value: string, cardinality: string) => void;
 }) {
   return (
@@ -741,6 +765,7 @@ function AspectGroup({
             source={sources[a.localizedAspectName]}
             aiMetaItem={aiMeta[a.localizedAspectName]}
             rewrite={rewrites[a.localizedAspectName]}
+            needsReview={isNeedsReview(a.localizedAspectName)}
             onChange={(v) =>
               onChange(
                 a.localizedAspectName,
@@ -761,6 +786,7 @@ function AspectField({
   source,
   aiMetaItem,
   rewrite,
+  needsReview,
   onChange,
 }: {
   aspect: EbayAspect;
@@ -768,6 +794,7 @@ function AspectField({
   source?: StoredAspectProvenance;
   aiMetaItem?: { confidence: number; source: string };
   rewrite?: AspectRewrite;
+  needsReview?: boolean;
   onChange: (v: string) => void;
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
@@ -778,12 +805,29 @@ function AspectField({
   const allowedValues = aspect.aspectValues ?? [];
 
   return (
-    <div className="space-y-1">
+    <div
+      className={cn(
+        "space-y-1",
+        // US-828: highlight an aspect the generation reconciler flagged so the
+        // seller fixes its value before it silently drops at publish.
+        needsReview &&
+          "-mx-2 rounded-md border border-amber-500/50 bg-amber-500/5 px-2 py-1.5",
+      )}
+    >
       <Label
         htmlFor={fieldId}
         className="flex items-center gap-1.5 text-xs"
       >
         {aspect.localizedAspectName}
+        {/* US-828: needs-review chip — the value didn't match eBay's allowed set. */}
+        {needsReview && (
+          <span
+            className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300"
+            title="This value isn't in eBay's allowed list for this aspect — pick a valid one or it won't be sent at publish."
+          >
+            Review
+          </span>
+        )}
         {/* US-825: provenance badge — AI / Auto (derived) / You (manual). */}
         {source && value.length > 0 && (
           <span

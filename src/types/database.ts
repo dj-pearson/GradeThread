@@ -845,6 +845,10 @@ export interface ListingRow {
   // US-825 (migration 00184): per-aspect provenance parallel to
   // item_specifics_override — { aspectName: "ai_extracted" | "inventory_derived" | "manual" }.
   item_specifics_sources: Record<string, string> | null;
+  // US-828 (migration 00186): per-aspect needs-review list from generation-time
+  // reconciliation — aspects whose name or value couldn't be matched to the eBay
+  // category spec (and were kept, not dropped). NULL = nothing flagged.
+  aspect_review: AspectReviewEntry[] | null;
   return_policy_id: string | null;
   shipping_policy_id: string | null;
   payment_policy_id: string | null;
@@ -911,6 +915,17 @@ export interface ListingRow {
   variations: ListingVariations | null;
   created_at: string;
   updated_at: string;
+}
+
+// US-828: one aspect (or set of values) the generation-time reconciliation
+// couldn't match to the eBay category spec. `unknown_aspect` = the aspect name
+// isn't in the category; `unmatched_value` = a SELECTION_ONLY value not in the
+// allowed set even after US-823 normalization. The values are KEPT on the draft
+// (in item_specifics_override) so the seller can fix them before publish.
+export interface AspectReviewEntry {
+  aspect: string;
+  values: string[];
+  reason: "unknown_aspect" | "unmatched_value";
 }
 
 // US-568: eBay offer format. Mirrors listings.listing_format.
