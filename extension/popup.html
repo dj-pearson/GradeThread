@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GradeThread Lister</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="hd">
+      <img src="icons/icon128.png" alt="" class="logo" />
+      <div>
+        <h1>GradeThread Lister</h1>
+        <p class="ver" id="ext-version"></p>
+      </div>
+    </header>
+
+    <section class="privacy">
+      <strong>Your sessions stay yours.</strong>
+      This extension lists from your own logged-in browser tab. GradeThread
+      never receives or stores your marketplace password or cookies, and all
+      automation runs entirely on your device.
+    </section>
+
+    <section>
+      <h2>Marketplaces</h2>
+      <ul id="platforms" class="platforms"></ul>
+    </section>
+
+    <section class="tos" id="tos-section">
+      <label class="tos-row">
+        <input type="checkbox" id="tos-check" />
+        <span>
+          I understand the Lister fills forms in <em>my</em> browser session and
+          that <strong>I am responsible</strong> for complying with each
+          marketplace's Terms of Service for every listing I create.
+        </span>
+      </label>
+      <button id="accept" class="btn" disabled>Accept &amp; enable</button>
+      <p class="accepted" id="accepted-note" hidden></p>
+    </section>
+
+    <footer class="ft">
+      Selectors break when marketplaces change their forms — if a target stops
+      prefilling, the Lister will tell you to list manually and we'll ship an
+      update.
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

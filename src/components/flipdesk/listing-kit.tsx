@@ -41,6 +41,13 @@ import {
   type ExportablePhoto,
   exportPhotosForPlatform,
 } from "@/lib/photo-export";
+import {
+  buildListerPayload,
+  isListerAvailable,
+  isListerPlatform,
+  sendToLister,
+} from "@/lib/lister-extension";
+import { edgeFetch } from "@/lib/edge-fetch";
 
 // Copy-paste targets: the no-API platforms (Poshmark/Mercari/Grailed) plus
 // Depop until its partner API is live (US-712/713/714). Shopify + eBay push via
@@ -177,17 +184,21 @@ function PlatformPanel({
   photos,
   primaryId,
   baseName,
+  itemId,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
   photos: ExportablePhoto[];
   primaryId: string | null;
   baseName: string;
+  itemId: string;
 }) {
+  const qc = useQueryClient();
   const spec = getMarketplaceSpec(platform);
   // Local edits to the free-text fields, keyed by field key.
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState(false);
+  const [sending, setSending] = useState(false);
   if (!spec) return null;
 
   const photoCount = photos.length;
@@ -236,6 +247,60 @@ function PlatformPanel({
       .map((f) => `${f.label}: ${valueOf(f)}`)
       .join("\n");
     void copy(block, `${spec.label} listing`);
+  };
+
+  // US-716: hand this platform's draft to the GradeThread Lister extension,
+  // which prefills the marketplace's native form in the seller's own tab. The
+  // extension never touches GradeThread auth or marketplace creds — once it
+  // reports the form was filled, WE record the cross-listing via the writeback
+  // endpoint using the user's SaaS session.
+  const showSend = isListerAvailable() && isListerPlatform(platform);
+  const sendExtension = async () => {
+    if (!isListerPlatform(platform)) return; // narrows to a ListerPlatform
+    if (errors.length > 0) {
+      toast.error("Fix the blocking issues before sending to the extension.");
+      return;
+    }
+    setSending(true);
+    try {
+      const payload = buildListerPayload({ platform, itemId, variant, photos, primaryId });
+      const res = await sendToLister(payload);
+      if (res.needsConsent) {
+        toast.error("Open the GradeThread Lister and accept its terms first.");
+        return;
+      }
+      if (!res.ok && !res.filled) {
+        toast.error(res.error ?? `Couldn't send to ${spec.label}.`);
+        return;
+      }
+      // The marketplace tab was prefilled — record the cross-listing.
+      const wb = await edgeFetch("/api/flipdesk/listings/extension-writeback", {
+        method: "POST",
+        json: {
+          item_id: itemId,
+          platform,
+          listing_url: res.listingUrl ?? null,
+        },
+      });
+      if (!wb.ok) {
+        const j = await wb.json().catch(() => ({}));
+        toast.error(
+          `Prefilled ${spec.label}, but couldn't record the cross-listing: ${
+            j.error ?? wb.status
+          }`,
+        );
+        return;
+      }
+      toast.success(
+        `${spec.label} prefilled in a new tab — review and submit.` +
+          (res.photosAttached ? "" : " Drag your downloaded photos in."),
+      );
+      void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Send to extension failed.");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -289,13 +354,29 @@ function PlatformPanel({
           )}
           Download photos ({inZip})
         </Button>
-        {/* US-785: the "Send to extension" control is HIDDEN until the Lister
-            browser extension actually ships (US-716) — a disabled dead button is
-            worse than no button. Flip VITE_LISTER_EXTENSION=true when it ships to
-            reveal it without a code change. */}
-        {import.meta.env.VITE_LISTER_EXTENSION === "true" && (
-          <Button type="button" variant="outline" size="sm">
-            <Puzzle className="mr-1.5 h-3.5 w-3.5" />
+        {/* US-716: the "Send to extension" control is shown only when the
+            GradeThread Lister extension is configured (VITE_LISTER_EXTENSION=true
+            + VITE_LISTER_EXTENSION_ID) AND this platform is one it automates
+            (Poshmark/Mercari/Grailed). It prefills the marketplace's native form
+            in the seller's own logged-in tab. */}
+        {showSend && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={sending || errors.length > 0}
+            onClick={sendExtension}
+            title={
+              errors.length > 0
+                ? "Fix the blocking issues first"
+                : `Prefill ${spec.label}'s listing form in a new tab`
+            }
+          >
+            {sending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Puzzle className="mr-1.5 h-3.5 w-3.5" />
+            )}
             Send to extension
           </Button>
         )}
@@ -435,6 +516,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
                 photos={photos}
                 primaryId={primaryId}
                 baseName={baseName ?? `item-${itemId.slice(0, 8)}`}
+                itemId={itemId}
               />
             </TabsContent>
           ))}

@@ -334,3 +334,133 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
 
   return c.json({ ok: true, draft_id: groupId, results });
 });
+
+// ── US-716: GradeThread Lister browser-extension writeback ────────────────
+//
+// The companion extension (extension/) lists Poshmark/Mercari/Grailed from the
+// seller's OWN logged-in tab — GradeThread servers never see a marketplace
+// password or cookie. Once the extension reports it prefilled the form, the
+// SaaS calls this endpoint (with the user's own session) to record the
+// cross-listing so the item shows as cross-listed. We mint/refresh ONE listings
+// row per (item, platform), joined to the item's existing cross-list group via
+// draft_id (US-149). Tenant-scoped per US-268: ownership of the item is
+// verified before any write (the service-role client bypasses RLS).
+
+// Platforms the extension automates (no write API; depop has its own API path).
+const EXTENSION_PLATFORMS = ["poshmark", "mercari", "grailed"] as const;
+type ExtensionPlatform = (typeof EXTENSION_PLATFORMS)[number];
+function isExtensionPlatform(p: string): p is ExtensionPlatform {
+  return (EXTENSION_PLATFORMS as readonly string[]).includes(p);
+}
+
+flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_id?: unknown; platform?: unknown; listing_url?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const itemId = typeof body.item_id === "string" ? body.item_id : "";
+  const platform = typeof body.platform === "string" ? body.platform : "";
+  const listingUrl =
+    typeof body.listing_url === "string" && body.listing_url.length > 0
+      ? body.listing_url
+      : null;
+
+  if (!itemId) return c.json({ error: "item_id is required." }, 400);
+  if (!isExtensionPlatform(platform)) {
+    return c.json(
+      { error: `${platform || "platform"} is not a browser-extension platform.` },
+      400,
+    );
+  }
+
+  // Verify the caller owns the item (US-268).
+  const { data: itemRow, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id, target_price")
+    .eq("id", itemId)
+    .maybeSingle();
+  if (itemErr) return c.json({ error: "Could not load the item." }, 500);
+  const item = itemRow as
+    | { id: string; user_id: string; target_price: number | null }
+    | null;
+  if (!item || item.user_id !== ownerId) {
+    return c.json({ error: "Item not found." }, 404);
+  }
+
+  // Join to the item's cross-list group (the eBay base draft), if any.
+  const { data: baseRow } = await supabaseAdmin
+    .from("listings")
+    .select("id, draft_id, listing_price")
+    .eq("inventory_item_id", itemId)
+    .eq("platform", "ebay")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const base = baseRow as
+    | { id: string; draft_id: string | null; listing_price: number | null }
+    | null;
+  const groupId = base?.draft_id ?? base?.id ?? null;
+
+  const price =
+    (base?.listing_price && base.listing_price > 0 ? base.listing_price : null) ??
+    (item.target_price && item.target_price > 0 ? item.target_price : 0);
+
+  const now = new Date().toISOString();
+
+  // One row per (item, platform): refresh it if it already exists, else create.
+  const { data: existingRow } = await supabaseAdmin
+    .from("listings")
+    .select("id")
+    .eq("inventory_item_id", itemId)
+    .eq("platform", platform)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const existingId = (existingRow as { id: string } | null)?.id ?? null;
+
+  if (existingId) {
+    const { error: upErr } = await supabaseAdmin
+      .from("listings")
+      .update({
+        listing_status: "active",
+        is_active: true,
+        listing_url: listingUrl,
+        listed_at: now,
+        draft_id: groupId ?? undefined,
+      })
+      .eq("id", existingId);
+    if (upErr) {
+      return c.json({ error: "Could not update the cross-listing." }, 500);
+    }
+    return c.json({ ok: true, listing_id: existingId, platform, created: false });
+  }
+
+  const { data: created, error: insErr } = await supabaseAdmin
+    .from("listings")
+    .insert({
+      inventory_item_id: itemId,
+      platform,
+      listing_status: "active",
+      is_active: true,
+      listing_price: price,
+      listing_url: listingUrl,
+      listed_at: now,
+      draft_id: groupId,
+    })
+    .select("id")
+    .single();
+  if (insErr || !created) {
+    return c.json({ error: "Could not record the cross-listing." }, 500);
+  }
+  return c.json({
+    ok: true,
+    listing_id: (created as { id: string }).id,
+    platform,
+    created: true,
+  });
+});

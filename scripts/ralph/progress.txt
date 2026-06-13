@@ -1738,3 +1738,28 @@ Branch: ralph/gradethread-build
 - Notes: [NO-CODE] BizDev/Decision deliverable. Verdict = NO-GO on Rithum/Brand Closet. None of the 3 threshold conditions met (pre-launch: no >$50k/yr Poshmark-GMV customer with a 12-mo commitment at a price tier covering the $1.5-3k/mo Rithum seat). Documented Rithum onboarding reality (2-3 wk DSCO onboarding, listing creation stays largely manual — DSCO syncs qty/price/orders only). Explicitly ruled OUT server-side scraping / stored-cookie automation (Poshmark ToS §User Conduct + CFAA/DMCA/breach exposure). Poshmark coverage routes to the user-side extension path (US-716); Marketplaces UI/plan copy must reflect "via extension" not clean API (US-718). Re-evaluation trigger recorded. Followed docs/bizdev/ pattern from US-712. Doc-only change — no tsc/build impact.
 - Timestamp: 2026-06-13
 ---
+
+## US-716: 'GradeThread Lister' browser-extension companion for no-API marketplaces (Poshmark/Mercari/Grailed)
+- Status: COMPLETE
+- Files changed:
+  - extension/manifest.json (NEW) — MV3; externally_connectable=gradethread.com only; NO cookies perm; host_permissions limited to the 3 marketplaces; content scripts per platform.
+  - extension/background.js (NEW) — service worker: onMessageExternal (origin-checked) receives GT_LISTER_LIST payload, gates on clickwrap acceptance, opens the marketplace tab, correlates jobs by tabId, relays the content-script result back to the SaaS tab; PING handshake.
+  - extension/selectors.js (NEW) — VERSIONED per-platform selectors/flows (version+lastVerified+enabled); Poshmark enabled, Mercari/Grailed flagged off (phased rollout).
+  - extension/content/common.js (NEW) — shared probe()/fill/React-safe setValue/attachPhotos + runFlow (fail-loud on missing required selectors → 'list manually').
+  - extension/content/{poshmark,mercari,grailed}.js (NEW) — per-platform bootstraps that fetch their queued job and run the flow.
+  - extension/popup.{html,css,js} (NEW) — status (per-platform enabled/version) + clickwrap consent (tosAcceptedAt in chrome.storage.local, US-377 pattern).
+  - extension/icons/icon{128,256,512}.png (NEW) — copied from public/logo_icon_*.
+  - extension/README.md (NEW) — privacy guarantee + how it's ENFORCED, clickwrap responsibility, phased rollout, versioned-selectors/monthly-breakage policy, install.
+  - src/lib/lister-extension.ts (NEW) — SaaS bridge: LISTER_EXTENSION_PLATFORMS, isListerPlatform, isListerAvailable, buildListerPayload (pure), sendToLister (chrome.runtime.sendMessage wrapper w/ timeout); minimal ambient chrome typing (no @types/chrome dep).
+  - src/components/flipdesk/listing-kit.tsx — replaced the hidden US-785 stub with a live per-platform 'Send to extension' button (Poshmark/Mercari/Grailed) that builds the payload, sends it, and on a filled result records the cross-listing via the writeback endpoint; blocked when the platform draft has validation errors.
+  - services/edge-functions/src/routes/flipdesk-listings.ts — POST /extension-writeback: tenant-scoped (verifies item ownership, US-268), mints/refreshes ONE listings row per (item, platform) joined to the item's draft_id group, status=active + listing_url.
+  - src/lib/__tests__/lister-extension.test.ts (NEW, 5 cases) — isListerPlatform set, payload mapping, photo cap+cover-first, empty-string normalization.
+  - .env.example — documented VITE_LISTER_EXTENSION + new VITE_LISTER_EXTENSION_ID.
+- Notes:
+  - No DB migration needed — reuses the existing listings schema (listing_url, listing_status, is_active, draft_id from US-149).
+  - AC2 is enforced structurally: the extension cannot read cookies or GradeThread auth; writeback uses the SaaS session, so no marketplace creds ever reach our servers.
+  - Phased rollout is a one-line flip in selectors.js (enabled:true) + bump version/lastVerified once a platform's flow is verified against the live site. Disabled platforms degrade to a clear 'list manually' message; broken selectors fail loudly (probe() before fill).
+  - Auto-submit is intentionally OFF (category/size/condition pickers vary too much + the seller is responsible for the final review per clickwrap) — the extension prefills and the seller submits.
+  - Verify: npx tsc -b + eslint (changed files) + vitest (5/5) + npm run build all green; edge deno check (full graph) + deno lint + tenant-isolation/marketplace-adapters tests green.
+- Timestamp: 2026-06-13
+---

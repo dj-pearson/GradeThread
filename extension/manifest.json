@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "GradeThread Lister",
+  "version": "0.1.0",
+  "description": "List your FlipDesk drafts to Poshmark, Mercari, and Grailed from your OWN logged-in browser session. GradeThread never sees your marketplace password or cookies.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://poshmark.com/*",
+    "https://*.poshmark.com/*",
+    "https://www.mercari.com/*",
+    "https://*.mercari.com/*",
+    "https://www.grailed.com/*",
+    "https://*.grailed.com/*"
+  ],
+  "externally_connectable": {
+    "matches": ["https://gradethread.com/*", "https://*.gradethread.com/*"]
+  },
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "GradeThread Lister",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "128": "icons/icon128.png",
+    "256": "icons/icon256.png",
+    "512": "icons/icon512.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://poshmark.com/*", "https://*.poshmark.com/*"],
+      "js": ["selectors.js", "content/common.js", "content/poshmark.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.mercari.com/*", "https://*.mercari.com/*"],
+      "js": ["selectors.js", "content/common.js", "content/mercari.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.grailed.com/*", "https://*.grailed.com/*"],
+      "js": ["selectors.js", "content/common.js", "content/grailed.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
