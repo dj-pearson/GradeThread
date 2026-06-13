@@ -228,6 +228,35 @@ export function verifyJsonLd(): JsonLd[] {
   ];
 }
 
+// ── /whats-it-worth (US-849) ─────────────────────────────────────────
+// Public "what's my item worth?" condition-value tool — a top-of-funnel lead
+// magnet for a high-intent query. The estimate is read live from the public
+// Condition Index curve (real eBay comps), so the JSON-LD here stays GENERIC
+// (it must be deterministic and data-free: the prerender head-builder calls
+// this with no live curve data, and the parity test compares it to the SPA).
+export const WHATS_IT_WORTH_FAQS = [
+  {
+    q: "How much is my used clothing worth?",
+    a: "Resale value depends mostly on the brand, the item, and its condition. Pick an item and a 1.0–10.0 condition grade in the What's It Worth tool and we show the typical resale value at that grade, drawn from the GradeThread Condition Index — real eBay sold-comparable data, not a guess.",
+  },
+  {
+    q: "How does the What's It Worth estimate work?",
+    a: "Each estimate comes from the Condition Index: we track sold comparables for popular brand-and-item combinations and fit a value-versus-condition curve. You select an item and a grade, and we return the median resale value at that grade plus the number of comparables behind it and when it was last refreshed. Combinations without enough recent data are not shown rather than guessed.",
+  },
+  {
+    q: "Does an estimate replace a real GradeThread grade?",
+    a: "No. The estimate tells you roughly what an item in a given condition tends to sell for. To prove that condition to buyers you still need a real grade: upload photos and GradeThread returns an objective 1.0–10.0 grade and a shareable certificate buyers can verify, which helps items sell faster and with fewer disputes.",
+  },
+  {
+    q: "Why don't I see my exact item?",
+    a: "We only publish a value curve when it's backed by enough recent sold comparables, so the tool covers popular brand-and-item combinations rather than every garment. If yours isn't listed, the most reliable signal is still a real condition grade and certificate.",
+  },
+];
+
+export function whatsItWorthJsonLd(): JsonLd[] {
+  return [faqPageLd(WHATS_IT_WORTH_FAQS)];
+}
+
 // ── /grading/* glossary hub (US-303) ────────────────────────────────
 // Absolute breadcrumb trail (GradeThread → Condition grading → <term>) for a
 // glossary entry. Shared by the live page (via MarketingLayout's `breadcrumbs`

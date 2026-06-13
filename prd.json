@@ -12507,8 +12507,8 @@
         "npm run build passes (prerender + CI public-routes guard green)"
       ],
       "priority": 849,
-      "passes": false,
-      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Follow the SEO registry rules in CLAUDE.md (public-routes.ts + entry-server.tsx + guard test)."
+      "passes": true,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Follow the SEO registry rules in CLAUDE.md (public-routes.ts + entry-server.tsx + guard test). IMPLEMENTED: public /whats-it-worth tool (src/pages/marketing/whats-it-worth.tsx) — visitor picks a Condition Index item + grade and sees the curve median/range, comp-count + last-refreshed freshness, with a 'Get a real grade' CTA to /signup and a deep link to /condition-index/<slug>. Only published grades (points with a real median) are selectable; graceful empty states for no item / no published grades / load error. Registered in PUBLIC_ROUTES + entry-server.tsx (prerender sync guard green) with FAQPage JSON-LD mirrored in head-builder.ts and covered by the jsonld-parity test. Decoupled the use-condition-index hook from edgeFetch (now plain fetch + edgeApiUrl) so the public page's prerender SSR bundle stays free of the Supabase/auth graph (supabase.ts throws at import without env)."
     },
     {
       "id": "US-850",

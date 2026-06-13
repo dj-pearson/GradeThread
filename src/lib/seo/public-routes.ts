@@ -63,6 +63,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/transparency": "2026-06-01",
   "/verify": "2026-06-12",
   "/developers": "2026-06-12",
+  "/whats-it-worth": "2026-06-13",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -161,6 +162,17 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "HowTo",
+  },
+  {
+    // US-849: public "what's my item worth?" condition-value tool — a
+    // top-of-funnel lead magnet that reads the published Condition Index curve.
+    path: "/whats-it-worth",
+    title: "What's My Item Worth? Used Clothing Value by Condition",
+    description:
+      "Estimate what your used clothing is worth by brand, item, and condition grade — from real eBay sold-comparable data in the GradeThread Condition Index, then get a verifiable grade.",
+    changefreq: "weekly",
+    priority: 0.8,
+    jsonLdType: "FAQPage",
   },
   {
     // US-596: developer docs for the Grade-as-a-Service API (SDK, sandbox, rate

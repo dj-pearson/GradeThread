@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { edgeFetch } from "@/lib/edge-fetch";
+import { edgeApiUrl } from "@/lib/edge-api";
 
 // US-848: bring the public Condition Index (US-621/622) authority data into the
 // seller's pricing surfaces. The composer + item detail look up the grade-vs-
@@ -11,6 +11,19 @@ import { edgeFetch } from "@/lib/edge-fetch";
 // data only (no per-user rows), and the lib already suppresses thin curves so a
 // fabricated value never reaches us. Everything degrades silently to null when
 // there's no matching curve.
+//
+// These are public + anonymous, so we hit the edge with a plain fetch rather
+// than edgeFetch — deliberately: edgeFetch pulls in the Supabase client (auth
+// session + gate UI), which would drag the whole auth graph into the prerender
+// SSR bundle for the public /whats-it-worth page (US-849). edgeApiUrl() only
+// resolves a base URL and is import-safe; it is called in the browser queryFn,
+// never during SSR (React Query doesn't run queries while rendering to string).
+
+function fetchPublic(path: string): Promise<Response> {
+  return fetch(`${edgeApiUrl()}${path}`, {
+    headers: { Accept: "application/json" },
+  });
+}
 
 export interface ConditionIndexHubItem {
   slug: string;
@@ -53,10 +66,7 @@ export function useConditionIndexHub() {
     staleTime: INDEX_STALE_TIME,
     gcTime: INDEX_GC_TIME,
     queryFn: async (): Promise<ConditionIndexHubItem[]> => {
-      const res = await edgeFetch("/api/grading/public/condition-index", {
-        unauthenticated: true,
-        silentGate: true,
-      });
+      const res = await fetchPublic("/api/grading/public/condition-index");
       if (!res.ok) throw new Error("Failed to load Condition Index");
       const data = (await res.json().catch(() => null)) as
         | { items?: ConditionIndexHubItem[] }
@@ -74,9 +84,8 @@ export function useConditionIndexCurve(slug: string | null | undefined) {
     staleTime: INDEX_STALE_TIME,
     gcTime: INDEX_GC_TIME,
     queryFn: async (): Promise<ConditionIndexCurve | null> => {
-      const res = await edgeFetch(
+      const res = await fetchPublic(
         `/api/grading/public/condition-index/${encodeURIComponent(slug as string)}`,
-        { unauthenticated: true, silentGate: true },
       );
       if (!res.ok) return null;
       const data = (await res.json().catch(() => null)) as

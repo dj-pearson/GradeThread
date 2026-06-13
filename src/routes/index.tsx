@@ -93,6 +93,7 @@ const GradingStandardPage = lazy(() => import("@/pages/marketing/grading-standar
 const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").then(m => ({ default: m.TransparencyPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
 const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m => ({ default: m.DevelopersPage })));
+const WhatsItWorthPage = lazy(() => import("@/pages/marketing/whats-it-worth").then(m => ({ default: m.WhatsItWorthPage })));
 // US-596: white-label embeddable grade widget — bare (no app chrome), rendered
 // inside partner iframes. Dynamic per certificate, NOT in PUBLIC_ROUTES.
 const EmbedGradePage = lazy(() => import("@/pages/embed-grade").then(m => ({ default: m.EmbedGradePage })));
@@ -238,6 +239,7 @@ export const router = createBrowserRouter([
       { path: "/transparency", element: <SuspenseWrapper><TransparencyPage /></SuspenseWrapper> },
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },
       { path: "/developers", element: <SuspenseWrapper><DevelopersPage /></SuspenseWrapper> },
+      { path: "/whats-it-worth", element: <SuspenseWrapper><WhatsItWorthPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.
