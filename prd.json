@@ -8727,8 +8727,8 @@
         "Load test confirms no max_connections exhaustion at target concurrency"
       ],
       "priority": 570,
-      "passes": false,
-      "notes": "[P0][Ops/DB] Deep-dive 2026-06-04. lib/supabase.ts opens service-role connections directly; no Supavisor/PgBouncer anywhere; multiplies per replica on US-501."
+      "passes": true,
+      "notes": "[P0][Ops/DB] Done 2026-06-12. Enabled Supavisor TRANSACTION-mode pooler: supabase/config.toml [db.pooler] (enabled, pool_mode=transaction, default_pool_size=20, max_client_conn=100) so the local/CI stack boots the pooled topology (verified `supabase status` now lists supabase_pooler_gradethread). Canonical doc CONNECTION_POOLING.md covers topology, prod Supavisor enablement, pool sizing tied to US-501 replica count (backend pool fixed regardless of replicas; ~39 worst-case backends vs max_connections=200), the direct-vs-pooled split (pg_dump/migrations stay on direct 5432; pooled workload on 6543), and a load-test gate scripts/ops/loadtest-connections.mjs (drives target concurrency, samples pg_stat_activity via psql, fails if backend conns breach 80% of max_connections). Note: the edge app reaches Supabase over HTTP (Kong/PostgREST) and opens no raw PG sockets, so SUPABASE_URL stays on Kong; new SUPABASE_DB_POOL_URL/SUPABASE_DB_DIRECT_URL env documented (ENVIRONMENT.md, .env.example) for the direct-PG ops scripts; backup-postgres.sh annotated to require the direct port. SCALING.md prerequisite marked done."
     },
     {
       "id": "US-571",

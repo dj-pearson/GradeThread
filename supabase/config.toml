@@ -5,6 +5,24 @@ port = 54321
 schemas = ["public", "storage"]
 extra_search_path = ["public", "extensions"]
 
+# US-570: connection pooler (Supavisor) in front of Postgres. In the local
+# throwaway stack this boots Supavisor in TRANSACTION mode so `supabase db start`
+# exercises the same pooled topology we run in production (see CONNECTION_POOLING.md).
+# Transaction mode is what lets many short-lived edge/replica connections share a
+# small fixed set of backend Postgres connections without exhausting max_connections.
+[db.pooler]
+enabled = true
+# Transaction pooling: a backend connection is returned to the pool at the end of
+# every transaction, so N client connections map onto default_pool_size backends.
+pool_mode = "transaction"
+port = 54329
+# Backend connections held open to Postgres per (db,user) — keep this comfortably
+# under Postgres max_connections once multiplied by replica count (US-501). See
+# the sizing table in CONNECTION_POOLING.md.
+default_pool_size = 20
+# Upper bound on simultaneous CLIENT connections the pooler will accept.
+max_client_conn = 100
+
 [auth]
 site_url = "https://gradethread.com"
 # US-379: exact-match redirect allow-list. EVERY OAuth/recovery/invite target the

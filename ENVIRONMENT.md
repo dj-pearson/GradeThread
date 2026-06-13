@@ -55,6 +55,16 @@ Notes:
 | `SITE_URL` | ✅ Required (for billing) | Used to build Stripe checkout success/cancel return URLs | Your frontend URL, e.g. `https://gradethread.com` |
 | `EDGE_ENV` | ✅ Required (prod) | Deploy environment. **Defaults to `production` when unset (fail-closed).** When `production`, all security debug flags (e.g. `WEBHOOK_PAYOUT_DEBUG`) are ignored and signature verification can never be bypassed. Set to `development` only in local dev. | `production` in Coolify; `development` in `docker-compose.dev.yml` |
 
+> **Note:** the edge service reaches Supabase over **HTTP** (`SUPABASE_URL` → Kong
+> → PostgREST), so it does **not** open raw Postgres sockets and needs no DB
+> connection string. The two `SUPABASE_DB_*` vars below are only for the
+> **direct-PG ops scripts** (backups, migrations) — see `CONNECTION_POOLING.md` (US-570).
+
+| Variable | Required | Purpose | Where to get it |
+|---|---|---|---|
+| `SUPABASE_DB_POOL_URL` | ⬜ Ops only | Transaction **pooler** (Supavisor) connection string, port `6543`. Use for pooled app/job DB workload. Many short-lived clients share a small backend pool, so replicas (US-501) don't exhaust `max_connections`. | `postgres://postgres:…@db-host:6543/postgres` |
+| `SUPABASE_DB_DIRECT_URL` | ⬜ Ops only | **Direct** Postgres connection string, port `5432`. Use for `pg_dump`/`pg_restore`/migrations/DDL — transaction pooling breaks session-scoped work. `scripts/ops/backup-postgres.sh` reads `SUPABASE_DB_URL`; set it to this value. | `postgres://postgres:…@db-host:5432/postgres` |
+
 ### 2b. AI — Anthropic (Claude)
 
 These are wired through `services/edge-functions/src/lib/ai-config.ts` and are

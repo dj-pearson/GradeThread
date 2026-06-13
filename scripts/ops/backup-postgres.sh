@@ -6,7 +6,11 @@
 # readable, ships it offsite via rclone, and prunes local copies.
 #
 # Required env:
-#   SUPABASE_DB_URL      postgres://... superuser/owner connection string
+#   SUPABASE_DB_URL      postgres://... superuser/owner connection string.
+#                        MUST be the DIRECT Postgres port (5432), NOT the
+#                        transaction pooler (Supavisor/6543) — pg_dump holds a
+#                        session-long snapshot the pooler can't preserve. Set it
+#                        to SUPABASE_DB_DIRECT_URL for this cron. (US-570)
 # Optional env:
 #   BACKUP_DIR           local staging dir            (default /backups/pg)
 #   RCLONE_REMOTE        offsite target, e.g. r2:gradethread-backups/pg

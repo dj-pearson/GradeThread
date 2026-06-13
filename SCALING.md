@@ -18,8 +18,10 @@ outage and a crash takes the API down until restart.
 > per-replica and self-heal), so horizontal scaling is safe.
 >
 > **Connection pooling (prerequisite for replicas):** multiple replicas multiply
-> Postgres connections. Front self-hosted Postgres with Supavisor/PgBouncer
-> (transaction mode) before scaling out — tracked as US-570.
+> Postgres connections. Front self-hosted Postgres with Supavisor (transaction
+> mode) before scaling out. **Done (US-570)** — see `CONNECTION_POOLING.md` for
+> the topology, env split (pooled `6543` vs. direct `5432`), pool sizing tied to
+> this replica count, and the load-test gate (`scripts/ops/loadtest-connections.mjs`).
 
 ### Accepted single-instance risk (interim)
 
@@ -45,7 +47,7 @@ in the SPA when grading/autolister is disabled.
 Self-hosted Supabase is single-node today. Plan:
 - Backups + PITR for recovery (`BACKUPS.md`).
 - A documented restore-to-new-host procedure (RTO ≤ 2h).
-- Connection pooler (US-570) before adding edge replicas.
+- Connection pooler (US-570, **done** — `CONNECTION_POOLING.md`) before adding edge replicas.
 
 > **MANUAL:** document the host's resource limits + the scale-up path (vertical
 > first, then read replicas) here once capacity testing is done.
