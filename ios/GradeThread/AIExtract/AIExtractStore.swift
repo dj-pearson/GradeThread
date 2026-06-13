@@ -129,6 +129,40 @@ final class AIExtractStore {
         phase = .failed(message: message)
     }
 
+    // MARK: - Auto-fill review (US-686)
+
+    /// Partitions the ready result into an auto-applied set (high-confidence,
+    /// >=0.8) and the low-confidence remainder surfaced for opt-in, so the
+    /// intake can write the confident fields and hand a reversible review to
+    /// the item canvas. `snapshot` provides the pre-fill column values used to
+    /// make each applied field's undo restore the prior value. Returns nil when
+    /// the store isn't in the ready phase.
+    func buildFillReview(itemId: String, snapshot: AIItemFieldWriter.Snapshot) -> AIFillReview? {
+        guard case let .ready(result) = phase else { return nil }
+        let applied = result.entries
+            .filter { $0.confidence >= 0.8 }
+            .map { entry in
+                AppliedAIField(
+                    field: entry.field,
+                    value: entry.value,
+                    previousValue: snapshot.value(for: entry.field),
+                    confidence: entry.confidence,
+                    source: entry.source
+                )
+            }
+        let lowConfidence = result.entries.filter { $0.confidence < 0.8 }
+        let measurementsApplied = acceptMeasurements && !result.measurements.isEmpty
+        return AIFillReview(
+            itemId: itemId,
+            applied: applied,
+            lowConfidence: lowConfidence,
+            measurements: result.measurements,
+            measurementsApplied: measurementsApplied,
+            conditionSummary: result.conditionSummary,
+            usedLiveTextFallback: liveTextFallbackUsed
+        )
+    }
+
     // MARK: - Acceptance helpers
 
     func isAccepted(_ field: String) -> Bool { acceptedFields.contains(field) }

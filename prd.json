@@ -10149,8 +10149,8 @@
         "A \"revert to AI / undo AI fill\" path exists"
       ],
       "priority": 686,
-      "passes": false,
-      "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #7: AIExtract pre-checks high-confidence rows but still requires Apply; blocking fullScreenCover. CI validates build."
+      "passes": true,
+      "notes": "[P2][iOS/UX] Audit 2026-06-08. DONE: intake no longer blocks on a confirm screen — AIExtractView auto-applies high-confidence (>=0.8) fields + measurements after extract, registers an AIFillReview (new AIFillReview.swift/AIFillReviewStore + shared AIItemFieldWriter), then completes straight to the item canvas (US-682 nav + title seed preserved). Canvas shows a reversible 'AI filled N fields — review' banner opening AIFillReviewSheet: keep/undo each applied field (restores pre-fill snapshot value via explicit-null RevertUpdate), opt into low-confidence suggestions inline, drop/keep measurements, and 'Undo AI fill' to revert everything. Unit tests cover the >=0.8 partition + previousValue capture, entry-point label, store register/clear, and explicit-null revert encoding. iOS build validated by macOS CI (can't compile on Windows)."
     },
     {
       "id": "US-687",

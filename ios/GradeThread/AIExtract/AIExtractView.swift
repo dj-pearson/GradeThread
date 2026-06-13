@@ -1,10 +1,10 @@
 import SwiftUI
-import Supabase
 
-/// Review screen that runs after the photo intake. Waits for pending
-/// uploads to land, calls the edge service for AI suggestions, and lets
-/// the user accept / dismiss them before they're written onto the
-/// freshly-created inventory_items row.
+/// Runs after photo intake. Waits for pending uploads, calls the edge service
+/// for AI suggestions, then — per US-686 — AUTO-APPLIES the high-confidence
+/// fields and lands the user straight on the new item. It no longer blocks on a
+/// confirm-every-field screen; the reversible review (undo + low-confidence
+/// opt-in) lives on the item canvas via ``AIFillReviewStore`` / ``AIFillReviewSheet``.
 struct AIExtractView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(PhotoUploadStore.self) private var uploadStore
@@ -15,7 +15,7 @@ struct AIExtractView: View {
     /// extract request even if some uploads are still in flight when the
     /// user opens this screen.
     let photos: [(slot: PhotoSlotType, capture: PhotoCapture)]
-    /// Invoked after the user finishes (Apply, Skip, or error fallback).
+    /// Invoked after the flow finishes (auto-apply, Skip, or error fallback).
     let onComplete: () -> Void
 
     @State private var store = AIExtractStore()
@@ -44,14 +44,16 @@ struct AIExtractView: View {
             waiting(complete: complete, total: total)
         case .extracting:
             extracting
-        case .ready(let result):
-            review(result: result)
+        case .ready:
+            // The result is auto-applied in `runFlow`; this is just the brief
+            // "writing it onto the item" state before we navigate to the canvas.
+            applying
         case .failed(let message):
             failed(message: message)
         }
     }
 
-    // MARK: - Loading states
+    // MARK: - Loading / transitional states
 
     private func waiting(complete: Int, total: Int) -> some View {
         VStack(spacing: 14) {
@@ -80,6 +82,18 @@ struct AIExtractView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var applying: some View {
+        VStack(spacing: 14) {
+            ProgressView().tint(Color.brandNavy).scaleEffect(1.2)
+            Text("Applying AI suggestions…")
+                .font(.brandHeadline)
+            Text("Taking you to your item")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func failed(message: String) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -94,8 +108,7 @@ struct AIExtractView: View {
                 .padding(.horizontal, 24)
 
             Button {
-                onComplete()
-                dismiss()
+                complete()
             } label: {
                 Text("Skip — I'll fill in manually")
                     .font(.subheadline.weight(.semibold))
@@ -111,201 +124,11 @@ struct AIExtractView: View {
         .padding()
     }
 
-    // MARK: - Review screen
-
-    private func review(result: AIExtractStore.Result) -> some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                if store.liveTextFallbackUsed {
-                    liveTextBanner
-                }
-                if let summary = result.conditionSummary, !summary.isEmpty {
-                    summaryCard(summary)
-                }
-                fieldsCard(result.entries)
-                if !result.measurements.isEmpty {
-                    measurementsCard(result.measurements)
-                }
-                if let prep = store.ebayPrep {
-                    ebayPrepCard(prep)
-                }
-                applyRow
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-    }
-
-    private var liveTextBanner: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "text.viewfinder")
-                .font(.system(size: 18))
-                .foregroundStyle(Color.brandNavy)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("On-device OCR filled in the gaps")
-                    .font(.subheadline.weight(.semibold))
-                Text("AI couldn't read the size tag confidently. Lower-confidence suggestions below are from iOS Live Text — double-check before accepting.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(Color.brandNavy.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
-    }
-
-    private func summaryCard(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Condition summary", systemImage: "text.alignleft")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(text)
-                .font(.body)
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        // US-691: unified card chrome (radius 16) via the shared token.
-        .cardStyle(.flush)
-    }
-
-    private func fieldsCard(_ entries: [FieldSuggestionEntry]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Detected fields")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Button("Accept all") { store.acceptAll() }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.brandNavy)
-            }
-            if entries.isEmpty {
-                Text("AI didn't surface any field suggestions.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(entries) { entry in
-                    FieldSuggestionRow(
-                        entry: entry,
-                        isAccepted: store.isAccepted(entry.field)
-                    ) {
-                        store.toggle(entry.field)
-                    }
-                    if entry.id != entries.last?.id {
-                        Divider()
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        // US-691: unified card chrome (radius 16) via the shared token.
-        .cardStyle(.flush)
-    }
-
-    /// Confirmation that the one-call extract also resolved the eBay
-    /// category + item-specifics. Already saved server-side — this card just
-    /// tells the user the listing prep is done.
-    private func ebayPrepCard(_ prep: AIExtractEbayBlock) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("eBay listing prep", systemImage: "checkmark.seal")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            if let path = prep.categoryPath, !path.isEmpty {
-                Text(path)
-                    .font(.subheadline.weight(.semibold))
-            }
-            Text(
-                prep.aspects.isEmpty
-                    ? "Category saved — fill the item specifics from the item's Specifics editor."
-                    : "Category + \(prep.aspects.count) item specific\(prep.aspects.count == 1 ? "" : "s") saved. Review them in the item's Specifics editor."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .cardStyle(.flush)
-    }
-
-    private func measurementsCard(_ measurements: [AIExtractStore.Measurement]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Measurements (estimated)", systemImage: "ruler")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { store.acceptMeasurements },
-                    set: { store.acceptMeasurements = $0 }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(Color.brandNavy)
-            }
-            Text("Brand-spec flat measurements. Verify before listing — they're estimates from the size tag, not a measurement of this specific garment.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            ForEach(measurements) { measurement in
-                HStack {
-                    Text(measurement.key.capitalized)
-                        .font(.subheadline)
-                    Spacer()
-                    Text(String(format: "%.1f in", measurement.valueInches))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        // US-691: unified card chrome (radius 16) via the shared token.
-        .cardStyle(.flush)
-    }
-
-    private var applyRow: some View {
-        HStack(spacing: 12) {
-            Button {
-                onComplete()
-                dismiss()
-            } label: {
-                Text("Skip")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color(uiColor: .secondarySystemBackground))
-                    .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
-            }
-
-            Button {
-                Task { await applySelected() }
-            } label: {
-                HStack(spacing: 6) {
-                    if isApplying { ProgressView().tint(.white) }
-                    Text("Apply selected (\(store.acceptedCount))")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(Color.brandNavy)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
-            }
-            .disabled(isApplying)
-        }
-        .padding(.top, 6)
-    }
-
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
-            Button("Close") {
-                onComplete()
-                dismiss()
-            }
-            .disabled(isApplying)
+            Button("Close") { complete() }
+                .disabled(isApplying)
         }
     }
 
@@ -314,6 +137,7 @@ struct AIExtractView: View {
     private func runFlow() async {
         await waitForUploads()
         await runExtract()
+        await autoApplyIfReady()
     }
 
     /// Polls the upload store until every queued photo for this item lands
@@ -365,9 +189,8 @@ struct AIExtractView: View {
             // AI extract failed — try the on-device fallback as a
             // last-resort source for brand + size so the user still gets
             // *something* pre-filled before falling back to the manual
-            // form. The screen still reads "AI couldn't read these
-            // photos" because Claude failed; but if Live Text produced
-            // anything we surface it underneath.
+            // form. These are low-confidence (0.4), so they're never
+            // auto-applied — they surface as opt-in suggestions on the canvas.
             let liveText = await liveTextSuggestions()
             if !liveText.isEmpty {
                 let synthetic = AIExtractResponse(
@@ -387,6 +210,97 @@ struct AIExtractView: View {
         } catch {
             store.fail(error.localizedDescription)
         }
+    }
+
+    /// US-686: auto-apply the high-confidence fields, register the reversible
+    /// review for the canvas, and navigate. Low-confidence suggestions are
+    /// carried into the review for opt-in rather than blocking here.
+    private func autoApplyIfReady() async {
+        guard case .ready = store.phase else { return }
+        isApplying = true
+
+        // Capture pre-fill values so the canvas undo restores them.
+        let snapshot = (try? await AIItemFieldWriter.snapshot(itemId: inventoryItemId))
+            ?? AIItemFieldWriter.Snapshot()
+        guard let review = store.buildFillReview(itemId: inventoryItemId, snapshot: snapshot) else {
+            complete()
+            return
+        }
+
+        // Write the confident fields (+ measurements) when there's anything to
+        // persist. A review with only low-confidence suggestions writes nothing.
+        if !review.applied.isEmpty || review.measurementsApplied {
+            do {
+                try await writeAutoApplied(review)
+            } catch {
+                // Persisting failed — keep the user moving but don't claim a
+                // fill happened.
+                Telemetry.breadcrumb(
+                    "AI auto-apply write failed: \(error.localizedDescription)",
+                    category: "ai-extract"
+                )
+                complete()
+                return
+            }
+        }
+
+        if review.hasSomethingToReview {
+            AIFillReviewStore.shared.register(review)
+        }
+        Telemetry.event(TelemetryEvent.aiExtractUsed, props: [
+            "fields_accepted": review.applied.count,
+            "measurements_accepted": review.measurementsApplied ? review.measurements.count : 0,
+            "auto_applied": true,
+            "low_confidence_pending": review.lowConfidence.count,
+            "live_text_fallback": review.usedLiveTextFallback,
+        ])
+        complete()
+    }
+
+    /// Writes the auto-applied fields + measurements with their `ai_field_sources`.
+    private func writeAutoApplied(_ review: AIFillReview) async throws {
+        var fields: [(field: String, value: String)] = []
+        var sources: [String: AIItemFieldWriter.SourceEntry] = [:]
+        for field in review.applied {
+            fields.append((field: field.field, value: field.value))
+            sources[field.field] = AIItemFieldWriter.SourceEntry(
+                source: field.source,
+                confidence: field.confidence,
+                accepted: true
+            )
+        }
+        var measurements: [String: Double]?
+        if review.measurementsApplied {
+            var dict: [String: Double] = [:]
+            for measurement in review.measurements {
+                dict[measurement.key] = measurement.valueInches
+                // `measurements.<key>` prefix matches the web's convention so
+                // the MeasurementForm renders the "AI" badge per field.
+                sources["measurements.\(measurement.key)"] = AIItemFieldWriter.SourceEntry(
+                    source: "photo:tag",
+                    confidence: 0.7,
+                    accepted: true
+                )
+            }
+            measurements = dict
+        }
+        try await AIItemFieldWriter.write(
+            itemId: inventoryItemId,
+            fields: fields,
+            measurements: measurements,
+            sources: sources,
+            // US-682: seed a usable title from brand/style so the new item
+            // isn't left as "Untitled item".
+            seedTitle: true
+        )
+    }
+
+    /// Ends the flow: notify the parent (which navigates to the canvas) and
+    /// dismiss this cover.
+    private func complete() {
+        isApplying = false
+        onComplete()
+        dismiss()
     }
 
     // MARK: - Live Text fallback (US-177)
@@ -435,141 +349,6 @@ struct AIExtractView: View {
         }
         return out
     }
-
-    // MARK: - Apply
-
-    private func applySelected() async {
-        guard case let .ready(result) = store.phase else { return }
-        isApplying = true
-        defer { isApplying = false }
-
-        do {
-            try await writeAccepted(result: result)
-            Telemetry.event(TelemetryEvent.aiExtractUsed, props: [
-                "fields_accepted": store.acceptedFields.count,
-                "measurements_accepted": store.acceptMeasurements ? result.measurements.count : 0,
-                "live_text_fallback": store.liveTextFallbackUsed,
-            ])
-            onComplete()
-            dismiss()
-        } catch {
-            store.fail("Couldn't save your selections: \(error.localizedDescription)")
-        }
-    }
-
-    private func writeAccepted(result: AIExtractStore.Result) async throws {
-        // Build the update payload. Field names map directly to
-        // inventory_items columns; the server's enum-typed fields
-        // (garment_type / garment_category) accept the suggested string.
-        var update = ItemUpdate()
-        var sources: [String: AIFieldSourceEntry] = [:]
-
-        for entry in result.entries where store.isAccepted(entry.field) {
-            let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-            update.assign(field: entry.field, value: value)
-            sources[entry.field] = AIFieldSourceEntry(
-                source: entry.source,
-                confidence: entry.confidence,
-                accepted: true
-            )
-        }
-
-        if store.acceptMeasurements, !result.measurements.isEmpty {
-            var measurementsDict: [String: Double] = [:]
-            for measurement in result.measurements {
-                measurementsDict[measurement.key] = measurement.valueInches
-                // `measurements.<key>` prefix matches the web's
-                // ai_field_sources convention so MeasurementForm renders
-                // the "AI" badge per field.
-                sources["measurements.\(measurement.key)"] = AIFieldSourceEntry(
-                    source: "photo:tag",
-                    confidence: 0.7,
-                    accepted: true
-                )
-            }
-            update.measurements = measurementsDict
-        }
-
-        // US-682: seed a usable title from accepted brand/style when the AI
-        // didn't surface an explicit title, so the new item isn't left as
-        // "Untitled item" and is easy to find back in the list.
-        if update.title == nil {
-            let seed = [update.brand, update.style ?? update.size]
-                .compactMap { $0 }
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespaces)
-            if !seed.isEmpty { update.title = seed }
-        }
-
-        if !sources.isEmpty {
-            update.aiFieldSources = sources
-            update.aiEnrichedAt = ISO8601DateFormatter().string(from: .now)
-        }
-
-        try await SupabaseShared.client
-            .from("inventory_items")
-            .update(update)
-            .eq("id", value: inventoryItemId)
-            .execute()
-    }
-}
-
-// MARK: - DTOs
-
-/// Encodable subset of `inventory_items` that the apply step writes.
-/// Sparse fields stay nil and get skipped by the encoder so we don't
-/// overwrite untouched columns.
-private struct ItemUpdate: Encodable {
-    var title: String?
-    var brand: String?
-    var size: String?
-    var color: String?
-    var material: String?
-    var style: String?
-    var description: String?
-    var garmentType: String?
-    var garmentCategory: String?
-    var itemCategory: String?
-    var measurements: [String: Double]?
-    var aiFieldSources: [String: AIFieldSourceEntry]?
-    var aiEnrichedAt: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case title, brand, size, color, material, style, description
-        case garmentType = "garment_type"
-        case garmentCategory = "garment_category"
-        case itemCategory = "item_category"
-        case measurements
-        case aiFieldSources = "ai_field_sources"
-        case aiEnrichedAt = "ai_enriched_at"
-    }
-
-    mutating func assign(field: String, value: String) {
-        switch field {
-        case "title":             title = value
-        case "brand":             brand = value
-        case "size":              size = value
-        case "color":             color = value
-        case "material":          material = value
-        case "style":             style = value
-        case "description":       description = value
-        case "garment_type":      garmentType = value
-        case "garment_category":  garmentCategory = value
-        case "item_category":     itemCategory = value
-        default:
-            // Unknown field — silently dropped. The web client does the
-            // same; if a new field surfaces in suggestions we'll add it
-            // here in a later pass.
-            break
-        }
-    }
-}
-
-private struct AIFieldSourceEntry: Encodable {
-    let source: String
-    let confidence: Double
-    let accepted: Bool
 }
 
 // MARK: - Progress dots

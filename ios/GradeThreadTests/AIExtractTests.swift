@@ -218,4 +218,116 @@ final class AIExtractTests: XCTestCase {
         )
         XCTAssertEqual(tagEntry.sourceLabel, "From tag photo")
     }
+
+    // MARK: - Auto-fill review (US-686)
+
+    /// High-confidence (>=0.8) fields go into `applied`; the rest are surfaced as
+    /// `lowConfidence` for opt-in. Pre-fill snapshot values become each applied
+    /// field's `previousValue` for undo.
+    func test_buildFillReview_partitionsByConfidenceAndCapturesPrevious() throws {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: [
+                "brand": .init(value: "Nike", confidence: 0.95, source: "photo:tag"),
+                "size": .init(value: "M", confidence: 0.82, source: "photo:tag"),
+                "color": .init(value: "blue", confidence: 0.55, source: "photo:front"),
+            ],
+            conditionSummary: "Light wear.",
+            conflicts: [],
+            measurements: ["chest": 21.0],
+            model: nil, logId: nil, actionsRemaining: 10
+        ))
+
+        var snapshot = AIItemFieldWriter.Snapshot()
+        snapshot.brand = "Old Brand"   // had a prior value; size/color were empty
+
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "item-1", snapshot: snapshot))
+
+        XCTAssertEqual(review.itemId, "item-1")
+        XCTAssertEqual(Set(review.applied.map(\.field)), ["brand", "size"])
+        XCTAssertEqual(review.lowConfidence.map(\.field), ["color"])
+        XCTAssertEqual(review.conditionSummary, "Light wear.")
+        XCTAssertTrue(review.measurementsApplied)
+
+        let brand = review.applied.first { $0.field == "brand" }
+        XCTAssertEqual(brand?.previousValue, "Old Brand")
+        let size = review.applied.first { $0.field == "size" }
+        XCTAssertNil(size?.previousValue)
+        // applied fields (2) + applied measurements (1)
+        XCTAssertEqual(review.appliedCount, 3)
+    }
+
+    func test_buildFillReview_returnsNilWhenNotReady() {
+        let store = AIExtractStore()  // still in .waitingForUploads
+        XCTAssertNil(store.buildFillReview(itemId: "x", snapshot: AIItemFieldWriter.Snapshot()))
+    }
+
+    func test_fillReview_entryPointLabel_reflectsAppliedThenSuggestions() {
+        let applied = AIFillReview(
+            itemId: "a",
+            applied: [AppliedAIField(field: "brand", value: "Nike", previousValue: nil, confidence: 0.9, source: "photo:tag")],
+            lowConfidence: [],
+            measurements: [],
+            measurementsApplied: false,
+            conditionSummary: nil,
+            usedLiveTextFallback: false
+        )
+        XCTAssertEqual(applied.entryPointLabel, "AI filled 1 field — review")
+
+        let suggestionsOnly = AIFillReview(
+            itemId: "b",
+            applied: [],
+            lowConfidence: [
+                FieldSuggestionEntry(id: "color", field: "color", suggestion: .init(value: "blue", confidence: 0.4, source: "live-text")),
+                FieldSuggestionEntry(id: "size", field: "size", suggestion: .init(value: "M", confidence: 0.4, source: "live-text")),
+            ],
+            measurements: [],
+            measurementsApplied: false,
+            conditionSummary: nil,
+            usedLiveTextFallback: true
+        )
+        XCTAssertEqual(suggestionsOnly.entryPointLabel, "AI has 2 suggestions — review")
+        XCTAssertTrue(suggestionsOnly.hasSomethingToReview)
+    }
+
+    func test_fillReviewStore_registerAndClear() {
+        let store = AIFillReviewStore.shared
+        store.clear(for: "item-42")
+        XCTAssertNil(store.review(for: "item-42"))
+
+        let review = AIFillReview(
+            itemId: "item-42",
+            applied: [AppliedAIField(field: "brand", value: "Levi's", previousValue: nil, confidence: 0.9, source: "photo:tag")],
+            lowConfidence: [],
+            measurements: [],
+            measurementsApplied: false,
+            conditionSummary: nil,
+            usedLiveTextFallback: false
+        )
+        store.register(review)
+        XCTAssertEqual(store.review(for: "item-42")?.applied.count, 1)
+
+        store.clear(for: "item-42")
+        XCTAssertNil(store.review(for: "item-42"))
+    }
+
+    /// Undo writes must null restored-empty columns explicitly (the sparse fill
+    /// encoder would otherwise skip them), and clear the AI bookkeeping.
+    func test_revertUpdate_encodesExplicitNullsAndRestoredValues() throws {
+        let update = AIItemFieldWriter.RevertUpdate(
+            columns: ["brand": nil, "size": "M"],
+            clearMeasurements: true,
+            clearAISources: true
+        )
+        let data = try JSONEncoder().encode(update)
+        let parsed = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any]
+        let json = try XCTUnwrap(parsed)
+
+        XCTAssertTrue(json.keys.contains("brand"))
+        XCTAssertTrue(json["brand"] is NSNull)
+        XCTAssertEqual(json["size"] as? String, "M")
+        XCTAssertTrue(json["measurements"] is NSNull)
+        XCTAssertTrue(json["ai_field_sources"] is NSNull)
+        XCTAssertTrue(json["ai_enriched_at"] is NSNull)
+    }
 }

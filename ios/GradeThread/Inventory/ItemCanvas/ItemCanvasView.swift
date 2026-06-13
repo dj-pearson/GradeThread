@@ -38,6 +38,10 @@ struct ItemCanvasView: View {
     /// US-676: consignors for the consignment picker.
     @State private var consignorStore = ConsignorStore()
     @State private var labelError: String?
+    // US-686: reversible "AI filled N fields — review" entry point, populated
+    // when the user lands here straight after an AI-extract auto-apply.
+    @State private var aiReviewStore = AIFillReviewStore.shared
+    @State private var showingAIReview = false
 
     // US-650 item-level actions
     @State private var showingDeleteConfirmation = false
@@ -234,6 +238,9 @@ struct ItemCanvasView: View {
         @Bindable var state = state
 
         Form {
+            if let review = aiReviewStore.review(for: item.id), review.hasSomethingToReview {
+                aiReviewBanner(review)
+            }
             identitySection(state: state)
             storageSection(state: state)
             pricingSection(state: state)
@@ -288,6 +295,10 @@ struct ItemCanvasView: View {
         }
         .sheet(isPresented: $showingPhotoManager) {
             PhotoManagerView(item: item, photos: allPhotos, liveListing: activeEbayListing)
+        }
+        // US-686: reversible review of the post-intake AI auto-fill.
+        .sheet(isPresented: $showingAIReview) {
+            AIFillReviewSheet(item: item)
         }
         .sheet(isPresented: $showingReviseSheet) {
             if let listing = activeEbayListing {
@@ -478,6 +489,39 @@ struct ItemCanvasView: View {
             Text("Unsaved edits are saved first, then validated against eBay's metadata rules — you'll see any blockers before the push.")
                 .font(.caption)
         }
+    }
+
+    /// US-686: reversible entry point to the AI-fill review. Shows what the AI
+    /// auto-applied (and any low-confidence suggestions waiting on opt-in), with
+    /// a tap into ``AIFillReviewSheet`` to keep, opt in, or undo.
+    private func aiReviewBanner(_ review: AIFillReview) -> some View {
+        Section {
+            Button {
+                AppRouter.haptic()
+                showingAIReview = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color.brandNavy)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(review.entryPointLabel)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text("Keep, undo, or add suggestions.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .listRowBackground(Color.brandNavy.opacity(0.06))
     }
 
     private func identitySection(state: ItemCanvasState) -> some View {
