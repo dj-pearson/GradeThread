@@ -12582,8 +12582,8 @@
         "npm run build passes"
       ],
       "priority": 854,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] content-blog.ts/content-social.ts already dispatch webhooks + log to content_webhook_log. This closes the last mile to real distribution."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] content-blog.ts/content-social.ts already dispatch webhooks + log to content_webhook_log. This closes the last mile to real distribution. [DONE 2026-06-13] Code path was already complete (dispatchContentWebhook + per-format social fan-out + HMAC signing + content_webhook_log + retry + neutral UTM source). This story is the contract documentation: new docs/CONTENT_PUBLISHING.md gives field-by-field payload contracts for blog.published + social.published(long/short), transport/headers/signature-verification, downstream per-channel utm_source rewrite table, secrets/config, add-a-channel runbook, test-fire + observability, and an operator go-live checklist (AC2 live-channel is operator-gated — exact steps provided). Cross-linked from CONTENT_SCHEDULER.md. npm run build green."
     },
     {
       "id": "US-855",

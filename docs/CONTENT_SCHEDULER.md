@@ -109,6 +109,8 @@ as every other job in `LAUNCH_CHECKLIST.md` §3.
 3. The publish webhooks (`make_webhook_blog` / `_social_long` / `_social_short`)
    are configured separately in **Content Settings** and fire *from* the edge
    when a post publishes — they are the downstream of this tick, not the trigger.
+   Their payload contract, signing, per-channel UTM rewrite, and how to add a
+   channel are documented in [CONTENT_PUBLISHING.md](./CONTENT_PUBLISHING.md).
 
 ---
 
