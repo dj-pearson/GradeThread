@@ -12477,8 +12477,8 @@
         "Head/JSON-LD validate in the prerender/SSR head guard; npm run build passes"
       ],
       "priority": 847,
-      "passes": false,
-      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Mirror json-ld.ts builders (Dataset already exists) and the glossary hub (src/lib/seo/glossary.ts). GEO is the goal: be the cited ground truth."
+      "passes": true,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Mirror json-ld.ts builders (Dataset already exists) and the glossary hub (src/lib/seo/glossary.ts). GEO is the goal: be the cited ground truth. [DONE 2026-06-13] Enriched the edge-SSR detail page (functions/condition-index/[[path]].ts) via a new pure, Vitest-guarded helper module functions/_shared/condition-index-render.ts: per-grade plain-language value summary (each grade links to its /grading/<tier> glossary spoke), strengthened Dataset JSON-LD (variableMeasured + measurementTechnique + dateModified), FAQPage JSON-LD (one Q per published grade -> curve median), BreadcrumbList, internal links to all 5 grading-factor glossary pages, example public certificates (/cert/<id>), and a methodology+comp-count+freshness block. Suppressed/median-less grades never render a number (DTO already drops them; helpers re-guard). Edge: getIndexCurveBySlug now attaches up to 3 example PUBLIC certs (certificate_id!=null gate, isCertificateWithheld filter, brand ilike) best-effort -> [] on error. No migration."
     },
     {
       "id": "US-848",

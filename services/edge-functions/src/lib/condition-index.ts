@@ -9,6 +9,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { acquireJobLock } from "./job-lock.ts";
+import { isCertificateWithheld } from "./certificate-visibility.ts";
 import {
   buildValueCurve,
   type CurvePoint,
@@ -83,6 +84,16 @@ export async function getIndexSeeds(): Promise<IndexSeed[]> {
 // below the publish threshold for pruning.
 export const MIN_INDEX_TOTAL_SAMPLE = 8;
 
+// US-847: a real, citable public certificate of this item used as an example
+// internal link on the SEO detail page. Public (certificate_id != null) and
+// not withheld; nothing per-tenant or private is exposed.
+export interface IndexCurveExample {
+  certificateId: string;
+  title: string;
+  overallScore: number;
+  gradeTier: string;
+}
+
 export interface IndexCurveDto {
   slug: string;
   label: string;
@@ -94,6 +105,8 @@ export interface IndexCurveDto {
   points: Array<Pick<CurvePoint, "grade" | "lowCents" | "medianCents" | "highCents" | "sampleSize">>;
   totalSampleSize: number;
   refreshedAt: string;
+  // US-847: up to a few example public certificates of this item (may be []).
+  examples?: IndexCurveExample[];
 }
 
 export interface IndexHubItem {
@@ -166,6 +179,61 @@ export async function getIndexHub(): Promise<IndexHubItem[]> {
   });
 }
 
+// At most this many example certificates surface on a detail page (US-847).
+const MAX_INDEX_EXAMPLES = 3;
+
+interface ExampleCertRow {
+  certificate_id: string | null;
+  overall_score: number | string | null;
+  grade_tier: string | null;
+  submissions:
+    | { title: string | null; brand: string | null; flagged: boolean | null; moderation_status: string | null }
+    | Array<{ title: string | null; brand: string | null; flagged: boolean | null; moderation_status: string | null }>
+    | null;
+}
+
+/**
+ * Up to MAX_INDEX_EXAMPLES real PUBLIC certificates for `brand`, newest first
+ * (US-847). Public-ness gate: certificate_id != null (US-268), and withheld
+ * (flagged-but-unapproved) certs are dropped via the shared isCertificateWithheld
+ * predicate so a suspect grade is never cited. Best-effort: any error → [] so the
+ * detail page degrades gracefully (the internal-link block simply doesn't render).
+ */
+async function getExampleCertificates(brand: string): Promise<IndexCurveExample[]> {
+  const b = brand.trim();
+  if (!b) return [];
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("grade_reports")
+      .select(
+        "certificate_id, overall_score, grade_tier, created_at, submissions!inner(title, brand, flagged, moderation_status)",
+      )
+      .not("certificate_id", "is", null)
+      .ilike("submissions.brand", b)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    if (error) throw error;
+    const rows = (data ?? []) as ExampleCertRow[];
+    const out: IndexCurveExample[] = [];
+    for (const r of rows) {
+      if (!r.certificate_id) continue;
+      const sub = Array.isArray(r.submissions) ? r.submissions[0] : r.submissions;
+      if (!sub || isCertificateWithheld(sub)) continue;
+      out.push({
+        certificateId: r.certificate_id,
+        title: sub.title ?? "Graded garment",
+        overallScore: Number(r.overall_score ?? 0),
+        gradeTier: r.grade_tier ?? "",
+      });
+      if (out.length >= MAX_INDEX_EXAMPLES) break;
+    }
+    return out;
+  } catch (err) {
+    captureException(err, { level: "warn", route: "condition-index.examples" });
+    return [];
+  }
+}
+
 /** One curve by slug, or null if absent / suppressed for thin data (US-622). */
 export async function getIndexCurveBySlug(slug: string): Promise<IndexCurveDto | null> {
   const { data } = await supabaseAdmin
@@ -178,6 +246,7 @@ export async function getIndexCurveBySlug(slug: string): Promise<IndexCurveDto |
   if (row.total_sample_size < MIN_INDEX_TOTAL_SAMPLE) return null;
   const dto = toDto(row);
   if (dto.points.length === 0) return null;
+  dto.examples = await getExampleCertificates(dto.brand);
   return dto;
 }
 

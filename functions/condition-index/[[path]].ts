@@ -7,17 +7,30 @@
 // fires for /condition-index/*; the SPA + static assets are unaffected.
 
 import {
+  breadcrumbListLd,
   escape,
+  faqPageJsonLd,
   fetchJson,
   formatDate,
   ga4MeasurementId,
   notFoundResponse,
+  renderBreadcrumbs,
   renderLayout,
   siteUrl,
   SSR_CACHE_CONTROL,
   twitterSiteHandle,
+  type BreadcrumbItem,
   type PagesEnv,
 } from "../_shared/blog-render";
+import {
+  conditionDatasetLd,
+  conditionFaqs,
+  type ExampleCert,
+  renderExampleCertificates,
+  renderGradingFactors,
+  renderMethodology,
+  renderPerGradeSummary,
+} from "../_shared/condition-index-render";
 
 interface HubItem {
   slug: string;
@@ -46,6 +59,8 @@ interface CurveDto {
   points: CurvePoint[];
   totalSampleSize: number;
   refreshedAt: string;
+  // US-847: a few real public certificates of this item (best-effort, may be []).
+  examples?: ExampleCert[];
 }
 
 function dollars(cents: number | null): string {
@@ -66,6 +81,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const detailMatch = path.match(/^\/condition-index\/([a-z0-9-]+)$/i);
   if (detailMatch) {
     const slug = detailMatch[1];
+    if (!slug) return notFoundResponse(env);
     const data = await fetchJson<{ curve: CurveDto }>(
       env,
       `/api/grading/public/condition-index/${encodeURIComponent(slug)}`,
@@ -88,31 +104,35 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       )
       .join("");
 
-    const body = `<main class="container">
-      <p class="muted"><a href="/condition-index">← Condition Index</a></p>
+    const trail: BreadcrumbItem[] = [
+      { name: "GradeThread", url: `${site}/` },
+      { name: "Condition Index", url: `${site}/condition-index` },
+      { name: curve.label, url: canonical },
+    ];
+
+    const body = `${renderBreadcrumbs(trail, site)}
+    <main class="container">
       <h1>${escape(curve.label)} — value by condition</h1>
       <p>What a <strong>${escape(curve.label)}</strong> is worth at each GradeThread condition grade,
       from condition-matched resale comps. A grade-8 (&ldquo;Excellent&rdquo;) sits around <strong>${headline}</strong>.</p>
+      ${renderPerGradeSummary(curve)}
+      <h2>Full value-by-grade table</h2>
       <table>
         <thead><tr><th>Grade</th><th>Value range</th><th>Typical</th><th>Comps</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <p class="muted">Estimates from ${curve.totalSampleSize} condition-matched listings ·
-      updated ${formatDate(curve.refreshedAt)} · not a guaranteed sale price.
-      Grades are GradeThread's objective 1.0&ndash;10.0 condition scale.</p>
+      ${renderGradingFactors()}
+      ${renderExampleCertificates(curve)}
+      ${renderMethodology(curve)}
       <p><a href="/snap">What's your item worth? &rarr;</a></p>
     </main>`;
 
-    const jsonLd = {
-      "@context": "https://schema.org",
-      "@type": "Dataset",
-      name: `${curve.label} — condition value index`,
-      description: `Price-vs-condition resale value for ${curve.label}, by GradeThread grade.`,
-      url: canonical,
-      creator: { "@type": "Organization", name: "GradeThread" },
-      dateModified: curve.refreshedAt,
-      isAccessibleForFree: true,
-    };
+    const faqLd = faqPageJsonLd(conditionFaqs(curve));
+    const jsonLd: unknown[] = [
+      conditionDatasetLd(curve, canonical, site),
+      breadcrumbListLd(trail),
+      ...(faqLd ? [faqLd] : []),
+    ];
 
     return new Response(
       renderLayout({
@@ -120,7 +140,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         description: `What a ${curve.label} sells for at each condition grade, from condition-matched comps. Updated ${formatDate(curve.refreshedAt)}.`,
         canonicalUrl: canonical,
         bodyHtml: body,
-        jsonLd: [jsonLd],
+        jsonLd,
         gaMeasurementId: ga,
         twitterSite: twitterSiteHandle(env),
       }),
