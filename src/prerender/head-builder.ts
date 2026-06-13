@@ -153,7 +153,11 @@ export function buildHeadTags(route: PublicRoute): string {
   return [
     `<title>${title}</title>`,
     `<meta name="description" content="${desc}">`,
-    `<meta name="robots" content="index, follow">`,
+    // index,follow + explicit rich-result allowances: large image thumbnails,
+    // unlimited text snippets, and full video previews. Lets Google show the
+    // richest SERP card and gives AI answer-engines permission to extract longer
+    // passages (GEO). Applies to every prerendered (public, indexable) route.
+    `<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">`,
     `<link rel="canonical" href="${escapeAttr(canonical)}">`,
     `<meta property="og:type" content="website">`,
     `<meta property="og:title" content="${title}">`,

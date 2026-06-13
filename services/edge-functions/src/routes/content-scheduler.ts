@@ -17,6 +17,7 @@ import {
 import { writeSystemAuditLog } from "../lib/audit-log.ts";
 import { buildContentSummary } from "../lib/content-summary.ts";
 import { reviewContentSafety } from "../lib/content-safety.ts";
+import { ensureHeroImage } from "../lib/openai-images.ts";
 
 // Autonomous scheduler endpoint. Make.com hits this on a cron; the
 // /tick handler decides what (if anything) to publish next.
@@ -617,10 +618,16 @@ async function runBlogTick(
     };
   }
 
+  // US-853: generate the hero image before publishing so the webhook + OG
+  // image carry hero_image_url. Best-effort + idempotent — a failure logs and
+  // the post still publishes (heroless).
+  const hero = await ensureHeroImage({ postId: draft.id, surface: "blog" });
+  if (hero.status === "failed") {
+    console.warn("[scheduler] hero generation failed (publishing anyway):", hero.reason);
+  }
+
   // Auto-publish path: stamp published_at, mark topic used, append
-  // to history, fire webhook, purge cache. Hero generation is best-
-  // effort and intentionally skipped here — too expensive per tick.
-  // The dashboard's manual hero button covers it.
+  // to history, fire webhook, purge cache.
   const now = new Date().toISOString();
   const { data: published } = await supabaseAdmin
     .from("blog_posts")

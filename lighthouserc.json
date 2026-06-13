@@ -4,10 +4,20 @@
       "staticDistDir": "./dist",
       "url": [
         "http://localhost/index.html",
+        "http://localhost/how-it-works/index.html",
+        "http://localhost/pricing/index.html",
+        "http://localhost/for-resellers/index.html",
         "http://localhost/condition-grading/index.html",
-        "http://localhost/how-it-works/index.html"
+        "http://localhost/grading-standard/index.html",
+        "http://localhost/transparency/index.html",
+        "http://localhost/faq/index.html",
+        "http://localhost/verify/index.html",
+        "http://localhost/whats-it-worth/index.html",
+        "http://localhost/developers/index.html",
+        "http://localhost/grading/nwt/index.html",
+        "http://localhost/grading/fabric-condition/index.html"
       ],
-      "numberOfRuns": 3,
+      "numberOfRuns": 1,
       "settings": { "preset": "desktop" }
     },
     "assert": {

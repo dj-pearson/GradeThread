@@ -12552,8 +12552,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 852,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] Depends on US-850/851. content-scheduler.ts already implements quota/refill. Be careful: low cadence first to avoid spamming live channels."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Depends on US-850/851. AC1: content-settings.tsx already exposes publishing_paused kill-switch + auto_publish_blog/social toggles + cadence/min-topics/refill-batch/weekly-ceiling number fields (all persisted to content_settings). AC2: content-scheduler.ts POST /scheduler/tick is the full pipeline — kill-switch check -> promote scheduled drafts -> pick surface (cadence) -> pick product (14d balance) -> ensureBankAtLeast refill -> generate -> reviewContentSafety gate (held as draft on fail) -> weekly ceiling demote -> publish only if auto_publish_* on -> stamp published_at -> mark topic used -> appendHistory -> dispatchContentWebhook -> CF purge -> audit row. AC3: analytics.tsx now adds an Autopilot card (per-surface on/off + cadence + weekly ceiling + min-topics, kill-switch banner) above the existing Recent-activity feed (interleaved blog+social by published_at, per surface/product, timestamps). AC4: docs/CONTENT_SCHEDULER.md documents the hourly cron (Coolify scheduled task / Make.com), the dedicated CONTENT_INTERNAL_JOB_SECRET auth, the step-by-step safe LOW-cadence rollout (autopilot off -> drafts -> social first -> blog), and the pause kill-switch; LAUNCH_CHECKLIST.md adds the env var + the 19th scheduled task (content-scheduler-tick, 0 * * * *). AC5: npx tsc --noEmit clean, deno check (scheduler/settings/summary) clean, npm run build green (32-page prerender), content edge tests 35/35. No migration (schema stays 00192). Rollout intentionally ships autopilot OFF by default."
     },
     {
       "id": "US-853",
@@ -12567,8 +12567,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 853,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] Reuse ai-config (see memory: AI config via Coolify shared vars) + upload-validation/image-metadata. Feeds functions/og/blog OG images."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Reuse ai-config (see memory: AI config via Coolify shared vars) + upload-validation/image-metadata. Feeds functions/og/blog OG images. [DONE 2026-06-13] Added getDefaultImageModel() to ai-config (DEFAULT_IMAGE_MODEL, default gpt-image-1). New shared ensureHeroImage() in openai-images.ts: idempotent (skips when hero exists unless force), best-effort (never throws), validates+strips metadata before uploading to public content-images bucket on stable path, stamps hero_image_url. Wired into content-blog /generate (fire-and-forget), /publish (awaited before webhook/OG), and scheduler auto-publish (awaited before publish). /hero route now forces regen via the shared helper. Unit tests in content-hero_test.ts."
     },
     {
       "id": "US-854",
@@ -12582,8 +12582,8 @@
         "npm run build passes"
       ],
       "priority": 854,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] content-blog.ts/content-social.ts already dispatch webhooks + log to content_webhook_log. This closes the last mile to real distribution."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] content-blog.ts/content-social.ts already dispatch webhooks + log to content_webhook_log. This closes the last mile to real distribution. [DONE 2026-06-13] Code path was already complete (dispatchContentWebhook + per-format social fan-out + HMAC signing + content_webhook_log + retry + neutral UTM source). This story is the contract documentation: new docs/CONTENT_PUBLISHING.md gives field-by-field payload contracts for blog.published + social.published(long/short), transport/headers/signature-verification, downstream per-channel utm_source rewrite table, secrets/config, add-a-channel runbook, test-fire + observability, and an operator go-live checklist (AC2 live-channel is operator-gated — exact steps provided). Cross-linked from CONTENT_SCHEDULER.md. npm run build green."
     },
     {
       "id": "US-855",

@@ -3,6 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { generateBlogArticle, loadKnowledge } from "../lib/content-ai-blog.ts";
+import { ensureHeroImage } from "../lib/openai-images.ts";
 import { streamAnthropicText } from "../lib/content-ai-stream.ts";
 import {
   buildBlogComposeStreamUserPrompt,
@@ -280,6 +281,14 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
   // tags/attrs that slipped through (script, on*, javascript:, etc.).
   const cleanHtml = sanitizeHtml(post.body_html);
 
+  // US-853: ensure a hero image exists before we publish so the OG/webhook
+  // payload below carries hero_image_url. Best-effort + idempotent — a failure
+  // logs and never blocks publish; an existing hero is left untouched.
+  const hero = await ensureHeroImage({ postId: id, surface: "blog" });
+  if (hero.status === "failed") {
+    console.warn("[content-blog] hero generation failed (publishing anyway):", hero.reason);
+  }
+
   const now = new Date().toISOString();
   const { data: updated, error: upErr } = await supabaseAdmin
     .from("blog_posts")
@@ -525,6 +534,17 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
     if (Array.isArray(article.tags) && article.tags.length > 0) {
       await replaceTags(id, article.tags);
     }
+
+    // US-853: kick off hero generation from the freshly-stored hero_prompt.
+    // Fire-and-forget so the editor gets the draft immediately; the hero fills
+    // in shortly after. Idempotent + best-effort (never throws).
+    ensureHeroImage({ postId: id, surface: "blog" })
+      .then((r) => {
+        if (r.status === "failed") {
+          console.warn("[content-blog] generate hero failed:", r.reason);
+        }
+      })
+      .catch((e) => console.error("[content-blog] generate hero error:", e));
 
     // US-254: surface the A/B title candidates so the editor can offer them
     // as radio options. The chosen one is saved back via PATCH /:id (title).

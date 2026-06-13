@@ -45,7 +45,9 @@ describe("<SEO> component (US-301)", () => {
   it("emits index,follow + canonical + default og:image by default", async () => {
     await renderSEO({ title: "Pricing", canonicalUrl: "https://gradethread.com/pricing" });
     expect(document.title).toContain("Pricing | GradeThread");
-    expect(meta("meta[name='robots']")).toBe("index, follow");
+    expect(meta("meta[name='robots']")).toBe(
+      "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
+    );
     expect(
       document.head.querySelector("link[rel='canonical']")?.getAttribute("href"),
     ).toBe("https://gradethread.com/pricing");
