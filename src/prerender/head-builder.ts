@@ -35,6 +35,11 @@ import {
   transparencyJsonLd,
   verifyJsonLd,
   whatsItWorthJsonLd,
+  reduceReturnsJsonLd,
+  resellerGuideJsonLd,
+  designVsDamageJsonLd,
+  resaleValueJsonLd,
+  gradingByCategoryJsonLd,
   glossaryJsonLd,
   glossaryBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
@@ -78,6 +83,12 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/transparency": transparencyJsonLd,
   "/verify": verifyJsonLd,
   "/whats-it-worth": whatsItWorthJsonLd,
+  // Cornerstone pillar pages (US-855): Article + FAQPage.
+  "/reduce-returns": reduceReturnsJsonLd,
+  "/reseller-grading-guide": resellerGuideJsonLd,
+  "/design-vs-damage": designVsDamageJsonLd,
+  "/resale-value-by-condition": resaleValueJsonLd,
+  "/grading-by-category": gradingByCategoryJsonLd,
 };
 
 /** JSON-LD nodes for a given route. Mirrors what each page renders via <SEO>. */

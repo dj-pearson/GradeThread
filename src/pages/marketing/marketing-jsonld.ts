@@ -7,9 +7,11 @@
 import {
   howToLd,
   faqPageLd,
+  articleLd,
   transparencyDatasetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
+import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { glossaryTrail, type GlossaryEntry } from "@/lib/seo/glossary";
@@ -255,6 +257,183 @@ export const WHATS_IT_WORTH_FAQS = [
 
 export function whatsItWorthJsonLd(): JsonLd[] {
   return [faqPageLd(WHATS_IT_WORTH_FAQS)];
+}
+
+// ── Cornerstone pillar pages (US-855) ───────────────────────────────
+// Durable, hand-curated authority pages on the queries GradeThread uniquely
+// owns. Each emits an Article + FAQPage node. Dates are FIXED (never the build
+// timestamp) so prerender and SPA structured data stay byte-identical and the
+// sitemap <lastmod> in ROUTE_LAST_MODIFIED matches what crawlers see.
+const CORNERSTONE_PUBLISHED = "2026-06-13";
+const CORNERSTONE_MODIFIED = "2026-06-13";
+
+/** Build the [Article, FAQPage] node pair shared by every cornerstone page. */
+function cornerstoneJsonLd(opts: {
+  path: string;
+  headline: string;
+  description: string;
+  faqs: ReadonlyArray<{ q: string; a: string }>;
+}): JsonLd[] {
+  return [
+    articleLd({
+      headline: opts.headline,
+      description: opts.description,
+      url: absoluteUrl(opts.path),
+      datePublished: CORNERSTONE_PUBLISHED,
+      dateModified: CORNERSTONE_MODIFIED,
+    }),
+    faqPageLd(opts.faqs),
+  ];
+}
+
+// ── /reduce-returns ─────────────────────────────────────────────────
+export const REDUCE_RETURNS_FAQS = [
+  {
+    q: "Why do most clothing returns happen?",
+    a: "On pre-owned apparel, the top reason is 'not as described' — the buyer's read of the condition didn't match the seller's. A vague 'good used condition' invites that gap. A standardized 1.0–10.0 grade and a verifiable certificate close it by giving both sides the same definition of condition.",
+  },
+  {
+    q: "Does a condition grade actually reduce disputes?",
+    a: "It removes the most common argument: what 'good' or 'excellent' means. When the listing carries an objective grade across five weighted factors plus a certificate the buyer can open and check, there's far less room for a not-as-described claim — the condition was disclosed and proven up front.",
+  },
+  {
+    q: "How is a graded condition different from writing my own description?",
+    a: "Your description is your opinion; a GradeThread grade is the same published rubric applied to every item, so '8/10 Excellent' means the same thing on your listing as on anyone else's. Buyers learn to trust the number instead of decoding each seller's adjectives.",
+  },
+  {
+    q: "What do I show the buyer to prevent a return?",
+    a: "Share the certificate link or QR code in the listing. It shows the overall grade, the factor-by-factor breakdown, and the actual garment photos, with a tamper-evident verified check — so the buyer confirms condition before they pay, not after it arrives.",
+  },
+];
+
+export function reduceReturnsJsonLd(): JsonLd[] {
+  return cornerstoneJsonLd({
+    path: "/reduce-returns",
+    headline: "Reduce Returns and Disputes with Condition Proof",
+    description:
+      "Most pre-owned clothing returns are 'not as described.' A standardized condition grade and a verifiable certificate close the gap between what you listed and what the buyer expected.",
+    faqs: REDUCE_RETURNS_FAQS,
+  });
+}
+
+// ── /reseller-grading-guide ─────────────────────────────────────────
+export const RESELLER_GUIDE_FAQS = [
+  {
+    q: "When should a reseller grade an item?",
+    a: "Grade the pieces where condition drives the price — your higher-value, brand-name, or vintage items, and anything a buyer might dispute. For a $6 fast-fashion tee the grade rarely moves the needle; for a $120 jacket, a verified 9/10 versus a guessed 'great condition' is the difference between a fast sale and a haggle.",
+  },
+  {
+    q: "How do I photograph an item for an accurate grade?",
+    a: "Shoot front, back, and the label on a plain, well-lit background, plus a detail shot of any wear. Add close-ups of specific flaws — pilling, a mark, a repair — so the grader sees what you see. Sharp, honest photos produce a higher-confidence grade; blurry or hidden flaws lower it.",
+  },
+  {
+    q: "Does grading help with marketplace-specific selling?",
+    a: "Yes. Drop the grade and certificate link into your eBay item specifics and description, your Poshmark listing, or a Mercari note. The standardized number translates across platforms, so the same proof of condition works whether you're selling on eBay, Poshmark, Mercari, Depop, or Grailed.",
+  },
+  {
+    q: "How does a grade affect my pricing?",
+    a: "Condition is one of the strongest levers on resale value. The Condition Index tracks real eBay sold comparables and shows how price moves with grade for popular brand-and-item combinations, so you can price an Excellent piece for what Excellent actually sells for instead of leaving money on the table.",
+  },
+];
+
+export function resellerGuideJsonLd(): JsonLd[] {
+  return cornerstoneJsonLd({
+    path: "/reseller-grading-guide",
+    headline: "A Reseller's Guide to Condition Grading",
+    description:
+      "What to grade, how to shoot it, and how to turn a standardized condition grade into faster sales and fewer disputes across eBay, Poshmark, Mercari, Depop, and Grailed.",
+    faqs: RESELLER_GUIDE_FAQS,
+  });
+}
+
+// ── /design-vs-damage ───────────────────────────────────────────────
+export const DESIGN_VS_DAMAGE_FAQS = [
+  {
+    q: "How do you tell intentional distressing from real damage?",
+    a: "Intentional design is consistent and deliberate: factory-placed rips, even whiskering, an acid wash, raw hems that were finished that way. Damage is incidental and uneven — a single blown-out seam, a stain, a moth hole, fraying where the garment was stressed in wear. Design is a feature of the item; damage is a deviation from its made condition.",
+  },
+  {
+    q: "Does distressed clothing get a lower grade?",
+    a: "Not for the distressing itself. A garment is graded against its intended, as-made state, so factory-distressed denim isn't penalized for the rips it was designed with. It loses points only for wear or damage on top of the design — a torn pocket, a stain, or fading the maker never intended.",
+  },
+  {
+    q: "Why does this distinction matter for resale?",
+    a: "Misreading design as damage underprices a perfectly good item, and misreading damage as 'styling' gets you a not-as-described return. Calling it correctly — and documenting it on a certificate — protects both your price and your rating.",
+  },
+  {
+    q: "How does GradeThread handle this?",
+    a: "The grade is assessed against the garment's intended construction, and intentional-design misreads are one of the error rates we measure and publish on our transparency report. When the model isn't confident an effect is design rather than damage, the grade is routed for human review before it's finalized.",
+  },
+];
+
+export function designVsDamageJsonLd(): JsonLd[] {
+  return cornerstoneJsonLd({
+    path: "/design-vs-damage",
+    headline: "Intentional Design vs. Damage in Clothing Grading",
+    description:
+      "Factory distressing, raw hems, and acid washes are design — not flaws. Here's how to tell intentional design from real damage so you don't underprice an item or earn a return.",
+    faqs: DESIGN_VS_DAMAGE_FAQS,
+  });
+}
+
+// ── /resale-value-by-condition ──────────────────────────────────────
+export const RESALE_VALUE_FAQS = [
+  {
+    q: "How much does condition affect resale value?",
+    a: "A lot, and it's non-linear. The drop from New With Tags to Excellent is usually small, but each step down toward Fair tends to take a larger bite — a documented flaw can halve what an otherwise desirable piece fetches. The Condition Index fits this value-versus-grade curve from real eBay sold comparables.",
+  },
+  {
+    q: "What is the Condition Index?",
+    a: "It's GradeThread's published value-by-condition data: for popular brand-and-item combinations we track sold comparables and show the typical resale value at each grade, the number of comparables behind it, and when it was last refreshed. Combinations without enough recent data aren't shown rather than guessed.",
+  },
+  {
+    q: "How do I use condition to price an item?",
+    a: "Start from the grade, then read the curve. Look up the brand-and-item combination in the Condition Index, find your grade, and price to the median resale value at that grade. A verified grade also lets you hold that price with less haggling, because the buyer can see the condition is real.",
+  },
+  {
+    q: "Does a higher grade really sell faster?",
+    a: "A proven high grade reduces the buyer's risk, which is what usually stalls a pre-owned sale. When condition is documented and verifiable, buyers commit sooner and dispute less — so you realize more of the value the curve says the item is worth.",
+  },
+];
+
+export function resaleValueJsonLd(): JsonLd[] {
+  return cornerstoneJsonLd({
+    path: "/resale-value-by-condition",
+    headline: "Resale Value by Condition Grade",
+    description:
+      "Condition is one of the biggest levers on what used clothing sells for. See how resale value moves with each grade, drawn from real eBay sold comparables in the Condition Index.",
+    faqs: RESALE_VALUE_FAQS,
+  });
+}
+
+// ── /grading-by-category ────────────────────────────────────────────
+export const GRADING_BY_CATEGORY_FAQS = [
+  {
+    q: "Does condition grading work the same for every garment type?",
+    a: "The 1.0–10.0 scale and the five weighted factors stay constant, but what counts as wear differs by category. Pilling matters most on knits, seam slippage and inseam blowouts on denim, sole and crease wear on shoes, lining and structure on tailoring. The factors are universal; the failure modes are category-specific.",
+  },
+  {
+    q: "What lowers a denim or knit grade fastest?",
+    a: "On denim, structural integrity does the damage — blown inseams, frayed belt loops, and stress at the crotch — alongside fading the design didn't intend. On knits, fabric condition leads: pilling, felting, thinning at the elbows, and snags pull the grade down even when the garment looks fine on the hanger.",
+  },
+  {
+    q: "How are vintage items graded differently?",
+    a: "Vintage is still graded against its as-made condition, but age-appropriate character — a soft hand, gentle fading, a single-stitch tee's patina — isn't treated as damage. Holes, stains, brittleness, and repairs are. That's why getting the design-versus-damage call right matters most on vintage.",
+  },
+  {
+    q: "Does category change how I should photograph for a grade?",
+    a: "Yes — shoot the parts that fail for that category. For denim, capture the inseam, hem, and waistband; for knits, a close-up of the surface and cuffs; for shoes, the soles, toe box, and heel. Showing the category's known wear points gives a higher-confidence, more accurate grade.",
+  },
+];
+
+export function gradingByCategoryJsonLd(): JsonLd[] {
+  return cornerstoneJsonLd({
+    path: "/grading-by-category",
+    headline: "Condition Grading by Category: Denim, Knits, Vintage & More",
+    description:
+      "The 1.0–10.0 scale is universal, but wear isn't. How condition grading plays out for denim, knits, leather, shoes, outerwear, and vintage — and what to photograph for each.",
+    faqs: GRADING_BY_CATEGORY_FAQS,
+  });
 }
 
 // ── /grading/* glossary hub (US-303) ────────────────────────────────

@@ -12597,8 +12597,8 @@
         "npm run build passes (prerender + public-routes CI guard green)"
       ],
       "priority": 855,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] Depends on US-850 (voice). Complements US-847 (Condition Index) for an interlinked authority hub. Follow CLAUDE.md SEO registry rules."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Depends on US-850 (voice). Complements US-847 (Condition Index) for an interlinked authority hub. Follow CLAUDE.md SEO registry rules. [DONE 2026-06-13] Authored 5 cornerstone pillar pages on the queries GradeThread uniquely owns: /reduce-returns, /reseller-grading-guide, /design-vs-damage, /resale-value-by-condition, /grading-by-category (the standardized-scale/methodology pillar is the existing /condition-grading, which now hubs out to all five). Each is a substantive long-form page (MarketingLayout) emitting Article + FAQPage JSON-LD (new articleLd() in json-ld.ts authored/published by the ORG @id so the graph resolves; FIXED YYYY-MM-DD dates so prerender==SPA byte-identical). Registered in all four required places: PUBLIC_ROUTES + ROUTE_LAST_MODIFIED (public-routes.ts), entry-server PAGES, head-builder MARKETING_LD, routes/index.tsx, plus the jsonld-parity test CASES. New <CornerstoneLinks> block on every cornerstone page cross-links the glossary tier+factor spokes (from GLOSSARY_ENTRIES), the Condition Index (/condition-index — plain <a>, edge Pages Function not a SPA route), the transparency report, condition-grading, grading-standard, and What's It Worth. Verify: npx tsc --noEmit clean; jsonld-parity + public-routes guard tests 20/20 pass; npm run build green (now 37 prerendered routes, +5); dist/reduce-returns/index.html confirmed to carry both Article + FAQPage JSON-LD in the prerendered head. No migration (schema unchanged at 00192)."
     },
     {
       "id": "US-856",

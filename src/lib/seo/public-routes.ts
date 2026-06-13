@@ -64,6 +64,12 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/verify": "2026-06-12",
   "/developers": "2026-06-12",
   "/whats-it-worth": "2026-06-13",
+  // US-855 cornerstone pillar pages.
+  "/reduce-returns": "2026-06-13",
+  "/reseller-grading-guide": "2026-06-13",
+  "/design-vs-damage": "2026-06-13",
+  "/resale-value-by-condition": "2026-06-13",
+  "/grading-by-category": "2026-06-13",
   // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
   "/privacy": "2026-04-01",
   "/terms": "2026-04-01",
@@ -173,6 +179,55 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "FAQPage",
+  },
+  // US-855: cornerstone pillar pages — durable, hand-curated authority content
+  // on the queries GradeThread uniquely owns. Each emits Article + FAQPage
+  // JSON-LD (head-builder MARKETING_LD) and cross-links to the glossary spokes,
+  // Condition Index, and transparency report via <CornerstoneLinks>.
+  {
+    path: "/reduce-returns",
+    title: "Reduce Returns with Condition Proof",
+    description:
+      "Most pre-owned clothing returns are 'not as described.' A standardized condition grade and a verifiable certificate close the gap before the buyer pays.",
+    changefreq: "monthly",
+    priority: 0.8,
+    jsonLdType: "Article",
+  },
+  {
+    path: "/reseller-grading-guide",
+    title: "A Reseller's Guide to Condition Grading",
+    description:
+      "What to grade, how to shoot it, and how to turn a standardized condition grade into faster sales and fewer disputes across eBay, Poshmark, Mercari, and Depop.",
+    changefreq: "monthly",
+    priority: 0.8,
+    jsonLdType: "Article",
+  },
+  {
+    path: "/design-vs-damage",
+    title: "Intentional Design vs. Damage",
+    description:
+      "Factory distressing, raw hems, and acid washes are design, not flaws. How to tell intentional design from real damage so you don't underprice or earn a return.",
+    changefreq: "monthly",
+    priority: 0.7,
+    jsonLdType: "Article",
+  },
+  {
+    path: "/resale-value-by-condition",
+    title: "Resale Value by Condition Grade",
+    description:
+      "Condition is one of the biggest levers on what used clothing sells for. See how resale value moves with each grade, from real eBay comps in the Condition Index.",
+    changefreq: "monthly",
+    priority: 0.8,
+    jsonLdType: "Article",
+  },
+  {
+    path: "/grading-by-category",
+    title: "Condition Grading by Category",
+    description:
+      "The 1.0–10.0 scale is universal, but wear isn't. How grading plays out for denim, knits, leather, shoes, and vintage — and what to photograph for each.",
+    changefreq: "monthly",
+    priority: 0.7,
+    jsonLdType: "Article",
   },
   {
     // US-596: developer docs for the Grade-as-a-Service API (SDK, sandbox, rate

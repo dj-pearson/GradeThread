@@ -177,6 +177,37 @@ export function transparencyDatasetLd(): JsonLd {
   };
 }
 
+/**
+ * Article node for the cornerstone pillar pages (US-855). These are durable,
+ * hand-curated authority pages, so we model each as an Article authored and
+ * published by the GradeThread Organization (referenced by @id — the page's
+ * layout already emits the Organization node, so the graph resolves). Dates are
+ * passed in as fixed YYYY-MM-DD strings (never a build timestamp) so the
+ * prerendered head and the live SPA emit byte-identical structured data.
+ */
+export function articleLd(opts: {
+  headline: string;
+  description: string;
+  url: string;
+  datePublished: string;
+  dateModified: string;
+  image?: string;
+}): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: opts.headline,
+    description: opts.description,
+    mainEntityOfPage: { "@type": "WebPage", "@id": opts.url },
+    author: { "@id": ORG_ID },
+    publisher: { "@id": ORG_ID },
+    datePublished: opts.datePublished,
+    dateModified: opts.dateModified,
+    image: opts.image ?? `${SITE_URL}${"/og-image.png"}`,
+    isAccessibleForFree: true,
+  };
+}
+
 /** BreadcrumbList for hierarchy/topical-authority signals. */
 export function breadcrumbLd(
   items: ReadonlyArray<{ name: string; url: string }>,

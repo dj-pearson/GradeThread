@@ -94,6 +94,12 @@ const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").the
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
 const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m => ({ default: m.DevelopersPage })));
 const WhatsItWorthPage = lazy(() => import("@/pages/marketing/whats-it-worth").then(m => ({ default: m.WhatsItWorthPage })));
+// US-855: cornerstone pillar pages
+const ReduceReturnsPage = lazy(() => import("@/pages/marketing/reduce-returns").then(m => ({ default: m.ReduceReturnsPage })));
+const ResellerGradingGuidePage = lazy(() => import("@/pages/marketing/reseller-grading-guide").then(m => ({ default: m.ResellerGradingGuidePage })));
+const DesignVsDamagePage = lazy(() => import("@/pages/marketing/design-vs-damage").then(m => ({ default: m.DesignVsDamagePage })));
+const ResaleValueByConditionPage = lazy(() => import("@/pages/marketing/resale-value-by-condition").then(m => ({ default: m.ResaleValueByConditionPage })));
+const GradingByCategoryPage = lazy(() => import("@/pages/marketing/grading-by-category").then(m => ({ default: m.GradingByCategoryPage })));
 // US-596: white-label embeddable grade widget — bare (no app chrome), rendered
 // inside partner iframes. Dynamic per certificate, NOT in PUBLIC_ROUTES.
 const EmbedGradePage = lazy(() => import("@/pages/embed-grade").then(m => ({ default: m.EmbedGradePage })));
@@ -240,6 +246,12 @@ export const router = createBrowserRouter([
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },
       { path: "/developers", element: <SuspenseWrapper><DevelopersPage /></SuspenseWrapper> },
       { path: "/whats-it-worth", element: <SuspenseWrapper><WhatsItWorthPage /></SuspenseWrapper> },
+      // Cornerstone pillar pages (US-855)
+      { path: "/reduce-returns", element: <SuspenseWrapper><ReduceReturnsPage /></SuspenseWrapper> },
+      { path: "/reseller-grading-guide", element: <SuspenseWrapper><ResellerGradingGuidePage /></SuspenseWrapper> },
+      { path: "/design-vs-damage", element: <SuspenseWrapper><DesignVsDamagePage /></SuspenseWrapper> },
+      { path: "/resale-value-by-condition", element: <SuspenseWrapper><ResaleValueByConditionPage /></SuspenseWrapper> },
+      { path: "/grading-by-category", element: <SuspenseWrapper><GradingByCategoryPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.

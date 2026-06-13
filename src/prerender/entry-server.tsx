@@ -41,6 +41,11 @@ import { TransparencyPage } from "@/pages/marketing/transparency";
 import { VerifyGradePage } from "@/pages/marketing/verify";
 import { DevelopersPage } from "@/pages/marketing/developers";
 import { WhatsItWorthPage } from "@/pages/marketing/whats-it-worth";
+import { ReduceReturnsPage } from "@/pages/marketing/reduce-returns";
+import { ResellerGradingGuidePage } from "@/pages/marketing/reseller-grading-guide";
+import { DesignVsDamagePage } from "@/pages/marketing/design-vs-damage";
+import { ResaleValueByConditionPage } from "@/pages/marketing/resale-value-by-condition";
+import { GradingByCategoryPage } from "@/pages/marketing/grading-by-category";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
 import { StatusPage } from "@/pages/status";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
@@ -58,6 +63,12 @@ const PAGES: Record<string, React.ReactNode> = {
   "/verify": <VerifyGradePage />,
   "/developers": <DevelopersPage />,
   "/whats-it-worth": <WhatsItWorthPage />,
+  // Cornerstone pillar pages (US-855)
+  "/reduce-returns": <ReduceReturnsPage />,
+  "/reseller-grading-guide": <ResellerGradingGuidePage />,
+  "/design-vs-damage": <DesignVsDamagePage />,
+  "/resale-value-by-condition": <ResaleValueByConditionPage />,
+  "/grading-by-category": <GradingByCategoryPage />,
   "/privacy": <PrivacyPage />,
   "/terms": <TermsPage />,
   "/cookies": <CookiesPage />,

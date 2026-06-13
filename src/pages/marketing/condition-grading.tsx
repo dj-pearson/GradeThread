@@ -199,6 +199,55 @@ export function ConditionGradingPage() {
         </div>
       </section>
 
+      {/* Cornerstone deep-dive guides (US-855) */}
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-3xl font-bold">Go deeper</h2>
+          <p className="mt-3 text-muted-foreground">
+            Cornerstone guides that put the standard to work:
+          </p>
+          <ul className="mt-6 space-y-3">
+            {[
+              {
+                to: "/reseller-grading-guide",
+                label: "A reseller's guide to condition grading",
+                blurb: "What to grade, how to shoot it, and how to sell on it.",
+              },
+              {
+                to: "/reduce-returns",
+                label: "Reduce returns with condition proof",
+                blurb: "Close the not-as-described gap before the buyer pays.",
+              },
+              {
+                to: "/resale-value-by-condition",
+                label: "Resale value by condition grade",
+                blurb: "How value moves with the grade, from real comps.",
+              },
+              {
+                to: "/design-vs-damage",
+                label: "Intentional design vs. damage",
+                blurb: "Tell factory distressing apart from real wear.",
+              },
+              {
+                to: "/grading-by-category",
+                label: "Condition grading by category",
+                blurb: "Denim, knits, leather, shoes, and vintage.",
+              },
+            ].map((g) => (
+              <li key={g.to} className="rounded-lg border bg-background p-4">
+                <Link
+                  to={g.to}
+                  className="font-medium text-brand-navy hover:underline dark:text-foreground"
+                >
+                  {g.label}
+                </Link>
+                <p className="mt-1 text-sm text-muted-foreground">{g.blurb}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section className="border-t px-6 py-16">
         <div className="mx-auto max-w-2xl">
