@@ -12217,8 +12217,8 @@
         "npm run verify:db passes"
       ],
       "priority": 830,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] This table IS the system-information boundary: the engine (US-834) and prompt (US-835) forbid answering product questions from anything but published KB hits. Embeddings deferred — keyword/FTS first. Depends on US-829 era schema work only loosely; independent migration."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] This table IS the system-information boundary: the engine (US-834) and prompt (US-835) forbid answering product questions from anything but published KB hits. Embeddings deferred — keyword/FTS first. Depends on US-829 era schema work only loosely; independent migration. IMPLEMENTED 2026-06-13: migration named 00183_support_kb.sql (PRD's '00145' is stale numbering — actual frontier was 00182). category/audience modeled as text+CHECK (matches 00181's documented 'dominant recent pattern', evolves without ALTER TYPE). search_tsv is a GENERATED ALWAYS STORED tsvector (title=A, body_md=B) + GIN index — auto-maintained on write. Two triggers: support_kb_bump_version (BEFORE UPDATE, bumps version only on title/body_md change) and support_kb_write_revision (AFTER INSERT/UPDATE, snapshots into append-only support_kb_revisions, edited_by=auth.uid()). RLS: published public→anyone, published subscriber→authenticated, drafts→admin only; revisions admin-only; no client write policies (service-role only, mirrors 00181). EXPECTED_SCHEMA_VERSION bumped 00182→00183. Verified via npm run verify:db (db reset from zero) + live psql trigger/FTS test (insert→v1/1rev, content edit→v2/2revs, publish toggle→no bump, FTS match). DB TS types deferred to tool layer (US-832/833), consistent with US-829."
     },
     {
       "id": "US-831",

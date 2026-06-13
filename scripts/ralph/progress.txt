@@ -1955,3 +1955,22 @@ Branch: ralph/gradethread-build
   - Verified: npx tsc -b clean, npm run build OK, eslint clean, vitest 167 lib tests passed (incl. new aspect-remap), deno check + deno lint clean, deno test 28 aspect tests passed, no-ungated-print OK.
 - Timestamp: 2026-06-13
 ---
+
+## US-830: Schema + admin-managed knowledge base (the ONLY system-side corpus the bot may speak from)
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00183_support_kb.sql (new) — support_kb_articles + support_kb_revisions
+  - services/edge-functions/src/lib/schema-version.ts — EXPECTED_SCHEMA_VERSION 00182 -> 00183
+  - prd.json (passes:true + notes), scripts/ralph/progress.txt
+- Notes:
+  - PRD says "00145_support_kb.sql" but that number is long taken; actual frontier was 00182, so the migration is 00183_support_kb.sql. (US-829's transcript tables shipped in 00181.)
+  - category/audience modeled as text + CHECK, matching 00181's documented "dominant recent pattern" (evolve value sets without ALTER TYPE). search_tsv is a GENERATED ALWAYS ... STORED tsvector (title=A, body_md=B) + GIN index — auto-maintained on write (to_tsvector(regconfig,text) is IMMUTABLE so valid in a generated column).
+  - Versioning via two triggers: support_kb_bump_version (BEFORE UPDATE — bumps version ONLY when title/body_md changes, preserves it on publish toggles) and support_kb_write_revision (AFTER INSERT/UPDATE — append-only snapshot into support_kb_revisions with edited_by=auth.uid(), ON CONFLICT DO NOTHING on (article_id,version)).
+  - RLS: published public articles readable by anyone (incl. anon), published subscriber articles by any authenticated user, drafts only by admins; revision history admin-only. No client write policies — service-role only (mirrors 00181). Neither table is tenant-scoped (no user_id), so rls-guard correctly does not require a SERVICE_ROLE_ONLY/PARENT_SCOPED entry.
+  - DB TS types intentionally deferred to the tool layer (US-832/833), same as US-829.
+- Verified:
+  - npm run verify:db PASSED (db start apply + db reset --no-seed re-apply from zero, both green).
+  - Live psql trigger/FTS test on the local stack: insert -> version 1 / 1 revision / tsv populated; content edit -> version 2 / 2 revisions; publish toggle -> version stays 2 / no new revision; websearch_to_tsquery match works.
+  - deno check schema-version.ts clean; schema-version_test 9 passed (DB at 00183 matches expected).
+- Timestamp: 2026-06-13
+---
