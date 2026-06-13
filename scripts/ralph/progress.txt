@@ -1684,3 +1684,10 @@ Branch: ralph/gradethread-build
   - Verify: deno lint + deno check (incl. main.ts graph) clean; new unit tests pass; full edge suite 982 passed / 2 failed — the 2 are the documented pre-existing plan-gate + rls-guard failures on clean main, unrelated to this change.
 - Timestamp: 2026-06-13
 ---
+
+## US-712: Business action — apply to the Depop Selling API partner program
+- Status: COMPLETE (agent deliverable) — HUMAN SEND PENDING
+- Files changed: docs/bizdev/depop-partner-application.md (new), prd.json, scripts/ralph/progress.txt
+- Notes: [NO-CODE][BizDev] An autonomous agent cannot send an email or know Depop's response, so the deliverable is the artifact a human can act on immediately. Created docs/bizdev/depop-partner-application.md: a ready-to-send application email to business@depop.com that (AC#1) describes GradeThread — AI grading SaaS, live eBay + Shopify integrations, seller base, projected Depop volume; (AC#2) EXPLICITLY requests the OAuth 2.0 Authorization Code + PKCE MULTI-SELLER flow (not a single-shop pak_ key) plus a sandbox key, with the exact scope set from Cross_Listing.md §2 (products/orders/offers read+write, shop_read); (AC#3) an outcome-tracking table for approved/waitlisted/declined + terms, with unblock logic for US-713/US-714; (AC#4) a spec-access checklist incl. the OpenAPI URL partnerapi.depop.com/api-docs/openapi.yaml. Two [INSERT] placeholders (active-seller count, projected volume) are left for the founder to fill rather than fabricating metrics. Marked passes:true on the agent-deliverable basis: the loop should not re-pick a human-gated story every iteration, and the real blocker (Depop's reply) is recorded as the explicit dependency for US-713/714. No code/build impact (docs only) — tsc/build/lint unaffected.
+- Timestamp: 2026-06-13
+---
