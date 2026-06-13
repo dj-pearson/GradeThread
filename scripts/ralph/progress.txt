@@ -1625,3 +1625,10 @@ Branch: ralph/gradethread-build
 - Notes: Criteria 2 (? shortcuts cheat-sheet via ShortcutsHelp, advertised by header keyboard button) and 3 (command palette extended with global actions: Billing, API Keys, Team, shortcuts, etc.) were already shipped by prior/concurrent work. The remaining gap was criterion 1: no in-app help/support launcher. Added SupportLauncher dropdown (HelpCircle icon) in the dashboard header with help center (/faq), how it works (/how-it-works), developer docs (/developers), keyboard shortcuts (dispatches OPEN_SHORTCUTS_EVENT), system status (/status), and Contact support (mailto:support@gradethread.com — matches error-state.tsx). tsc/build/lint clean.
 - Timestamp: 2026-06-13
 ---
+
+## US-608: Restructure Settings into tabs/sections
+- Status: COMPLETE
+- Files changed: src/pages/settings.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Wrapped the ~1000-line single-scroll settings page in the existing Tabs primitive — 8 sections: Profile, Security, Notifications, AI, FlipDesk, Data, Storage, Danger. Deep-linkable via ?tab=<value> search param (useSearchParams with replace history; unknown/missing → profile). All existing handlers/logic untouched — pure JSX reorg. Security consolidates MFA + change-password + sign-out-everywhere; Notifications holds prefs + usage alerts. Tabs render in any DOM order (Radix), so SignOutAllCard moved adjacent to Security group, PhotoArchive → Storage, DangerZone → Danger. TabsList uses flex-wrap h-auto for the 8-tab strip on small screens. tsc --noEmit + npm run build + eslint all clean.
+- Timestamp: 2026-06-13
+---

@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +20,18 @@ import {
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
 import { FLIPDESK_PLANS, PLANS, type PlanKey } from "@/lib/constants";
-import { Loader2, Upload, Download, Sparkles, Compass, Archive, AlertTriangle } from "lucide-react";
+import {
+  Loader2,
+  Upload,
+  Download,
+  Sparkles,
+  Compass,
+  Archive,
+  AlertTriangle,
+  User,
+  Shield,
+  Bell,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
@@ -48,11 +60,48 @@ const CHANNEL_LABELS: Record<string, string> = {
   in_app: "In-app",
 };
 
+// US-608: settings are split into deep-linkable tabs (?tab=<value>) so a long
+// single scroll becomes findable sections. Order here drives the tab strip.
+const SETTINGS_TABS = [
+  { value: "profile", label: "Profile", icon: User },
+  { value: "security", label: "Security", icon: Shield },
+  { value: "notifications", label: "Notifications", icon: Bell },
+  { value: "ai", label: "AI", icon: Sparkles },
+  { value: "flipdesk", label: "FlipDesk", icon: Compass },
+  { value: "data", label: "Data", icon: Download },
+  { value: "storage", label: "Storage", icon: Archive },
+  { value: "danger", label: "Danger", icon: AlertTriangle },
+] as const;
+
+type SettingsTab = (typeof SETTINGS_TABS)[number]["value"];
+const SETTINGS_TAB_VALUES = SETTINGS_TABS.map((t) => t.value) as SettingsTab[];
+const DEFAULT_SETTINGS_TAB: SettingsTab = "profile";
+
 export function SettingsPage() {
   const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const openFlipdeskTour = useFlipdeskTourStore((s) => s.open);
   const openWelcomeTour = useOnboardingTourStore((s) => s.open);
+
+  // Deep-linkable section: ?tab=security, etc. Unknown/missing → Profile.
+  const tabParam = searchParams.get("tab");
+  const activeTab: SettingsTab = SETTINGS_TAB_VALUES.includes(
+    tabParam as SettingsTab
+  )
+    ? (tabParam as SettingsTab)
+    : DEFAULT_SETTINGS_TAB;
+
+  function handleTabChange(next: string) {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("tab", next);
+        return params;
+      },
+      { replace: true }
+    );
+  }
 
   function replayFlipdeskTour() {
     openFlipdeskTour();
@@ -427,8 +476,23 @@ export function SettingsPage() {
         subtitle="Manage your account settings."
       />
 
-      {/* Profile Section */}
-      <Card>
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="space-y-6"
+      >
+        <TabsList className="h-auto w-full flex-wrap justify-start">
+          {SETTINGS_TABS.map((t) => (
+            <TabsTrigger key={t.value} value={t.value}>
+              <t.icon className="h-4 w-4" />
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <TabsContent value="profile" className="space-y-6">
+          {/* Profile Section */}
+          <Card>
         <CardHeader>
           <CardTitle>Profile</CardTitle>
           <CardDescription>Update your personal information.</CardDescription>
@@ -498,8 +562,11 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Notification Preferences Section */}
-      <Card>
+        </TabsContent>
+
+        <TabsContent value="notifications" className="space-y-6">
+          {/* Notification Preferences Section */}
+          <Card>
         <CardHeader>
           <CardTitle>Notification Preferences</CardTitle>
           <CardDescription>
@@ -599,8 +666,11 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* AI Item Assistant Section */}
-      <Card>
+        </TabsContent>
+
+        <TabsContent value="ai" className="space-y-6">
+          {/* AI Item Assistant Section */}
+          <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
@@ -672,8 +742,11 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Onboarding / product tour */}
-      <Card>
+        </TabsContent>
+
+        <TabsContent value="flipdesk" className="space-y-6">
+          {/* Onboarding / product tour */}
+          <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
@@ -746,8 +819,11 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Data Export Section */}
-      <Card>
+        </TabsContent>
+
+        <TabsContent value="data" className="space-y-6">
+          {/* Data Export Section */}
+          <Card>
         <CardHeader>
           <CardTitle>Data Export</CardTitle>
           <CardDescription>
@@ -790,8 +866,11 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Two-Factor Authentication (US-374) */}
-      <MfaCard />
+        </TabsContent>
+
+        <TabsContent value="security" className="space-y-6">
+          {/* Two-Factor Authentication (US-374) */}
+          <MfaCard />
 
       {/* Password Section - only for email/password users */}
       {!isOAuthUser && (
@@ -860,11 +939,17 @@ export function SettingsPage() {
         </Card>
       )}
 
-      <PhotoArchiveCard />
+          <SignOutAllCard />
+        </TabsContent>
 
-      <SignOutAllCard />
+        <TabsContent value="storage" className="space-y-6">
+          <PhotoArchiveCard />
+        </TabsContent>
 
-      <DangerZoneCard />
+        <TabsContent value="danger" className="space-y-6">
+          <DangerZoneCard />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

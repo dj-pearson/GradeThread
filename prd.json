@@ -9215,8 +9215,8 @@
         "Deep-linkable sections"
       ],
       "priority": 608,
-      "passes": false,
-      "notes": "[P3][UX] Deep-dive 2026-06-04. settings.tsx is one ~1000-line single scroll of 10 cards; worst IA in the authenticated app."
+      "passes": true,
+      "notes": "[P3][UX] Deep-dive 2026-06-04. settings.tsx is one ~1000-line single scroll of 10 cards; worst IA in the authenticated app. DONE 2026-06-13: settings.tsx wrapped in Tabs primitive — 8 deep-linkable sections (Profile, Security, Notifications, AI, FlipDesk, Data, Storage, Danger) via ?tab= search param (useSearchParams, replace history). Security tab consolidates MFA + password change + sign-out-everywhere; Notifications holds prefs + usage alerts; Data = export; Storage = photo archive; Danger = delete account."
     },
     {
       "id": "US-609",
