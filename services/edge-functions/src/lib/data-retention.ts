@@ -126,6 +126,10 @@ export async function handleDataRetentionCron(c: {
   }
   try {
     const result = await purgeExpiredGradingPii();
+    // US-584: keep the cron-run ledger bounded (30-day window). Best-effort —
+    // a prune hiccup must not fail the PII purge that is this job's reason to run.
+    const cronCutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    await supabaseAdmin.from("cron_runs").delete().lt("created_at", cronCutoff);
     return c.json({ ok: true, ...result });
   } catch (err) {
     captureException(err, { route: "data-retention.cron" });

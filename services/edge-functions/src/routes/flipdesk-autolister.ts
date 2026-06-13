@@ -930,6 +930,79 @@ flipdeskAutolisterRoutes.post("/batch/:id/resume", async (c) => {
   return c.json({ batch_id: batchId, resumed: jobs.length }, 202);
 });
 
+// ── Admin job-control helpers (US-584) ───────────────────────────────
+// Cross-tenant retry/cancel for the admin Jobs dashboard. Unlike the
+// owner-scoped endpoints above, these resolve the batch's owner from the row
+// itself (an operator acts across tenants) and skip the seller-facing
+// premium gate — but generation still honors the owner's AI quota (limit 0
+// makes the worker fail the jobs with the quota message, exactly as the
+// reclaim cron does) so an over-cap retry can't run unmetered work.
+export async function adminRetryGenerationBatch(
+  batchId: string,
+): Promise<{ ok: boolean; retried?: number; error?: string }> {
+  const { data: batch } = await supabaseAdmin
+    .from("listing_generation_batches")
+    .select("id, user_id, use_comps")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (!batch) return { ok: false, error: "Batch not found" };
+  const b = batch as { user_id: string; use_comps: boolean | null };
+
+  const { data: openJobs } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .select("id, inventory_item_id, attempts")
+    .eq("batch_id", batchId)
+    .in("status", ["failed", "pending", "running"]);
+  const jobs = (openJobs ?? []) as Array<
+    { id: string; inventory_item_id: string; attempts: number }
+  >;
+  if (jobs.length === 0) return { ok: false, error: "No incomplete jobs to retry." };
+
+  const quota = await checkQuota(b.user_id);
+  const limit = quota.ok ? quota.limit : 0;
+
+  await supabaseAdmin
+    .from("listing_generation_batches")
+    .update({ status: "running", error: null })
+    .eq("id", batchId);
+  await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ status: "pending", error: null })
+    .in("id", jobs.map((j) => j.id));
+
+  void processBatch(batchId, b.user_id, jobs, b.use_comps !== false, limit).catch((err) =>
+    console.error("[flipdesk-autolister] admin retry batch crashed:", err)
+  );
+  return { ok: true, retried: jobs.length };
+}
+
+export async function adminCancelGenerationBatch(
+  batchId: string,
+  reason: string,
+): Promise<{ ok: boolean; cancelled?: number; error?: string }> {
+  const { data: batch } = await supabaseAdmin
+    .from("listing_generation_batches")
+    .select("id")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (!batch) return { ok: false, error: "Batch not found" };
+
+  const { data: openJobs } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .select("id")
+    .eq("batch_id", batchId)
+    .in("status", ["pending", "running"]);
+  const ids = (openJobs ?? []).map((j) => (j as { id: string }).id);
+  if (ids.length > 0) {
+    await supabaseAdmin
+      .from("listing_generation_jobs")
+      .update({ status: "failed", error: reason.slice(0, 1000) })
+      .in("id", ids);
+  }
+  await finalizeBatch(batchId);
+  return { ok: true, cancelled: ids.length };
+}
+
 // GET /batch/:id — batch + per-job status for progress polling.
 flipdeskAutolisterRoutes.get("/batch/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -1399,6 +1472,66 @@ flipdeskAutolisterRoutes.post("/publish-batch/:id/resume", async (c) => {
 
   return c.json({ batch_id: batchId, resumed: jobs.length }, 202);
 });
+
+// US-584 admin cross-tenant retry/cancel for a publish batch (mirrors the
+// generation helpers above; publishing isn't AI-quota gated).
+export async function adminRetryPublishBatch(
+  batchId: string,
+): Promise<{ ok: boolean; retried?: number; error?: string }> {
+  const { data: batch } = await supabaseAdmin
+    .from("listing_publish_batches")
+    .select("id, user_id")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (!batch) return { ok: false, error: "Batch not found" };
+  const ownerId = (batch as { user_id: string }).user_id;
+
+  const { data: openJobs } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .select("id, inventory_item_id, attempts")
+    .eq("batch_id", batchId)
+    .in("status", ["failed", "pending", "running"]);
+  const jobs = (openJobs ?? []) as Array<
+    { id: string; inventory_item_id: string; attempts: number }
+  >;
+  if (jobs.length === 0) return { ok: false, error: "No incomplete jobs to retry." };
+
+  await supabaseAdmin
+    .from("listing_publish_batches")
+    .update({ status: "running", error: null })
+    .eq("id", batchId);
+  await supabaseAdmin
+    .from("listing_publish_jobs")
+    .update({ status: "pending", error: null })
+    .in("id", jobs.map((j) => j.id));
+
+  void processPublishBatch(batchId, ownerId, jobs).catch((err) =>
+    console.error("[flipdesk-autolister] admin retry publish batch crashed:", err)
+  );
+  return { ok: true, retried: jobs.length };
+}
+
+export async function adminCancelPublishBatch(
+  batchId: string,
+  reason: string,
+): Promise<{ ok: boolean; cancelled?: number; error?: string }> {
+  const { data: batch } = await supabaseAdmin
+    .from("listing_publish_batches")
+    .select("id")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (!batch) return { ok: false, error: "Batch not found" };
+
+  const { data: openJobs } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .select("id")
+    .eq("batch_id", batchId)
+    .in("status", ["pending", "running"]);
+  const ids = (openJobs ?? []).map((j) => (j as { id: string }).id);
+  for (const id of ids) await markPublishJobFailed(id, reason);
+  await finalizePublishBatch(batchId);
+  return { ok: true, cancelled: ids.length };
+}
 
 // US-559: publish-batch reclaim sweeper. A cron hits POST
 // /api/jobs/publish-batch-reclaim (job-secret gated, mounted in main.ts OUTSIDE

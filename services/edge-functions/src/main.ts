@@ -47,7 +47,9 @@ import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
+import { adminJobsRoutes } from "./routes/admin-jobs.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
+import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
@@ -303,6 +305,26 @@ app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/flipdesk/automations/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
 
+// US-584: cron-run ledger. Every /api/jobs/* hit that presents the internal
+// job secret (i.e. a legit scheduled call, not an unauthenticated probe) is
+// recorded to cron_runs after the handler runs, so the admin Jobs dashboard
+// can show each cron's last-run time, outcome, and duration. Best-effort and
+// fire-and-forget — the handlers still enforce the secret + their own locks.
+app.use("/api/jobs/*", async (c, next) => {
+  const isCron = Boolean(c.req.header("X-Internal-Job-Secret"));
+  const startedMs = isCron ? Date.now() : 0;
+  await next();
+  if (!isCron) return;
+  const httpStatus = c.res.status;
+  const jobName = c.req.path.split("/").pop() ?? "unknown";
+  void recordCronRun({
+    jobName,
+    status: httpStatus >= 400 ? "error" : "success",
+    httpStatus,
+    durationMs: Date.now() - startedMs,
+  });
+});
+
 // Admin billing: user JWT auth, then admin role check
 app.use("/api/admin/*", authMiddleware);
 app.use("/api/admin/*", adminAuthMiddleware);
@@ -529,6 +551,9 @@ app.route("/api/admin/impersonation", adminImpersonationRoutes);
 // US-582 ad-hoc admin → customer transactional messaging. Admin JWT + AAL2 via
 // the /api/admin/* group; per-admin rate-limited above; audited + recorded.
 app.route("/api/admin/messages", adminMessagesRoutes);
+// US-584 admin job/queue monitoring + manual retry/cancel + cron health. Admin
+// JWT + AAL2 via the /api/admin/* group.
+app.route("/api/admin/jobs", adminJobsRoutes);
 // US-476/477 admin content moderation (approve/reject/ban) — audited
 // service-role routes (admin JWT + AAL2 via the /api/admin/* group).
 app.route("/api/admin/moderation", adminModerationRoutes);

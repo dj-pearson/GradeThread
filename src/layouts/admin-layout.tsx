@@ -25,6 +25,7 @@ import {
   Send,
   Bell,
   Gift,
+  Server,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -46,6 +47,7 @@ const adminNavItems = [
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
+  { to: "/admin/jobs", icon: Server, label: "Jobs & Queues", end: false, superAdminOnly: false },
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
 ];
 

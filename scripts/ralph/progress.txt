@@ -1286,3 +1286,26 @@ Branch: ralph/gradethread-build
     deno lint, eslint on changed FE files — all clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-584: Add a job/queue monitoring dashboard with manual retry/cancel
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00164_cron_runs.sql (new: cron_runs ledger + indexes, RLS service-role-only)
+  - services/edge-functions/src/lib/cron-runs.ts (new: recordCronRun, CRON_REGISTRY of all 23 crons, nextCronRun parser)
+  - services/edge-functions/src/routes/admin-jobs.ts (new: GET / per-job view, /dead-letters, /crons; POST /retry, /cancel)
+  - services/edge-functions/src/routes/flipdesk-autolister.ts (exported adminRetry/CancelGenerationBatch + adminRetry/CancelPublishBatch)
+  - services/edge-functions/src/lib/data-retention.ts (prune cron_runs >30d in the daily sweep)
+  - services/edge-functions/src/main.ts (import + mount /api/admin/jobs; /api/jobs/* cron-run recording middleware)
+  - services/edge-functions/src/tests/cron-runs_test.ts (new: nextCronRun unit tests)
+  - src/pages/admin/jobs.tsx (new: Jobs / Cron Health / Dead Letters tabs + retry/cancel dialog)
+  - src/routes/index.tsx (lazy import + /admin/jobs route)
+  - src/layouts/admin-layout.tsx ('Jobs & Queues' nav item, Server icon)
+  - prd.json (US-584 passes:true)
+- Notes:
+  - Per-job view normalizes 6 job-bearing tables into one shape (kind/status/age/last_error/attempts/can_retry/can_cancel). token-refresh is a cron, surfaced in the Cron Health tab, not the per-row list.
+  - Retry/cancel reuse proven re-kick paths: grading→regradeSubmission (cancel = fail + idempotent refund via reverseChargeForUngradedSubmission); autolister/publish→new exported admin helpers that mirror the owner-scoped retry-failed/resume endpoints but resolve the owner from the batch row (cross-tenant admin) and still honor the owner's AI quota; email→pending/dead_letter flips via updateByIdChecked (0-row = real error); sync→fail a stuck 'running' run. All audited (jobs.retry/jobs.cancel).
+  - Cron health: no central cron dispatcher existed, so a single app.use("/api/jobs/*") middleware records each legit (job-secret-present) invocation to cron_runs after the handler. The 5 eBay/Google crons live under /api/flipdesk/* (not captured) — registry marks recorded:false; their schedule + next-run still show. nextCronRun is a minimal UTC 5-field parser supporting * / */n / lists / ints (covers every schedule in use); unit-tested.
+  - cron_runs kept bounded by a 30-day prune appended to the existing data-retention cron (best-effort, never fails the PII purge).
+  - Verified: npx tsc --noEmit, npm run build (+prerender 29 routes), deno check src/main.ts, deno lint (6 files), deno test cron-runs (6 pass), eslint (changed FE files) — all green.
+- Timestamp: 2026-06-12
+---

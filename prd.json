@@ -8912,8 +8912,8 @@
         "Dead-letter/backlog drill-down and cron last-run/next-run status"
       ],
       "priority": 584,
-      "passes": false,
-      "notes": "[P1][Admin/Ops] Deep-dive 2026-06-04. system.tsx shows only counts; no per-job view, retry/cancel, or cron status."
+      "passes": true,
+      "notes": "[P1][Admin/Ops] Deep-dive 2026-06-04. system.tsx shows only counts; no per-job view, retry/cancel, or cron status. | DONE 2026-06-12: new /api/admin/jobs route (admin JWT + AAL2 via the /api/admin/* group). GET / = normalized per-job view across grading (submissions), eBay sync (flipdesk_sync_runs), AutoLister (listing_generation_batches), publish (listing_publish_batches), email outbox (email_deliveries) + repricing (repricing_suggestions) — status, age, last error, attempts, with ?kind= / ?status= filters. POST /retry + /cancel act on a stuck/failed job (grading→regradeSubmission / fail+refund; email→re-pending / dead-letter; autolister+publish→new adminRetry/CancelGeneration|PublishBatch helpers re-kick or fail the batch jobs; sync→fail a stuck running run) — every action writeAuditLog'd (jobs.retry / jobs.cancel). GET /dead-letters = webhook_dead_letters + dead-lettered emails + failed batches backlog. GET /crons = static CRON_REGISTRY (all 23 Coolify crons) × computed next-run + last-run/outcome/duration from a new cron_runs ledger (migration 00164). cron_runs is populated by a thin /api/jobs/* middleware in main.ts (records job_name from path, http status, duration when the X-Internal-Job-Secret is present); pruned to 30d in the data-retention sweep. Frontend src/pages/admin/jobs.tsx (Jobs / Cron Health / Dead Letters tabs, 20-30s auto-refresh, retry/cancel confirm dialog), route /admin/jobs + 'Jobs & Queues' admin nav item. nextCronRun parser unit-tested (cron-runs_test.ts). Verified: npx tsc --noEmit, npm run build (+prerender 29), deno check src/main.ts, deno lint, deno test (6 pass), eslint — all clean."
     },
     {
       "id": "US-585",
