@@ -12202,8 +12202,8 @@
         "Cross-tenant read is blocked — covered by a tenant-isolation test asserting user B cannot read user A's conversation or messages"
       ],
       "priority": 829,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Foundation story. Mirrors existing RLS own-row patterns (notifications 00007, feedback_messages 000385). Service-role-only writes keep transcript integrity. Next migration number is 00144 (00143 is current max)."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Foundation story. Mirrors existing RLS own-row patterns (notifications 00007, feedback_messages 000385). Service-role-only writes keep transcript integrity. Next migration number is 00144 (00143 is current max). [DONE 2026-06-13] Implemented as migration 00181_support_assistant_schema.sql (not 00144 — that prefix was long taken; current max was 00180). support_conversations + support_messages with status/role as text+CHECK (mirrors feedback_messages). RLS: user reads own row OR workspace_owner_id match; admins read for the inbox; NO client write policy (service-role only); both message SELECT policies carry role <> system-literal so the system prompt is non-selectable. Bumped EXPECTED_SCHEMA_VERSION to 00181; added support_messages to rls-guard PARENT_SCOPED (and classified pre-existing ai_usage_events + waitlist_entries as SERVICE_ROLE_ONLY to clear concurrent-agent guard drift). Cross-tenant PostgREST read tests added to tenant-isolation_test.ts (TEST_USER_A_CONVERSATION_ID). Verified: deno schema-version + rls-guard tests pass; supabase db reset applies clean from zero."
     },
     {
       "id": "US-830",

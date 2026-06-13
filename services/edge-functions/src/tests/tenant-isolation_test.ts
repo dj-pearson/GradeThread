@@ -905,3 +905,59 @@ Deno.test({
     assert(!ids.includes(aId), `B's consignor list leaked A's consignor ${aId}`);
   },
 });
+
+// ── AI Support Assistant (US-829) ────────────────────────────────────────
+//
+// support_conversations + support_messages carry RLS that scopes a read to the
+// caller's own conversations (own row or as workspace owner). Writes are
+// service-role only; the SPA reads its own thread directly via PostgREST. These
+// hit Supabase directly with B's JWT — exactly how the chat panel loads a
+// thread — and assert B sees ZERO of A's rows. Additional env:
+//   TEST_USER_A_CONVERSATION_ID  a support_conversations.id owned by A
+
+// B cannot read A's support conversation through PostgREST (RLS deny → 0 rows).
+Deno.test({
+  name: "B cannot read A's support conversation row",
+  ignore:
+    !CONFIGURED ||
+    !Deno.env.get("TEST_USER_A_CONVERSATION_ID") ||
+    !Deno.env.get("SUPABASE_URL"),
+  fn: async () => {
+    const convId = Deno.env.get("TEST_USER_A_CONVERSATION_ID")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/support_conversations?id=eq.${convId}&select=id`,
+      { headers: { Authorization: `Bearer ${B_JWT!}`, apikey: anon } },
+    );
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    assert(
+      Array.isArray(rows) && rows.length === 0,
+      `B should see 0 of A's support conversations, got ${JSON.stringify(rows)}`,
+    );
+  },
+});
+
+// B cannot read the messages within A's conversation either (the message
+// SELECT policy joins back to the parent's owner; B owns none of it).
+Deno.test({
+  name: "B cannot read messages in A's support conversation",
+  ignore:
+    !CONFIGURED ||
+    !Deno.env.get("TEST_USER_A_CONVERSATION_ID") ||
+    !Deno.env.get("SUPABASE_URL"),
+  fn: async () => {
+    const convId = Deno.env.get("TEST_USER_A_CONVERSATION_ID")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/support_messages?conversation_id=eq.${convId}&select=id`,
+      { headers: { Authorization: `Bearer ${B_JWT!}`, apikey: anon } },
+    );
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    assert(
+      Array.isArray(rows) && rows.length === 0,
+      `B should see 0 messages in A's conversation, got ${JSON.stringify(rows)}`,
+    );
+  },
+});

@@ -1846,3 +1846,20 @@ Branch: ralph/gradethread-build
 - Notes: Picked the highest-priority story that is genuinely verifiable on this Windows host. US-744 (the next-by-id pending) is deliberately DEFERRED — it needs real-device/installed-PWA QA ("NOT shipping blind"); US-745..756 are iOS/Swift (xcodebuild is macOS-only, can't build here). US-766 is web+edge and its deps (US-763 slab render, US-118 composer) all pass. Implementation reuses the existing US-763 Digital Slab render at /slab/cert/:id?format=square instead of building a new compositor: migration 00180 adds listings.slab_image_mode (off/hero/extra) + flipdesk_settings.auto_slab_image (per-user global default). Edge applySlabImagePromotion() injects the slab into the photos[] array IN PLACE (so it flows to both single-SKU and variation publish paths) AFTER the grade-badge burn so the badge lands on the real hero, not the slab; 'hero' unshifts (lead image), 'extra' pushes (supplementary); eBay's 24-image cap is honored by the existing toEbayImageUrls/dedupeAndCapImages; isSlabUrl guard makes relists idempotent. Tenant-safe (US-268): the slab URL is derived from the OWNED item.certificate_url (assemblePublishContext already verifies ownership), the slab endpoint is public-cert-only so it can never leak a private report, and the global default is read scoped by userId. Composer adds a Select (lead/supplementary/off) + a live square preview, gated on the item having a public certificate; marketplaces.tsx adds the global default Switch beside the grade-badge one. New pure helper src/lib/slab-image.ts (mirrors the edge derivation) with src/test/slab-image.test.ts (6 cases). Verified: tsc -b clean, eslint clean (changed files), npm run build green, deno lint + deno check clean on flipdesk-ebay.ts, schema-version test green (00180 matches), vitest slab-image 6/6 pass. Headless caveat: an actual end-to-end eBay publish couldn't be exercised, but the path mirrors the already-shipped grade-badge promotion exactly.
 - Timestamp: 2026-06-13
 ---
+
+## US-829: Schema — support conversation + message store with escalation lifecycle
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00181_support_assistant_schema.sql (new)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00180 -> 00181)
+  - services/edge-functions/src/tests/rls-guard_test.ts (PARENT_SCOPED += support_messages; SERVICE_ROLE_ONLY += ai_usage_events, waitlist_entries)
+  - services/edge-functions/src/tests/tenant-isolation_test.ts (2 cross-tenant PostgREST read tests for support_conversations + support_messages)
+  - prd.json (US-829 passes: true)
+- Notes:
+  * AC literally said migration 00144, but 00144 has long been taken (00143 max note was stale — current max was 00180). Used 00181 to avoid a duplicate-number collision; the table set + RLS is what matters, not the number.
+  * Enums modeled as text + CHECK (status: open/awaiting_user/escalated/resolved/closed; role: user/assistant/human_agent/system) — mirrors feedback_messages 000385, the pattern the story's own notes cite.
+  * RLS: SELECT-only for clients. support_conversations readable when auth.uid()=user_id OR auth.uid()=workspace_owner_id; admins read all (US-839 inbox). support_messages readable only via a parent-ownership EXISTS join AND role<>'system' — the system prompt row is never client-selectable (satisfies the "system never returned" AC). NO INSERT/UPDATE/DELETE policy anywhere → all writes are service-role only.
+  * rls-guard caught two PRE-EXISTING gaps from the concurrent agent (ai_usage_events @00163, waitlist_entries @00165 — both RLS-on/zero-policy admin/service-role ledgers, waitlist even REVOKEs anon/auth). Classified both in SERVICE_ROLE_ONLY so the guard is green again. support_messages added to PARENT_SCOPED (no user_id of its own; tenancy via the conversation FK).
+  * Verified locally: deno schema-version_test + rls-guard_test both pass (10/0, 0 fail); `npm run verify:db` (supabase db reset --no-seed) applies all 00001..00181 cleanly from zero. No frontend files touched, so the web build is unaffected.
+- Timestamp: 2026-06-13
+---

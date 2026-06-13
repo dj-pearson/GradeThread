@@ -38,6 +38,11 @@ const PARENT_SCOPED = [
   // US-603: affiliate earned-link clicks. No user_id of their own — tenancy
   // flows through the code → referral_codes.user_id the owner already holds.
   "affiliate_clicks",
+  // US-829: AI support transcript. No user_id of its own — tenancy flows
+  // through support_conversations (its FK parent). The SELECT policy scopes by
+  // the parent's user_id/workspace_owner_id and excludes system rows; all
+  // writes are service-role only.
+  "support_messages",
 ];
 
 // Tenant tables that are intentionally client-invisible: RLS is enabled and
@@ -74,6 +79,15 @@ const SERVICE_ROLE_ONLY = new Set([
   // the admin billing endpoints via the service-role edge client; the SPA never
   // touches it directly.
   "pending_refunds",
+  // Anthropic per-call token/cost ledger: RLS enabled, zero policies by design
+  // (migration 00163). Appended by the grading pipeline via the service-role
+  // client and read ONLY by the admin AI-spend dashboard; the SPA never reads it.
+  "ai_usage_events",
+  // Launch waitlist capture + review/approve lifecycle: RLS enabled with an
+  // explicit `revoke all from anon, authenticated` and zero policies by design
+  // (migration 00165). Captured by the public edge route and managed ONLY by the
+  // admin waitlist console via the service-role client; the SPA never reads it.
+  "waitlist_entries",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
