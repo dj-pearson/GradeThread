@@ -9139,8 +9139,8 @@
         "Privacy-preserving aggregation (no per-seller leakage)"
       ],
       "priority": 602,
-      "passes": false,
-      "notes": "[P3][Differentiation/Analytics] Deep-dive 2026-06-04. Pure data-asset monetization; current analytics never go beyond a single seller's own numbers."
+      "passes": true,
+      "notes": "[P3][Differentiation/Analytics] Deep-dive 2026-06-04. Pure data-asset monetization; current analytics never go beyond a single seller's own numbers. IMPLEMENTED 2026-06-13: SECURITY DEFINER RPC public.community_benchmarks(p_period_start date) (migration 00173) aggregates platform-wide. Privacy via k-anonymity: every returned brand/category/peer cohort requires >= 5 distinct sellers (MIN_SELLERS=5); only the caller (auth.uid()) sees their own raw numbers; peer comparison exposes only cohort median + caller percentile, never an individual peer value. Client lib src/lib/community-benchmarks.ts, page src/pages/flipdesk/community-insights.tsx at /dashboard/flipdesk/community, sidebar entry under FlipDesk. Returns topBrands (by sell-through), trendingCategories (30d vs prior 30d), you-vs-peers. EXPECTED_SCHEMA_VERSION bumped to 00173. Verified: tsc, build, eslint, supabase db reset, RPC smoke-test."
     },
     {
       "id": "US-603",

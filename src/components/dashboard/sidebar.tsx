@@ -28,6 +28,7 @@ import {
   Eye,
   CalendarClock,
   Handshake,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -104,6 +105,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/scout/buy", icon: ScanBarcode, label: "Buy Decision", end: false, requiresFlipdeskFlag: "compPulls" },
       { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: true },
       { to: "/dashboard/flipdesk/analytics/performance", icon: Eye, label: "Listing Performance", end: false },
+      { to: "/dashboard/flipdesk/community", icon: Users, label: "Community Insights", end: false },
     ],
   },
   {

@@ -1590,3 +1590,10 @@ Branch: ralph/gradethread-build
   - Verified: deno check src/main.ts, deno lint, deno test (ai-authenticity + grade-pricing 25 pass; full suite 967 pass / only the 2 pre-existing US-600 failures remain), npx tsc --noEmit, npm run build, eslint.
 - Timestamp: 2026-06-13
 ---
+
+## US-602: Add reseller benchmarking / community insights
+- Status: COMPLETE
+- Files changed: supabase/migrations/00173_community_benchmarks.sql (new), src/lib/community-benchmarks.ts (new), src/pages/flipdesk/community-insights.tsx (new), src/routes/index.tsx, src/components/dashboard/sidebar.tsx, services/edge-functions/src/lib/schema-version.ts, prd.json
+- Notes: Cross-tenant anonymized analytics. Unlike every other analytics RPC (SECURITY INVOKER, single-tenant), community_benchmarks is SECURITY DEFINER because it must aggregate across ALL sellers. Privacy is earned via k-anonymity: every returned brand/category/peer cohort requires >= 5 distinct sellers; the only seller-specific values are the caller's own (auth.uid()). Peer comparison exposes cohort median + caller percentile only. Re-derives items_full's per-item facts (latest listing/sale via lateral joins) over all users since the security_invoker items_full view can't cross tenants. GOTCHA: percentile_cont returns double precision -> round(x::numeric, n) (round(double,int) doesn't exist in PG). Verified with supabase db reset + live RPC smoke-test (returns valid empty-state shape, no error).
+- Timestamp: 2026-06-13
+---
