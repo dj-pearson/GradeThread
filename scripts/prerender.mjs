@@ -240,3 +240,12 @@ if (existsSync(redirectsPath)) {
 } else {
   fail("dist/_redirects not found — cannot enforce the trailing-slash policy.");
 }
+
+// Force a clean exit. All work above is synchronous/awaited and finished by here
+// (vite.close() ran, dist files + _headers + _redirects are written). Vite's
+// middleware-mode dev server leaves dangling handles on Windows even after
+// close() — the esbuild service child, chokidar watchers, the stdio pipe — so the
+// Node event loop never drains and the process hangs at the end instead of
+// exiting. That stalled every foreground `npm run build` (and leaked one
+// prerender process + its esbuild workers per Ralph iteration). Exit explicitly.
+process.exit(0);
