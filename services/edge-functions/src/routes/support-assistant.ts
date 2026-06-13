@@ -26,7 +26,28 @@ import {
   getLightweightModel,
   isCachingEnabled,
 } from "../lib/ai-config.ts";
-import { incrementUsage, recordAbuseEvent } from "../lib/support-metering.ts";
+import {
+  applySupportLockout,
+  bumpSupportMinuteCounter,
+  countHighSeverityAbuseEvents,
+  getSupportLockoutCount,
+  getTodaySupportUsage,
+  incrementUsage,
+  recordAbuseEvent,
+} from "../lib/support-metering.ts";
+import {
+  classifyJailbreakHeuristic,
+  combineVerdicts,
+  evaluateLockout,
+  evaluateRateLimit,
+  type HeuristicVerdict,
+  makeHaikuClassifier,
+  SUPPORT_ABUSE_THRESHOLDS,
+} from "../lib/support-abuse.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
+import type { FlipdeskPlan } from "../lib/pricing-config.ts";
+import { notifyUser } from "../lib/notify.ts";
+import { sendSupportAbuseAlertEmail } from "../lib/email.ts";
 import {
   ASSISTANT_TOOLS,
   type AssistantStep,
@@ -79,6 +100,216 @@ async function loadGateAndDecide(userId: string, ownerId: string) {
     support_assistant_locked_until: userRow?.support_assistant_locked_until ??
       null,
   });
+}
+
+// ── Abuse controls (US-836): rate caps + jailbreak/flood detection + lockout ──
+
+// Resolve the owner's EFFECTIVE plan tier — the per-tier caps in
+// SUPPORT_ABUSE_THRESHOLDS key off this. Defaults to the strictest tier (free)
+// if the row can't be read.
+async function resolveEffectivePlan(ownerId: string): Promise<FlipdeskPlan> {
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select(
+      "flipdesk_plan, subscription_status, trial_ends_at, past_due_since",
+    )
+    .eq("id", ownerId)
+    .maybeSingle();
+  const u = data as {
+    flipdesk_plan?: string | null;
+    subscription_status?: string | null;
+    trial_ends_at?: string | null;
+    past_due_since?: string | null;
+  } | null;
+  if (!u) return "free";
+  return effectivePlanFor(
+    u.flipdesk_plan ?? "free",
+    u.subscription_status ?? null,
+    u.trial_ends_at ?? null,
+    new Date(),
+    u.past_due_since ?? null,
+  ) as FlipdeskPlan;
+}
+
+// Alert the platform admins that a user was auto-locked: in-app to every
+// admin/super_admin + an email to the configured abuse-alert inbox. Best-effort
+// — never throws (an alert failure must not change the enforcement outcome).
+async function alertAdminsOfLockout(
+  userId: string,
+  reason: string,
+  cooldownMs: number,
+  lockoutCount: number,
+): Promise<void> {
+  const cooldownMinutes = Math.max(1, Math.round(cooldownMs / 60000));
+  try {
+    const { data: locked } = await supabaseAdmin
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+    const userEmail = (locked as { email?: string } | null)?.email ?? userId;
+
+    // In-app: notify every admin / super_admin (mirrors the dispute-filed flow).
+    const { data: admins } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .in("role", ["admin", "super_admin"]);
+    for (const a of (admins ?? []) as Array<{ id: string }>) {
+      await notifyUser(a.id, {
+        type: "system",
+        title: "Support assistant abuse lockout",
+        message:
+          `${userEmail} was locked out of the support assistant for ` +
+          `${cooldownMinutes}m (${reason}).`,
+        link: "/admin",
+      });
+    }
+
+    // Email the abuse-alert inbox (categorized → durable retry).
+    const to = Deno.env.get("SUPPORT_ABUSE_ALERT_EMAIL") ||
+      Deno.env.get("SMTP_ADMIN_EMAIL") || "";
+    if (to) {
+      await sendSupportAbuseAlertEmail(to, {
+        userEmail,
+        userId,
+        reason,
+        cooldownMinutes,
+        lockoutCount,
+      });
+    }
+  } catch (e) {
+    console.error(
+      "[support-assistant] lockout alert failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
+export type AbuseControlResult =
+  | { ok: true }
+  | {
+    ok: false;
+    status: 403 | 429;
+    code: string;
+    message: string;
+    retryAfterSeconds?: number;
+  };
+
+// The pre-turn abuse pipeline. Runs AFTER the gate, BEFORE any conversation
+// write or model call, so an abusive/over-cap turn never costs a token:
+//   1. per-minute + per-day message/token caps (per plan tier),
+//   2. jailbreak/injection classification (heuristic + best-effort Haiku),
+//   3. accumulation → graduated lockout (sets support_assistant_locked_until,
+//      which the gate honors) + admin alert.
+async function runPreTurnAbuseControls(
+  userId: string,
+  ownerId: string,
+  message: string,
+  conversationId: string | null,
+  now: Date = new Date(),
+): Promise<AbuseControlResult> {
+  const plan = await resolveEffectivePlan(ownerId);
+
+  // (1) Rate caps. Bump the per-minute counter first, then read today's rollup.
+  const minuteCount = await bumpSupportMinuteCounter(userId, now);
+  const today = await getTodaySupportUsage(userId);
+  const rate = evaluateRateLimit({
+    plan,
+    minuteCount,
+    dayMessageCount: today.messageCount,
+    dayTokenCount: today.inputTokens + today.outputTokens,
+  }, now);
+
+  let dailyCapExceeded = false;
+  if (!rate.allowed) {
+    if (rate.code === "rate_limited_minute") {
+      // Record the burst as a flood event (HIGH when it's a hard burst — that
+      // severity counts toward the lockout threshold).
+      await recordAbuseEvent(
+        userId,
+        "flood",
+        rate.flood ? "high" : "medium",
+        `per-minute burst: ${minuteCount} msgs/min (cap ${
+          SUPPORT_ABUSE_THRESHOLDS.perMinuteMessageCap[plan]
+        })`,
+        conversationId ?? undefined,
+      );
+    } else {
+      dailyCapExceeded = true;
+    }
+  } else {
+    // (2) Classifier — only worth running on a turn we'd otherwise process.
+    const heuristic = classifyJailbreakHeuristic(message);
+    let model: HeuristicVerdict = { flagged: false };
+    try {
+      const classify = makeHaikuClassifier(
+        getAnthropicClient(),
+        getLightweightModel(),
+      );
+      model = await classify(message);
+    } catch {
+      model = { flagged: false };
+    }
+    const verdict = combineVerdicts(heuristic, model);
+    if (verdict.flagged && verdict.type && verdict.severity) {
+      await recordAbuseEvent(
+        userId,
+        verdict.type,
+        verdict.severity,
+        `classifier flag (${verdict.marker ?? "unknown"})`,
+        conversationId ?? undefined,
+      );
+    }
+  }
+
+  // (3) Accumulation → graduated lockout. Count high-severity events INCLUDING
+  // any just recorded this turn, then decide.
+  const sinceIso = new Date(now.getTime() - SUPPORT_ABUSE_THRESHOLDS.abuseWindowMs)
+    .toISOString();
+  const highSeverityEventsInWindow = await countHighSeverityAbuseEvents(
+    userId,
+    sinceIso,
+  );
+  const priorLockouts = await getSupportLockoutCount(userId);
+  const lockout = evaluateLockout({
+    highSeverityEventsInWindow,
+    dailyCapExceeded,
+    priorLockouts,
+  }, now);
+
+  if (lockout.lock) {
+    const newCount = await applySupportLockout(
+      userId,
+      lockout.lockedUntil.toISOString(),
+    );
+    await alertAdminsOfLockout(
+      userId,
+      lockout.reason,
+      lockout.cooldownMs,
+      newCount ?? priorLockouts + 1,
+    );
+    return {
+      ok: false,
+      status: 403,
+      code: "locked",
+      message:
+        "Access to the support assistant has been temporarily paused due to " +
+        "unusual activity. Please try again later, or contact support if you " +
+        "think this is a mistake.",
+    };
+  }
+
+  if (!rate.allowed) {
+    return {
+      ok: false,
+      status: 429,
+      code: rate.code,
+      message: rate.message,
+      retryAfterSeconds: rate.retryAfterSeconds,
+    };
+  }
+
+  return { ok: true };
 }
 
 // ── Build the live streaming step (one model turn, relaying text deltas) ───────
@@ -188,6 +419,23 @@ supportAssistantRoutes.post("/message", async (c) => {
   const conversationIdArg = typeof body.conversationId === "string"
     ? body.conversationId
     : null;
+
+  // ABUSE CONTROLS (US-836) — rate caps + jailbreak/flood detection + graduated
+  // lockout — BEFORE any conversation write or model call. A tripped limit
+  // returns a clear, non-leaking message (and an abusive turn never costs a
+  // token). Lockout is set here; the gate (above) honors it on the next turn.
+  const abuse = await runPreTurnAbuseControls(
+    userId,
+    ownerId,
+    message,
+    conversationIdArg,
+  );
+  if (!abuse.ok) {
+    if (abuse.retryAfterSeconds !== undefined) {
+      c.header("Retry-After", String(abuse.retryAfterSeconds));
+    }
+    return c.json({ error: abuse.message, code: abuse.code }, abuse.status);
+  }
 
   // Load (must be the caller's own) or create the conversation.
   let conversationId: string;

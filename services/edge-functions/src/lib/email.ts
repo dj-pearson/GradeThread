@@ -1116,6 +1116,58 @@ export async function sendDisputeFiledAdminEmail(
   });
 }
 
+// ─── Support-assistant abuse lockout (internal/admin alert) ─────────
+
+interface SupportAbuseAlertData {
+  userEmail: string;
+  userId: string;
+  reason: string;
+  cooldownMinutes: number;
+  lockoutCount: number;
+}
+
+/**
+ * US-836: alert the platform admin that the abuse pipeline locked a user out of
+ * the support assistant (graduated cooldown). Categorized so a transient SMTP
+ * failure is retried from the outbox (US-801).
+ */
+export async function sendSupportAbuseAlertEmail(
+  to: string,
+  data: SupportAbuseAlertData,
+): Promise<boolean> {
+  const content = `
+    <div style="background:${BRAND_RED};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      Support assistant abuse lockout
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      A user was locked out of the support assistant
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      The abuse pipeline automatically paused this user's access for
+      <strong>${data.cooldownMinutes} minute${data.cooldownMinutes === 1 ? "" : "s"}</strong>
+      (lockout #${data.lockoutCount}).
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 8px;">
+      <tr>
+        <td style="padding: 12px; background:${BRAND_GRAY}; border-radius: 8px; font-size: 14px; color:#333;">
+          <span style="color:#666;font-size:12px;">User</span><br>
+          ${escapeHtml(data.userEmail)} <span style="color:#999;">(${escapeHtml(data.userId)})</span>
+          <br><br>
+          <span style="color:#666;font-size:12px;">Trigger</span><br>
+          ${escapeHtml(data.reason)}
+        </td>
+      </tr>
+    </table>
+    ${ctaButton("Open admin dashboard", `${SITE_URL}/admin`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `🔒 Support assistant lockout: ${data.userEmail}`,
+    html: emailLayout(content),
+    category: "support_abuse_alert", // US-801: durable retry on transient failure
+  });
+}
+
 // ─── Referral reward ────────────────────────────────────────────────
 
 interface ReferralRewardData {
