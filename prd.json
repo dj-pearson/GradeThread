@@ -9050,8 +9050,8 @@
         "Aggregates across the seller's history with clear methodology"
       ],
       "priority": 595,
-      "passes": false,
-      "notes": "[P1][Differentiation/Analytics] Deep-dive 2026-06-04. US-459 handles returns mechanically; no analytics tying returns to grades — the hard seller-ROI story."
+      "passes": true,
+      "notes": "[P1][Differentiation/Analytics] Deep-dive 2026-06-04. US-459 handles returns mechanically; no analytics tying returns to grades — the hard seller-ROI story. | IMPL 2026-06-12: flipdesk_return_reduction RPC (00168, security_invoker over items_full) aggregates fulfilled (completed+refunded) sales into grade bands; return=refunded. New Returns tab on /dashboard/flipdesk/analytics/returns with low-vs-high & graded-vs-ungraded multipliers (MIN_RETURN_SAMPLE=10), per-band table, and an optional grade-backed condition-guarantee blurb built from the seller own high-grade track record. Lib: src/lib/flipdesk-returns-analytics.ts."
     },
     {
       "id": "US-596",

@@ -1,7 +1,16 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, TrendingUp, Award } from "lucide-react";
+import { toast } from "sonner";
+import {
+  BarChart3,
+  TrendingUp,
+  Award,
+  ShieldCheck,
+  Undo2,
+  Copy,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -32,6 +41,13 @@ import {
   fetchSellThrough,
   fetchGradingRoi,
 } from "@/lib/flipdesk-analytics-server";
+import {
+  fetchReturnReduction,
+  gradedReturnAdvantage,
+  lowVsHighBandMultiplier,
+  MIN_RETURN_SAMPLE,
+  type ReturnStat,
+} from "@/lib/flipdesk-returns-analytics";
 import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
@@ -66,7 +82,9 @@ export function FlipdeskAnalyticsPage() {
   const navigate = useNavigate();
   const tab = location.pathname.endsWith("/grading-roi")
     ? "grading-roi"
-    : "sell-through";
+    : location.pathname.endsWith("/returns")
+      ? "returns"
+      : "sell-through";
 
   return (
     <div className="space-y-6">
@@ -88,13 +106,16 @@ export function FlipdeskAnalyticsPage() {
           navigate(
             v === "grading-roi"
               ? "/dashboard/flipdesk/analytics/grading-roi"
-              : "/dashboard/flipdesk/analytics",
+              : v === "returns"
+                ? "/dashboard/flipdesk/analytics/returns"
+                : "/dashboard/flipdesk/analytics",
           )
         }
       >
         <TabsList>
           <TabsTrigger value="sell-through">Sell-through</TabsTrigger>
           <TabsTrigger value="grading-roi">Grading ROI</TabsTrigger>
+          <TabsTrigger value="returns">Return reduction</TabsTrigger>
         </TabsList>
 
         <TabsContent value="sell-through" className="mt-6">
@@ -103,6 +124,10 @@ export function FlipdeskAnalyticsPage() {
 
         <TabsContent value="grading-roi" className="mt-6">
           <GradingRoiReport />
+        </TabsContent>
+
+        <TabsContent value="returns" className="mt-6">
+          <ReturnReductionReport />
         </TabsContent>
       </Tabs>
     </div>
@@ -376,5 +401,246 @@ function GradingRoiReport() {
         </Card>
       )}
     </div>
+  );
+}
+
+// US-595: returns tied back to grade. The "items graded <=6 return Nx more"
+// headline + a grade-backed condition-guarantee surface the seller can copy
+// into their listings. Return rate = refunded ÷ fulfilled (shipped) sales.
+function ReturnReductionReport() {
+  const user = useAuthStore((s) => s.user);
+  const [preset, setPreset] = useState<Preset>("all");
+
+  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const { data, isLoading } = useQuery({
+    queryKey: ["items_full", "analytics", "returns", user?.id, preset],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchReturnReduction(periodStart),
+  });
+
+  if (isLoading) return <Loading />;
+
+  const summary = data ?? {
+    overall: { sold: 0, returns: 0, returnRate: null } as ReturnStat,
+    graded: { sold: 0, returns: 0, returnRate: null } as ReturnStat,
+    ungraded: { sold: 0, returns: 0, returnRate: null } as ReturnStat,
+    bands: [],
+  };
+
+  const advantage = gradedReturnAdvantage(summary);
+  const lowVsHigh = lowVsHighBandMultiplier(summary);
+  const highBand = summary.bands.find((b) => b.key === "high");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All time</SelectItem>
+            <SelectItem value="30d">Last 30 days</SelectItem>
+            <SelectItem value="90d">Last 90 days</SelectItem>
+            <SelectItem value="12mo">Last 12 months</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {summary.overall.sold === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            No shipped sales in this range yet. Once you have completed and
+            refunded sales, we&apos;ll show how returns track with grade.
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Undo2 className="h-4 w-4" />
+                Do lower grades come back more often?
+              </CardTitle>
+              <CardDescription>
+                Return rate = refunded ÷ shipped (completed + refunded) sales,
+                across your history. Bands with fewer than {MIN_RETURN_SAMPLE}{" "}
+                shipped sales are shown but kept out of the headlines — too small
+                to trust.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {lowVsHigh ? (
+                <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                  Items{" "}
+                  <span className="font-medium">{lowVsHigh.low.label}</span>{" "}
+                  come back{" "}
+                  <span className="font-bold text-destructive">
+                    {lowVsHigh.multiplier.toFixed(1)}× more often
+                  </span>{" "}
+                  than your{" "}
+                  <span className="font-medium">{lowVsHigh.high.label}</span>{" "}
+                  items ({pct(lowVsHigh.low.returnRate)} vs{" "}
+                  {pct(lowVsHigh.high.returnRate)}).
+                </p>
+              ) : null}
+              {advantage ? (
+                <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                  Your graded items return{" "}
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                    {advantage.toFixed(1)}× less often
+                  </span>{" "}
+                  than ungraded ({pct(summary.graded.returnRate)} vs{" "}
+                  {pct(summary.ungraded.returnRate)}).
+                </p>
+              ) : null}
+              {!lowVsHigh && !advantage ? (
+                <p className="py-2 text-center text-sm text-muted-foreground">
+                  Not enough shipped sales yet to call a reliable difference —
+                  need {MIN_RETURN_SAMPLE}+ on each side you&apos;re comparing.
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Return rate by grade band</CardTitle>
+            </CardHeader>
+            <CardContent className="px-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Grade band</TableHead>
+                    <TableHead className="text-right">Shipped</TableHead>
+                    <TableHead className="text-right">Returns</TableHead>
+                    <TableHead className="text-right">Return rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {summary.bands.map((b) => {
+                    const lowN = b.sold > 0 && b.sold < MIN_RETURN_SAMPLE;
+                    return (
+                      <TableRow
+                        key={b.key}
+                        className={b.sold === 0 ? "opacity-50" : ""}
+                      >
+                        <TableCell className="font-medium">
+                          {b.label}
+                          {lowN && (
+                            <Badge
+                              variant="outline"
+                              className="ml-2 text-[10px]"
+                            >
+                              low n
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {b.sold}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {b.returns}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {pct(b.returnRate)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  <TableRow className="border-t-2 font-medium">
+                    <TableCell>All shipped sales</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {summary.overall.sold}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {summary.overall.returns}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {pct(summary.overall.returnRate)}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <ConditionGuaranteeCard highBand={highBand} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// AC #2: an OPTIONAL grade-backed "condition guarantee" surface that targets
+// return reduction. Only meaningful once the seller has a trustworthy
+// high-grade track record; we build the guarantee blurb from their own numbers
+// (no fabricated claims) and let them copy it straight into a listing.
+function ConditionGuaranteeCard({
+  highBand,
+}: {
+  highBand:
+    | { sold: number; returns: number; returnRate: number | null }
+    | undefined;
+}) {
+  const ready =
+    !!highBand &&
+    highBand.sold >= MIN_RETURN_SAMPLE &&
+    highBand.returnRate != null;
+
+  const keptRate =
+    highBand && highBand.returnRate != null ? 1 - highBand.returnRate : null;
+
+  const blurb = ready
+    ? `Condition guarantee: this item is independently graded 8.5–10.0. Across ${
+        highBand!.sold
+      } graded sales at this tier, ${pct(
+        keptRate,
+      )} shipped return-free. If it arrives in worse condition than its grade certificate states, return it for a full refund.`
+    : "";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ShieldCheck className="h-4 w-4" />
+          Grade-backed condition guarantee
+        </CardTitle>
+        <CardDescription>
+          Offering a guarantee on your highest-graded items signals confidence
+          and pulls returns down further. We only generate it from your real
+          track record.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {ready ? (
+          <>
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+              {blurb}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard
+                  .writeText(blurb)
+                  .then(() => toast.success("Guarantee text copied"))
+                  .catch(() => toast.error("Couldn't copy to clipboard"));
+              }}
+            >
+              <Copy className="mr-2 h-4 w-4" />
+              Copy guarantee text
+            </Button>
+          </>
+        ) : (
+          <p className="py-2 text-sm text-muted-foreground">
+            Need {MIN_RETURN_SAMPLE}+ shipped sales graded 8.5–10.0 before we
+            can back a guarantee with your own numbers. Keep grading your best
+            items and check back.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

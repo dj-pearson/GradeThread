@@ -328,6 +328,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/expenses", element: <SuspenseWrapper><FlipdeskExpensesPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/grading-roi", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/analytics/returns", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/performance", element: <SuspenseWrapper><FlipdeskListingPerformancePage /></SuspenseWrapper> },
               { path: "/dashboard/account", element: <SuspenseWrapper><AccountPage /></SuspenseWrapper> },
               { path: "/dashboard/settings", element: <SuspenseWrapper><SettingsPage /></SuspenseWrapper> },
