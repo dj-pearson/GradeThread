@@ -9164,8 +9164,8 @@
         "FAQ accordion made keyboard/ARIA-complete (aria-expanded/controls/region)"
       ],
       "priority": 604,
-      "passes": false,
-      "notes": "[P2][UX/Conversion] Deep-dive 2026-06-04. landing.tsx has zero social proof, no screenshots, no sample cert; FAQItem is a plain button with no ARIA. Biggest conversion lever."
+      "passes": true,
+      "notes": "[P2][UX/Conversion] Done 2026-06-13. Added a 'See the actual product' section with an in-page SampleCertificatePreview (score circle, tier, 5 weighted factor bars, VerifiedBadge) that links to a LIVE cert via new VITE_SAMPLE_CERTIFICATE_ID env var (falls back to /signup so it's never a dead link). Added a proof band of OBJECTIVE product facts derived from the grading taxonomy (factor count, 1.0–10.0 scale, tier count, garment-category count) — no fabricated ratings/user counts per the policy. Rewrote FAQItem to be ARIA-complete: <button> with aria-expanded + aria-controls, answer wrapped in role=region + aria-labelledby toggled via the hidden attribute (verified 9× in prerendered dist/index.html). tsc/build/eslint clean."
     },
     {
       "id": "US-605",

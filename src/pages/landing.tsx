@@ -14,12 +14,18 @@ import {
   Compass,
   Boxes,
   Tag,
+  Layers,
+  Gauge,
+  Shapes,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { SEO } from "@/components/seo";
 import { Image } from "@/components/responsive-image";
+import { VerifiedBadge } from "@/components/verified/verified-badge";
 import {
   organizationLd,
   webSiteLd,
@@ -33,6 +39,9 @@ import {
   CREDIT_PACKS,
   FLIPDESK_PLANS,
   GRADETHREAD_TIERS,
+  GRADE_FACTORS,
+  GRADE_TIERS,
+  GARMENT_CATEGORIES,
 } from "@/lib/constants";
 import type { FlipdeskPlan as FlipdeskPlanKey, BillingInterval } from "@/types/database";
 
@@ -354,23 +363,171 @@ function IncludedGradesTable() {
   );
 }
 
-function FAQItem({ q, a }: { q: string; a: string }) {
+// US-604: keyboard- and screen-reader-complete disclosure. The trigger is a
+// real <button> (Enter/Space + focusable for free) that owns aria-expanded and
+// aria-controls; the answer is a labelled region toggled with the `hidden`
+// attribute so collapsed content stays out of the a11y tree and tab order.
+function FAQItem({ q, a, index }: { q: string; a: string; index: number }) {
   const [open, setOpen] = useState(false);
+  const buttonId = `faq-trigger-${index}`;
+  const panelId = `faq-panel-${index}`;
   return (
     <div className="border-b last:border-b-0">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between py-4 text-left text-sm font-medium hover:text-brand-navy dark:hover:text-foreground"
+      <h3 className="m-0">
+        <button
+          id={buttonId}
+          type="button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen(!open)}
+          className="flex w-full items-center justify-between gap-2 py-4 text-left text-sm font-medium hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:hover:text-foreground"
+        >
+          {q}
+          <ChevronDown
+            aria-hidden="true"
+            className={`ml-2 h-4 w-4 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+      </h3>
+      <div
+        id={panelId}
+        role="region"
+        aria-labelledby={buttonId}
+        hidden={!open}
       >
-        {q}
-        <ChevronDown
-          className={`ml-2 h-4 w-4 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open && (
         <p className="pb-4 text-sm leading-relaxed text-muted-foreground">{a}</p>
-      )}
+      </div>
     </div>
+  );
+}
+
+// US-604: objective, verifiable product facts — NOT customer counts or star
+// ratings (no-fake-ratings policy). Counts are derived from the live grading
+// taxonomy so they can never drift from what the product actually does.
+const PROOF_STATS: { value: string; label: string; icon: typeof Layers }[] = [
+  {
+    value: String(Object.keys(GRADE_FACTORS).length),
+    label: "weighted condition factors",
+    icon: Layers,
+  },
+  {
+    value: "1.0–10.0",
+    label: "objective grading scale",
+    icon: Gauge,
+  },
+  {
+    value: String(GRADE_TIERS.length),
+    label: "standardized condition tiers",
+    icon: BarChart3,
+  },
+  {
+    value: `${GARMENT_CATEGORIES.length}+`,
+    label: "garment categories supported",
+    icon: Shapes,
+  },
+];
+
+// US-604: an in-page recreation of a real grade certificate — the strongest
+// conversion asset. The numbers are an illustrative SAMPLE (clearly labelled),
+// not aggregate/social data. When VITE_SAMPLE_CERTIFICATE_ID is configured the
+// CTA links to the LIVE certificate; otherwise it falls back to signup so the
+// section is never a dead end.
+const SAMPLE_CERT = {
+  title: "Patagonia Better Sweater Fleece Jacket",
+  overallScore: 9.0,
+  tier: "NWOT",
+  factors: [
+    { key: "fabric_condition" as const, score: 9.5 },
+    { key: "structural_integrity" as const, score: 9.0 },
+    { key: "cosmetic_appearance" as const, score: 8.5 },
+    { key: "functional_elements" as const, score: 9.0 },
+    { key: "odor_cleanliness" as const, score: 9.0 },
+  ],
+};
+
+function SampleCertificatePreview() {
+  const sampleId = import.meta.env.VITE_SAMPLE_CERTIFICATE_ID?.trim();
+  return (
+    <Card className="overflow-hidden border-border/60 shadow-lg glass-card">
+      <div className="flex items-center justify-between gap-2 bg-brand-navy px-5 py-3 text-white">
+        <span className="flex items-center gap-2 text-sm font-semibold">
+          <Shield className="h-4 w-4" />
+          Verified Grade Certificate
+        </span>
+        <Badge variant="secondary" className="bg-white/15 text-white">
+          Sample
+        </Badge>
+      </div>
+      <CardContent className="space-y-6 pt-6">
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
+          <div className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-full border-4 border-emerald-500">
+            <span className="text-3xl font-bold text-emerald-500">
+              {SAMPLE_CERT.overallScore.toFixed(1)}
+            </span>
+          </div>
+          <div className="text-center sm:text-left">
+            <Badge
+              variant="outline"
+              className="border-emerald-200 bg-emerald-100 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+            >
+              {SAMPLE_CERT.tier}
+            </Badge>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Overall Condition Grade
+            </p>
+            <p className="mt-2 text-base font-medium">{SAMPLE_CERT.title}</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {SAMPLE_CERT.factors.map(({ key, score }) => {
+            const factor = GRADE_FACTORS[key];
+            return (
+              <div key={key} className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium">
+                    {factor.label}{" "}
+                    <span className="text-muted-foreground">
+                      ({(factor.weight * 100).toFixed(0)}%)
+                    </span>
+                  </span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {score.toFixed(1)}
+                  </span>
+                </div>
+                <Progress
+                  value={score * 10}
+                  className="h-1.5 [&>div]:bg-emerald-500"
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex justify-center">
+          <VerifiedBadge
+            score={SAMPLE_CERT.overallScore}
+            tier={SAMPLE_CERT.tier}
+          />
+        </div>
+
+        {sampleId ? (
+          <Link to={`/cert/${sampleId}`} className="block">
+            <Button className="w-full bg-brand-navy text-white hover:bg-brand-navy/90">
+              View the live certificate
+              <ExternalLink className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        ) : (
+          <Link to="/signup" className="block">
+            <Button className="w-full bg-brand-navy text-white hover:bg-brand-navy/90">
+              Grade your first item free
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -450,6 +607,62 @@ export function LandingPage() {
               See How It Works
             </Button>
           </a>
+        </div>
+      </section>
+
+      {/* Proof band — objective product facts only (no fabricated ratings). */}
+      <section className="border-t border-b bg-brand-navy px-6 py-10 text-white">
+        <div className="mx-auto max-w-5xl">
+          <p className="text-center text-xs font-semibold uppercase tracking-wider text-white/60">
+            One published, objective methodology
+          </p>
+          <dl className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-4">
+            {PROOF_STATS.map((stat) => (
+              <div key={stat.label} className="flex flex-col items-center text-center">
+                <stat.icon aria-hidden="true" className="mb-2 h-5 w-5 text-brand-red" />
+                <dt className="sr-only">{stat.label}</dt>
+                <dd className="text-3xl font-extrabold font-display tabular-nums">
+                  {stat.value}
+                </dd>
+                <p aria-hidden="true" className="mt-1 text-xs text-white/70">
+                  {stat.label}
+                </p>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* See the product — embedded sample certificate (US-604). */}
+      <section className="px-6 py-20">
+        <div className="mx-auto grid max-w-5xl items-center gap-12 lg:grid-cols-2">
+          <div>
+            <Badge variant="secondary" className="mb-4 rounded-full px-3 py-1 glass-card">
+              See the actual product
+            </Badge>
+            <h2 className="text-3xl font-extrabold font-display">
+              Every grade ends in a certificate buyers trust
+            </h2>
+            <p className="mt-4 text-muted-foreground">
+              This is exactly what your buyers see: an overall score, a
+              tier, the five weighted factor scores, and a verifiable badge you
+              can drop straight into any listing. Scannable, shareable, and
+              backed by one published standard.
+            </p>
+            <ul className="mt-6 space-y-3 text-sm">
+              {[
+                "Objective 1.0–10.0 score with a plain-language tier",
+                "Transparent factor-by-factor breakdown",
+                "A scannable badge for eBay, Poshmark, Mercari, Depop & Grailed",
+              ].map((point) => (
+                <li key={point} className="flex items-start gap-2">
+                  <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600 dark:text-green-400" />
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <SampleCertificatePreview />
         </div>
       </section>
 
@@ -615,8 +828,8 @@ export function LandingPage() {
             Frequently Asked Questions
           </h2>
           <div className="mt-10 rounded-lg border bg-background p-6">
-            {faqs.map((faq) => (
-              <FAQItem key={faq.q} q={faq.q} a={faq.a} />
+            {faqs.map((faq, i) => (
+              <FAQItem key={faq.q} q={faq.q} a={faq.a} index={i} />
             ))}
           </div>
         </div>
