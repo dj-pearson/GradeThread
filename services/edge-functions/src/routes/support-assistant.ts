@@ -47,7 +47,10 @@ import {
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
 import type { FlipdeskPlan } from "../lib/pricing-config.ts";
 import { notifyUser } from "../lib/notify.ts";
-import { sendSupportAbuseAlertEmail } from "../lib/email.ts";
+import {
+  sendSupportAbuseAlertEmail,
+  sendSupportEscalationEmail,
+} from "../lib/email.ts";
 import {
   ASSISTANT_TOOLS,
   type AssistantStep,
@@ -60,6 +63,15 @@ import {
   TOOL_CAP_FALLBACK,
   type ToolContext,
 } from "../lib/support-assistant-engine.ts";
+import {
+  adminThreadPath,
+  decideEscalation,
+  type EscalationSink,
+  ESCALATION_HANDOFF_MESSAGE,
+  ESCALATION_IDLE_MESSAGE,
+  HUMAN_HANDLED_STATUSES,
+  performEscalation,
+} from "../lib/support-escalation.ts";
 
 export const supportAssistantRoutes = new Hono<{
   Variables: {
@@ -183,6 +195,96 @@ async function alertAdminsOfLockout(
       e instanceof Error ? e.message : String(e),
     );
   }
+}
+
+// ── Human escalation (US-837): owner notification + the side-effect sink ──────
+
+// Notify the human support team that a conversation was handed off: in-app to
+// every admin / super_admin + an email to the configured support inbox, each
+// with a deep link to the escalated thread in the admin inbox (US-839).
+// Best-effort — never throws (a notification failure must not undo the handoff).
+async function notifyOwnerOfEscalation(
+  conversationId: string,
+  userId: string,
+  reason: string,
+  summary: string,
+  trigger: string,
+): Promise<void> {
+  const link = adminThreadPath(conversationId);
+  try {
+    const { data: u } = await supabaseAdmin
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+    const userEmail = (u as { email?: string } | null)?.email ?? userId;
+
+    // In-app: notify every admin / super_admin (mirrors the lockout-alert flow).
+    const { data: admins } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .in("role", ["admin", "super_admin"]);
+    for (const a of (admins ?? []) as Array<{ id: string }>) {
+      await notifyUser(a.id, {
+        type: "system",
+        title: "Support conversation escalated",
+        message: `${userEmail} needs a human: ${reason}`,
+        link,
+      });
+    }
+
+    // Email the support inbox (categorized → durable retry).
+    const to = Deno.env.get("SUPPORT_ESCALATION_EMAIL") ||
+      Deno.env.get("SUPPORT_ABUSE_ALERT_EMAIL") ||
+      Deno.env.get("SMTP_ADMIN_EMAIL") || "";
+    if (to) {
+      await sendSupportEscalationEmail(to, {
+        userEmail,
+        userId,
+        conversationId,
+        reason,
+        summary,
+        trigger,
+      });
+    }
+  } catch (e) {
+    console.error(
+      "[support-assistant] escalation notify failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
+// Build the EscalationSink the route hands to performEscalation: the real
+// service-role status flip + owner notification + usage metering.
+function makeEscalationSink(): EscalationSink {
+  return {
+    setConversationEscalated: async (i) => {
+      await supabaseAdmin
+        .from("support_conversations")
+        .update({
+          status: "escalated",
+          escalation_reason: i.reason,
+          escalation_summary: i.summary,
+          escalation_trigger: i.trigger,
+          escalated_at: i.escalatedAtIso,
+          // A human now owns the thread — reset the unresolved-turn counter.
+          unresolved_turns: 0,
+        } as never)
+        // Tenant scope: only ever the caller's OWN conversation.
+        .eq("id", i.conversationId)
+        .eq("user_id", i.userId);
+    },
+    notifyOwner: (i) =>
+      notifyOwnerOfEscalation(
+        i.conversationId,
+        i.userId,
+        i.reason,
+        i.summary,
+        i.trigger,
+      ),
+    meterEscalation: (uid) => incrementUsage(uid, { escalations: 1 }),
+  };
 }
 
 export type AbuseControlResult =
@@ -439,15 +541,28 @@ supportAssistantRoutes.post("/message", async (c) => {
 
   // Load (must be the caller's own) or create the conversation.
   let conversationId: string;
+  // Consecutive unresolved turns carried into THIS turn (US-837 auto-escalation).
+  let priorUnresolvedTurns = 0;
+  // Status before this turn — used to short-circuit human-held (escalated) threads.
+  let currentStatus = "open";
   if (conversationIdArg) {
     const { data: conv } = await supabaseAdmin
       .from("support_conversations")
-      .select("id")
+      .select("id, status, unresolved_turns")
       .eq("id", conversationIdArg)
       .eq("user_id", userId) // tenant scope: caller's own thread only
       .maybeSingle();
     if (!conv) return c.json({ error: "Conversation not found" }, 404);
-    conversationId = (conv as { id: string }).id;
+    const row = conv as {
+      id: string;
+      status?: string | null;
+      unresolved_turns?: number | null;
+    };
+    conversationId = row.id;
+    currentStatus = row.status ?? "open";
+    priorUnresolvedTurns = typeof row.unresolved_turns === "number"
+      ? row.unresolved_turns
+      : 0;
   } else {
     const { data: created, error } = await supabaseAdmin
       .from("support_conversations")
@@ -466,7 +581,8 @@ supportAssistantRoutes.post("/message", async (c) => {
   }
 
   // Persist the user turn before the model runs (so an aborted stream still
-  // leaves the question on record).
+  // leaves the question on record). The human agent (US-839) also needs to see
+  // follow-up messages a user adds after a handoff.
   await supabaseAdmin
     .from("support_messages")
     .insert({
@@ -475,8 +591,45 @@ supportAssistantRoutes.post("/message", async (c) => {
       content: message,
     } as never);
 
+  // US-837 AC: once a human owns the thread, the bot stays out of the way and
+  // the message does NOT cost the user usage (no model call, no metering). We
+  // still recorded the user's turn above so the human sees it; here we just
+  // acknowledge that a human will follow up.
+  if (HUMAN_HANDLED_STATUSES.has(currentStatus)) {
+    return streamSSE(c, async (stream) => {
+      await stream.writeSSE({
+        event: "meta",
+        data: JSON.stringify({ conversationId }),
+      });
+      await stream.writeSSE({
+        event: "delta",
+        data: JSON.stringify({ text: ESCALATION_IDLE_MESSAGE }),
+      });
+      await stream.writeSSE({
+        event: "done",
+        data: JSON.stringify({
+          conversationId,
+          status: currentStatus,
+          escalated: true,
+          metered: false,
+        }),
+      });
+    });
+  }
+
   const history = await loadHistory(conversationId);
-  const ctx: ToolContext = { ownerId, userId, conversationId };
+  // US-837: capture the model's escalate_to_human intent (reason + summary) so
+  // the route runs the actual handoff after the loop, with the owner/email
+  // context the engine doesn't have. Last call wins (the model escalates once).
+  let modelEscalation: { reason: string; summary: string } | null = null;
+  const ctx: ToolContext = {
+    ownerId,
+    userId,
+    conversationId,
+    captureEscalation: (reason, summary) => {
+      modelEscalation = { reason, summary };
+    },
+  };
   const model = getLightweightModel();
 
   return streamSSE(c, async (stream) => {
@@ -523,6 +676,29 @@ supportAssistantRoutes.post("/message", async (c) => {
         }
       }
 
+      // US-837 ESCALATION DECISION. The model calling escalate_to_human is the
+      // explicit / out-of-scope / low-confidence path; an unresolved turn (the
+      // loop hit its cap, or the guard replaced the answer) feeds the AUTO path's
+      // consecutive-failure counter. Decided here so any handoff text is appended
+      // BEFORE the answer is streamed/persisted.
+      const unresolvedTurn = result.hitCap || !guard.safe;
+      const esc = decideEscalation({
+        modelEscalateCall: modelEscalation,
+        unresolvedTurn,
+        priorUnresolvedTurns,
+        lastUserMessage: message,
+      });
+
+      // On the AUTO path the model never announced the handoff — tell the user.
+      // On the model path the model's own closing text already does (but if it
+      // produced none, fall back to the standard handoff line).
+      if (esc.decision.escalate) {
+        if (esc.decision.trigger === "auto" || !finalText) {
+          finalText = (finalText ? finalText + "\n\n" : "") +
+            ESCALATION_HANDOFF_MESSAGE;
+        }
+      }
+
       // Stream the guarded answer to the client (single delta — the SSE contract
       // is unchanged; the client still accumulates `delta.text`).
       if (finalText) {
@@ -547,7 +723,9 @@ supportAssistantRoutes.post("/message", async (c) => {
           } as never);
       }
 
-      // Bump the thread and meter usage (1 user message + token totals).
+      // Bump the thread and meter usage (1 user message + token totals). This
+      // turn legitimately used tokens, so it IS metered — only SUBSEQUENT idle
+      // messages on the now-escalated thread are exempt (short-circuited above).
       await supabaseAdmin
         .from("support_conversations")
         .update({ last_message_at: new Date().toISOString() } as never)
@@ -560,12 +738,29 @@ supportAssistantRoutes.post("/message", async (c) => {
         outputTokens: result.outputTokens,
       });
 
+      // Run the handoff (status flip + owner notification + escalation metering),
+      // or persist the rolling unresolved-turn counter for the next turn.
+      if (esc.decision.escalate) {
+        await performEscalation(makeEscalationSink(), esc.decision, {
+          conversationId,
+          userId,
+        });
+      } else if (esc.nextUnresolvedTurns !== priorUnresolvedTurns) {
+        await supabaseAdmin
+          .from("support_conversations")
+          .update({ unresolved_turns: esc.nextUnresolvedTurns } as never)
+          .eq("id", conversationId)
+          .eq("user_id", userId);
+      }
+
       await stream.writeSSE({
         event: "done",
         data: JSON.stringify({
           conversationId,
           hitCap: result.hitCap,
           guarded: !guard.safe,
+          escalated: esc.decision.escalate,
+          status: esc.decision.escalate ? "escalated" : currentStatus,
         }),
       });
     } catch (e) {
@@ -603,7 +798,7 @@ supportAssistantRoutes.get("/conversations/:id", async (c) => {
   const { data: conv } = await supabaseAdmin
     .from("support_conversations")
     .select(
-      "id, status, subject, escalation_reason, last_message_at, escalated_at, resolved_at, created_at",
+      "id, status, subject, escalation_reason, escalation_summary, escalation_trigger, last_message_at, escalated_at, resolved_at, created_at",
     )
     .eq("id", id)
     .eq("user_id", userId) // tenant scope

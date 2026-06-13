@@ -11,16 +11,16 @@
 //     never reach a mutating capability.
 //   * Every read tool is tenant-scoped to the caller's workspace via ctx.ownerId
 //     (the engine always passes `workspaceOwnerId ?? userId`); see support-tools.ts.
-//   * The escalate tool only ever touches the caller's OWN conversation
-//     (id + user_id scope) — never a raw id from the model.
+//   * The escalate tool performs NO durable write itself — it records the
+//     model's intent via the context callback; the route runs the handoff,
+//     scoped to the caller's OWN conversation (id + user_id), never a raw id
+//     from the model (US-837 / support-escalation.ts).
 //
 // The system prompt + output guardrails here are intentionally MINIMAL; US-835
 // hardens scope-confinement and prompt-injection resistance and replaces
 // SUPPORT_SYSTEM_PROMPT.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { supabaseAdmin } from "./supabase.ts";
-import { incrementUsage } from "./support-metering.ts";
 import {
   getGradeReportForMyItem,
   getMyInventoryStatusCounts,
@@ -180,15 +180,22 @@ export const ASSISTANT_TOOLS: Anthropic.Tool[] = [
   {
     name: "escalate_to_human",
     description:
-      "Hand this conversation off to a human support agent. Use ONLY when you " +
-      "cannot help (no KB answer, an account/billing problem, or the user asks " +
-      "for a human). Provide a short reason summarizing what they need.",
+      "Hand this conversation off to a human support agent. Use when you cannot " +
+      "help: the knowledge base has no answer, it's an account/billing problem, " +
+      "the request is out of scope, or the user asks for a human. Provide a short " +
+      "reason and a brief summary of the conversation so the human has context.",
     input_schema: {
       type: "object",
       properties: {
         reason: {
           type: "string",
-          description: "One-sentence summary of why a human is needed.",
+          description: "One-sentence reason a human is needed.",
+        },
+        summary: {
+          type: "string",
+          description:
+            "A brief summary of what the user needs and what was already tried, " +
+            "so the human agent can pick up without re-reading the whole thread.",
         },
       },
       required: ["reason"],
@@ -209,41 +216,27 @@ export interface ToolContext {
   // The chatting user — owns the conversation; escalation is scoped to them.
   userId: string;
   conversationId: string;
+  // US-837: capture the model's escalation intent (reason + summary) for the
+  // route to act on AFTER the loop — the route holds the owner/email/notification
+  // context the full handoff lifecycle needs (support-escalation.ts). The tool
+  // itself performs NO durable side effect; it only records intent + confirms to
+  // the model, so the loop stays pure and the handoff happens exactly once.
+  captureEscalation?: (reason: string, summary: string) => void;
 }
 
 function asObject(input: unknown): Record<string, unknown> {
   return input && typeof input === "object" ? input as Record<string, unknown> : {};
 }
 
-// Minimal escalate handler (US-837 owns the full lifecycle + owner notification).
-// Forward-compatible: flips the conversation to 'escalated' (scoped to the
-// caller's own row) and meters the escalation. Returns a confirmation DTO.
-async function escalateToHuman(
+// Escalate handler. Records the model's intent via the context callback and
+// returns a confirmation DTO; the route runs the actual handoff (status flip,
+// owner notification, metering) once the loop ends — see support-escalation.ts.
+function escalateToHuman(
   ctx: ToolContext,
   reason: string,
-): Promise<{ escalated: boolean; message: string }> {
-  const db = supabaseAdmin as unknown as {
-    from: (t: string) => {
-      update: (v: Record<string, unknown>) => {
-        eq: (c: string, v: unknown) => {
-          eq: (c: string, v: unknown) => PromiseLike<{ error: unknown }>;
-        };
-      };
-    };
-  };
-  await db
-    .from("support_conversations")
-    .update({
-      status: "escalated",
-      escalation_reason: reason.slice(0, 500),
-      escalated_at: new Date().toISOString(),
-    })
-    // Tenant scope: only ever the caller's OWN conversation.
-    .eq("id", ctx.conversationId)
-    .eq("user_id", ctx.userId);
-
-  await incrementUsage(ctx.userId, { escalations: 1 });
-
+  summary: string,
+): { escalated: boolean; message: string } {
+  ctx.captureEscalation?.(reason, summary);
   return {
     escalated: true,
     message:
@@ -294,9 +287,10 @@ export async function executeAssistantTool(
         audience: "subscriber",
       }, db);
     case "escalate_to_human":
-      return await escalateToHuman(
+      return escalateToHuman(
         ctx,
         typeof args.reason === "string" ? args.reason : "User needs help.",
+        typeof args.summary === "string" ? args.summary : "",
       );
     default:
       // Unreachable (guarded above), but keeps the switch exhaustive.

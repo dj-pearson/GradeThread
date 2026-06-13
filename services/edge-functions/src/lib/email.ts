@@ -1168,6 +1168,65 @@ export async function sendSupportAbuseAlertEmail(
   });
 }
 
+// ─── Support-assistant human escalation (internal/admin alert) ──────
+
+interface SupportEscalationData {
+  userEmail: string;
+  userId: string;
+  conversationId: string;
+  reason: string;
+  summary: string;
+  /** 'model' (the bot escalated) or 'auto' (a failed-turn threshold tripped). */
+  trigger: string;
+}
+
+/**
+ * US-837: alert the human support team that the assistant handed a conversation
+ * off to a person, with a deep link to the escalated thread in the admin inbox
+ * (US-839). Categorized so a transient SMTP failure is retried from the outbox
+ * (US-801).
+ */
+export async function sendSupportEscalationEmail(
+  to: string,
+  data: SupportEscalationData,
+): Promise<boolean> {
+  const triggerLabel = data.trigger === "auto"
+    ? "Auto-escalated (the assistant could not resolve it)"
+    : "The assistant escalated this conversation";
+  const content = `
+    <div style="background:${BRAND_NIGHT};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      Support conversation escalated to a human
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${escapeHtml(triggerLabel)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      A support conversation needs a human follow-up.
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 8px;">
+      <tr>
+        <td style="padding: 12px; background:${BRAND_GRAY}; border-radius: 8px; font-size: 14px; color:#333;">
+          <span style="color:#666;font-size:12px;">User</span><br>
+          ${escapeHtml(data.userEmail)} <span style="color:#999;">(${escapeHtml(data.userId)})</span>
+          <br><br>
+          <span style="color:#666;font-size:12px;">Reason</span><br>
+          ${escapeHtml(data.reason)}
+          <br><br>
+          <span style="color:#666;font-size:12px;">Summary</span><br>
+          ${escapeHtml(data.summary)}
+        </td>
+      </tr>
+    </table>
+    ${ctaButton("Open the conversation", `${SITE_URL}/admin/support/${data.conversationId}`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `🙋 Support escalation: ${data.userEmail}`,
+    html: emailLayout(content),
+    category: "support_escalation", // US-801: durable retry on transient failure
+  });
+}
+
 // ─── Referral reward ────────────────────────────────────────────────
 
 interface ReferralRewardData {

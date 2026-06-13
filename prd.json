@@ -12325,8 +12325,8 @@
         "deno test covers explicit, auto, and out-of-scope escalation paths"
       ],
       "priority": 837,
-      "passes": false,
-      "notes": "[EPIC: AI Support Assistant 2026-06-11] Reuses notifyInApp (notifications.ts) + email.ts patterns + the notifications Realtime channel. Escalation triggers derive from the US-835 taxonomy + US-836 thresholds. Admin reply UI is US-839."
+      "passes": true,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Reuses notifyInApp (notifications.ts) + email.ts patterns + the notifications Realtime channel. Escalation triggers derive from the US-835 taxonomy + US-836 thresholds. Admin reply UI is US-839. [DONE 2026-06-13] New lib/support-escalation.ts: pure decideEscalation (model/auto/resolved) + AUTO_ESCALATION_THRESHOLD=3 + performEscalation(sink). Engine escalate_to_human now captures reason+summary via ctx.captureEscalation (no inline DB write); route runs the handoff: status=escalated + escalation_reason/summary/trigger + escalated_at (migration 00188), notifies all admins in-app + sendSupportEscalationEmail to SUPPORT_ESCALATION_EMAIL/abuse/admin inbox with /admin/support/:id deep link, meters escalations. Idle human-held threads (HUMAN_HANDLED_STATUSES) short-circuit: user msg recorded, no model call, no metering. Tests: support-escalation_test.ts (explicit/out-of-scope/auto + sink orchestration). EXPECTED_SCHEMA_VERSION bumped to 00188."
     },
     {
       "id": "US-838",
