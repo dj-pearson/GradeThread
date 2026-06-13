@@ -10528,8 +10528,8 @@
         "Reconciliation + crosslisting paths handle Depop as a first-class platform (resolves part of US-599)"
       ],
       "priority": 714,
-      "passes": false,
-      "notes": "[P2][FlipDesk/Depop] Source: Cross_Listing.md §2. Same products endpoint creates+updates (upsert by sku). Depends on [[US-713]]."
+      "passes": true,
+      "notes": "[P2][FlipDesk/Depop] DONE. depop-api.ts: products upsert (PUT /api/v1/products/{sku}), delete, orders list, seller-addresses+shipping-providers, mark-as-shipped, getDepopShop, webhook HMAC verify, pure payload/order builders. depop-orders.ts: order ingest → sales + payout_imports + cross-platform auto-delist (US-564), mirrors shopify-orders. depop adapter publish/update(upsert)/delist/syncOrders/syncListings wired, all gated behind isDepopEnabled (503 when off). cross-listings.ts auto-end now handles depop. flipdesk-webhooks POST /depop verified+processed; resolves seller via external_account_id/account_handle captured at connect. flipdesk-depop routes: POST /sync, GET /seller-addresses, POST /orders/:saleId/ship. Migration 00176 adds sales.platform_order_ref (purchase/parcel ids); schema bumped to 00176. Webhook secret=DEPOP_WEBHOOK_SECRET, API base override DEPOP_API_BASE. Field names modeled from Cross_Listing.md + marketplace-specs — VERIFY against partnerapi.depop.com OpenAPI when sandbox lands. Verified: deno check src/main.ts, deno lint, deno test (depop-api/depop-client/adapters/schema-version all green), frontend tsc -b. Pre-existing rls-guard/plan-gate failures unrelated."
     },
     {
       "id": "US-715",

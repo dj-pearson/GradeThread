@@ -20,6 +20,9 @@ import {
   handleShopifyOrderEvent,
   parseShopifyWebhookOrder,
 } from "../lib/shopify-orders.ts";
+import { isDepopEnabled } from "../lib/depop-client.ts";
+import { parseDepopOrder, verifyDepopWebhook } from "../lib/depop-api.ts";
+import { handleDepopOrderEvent } from "../lib/depop-orders.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -317,6 +320,159 @@ async function processShopifyWebhookEvent(args: {
         `[flipdesk-webhooks] dropping Shopify event with unhandled topic: ${topic}`,
       );
   }
+}
+
+// ── Depop webhooks (US-714) ──────────────────────────────────────────
+//
+// Receives Depop order events (sold / cancelled / refunded). Verification: Depop
+// signs every delivery with an HMAC-SHA256 of the RAW body using a shared secret
+// (DEPOP_WEBHOOK_SECRET), presented in the `X-Depop-Signature` header — only
+// Depop can produce a valid signature. The seller is resolved from a payload id
+// that we verified at connect time (external_account_id / account_handle), NOT a
+// trusted-by-default body field. Returns 200 promptly and defers the heavy
+// lifting. The ENTIRE receiver 503s while the connector is disabled (US-712).
+// Sandbox: WEBHOOK_PAYOUT_DEBUG bypasses verification outside production only.
+flipdeskWebhookRoutes.post("/depop", async (c) => {
+  if (!isDepopEnabled()) {
+    return c.json({ error: "Webhook not configured" }, 503);
+  }
+  const rawBody = await c.req.text();
+  const debug = isDebugAllowed("WEBHOOK_PAYOUT_DEBUG");
+  const signature =
+    c.req.header("x-depop-signature") ??
+    c.req.header("x-depop-hmac-sha256") ??
+    "";
+
+  if (!debug) {
+    if (!signature) {
+      console.warn("[flipdesk-webhooks] Depop event rejected: missing signature header");
+      return c.json({ error: "Missing signature" }, 401);
+    }
+    const ok = await verifyDepopWebhook(rawBody, signature);
+    if (!ok) {
+      console.warn("[flipdesk-webhooks] Depop event rejected: signature mismatch");
+      return c.json({ error: "Invalid signature" }, 401);
+    }
+  }
+
+  const topic = c.req.header("x-depop-topic") ?? c.req.header("x-depop-event") ?? "(unknown)";
+  const webhookId = c.req.header("x-depop-webhook-id") ?? c.req.header("x-depop-delivery-id") ?? null;
+
+  let payload: Record<string, unknown>;
+  try {
+    const json = JSON.parse(rawBody);
+    if (!json || typeof json !== "object") return c.json({ error: "Invalid JSON" }, 400);
+    payload = json as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  processDepopWebhookEvent({ topic, webhookId, payload }).catch((err) => {
+    console.error(
+      "[flipdesk-webhooks] Depop event processing failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  });
+  return c.body(null, 200);
+});
+
+// Resolve the GradeThread owner from a verified seller identifier on the Depop
+// payload. Prefers the stable shop id (external_account_id, captured at connect)
+// and falls back to the seller username (account_handle). The whole payload was
+// signature-verified above, so either match acts on a trusted id.
+async function resolveDepopConnectionUserId(
+  payload: Record<string, unknown>,
+): Promise<string | null> {
+  const order = (payload.order ?? payload) as Record<string, unknown>;
+  const shop = (order.shop ?? order.seller ?? payload.shop ?? payload.seller ?? {}) as
+    | Record<string, unknown>
+    | undefined;
+  const shopId =
+    (order.shop_id != null && String(order.shop_id)) ||
+    (order.seller_id != null && String(order.seller_id)) ||
+    (shop?.id != null && String(shop.id)) ||
+    null;
+  const username =
+    (typeof order.seller_username === "string" && order.seller_username) ||
+    (typeof shop?.username === "string" && shop.username) ||
+    null;
+
+  if (shopId) {
+    const { data: row } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("user_id")
+      .eq("marketplace", "depop")
+      .eq("external_account_id", shopId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    const uid = (row as { user_id?: string } | null)?.user_id ?? null;
+    if (uid) return uid;
+  }
+  if (username) {
+    const { data: row } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("user_id")
+      .eq("marketplace", "depop")
+      .eq("account_handle", username)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    const uid = (row as { user_id?: string } | null)?.user_id ?? null;
+    if (uid) return uid;
+  }
+  return null;
+}
+
+// Dispatches a verified Depop webhook: the order is parsed + run through the same
+// ingest the manual sync uses (sale capture + refund status + cross-platform
+// auto-end). Idempotent: deduped by Depop's delivery id before side effects, and
+// the downstream writes are themselves idempotent (sale dedupe by listing_id).
+async function processDepopWebhookEvent(args: {
+  topic: string;
+  webhookId: string | null;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  const { topic, webhookId, payload } = args;
+  console.log(`[flipdesk-webhooks] Depop event: topic=${topic} id=${webhookId ?? "(no-id)"}`);
+
+  if (webhookId) {
+    const claim = await claimWebhookEvent("depop", webhookId, topic);
+    if (claim === "duplicate") {
+      console.log(`[flipdesk-webhooks] duplicate Depop event id=${webhookId} — skipping`);
+      return;
+    }
+    if (claim === "error") {
+      recordMetric("webhook.fail_open", 1, { provider: "depop", topic });
+      captureException(
+        new Error(`Depop webhook idempotency claim failed; processing fail-open (topic=${topic})`),
+        { level: "warn", route: "flipdesk-webhooks.depop", tags: { topic, decision: "fail_open" } },
+      );
+    }
+  }
+
+  recordMetric("webhook.received", 1, { provider: "depop", topic });
+
+  const userId = await resolveDepopConnectionUserId(payload);
+  if (!userId) {
+    recordMetric("webhook.unmatched_seller", 1, { provider: "depop", topic });
+    console.warn(`[flipdesk-webhooks] no active Depop connection matches event topic=${topic} — dropping`);
+    return;
+  }
+
+  const order = parseDepopOrder(payload.order ?? payload);
+  if (!order) {
+    console.warn(`[flipdesk-webhooks] Depop ${topic} event had no usable order — dropping`);
+    return;
+  }
+  const res = await handleDepopOrderEvent(userId, order);
+  recordMetric("webhook.order_processed", 1, { provider: "depop", topic, kind: res.kind });
+  if (res.errors.length > 0) {
+    console.error(`[flipdesk-webhooks] Depop ${topic} ingest errors: ${res.errors.join(" | ")}`);
+  }
+  console.log(
+    `[flipdesk-webhooks] Depop ${topic} → ${res.kind} (sales_new=${res.salesNew} sold=${res.soldFlipped} status_updated=${res.statusUpdated}) user=${userId}`,
+  );
 }
 
 // Signature verification lives in lib/ebay-notification-verify.ts so it can be

@@ -70,10 +70,11 @@ Deno.test("stub adapters return a structured 501 from every wired-only method", 
   }
 });
 
-// US-713: the Depop connection half (connect/refreshToken) is wired but gated —
-// with DEPOP_ENABLED off it reports 503 (not a fake connect flow), while the
-// US-714 listing methods still return the typed 501.
-Deno.test("depop connect/refresh are gated (503) while disabled; listing methods 501", async () => {
+// US-714: the Depop LISTING half (publish/update/delist/syncOrders) is now wired
+// too — but EVERYTHING stays gated behind isDepopEnabled(). With DEPOP_ENABLED
+// off, every method (connection AND listing) reports 503 (partner access
+// pending), so there is no fake flow before the connector is turned on.
+Deno.test("depop is fully gated (503) while disabled — connection AND listing methods", async () => {
   const connect = await depopAdapter.connect({ ownerId: "owner", state: "s" });
   assertEquals(connect.ok, false);
   if (!connect.ok) assertEquals(connect.status, 503);
@@ -89,6 +90,12 @@ Deno.test("depop connect/refresh are gated (503) while disabled; listing methods
       listingRowId: "row",
       price: 25,
     }),
+    await depopAdapter.updateListing({
+      ownerId: "owner",
+      inventoryItemId: "item",
+      listingRowId: "row",
+      price: 25,
+    }),
     await depopAdapter.delist({
       ownerId: "owner",
       listingRowId: "row",
@@ -99,11 +106,13 @@ Deno.test("depop connect/refresh are gated (503) while disabled; listing methods
   ];
   for (const result of listingMethods) {
     assertEquals(result.ok, false);
-    if (!result.ok) {
-      assertEquals(result.status, 501);
-      assert(result.error.includes("depop"));
-    }
+    if (!result.ok) assertEquals(result.status, 503);
   }
+
+  // syncListings is a no-op success (orders carry the sale signal), even gated —
+  // it performs no Depop access, so it doesn't 503.
+  const syncListings = await depopAdapter.syncListings({ ownerId: "owner" });
+  assertEquals(syncListings.ok, true);
 });
 
 // mapDraftToListing stays pure/real even while connect is gated. Depop has no

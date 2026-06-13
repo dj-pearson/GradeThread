@@ -924,6 +924,9 @@ export interface SaleRow {
   // Sale lifecycle (00111). Only 'completed' counts toward revenue/profit/sold.
   status: "completed" | "cancelled" | "refunded" | "pending";
   cancelled_at: string | null;
+  // Marketplace order/fulfillment identifiers for API sales (US-714, 00176) —
+  // e.g. { platform: 'depop', purchase_id, parcel_id } for mark-as-shipped.
+  platform_order_ref: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -1826,6 +1829,8 @@ export interface SaleInsert {
   payout_reference?: string | null;
   tax?: number;
   payout_amount?: number | null;
+  // Marketplace order identifiers for API sales (US-714) — Depop purchase/parcel.
+  platform_order_ref?: Record<string, unknown> | null;
 }
 
 // ─── FlipDesk inserts ──────────────────────────────────────────────

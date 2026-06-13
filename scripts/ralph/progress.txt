@@ -1705,3 +1705,29 @@ Branch: ralph/gradethread-build
   - Verify: deno lint (5 files), deno check src/main.ts (full graph), deno test depop-client + marketplace-adapters (10/10) + schema-version (9/9), frontend tsc -b — all green. The only edge test failures are the documented pre-existing rls-guard (ai_usage_events/waitlist_entries lacking RLS) + plan-gate (SUPABASE_URL-not-set in isolation) ones on clean main, unrelated to this change.
 - Timestamp: 2026-06-13
 ---
+
+## US-714: Depop publish / update / order-sync / mark-as-shipped
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/depop-api.ts (NEW) — listing/order Selling-API client: upsert PUT /products/{sku}, delete, listDepopOrders, getDepopShop, seller-addresses + shipping-providers, markDepopParcelShipped, getDepopShop; pure builders (buildDepopProductPayload, parseDepopOrder, parseProductResult, depopRefundStatus, estimateDepopNet) + HMAC webhook verify (verifyDepopWebhook).
+  - services/edge-functions/src/lib/depop-orders.ts (NEW) — order ingest (mirrors shopify-orders): paid → sales + payout_imports + sold flip + autoEndCrossListings (US-564); cancel/refund → sale status; handleDepopOrderEvent. Stashes purchase_id+parcel_id on sales.platform_order_ref.
+  - services/edge-functions/src/lib/marketplace-adapters/depop.ts — wired publish/updateListing(upsert)/delist/syncOrders/syncListings, all gated behind isDepopEnabled() (503 when off). Loads owned listing tenant-scoped, resolves SKU (persists derived sku when missing so orders round-trip), public item-photos, grade→condition fallback.
+  - services/edge-functions/src/lib/cross-listings.ts — autoEndCrossListings now delists Depop siblings by SKU (best-effort, 404=gone).
+  - services/edge-functions/src/lib/depop-client.ts — upsertDepopConnection now stores external_account_id (shop id) for webhook resolution.
+  - services/edge-functions/src/routes/flipdesk-depop.ts — capture shop identity at OAuth callback; new authed routes POST /sync, GET /seller-addresses, POST /orders/:saleId/ship (mark-as-shipped, records shipped_at+tracking, sale stays 'completed' per status CHECK).
+  - services/edge-functions/src/routes/flipdesk-webhooks.ts — POST /depop: HMAC-verified, resolves seller via external_account_id/account_handle, idempotent (provider 'depop'), processes order events → sale + auto-delist.
+  - services/edge-functions/src/main.ts — auth + workspace middleware for the new depop authed routes (also closes a US-713 gap where depop oauth/start/disconnect had no middleware registered).
+  - services/edge-functions/src/lib/webhook-idempotency.ts — provider union += 'depop' (processed_webhook_events.provider is free text, no DB change).
+  - services/edge-functions/src/lib/schema-version.ts — EXPECTED_SCHEMA_VERSION 00175 → 00176.
+  - supabase/migrations/00176_sales_platform_order_ref.sql (NEW) — sales.platform_order_ref jsonb (generic marketplace order/fulfillment ids).
+  - src/types/database.ts — SaleRow/SaleInsert += platform_order_ref.
+  - src/lib/__tests__/flipdesk-lifecycle.test.ts — makeSale fixture += platform_order_ref: null.
+  - tests: depop-api_test.ts (NEW, 9 cases) + marketplace-adapters_test.ts updated (listing methods now 503 while disabled, not 501).
+- Notes:
+  - All Depop access stays behind the DEPOP_ENABLED kill-switch (US-712 partner access pending) — every adapter method + every route + the webhook 503 while off, so no fake flow ships. Real round-trip is the human-gated sandbox step.
+  - Product/order field names are modeled from Cross_Listing.md §2 + marketplace-specs.ts; builders are pure + tolerant of field-name variants. VERIFY against partnerapi.depop.com OpenAPI when sandbox keys land. New env: DEPOP_WEBHOOK_SECRET (webhook HMAC), DEPOP_API_BASE (host override).
+  - Depop products are SKU-addressed; we publish by inventory_items.sku (deriving + persisting gt-<id> when null) so the order feed's echoed SKU matches back to the listing.
+  - sales.status CHECK only allows completed/cancelled/refunded/pending — "shipped" is recorded via shipped_at, not status.
+  - Verify: deno check src/main.ts (full graph), deno lint (7 files), deno test depop-api(9)+depop-client(5)+marketplace-adapters(5)+schema-version(9)+cross-listing-fields+shopify-orders+webhook-idempotency — all green; full suite 998 passed / 2 failed (the documented pre-existing rls-guard ai_usage_events/waitlist_entries + plan-gate failures, unrelated). Frontend tsc -b clean.
+- Timestamp: 2026-06-13
+---

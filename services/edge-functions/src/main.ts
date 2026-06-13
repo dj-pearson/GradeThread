@@ -246,6 +246,14 @@ app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
 app.use("/api/flipdesk/shopify/oauth/start", authMiddleware);
 app.use("/api/flipdesk/shopify/disconnect", authMiddleware);
 app.use("/api/flipdesk/shopify/listings/*", authMiddleware);
+// Depop (US-713/714): everything authed EXCEPT /oauth/callback (Depop redirects
+// the browser there unauthenticated; the `state` row identifies the user) and
+// /oauth/refresh (internal job secret). The order webhook is public + verified.
+app.use("/api/flipdesk/depop/oauth/start", authMiddleware);
+app.use("/api/flipdesk/depop/disconnect", authMiddleware);
+app.use("/api/flipdesk/depop/sync", authMiddleware);
+app.use("/api/flipdesk/depop/seller-addresses", authMiddleware);
+app.use("/api/flipdesk/depop/orders/*", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
@@ -326,6 +334,13 @@ app.use("/api/flipdesk/ebay/messages/*", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/listings/*", workspaceMiddleware);
+// Depop (US-713/714): workspace-scope the user-authed routes so the connection,
+// sales, and ship actions live under the workspace owner (mirrors eBay/Shopify).
+app.use("/api/flipdesk/depop/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/depop/disconnect", workspaceMiddleware);
+app.use("/api/flipdesk/depop/sync", workspaceMiddleware);
+app.use("/api/flipdesk/depop/seller-addresses", workspaceMiddleware);
+app.use("/api/flipdesk/depop/orders/*", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
 app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);

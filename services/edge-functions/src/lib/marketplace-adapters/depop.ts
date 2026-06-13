@@ -5,21 +5,232 @@ import {
   getDepopConnection,
   isDepopEnabled,
 } from "../depop-client.ts";
+import {
+  deleteDepopProduct,
+  type DepopProductInput,
+  listDepopOrders,
+  upsertDepopProduct,
+} from "../depop-api.ts";
+import { handleDepopOrderEvent } from "../depop-orders.ts";
 import { supabaseAdmin } from "../supabase.ts";
 import { mapSiblingListingFields } from "../cross-listing-fields.ts";
+import type { StoredPlatformVariant } from "../cross-listing-fields.ts";
+import { getMarketplaceSpec, mapCondition } from "../marketplace-specs.ts";
 import {
+  type AdapterEndInput,
+  type AdapterResult,
   type MarketplaceAdapter,
-  notImplemented,
 } from "./types.ts";
 
-// Depop adapter (US-713) — the CONNECTION half is now real (OAuth 2.0 + PKCE +
-// token refresh via depop-client); the publish/update/delist/sync listing half
-// is still US-714 and returns the typed 501 until that ships. cross-push (US-708)
-// can therefore mint + map the local Depop `listings` row today, then publish it
-// once US-714 lands. mapDraftToListing is pure (no Depop access needed).
+// Depop adapter (US-714) — now a REAL second API marketplace. The connection
+// half (US-713) is OAuth 2.0 + PKCE; this completes the LISTING + ORDER half:
+//   • publish / updateListing → upsert via PUT /api/v1/products/{sku} (the same
+//     endpoint creates AND updates, keyed by SKU — so an update is a re-publish)
+//   • delist                  → DELETE the product by SKU
+//   • syncOrders              → pull orders → sale rows + cross-platform auto-end
+//   • syncListings            → orders carry the sale signal; a separate listing
+//                               pull isn't needed (no-op success)
 //
-// Everything is gated behind isDepopEnabled(): while partner access is pending
-// (US-712), connect/refresh return 503 so there is no fake connect flow.
+// EVERYTHING stays gated behind isDepopEnabled() (DEPOP_ENABLED + creds): while
+// partner access is pending (US-712), every method returns 503 — no fake flow.
+//
+// SECURITY (US-268): every listing row is re-loaded by id and its ownership
+// verified against the ownerId the dispatcher passed (service-role bypasses RLS).
+
+const DISABLED: AdapterResult = {
+  ok: false,
+  status: 503,
+  error: "Depop is not available yet — partner access is pending.",
+};
+
+interface DepopListingRow {
+  id: string;
+  inventory_item_id: string;
+  platform: string;
+  platform_listing_id: string | null;
+  listing_title: string | null;
+  listing_description: string | null;
+  listing_price: number | null;
+  platform_fields: Record<string, StoredPlatformVariant> | null;
+  inventory_items: {
+    user_id: string;
+    title: string | null;
+    brand: string | null;
+    sku: string | null;
+    item_category: string | null;
+    grade_value: number | null;
+    grade_label: string | null;
+  };
+}
+
+// Loads the Depop listings row + its parent item and confirms the caller owns it
+// (service-role bypasses RLS). Returns null when not found / not owned / not a
+// depop row.
+async function loadOwnedDepopListing(
+  ownerId: string,
+  listingRowId: string,
+): Promise<DepopListingRow | null> {
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, platform, platform_listing_id, listing_title, " +
+        "listing_description, listing_price, platform_fields, " +
+        "inventory_items!inner(user_id, title, brand, sku, item_category, grade_value, grade_label)",
+    )
+    .eq("id", listingRowId)
+    .maybeSingle();
+  const row = data as unknown as DepopListingRow | null;
+  if (!row) return null;
+  if (row.inventory_items.user_id !== ownerId) return null;
+  if (row.platform !== "depop") return null;
+  return row;
+}
+
+// Resolves the item's photos to PUBLIC urls Depop can ingest. item-photos is the
+// public listing-image bucket (CLAUDE.md), so getPublicUrl is correct here (NOT
+// the private submission-images bucket). Capped at the platform's maxPhotos.
+async function resolveImageUrls(itemId: string, maxPhotos: number): Promise<string[]> {
+  const { data: photoRows } = await supabaseAdmin
+    .from("item_photos")
+    .select("storage_path, photo_url, sort_order")
+    .eq("inventory_item_id", itemId)
+    .order("sort_order", { ascending: true });
+  const urls: string[] = [];
+  for (
+    const p of (photoRows ?? []) as Array<{
+      storage_path: string | null;
+      photo_url: string | null;
+    }>
+  ) {
+    let url = p.photo_url ?? null;
+    if (!url && p.storage_path) {
+      url = supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path)
+        .data.publicUrl;
+    }
+    if (url) urls.push(url);
+    if (urls.length >= maxPhotos) break;
+  }
+  return urls;
+}
+
+// Depop products are keyed by SKU. Reseller items SHOULD carry one; when they
+// don't, derive a stable SKU from the item id AND persist it so the order feed's
+// echoed SKU round-trips back to this listing (depop-orders matches on
+// inventory_items.sku).
+async function resolveSku(row: DepopListingRow): Promise<string> {
+  const existing = row.inventory_items.sku?.trim();
+  if (existing) return existing;
+  const derived = `gt-${row.inventory_item_id.slice(0, 12)}`;
+  await supabaseAdmin
+    .from("inventory_items")
+    .update({ sku: derived })
+    .eq("id", row.inventory_item_id)
+    .is("sku", null);
+  return derived;
+}
+
+async function publishDepop(
+  ownerId: string,
+  listingRowId: string,
+  price: number,
+): Promise<AdapterResult> {
+  if (!isDepopEnabled()) return DISABLED;
+  const conn = await getDepopConnection(ownerId);
+  if (!conn) {
+    return { ok: false, status: 400, error: "Connect your Depop shop first." };
+  }
+  const row = await loadOwnedDepopListing(ownerId, listingRowId);
+  if (!row) {
+    return { ok: false, status: 404, error: "Depop listing not found." };
+  }
+
+  const spec = getMarketplaceSpec("depop")!;
+  const variant = row.platform_fields?.depop ?? null;
+  const item = row.inventory_items;
+
+  // Depop has no title field — the description is the listing text. Prefer the
+  // mapped per-platform description, else fall back to the title as a seed.
+  const description = (row.listing_description ?? row.listing_title ?? item.title ?? "")
+    .slice(0, spec.descriptionMaxLength ?? 1000);
+
+  // Condition: prefer the AI variant's chosen value, else derive from the grade.
+  const condition = variant?.condition?.value ??
+    mapCondition("depop", item.grade_value, item.grade_label)?.value ?? null;
+
+  const sku = await resolveSku(row);
+  const pictureUrls = await resolveImageUrls(row.inventory_item_id, spec.maxPhotos);
+
+  const input: DepopProductInput = {
+    sku,
+    description,
+    price: price > 0 ? price : (row.listing_price ?? 0),
+    condition,
+    categoryId: variant?.category ?? null,
+    brand: variant?.brand ?? item.brand ?? null,
+    size: variant?.size ?? null,
+    colour: variant?.color ?? null,
+    tags: variant?.tags ?? [],
+    pictureUrls,
+    quantity: 1,
+  };
+
+  try {
+    const result = await upsertDepopProduct(conn.token, input);
+    const { error: updErr } = await supabaseAdmin
+      .from("listings")
+      .update({
+        platform_listing_id: result.productId ?? sku,
+        listing_url: result.listingUrl,
+        listing_status: "active",
+        is_active: true,
+        listed_at: new Date().toISOString(),
+      })
+      .eq("id", row.id);
+    if (updErr) {
+      console.error("[depop-adapter] listing write-back failed:", updErr.message);
+    }
+    return {
+      ok: true,
+      platformListingId: result.productId ?? sku,
+      listingUrl: result.listingUrl ?? undefined,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      error: err instanceof Error ? err.message : "Depop publish failed.",
+    };
+  }
+}
+
+async function endDepop(ownerId: string, input: AdapterEndInput): Promise<AdapterResult> {
+  if (!isDepopEnabled()) return DISABLED;
+  const conn = await getDepopConnection(ownerId);
+  if (!conn) {
+    return { ok: false, status: 400, error: "Depop is not connected." };
+  }
+  const row = await loadOwnedDepopListing(ownerId, input.listingRowId);
+  if (!row) {
+    return { ok: false, status: 404, error: "Depop listing not found." };
+  }
+  // Depop is keyed by SKU; platform_listing_id holds the product id/slug, but the
+  // delete surface is the SKU we published under (resolveSku is deterministic).
+  const sku = await resolveSku(row);
+  try {
+    await deleteDepopProduct(conn.token, sku);
+    await supabaseAdmin
+      .from("listings")
+      .update({ listing_status: "ended", is_active: false })
+      .eq("id", row.id);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      error: err instanceof Error ? err.message : "Depop delist failed.",
+    };
+  }
+}
 
 export const depopAdapter: MarketplaceAdapter = {
   platform: "depop",
@@ -73,13 +284,45 @@ export const depopAdapter: MarketplaceAdapter = {
       : { ok: false, status: 400, error: "Depop is not connected." };
   },
 
-  // Listing lifecycle is US-714 — returns the typed 501 (cross-push still maps
-  // the local row via mapDraftToListing below).
-  publish: () => Promise.resolve(notImplemented("depop")),
-  updateListing: () => Promise.resolve(notImplemented("depop")),
-  delist: () => Promise.resolve(notImplemented("depop")),
-  syncListings: () => Promise.resolve(notImplemented("depop")),
-  syncOrders: () => Promise.resolve(notImplemented("depop")),
+  // PUT /products/{sku} is an idempotent upsert, so publish and update are the
+  // same call (US-714 AC1).
+  publish: (input) => publishDepop(input.ownerId, input.listingRowId, input.price),
+  updateListing: (input) => publishDepop(input.ownerId, input.listingRowId, input.price),
+  delist: (input) => endDepop(input.ownerId, input),
+
+  // Order events carry the sale signal (syncOrders); Depop has no separate
+  // listing-state pull we need beyond that, so this is a no-op success.
+  syncListings: () => Promise.resolve({ ok: true, detail: "Depop has no separate listing pull." }),
+
+  async syncOrders(input) {
+    if (!isDepopEnabled()) {
+      return { ok: false, status: 503, error: "Depop is not available yet." };
+    }
+    const conn = await getDepopConnection(input.ownerId);
+    if (!conn) {
+      return { ok: false, status: 400, error: "Connect your Depop shop first." };
+    }
+    try {
+      const orders = await listDepopOrders(conn.token);
+      let sales = 0;
+      for (const order of orders) {
+        const res = await handleDepopOrderEvent(input.ownerId, order);
+        sales += res.salesNew;
+      }
+      await supabaseAdmin
+        .from("marketplace_connections")
+        .update({ last_synced_at: new Date().toISOString() })
+        .eq("user_id", input.ownerId)
+        .eq("marketplace", "depop");
+      return { ok: true, detail: `Synced ${orders.length} order(s), ${sales} new sale(s).` };
+    } catch (err) {
+      return {
+        ok: false,
+        status: 502,
+        error: err instanceof Error ? err.message : "Depop order sync failed.",
+      };
+    }
+  },
 
   mapDraftToListing: (input) =>
     mapSiblingListingFields("depop", input.source, input.price, input.variant),

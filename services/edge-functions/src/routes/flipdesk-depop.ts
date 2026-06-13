@@ -8,10 +8,19 @@ import {
   codeChallengeS256,
   exchangeCodeForToken,
   generateCodeVerifier,
+  getDepopConnection,
   isDepopEnabled,
   refreshExpiringDepopConnections,
   upsertDepopConnection,
 } from "../lib/depop-client.ts";
+import {
+  getDepopShop,
+  getSellerAddresses,
+  getShippingProviders,
+  listDepopOrders,
+  markDepopParcelShipped,
+} from "../lib/depop-api.ts";
+import { handleDepopOrderEvent } from "../lib/depop-orders.ts";
 
 // Depop Selling API endpoints (US-713). Mounted at /api/flipdesk/depop.
 //
@@ -168,12 +177,29 @@ flipdeskDepopRoutes.get("/oauth/callback", async (c) => {
 
   try {
     const tokens = await exchangeCodeForToken(code, codeVerifier);
+    // US-714: best-effort capture the seller's shop identity so inbound order
+    // webhooks (which carry a seller id, not a token) can resolve the owner. A
+    // failure here must not fail the connect — the token is still good.
+    let accountHandle: string | null = null;
+    let externalAccountId: string | null = null;
+    try {
+      const shop = await getDepopShop(tokens.access_token);
+      accountHandle = shop.username;
+      externalAccountId = shop.id;
+    } catch (err) {
+      console.warn(
+        "[flipdesk-depop] could not resolve shop identity at connect (continuing):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     await upsertDepopConnection({
       userId: stateUserId,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       accessExpiresInSeconds: tokens.expires_in,
       scope: tokens.scope ?? "",
+      accountHandle,
+      externalAccountId,
     });
   } catch (err) {
     console.error("[flipdesk-depop] OAuth exchange failed:", err);
@@ -216,6 +242,142 @@ flipdeskDepopRoutes.post("/disconnect", async (c) => {
     .eq("marketplace", "depop");
   if (error) {
     return c.json({ error: "Could not disconnect Depop." }, 500);
+  }
+  return c.json({ ok: true });
+});
+
+// ── Order sync (manual trigger) ────────────────────────────────────
+// Pulls recent Depop orders → sale rows + cross-platform auto-delist (US-564).
+// The same ingest the webhook runs, callable on demand (reconciliation refresh).
+flipdeskDepopRoutes.post("/sync", async (c) => {
+  if (!isDepopEnabled()) return c.json(DISABLED_BODY, 503);
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as string | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const conn = await getDepopConnection(userId);
+  if (!conn) return c.json({ error: "Connect your Depop shop first." }, 400);
+
+  try {
+    const orders = await listDepopOrders(conn.token);
+    let salesNew = 0;
+    let soldFlipped = 0;
+    for (const order of orders) {
+      const res = await handleDepopOrderEvent(userId, order);
+      salesNew += res.salesNew;
+      soldFlipped += res.soldFlipped;
+    }
+    await supabaseAdmin
+      .from("marketplace_connections")
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("marketplace", "depop");
+    return c.json({ ok: true, orders: orders.length, sales_new: salesNew, sold_flipped: soldFlipped });
+  } catch (err) {
+    console.error("[flipdesk-depop] order sync failed:", err);
+    return c.json({ error: "Depop order sync failed." }, 502);
+  }
+});
+
+// ── Fulfillment setup helpers ──────────────────────────────────────
+// Seller addresses + their shipping providers, used when wiring mark-as-shipped
+// (Depop requires a provider for some parcels). Tenant-scoped via the owner's
+// connection token.
+flipdeskDepopRoutes.get("/seller-addresses", async (c) => {
+  if (!isDepopEnabled()) return c.json(DISABLED_BODY, 503);
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as string | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const conn = await getDepopConnection(userId);
+  if (!conn) return c.json({ error: "Connect your Depop shop first." }, 400);
+
+  try {
+    const addresses = await getSellerAddresses(conn.token);
+    const withProviders = await Promise.all(
+      addresses.map(async (a) => ({
+        ...a,
+        providers: await getShippingProviders(conn.token, a.id).catch(() => []),
+      })),
+    );
+    return c.json({ addresses: withProviders });
+  } catch (err) {
+    console.error("[flipdesk-depop] seller-addresses failed:", err);
+    return c.json({ error: "Could not load Depop shipping setup." }, 502);
+  }
+});
+
+// ── Mark a sale shipped (US-714 AC2) ───────────────────────────────
+// POST /orders/:saleId/ship — resolves the Depop purchase_id + parcel_id stashed
+// on the sale (platform_order_ref, migration 00176), calls Depop's
+// mark-as-shipped, then records shipped_at + tracking locally. Tenant-scoped: the
+// sale is loaded THROUGH inventory_items.user_id, never by a raw id.
+flipdeskDepopRoutes.post("/orders/:saleId/ship", async (c) => {
+  if (!isDepopEnabled()) return c.json(DISABLED_BODY, 503);
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as string | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  const saleId = c.req.param("saleId");
+
+  let body: { tracking_number?: unknown; shipping_provider_id?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const trackingNumber = typeof body.tracking_number === "string" ? body.tracking_number : null;
+  const shippingProviderId =
+    typeof body.shipping_provider_id === "string" ? body.shipping_provider_id : null;
+
+  // Tenant-scoped load (US-268): the sale must belong to the owner.
+  const { data: saleRow } = await supabaseAdmin
+    .from("sales")
+    .select("id, platform_order_ref, inventory_items!inner(user_id)")
+    .eq("id", saleId)
+    .eq("inventory_items.user_id", userId)
+    .maybeSingle();
+  const sale = saleRow as
+    | {
+      id: string;
+      platform_order_ref:
+        | { platform?: string; purchase_id?: string; parcel_id?: string | null }
+        | null;
+    }
+    | null;
+  if (!sale) return c.json({ error: "Sale not found." }, 404);
+
+  const ref = sale.platform_order_ref;
+  if (!ref || ref.platform !== "depop" || !ref.purchase_id) {
+    return c.json({ error: "This sale has no Depop order to mark shipped." }, 409);
+  }
+  if (!ref.parcel_id) {
+    return c.json(
+      { error: "Depop hasn't issued a parcel for this order yet — try again once it has." },
+      409,
+    );
+  }
+
+  const conn = await getDepopConnection(userId);
+  if (!conn) return c.json({ error: "Depop is not connected." }, 400);
+
+  try {
+    await markDepopParcelShipped(conn.token, ref.purchase_id, ref.parcel_id, {
+      trackingNumber,
+      shippingProviderId,
+    });
+  } catch (err) {
+    console.error("[flipdesk-depop] mark-as-shipped failed:", err);
+    return c.json({ error: "Depop mark-as-shipped failed." }, 502);
+  }
+
+  // The sale stays 'completed' (the sales.status CHECK allows only
+  // completed/cancelled/refunded/pending); "shipped" is recorded via shipped_at.
+  const { error: updErr } = await supabaseAdmin
+    .from("sales")
+    .update({
+      shipped_at: new Date().toISOString(),
+      ...(trackingNumber ? { tracking_number: trackingNumber } : {}),
+    })
+    .eq("id", sale.id);
+  if (updErr) {
+    console.error("[flipdesk-depop] sale ship write-back failed:", updErr.message);
   }
   return c.json({ ok: true });
 });

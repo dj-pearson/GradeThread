@@ -247,6 +247,8 @@ export async function upsertDepopConnection(args: {
   accessExpiresInSeconds: number;
   scope: string;
   accountHandle?: string | null;
+  /** Stable Depop shop id (US-714) — the key inbound webhooks resolve on. */
+  externalAccountId?: string | null;
 }): Promise<void> {
   // US-352: bind both ciphertexts to the owning user_id (AES-GCM AAD) so a token
   // blob can't be replayed onto another tenant's connection row.
@@ -281,6 +283,9 @@ export async function upsertDepopConnection(args: {
     last_synced_at: null,
     refresh_error: null,
   };
+  // Store the stable shop id when we resolved one (US-714) so order webhooks can
+  // match the seller. Never overwrite an existing id with null on a re-connect.
+  if (args.externalAccountId) patch.external_account_id = args.externalAccountId;
 
   if (existing) {
     const { error } = await supabaseAdmin

@@ -2,6 +2,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { withdrawOffer } from "./ebay-client.ts";
 import { getShopifyConnection } from "./shopify-client.ts";
 import { deleteProductGraphql } from "./shopify-graphql.ts";
+import { getDepopConnection } from "./depop-client.ts";
+import { deleteDepopProduct } from "./depop-api.ts";
 
 // Auto-end of cross-listed siblings (US-149 + US-599). When one listing in a
 // cross-listing group (rows sharing listings.draft_id) sells, end the others
@@ -19,7 +21,7 @@ interface SiblingRow {
   platform_offer_id: string | null;
   platform_listing_id: string | null;
   listing_status: string;
-  inventory_items: { user_id: string };
+  inventory_items: { user_id: string; sku: string | null };
 }
 
 // Best-effort: never throws. Returns how many sibling listings were ended.
@@ -51,7 +53,7 @@ export async function autoEndCrossListings(
     const { data, error } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, platform, platform_offer_id, platform_listing_id, listing_status, inventory_items!inner(user_id)",
+        "id, platform, platform_offer_id, platform_listing_id, listing_status, inventory_items!inner(user_id, sku)",
       )
       .eq("draft_id", draftId)
       .eq("inventory_items.user_id", ownerId)
@@ -98,6 +100,23 @@ export async function autoEndCrossListings(
         } catch (err) {
           console.warn(
             "[cross-listings] Shopify delist during auto-end failed (continuing):",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+      // Depop siblings (US-714) delist by deleting the product, keyed by the
+      // item's SKU (Depop's products surface is SKU-addressed). Best-effort: a
+      // missing product / connection leaves the local row to be marked ended
+      // below. deleteDepopProduct treats a 404 as already-gone.
+      if (row.platform === "depop" && row.inventory_items.sku) {
+        try {
+          const conn = await getDepopConnection(ownerId);
+          if (conn) {
+            await deleteDepopProduct(conn.token, row.inventory_items.sku);
+          }
+        } catch (err) {
+          console.warn(
+            "[cross-listings] Depop delist during auto-end failed (continuing):",
             err instanceof Error ? err.message : String(err),
           );
         }
