@@ -9,6 +9,10 @@ import { runAiCall } from "./ai-limiter.ts";
 const DEFAULTS = {
   model: "claude-sonnet-4-6",
   lightweightModel: "claude-haiku-4-5-20251001",
+  // Image generation runs through OpenAI's images API (gpt-image-1) — the
+  // Anthropic models don't render images. Kept here so the model is a single
+  // shared-config value, never hardcoded at the call site (US-853).
+  imageModel: "gpt-image-1",
   timeoutMs: 120_000,
   maxRetries: 2,
   enableCaching: true,
@@ -43,6 +47,13 @@ export function getDefaultModel(): string {
 
 export function getLightweightModel(): string {
   return Deno.env.get("LIGHTWEIGHT_AI_MODEL")?.trim() || DEFAULTS.lightweightModel;
+}
+
+// US-853: image model for hero/social-card generation. Read from the shared
+// config (DEFAULT_IMAGE_MODEL Coolify var) so it flips centrally; falls back to
+// gpt-image-1. Never hardcode the model at the call site.
+export function getDefaultImageModel(): string {
+  return Deno.env.get("DEFAULT_IMAGE_MODEL")?.trim() || DEFAULTS.imageModel;
 }
 
 // US-482: models vetted for grading. An operator override

@@ -1,4 +1,7 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { getDefaultImageModel } from "./ai-config.ts";
+import { validateImageUpload } from "./upload-validation.ts";
+import { stripImageMetadata } from "./image-metadata.ts";
 
 // OpenAI gpt-image-1 wrapper for hero image generation.
 // Returns the raw image bytes; the route handler uploads to the
@@ -40,7 +43,8 @@ export interface GenerateHeroResult {
 export async function generateHeroImage(
   input: GenerateHeroInput,
 ): Promise<GenerateHeroResult> {
-  const model = input.model ?? "gpt-image-1";
+  // US-853: model comes from the shared ai-config, never hardcoded here.
+  const model = input.model ?? getDefaultImageModel();
   const size = input.size ?? "1536x1024";
   const quality = input.quality ?? "high";
   const startTime = Date.now();
@@ -84,6 +88,7 @@ export interface UploadHeroInput {
   postId: string;
   bytes: Uint8Array;
   contentType?: string; // default image/png
+  ext?: string; // file extension without dot; derived from contentType if omitted
   surface?: "blog" | "social";
 }
 
@@ -92,14 +97,14 @@ export interface UploadHeroResult {
   path: string;
 }
 
-// Uploads bytes to content-images/<surface>/<postId>/hero_<ts>.png and
+// Uploads bytes to content-images/<surface>/<postId>/hero_<ts>.<ext> and
 // returns the public URL. Service-role client bypasses RLS.
 export async function uploadHeroImage(
   input: UploadHeroInput,
 ): Promise<UploadHeroResult> {
   const surface = input.surface ?? "blog";
   const contentType = input.contentType ?? "image/png";
-  const ext = contentType.includes("jpeg") ? "jpg" : "png";
+  const ext = input.ext ?? (contentType.includes("jpeg") ? "jpg" : "png");
   const path = `${surface}/${input.postId}/hero_${Date.now()}.${ext}`;
 
   const { error: upErr } = await supabaseAdmin.storage
@@ -114,4 +119,145 @@ export async function uploadHeroImage(
   }
   const { data } = supabaseAdmin.storage.from("content-images").getPublicUrl(path);
   return { url: data.publicUrl, path };
+}
+
+// US-853: resolve the generation prompt deterministically.
+// Priority: explicit override → stored hero_prompt → title-based fallback →
+// generic fallback. Pure (no I/O) so it's unit-testable.
+export function resolveHeroPrompt(
+  post: { hero_prompt?: string | null; title?: string | null },
+  override?: string | null,
+): string {
+  const ovr = override?.trim();
+  if (ovr) return ovr;
+  const stored = post.hero_prompt?.trim();
+  if (stored) return stored;
+  const title = post.title?.trim();
+  if (title) {
+    return (
+      `Editorial photograph for an article titled "${title}". ` +
+      `Photographic realism, clean composition, no text in the image.`
+    );
+  }
+  return "Editorial photograph for a reseller-focused blog. Photographic realism, no text in the image.";
+}
+
+export interface EnsureHeroInput {
+  postId: string;
+  surface?: "blog" | "social";
+  prompt?: string; // explicit override; otherwise resolved from the post row
+  size?: GenerateHeroInput["size"];
+  quality?: GenerateHeroInput["quality"];
+  // Regenerate even if a hero already exists. The autonomous generate/publish
+  // pipeline leaves this false (idempotent); the manual dashboard button sets it.
+  force?: boolean;
+}
+
+export interface EnsureHeroResult {
+  status: "generated" | "skipped" | "failed";
+  url?: string;
+  path?: string;
+  prompt?: string;
+  reason?: string;
+  meta?: GenerateHeroResult["meta"];
+}
+
+// US-853: idempotent, best-effort hero-image pipeline shared by the manual
+// /hero route, the blog generate/publish handlers, and the autonomous
+// scheduler. Generates from the stored hero_prompt via the shared image model,
+// validates + strips metadata, uploads to the PUBLIC content-images bucket on a
+// stable path, and stamps hero_image_url on the post row.
+//
+// NEVER THROWS — a generation failure returns { status: "failed" } so callers
+// can fire-and-forget without ever blocking a publish.
+export async function ensureHeroImage(
+  input: EnsureHeroInput,
+): Promise<EnsureHeroResult> {
+  const surface = input.surface ?? "blog";
+  const table = surface === "blog" ? "blog_posts" : "social_posts";
+  const urlCol = surface === "blog" ? "hero_image_url" : "asset_image_url";
+  const pathCol = surface === "blog" ? "hero_image_path" : "asset_image_path";
+
+  try {
+    const { data: post, error: loadErr } = await supabaseAdmin
+      .from(table)
+      .select(
+        surface === "blog"
+          ? "hero_image_url, hero_prompt, title"
+          : "asset_image_url",
+      )
+      .eq("id", input.postId)
+      .maybeSingle();
+    if (loadErr) return { status: "failed", reason: loadErr.message };
+    if (!post) return { status: "failed", reason: "post not found" };
+
+    const row = post as {
+      hero_image_url?: string | null;
+      asset_image_url?: string | null;
+      hero_prompt?: string | null;
+      title?: string | null;
+    };
+
+    // Idempotent: don't regenerate if a hero already exists (unless forced).
+    const existing = surface === "blog" ? row.hero_image_url : row.asset_image_url;
+    if (!input.force && existing) {
+      return { status: "skipped", reason: "hero already exists", url: existing };
+    }
+
+    const prompt = resolveHeroPrompt(row, input.prompt);
+
+    const gen = await generateHeroImage({
+      prompt,
+      size: input.size,
+      quality: input.quality,
+    });
+
+    // Validate + strip metadata before it lands in a public bucket. gpt-image-1
+    // returns PNG; if a sniff quirk fails validation we still upload (best-
+    // effort) as PNG rather than dropping the hero.
+    const verdict = validateImageUpload(gen.bytes, {
+      allow: ["jpeg", "png", "webp"],
+    });
+    let bytes = gen.bytes;
+    let contentType = "image/png";
+    let ext = "png";
+    if (verdict.ok) {
+      const stripped = stripImageMetadata(gen.bytes, verdict.format);
+      bytes = stripped.bytes;
+      contentType = verdict.contentType;
+      ext = verdict.ext;
+    } else {
+      console.warn(
+        `[openai-images] hero failed image validation (${verdict.reason}); ` +
+          `uploading raw bytes as PNG`,
+      );
+    }
+
+    const uploaded = await uploadHeroImage({
+      postId: input.postId,
+      bytes,
+      contentType,
+      ext,
+      surface,
+    });
+
+    const updateCols: Record<string, string> = {
+      [urlCol]: uploaded.url,
+      [pathCol]: uploaded.path,
+    };
+    if (surface === "blog") updateCols.hero_prompt = prompt;
+    await supabaseAdmin.from(table).update(updateCols).eq("id", input.postId);
+
+    return {
+      status: "generated",
+      url: uploaded.url,
+      path: uploaded.path,
+      prompt,
+      meta: gen.meta,
+    };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error(`[openai-images] ensureHeroImage failed: ${reason}`);
+    return { status: "failed", reason };
+  }
 }

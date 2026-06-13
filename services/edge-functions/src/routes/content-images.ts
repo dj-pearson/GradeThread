@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { generateHeroImage, uploadHeroImage } from "../lib/openai-images.ts";
+import { ensureHeroImage } from "../lib/openai-images.ts";
 
 // Image endpoints for the content module.
 //   POST /hero    — synchronous AI generation + storage upload, updates the post row.
@@ -25,64 +25,28 @@ contentImagesRoutes.post("/hero", async (c) => {
     return c.json({ error: "post_id is required" }, 400);
   }
   const surface = body.surface ?? "blog";
-  const table = surface === "blog" ? "blog_posts" : "social_posts";
 
-  // Resolve the prompt: explicit override > stored hero_prompt > title-based fallback.
-  let prompt = body.prompt?.trim();
-  if (!prompt) {
-    const { data: post, error } = await supabaseAdmin
-      .from(table)
-      .select(surface === "blog" ? "hero_prompt, title, product_focus" : "product_focus")
-      .eq("id", body.post_id)
-      .maybeSingle();
-    if (error) return c.json({ error: error.message }, 500);
-    if (!post) return c.json({ error: "Post not found" }, 404);
-    const p = post as { hero_prompt?: string; title?: string; product_focus?: string };
-    prompt =
-      p.hero_prompt?.trim() ||
-      (p.title
-        ? `Editorial photograph for an article titled "${p.title}". Photographic realism, clean composition, no text in the image.`
-        : "Editorial photograph for a reseller-focused blog. Photographic realism, no text in the image.");
+  // Manual dashboard button → force regenerate even if a hero already exists.
+  // Prompt/metadata resolution, validation, stripping, upload, and persistence
+  // all live in the shared ensureHeroImage pipeline (US-853).
+  const result = await ensureHeroImage({
+    postId: body.post_id,
+    surface,
+    prompt: body.prompt,
+    size: body.size,
+    quality: body.quality,
+    force: true,
+  });
+  if (result.status === "failed") {
+    console.error("[content-images] hero generation failed:", result.reason);
+    return c.json({ error: result.reason ?? "hero generation failed" }, 500);
   }
-
-  try {
-    const gen = await generateHeroImage({
-      prompt,
-      size: body.size,
-      quality: body.quality,
-    });
-    const uploaded = await uploadHeroImage({
-      postId: body.post_id,
-      bytes: gen.bytes,
-      contentType: "image/png",
-      surface,
-    });
-
-    // Persist on the post row.
-    const updateCols =
-      surface === "blog"
-        ? {
-            hero_image_url: uploaded.url,
-            hero_image_path: uploaded.path,
-            hero_prompt: prompt,
-          }
-        : { asset_image_url: uploaded.url, asset_image_path: uploaded.path };
-    await supabaseAdmin
-      .from(table)
-      .update(updateCols)
-      .eq("id", body.post_id);
-
-    return c.json({
-      url: uploaded.url,
-      path: uploaded.path,
-      prompt,
-      meta: gen.meta,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[content-images] hero generation failed:", msg);
-    return c.json({ error: msg }, 500);
-  }
+  return c.json({
+    url: result.url,
+    path: result.path,
+    prompt: result.prompt,
+    meta: result.meta,
+  });
 });
 
 interface InlineUploadInput {

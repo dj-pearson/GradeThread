@@ -12567,8 +12567,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 853,
-      "passes": false,
-      "notes": "[EPIC: Content Engine Activation 2026-06-11] Reuse ai-config (see memory: AI config via Coolify shared vars) + upload-validation/image-metadata. Feeds functions/og/blog OG images."
+      "passes": true,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Reuse ai-config (see memory: AI config via Coolify shared vars) + upload-validation/image-metadata. Feeds functions/og/blog OG images. [DONE 2026-06-13] Added getDefaultImageModel() to ai-config (DEFAULT_IMAGE_MODEL, default gpt-image-1). New shared ensureHeroImage() in openai-images.ts: idempotent (skips when hero exists unless force), best-effort (never throws), validates+strips metadata before uploading to public content-images bucket on stable path, stamps hero_image_url. Wired into content-blog /generate (fire-and-forget), /publish (awaited before webhook/OG), and scheduler auto-publish (awaited before publish). /hero route now forces regen via the shared helper. Unit tests in content-hero_test.ts."
     },
     {
       "id": "US-854",
