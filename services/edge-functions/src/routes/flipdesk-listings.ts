@@ -13,6 +13,7 @@ import {
 import {
   mapSiblingListingFields,
   type StoredPlatformVariant,
+  validateSiblingForPublish,
 } from "../lib/cross-listing-fields.ts";
 import { generatePlatformVariants } from "../lib/ai-listing.ts";
 
@@ -321,6 +322,29 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
         continue;
       }
       rowId = (created as { id: string }).id;
+    }
+
+    // US-725: pre-flight the mapped sibling against the platform's requirements
+    // registry before spending an API call on a draft the platform will reject
+    // (over-limit title, missing required field, invalid condition, unmapped
+    // category). Error-level issues block this platform's publish; the sibling
+    // row stays a draft so the seller can fix it in the Listing Kit and re-push.
+    const preflight = validateSiblingForPublish(platform, mapped);
+    if (!preflight.ok) {
+      const blockers = preflight.issues
+        .filter((i) => i.level === "error")
+        .map((i) => i.message);
+      results[platform] = toPushResult(
+        {
+          ok: false,
+          status: 422,
+          error: blockers.join(" • "),
+          blockers,
+        },
+        rowId,
+        price,
+      );
+      continue;
     }
 
     const res = await adapter.publish({

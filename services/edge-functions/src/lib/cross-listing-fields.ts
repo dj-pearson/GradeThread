@@ -11,7 +11,12 @@
 // variants and persists what this returns.
 
 import type { CrossListingPlatform } from "./marketplace-adapters/types.ts";
-import { getMarketplaceSpec } from "./marketplace-specs.ts";
+import {
+  type DraftFields,
+  getMarketplaceSpec,
+  validateListingForPlatform,
+  type ValidationResult,
+} from "./marketplace-specs.ts";
 import { trimToLimit } from "./platform-variants.ts";
 
 // The per-platform variant as persisted in listings.platform_fields (US-721).
@@ -92,4 +97,36 @@ export function mapSiblingListingFields(
     listing_price: price,
     platform_fields: merged ? { [platform]: merged } : null,
   };
+}
+
+/**
+ * US-725: cross-list pre-flight validation for a mapped sibling, run by the
+ * cross-push fan-out BEFORE it asks the platform's API adapter to publish.
+ * Projects the mapped sibling (clamped title/description + the structured
+ * per-platform variant) onto the registry's DraftFields shape and validates it
+ * against that platform's spec (required fields, char limits, allowed condition
+ * value, category/tag rules — US-719/720/722). Error-level issues block publish;
+ * warnings are advisory. eBay validates itself in assemblePublishContext, so
+ * this is the shared check for the other API-push siblings (Shopify/Depop/…).
+ */
+export function validateSiblingForPublish(
+  platform: CrossListingPlatform,
+  mapped: SiblingListingFields,
+  photoCount?: number,
+): ValidationResult {
+  const variant = mapped.platform_fields?.[platform];
+  const draft: DraftFields = {
+    title: mapped.listing_title ?? "",
+    description: mapped.listing_description ?? "",
+    price: mapped.listing_price,
+    category: variant?.category ?? "",
+    department: variant?.category ?? "",
+    condition: variant?.condition?.value ?? "",
+    brand: variant?.brand ?? "",
+    designer: variant?.brand ?? "",
+    size: variant?.size ?? "",
+    color: variant?.color ?? "",
+    tags: variant?.tags ?? [],
+  };
+  return validateListingForPlatform(platform, draft, { photoCount });
 }

@@ -4,6 +4,7 @@ import { assert, assertEquals } from "@std/assert";
 import {
   mapSiblingListingFields,
   type StoredPlatformVariant,
+  validateSiblingForPublish,
 } from "../lib/cross-listing-fields.ts";
 
 const SOURCE = {
@@ -70,4 +71,39 @@ Deno.test("clamps a variant title that exceeds the platform cap", () => {
   assertEquals(out.listing_title!.length, 80);
   // The persisted blob reflects the clamped title, not the 120-char original.
   assertEquals(out.platform_fields!.poshmark.title, out.listing_title ?? undefined);
+});
+
+// US-725: pre-flight validation of a mapped sibling before cross-push publishes.
+Deno.test("pre-flight passes a well-formed mapped sibling", () => {
+  const out = mapSiblingListingFields("poshmark", SOURCE, 38, VARIANT);
+  const res = validateSiblingForPublish("poshmark", out);
+  assert(res.ok, JSON.stringify(res.issues));
+});
+
+Deno.test("pre-flight blocks when the required category is missing", () => {
+  const out = mapSiblingListingFields("mercari", SOURCE, 30, {
+    ...VARIANT,
+    category: "",
+  });
+  const res = validateSiblingForPublish("mercari", out);
+  assert(!res.ok);
+  assert(res.issues.some((i) => i.level === "error" && i.field === "category"));
+});
+
+Deno.test("pre-flight blocks an invalid condition value", () => {
+  const out = mapSiblingListingFields("mercari", SOURCE, 30, {
+    ...VARIANT,
+    // Mercari's allowed values are New/Like new/Good/Fair/Poor — not "EUC".
+    condition: { value: "EUC", label: "EUC" },
+  });
+  const res = validateSiblingForPublish("mercari", out);
+  assert(!res.ok);
+  assert(res.issues.some((i) => i.level === "error" && i.field === "condition"));
+});
+
+Deno.test("pre-flight flags an over-cap photo count when provided", () => {
+  const out = mapSiblingListingFields("depop", SOURCE, 30, VARIANT);
+  // Depop caps at 8 photos.
+  const res = validateSiblingForPublish("depop", out, 12);
+  assert(res.issues.some((i) => i.level === "error" && i.field === "photos"));
 });

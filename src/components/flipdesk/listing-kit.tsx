@@ -28,10 +28,13 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import {
   charStatus,
+  type DraftFields,
+  type FieldIssue,
   getMarketplaceSpec,
   manualKitPlatforms,
   type FieldSpec,
   type MarketplacePlatform,
+  validateListingForPlatform,
 } from "@/lib/marketplace-specs";
 import {
   type PlatformKitVariant,
@@ -238,11 +241,39 @@ function PlatformPanel({
   const valueOf = (f: FieldSpec) =>
     edits[f.key] ?? fieldValue(f.key, variant);
 
-  const issues = variant.validation?.issues ?? [];
+  // US-725: re-validate the *edited* draft live against the platform's
+  // requirements registry (not just the stale generation-time result), so an
+  // over-limit title or cleared category the seller just typed blocks "ready"
+  // immediately. condition/tags are projected onto the registry's value shape
+  // (validateListingForPlatform matches condition against spec.conditions[].value
+  // and counts the tag array). Errors block copy/send; warnings are advisory.
+  const liveDraft: DraftFields = {};
+  for (const f of spec.fields) {
+    if (f.key === "condition") liveDraft.condition = variant.condition?.value ?? "";
+    else if (f.key === "tags") liveDraft.tags = variant.tags;
+    else liveDraft[f.key] = valueOf(f);
+  }
+  const live = validateListingForPlatform(platform, liveDraft);
+  const issues: FieldIssue[] = [...live.issues];
+  // Photo cap is non-blocking in the kit: the export (US-724) auto-caps to the
+  // platform max and reports what it skipped, so surface it as a warning rather
+  // than a hard error that would needlessly block copy.
+  if (photoCount > spec.maxPhotos) {
+    issues.push({
+      field: "photos",
+      level: "warning",
+      message: `${photoCount} photos — only the first ${spec.maxPhotos} will be exported for ${spec.label}`,
+    });
+  }
   const errors = issues.filter((i) => i.level === "error");
   const warnings = issues.filter((i) => i.level === "warning");
+  const ready = errors.length === 0;
 
   const copyAll = () => {
+    if (errors.length > 0) {
+      toast.error("Fix the blocking issues before copying this listing.");
+      return;
+    }
     const block = spec.fields
       .map((f) => `${f.label}: ${valueOf(f)}`)
       .join("\n");
@@ -338,7 +369,35 @@ function PlatformPanel({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={copyAll}>
+        {ready ? (
+          <Badge
+            variant="outline"
+            className="gap-1 border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+          >
+            <Check className="h-3.5 w-3.5" />
+            Ready to list
+          </Badge>
+        ) : (
+          <Badge
+            variant="outline"
+            className="gap-1 border-brand-red/40 bg-brand-red/10 text-brand-red-text"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {errors.length} to fix
+          </Badge>
+        )}
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={copyAll}
+          disabled={errors.length > 0}
+          title={
+            errors.length > 0
+              ? "Fix the blocking issues before copying"
+              : "Copy every field as a labeled block"
+          }
+        >
           <Copy className="mr-1.5 h-3.5 w-3.5" />
           Copy all fields
         </Button>

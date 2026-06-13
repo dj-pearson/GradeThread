@@ -1825,3 +1825,10 @@ Branch: ralph/gradethread-build
   - Verify: deno check + lint clean; new+existing edge tests green (1013 passed; the only 2 failures are the documented pre-existing rls-guard ai_usage_events/waitlist_entries on clean main, unrelated); tsc -b clean; npm run build green; eslint 0 errors.
 - Timestamp: 2026-06-13
 ---
+
+## US-725: Cross-list pre-flight validation against the requirements registry
+- Status: COMPLETE
+- Files changed: src/components/flipdesk/listing-kit.tsx, services/edge-functions/src/lib/cross-listing-fields.ts, services/edge-functions/src/routes/flipdesk-listings.ts, services/edge-functions/src/tests/cross-listing-fields_test.ts, prd.json
+- Notes: The validator (validateListingForPlatform) already existed; this story wired it on both sides. (1) Listing Kit now live-validates the EDITED draft (not just the stale generation-time result) and blocks Copy-all/Send-to-extension on errors, with a Ready/N-to-fix badge; photo cap is a non-blocking kit warning since the US-724 export auto-caps. (2) New pure validateSiblingForPublish() runs in /cross-push before adapter.publish() for non-source platforms, returning a 422 with blockers so a bad draft never burns an API call (eBay self-validates in assemblePublishContext). marketplace-specs.ts was NOT touched (byte-identical mirror guard). 4 new edge tests; all checks green.
+- Timestamp: 2026-06-13
+---
