@@ -250,10 +250,26 @@ the developer portal:
 2. Fill in the business-justification form. Mention the use case:
    "Display sold-price comparables to resellers cataloging inventory."
 3. Approval takes 1-2 weeks. Until it lands, the comps endpoint falls
-   back to Browse API "ended listings" — less precise but functional.
+   back to the seller's own sales (private comps), then to Browse API
+   active/"ended listings" — less precise but functional (flagged "estimated").
 
-No env var changes are required when approval comes through — the same
-Sandbox/Production keysets gain the new entitlement automatically.
+**After approval lands you MUST flip the flag (US-542/US-1048):**
+
+```dotenv
+EBAY_MARKETPLACE_INSIGHTS=true
+```
+
+This is the one gate — the code (`ebay-client.ts:isMarketplaceInsightsEnabled()`)
+defaults it OFF so an un-granted keyset never 403s the Marketplace Insights
+endpoint. The grant rides the existing keyset (it's an **app/client-credential**
+entitlement on `buy.marketplace.insights`, so **no seller re-consent** is needed),
+but the flag must be set explicitly. With it on, the composer's comp panel shows
+realized **"Sold comps"** ("Backed by N realized sales") alongside active asks;
+with it off, the same panel cleanly shows active-ask comps with the estimated
+caveat — no errors either way.
+
+To verify after flipping: open a draft in the composer and confirm the comp
+panel reads "Backed by N realized sales" rather than "No sold comps yet".
 
 ---
 
