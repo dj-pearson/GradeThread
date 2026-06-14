@@ -15354,7 +15354,7 @@
         "tsc -b + eslint green."
       ],
       "priority": 1040,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=high. services/edge-functions/src/routes/flipdesk-ebay.ts (/negotiation/* exist); web has NO negotiation UI (src/); iOS ref: NegotiationInboxView.swift/NegotiationService.swift"
     },
     {
@@ -15367,7 +15367,7 @@
         "tsc -b + eslint green."
       ],
       "priority": 1041,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/routes/flipdesk-ebay.ts (/messages, /messages/:id/reply); web has none; iOS NegotiationService covers it"
     },
     {
