@@ -53,6 +53,8 @@ import { waitlistRoutes } from "./routes/waitlist.ts";
 import { accessGateMiddleware } from "./lib/access-gate.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
+import { adminClaimsRoutes } from "./routes/admin-claims.ts";
+import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
 import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
@@ -448,6 +450,9 @@ app.use(
 // US-585: public waitlist capture is unauthenticated — cap per-IP and
 // fail-closed so a fresh-account spam flood can't fill the table.
 app.use("/api/waitlist", rateLimiter(10, 60_000, "waitlist", undefined, { failClosed: true, methods: ["POST"] }));
+// US-867: buyer trust-guarantee claim intake is UNAUTHENTICATED (buyers have no
+// account) — cap tightly per-IP and fail-closed so a flood can't fill the table.
+app.use("/api/guarantee/*", rateLimiter(5, 60_000, "guarantee", undefined, { failClosed: true, methods: ["POST"] }));
 app.use("/api/grade/*", rateLimiter(60, 60_000, "grade"));
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
@@ -587,6 +592,8 @@ app.route("/health", healthRoutes);
 app.route("/api/grade", gradeRoutes);
 // US-585: waitlist — public capture (POST /) + authed access check (GET /me).
 app.route("/api/waitlist", waitlistRoutes);
+// US-867: public, unauthenticated buyer trust-guarantee claim intake.
+app.route("/api/guarantee", guaranteePublicRoutes);
 app.route("/api/payments", paymentRoutes);
 // StoreKit IAP: verify is authed (/api/payments/* covers it); the App Store
 // Server Notifications webhook is unauthed (verified by Apple's JWS signature).
@@ -652,6 +659,8 @@ app.route("/api/admin/grading", adminGradingRoutes);
 // submissions) that used to no-op under RLS as browser calls; reseals the
 // certificate on a grade adjustment. Admin JWT + MFA via the /api/admin/* group.
 app.route("/api/admin/disputes", adminDisputesRoutes);
+// US-867: buyer trust-guarantee claim review (admin + super_admin).
+app.route("/api/admin/claims", adminClaimsRoutes);
 // US-839 admin support inbox — read/reply/resolve escalated AI-assistant
 // conversations. Service-role writes (human_agent message + status flips) that
 // would no-op under RLS as browser calls; notifies the user on reply/resolve.

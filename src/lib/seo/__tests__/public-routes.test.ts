@@ -22,6 +22,10 @@ const AUTH_OR_FLOW_EXACT = new Set([
   "/accept-invite",
   // Transient post-action confirmation page; noindex, not a static landing page.
   "/waitlist-pending",
+  // US-867: buyer-guarantee claim intake form — an interactive flow page (posts
+  // to the edge, no static content to index). The policy page /buyer-guarantee
+  // IS registered + prerendered; the form itself is intentionally not.
+  "/buyer-guarantee/claim",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */

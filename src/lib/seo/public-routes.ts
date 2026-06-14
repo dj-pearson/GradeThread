@@ -65,6 +65,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/verified": "2026-06-13",
   "/developers": "2026-06-12",
   "/whats-it-worth": "2026-06-13",
+  "/buyer-guarantee": "2026-06-13",
   // US-855 cornerstone pillar pages.
   "/reduce-returns": "2026-06-13",
   "/reseller-grading-guide": "2026-06-13",
@@ -192,6 +193,18 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "FAQPage",
+  },
+  {
+    // US-867: condition-backed buyer trust guarantee + mediation policy. The
+    // public policy page; the claim intake form (/buyer-guarantee/claim) is a
+    // dynamic form and is NOT registered here.
+    path: "/buyer-guarantee",
+    title: "Buyer Trust Guarantee",
+    description:
+      "GradeThread's condition-backed buyer guarantee: what 'materially not as graded' means, eligibility, and how to file a mediation claim against a certified grade.",
+    changefreq: "monthly",
+    priority: 0.7,
+    jsonLdType: "Article",
   },
   // US-855: cornerstone pillar pages — durable, hand-curated authority content
   // on the queries GradeThread uniquely owns. Each emits Article + FAQPage

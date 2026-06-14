@@ -2317,3 +2317,23 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean; deno check + deno lint clean on changed edge files; deno test grading-accuracy 6/6 pass (2 new publicCategoryQuality cases); npm test 695/695 pass; npm run build:locked green (39 prerendered pages); npm run verify:db green (all 196 migrations apply from zero in Docker). schema-version bumped to 00196.
 - Timestamp: 2026-06-13
 ---
+
+## US-867: Condition-backed buyer trust guarantee + mediation policy
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00197_buyer_guarantee_claims.sql (new: guarantee_claims table + guarantee_claim_status enum, RLS on/no-policy, updated_at trigger, indexes)
+  - services/edge-functions/src/routes/guarantee-public.ts (new: public unauthenticated claim intake POST /api/guarantee/claims)
+  - services/edge-functions/src/routes/admin-claims.ts (new: admin GET list + under-review/approve/reject; reuses buildDisclosure + writeAuditLog)
+  - services/edge-functions/src/main.ts (mount routes + rate limiter 5/min fail-closed)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION -> 00197)
+  - src/pages/marketing/buyer-guarantee.tsx (new: public policy page)
+  - src/pages/buyer-guarantee-claim.tsx (new: public claim form)
+  - src/pages/admin/claims.tsx (new: admin review UI)
+  - src/pages/marketing/marketing-jsonld.ts (buyerGuaranteeJsonLd + FAQs)
+  - src/lib/seo/public-routes.ts, src/prerender/entry-server.tsx, src/prerender/head-builder.ts (register /buyer-guarantee for prerender+sitemap)
+  - src/routes/index.tsx (3 routes), src/layouts/admin-layout.tsx (nav item)
+  - src/pages/certificate.tsx (buyer entry link to file a claim)
+  - src/lib/seo/__tests__/public-routes.test.ts (exclude /buyer-guarantee/claim flow page)
+- Notes: Buyers have no account, so intake is a PUBLIC service-role edge endpoint that resolves the owning tenant (seller_user_id) + grade_report_id server-side from the public certificate_id (never the request body), and 404s on a withheld/flagged cert exactly like content-public. guarantee_claims is RLS-on with NO policy (buyer PII) — only the service-role edge reads it. Admin review judges each claim against the certified disclosure via buildDisclosure(disclosure.ts) and writes admin_audit_log. v1 is mediation-only (no automated payouts) — documented in migration + policy page + admin UI. Verified: tsc --noEmit, deno check, eslint, deno lint, npm run build:locked (40 prerendered pages incl. /buyer-guarantee), npm test (697 pass), edge deno test (1233 pass), npm run verify:db (migrations apply clean to 00197).
+- Timestamp: 2026-06-13
+---

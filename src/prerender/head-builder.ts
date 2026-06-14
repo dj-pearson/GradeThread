@@ -40,6 +40,7 @@ import {
   designVsDamageJsonLd,
   resaleValueJsonLd,
   gradingByCategoryJsonLd,
+  buyerGuaranteeJsonLd,
   glossaryJsonLd,
   glossaryBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
@@ -89,6 +90,8 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/design-vs-damage": designVsDamageJsonLd,
   "/resale-value-by-condition": resaleValueJsonLd,
   "/grading-by-category": gradingByCategoryJsonLd,
+  // US-867: buyer trust guarantee policy (Article + FAQPage).
+  "/buyer-guarantee": buyerGuaranteeJsonLd,
 };
 
 /** JSON-LD nodes for a given route. Mirrors what each page renders via <SEO>. */

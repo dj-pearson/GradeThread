@@ -436,6 +436,49 @@ export function gradingByCategoryJsonLd(): JsonLd[] {
   });
 }
 
+// ── /buyer-guarantee (US-867) ───────────────────────────────────────
+// The condition-backed buyer trust guarantee + mediation policy. Article +
+// FAQPage, like the cornerstone pages, but its own published/modified date.
+const BUYER_GUARANTEE_PUBLISHED = "2026-06-13";
+const BUYER_GUARANTEE_MODIFIED = "2026-06-13";
+
+export const BUYER_GUARANTEE_FAQS = [
+  {
+    q: "What does the GradeThread buyer guarantee cover?",
+    a: "It covers an item that arrives 'materially not as graded' — where the actual condition is meaningfully worse than the certified grade and its disclosed defects. The certificate's structured disclosure (the documented flaws and the 1.0–10.0 grade across five factors) is the reference point, so the guarantee is anchored to an objective record, not an opinion.",
+  },
+  {
+    q: "What does 'materially not as graded' mean?",
+    a: "A difference big enough to change the deal: a significant defect that wasn't disclosed on the certificate, or wear well beyond what the grade represents. Normal, already-disclosed flaws and intentional design features (factory distressing, raw hems) are not covered — they're documented on the certificate before you buy.",
+  },
+  {
+    q: "How do I file a claim?",
+    a: "Open the item's certificate, note its certificate number, and submit a claim with your contact email, a description of how the item differs from its grade, and any supporting photo links. You don't need a GradeThread account. A reviewer compares your claim against the certified disclosure and records a decision.",
+  },
+  {
+    q: "Does GradeThread issue refunds?",
+    a: "Not in this version. GradeThread mediates by reviewing the claim against the certified disclosure and issuing a decision; any refund or remedy is handled between you and the seller (and through the marketplace you purchased on). The guarantee makes the grade financially meaningful by holding it to account, not by acting as an escrow or insurer.",
+  },
+  {
+    q: "Who can file — do I need an account?",
+    a: "Any buyer of a graded item can file, with no account required. We only collect the contact details and evidence needed to review the claim, and that information is kept private to the review process.",
+  },
+];
+
+export function buyerGuaranteeJsonLd(): JsonLd[] {
+  return [
+    articleLd({
+      headline: "The GradeThread Buyer Trust Guarantee & Mediation Policy",
+      description:
+        "What the condition-backed buyer guarantee covers, what 'materially not as graded' means, and how to file a mediation claim against a certified grade.",
+      url: absoluteUrl("/buyer-guarantee"),
+      datePublished: BUYER_GUARANTEE_PUBLISHED,
+      dateModified: BUYER_GUARANTEE_MODIFIED,
+    }),
+    faqPageLd(BUYER_GUARANTEE_FAQS),
+  ];
+}
+
 // ── /grading/* glossary hub (US-303) ────────────────────────────────
 // Absolute breadcrumb trail (GradeThread → Condition grading → <term>) for a
 // glossary entry. Shared by the live page (via MarketingLayout's `breadcrumbs`

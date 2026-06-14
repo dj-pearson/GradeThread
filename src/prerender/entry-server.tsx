@@ -41,6 +41,7 @@ import { TransparencyPage } from "@/pages/marketing/transparency";
 import { VerifyGradePage } from "@/pages/marketing/verify";
 import { DevelopersPage } from "@/pages/marketing/developers";
 import { WhatsItWorthPage } from "@/pages/marketing/whats-it-worth";
+import { BuyerGuaranteePage } from "@/pages/marketing/buyer-guarantee";
 import { ReduceReturnsPage } from "@/pages/marketing/reduce-returns";
 import { ResellerGradingGuidePage } from "@/pages/marketing/reseller-grading-guide";
 import { DesignVsDamagePage } from "@/pages/marketing/design-vs-damage";
@@ -65,6 +66,8 @@ const PAGES: Record<string, React.ReactNode> = {
   "/verify": <VerifyGradePage />,
   "/developers": <DevelopersPage />,
   "/whats-it-worth": <WhatsItWorthPage />,
+  // US-867: buyer trust guarantee policy page.
+  "/buyer-guarantee": <BuyerGuaranteePage />,
   // US-863: public verified-seller directory. The seller list loads client-side;
   // the prerendered shell carries the header + metadata.
   "/verified": <VerifiedDirectoryPage />,

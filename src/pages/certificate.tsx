@@ -1038,6 +1038,28 @@ export function CertificatePage() {
         {/* US-333: tamper-evident integrity verdict */}
         <IntegrityPanel state={verify} onRetry={runVerify} />
 
+        {/* US-867: buyer trust guarantee — let a buyer who received an item
+            materially not as graded file a mediation claim against this cert. */}
+        {id && (
+          <div className="rounded-lg border bg-muted/30 p-4 text-center text-sm text-muted-foreground print:hidden">
+            Bought this item and it&apos;s materially not as graded?{" "}
+            <a
+              href={`/buyer-guarantee/claim?cert=${encodeURIComponent(id)}`}
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              File a buyer-guarantee claim
+            </a>
+            . Read the{" "}
+            <a
+              href="/buyer-guarantee"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              guarantee policy
+            </a>
+            .
+          </div>
+        )}
+
         {/* Powered by footer */}
         <div className="pb-4 text-center">
           <p className="text-xs text-muted-foreground">

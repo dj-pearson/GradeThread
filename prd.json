@@ -12777,8 +12777,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 867,
-      "passes": false,
-      "notes": "[EPIC: Public Authority Signals 2026-06-11] LARGER story - consider splitting (policy page / claim intake / admin review) if a single loop is too big. Backed by disclosure.ts + grade_report_defects (00058). Coordinate with existing disputes admin."
+      "passes": true,
+      "notes": "[EPIC: Public Authority Signals 2026-06-11] LARGER story - consider splitting (policy page / claim intake / admin review) if a single loop is too big. Backed by disclosure.ts + grade_report_defects (00058). Coordinate with existing disputes admin. [DONE 2026-06-13] Migration 00197_buyer_guarantee_claims (guarantee_claims table + guarantee_claim_status enum, RLS-on/no-policy so only the service-role edge touches buyer PII). Public unauthenticated intake POST /api/guarantee/claims (guarantee-public.ts, rate-limited 5/min fail-closed) resolves the tenant + grade_report server-side from certificate_id, withholding-gated like the public cert endpoint. Admin review GET/POST /api/admin/claims (admin-claims.ts) reuses buildDisclosure(disclosure.ts) to judge each claim against the certified disclosure + writes admin_audit_log. Public policy page /buyer-guarantee (prerendered, Article+FAQ JSON-LD) + claim form /buyer-guarantee/claim + certificate-page entry link. Admin page src/pages/admin/claims.tsx + nav. v1 is mediation-only (no automated payouts), documented in migration/policy/admin UI. EXPECTED_SCHEMA_VERSION bumped to 00197."
     },
     {
       "id": "US-868",
