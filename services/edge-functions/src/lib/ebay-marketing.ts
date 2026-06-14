@@ -319,6 +319,55 @@ export async function getAdForListing(
   };
 }
 
+// ── Per-listing promotion management (US-1044) ──────────────────────
+// Change an existing ad's bid, or remove the ad entirely (opt out). These are
+// the pieces missing for seller-facing promoted controls — create/get already
+// existed.
+
+/** Update the bid percentage on a listing's existing ad. Returns the clamped rate. */
+export async function updateAdRateForListing(
+  userId: string,
+  campaignId: string,
+  listingId: string,
+  bidPercentagePct: number,
+): Promise<number> {
+  const rate = clampRate(bidPercentagePct);
+  await marketingFetch<unknown>(
+    userId,
+    `/sell/marketing/v1/ad_campaign/${
+      encodeURIComponent(campaignId)
+    }/bulk_update_ads_bid_by_listing_id`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requests: [{ listingId, bidPercentage: formatBidPercentage(rate) }],
+      }),
+    },
+  );
+  return rate;
+}
+
+/** Remove a listing's ad (opt out of Promoted Listings). Idempotent: a
+ * not-found ad is treated as already-removed. */
+export async function removeAdForListing(
+  userId: string,
+  campaignId: string,
+  listingId: string,
+): Promise<void> {
+  try {
+    await marketingFetch<unknown>(
+      userId,
+      `/sell/marketing/v1/ad_campaign/${
+        encodeURIComponent(campaignId)
+      }/bulk_delete_ads_by_listing_id`,
+      { method: "POST", body: JSON.stringify({ listingIds: [listingId] }) },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/\(404\)|not found|no ad/i.test(msg)) throw err;
+  }
+}
+
 // ── Publish-time helper ─────────────────────────────────────────────
 
 export interface AttachPromotionResult {

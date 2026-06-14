@@ -124,8 +124,6 @@ import { writeAuditLog } from "../lib/audit-log.ts";
 import {
   approveCancellation,
   decideReturn,
-  getCancellation,
-  getReturn,
   issueReturnRefund,
   outcomeToSaleStatus,
   rejectCancellation,
@@ -138,11 +136,16 @@ import { notifyUser } from "../lib/notify.ts";
 import {
   attachPromotionAtPublish,
   clampMarkdownPct,
+  createAdForListing,
   createMarkdownSale,
   endMarkdownSale,
+  ensureAdCampaign,
+  getAdForListing,
+  removeAdForListing,
   resolvePublishAdRate,
   suggestedAdRateForCategory,
   syncPromotedListingsForOwner,
+  updateAdRateForListing,
 } from "../lib/ebay-marketing.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
@@ -2913,6 +2916,160 @@ flipdeskEbayRoutes.delete("/listings/:id/sale", async (c) => {
     details: { promotion_id: promotionId },
   });
   return c.json({ ok: true, listing_id: listingId });
+});
+
+// ── Promoted Listings management (US-1044) ──────────────────────────
+// GET status, POST to opt-in/set the ad rate, DELETE to opt out. The publish
+// path already auto-attaches an ad; these give the seller explicit control.
+
+interface PromoListingRow {
+  platform_listing_id: string | null;
+  platform_category_id: string | null;
+  promo_opt_out: boolean | null;
+  promo_rate_pct: number | null;
+  promo_ad_id: string | null;
+  promo_status: string | null;
+}
+
+async function loadPromoRow(
+  listingId: string,
+  userId: string,
+): Promise<PromoListingRow | null> {
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "platform_listing_id, platform_category_id, promo_opt_out, promo_rate_pct, promo_ad_id, promo_status, inventory_items!inner(user_id)",
+    )
+    .eq("id", listingId)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as unknown as PromoListingRow & {
+    inventory_items: { user_id: string };
+  };
+  if (row.inventory_items.user_id !== userId) return null;
+  return row;
+}
+
+flipdeskEbayRoutes.get("/listings/:id/promotion", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  const row = await loadPromoRow(listingId, userId);
+  if (!row) return c.json({ error: "Listing not found" }, 404);
+  return c.json({
+    opt_out: row.promo_opt_out ?? false,
+    rate_pct: row.promo_rate_pct,
+    ad_id: row.promo_ad_id,
+    status: row.promo_status,
+    suggested_rate_pct: suggestedAdRateForCategory(row.platform_category_id),
+  });
+});
+
+flipdeskEbayRoutes.post("/listings/:id/promotion", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  let body: { rate_pct?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const rate = Number(body.rate_pct);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return c.json({ error: "rate_pct must be a positive number" }, 400);
+  }
+  const row = await loadPromoRow(listingId, userId);
+  if (!row) return c.json({ error: "Listing not found" }, 404);
+  if (!row.platform_listing_id) {
+    return c.json(
+      { error: "This listing has no eBay listing id. Sync or republish first." },
+      409,
+    );
+  }
+
+  let appliedRate = rate;
+  let adId = row.promo_ad_id;
+  try {
+    const campaignId = await ensureAdCampaign(userId);
+    const existing = await getAdForListing(userId, campaignId, row.platform_listing_id);
+    if (existing?.adId) {
+      appliedRate = await updateAdRateForListing(
+        userId,
+        campaignId,
+        row.platform_listing_id,
+        rate,
+      );
+      adId = existing.adId;
+    } else {
+      const created = await createAdForListing(
+        userId,
+        campaignId,
+        row.platform_listing_id,
+        rate,
+      );
+      adId = created?.adId ?? null;
+    }
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the promotion update.", err, "ebay.promotion.set");
+  }
+
+  await supabaseAdmin
+    .from("listings")
+    .update({
+      promo_opt_out: false,
+      promo_rate_pct: appliedRate,
+      promo_ad_id: adId,
+      promo_status: "active",
+    } as never)
+    .eq("id", listingId);
+
+  await writeAuditLog(c, {
+    action: "ebay.promotion.set",
+    targetType: "listing",
+    targetId: listingId,
+    details: { rate_pct: appliedRate, ad_id: adId },
+  });
+  return c.json({ ok: true, rate_pct: appliedRate, ad_id: adId });
+});
+
+flipdeskEbayRoutes.delete("/listings/:id/promotion", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  const row = await loadPromoRow(listingId, userId);
+  if (!row) return c.json({ error: "Listing not found" }, 404);
+
+  if (row.platform_listing_id) {
+    try {
+      const campaignId = await ensureAdCampaign(userId);
+      await removeAdForListing(userId, campaignId, row.platform_listing_id);
+    } catch (err) {
+      return failSafe(c, 502, "eBay rejected removing the promotion.", err, "ebay.promotion.remove");
+    }
+  }
+
+  await supabaseAdmin
+    .from("listings")
+    .update({
+      promo_opt_out: true,
+      promo_ad_id: null,
+      promo_status: null,
+    } as never)
+    .eq("id", listingId);
+
+  await writeAuditLog(c, {
+    action: "ebay.promotion.remove",
+    targetType: "listing",
+    targetId: listingId,
+  });
+  return c.json({ ok: true });
 });
 
 // Revises a live listing — title / description / price / photo order. Photos
