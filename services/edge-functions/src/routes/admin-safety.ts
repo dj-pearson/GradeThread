@@ -3,6 +3,13 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { getSetting } from "../lib/system-settings.ts";
+import {
+  bustOverrideCache,
+  refreshOverrideCache,
+  rowToOverride,
+  validateOverrideInput,
+} from "../lib/rate-limit-overrides.ts";
 import type {
   AbuseSignalSeverity,
   AbuseSignalStatus,
@@ -274,4 +281,323 @@ adminSafetyRoutes.patch("/signals/:id", async (c: Context<AdminEnv>) => {
   });
 
   return c.json({ ok: true, status });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// US-890: rate-limit administration & temporary throttles.
+//
+// Inspect the distributed rate-limit counters (US-265 rate_limit_counters) per
+// user, see the noisiest callers, and set/clear a TEMPORARY per-user override
+// (throttle/boost/block) that the edge limiter honors at request time. Writes are
+// super_admin + MFA step-up gated and audited; the override auto-expires and is
+// ignored at read time (no cleanup job). Caps/defaults come from the system
+// settings registry (US-884).
+// ──────────────────────────────────────────────────────────────────────────
+
+const DEFAULT_NOISY_LIMIT = 20;
+const MAX_NOISY_LIMIT = 100;
+const DEFAULT_WINDOW_MINUTES = 5;
+const MAX_WINDOW_MINUTES = 60;
+const NOISY_SCAN_ROWS = 1000;
+
+interface CounterRow {
+  bucket_key: string;
+  window_start: string;
+  count: number;
+}
+
+interface OverrideRowDb {
+  subject_user_id: string;
+  mode: "multiplier" | "cap" | "block";
+  multiplier: number | null;
+  cap: number | null;
+  reason: string;
+  expires_at: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// "<scope>|<subject>" → its two parts. The subject is "user:<uuid>", "ip:<addr>"
+// or "apikey:<id>"; only user subjects carry an override.
+function parseBucket(bucketKey: string): { scope: string; subject: string } {
+  const i = bucketKey.indexOf("|");
+  if (i < 0) return { scope: bucketKey, subject: "" };
+  return { scope: bucketKey.slice(0, i), subject: bucketKey.slice(i + 1) };
+}
+
+function subjectUserId(subject: string): string | null {
+  return subject.startsWith("user:") ? subject.slice("user:".length) : null;
+}
+
+function clampInt(raw: string | null, def: number, max: number): number {
+  const n = Number(raw ?? def);
+  if (!Number.isFinite(n)) return def;
+  return Math.min(max, Math.max(1, Math.floor(n)));
+}
+
+async function loadActiveOverride(userId: string) {
+  const { data } = await supabaseAdmin
+    .from("rate_limit_overrides")
+    .select(
+      "subject_user_id, mode, multiplier, cap, reason, expires_at, created_by, created_at, updated_at",
+    )
+    .eq("subject_user_id", userId)
+    // AC3: an expired row is ignored at read time (no cleanup job).
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  return data ? rowToOverride(data as OverrideRowDb) : null;
+}
+
+async function loadBounds() {
+  const [maxMultiplier, maxDurationMinutes, gradeDefault] = await Promise.all([
+    getSetting<number>("rate_limit_override_max_multiplier", 20),
+    getSetting<number>("rate_limit_override_max_duration_minutes", 10080),
+    getSetting<number>("rate_limit_grade_per_min", 60),
+  ]);
+  return { maxMultiplier, maxDurationMinutes, gradeDefaultPerMin: gradeDefault };
+}
+
+// GET /rate-limits — the noisiest callers in the recent window + every active
+// override, for the Trust & Safety overview.
+adminSafetyRoutes.get("/rate-limits", async (c: Context<AdminEnv>) => {
+  const url = new URL(c.req.url);
+  const limit = clampInt(url.searchParams.get("limit"), DEFAULT_NOISY_LIMIT, MAX_NOISY_LIMIT);
+  const windowMinutes = clampInt(
+    url.searchParams.get("window_minutes"),
+    DEFAULT_WINDOW_MINUTES,
+    MAX_WINDOW_MINUTES,
+  );
+  const sinceIso = new Date(Date.now() - windowMinutes * 60_000).toISOString();
+
+  const { data: counterData, error: counterErr } = await supabaseAdmin
+    .from("rate_limit_counters")
+    .select("bucket_key, window_start, count")
+    .gte("window_start", sinceIso)
+    .order("count", { ascending: false })
+    .limit(NOISY_SCAN_ROWS);
+  if (counterErr) return c.json({ error: counterErr.message }, 500);
+
+  // Aggregate per subject across scopes in the window: total requests + the
+  // single hottest scope.
+  interface Agg {
+    subject: string;
+    total: number;
+    topScope: string;
+    topScopeCount: number;
+    scopes: number;
+  }
+  const bySubject = new Map<string, Agg>();
+  for (const row of (counterData ?? []) as CounterRow[]) {
+    const { scope, subject } = parseBucket(row.bucket_key);
+    if (!subject) continue;
+    const agg = bySubject.get(subject) ?? {
+      subject,
+      total: 0,
+      topScope: scope,
+      topScopeCount: 0,
+      scopes: 0,
+    };
+    agg.total += row.count;
+    agg.scopes += 1;
+    if (row.count > agg.topScopeCount) {
+      agg.topScope = scope;
+      agg.topScopeCount = row.count;
+    }
+    bySubject.set(subject, agg);
+  }
+  const ranked = [...bySubject.values()]
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit);
+
+  // Active overrides (cross-tenant by design — an admin view).
+  const { data: ovData, error: ovErr } = await supabaseAdmin
+    .from("rate_limit_overrides")
+    .select(
+      "subject_user_id, mode, multiplier, cap, reason, expires_at, created_by, created_at, updated_at",
+    )
+    .gt("expires_at", new Date().toISOString())
+    .order("expires_at", { ascending: true });
+  if (ovErr) return c.json({ error: ovErr.message }, 500);
+  const overrides = ((ovData ?? []) as OverrideRowDb[]).map(rowToOverride);
+
+  // Decorate every user subject (noisy callers + override subjects) with a label.
+  const userIds = [
+    ...ranked.map((r) => subjectUserId(r.subject)).filter((x): x is string => !!x),
+    ...overrides.map((o) => o.subjectUserId),
+  ];
+  const users = await loadUsers(userIds);
+
+  return c.json({
+    windowMinutes,
+    callers: ranked.map((r) => {
+      const uid = subjectUserId(r.subject);
+      return {
+        subject: r.subject,
+        userId: uid,
+        user: uid ? users.get(uid) ?? null : null,
+        totalRequests: r.total,
+        scopes: r.scopes,
+        topScope: r.topScope,
+        topScopeCount: r.topScopeCount,
+      };
+    }),
+    overrides: overrides.map((o) => ({
+      ...o,
+      user: users.get(o.subjectUserId) ?? null,
+    })),
+  });
+});
+
+// GET /rate-limits/:userId — one user's current counters + active override +
+// the registry-driven defaults/bounds the override editor needs.
+adminSafetyRoutes.get("/rate-limits/:userId", async (c: Context<AdminEnv>) => {
+  const userId = c.req.param("userId");
+  const url = new URL(c.req.url);
+  const windowMinutes = clampInt(
+    url.searchParams.get("window_minutes"),
+    DEFAULT_WINDOW_MINUTES,
+    MAX_WINDOW_MINUTES,
+  );
+  const sinceIso = new Date(Date.now() - windowMinutes * 60_000).toISOString();
+
+  const [counterRes, override, users, bounds] = await Promise.all([
+    supabaseAdmin
+      .from("rate_limit_counters")
+      .select("bucket_key, window_start, count")
+      // Match this user's subject suffix across every scope. `|` and `:` are
+      // literals in LIKE; the leading % matches any scope prefix.
+      .like("bucket_key", `%|user:${userId}`)
+      .gte("window_start", sinceIso)
+      .order("count", { ascending: false }),
+    loadActiveOverride(userId),
+    loadUsers([userId]),
+    loadBounds(),
+  ]);
+  if (counterRes.error) return c.json({ error: counterRes.error.message }, 500);
+
+  const counters = ((counterRes.data ?? []) as CounterRow[]).map((row) => ({
+    scope: parseBucket(row.bucket_key).scope,
+    count: row.count,
+    windowStart: row.window_start,
+  }));
+
+  return c.json({
+    userId,
+    user: users.get(userId) ?? null,
+    windowMinutes,
+    counters,
+    override: override
+      ? { ...override, user: users.get(userId) ?? null }
+      : null,
+    bounds,
+  });
+});
+
+interface OverrideBody {
+  mode?: unknown;
+  multiplier?: unknown;
+  cap?: unknown;
+  expiresInMinutes?: unknown;
+  reason?: unknown;
+}
+
+// POST /rate-limits/:userId/override — set/replace a temporary override. A
+// throttle/boost/block changes how aggressively a real account is limited, so it
+// carries the same bar as the destructive safety actions: super_admin + a fresh
+// MFA step-up, audited. The new override is upserted (one active per user) and the
+// limiter's cache is busted + warmed so it takes effect immediately.
+adminSafetyRoutes.post("/rate-limits/:userId/override", async (c: Context<AdminEnv>) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const userId = c.req.param("userId");
+  const body = (await c.req.json().catch(() => ({}))) as OverrideBody;
+
+  const bounds = await loadBounds();
+  const parsed = validateOverrideInput(body, bounds, Date.now());
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+
+  // Confirm the subject is a real account before writing an enforcement record.
+  const { data: subjectUser, error: userErr } = await supabaseAdmin
+    .from("users")
+    .select("id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (userErr) return c.json({ error: userErr.message }, 500);
+  if (!subjectUser) return c.json({ error: "User not found" }, 404);
+
+  const before = await loadActiveOverride(userId);
+
+  const { error: upErr } = await supabaseAdmin
+    .from("rate_limit_overrides")
+    .upsert(
+      {
+        subject_user_id: userId,
+        mode: parsed.value.mode,
+        multiplier: parsed.value.multiplier,
+        cap: parsed.value.cap,
+        reason: parsed.value.reason,
+        expires_at: parsed.value.expiresAt,
+        created_by: c.get("userId"),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "subject_user_id" },
+    );
+  if (upErr) return c.json({ error: upErr.message }, 500);
+
+  // Land the override on the very next request (this replica) and bound cross-
+  // replica propagation to the cache TTL.
+  bustOverrideCache();
+  await refreshOverrideCache();
+
+  await writeAuditLog(c, {
+    action: "admin.rate_limit_override_set",
+    targetType: "user",
+    targetId: userId,
+    details: {
+      mode: parsed.value.mode,
+      multiplier: parsed.value.multiplier,
+      cap: parsed.value.cap,
+      reason: parsed.value.reason,
+      expires_at: parsed.value.expiresAt,
+    },
+    before: before
+      ? { mode: before.mode, multiplier: before.multiplier, cap: before.cap, expires_at: before.expiresAt }
+      : null,
+    after: { mode: parsed.value.mode, multiplier: parsed.value.multiplier, cap: parsed.value.cap, expires_at: parsed.value.expiresAt },
+  });
+
+  return c.json({ ok: true, override: await loadActiveOverride(userId) });
+});
+
+// DELETE /rate-limits/:userId/override — lift an override early. Same super_admin
+// + step-up bar (lifting a throttle/block is itself a sensitive change), audited.
+adminSafetyRoutes.delete("/rate-limits/:userId/override", async (c: Context<AdminEnv>) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const userId = c.req.param("userId");
+  const before = await loadActiveOverride(userId);
+
+  const { error: delErr } = await supabaseAdmin
+    .from("rate_limit_overrides")
+    .delete()
+    .eq("subject_user_id", userId);
+  if (delErr) return c.json({ error: delErr.message }, 500);
+
+  bustOverrideCache();
+  await refreshOverrideCache();
+
+  await writeAuditLog(c, {
+    action: "admin.rate_limit_override_clear",
+    targetType: "user",
+    targetId: userId,
+    before: before
+      ? { mode: before.mode, multiplier: before.multiplier, cap: before.cap, expires_at: before.expiresAt }
+      : null,
+    after: null,
+  });
+
+  return c.json({ ok: true });
 });

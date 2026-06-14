@@ -35,6 +35,7 @@ import {
   LineChart,
   Flag,
   Siren,
+  Gauge,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -74,6 +75,8 @@ const safetyNavItems = [
   { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false },
   { to: "/admin/fraud", icon: ShieldX, label: "Abuse & Fraud", end: false },
   { to: "/admin/safety/signals", icon: Siren, label: "Abuse Signals", end: false },
+  // US-890 rate-limit administration: counters + temporary per-user overrides.
+  { to: "/admin/safety/rate-limits", icon: Gauge, label: "Rate Limits", end: false },
 ];
 
 // Growth / Promote suite (US-632) — segments, broadcast campaigns, in-app

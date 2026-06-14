@@ -73,6 +73,7 @@ import { startImpersonation } from "@/lib/impersonation";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
+import { UserRateLimitsCard } from "@/components/admin/user-rate-limits-card";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 
@@ -762,6 +763,9 @@ export function AdminUserDetailPage() {
         userId={targetUser.id}
         currentTrialEndsAt={targetUser.trial_ends_at}
       />
+
+      {/* Rate-limit administration (US-890) — counters + temporary overrides. */}
+      <UserRateLimitsCard userId={targetUser.id} />
 
       {/* Submission History */}
       <Card>

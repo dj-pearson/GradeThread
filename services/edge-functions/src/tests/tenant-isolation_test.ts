@@ -131,6 +131,40 @@ Deno.test({
 });
 
 Deno.test({
+  // US-890: the rate-limit administration console (counters, noisiest callers,
+  // and per-user throttle/block overrides) is an OPERATOR surface. A regular
+  // tenant must never read another account's counters or enforcement records, nor
+  // set an override. adminAuthMiddleware denies any non-admin caller.
+  name: "B (non-admin) cannot read the rate-limit admin console",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/admin/safety/rate-limits`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "GET rate-limits console");
+  },
+});
+
+Deno.test({
+  name: "B (non-admin) cannot set a rate-limit override on another user",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/admin/safety/rate-limits/00000000-0000-0000-0000-000000000000/override`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ mode: "block", reason: "evade", expiresInMinutes: 60 }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST rate-limit override");
+  },
+});
+
+Deno.test({
   name: "B cannot reprice A's eBay listing",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
   fn: async () => {

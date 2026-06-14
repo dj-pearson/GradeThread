@@ -2,6 +2,11 @@ import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
 import { isProduction } from "../lib/env.ts";
 import { recordMetric } from "../lib/observability.ts";
+import {
+  applyRateLimitOverride,
+  getRateLimitOverrideSync,
+  type RateLimitOverride,
+} from "../lib/rate-limit-overrides.ts";
 
 // Distributed fixed-window rate limiter (US-265). Backed by the shared
 // rate_limit_counters table + increment_rate_limit() RPC, so limits hold across
@@ -170,10 +175,15 @@ export function rateLimiter(
     // US-781: when this returns true the request skips limiting entirely (e.g.
     // trusted Pages-origin server-to-server hops). Checked before any counting.
     bypass?: RateLimitContextResolver<boolean>;
+    // US-890: resolve a temporary per-user override (throttle/boost/block).
+    // Injectable so the override path is unit-testable without a database;
+    // defaults to the live in-process cache (lib/rate-limit-overrides.ts).
+    overrideResolver?: (subjectUserId: string) => RateLimitOverride | null;
   } = {},
 ) {
   const methodFilter = opts.methods?.map((m) => m.toUpperCase());
   const failClosed = opts.failClosed === true;
+  const resolveOverride = opts.overrideResolver ?? getRateLimitOverrideSync;
   return createMiddleware<RateLimitEnv>(async (c, next) => {
     // Not one of the methods this limiter governs → leave it for whatever else
     // is mounted on this path.
@@ -188,7 +198,7 @@ export function rateLimiter(
       return;
     }
 
-    const limit = typeof maxRequests === "function"
+    let limit = typeof maxRequests === "function"
       ? maxRequests(c as unknown as Context)
       : maxRequests;
 
@@ -216,6 +226,32 @@ export function rateLimiter(
         return;
       }
       subject = "ip:unattributed";
+    }
+
+    // US-890: honor an operator's temporary per-user override. Applies to USER
+    // subjects only (overrides are keyed by user, not IP/API-key). A hard block
+    // short-circuits to 429 before any counting; a multiplier/cap reshapes the
+    // budget the request is then counted against. An expired override is ignored
+    // inside the resolver (checked at read time — no cleanup job).
+    if (subject.startsWith("user:")) {
+      const override = resolveOverride(subject.slice("user:".length));
+      if (override) {
+        if (override.mode === "block") {
+          const retryAfter = Math.max(
+            1,
+            Math.ceil((Date.parse(override.expiresAt) - Date.now()) / 1000),
+          );
+          c.header("Retry-After", String(retryAfter));
+          c.header("X-RateLimit-Limit", "0");
+          c.header("X-RateLimit-Remaining", "0");
+          recordMetric("rate_limit.override_block", 1, { scope });
+          const body = opts.errorBody
+            ? opts.errorBody({ retryAfter, limit: 0 })
+            : { error: "Too many requests. Please try again later." };
+          return c.json(body as Record<string, unknown>, 429);
+        }
+        limit = applyRateLimitOverride(limit, override);
+      }
     }
 
     const bucketKey = `${scope}|${subject}`;

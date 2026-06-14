@@ -114,6 +114,7 @@ import { maintenanceGuard } from "./middleware/maintenance.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter, pagesOriginBypass } from "./middleware/rate-limit.ts";
 import { getSetting, getSettingSync } from "./lib/system-settings.ts";
+import { refreshOverrideCache } from "./lib/rate-limit-overrides.ts";
 import {
   apiV1RateLimitBody,
   apiV1ReadLimit,
@@ -915,6 +916,10 @@ await assertSchemaVersion();
 // read the live registry value rather than the fallback (background, non-fatal).
 void getSetting<number>("rate_limit_grade_per_min", 60);
 void getSetting<number>("grading_review_confidence_threshold", 0.75);
+
+// US-890: warm the per-user rate-limit override cache so an active throttle/block
+// is enforced from the first request (background, non-fatal).
+void refreshOverrideCache();
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
 logEvent("info", "edge.boot", {
