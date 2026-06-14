@@ -115,6 +115,9 @@ const growthNavItems = [
 // super_admin access; the Run-now action is additionally super_admin + MFA
 // step-up gated server-side.
 const opsNavItems = [
+  // US-906 real-time activity feed + critical-event alerting. List/ack is admin;
+  // editing alert channels / sending a test is super_admin + step-up gated.
+  { to: "/admin/ops/activity", icon: Activity, label: "Activity Feed", end: false },
   { to: "/admin/ops/health", icon: Activity, label: "System Health", end: false },
   { to: "/admin/ops/jobs", icon: Server, label: "Background Jobs", end: false },
   { to: "/admin/ops/dead-letters", icon: Inbox, label: "Dead Letters", end: false },
@@ -236,6 +239,18 @@ export function AdminLayout() {
       const res = await edgeFetch("/api/admin/ops/jobs?page_size=1");
       const json = await res.json().catch(() => ({}));
       return res.ok ? Number(json.failing_count ?? 0) : 0;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
+  // US-906: unacknowledged critical ops events, for the Activity Feed nav badge.
+  const { data: opsCriticalCount } = useQuery({
+    queryKey: ["admin-ops-events-critical-count"],
+    queryFn: async (): Promise<number> => {
+      const res = await edgeFetch("/api/admin/ops/events/unread-count");
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? Number(json.critical_unacked ?? 0) : 0;
     },
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
@@ -384,6 +399,11 @@ export function AdminLayout() {
               {item.to === "/admin/ops/jobs" && (failingJobsCount ?? 0) > 0 && (
                 <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
                   {failingJobsCount}
+                </span>
+              )}
+              {item.to === "/admin/ops/activity" && (opsCriticalCount ?? 0) > 0 && (
+                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+                  {opsCriticalCount}
                 </span>
               )}
             </NavLink>

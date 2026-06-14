@@ -52,6 +52,17 @@ import {
   type MaintenanceScope,
   type MaintenanceWindow,
 } from "../lib/maintenance.ts";
+import {
+  dispatchOpsAlert,
+  emitOpsEvent,
+  isOpsSeverity,
+  loadOpsAlertConfig,
+  type OpsAlertConfig,
+  OPS_SEVERITIES,
+  resolveAlertEmail,
+  resolveAlertWebhook,
+} from "../lib/ops-events.ts";
+import { bustSettingCache } from "../lib/system-settings.ts";
 
 // Operations console — background jobs & scheduler (US-881).
 //
@@ -774,6 +785,17 @@ adminOpsRoutes.post("/maintenance", async (c) => {
   const row = data as MaintenanceWindow;
   await writeAuditLog(c, maintenanceWindowAudit("maintenance_window.create", row.id, row));
 
+  // US-906: surface the new window on the ops feed. A 'blocked'/'read_only' scope
+  // active immediately is operationally significant → warning; a banner/scheduled
+  // one is informational.
+  const enforcing = row.mode !== "banner" && row.is_active && !row.starts_at;
+  void emitOpsEvent("maintenance.created", enforcing ? "warning" : "info", {
+    title: `Maintenance window created (${row.scope} · ${row.mode})`,
+    source: "maintenance",
+    actorUserId: c.get("userId"),
+    data: { window_id: row.id, scope: row.scope, mode: row.mode, is_active: row.is_active },
+  });
+
   return c.json({ ok: true, window: row });
 });
 
@@ -863,10 +885,25 @@ adminOpsRoutes.patch("/maintenance/:id", async (c) => {
   const after = updated as MaintenanceWindow;
   // "End now" (is_active flipped false) is the most common patch — record it
   // distinctly so the audit trail reads clearly.
-  const action = before.is_active && after.is_active === false
-    ? "maintenance_window.end"
-    : "maintenance_window.update";
+  const ended = before.is_active && after.is_active === false;
+  const action = ended ? "maintenance_window.end" : "maintenance_window.update";
   await writeAuditLog(c, maintenanceWindowAudit(action, id, after, before));
+
+  // US-906: feed the toggle to the ops activity stream. Ending a window clears
+  // enforcement (info); activating an enforcing window is a warning.
+  const nowEnforcing = after.mode !== "banner" && after.is_active;
+  void emitOpsEvent(
+    ended ? "maintenance.ended" : "maintenance.updated",
+    !ended && nowEnforcing ? "warning" : "info",
+    {
+      title: ended
+        ? `Maintenance window ended (${after.scope} · ${after.mode})`
+        : `Maintenance window updated (${after.scope} · ${after.mode})`,
+      source: "maintenance",
+      actorUserId: c.get("userId"),
+      data: { window_id: id, scope: after.scope, mode: after.mode, is_active: after.is_active },
+    },
+  );
 
   return c.json({ ok: true, window: after });
 });
@@ -896,5 +933,281 @@ adminOpsRoutes.delete("/maintenance/:id", async (c) => {
   const row = data as MaintenanceWindow;
   await writeAuditLog(c, maintenanceWindowAudit("maintenance_window.delete", id, undefined, row));
 
+  // US-906: maintenance toggles are operationally significant — feed them through
+  // the ops activity stream (the create/PATCH handlers do likewise above).
+  void emitOpsEvent("maintenance.deleted", "info", {
+    title: `Maintenance window deleted (${row.scope} · ${row.mode})`,
+    source: "maintenance",
+    actorUserId: c.get("userId"),
+    data: { window_id: id, scope: row.scope, mode: row.mode },
+  });
+
   return c.json({ ok: true, id });
+});
+
+// ── Ops activity feed + alert routing (US-906) ───────────────────
+//
+// A single operator-facing stream of significant platform events written by
+// emitOpsEvent() (lib/ops-events.ts) from the jobs ledger, AI budget guardrails,
+// the abuse scan, billing reconciliation, and the maintenance handlers above.
+//
+// GET    /events              — recent feed, filterable by type/severity/status,
+//                               server-paginated (any admin).
+// GET    /events/unread-count — unacknowledged critical count (nav badge).
+// POST   /events/:id/acknowledge — triage one event (any admin).
+// POST   /events/acknowledge-all — clear all unacked critical (any admin).
+// GET    /events/config       — current alert channels + routing.
+// PUT    /events/config       — edit channels/routing (super_admin + step-up).
+// POST   /events/test         — send a test alert to verify the webhook/email
+//                               (super_admin + step-up).
+
+const OPS_EVENT_SELECT =
+  "id, type, severity, title, source, actor_user_id, payload, fanned_out, delivered, acknowledged_at, acknowledged_by, created_at";
+
+// GET /events — paginated, filterable feed.
+adminOpsRoutes.get("/events", async (c) => {
+  const now = new Date();
+
+  const typeFilter = c.req.query("type")?.trim() || null;
+  const sevRaw = c.req.query("severity")?.trim();
+  const sevFilter = sevRaw && isOpsSeverity(sevRaw) ? sevRaw : null;
+  // status: open (unacknowledged) | acknowledged | all (default).
+  const status = c.req.query("status")?.trim() || "all";
+
+  const page = Math.max(1, Math.floor(Number(c.req.query("page")) || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(Number(c.req.query("page_size")) || 25)));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let q = supabaseAdmin
+    .from("ops_events")
+    .select(OPS_EVENT_SELECT, { count: "exact" });
+  if (typeFilter) q = q.eq("type", typeFilter);
+  if (sevFilter) q = q.eq("severity", sevFilter);
+  if (status === "open") q = q.is("acknowledged_at", null);
+  else if (status === "acknowledged") q = q.not("acknowledged_at", "is", null);
+
+  const { data, count, error } = await q
+    .order("created_at", { ascending: false })
+    .range(from, to);
+  if (error) {
+    captureException(error, { tags: { area: "ops-events" } });
+    return c.json({ error: "Failed to load activity feed" }, 500);
+  }
+
+  // Unacknowledged critical count travels with the feed so the page header can
+  // show it without a second round-trip.
+  const { count: criticalUnacked } = await supabaseAdmin
+    .from("ops_events")
+    .select("id", { count: "exact", head: true })
+    .eq("severity", "critical")
+    .is("acknowledged_at", null);
+
+  return c.json({
+    events: data ?? [],
+    page,
+    page_size: pageSize,
+    total: count ?? 0,
+    critical_unacked: criticalUnacked ?? 0,
+    server_now: now.toISOString(),
+  });
+});
+
+// GET /events/unread-count — for the nav badge (light poll).
+adminOpsRoutes.get("/events/unread-count", async (c) => {
+  const { count, error } = await supabaseAdmin
+    .from("ops_events")
+    .select("id", { count: "exact", head: true })
+    .eq("severity", "critical")
+    .is("acknowledged_at", null);
+  if (error) {
+    captureException(error, { tags: { area: "ops-events" } });
+    return c.json({ critical_unacked: 0 }, 200);
+  }
+  return c.json({ critical_unacked: count ?? 0 });
+});
+
+// GET /events/config — current alert channels + routing (admin read). Surfaces
+// the effective fallback channels too, so the UI can show what's actually used
+// when a registry value is blank.
+adminOpsRoutes.get("/events/config", async (c) => {
+  const config = await loadOpsAlertConfig();
+  return c.json({
+    config,
+    effective: {
+      email: resolveAlertEmail(config),
+      webhook_configured: Boolean(resolveAlertWebhook(config)),
+    },
+    severities: OPS_SEVERITIES,
+  });
+});
+
+// PUT /events/config — edit channels/routing. super_admin + fresh MFA step-up;
+// writes the system_settings registry keys, busts the cache, audited.
+adminOpsRoutes.put("/events/config", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin access required" }, 403);
+  }
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const updates: { key: string; value: unknown }[] = [];
+
+  if ("enabled" in body) {
+    if (typeof body.enabled !== "boolean") {
+      return c.json({ error: "enabled must be a boolean." }, 400);
+    }
+    updates.push({ key: "ops_alert_enabled", value: body.enabled });
+  }
+  if ("min_severity" in body) {
+    if (!isOpsSeverity(body.min_severity)) {
+      return c.json({ error: "min_severity must be info | warning | critical." }, 400);
+    }
+    updates.push({ key: "ops_alert_min_severity", value: body.min_severity });
+  }
+  if ("webhook_url" in body) {
+    if (typeof body.webhook_url !== "string") {
+      return c.json({ error: "webhook_url must be a string." }, 400);
+    }
+    const url = body.webhook_url.trim();
+    if (url && !/^https?:\/\//i.test(url)) {
+      return c.json({ error: "webhook_url must be an http(s) URL or empty." }, 400);
+    }
+    updates.push({ key: "ops_alert_webhook_url", value: url });
+  }
+  if ("email" in body) {
+    if (typeof body.email !== "string") {
+      return c.json({ error: "email must be a string." }, 400);
+    }
+    const email = body.email.trim();
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return c.json({ error: "email must be a valid address or empty." }, 400);
+    }
+    updates.push({ key: "ops_alert_email", value: email });
+  }
+  if ("muted_types" in body) {
+    if (
+      !Array.isArray(body.muted_types) ||
+      !body.muted_types.every((x) => typeof x === "string")
+    ) {
+      return c.json({ error: "muted_types must be an array of strings." }, 400);
+    }
+    updates.push({ key: "ops_alert_muted_types", value: body.muted_types });
+  }
+
+  if (updates.length === 0) {
+    return c.json({ error: "No updatable fields supplied." }, 400);
+  }
+
+  const adminId = c.get("userId");
+  for (const u of updates) {
+    const { error } = await supabaseAdmin
+      .from("system_settings")
+      .update({ value: u.value, updated_by: adminId })
+      .eq("key", u.key);
+    if (error) {
+      captureException(error, { tags: { area: "ops-events.config" } });
+      return c.json({ error: "Failed to save alert config" }, 500);
+    }
+    bustSettingCache(u.key);
+  }
+
+  await writeAuditLog(c, {
+    action: "ops_alert.config_update",
+    targetType: "ops_alert_config",
+    targetId: null,
+    details: { keys: updates.map((u) => u.key) },
+  });
+
+  return c.json({ ok: true, config: await loadOpsAlertConfig() });
+});
+
+// POST /events/test — verify the configured channels by sending a test alert
+// directly (and recording it on the feed). super_admin + fresh MFA step-up.
+adminOpsRoutes.post("/events/test", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin access required" }, 403);
+  }
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  const adminId = c.get("userId");
+  const config: OpsAlertConfig = await loadOpsAlertConfig();
+
+  // Record a feed entry for the test, then dispatch directly (bypassing the
+  // severity gate) so the operator sees a real delivery result for THIS click.
+  const { data: inserted } = await supabaseAdmin
+    .from("ops_events")
+    .insert({
+      type: "ops.test",
+      severity: "info",
+      title: "Test ops alert",
+      source: "manual",
+      actor_user_id: adminId,
+      payload: { triggered_by: adminId },
+    })
+    .select("id")
+    .maybeSingle();
+  const eventId = (inserted as { id: string } | null)?.id ?? "test";
+
+  const outcome = await dispatchOpsAlert(
+    eventId,
+    "ops.test",
+    "info",
+    "Test ops alert — if you can read this, the channel works.",
+    { triggered_by: adminId, note: "Manual verification from the activity feed." },
+    config,
+  );
+
+  if (eventId !== "test") {
+    await supabaseAdmin
+      .from("ops_events")
+      .update({ fanned_out: true, delivered: outcome.webhookOk || outcome.emailOk })
+      .eq("id", eventId);
+  }
+
+  await writeAuditLog(c, {
+    action: "ops_alert.test",
+    targetType: "ops_alert_config",
+    targetId: null,
+    details: { outcome },
+  });
+
+  return c.json({ ok: true, outcome });
+});
+
+// POST /events/:id/acknowledge — triage one event (any admin). Routes AFTER the
+// specific /events/config + /events/test paths so they aren't shadowed.
+adminOpsRoutes.post("/events/:id/acknowledge", async (c) => {
+  const id = c.req.param("id");
+  const adminId = c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("ops_events")
+    .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: adminId })
+    .eq("id", id)
+    .is("acknowledged_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    captureException(error, { tags: { area: "ops-events" } });
+    return c.json({ error: "Failed to acknowledge event" }, 500);
+  }
+  return c.json({ ok: true, id, already: !data });
+});
+
+// POST /events/acknowledge-all — clear every unacked critical event (any admin).
+adminOpsRoutes.post("/events/acknowledge-all", async (c) => {
+  const adminId = c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("ops_events")
+    .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: adminId })
+    .eq("severity", "critical")
+    .is("acknowledged_at", null)
+    .select("id");
+  if (error) {
+    captureException(error, { tags: { area: "ops-events" } });
+    return c.json({ error: "Failed to acknowledge events" }, 500);
+  }
+  return c.json({ ok: true, acknowledged: data?.length ?? 0 });
 });

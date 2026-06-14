@@ -1,0 +1,294 @@
+// US-906: real-time ops activity feed + critical-event alerting.
+//
+// emitOpsEvent() is the ONE helper every significant platform event flows
+// through. It (1) appends the event to ops_events for the admin Activity Feed,
+// and (2) for severity >= the configured minimum (and a non-muted type), fans
+// the event out to the configured channels (email + a generic webhook from the
+// settings registry). Fan-out is best-effort and NEVER blocks the originating
+// action — callers fire-and-forget with `void emitOpsEvent(...)`, and every
+// failure here is swallowed (a webhook failure additionally dead-letters into
+// the unified DLQ for visibility, AC#6).
+//
+// The routing decision (shouldFanOut / severityAtLeast) is pure + unit-tested;
+// the channel config is read from system_settings so operators retune it
+// without a deploy.
+
+import { supabaseAdmin } from "./supabase.ts";
+import { getSetting } from "./system-settings.ts";
+import { sendOpsAlertEmail } from "./email.ts";
+import { fetchWithTimeout } from "./circuit-breaker.ts";
+import { captureException, recordMetric } from "./observability.ts";
+
+export type OpsEventSeverity = "info" | "warning" | "critical";
+
+export const OPS_SEVERITIES: readonly OpsEventSeverity[] = [
+  "info",
+  "warning",
+  "critical",
+];
+
+// Numeric rank for threshold comparisons.
+const SEVERITY_RANK: Record<OpsEventSeverity, number> = {
+  info: 0,
+  warning: 1,
+  critical: 2,
+};
+
+export function isOpsSeverity(v: unknown): v is OpsEventSeverity {
+  return typeof v === "string" &&
+    (OPS_SEVERITIES as readonly string[]).includes(v);
+}
+
+// `severity` is at least `min` (both ranked). An unknown value never qualifies.
+export function severityAtLeast(
+  severity: OpsEventSeverity,
+  min: OpsEventSeverity,
+): boolean {
+  return SEVERITY_RANK[severity] >= SEVERITY_RANK[min];
+}
+
+export interface OpsAlertConfig {
+  enabled: boolean;
+  minSeverity: OpsEventSeverity;
+  webhookUrl: string;
+  email: string;
+  mutedTypes: string[];
+}
+
+// Pure routing decision: should an event of this (severity, type) fan out under
+// this config? enabled AND severity >= minimum AND the type is not muted.
+export function shouldFanOut(
+  severity: OpsEventSeverity,
+  type: string,
+  config: OpsAlertConfig,
+): boolean {
+  if (!config.enabled) return false;
+  if (!severityAtLeast(severity, config.minSeverity)) return false;
+  if (config.mutedTypes.includes(type)) return false;
+  return true;
+}
+
+// Read the alert config from the settings registry (short-TTL cached). Coerces a
+// bad min-severity back to 'warning' and a non-array muted list to [].
+export async function loadOpsAlertConfig(): Promise<OpsAlertConfig> {
+  const [enabled, minRaw, webhookUrl, email, mutedRaw] = await Promise.all([
+    getSetting<boolean>("ops_alert_enabled", true),
+    getSetting<string>("ops_alert_min_severity", "warning"),
+    getSetting<string>("ops_alert_webhook_url", ""),
+    getSetting<string>("ops_alert_email", ""),
+    getSetting<unknown>("ops_alert_muted_types", []),
+  ]);
+  const minSeverity = isOpsSeverity(minRaw) ? minRaw : "warning";
+  const mutedTypes = Array.isArray(mutedRaw)
+    ? mutedRaw.filter((x): x is string => typeof x === "string")
+    : [];
+  return {
+    enabled: Boolean(enabled),
+    minSeverity,
+    webhookUrl: typeof webhookUrl === "string" ? webhookUrl.trim() : "",
+    email: typeof email === "string" ? email.trim() : "",
+    mutedTypes,
+  };
+}
+
+// Resolve the effective channels: a configured registry value wins, else the
+// long-standing MONITOR_ALERT_* / SMTP_ADMIN_EMAIL env fallbacks.
+export function resolveAlertEmail(config: OpsAlertConfig): string {
+  return config.email ||
+    Deno.env.get("MONITOR_ALERT_EMAIL")?.trim() ||
+    Deno.env.get("SMTP_ADMIN_EMAIL")?.trim() ||
+    "";
+}
+
+export function resolveAlertWebhook(config: OpsAlertConfig): string {
+  return config.webhookUrl ||
+    Deno.env.get("MONITOR_ALERT_WEBHOOK")?.trim() ||
+    "";
+}
+
+export interface OpsEventInput {
+  /** Human-readable one-liner for the feed. */
+  title: string;
+  /** Origin label (cron job name, 'maintenance', 'manual', …). */
+  source?: string;
+  /** Acting admin id, when human-initiated. */
+  actorUserId?: string | null;
+  /** Structured context (ids, counts, names). */
+  data?: Record<string, unknown>;
+}
+
+export interface OpsAlertOutcome {
+  webhookConfigured: boolean;
+  webhookOk: boolean;
+  emailConfigured: boolean;
+  emailOk: boolean;
+}
+
+const WEBHOOK_TIMEOUT_MS = 5000;
+
+// POST the alert to the generic webhook. Returns true on a 2xx; on any failure
+// (non-2xx or throw) it dead-letters the attempt into webhook_dead_letters
+// (provider 'ops-alert') for visibility (AC#6) and returns false. Never throws.
+async function deliverWebhook(
+  url: string,
+  eventId: string,
+  type: string,
+  severity: OpsEventSeverity,
+  title: string,
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const summary = `[GradeThread ops] ${severity.toUpperCase()}: ${title}`;
+  const body = {
+    text: summary, // Slack
+    summary, // PagerDuty/generic
+    severity,
+    type,
+    title,
+    event_id: eventId,
+    payload: data,
+  };
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      WEBHOOK_TIMEOUT_MS,
+    );
+    const ok = res.ok;
+    const status = res.status;
+    await res.body?.cancel();
+    if (!ok) {
+      await deadLetterWebhook(eventId, type, body, `webhook returned ${status}`);
+    }
+    return ok;
+  } catch (err) {
+    await deadLetterWebhook(
+      eventId,
+      type,
+      body,
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
+// Record a failed alert-webhook delivery in the unified dead-letter store so it
+// surfaces in the ops Dead Letters console. Best-effort; uses the ops_events row
+// id as the dedupe event_id (unique per event).
+async function deadLetterWebhook(
+  eventId: string,
+  eventType: string,
+  payload: unknown,
+  errorMessage: string,
+): Promise<void> {
+  try {
+    await supabaseAdmin.from("webhook_dead_letters").insert({
+      provider: "ops-alert",
+      event_id: eventId,
+      event_type: eventType,
+      payload,
+      error_message: errorMessage,
+      status: "unresolved",
+    });
+    recordMetric("ops_event.alert_dead_lettered", 1, { type: eventType });
+  } catch (err) {
+    captureException(err, { route: "ops-events.dead_letter", level: "warn" });
+  }
+}
+
+// Fan an event out to the configured channels. Returns a per-channel outcome.
+// Email goes through the durable critical-email outbox (category 'ops_alert'),
+// so a transient SMTP failure is retried/dead-lettered there automatically.
+export async function dispatchOpsAlert(
+  eventId: string,
+  type: string,
+  severity: OpsEventSeverity,
+  title: string,
+  data: Record<string, unknown>,
+  config: OpsAlertConfig,
+): Promise<OpsAlertOutcome> {
+  const email = resolveAlertEmail(config);
+  const webhook = resolveAlertWebhook(config);
+
+  const [emailOk, webhookOk] = await Promise.all([
+    email
+      ? sendOpsAlertEmail(email, { type, severity, title, data }).catch((err) => {
+        captureException(err, { route: "ops-events.alert.email", level: "warn" });
+        return false;
+      })
+      : Promise.resolve(false),
+    webhook
+      ? deliverWebhook(webhook, eventId, type, severity, title, data)
+      : Promise.resolve(false),
+  ]);
+
+  const outcome: OpsAlertOutcome = {
+    webhookConfigured: Boolean(webhook),
+    webhookOk,
+    emailConfigured: Boolean(email),
+    emailOk,
+  };
+
+  if (!email && !webhook) {
+    recordMetric("ops_event.alert_undelivered", 1, { type });
+  }
+  return outcome;
+}
+
+/**
+ * Record a significant platform event and (for severity >= the configured
+ * minimum) fan it out to the alert channels. Best-effort and self-contained:
+ * NEVER throws, so it can't disrupt the action that emitted it — callers should
+ * fire-and-forget with `void emitOpsEvent(...)`.
+ */
+export async function emitOpsEvent(
+  type: string,
+  severity: OpsEventSeverity,
+  payload: OpsEventInput,
+): Promise<void> {
+  const data = payload.data ?? {};
+  try {
+    // 1. Persist the event (the feed's source of truth).
+    const { data: inserted, error } = await supabaseAdmin
+      .from("ops_events")
+      .insert({
+        type,
+        severity,
+        title: payload.title,
+        source: payload.source ?? null,
+        actor_user_id: payload.actorUserId ?? null,
+        payload: data,
+      })
+      .select("id")
+      .maybeSingle();
+    if (error || !inserted) {
+      captureException(error ?? new Error("ops_events insert returned no row"), {
+        route: "ops-events.emit",
+        level: "warn",
+        tags: { type },
+      });
+      return;
+    }
+    const eventId = (inserted as { id: string }).id;
+
+    // 2. Fan out if the routing config says so.
+    const config = await loadOpsAlertConfig();
+    if (!shouldFanOut(severity, type, config)) return;
+
+    const outcome = await dispatchOpsAlert(eventId, type, severity, payload.title, data, config);
+    await supabaseAdmin
+      .from("ops_events")
+      .update({
+        fanned_out: true,
+        delivered: outcome.webhookOk || outcome.emailOk,
+      })
+      .eq("id", eventId);
+  } catch (err) {
+    // Truly best-effort: a logging/alerting failure must never bubble to the
+    // caller's request path.
+    captureException(err, { route: "ops-events.emit", level: "warn", tags: { type } });
+  }
+}

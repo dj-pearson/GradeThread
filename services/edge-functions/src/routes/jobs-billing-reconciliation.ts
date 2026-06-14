@@ -23,6 +23,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { detectDivergence } from "../lib/billing-reconciliation.ts";
+import { emitOpsEvent } from "../lib/ops-events.ts";
 
 // Bound the per-run scan. A pre-launch SaaS has far fewer subscribers than this;
 // the RPC clamps to 10k regardless.
@@ -66,6 +67,9 @@ export async function handleBillingReconciliationCron(c: Context): Promise<Respo
     const scannedIds: string[] = [];
     const divergingIds: string[] = [];
     let upserted = 0;
+    // US-906: count flags that are NEWLY opened this run (not refreshes of an
+    // already-open one) so the ops feed alerts on genuinely new divergences only.
+    let newlyFlagged = 0;
 
     for (const row of candidates) {
       scannedIds.push(row.subject_user_id);
@@ -133,8 +137,20 @@ export async function handleBillingReconciliationCron(c: Context): Promise<Respo
           );
           continue;
         }
+        newlyFlagged++;
       }
       upserted++;
+    }
+
+    // US-906: surface newly-opened reconciliation flags on the ops activity feed
+    // (a billing divergence is real revenue risk → warning). Refreshes of an
+    // already-open flag don't re-alert.
+    if (newlyFlagged > 0) {
+      void emitOpsEvent("billing.reconciliation", "warning", {
+        title: `Billing reconciliation opened ${newlyFlagged} new divergence flag${newlyFlagged === 1 ? "" : "s"}`,
+        source: "billing-reconciliation",
+        data: { newly_flagged: newlyFlagged, diverged: divergingIds.length, scanned: scannedIds.length },
+      });
     }
 
     // Auto-resolve open flags for accounts we scanned that no longer diverge —

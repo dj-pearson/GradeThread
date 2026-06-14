@@ -26,6 +26,7 @@ import {
   buildVelocitySignals,
   type PhashImageRow,
 } from "../lib/abuse-signals.ts";
+import { emitOpsEvent } from "../lib/ops-events.ts";
 
 // Bounded corpus for the O(n^2) phash comparison — recent hashed images only.
 const PHASH_CANDIDATE_LIMIT = 3000;
@@ -144,6 +145,29 @@ export async function handleAbuseScanCron(c: Context): Promise<Response> {
 
     const phashWritten = await upsertSignals(phashSignals);
     const velocityWritten = await upsertSignals(velocitySignals);
+
+    // US-906: surface a fraud-signal summary on the ops activity feed whenever
+    // the scan wrote any signals. Severity tracks the strongest signal in the
+    // batch (critical signal -> critical alert; high -> warning; else info).
+    const written = phashWritten + velocityWritten;
+    if (written > 0) {
+      const all = [...phashSignals, ...velocitySignals];
+      const sev = all.some((s) => s.severity === "critical")
+        ? "critical"
+        : all.some((s) => s.severity === "high")
+        ? "warning"
+        : "info";
+      void emitOpsEvent("fraud.signal", sev, {
+        title: `Abuse scan raised ${written} signal${written === 1 ? "" : "s"} ` +
+          `(${phashSignals.length} photo-reuse, ${velocitySignals.length} velocity)`,
+        source: "abuse-scan",
+        data: {
+          phash_collisions: phashSignals.length,
+          velocity_alerts: velocitySignals.length,
+          written,
+        },
+      });
+    }
 
     if (truncated.length > 0) {
       console.warn(`[abuse-scan] candidate caps hit: ${truncated.join(", ")}`);

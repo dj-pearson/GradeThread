@@ -122,6 +122,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // the SPA never reads it directly. Keyed by actor_user_id (the implicated
   // admin), not a tenant key — an operator surface, not user-owned data.
   "admin_audit_anomalies",
+  // US-906 ops activity-feed event stream: RLS enabled with an explicit
+  // `revoke all from anon, authenticated` and zero policies by design
+  // (migration 00228). Appended by emitOpsEvent() and read/triaged ONLY by the
+  // admin ops endpoints via the service-role client; the SPA never reads it
+  // directly. actor_user_id (the acting admin) is not a tenant key — an operator
+  // surface, not user-owned data.
+  "ops_events",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

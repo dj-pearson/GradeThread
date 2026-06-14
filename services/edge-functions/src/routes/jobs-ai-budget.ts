@@ -22,6 +22,7 @@ import { writeSystemAuditLog } from "../lib/audit-log.ts";
 import { sendAiBudgetAlertEmail } from "../lib/email.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
+import { emitOpsEvent } from "../lib/ops-events.ts";
 import {
   type BudgetStatus,
   type RecordedBreach,
@@ -185,6 +186,29 @@ export async function handleAiBudgetCron(c: Context): Promise<Response> {
             alerted: b.alerted,
           },
         });
+        // US-906: also surface the breach/kill on the ops activity feed. A kill
+        // (feature auto-disabled to stop the bleed) is critical; a plain breach
+        // is a warning. emitOpsEvent does its OWN channel fan-out, separate from
+        // dispatchBudgetAlert above (which keeps the AI-budget-specific email).
+        void emitOpsEvent(
+          b.killed ? "ai_budget.kill" : "ai_budget.breach",
+          b.killed ? "critical" : "warning",
+          {
+            title: b.killed
+              ? `AI budget kill: "${b.feature}" disabled ($${b.spendUsd.toFixed(2)} of $${b.limitUsd.toFixed(2)})`
+              : `AI budget breach: "${b.feature}" ($${b.spendUsd.toFixed(2)} of $${b.limitUsd.toFixed(2)})`,
+            source: "ai-budget-guardrails",
+            data: {
+              feature: b.feature,
+              period: b.period,
+              action: b.action,
+              limit_usd: b.limitUsd,
+              spend_usd: b.spendUsd,
+              killed: b.killed,
+              flag_key: b.flagKey,
+            },
+          },
+        );
       },
     });
 

@@ -2941,3 +2941,25 @@ Branch: ralph/gradethread-build
   new edge tests + rls-guard + schema-version green; verify:db applies 00227 from zero.
 - Timestamp: 2026-06-14
 ---
+
+## US-906: Real-time ops activity feed + critical-event alerting
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00228_ops_events.sql (NEW: ops_events operator table + 'ops-alert' DLQ provider + 5 settings-registry keys)
+  - services/edge-functions/src/lib/ops-events.ts (NEW: emitOpsEvent + pure routing + dispatch + DLQ enqueue)
+  - services/edge-functions/src/lib/email.ts (sendOpsAlertEmail)
+  - services/edge-functions/src/routes/admin-ops.ts (GET /events, /events/unread-count, /events/config GET+PUT, /events/test, /events/:id/acknowledge, /events/acknowledge-all; emit on maintenance toggles)
+  - services/edge-functions/src/main.ts (emit job.failed in /api/jobs/* cron ledger; import)
+  - services/edge-functions/src/routes/jobs-ai-budget.ts (emit ai_budget.kill/breach in audit cb)
+  - services/edge-functions/src/routes/jobs-abuse-scan.ts (emit fraud.signal summary)
+  - services/edge-functions/src/routes/jobs-billing-reconciliation.ts (emit billing.reconciliation on newly-opened flags)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION -> 00228)
+  - services/edge-functions/src/tests/rls-guard_test.ts (classify ops_events SERVICE_ROLE_ONLY)
+  - services/edge-functions/src/tests/ops-events_test.ts (NEW: pure routing/severity/channel-resolution tests)
+  - src/pages/admin/ops-activity.tsx (NEW: feed + filters + ack + config card + send-test)
+  - src/routes/index.tsx (lazy import + /admin/ops/activity route)
+  - src/layouts/admin-layout.tsx (Activity Feed nav item + unacked-critical badge)
+- Notes: One emitOpsEvent() chokepoint records to ops_events AND fans out (email + generic webhook from the settings registry) for severity>=ops_alert_min_severity and non-muted types. Fan-out is best-effort: callers `void emitOpsEvent(...)` (never blocks), the helper swallows all errors, and a failed alert webhook dead-letters into webhook_dead_letters (provider 'ops-alert', not auto-replayable) for AC6 visibility; alert email rides the durable 'ops_alert' outbox. Routing decisions (shouldFanOut/severityAtLeast) are pure + unit-tested. Job-failure emit lives in the SINGLE /api/jobs/* cron-ledger middleware so it covers every cron; noisy types can be muted from the config UI. ops_events is keyed by actor_user_id (operator surface, not a tenant key) → SERVICE_ROLE_ONLY + avoids the literal user_id token so the rls-guard discovery doesn't misclassify it.
+- Verify: deno check + lint (8 files); deno test ops-events+rls-guard+schema-version 18/18; tsc --noEmit; build:locked (41 pages); npm test 775 pass (1 pre-existing flaky timing test in concurrency.test.ts — passes in isolation); verify:db applies 00228 from zero.
+- Timestamp: 2026-06-14
+---

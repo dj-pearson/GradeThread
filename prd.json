@@ -13382,8 +13382,8 @@
         "Alert fan-out is best-effort and never blocks the originating action; failures land in the DLQ."
       ],
       "priority": 906,
-      "passes": false,
-      "notes": "[Platform Admin Command Center / Observability] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+      "passes": true,
+      "notes": "[Platform Admin Command Center / Observability] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination. [DONE 2026-06-14] emitOpsEvent(type,severity,payload) in lib/ops-events.ts: appends ops_events (00228, operator surface, deny-all RLS) and for severity>=configured-min (settings registry) fans out to email (sendOpsAlertEmail, durable ops_alert outbox) + generic webhook; webhook failures dead-letter into webhook_dead_letters provider ops-alert (AC6). Routing (shouldFanOut/severityAtLeast) pure+unit-tested. GET /api/admin/ops/events paginated+filterable; /events/unread-count badge; /events/:id/acknowledge + /events/acknowledge-all; GET+PUT /events/config (super_admin+step-up); POST /events/test verifies channels. Wired emits: job.failed (main.ts cron ledger chokepoint), ai_budget.kill/breach (jobs-ai-budget audit cb), fraud.signal (abuse-scan), billing.reconciliation (new flags only), maintenance.created/updated/ended/deleted. Frontend /admin/ops/activity (feed+filters+ack+config+test) + nav badge. All emits fire-and-forget (void) and never throw."
     },
     {
       "id": "US-907",

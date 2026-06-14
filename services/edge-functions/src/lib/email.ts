@@ -1143,6 +1143,62 @@ export async function sendContentWatchdogAlertEmail(
   });
 }
 
+// ─── Ops activity-feed critical event (internal/ops alert, US-906) ──
+
+interface OpsAlertData {
+  type: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * US-906: alert ops when a significant platform event (job failure, AI budget
+ * kill, fraud signal, billing divergence, maintenance toggle) fans out of the
+ * activity feed. Goes through the same emailLayout/SMTP/outbox path as every
+ * other admin alert; categorized 'ops_alert' so a transient SMTP failure is
+ * retried/dead-lettered from the outbox (US-498).
+ */
+export async function sendOpsAlertEmail(
+  to: string,
+  data: OpsAlertData,
+): Promise<boolean> {
+  const isCritical = data.severity === "critical";
+  const banner = isCritical ? BRAND_RED : "#eab308";
+  // Render the structured payload as a compact key/value table.
+  const rows = Object.entries(data.data)
+    .map(([k, v]) => {
+      const val = typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
+      return `
+      <tr>
+        <td style="padding:6px 12px;border-bottom:1px solid #eee;font-size:12px;color:#888;width:38%;vertical-align:top;">${escapeHtml(k)}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #eee;font-size:13px;color:#333;">${escapeHtml(val)}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const content = `
+    <div style="background:${banner};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      Ops event — ${escapeHtml(data.severity.toUpperCase())}
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${escapeHtml(data.title)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 13px; line-height: 1.5;">
+      A <strong>${escapeHtml(data.type)}</strong> event was recorded on the platform
+      activity feed and routed to this channel because it met the alert threshold.
+    </p>
+    ${rows ? `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">${rows}</table>` : ""}
+    ${ctaButton("Open the activity feed", `${SITE_URL}/admin/ops/activity`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `${isCritical ? "🔴" : "🟡"} GradeThread ops alert: ${data.title}`,
+    html: emailLayout(content),
+    category: "ops_alert", // US-498: durable retry on transient SMTP failure
+  });
+}
+
 // ─── AI cost budget guardrail breach (internal/owner alert) ─────────
 
 interface AiBudgetAlertData {

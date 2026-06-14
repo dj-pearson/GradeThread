@@ -84,6 +84,7 @@ import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { adminAuditRoutes } from "./routes/admin-audit.ts";
 import { handleAuditAnomalyCron } from "./routes/jobs-audit-anomaly.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
+import { emitOpsEvent } from "./lib/ops-events.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
@@ -434,6 +435,17 @@ app.use("/api/jobs/*", async (c, next) => {
     durationMs: Date.now() - startedMs,
     triggeredBy,
   });
+  // US-906: a failed scheduled/manual job run is a significant ops event — feed
+  // it through the activity stream (warning). This is the single chokepoint that
+  // covers EVERY /api/jobs/* cron. Noisy persistently-failing jobs can be muted
+  // per-type ("job.failed") from the alert config.
+  if (httpStatus >= 400) {
+    void emitOpsEvent("job.failed", "warning", {
+      title: `Background job "${jobName}" failed (HTTP ${httpStatus})`,
+      source: jobName,
+      data: { job: jobName, http_status: httpStatus, triggered_by: triggeredBy },
+    });
+  }
 });
 
 // Admin billing: user JWT auth, then admin role check
