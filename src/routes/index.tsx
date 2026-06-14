@@ -55,6 +55,7 @@ const SignupPage = lazy(() => import("@/pages/signup").then(m => ({ default: m.S
 const AuthCallbackPage = lazy(() => import("@/pages/auth-callback").then(m => ({ default: m.AuthCallbackPage })));
 const ResetPasswordPage = lazy(() => import("@/pages/reset-password").then(m => ({ default: m.ResetPasswordPage })));
 const DashboardPage = lazy(() => import("@/pages/dashboard").then(m => ({ default: m.DashboardPage })));
+const SupportTicketsPage = lazy(() => import("@/pages/support-tickets").then(m => ({ default: m.SupportTicketsPage })));
 const SubmissionsPage = lazy(() => import("@/pages/submissions").then(m => ({ default: m.SubmissionsPage })));
 const NewSubmissionPage = lazy(() => import("@/pages/new-submission").then(m => ({ default: m.NewSubmissionPage })));
 const SnapToValuePage = lazy(() => import("@/pages/snap").then(m => ({ default: m.SnapToValuePage })));
@@ -169,6 +170,7 @@ const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail").then(
 const AdminDisputesPage = lazy(() => import("@/pages/admin/disputes").then(m => ({ default: m.AdminDisputesPage })));
 const AdminClaimsPage = lazy(() => import("@/pages/admin/claims").then(m => ({ default: m.AdminClaimsPage })));
 const AdminSupportPage = lazy(() => import("@/pages/admin/support").then(m => ({ default: m.AdminSupportPage })));
+const AdminSupportTicketsPage = lazy(() => import("@/pages/admin/support-tickets").then(m => ({ default: m.AdminSupportTicketsPage })));
 const AdminKnowledgeBasePage = lazy(() => import("@/pages/admin/knowledge-base").then(m => ({ default: m.AdminKnowledgeBasePage })));
 const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring").then(m => ({ default: m.AdminMonitoringPage })));
 const AdminSystemPage = lazy(() => import("@/pages/admin/system").then(m => ({ default: m.AdminSystemPage })));
@@ -397,6 +399,8 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/community", element: <SuspenseWrapper><FlipdeskCommunityInsightsPage /></SuspenseWrapper> },
               { path: "/dashboard/account", element: <SuspenseWrapper><AccountPage /></SuspenseWrapper> },
               { path: "/dashboard/settings", element: <SuspenseWrapper><SettingsPage /></SuspenseWrapper> },
+              { path: "/dashboard/support", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
+              { path: "/dashboard/support/:id", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
               { path: "/dashboard/billing", element: <SuspenseWrapper><BillingPage /></SuspenseWrapper> },
               { path: "/dashboard/api-keys", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },
               { path: "/dashboard/team", element: <SuspenseWrapper><TeamPage /></SuspenseWrapper> },
@@ -429,6 +433,8 @@ export const router = createBrowserRouter([
               { path: "/admin/claims", element: <SuspenseWrapper><AdminClaimsPage /></SuspenseWrapper> },
               { path: "/admin/support", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },
               { path: "/admin/support/:id", element: <SuspenseWrapper><AdminSupportPage /></SuspenseWrapper> },
+              { path: "/admin/support-tickets", element: <SuspenseWrapper><AdminSupportTicketsPage /></SuspenseWrapper> },
+              { path: "/admin/support-tickets/:id", element: <SuspenseWrapper><AdminSupportTicketsPage /></SuspenseWrapper> },
               { path: "/admin/support/monitoring", element: <SuspenseWrapper><AdminMonitoringPage /></SuspenseWrapper> },
               { path: "/admin/support/kb", element: <SuspenseWrapper><AdminKnowledgeBasePage /></SuspenseWrapper> },
               { path: "/admin/ai-models", element: <SuspenseWrapper><AdminAiModelsPage /></SuspenseWrapper> },

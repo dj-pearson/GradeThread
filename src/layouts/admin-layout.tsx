@@ -30,6 +30,7 @@ import {
   Gift,
   Server,
   Inbox,
+  Ticket,
   DoorOpen,
   DollarSign,
   LineChart,
@@ -56,6 +57,7 @@ const adminNavItems = [
   { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
   { to: "/admin/claims", icon: ShieldCheck, label: "Guarantee Claims", end: false, superAdminOnly: false },
   { to: "/admin/support", icon: Headset, label: "Support", end: true, superAdminOnly: false },
+  { to: "/admin/support-tickets", icon: Ticket, label: "Support Tickets", end: false, superAdminOnly: false },
   { to: "/admin/support/kb", icon: BookOpen, label: "Knowledge Base", end: false, superAdminOnly: false },
   { to: "/admin/support/monitoring", icon: Activity, label: "Assistant Monitoring", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
@@ -187,6 +189,18 @@ export function AdminLayout() {
     refetchInterval: 60 * 1000,
   });
 
+  // US-900: open/pending support tickets, for the Support Tickets nav badge.
+  const { data: openTicketCount } = useQuery({
+    queryKey: ["admin-support-tickets-open-count"],
+    queryFn: async (): Promise<number> => {
+      const res = await edgeFetch("/api/admin/support-tickets/count");
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? Number(json.open_count ?? 0) : 0;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
   // US-881: count of background jobs with consecutive failures, for the
   // Operations > Background Jobs nav badge (light poll, like Reviews above).
   const { data: failingJobsCount } = useQuery({
@@ -256,6 +270,11 @@ export function AdminLayout() {
               {item.to === "/admin/support" && (escalatedCount ?? 0) > 0 && (
                 <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
                   {escalatedCount}
+                </span>
+              )}
+              {item.to === "/admin/support-tickets" && (openTicketCount ?? 0) > 0 && (
+                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+                  {openTicketCount}
                 </span>
               )}
             </NavLink>

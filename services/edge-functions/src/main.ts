@@ -57,6 +57,7 @@ import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminClaimsRoutes } from "./routes/admin-claims.ts";
 import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
+import { adminSupportTicketsRoutes } from "./routes/admin-support-tickets.ts";
 import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
@@ -113,6 +114,7 @@ import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
 import { workspaceRoutes } from "./routes/workspace.ts";
 import { accountRoutes } from "./routes/account.ts";
+import { supportTicketRoutes } from "./routes/support-tickets.ts";
 import { legalRoutes } from "./routes/legal.ts";
 import { verifiedRoutes } from "./routes/verified.ts";
 import { supportAssistantRoutes } from "./routes/support-assistant.ts";
@@ -237,6 +239,8 @@ app.use("/api/notifications/register", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
 app.use("/api/account/*", authMiddleware);
+// US-900: user-facing support ticket inbox — caller acts only on their own tickets.
+app.use("/api/support-tickets/*", authMiddleware);
 // US-377: ToS/Privacy clickwrap acceptance — caller acts only on their own record.
 app.use("/api/legal/*", authMiddleware);
 // US-628: in-app announcement reads — caller acts only on their own dismissals.
@@ -715,6 +719,10 @@ app.route("/api/admin/claims", adminClaimsRoutes);
 // would no-op under RLS as browser calls; notifies the user on reply/resolve.
 // Admin JWT + MFA via the /api/admin/* group.
 app.route("/api/admin/support", adminSupportRoutes);
+// US-900 admin support-ticket queue — triage/reply/resolve user-opened tickets,
+// add operator-only internal notes; public replies notify the user (US-582
+// email). Distinct from the assistant inbox above. Admin JWT + MFA + audited.
+app.route("/api/admin/support-tickets", adminSupportTicketsRoutes);
 // US-841 abuse & usage monitoring for the AI assistant — recent abuse events,
 // per-user usage rollups vs the US-836 caps, current lockouts + manual unlock,
 // and flagged messages. Service-role reads (usage/abuse/messages are RLS-no-
@@ -911,6 +919,7 @@ app.route("/api/content/public", contentPublicRoutes);
 app.route("/api/content/scheduler", contentSchedulerRoutes);
 app.route("/api/workspace", workspaceRoutes);
 app.route("/api/account", accountRoutes);
+app.route("/api/support-tickets", supportTicketRoutes);
 app.route("/api/legal", legalRoutes);
 app.route("/api/verified", verifiedRoutes);
 

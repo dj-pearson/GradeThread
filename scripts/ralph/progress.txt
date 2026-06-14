@@ -2853,3 +2853,35 @@ Branch: ralph/gradethread-build
 - Notes: Reused the US-559 durable batch helpers (adminRetry/CancelGeneration/PublishBatch) for all mutations — they resolve the owning tenant from the batch row and re-dispatch through the bounded publish worker (PUBLISH_CONCURRENCY=3 + per-item claim + eBay adopt-not-duplicate), so retries are idempotent and within eBay fan-out bounds (AC5). "Listings stuck in 'sending'" maps to drafts not-yet-synced with a stale publish_claimed_at (US-528 claim); "failed" = publish_error set. The listing_status enum has no 'sending' value, so it's derived. No migration (reused existing columns/tables) → no EXPECTED_SCHEMA_VERSION bump. supabaseAdmin is untyped so multi-column selects needed `as unknown as` casts (consistent with the US-898 sibling route). AC3 wired the backlog into the existing ops-health system_health report via an edge-side count (no system_health() RPC change). Mounted /pipeline UNDER /marketplace (collision-free with US-898's /sync-runs etc.). Gates: deno check + lint, edge suite 1503/0, tsc --noEmit, vitest 772, build:locked 41 pages, eslint — all green.
 - Timestamp: 2026-06-14
 ---
+
+## US-900: Lightweight support ticket inbox
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00223_support_tickets.sql (new: support_tickets + support_ticket_messages, RLS)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION -> 00223)
+  - services/edge-functions/src/routes/support-tickets.ts (new: user-facing /api/support-tickets)
+  - services/edge-functions/src/routes/admin-support-tickets.ts (new: admin /api/admin/support-tickets)
+  - services/edge-functions/src/main.ts (mount both routes + authMiddleware for user route)
+  - services/edge-functions/src/tests/support-tickets_test.ts (new: pure user-visibility projection)
+  - services/edge-functions/src/tests/tenant-isolation_test.ts (cross-tenant ticket cases)
+  - services/edge-functions/src/tests/rls-guard_test.ts (support_ticket_messages -> PARENT_SCOPED)
+  - src/pages/support-tickets.tsx (new: user inbox at /dashboard/support)
+  - src/pages/admin/support-tickets.tsx (new: admin queue at /admin/support-tickets)
+  - src/routes/index.tsx (routes for both pages)
+  - src/layouts/admin-layout.tsx (Support Tickets nav item + open/pending badge)
+  - src/components/dashboard/support-launcher.tsx (Contact support -> /dashboard/support, was mailto)
+  - src/components/ui/checkbox.tsx (new shadcn component) + package.json (@radix-ui/react-checkbox)
+- Notes:
+  - NAMING COLLISION with US-839 (AI-assistant support inbox): support_messages table,
+    src/pages/admin/support.tsx, and /api/admin/support were all already taken. So the new
+    ticket store is support_ticket_messages, the admin page is support-tickets.tsx, and the
+    routes are /api/admin/support-tickets + /admin/support-tickets. Documented in the migration.
+  - Internal notes (is_internal_note) are NEVER returned to the ticket owner: enforced by the
+    user-side RLS SELECT policy AND the pure toUserMessageView() projection (unit-tested).
+  - Admin replies reuse US-582 sendAdminMessageEmail (durable retry) + notifyUser; internal
+    notes do neither. All admin writes verified row-changed (updateByIdChecked) + audited.
+  - Verified: tsc --noEmit, npm run build:locked (41 prerendered), npm test (772 passed),
+    deno check/lint, new edge unit test (4 passed), rls-guard + schema-version, npm run verify:db
+    (all migrations apply from zero incl. 00223).
+- Timestamp: 2026-06-14
+---

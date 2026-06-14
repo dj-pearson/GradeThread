@@ -1448,3 +1448,67 @@ Deno.test({
     }
   },
 });
+
+// ── US-900: support ticket inbox ─────────────────────────────────────────────
+//
+// The user-facing /api/support-tickets/:id is scoped to the caller's user_id,
+// so B must never read A's ticket (and therefore never its operator internal
+// notes, which aren't even returned to the owner). The admin queue is gated by
+// adminAuthMiddleware, so a non-admin tenant can't reach it at all.
+//   TEST_USER_A_TICKET_ID   a support_tickets.id owned by user A (optional —
+//                           the case SKIPS when unset, like the other resources)
+Deno.test({
+  name: "B cannot read A's support ticket thread",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_TICKET_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_TICKET_ID")!;
+    const res = await fetch(`${BASE}/api/support-tickets/${id}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET support-tickets/:id");
+  },
+});
+
+Deno.test({
+  name: "B cannot post a reply onto A's support ticket",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_TICKET_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_TICKET_ID")!;
+    const res = await fetch(`${BASE}/api/support-tickets/${id}/messages`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ body: "injected by another tenant" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST support-tickets/:id/messages");
+  },
+});
+
+Deno.test({
+  name: "B's ticket list never includes A's ticket id",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_TICKET_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_TICKET_ID")!;
+    const res = await fetch(`${BASE}/api/support-tickets`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      tickets?: Array<{ id: string }>;
+    };
+    const ids = (body.tickets ?? []).map((t) => t.id);
+    assert(!ids.includes(aId), `B's ticket list leaked A's ticket ${aId}`);
+  },
+});
+
+Deno.test({
+  name: "B (non-admin) cannot reach the admin support-ticket queue",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/admin/support-tickets`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET admin/support-tickets");
+  },
+});

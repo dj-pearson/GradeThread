@@ -43,6 +43,11 @@ const PARENT_SCOPED = [
   // the parent's user_id/workspace_owner_id and excludes system rows; all
   // writes are service-role only.
   "support_messages",
+  // US-900: support ticket replies. No user_id of its own (author_user_id is
+  // not a tenant key) — tenancy flows through support_tickets (its FK parent).
+  // The user SELECT policy scopes by the parent's user_id AND excludes internal
+  // notes; admins read all; all writes are service-role only.
+  "support_ticket_messages",
 ];
 
 // Tenant tables that are intentionally client-invisible: RLS is enabled and
