@@ -1144,6 +1144,35 @@ export async function processSubmission(submissionId: string) {
       throw new Error("Failed to create grade report record");
     }
 
+    // US-1037: dual-write genuine defects to the normalized grade_defects table
+    // (queryable type/size/area for analytics + calibration). defects_found jsonb
+    // remains the disclosure source — this is a mirror, not a cutover. Best-effort:
+    // a failure here must never fail or slow a completed paid grade.
+    if (compositeResult.defects_found.length > 0) {
+      const defectRows = compositeResult.defects_found.map((d) => ({
+        grade_report_id: gradeReport.id,
+        defect: d.defect,
+        defect_type: d.defect_type ?? "other",
+        severity: d.severity,
+        repairability: d.repairability ?? null,
+        size_bucket: d.size_bucket ?? "unknown",
+        area_pct: d.area_pct ?? null,
+        location: d.location ?? null,
+        impact_on_grade: d.impact_on_grade ?? null,
+      }));
+      supabaseAdmin
+        .from("grade_defects")
+        .insert(defectRows)
+        .then(({ error }) => {
+          if (error) {
+            console.error(
+              `[Pipeline] grade_defects dual-write failed for ${submissionId}:`,
+              error.message,
+            );
+          }
+        });
+    }
+
     // US-583: record per-call Anthropic token usage so the admin dashboard can
     // report per-grade AI cost + gross margin. Fire-and-forget — a cost-tracking
     // write must never fail or slow a completed paid grade.
