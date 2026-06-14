@@ -130,6 +130,13 @@ import {
   searchCancellations,
   searchReturns,
 } from "../lib/ebay-postorder.ts";
+import {
+  acceptPaymentDispute,
+  contestPaymentDispute,
+  disputeOutcomeToSaleStatus,
+  getPaymentDispute,
+  searchPaymentDisputes,
+} from "../lib/ebay-disputes.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
 import { notifyUser } from "../lib/notify.ts";
@@ -2728,6 +2735,101 @@ flipdeskEbayRoutes.post("/feedback", async (c) => {
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the feedback.", err, "ebay.feedback");
   }
+});
+
+// ── Payment disputes (US-1049, Fulfillment Payment Disputes API) ────
+// Buyer-opened cases / chargebacks escalated to eBay. Seller must accept
+// (refund) or contest before respondByDate. Listing is inherently tenant-scoped
+// to the owner's token; accept best-effort marks the local sale refunded.
+
+flipdeskEbayRoutes.get("/payment-disputes", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const status = c.req.query("status")?.trim() || undefined;
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  try {
+    return c.json({
+      disputes: await searchPaymentDisputes(ownerId, { status, limit }),
+    });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't load eBay payment disputes.", err, "ebay.disputes.list");
+  }
+});
+
+flipdeskEbayRoutes.get("/payment-disputes/:id", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    return c.json({ dispute: await getPaymentDispute(ownerId, c.req.param("id")) });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't load the payment dispute.", err, "ebay.disputes.get");
+  }
+});
+
+flipdeskEbayRoutes.post("/payment-disputes/:id/accept", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const disputeId = c.req.param("id");
+  let body: { order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await acceptPaymentDispute(ownerId, disputeId);
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected accepting the dispute.", err, "ebay.disputes.accept");
+  }
+  const status = disputeOutcomeToSaleStatus("accepted");
+  if (status && typeof body.order_id === "string" && body.order_id) {
+    const { error } = await supabaseAdmin
+      .from("sales")
+      .update({ status, cancelled_at: new Date().toISOString() } as never)
+      .eq("user_id", ownerId)
+      .eq("platform_order_id", body.order_id);
+    if (error) console.error("[ebay.disputes.accept] sale update:", error.message);
+  }
+  await writeAuditLog(c, {
+    action: "ebay.dispute.accept",
+    targetType: "ebay_payment_dispute",
+    targetId: disputeId,
+    details: { order_id: body.order_id ?? null },
+  });
+  return c.json({ ok: true });
+});
+
+flipdeskEbayRoutes.post("/payment-disputes/:id/contest", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const disputeId = c.req.param("id");
+  let body: { note?: unknown; order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const note = typeof body.note === "string" ? body.note : undefined;
+  try {
+    await contestPaymentDispute(ownerId, disputeId, note);
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected contesting the dispute.", err, "ebay.disputes.contest");
+  }
+  await writeAuditLog(c, {
+    action: "ebay.dispute.contest",
+    targetType: "ebay_payment_dispute",
+    targetId: disputeId,
+    details: { order_id: body.order_id ?? null, has_note: !!note },
+  });
+  return c.json({ ok: true });
 });
 
 // ── Publish flow (Week 3) ──────────────────────────────────────────

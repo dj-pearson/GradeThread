@@ -292,6 +292,9 @@ app.use("/api/flipdesk/ebay/cancellations", authMiddleware);
 app.use("/api/flipdesk/ebay/cancellations/*", authMiddleware);
 // US-1047: leave buyer feedback after a sale.
 app.use("/api/flipdesk/ebay/feedback", authMiddleware);
+// US-1049: payment disputes (contest/accept).
+app.use("/api/flipdesk/ebay/payment-disputes", authMiddleware);
+app.use("/api/flipdesk/ebay/payment-disputes/*", authMiddleware);
 // Shopify (US-599): everything authed EXCEPT /oauth/callback (Shopify
 // redirects the browser there unauthenticated; the `state` row identifies the
 // user and the request is HMAC-verified with our app secret).
@@ -396,6 +399,8 @@ app.use("/api/flipdesk/ebay/returns/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/cancellations", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/cancellations/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/feedback", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/payment-disputes", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/payment-disputes/*", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/listings/*", workspaceMiddleware);
