@@ -155,7 +155,8 @@
       "Bash(grep -rniE \"trial_ends_at|14[ -]?day|trial.{0,15}\\(length|duration|days\\)|TRIAL_DAYS|addDays\\\\\\(.*14|interval '14\" services/edge-functions/src supabase/migrations src/lib)",
       "Bash(cd C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread *)",
       "Bash(npx -y skills find react typescript)",
-      "mcp__claude_ai_Make__scenarios_list"
+      "mcp__claude_ai_Make__scenarios_list",
+      "Bash('/c/Program Files/GitHub CLI/gh.exe' run view 27481762822 --log-failed)"
     ]
   },
   "hooks": {

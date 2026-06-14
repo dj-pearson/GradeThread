@@ -91,3 +91,5 @@ supabase/migrations/00122_verified_storefront_listings.sql
 
 # Ralph graceful-stop flag (runtime, never committed)
 scripts/ralph/STOP
+ratio
+.claude/settings.local.json
