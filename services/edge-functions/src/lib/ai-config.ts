@@ -136,6 +136,53 @@ export function getGradingTemperature(): number {
   return Math.max(0, Math.min(GRADING_MAX_TEMPERATURE, parsed));
 }
 
+// US-1033: newer models (Opus 4.7/4.8, Fable/Mythos) REMOVED the sampling
+// parameters — sending `temperature`/`top_p`/`top_k` returns a 400. They steer
+// reasoning depth with output_config.effort instead. So the grading call must be
+// model-family-aware: effort-based models get { output_config: { effort } } and
+// NO temperature; Sonnet/Haiku keep the existing low-temperature path. Without
+// this, routing grading to a stronger vision model (US-1034) 400s every call.
+export function modelUsesEffort(model: string): boolean {
+  const m = model.trim().toLowerCase();
+  return (
+    m.startsWith("claude-opus-4-7") ||
+    m.startsWith("claude-opus-4-8") ||
+    m.startsWith("claude-fable") ||
+    m.startsWith("claude-mythos")
+  );
+}
+
+// Effort level for grading on effort-based models. Low keeps the bounded
+// per-image/composite task reproducible + cheap; an operator may raise it via
+// GRADING_AI_EFFORT (e.g. to "medium" if an eval shows it improves small-defect
+// recall). Clamped to the supported set.
+export const GRADING_DEFAULT_EFFORT = "low";
+const GRADING_EFFORTS: ReadonlySet<string> = new Set([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
+export function getGradingEffort(): string {
+  const raw = Deno.env.get("GRADING_AI_EFFORT")?.trim().toLowerCase();
+  return raw && GRADING_EFFORTS.has(raw) ? raw : GRADING_DEFAULT_EFFORT;
+}
+
+// Per-call sampling knobs for grading, model-family-aware (US-1033). Spread into
+// the messages.create body in place of a hardcoded `temperature`.
+export type GradingSamplingParams =
+  | { temperature: number }
+  | { output_config: { effort: string } };
+
+export function gradingSamplingParams(model: string): GradingSamplingParams {
+  if (modelUsesEffort(model)) {
+    return { output_config: { effort: getGradingEffort() } };
+  }
+  return { temperature: getGradingTemperature() };
+}
+
 export function isCachingEnabled(): boolean {
   return readBool("AI_ENABLE_CACHING", DEFAULTS.enableCaching);
 }

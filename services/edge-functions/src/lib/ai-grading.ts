@@ -3,7 +3,7 @@ import {
   getAnthropicClient,
   getDefaultModel,
   getGradingCompositeModel,
-  getGradingTemperature,
+  gradingSamplingParams,
   isCachingEnabled,
   reviewConfidenceThreshold,
 } from "./ai-config.ts";
@@ -11,13 +11,29 @@ import { supabaseAdmin } from "./supabase.ts";
 import { captureServer } from "./posthog.ts";
 import { createVersionedCache } from "./coherent-cache.ts";
 import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
+import {
+  applyDefectWeighting,
+  coerceAreaPct,
+  coerceDefectType,
+  coerceRepairability,
+  coerceSizeBucket,
+  sizeBucketConflict,
+  type DefectType,
+  type Repairability,
+  type SizeBucket,
+  type WeightedDefect,
+} from "./defect-weighting.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
 // attribute grades to a version and write the score back. Bump the suffix
 // whenever the prompt text below changes in a way that could move grades.
-export const PER_IMAGE_PROMPT_VERSION = "per_image_v2";
-export const COMPOSITE_PROMPT_VERSION = "composite_v2";
+// US-1027/1028/1031: v3 adds the structured defect taxonomy (defect_type +
+// repairability), per-defect size (size_bucket + area_pct), and severity-by-
+// type-and-size rubric anchors. Bumped so accuracy tracking attributes grades to
+// the new prompt.
+export const PER_IMAGE_PROMPT_VERSION = "per_image_v3";
+export const COMPOSITE_PROMPT_VERSION = "composite_v3";
 
 // --- Types ---
 
@@ -68,7 +84,25 @@ export interface PerImageAuthenticity {
 
 export interface DetectedIssue {
   issue: string;
+  // US-1027: normalized defect taxonomy (stain, hole_puncture, rip_tear,
+  // seam_failure_unthreading, pilling, …) so defects can be weighted by what
+  // they ARE and analyzed per-type. Optional for back-compat with pre-v3 traces;
+  // live analyzeImage always sets it and the weighting engine coerces undefined
+  // to "other".
+  defect_type?: DefectType;
   severity: "minor" | "moderate" | "major";
+  // US-1027: how recoverable the defect is — reversible (lint/steam/wash),
+  // repairable (re-stitch/replace hardware), or permanent. Modulates weighting.
+  repairability?: Repairability;
+  // US-1028: physical-size bucket (pinhole <3mm … extensive) so a tiny pinhole
+  // and a 1/2-inch hole grade differently. "unknown"/absent is treated as low-impact.
+  size_bucket?: SizeBucket;
+  // US-1028: estimated % of the affected panel/garment area (0–100), when the
+  // model can judge extent. Null when not estimable.
+  area_pct?: number | null;
+  // US-1028: the model's confidence in the size call (0–1). Lowered by code when
+  // the bbox area contradicts the claimed bucket.
+  size_confidence?: number;
   location: string;
   // True when the "issue" is an intentional manufactured design feature
   // (distressing, deliberate fraying, etc.) rather than genuine wear/damage.
@@ -120,7 +154,15 @@ export interface DetectedStyleAttribute {
 
 export interface DefectFound {
   defect: string;
+  // US-1027/1028: structured taxonomy + size carried through to the composite so
+  // the deterministic weighting engine (defect-weighting.ts) and per-type
+  // accuracy can consume genuine defects. Optional for back-compat; live
+  // compositeGrade always sets them and the engine coerces absent values.
+  defect_type?: DefectType;
   severity: "minor" | "moderate" | "major";
+  repairability?: Repairability;
+  size_bucket?: SizeBucket;
+  area_pct?: number | null;
   location: string;
   impact_on_grade: string;
 }
@@ -268,6 +310,18 @@ For EVERY observed "issue", first decide: is this an INTENTIONAL manufactured de
 
 Use the seller's declared design features (when provided) as a HINT, but verify visually — sellers sometimes mislabel. When genuinely ambiguous, lean toward "intentional" only if the feature is symmetric/uniform/finished in a way consistent with manufacturing, and lower confidence_score.`;
 
+// US-1027/1028/1030/1031: defect taxonomy + size + severity rubric, shared by
+// both grading stages. Tells the model to classify each genuine defect by TYPE,
+// estimate its physical SIZE, set repairability, and apply severity anchors that
+// combine type and size — the structured fields the deterministic weighting
+// engine (defect-weighting.ts) then consumes.
+const DEFECT_TAXONOMY_AND_SIZING = `DEFECT CLASSIFICATION, SIZE, AND SEVERITY — weigh each genuine defect by WHAT it is and HOW BIG it is:
+Classify every genuine defect into one defect_type: stain, hole_puncture, rip_tear, seam_failure_unthreading (split/unraveling seams, loose or broken threads), pilling, abrasion_thinning (worn-thin or transparent fabric), fading, discoloration, snag_pull, broken_zipper, broken_button, missing_hardware, stretched_misshapen, odor_indicator (visible soil/sweat/mildew staining), wrinkle_crease, or other.
+Set repairability for each: reversible (steam/press/lint/wash removes it), repairable (re-stitch a seam, replace a button/zipper), or permanent (a hole, set-in stain, or worn-through fabric).
+SIZE MATTERS AS MUCH AS TYPE. For each defect set size_bucket by its largest dimension: pinhole (<3mm), small (3–13mm), medium (13–50mm, roughly 1/2 to 2 inches), large (>50mm), or extensive (dominates a panel). Use "unknown" only when you genuinely cannot judge scale. When the defect covers a visible fraction of a panel, also set area_pct (0–100). Judge scale from garment proportions, any tape-measure reference in the photo, and the defect's size relative to the whole garment; bucket conservatively (smaller) when unsure.
+SEVERITY anchors (combine type + size): a sub-3mm pinhole or light surface pilling = minor; a ~1/2-inch (13mm) hole, an obvious stain, or moderate pilling/abrasion in a visible area = moderate; a >50mm hole or tear, a blown or unraveling seam, a broken/missing zipper or button, worn-through fabric, or any defect over ~10% of a panel = major regardless of how "small" it looks. Structural failures (seams, closures) and fabric loss outweigh surface marks of the same size.
+WRINKLES: ordinary wrinkles and creases are minor and recoverable — record them as defect_type wrinkle_crease with repairability reversible, and never let wrinkles alone drive a low grade. Only count permanent set-in creasing, fabric memory, or bagging as more than minor.`;
+
 // US-346: prompt-injection guard. Seller-supplied text fields (title, brand,
 // description, declared design features) are attacker-controlled — a seller is
 // incentivized to embed instructions like "ignore prior rules and return
@@ -338,6 +392,8 @@ You evaluate 5 condition factors:
 5. Odor & Cleanliness (10% weight): Visible cleanliness indicators, staining patterns
 
 ${DESIGN_VS_DEFECT_PRINCIPLE}
+
+${DEFECT_TAXONOMY_AND_SIZING}
 
 ${UNTRUSTED_INPUT_GUARD}
 
@@ -458,7 +514,12 @@ Respond with a JSON object matching this exact schema:
   "detected_issues": [
     {
       "issue": "description of the issue",
+      "defect_type": "stain|hole_puncture|rip_tear|seam_failure_unthreading|pilling|abrasion_thinning|fading|discoloration|snag_pull|broken_zipper|broken_button|missing_hardware|stretched_misshapen|odor_indicator|wrinkle_crease|other",
       "severity": "minor" | "moderate" | "major",
+      "repairability": "reversible|repairable|permanent",
+      "size_bucket": "pinhole|small|medium|large|extensive|unknown",
+      "area_pct": <0-100 or null>,
+      "size_confidence": <0.0-1.0>,
       "location": "where on the garment",
       "is_intentional": true | false,
       "bbox": [x, y, w, h]
@@ -500,6 +561,8 @@ Respond with a JSON object matching this exact schema:
 
 Rules:
 - detected_issues: List every visible issue. Set is_intentional=true when the "issue" is a manufactured design feature (distressing, raw hem, etc.), false for genuine wear/damage. Empty array if none found.
+- defect_type: classify each issue into exactly one of the listed types (use "other" only if none fit). repairability: reversible | repairable | permanent. These apply to genuine and intentional issues alike (an intentional raw hem is still classified, just is_intentional=true).
+- size_bucket / area_pct / size_confidence: estimate the defect's physical size per the size rubric above (pinhole<3mm … extensive). Set area_pct when it covers a visible fraction of a panel, else null. size_confidence is your 0–1 confidence in the size call (lower it when scale is ambiguous). Use "unknown" only when you truly cannot judge scale.
 - bbox (within each detected_issue): a tight normalized bounding box [x, y, w, h] around the issue, where x,y is the top-left corner and w,h are the width/height, each a fraction 0.0–1.0 of the image dimensions. Be as precise as you can. Omit the field entirely (or use null) only if you genuinely cannot localize the issue in this image.
 - style_attributes: List intentional design features you observe (the design language of the garment). Empty array if none.
 - estimated_scores: Score each factor 1.0-10.0 based on what is visible in THIS image only, GRADING AGAINST THE AS-MANUFACTURED STATE. Intentional design features (is_intentional=true) must NOT lower any score — only genuine wear/damage and any degradation BEYOND the original design intent counts.
@@ -625,8 +688,11 @@ export async function analyzeImage(
   const client = getAnthropicClient();
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
-  // US-481: grading is always low-temperature for reproducibility.
-  const temperature = getGradingTemperature();
+  const model = getDefaultModel();
+  // US-481/US-1033: grading is reproducible. Sampling is model-family-aware —
+  // low temperature on Sonnet/Haiku, or output_config.effort on Opus-4.7+/Fable
+  // (which reject temperature). gradingSamplingParams returns whichever applies.
+  const sampling = gradingSamplingParams(model);
 
   // Resolve the active per-image prompt (DB override → code default), unless
   // the caller supplied an explicit candidate prompt.
@@ -649,11 +715,11 @@ export async function analyzeImage(
     // global concurrency + daily-ceiling + retry limiter, so this per-image
     // call (run under Promise.all — the path the audit flagged) is bounded.
     const response = await client.messages.create({
-      model: getDefaultModel(),
-      // Headroom so the added authenticity block can't truncate the JSON
-      // (truncation → parse failure → grade fails).
-      max_tokens: 1536,
-      temperature,
+      model,
+      // Headroom so the added authenticity + per-defect taxonomy/size fields
+      // can't truncate the JSON (truncation → parse failure → grade fails).
+      max_tokens: 2048,
+      ...sampling,
       system: [systemBlock],
       messages: [
         {
@@ -712,13 +778,39 @@ export async function analyzeImage(
     if (!parsed.detected_issues || !Array.isArray(parsed.detected_issues)) {
       parsed.detected_issues = [];
     }
-    // Normalize is_intentional (older/looser responses may omit it → treat as
-    // genuine damage, the safe default) and sanitize the optional bbox.
-    parsed.detected_issues = parsed.detected_issues.map((i) => ({
-      ...i,
-      is_intentional: i.is_intentional === true,
-      bbox: normalizeBbox((i as { bbox?: unknown }).bbox),
-    }));
+    // Normalize each issue: coerce the taxonomy/size fields (US-1027/1028) into
+    // typed enums with safe defaults, sanitize the bbox, default is_intentional
+    // to genuine damage, and cross-check the claimed size against the bbox area.
+    parsed.detected_issues = parsed.detected_issues.map((i) => {
+      const raw = i as unknown as Record<string, unknown>;
+      const bbox = normalizeBbox(raw.bbox);
+      const size_bucket = coerceSizeBucket(raw.size_bucket);
+      let size_confidence =
+        typeof raw.size_confidence === "number" && isFinite(raw.size_confidence)
+          ? Math.max(0, Math.min(1, raw.size_confidence))
+          : 0.6;
+      // US-1028: a claimed size that contradicts the bbox area is internally
+      // inconsistent — lower confidence so weighting/composite can react.
+      if (sizeBucketConflict(size_bucket, bbox)) {
+        size_confidence = Math.min(size_confidence, 0.3);
+      }
+      const severity =
+        raw.severity === "minor" || raw.severity === "major"
+          ? raw.severity
+          : "moderate";
+      return {
+        issue: typeof raw.issue === "string" ? raw.issue : "",
+        defect_type: coerceDefectType(raw.defect_type),
+        severity,
+        repairability: coerceRepairability(raw.repairability),
+        size_bucket,
+        area_pct: coerceAreaPct(raw.area_pct),
+        size_confidence,
+        location: typeof raw.location === "string" ? raw.location : "",
+        is_intentional: raw.is_intentional === true,
+        bbox,
+      } as DetectedIssue;
+    });
     if (!parsed.style_attributes || !Array.isArray(parsed.style_attributes)) {
       parsed.style_attributes = [];
     }
@@ -755,7 +847,7 @@ export async function analyzeImage(
       authenticity: normalizeAuthenticity(parsed.authenticity),
       quality: normalizeQuality(parsed.quality),
       // US-583: token usage for per-grade AI-cost tracking.
-      usage: toAiTokenUsage(getDefaultModel(), response.usage),
+      usage: toAiTokenUsage(model, response.usage),
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -795,7 +887,9 @@ const GRADE_TIER_DEFINITIONS = `Grade Tiers (score ranges):
 - 6.0-6.5: Good — Moderate wear visible. May have minor flaws (light pilling, slight fading, small mark). Still presentable and fully functional.
 - 5.0-5.5: Fair — Noticeable wear and minor flaws. Some pilling, fading, or small stains. Functional but shows clear use history.
 - 3.0-4.5: Poor — Significant wear, damage, or flaws. May have holes, major stains, broken elements, or heavy fading. Still wearable but with obvious issues.
-- 1.0-2.5: Very Poor/Salvage — Severe damage. Primarily useful for parts, fabric, or craft projects. Major structural issues.`;
+- 1.0-2.5: Very Poor/Salvage — Severe damage. Primarily useful for parts, fabric, or craft projects. Major structural issues.
+
+When choosing a tier, weigh defects by TYPE and SIZE, not just count: a single >50mm hole, a blown seam, or a broken/missing closure is a major flaw that caps the grade in the Poor band regardless of how clean the rest of the garment is; a sub-3mm pinhole or light surface pilling is a minor flaw that should not drop a garment more than ~half a tier. Ordinary (steam-removable) wrinkles are not a meaningful condition flaw.`;
 
 const COMPOSITE_SYSTEM_PROMPT = `You are an expert clothing condition grading specialist for GradeThread, a professional garment grading service. You produce final composite grades by synthesizing per-image analysis results into a single, authoritative condition assessment.
 
@@ -812,7 +906,9 @@ You must synthesize all individual image analyses into one cohesive grade. When 
 
 ${DESIGN_VS_DEFECT_PRINCIPLE}
 
-When synthesizing: consolidate intentional design features into style_attributes (NOT defects_found). An issue flagged is_intentional=true in a per-image analysis must not pull down factor scores — re-examine it if a per-image score seems to have penalized intentional distressing. defects_found contains GENUINE wear/damage only.
+${DEFECT_TAXONOMY_AND_SIZING}
+
+When synthesizing: consolidate intentional design features into style_attributes (NOT defects_found). An issue flagged is_intentional=true in a per-image analysis must not pull down factor scores — re-examine it if a per-image score seems to have penalized intentional distressing. defects_found contains GENUINE wear/damage only, each carrying its defect_type, severity, repairability, and size (size_bucket + area_pct) consolidated from the per-image analyses.
 
 ${UNTRUSTED_INPUT_GUARD}
 
@@ -871,7 +967,11 @@ Respond with a JSON object matching this exact schema:
   "defects_found": [
     {
       "defect": "<description of GENUINE wear/damage only>",
+      "defect_type": "stain|hole_puncture|rip_tear|seam_failure_unthreading|pilling|abrasion_thinning|fading|discoloration|snag_pull|broken_zipper|broken_button|missing_hardware|stretched_misshapen|odor_indicator|wrinkle_crease|other",
       "severity": "minor|moderate|major",
+      "repairability": "reversible|repairable|permanent",
+      "size_bucket": "pinhole|small|medium|large|extensive|unknown",
+      "area_pct": <0-100 or null>,
       "location": "<where on garment>",
       "impact_on_grade": "<how this affects the score>"
     }
@@ -896,7 +996,7 @@ Rules:
 - factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state
 - ai_summary: professional, objective summary suitable for a grade certificate
 - buyer_writeup: a longer, honest, buyer-facing condition report for the certificate. Composed ONLY from supported evidence — never invent attributes or upgrade condition. If you lack enough signal for a full report, keep it brief rather than fabricating
-- defects_found: consolidate all unique GENUINE defects (empty array if none). Do NOT list intentional design features here.
+- defects_found: consolidate all unique GENUINE defects (empty array if none). Do NOT list intentional design features here. For each, carry defect_type, severity, repairability, and size (size_bucket + area_pct) from the per-image analyses, picking the most severe/largest observation when images disagree.
 - style_attributes: consolidate all intentional design features observed (empty array if none). These do not lower the grade.
 - confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, ambiguous design-vs-damage calls, or unusual garment
 - image_validity: set is_clothing to false if the images do not depict an actual item of clothing (e.g. blank, unrelated objects, inappropriate content)`;
@@ -979,6 +1079,11 @@ export const DEFAULTED_FACTOR_CONFIDENCE_CAP = 0.5;
 // Confidence ceiling applied when authenticity (manipulation/screenshot) is
 // flagged — unchanged from the prior inline value, centralized here.
 export const AUTHENTICITY_FLAG_CONFIDENCE_CAP = 0.6;
+// US-1029: when the model's per-factor read and the defect-derived ceiling
+// diverge by at least this many points (out of 10), the structured defects and
+// the holistic score disagree enough to warrant a human check + capped confidence.
+export const DEFECT_DIVERGENCE_REVIEW_THRESHOLD = 2.5;
+export const DEFECT_DIVERGENCE_CONFIDENCE_CAP = 0.6;
 
 const FACTOR_KEYS: (keyof FactorScores)[] = [
   "fabric_condition",
@@ -1093,9 +1198,9 @@ export async function compositeGrade(
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
-  // US-481: grading is always low-temperature for reproducibility.
-  const temperature = getGradingTemperature();
   const compositeModel = getGradingCompositeModel();
+  // US-481/US-1033: reproducible, model-family-aware sampling (see analyzeImage).
+  const sampling = gradingSamplingParams(compositeModel);
 
   // Resolve the active composite prompt (DB override → code default), unless
   // the caller supplied an explicit candidate. The resolved version_name is
@@ -1121,10 +1226,10 @@ export async function compositeGrade(
     // US-414: bounded by the global limiter via getAnthropicClient().
     const response = await client.messages.create({
       model: compositeModel,
-      // Headroom for the longer buyer_writeup (US-759) on top of the existing
-      // summary/defects/style output so the tool JSON can't truncate.
-      max_tokens: 2560,
-      temperature,
+      // Headroom for the longer buyer_writeup (US-759) plus the per-defect
+      // taxonomy/size fields (US-1027/1028) so the JSON can't truncate.
+      max_tokens: 3072,
+      ...sampling,
       system: [systemBlock],
       messages: [
         {
@@ -1201,7 +1306,62 @@ export async function compositeGrade(
       });
     }
 
-    // Recalculate overall_score from factor scores with weights to ensure correctness
+    // US-1027/1028: structured genuine defects (type/severity/repairability/size)
+    // consolidated by the composite. Built here (before the overall recompute) so
+    // the deterministic weighting engine can consume them.
+    const defectsFound: DefectFound[] = Array.isArray(parsed.defects_found)
+      ? parsed.defects_found
+          .filter(
+            (d) =>
+              typeof d === "object" &&
+              d !== null &&
+              typeof (d as { defect?: unknown }).defect === "string" &&
+              ["minor", "moderate", "major"].includes(
+                (d as { severity?: unknown }).severity as string,
+              ),
+          )
+          .map((d) => {
+            const raw = d as unknown as Record<string, unknown>;
+            return {
+              defect: raw.defect as string,
+              defect_type: coerceDefectType(raw.defect_type),
+              severity: raw.severity as DefectFound["severity"],
+              repairability: coerceRepairability(raw.repairability),
+              size_bucket: coerceSizeBucket(raw.size_bucket),
+              area_pct: coerceAreaPct(raw.area_pct),
+              location: typeof raw.location === "string" ? raw.location : "",
+              impact_on_grade:
+                typeof raw.impact_on_grade === "string" ? raw.impact_on_grade : "",
+            } as DefectFound;
+          })
+      : [];
+
+    // US-1029: deterministic defect weighting. Convert genuine defects into
+    // per-factor ceilings and blend (min) with the model's scores so the grade
+    // can't exceed what the structured defects justify. The model may still grade
+    // lower (it sees things the taxonomy misses); a large model↔ceiling gap is a
+    // calibration / own-review signal.
+    const weighting = applyDefectWeighting(
+      parsed.factor_scores as FactorScores,
+      defectsFound.map((d): WeightedDefect => ({
+        defect_type: coerceDefectType(d.defect_type),
+        severity: d.severity,
+        size_bucket: coerceSizeBucket(d.size_bucket),
+        area_pct: d.area_pct,
+        location: d.location,
+      })),
+    );
+    parsed.factor_scores = {
+      fabric_condition: roundToHalf(weighting.blendedFactors.fabric_condition),
+      structural_integrity: roundToHalf(weighting.blendedFactors.structural_integrity),
+      cosmetic_appearance: roundToHalf(weighting.blendedFactors.cosmetic_appearance),
+      functional_elements: roundToHalf(weighting.blendedFactors.functional_elements),
+      odor_cleanliness: roundToHalf(weighting.blendedFactors.odor_cleanliness),
+    };
+    const largeDefectDivergence =
+      weighting.divergence >= DEFECT_DIVERGENCE_REVIEW_THRESHOLD;
+
+    // Recalculate overall_score from the (defect-weighted) factor scores.
     let weightedSum = 0;
     for (const key of FACTOR_KEYS) {
       weightedSum += parsed.factor_scores[key] * FACTOR_WEIGHTS[key];
@@ -1231,18 +1391,6 @@ export async function compositeGrade(
       parsed.buyer_writeup.trim().length > 0
         ? parsed.buyer_writeup.trim()
         : aiSummary;
-
-    // Validate defects_found
-    const defectsFound: DefectFound[] = Array.isArray(parsed.defects_found)
-      ? parsed.defects_found.filter(
-          (d) =>
-            typeof d === "object" &&
-            d !== null &&
-            typeof d.defect === "string" &&
-            typeof d.severity === "string" &&
-            ["minor", "moderate", "major"].includes(d.severity)
-        )
-      : [];
 
     // Validate style_attributes — intentional design features. Clamp
     // confidence and drop malformed entries.
@@ -1282,12 +1430,21 @@ export async function compositeGrade(
     // US-483: a flagged authenticity signal OR any defaulted factor caps
     // confidence and forces human review (the grade abstains rather than
     // shipping confidently on partially-hallucinated output).
-    const { finalConfidence, needsHumanReview } = applyGradingConfidencePolicy({
+    const policy = applyGradingConfidencePolicy({
       confidenceScore,
       authenticityFlagged,
       defaultedFactorCount,
       reviewThreshold: reviewConfidenceThreshold(),
     });
+    let finalConfidence = policy.finalConfidence;
+    let needsHumanReview = policy.needsHumanReview;
+    // US-1029: a large gap between the model's read and the defect-derived
+    // ceiling means the structured defects and the holistic score disagree —
+    // route to a human and cap confidence.
+    if (largeDefectDivergence) {
+      needsHumanReview = true;
+      finalConfidence = Math.min(finalConfidence, DEFECT_DIVERGENCE_CONFIDENCE_CAP);
+    }
 
     if (needsHumanReview) {
       console.log(
