@@ -2268,6 +2268,71 @@ export function ebayListingUrl(listingId: string): string {
   return `${host}/itm/${listingId}`;
 }
 
+// ── US-1039: Sell Fulfillment API — upload tracking on ship ────────
+//
+// Map a free-text carrier (what the user/shipping label gives us) to eBay's
+// shippingCarrierCode enum. Unknown carriers fall back to "Other" — eBay still
+// records the tracking number, the buyer still gets it, it just isn't a known
+// carrier link. Pure + unit-tested.
+const EBAY_CARRIER_CODES: Record<string, string> = {
+  usps: "USPS",
+  "u.s. postal service": "USPS",
+  "united states postal service": "USPS",
+  "postal service": "USPS",
+  ups: "UPS",
+  "united parcel service": "UPS",
+  fedex: "FedEx",
+  "fed ex": "FedEx",
+  "federal express": "FedEx",
+  dhl: "DHL",
+  "dhl express": "DHL",
+  "dhl ecommerce": "DHL",
+};
+
+export function toEbayCarrierCode(carrier: string | null | undefined): string {
+  if (!carrier) return "Other";
+  const key = carrier.trim().toLowerCase();
+  if (key.length === 0) return "Other";
+  return EBAY_CARRIER_CODES[key] ?? "Other";
+}
+
+export interface ShippingFulfillmentInput {
+  trackingNumber: string;
+  /** Free-text carrier; mapped to eBay's enum via toEbayCarrierCode. */
+  carrier?: string | null;
+  /** Optional line items to mark shipped; omit → all line items on the order. */
+  lineItemIds?: string[];
+  /** ISO ship date; defaults to now. */
+  shippedDate?: string;
+}
+
+/**
+ * Create a shipping fulfillment on an eBay order — pushes the tracking number +
+ * carrier so the buyer sees tracking, the order shows Shipped, and the seller
+ * gets late-shipment / Seller Protection credit. POSTs to the Sell Fulfillment
+ * API (201 + Location header, empty body). Throws on eBay error so the caller
+ * can surface it.
+ */
+export async function createShippingFulfillment(
+  userId: string,
+  orderId: string,
+  input: ShippingFulfillmentInput,
+): Promise<void> {
+  const body: Record<string, unknown> = {
+    shippedDate: input.shippedDate ?? new Date().toISOString(),
+    shippingCarrierCode: toEbayCarrierCode(input.carrier),
+    trackingNumber: input.trackingNumber,
+  };
+  if (input.lineItemIds && input.lineItemIds.length > 0) {
+    body.lineItems = input.lineItemIds.map((id) => ({ lineItemId: id }));
+  }
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}/shipping_fulfillment`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 // ── Sell Fulfillment API: orders (Week 5) ──────────────────────────
 //
 // Used by /listings/pull to detect sales that happened on eBay while

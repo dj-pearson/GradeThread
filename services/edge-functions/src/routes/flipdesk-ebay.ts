@@ -20,6 +20,7 @@ import {
   createInventoryLocation,
   createOffer,
   createOrReplaceInventoryItem,
+  createShippingFulfillment,
   debugSnapshot,
   ebayListingUrl,
   exchangeCodeForTokens,
@@ -2729,6 +2730,92 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     updated: localUpdates,
     photos_synced: syncPhotos || hasTitle || hasDesc,
   });
+});
+
+// US-1039: mark an eBay sale shipped + push the tracking number/carrier to eBay
+// (Sell Fulfillment API). Without this, FlipDesk only recorded shipping locally
+// — eBay never got the tracking, so the buyer saw none and the seller lost
+// late-shipment / Seller Protection credit. Tenant-scoped: the sale is loaded
+// THROUGH inventory_items.user_id, never by a raw id. Idempotent on a re-click
+// with the same tracking (skips the eBay call).
+flipdeskEbayRoutes.post("/orders/:saleId/ship", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const saleId = c.req.param("saleId");
+
+  let body: { tracking_number?: unknown; carrier?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const trackingNumber =
+    typeof body.tracking_number === "string" ? body.tracking_number.trim() : "";
+  const carrier = typeof body.carrier === "string" ? body.carrier.trim() : null;
+  if (!trackingNumber) {
+    return c.json({ error: "tracking_number is required" }, 400);
+  }
+
+  // Tenant-scoped load (US-268): the sale must belong to the owner.
+  const { data: saleRow } = await supabaseAdmin
+    .from("sales")
+    .select(
+      "id, platform_order_id, shipped_at, tracking_number, inventory_items!inner(user_id)",
+    )
+    .eq("id", saleId)
+    .eq("inventory_items.user_id", userId)
+    .maybeSingle();
+  const sale = saleRow as
+    | {
+      id: string;
+      platform_order_id: string | null;
+      shipped_at: string | null;
+      tracking_number: string | null;
+    }
+    | null;
+  if (!sale) return c.json({ error: "Sale not found." }, 404);
+  if (!sale.platform_order_id) {
+    return c.json(
+      { error: "This sale has no eBay order id to mark shipped." },
+      409,
+    );
+  }
+
+  // Idempotent: an already-shipped sale with the same tracking just re-asserts
+  // local state (eBay would reject a duplicate fulfillment).
+  const alreadyShipped =
+    sale.shipped_at != null && sale.tracking_number === trackingNumber;
+  if (!alreadyShipped) {
+    try {
+      await createShippingFulfillment(userId, sale.platform_order_id, {
+        trackingNumber,
+        carrier,
+      });
+    } catch (err) {
+      console.error("[flipdesk-ebay] createShippingFulfillment failed:", err);
+      return c.json(
+        {
+          error: "eBay rejected the tracking upload.",
+          detail: err instanceof Error ? err.message.slice(0, 500) : String(err),
+        },
+        502,
+      );
+    }
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("sales")
+    .update({
+      shipped_at: sale.shipped_at ?? new Date().toISOString(),
+      tracking_number: trackingNumber,
+    })
+    .eq("id", sale.id);
+  if (updErr) {
+    console.error("[flipdesk-ebay] sale ship write-back failed:", updErr.message);
+  }
+  return c.json({ ok: true, pushed_to_ebay: !alreadyShipped });
 });
 
 // Compares the current eBay category against what the Taxonomy API would
