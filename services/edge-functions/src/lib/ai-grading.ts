@@ -6,6 +6,7 @@ import {
   gradingSamplingParams,
   isCachingEnabled,
   reviewConfidenceThreshold,
+  type GradingEffort,
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { captureServer } from "./posthog.ts";
@@ -17,6 +18,8 @@ import {
   coerceDefectType,
   coerceRepairability,
   coerceSizeBucket,
+  DEFECT_TYPES,
+  SIZE_BUCKETS,
   sizeBucketConflict,
   type DefectType,
   type Repairability,
@@ -683,6 +686,203 @@ function parseImageInput(imageUrl: string): {
   };
 }
 
+// --- US-1032: structured outputs (guaranteed-valid JSON) ---
+//
+// Both grading stages constrain the response to a JSON schema via
+// output_config.format, so the model CANNOT return malformed JSON or stray prose
+// — eliminating the parse-failure path that used to fail (and refund) a paid
+// grade. Structured-output schemas can't carry numeric range constraints
+// (minimum/maximum) so scores stay clamped in code; every object is
+// additionalProperties:false with all keys required (nullable where optional).
+
+const ENUM = (vals: readonly string[]) => ({ type: "string", enum: [...vals] });
+const NUM = { type: "number" } as const;
+const BOOL = { type: "boolean" } as const;
+const STR = { type: "string" } as const;
+
+const FACTOR_SCORES_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    fabric_condition: NUM,
+    structural_integrity: NUM,
+    cosmetic_appearance: NUM,
+    functional_elements: NUM,
+    odor_cleanliness: NUM,
+  },
+  required: [
+    "fabric_condition",
+    "structural_integrity",
+    "cosmetic_appearance",
+    "functional_elements",
+    "odor_cleanliness",
+  ],
+} as const;
+
+const PER_IMAGE_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    detected_issues: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          issue: STR,
+          defect_type: ENUM(DEFECT_TYPES),
+          severity: ENUM(["minor", "moderate", "major"]),
+          repairability: ENUM(["reversible", "repairable", "permanent"]),
+          size_bucket: ENUM(SIZE_BUCKETS),
+          area_pct: { type: ["number", "null"] },
+          size_confidence: NUM,
+          location: STR,
+          is_intentional: BOOL,
+          bbox: { type: ["array", "null"], items: NUM },
+        },
+        required: [
+          "issue", "defect_type", "severity", "repairability", "size_bucket",
+          "area_pct", "size_confidence", "location", "is_intentional", "bbox",
+        ],
+      },
+    },
+    style_attributes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { attribute: STR, location: STR },
+        required: ["attribute", "location"],
+      },
+    },
+    condition_signals: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          signal: STR,
+          sentiment: ENUM(["positive", "neutral", "negative"]),
+        },
+        required: ["signal", "sentiment"],
+      },
+    },
+    estimated_scores: FACTOR_SCORES_SCHEMA,
+    unassessable_factors: { type: "array", items: STR },
+    authenticity: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        manipulation_suspected: BOOL,
+        manipulation_confidence: NUM,
+        tells: { type: "array", items: STR },
+        screenshot_or_watermark: BOOL,
+        screenshot_watermark_reason: STR,
+      },
+      required: [
+        "manipulation_suspected", "manipulation_confidence", "tells",
+        "screenshot_or_watermark", "screenshot_watermark_reason",
+      ],
+    },
+    quality: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        blur: ENUM(["none", "mild", "severe"]),
+        lighting: ENUM(["ok", "dim", "dark"]),
+        framing: ENUM(["full", "partial"]),
+        legible: BOOL,
+      },
+      required: ["blur", "lighting", "framing", "legible"],
+    },
+  },
+  required: [
+    "detected_issues", "style_attributes", "condition_signals",
+    "estimated_scores", "unassessable_factors", "authenticity", "quality",
+  ],
+} as const;
+
+const COMPOSITE_OUTPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    overall_score: NUM,
+    grade_tier: ENUM([
+      "NWT", "NWOT", "Excellent", "Very Good", "Good", "Fair", "Poor",
+    ]),
+    factor_scores: FACTOR_SCORES_SCHEMA,
+    ai_summary: STR,
+    buyer_writeup: STR,
+    defects_found: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          defect: STR,
+          defect_type: ENUM(DEFECT_TYPES),
+          severity: ENUM(["minor", "moderate", "major"]),
+          repairability: ENUM(["reversible", "repairable", "permanent"]),
+          size_bucket: ENUM(SIZE_BUCKETS),
+          area_pct: { type: ["number", "null"] },
+          location: STR,
+          impact_on_grade: STR,
+        },
+        required: [
+          "defect", "defect_type", "severity", "repairability", "size_bucket",
+          "area_pct", "location", "impact_on_grade",
+        ],
+      },
+    },
+    style_attributes: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { attribute: STR, location: STR, confidence: NUM },
+        required: ["attribute", "location", "confidence"],
+      },
+    },
+    confidence_score: NUM,
+    image_validity: {
+      type: "object",
+      additionalProperties: false,
+      properties: { is_clothing: BOOL, reason: STR },
+      required: ["is_clothing", "reason"],
+    },
+  },
+  required: [
+    "overall_score", "grade_tier", "factor_scores", "ai_summary",
+    "buyer_writeup", "defects_found", "style_attributes", "confidence_score",
+    "image_validity",
+  ],
+} as const;
+
+interface GradingTuning {
+  outputConfig: {
+    effort?: GradingEffort;
+    format: { type: "json_schema"; name: string; schema: Record<string, unknown> };
+  };
+  temperature?: number;
+}
+
+// Merge the model-family sampling (US-1033) with the structured-output format
+// (US-1032). effort-based models get output_config { effort, format } and no
+// temperature; older models keep top-level temperature plus output_config
+// { format }.
+function gradingTuning(
+  model: string,
+  schema: Record<string, unknown>,
+  name: string,
+): GradingTuning {
+  const format = { type: "json_schema" as const, name, schema };
+  const sampling = gradingSamplingParams(model);
+  if ("output_config" in sampling) {
+    return { outputConfig: { effort: sampling.output_config.effort, format } };
+  }
+  return { outputConfig: { format }, temperature: sampling.temperature };
+}
+
 // --- Main function ---
 
 export async function analyzeImage(
@@ -698,10 +898,14 @@ export async function analyzeImage(
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
   const model = getDefaultModel();
-  // US-481/US-1033: grading is reproducible. Sampling is model-family-aware —
-  // low temperature on Sonnet/Haiku, or output_config.effort on Opus-4.7+/Fable
-  // (which reject temperature). gradingSamplingParams returns whichever applies.
-  const sampling = gradingSamplingParams(model);
+  // US-481/US-1033/US-1032: reproducible, model-family-aware sampling (low temp
+  // on Sonnet/Haiku, effort on Opus-4.7+/Fable) MERGED with a structured-output
+  // schema so the response is guaranteed-valid JSON (no parse-failure path).
+  const { outputConfig, temperature } = gradingTuning(
+    model,
+    PER_IMAGE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+    "per_image_analysis",
+  );
 
   // Resolve the active per-image prompt (DB override → code default), unless
   // the caller supplied an explicit candidate prompt.
@@ -728,7 +932,8 @@ export async function analyzeImage(
       // Headroom so the added authenticity + per-defect taxonomy/size fields
       // can't truncate the JSON (truncation → parse failure → grade fails).
       max_tokens: 2048,
-      ...sampling,
+      ...(temperature !== undefined ? { temperature } : {}),
+      output_config: outputConfig,
       system: [systemBlock],
       messages: [
         {
@@ -762,9 +967,11 @@ export async function analyzeImage(
       throw new Error("No text content in API response");
     }
 
-    // Parse JSON response
+    // Parse JSON response. US-1032: output_config.format guarantees valid,
+    // schema-conformant JSON on supporting models, so this can no longer fail on
+    // malformed output — the fence-strip + try/catch remain only as a safety net
+    // (e.g. a max_tokens truncation, or a future non-structured-output model).
     const rawText = textBlock.text.trim();
-    // Strip markdown code fences if present
     const jsonText = rawText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
 
     let parsed: {
@@ -1327,8 +1534,13 @@ export async function compositeGrade(
   const client = getAnthropicClient();
   const startTime = Date.now();
   const compositeModel = getGradingCompositeModel();
-  // US-481/US-1033: reproducible, model-family-aware sampling (see analyzeImage).
-  const sampling = gradingSamplingParams(compositeModel);
+  // US-481/US-1033/US-1032: reproducible sampling + structured-output schema
+  // (see analyzeImage).
+  const { outputConfig, temperature } = gradingTuning(
+    compositeModel,
+    COMPOSITE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
+    "composite_grade",
+  );
 
   // Resolve the active composite prompt (DB override → code default), unless
   // the caller supplied an explicit candidate. The resolved version_name is
@@ -1357,7 +1569,8 @@ export async function compositeGrade(
       // Headroom for the longer buyer_writeup (US-759) plus the per-defect
       // taxonomy/size fields (US-1027/1028) so the JSON can't truncate.
       max_tokens: 3072,
-      ...sampling,
+      ...(temperature !== undefined ? { temperature } : {}),
+      output_config: outputConfig,
       system: [systemBlock],
       messages: [
         {
@@ -1383,7 +1596,8 @@ export async function compositeGrade(
       throw new Error("No text content in composite grade API response");
     }
 
-    // Parse JSON response
+    // Parse JSON response (US-1032: schema-guaranteed valid via
+    // output_config.format; strip/try-catch kept only as a safety net).
     const rawText = textBlock.text.trim();
     const jsonText = rawText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
 
