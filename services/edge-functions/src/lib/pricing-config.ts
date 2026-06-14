@@ -11,6 +11,15 @@
 // DB blip, never breaks gating or checkout — it just uses the compiled defaults.
 
 import { supabaseAdmin } from "./supabase.ts";
+import {
+  type CreditPack,
+  CREDIT_PACKS,
+  type GradeTier,
+  GRADE_TIERS,
+  TIER_CREDIT_COST,
+  TIER_PRICE_CENTS,
+  TIER_SLA_HOURS,
+} from "./grade-pricing.ts";
 
 export type FlipdeskPlan = "free" | "starter" | "pro" | "business";
 export type PaidPlan = "starter" | "pro" | "business";
@@ -226,4 +235,108 @@ export async function getFlipdeskPriceIds(): Promise<
  *  other replicas pick it up within the TTL). */
 export function clearPricingConfigCache(): void {
   cache = null;
+  gradePricingCache = null;
+}
+
+// ── Grade-tier + credit-pack pricing (US-885) ────────────────────────
+//
+// Per-grading-tier price/credit-cost/SLA and the credit-pack list, sourced from
+// the pricing_config table with the same short cache + compiled fallback pattern
+// as the plan matrix above. The pure compiled defaults live in grade-pricing.ts
+// (TIER_PRICE_CENTS / TIER_CREDIT_COST / TIER_SLA_HOURS / CREDIT_PACKS) and are
+// the single fallback so a missing row or a DB blip never breaks grade charging.
+
+export interface GradeTierPricing {
+  priceCents: number;
+  creditCost: number;
+  slaHours: number;
+}
+
+export interface GradePricing {
+  tiers: Record<GradeTier, GradeTierPricing>;
+  packs: CreditPack[];
+}
+
+export interface PricingConfigRow {
+  id: string;
+  kind: "grade_tier" | "credit_pack";
+  sort_order: number;
+  label: string;
+  price_cents: number;
+  tier_key: GradeTier | null;
+  credit_cost: number | null;
+  sla_hours: number | null;
+  credits: number | null;
+  stripe_price_ref: string;
+}
+
+// Compiled fallback assembled from the pure constants — used as the base that DB
+// rows overlay, and returned wholesale on a read failure.
+function fallbackGradePricing(): GradePricing {
+  const tiers = {} as Record<GradeTier, GradeTierPricing>;
+  for (const tier of GRADE_TIERS) {
+    tiers[tier] = {
+      priceCents: TIER_PRICE_CENTS[tier],
+      creditCost: TIER_CREDIT_COST[tier],
+      slaHours: TIER_SLA_HOURS[tier],
+    };
+  }
+  return { tiers, packs: [...CREDIT_PACKS] };
+}
+
+let gradePricingCache: { value: GradePricing; expires: number } | null = null;
+
+async function loadGradePricing(): Promise<GradePricing> {
+  const result = fallbackGradePricing();
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("pricing_config")
+      .select(
+        "id, kind, sort_order, label, price_cents, tier_key, credit_cost, sla_hours, credits",
+      )
+      .order("sort_order", { ascending: true });
+    if (error) {
+      console.error("[pricing-config] grade pricing read error, using fallback:", error.message);
+      return result;
+    }
+
+    const rows = (data ?? []) as unknown as PricingConfigRow[];
+    const packs: CreditPack[] = [];
+    for (const r of rows) {
+      if (r.kind === "grade_tier" && r.tier_key && r.tier_key in result.tiers) {
+        result.tiers[r.tier_key] = {
+          priceCents: r.price_cents,
+          // credit_cost / sla_hours are nullable in the schema — keep the
+          // compiled fallback for a tier row that somehow omits them.
+          creditCost: r.credit_cost ?? result.tiers[r.tier_key].creditCost,
+          slaHours: r.sla_hours ?? result.tiers[r.tier_key].slaHours,
+        };
+      } else if (r.kind === "credit_pack" && typeof r.credits === "number") {
+        packs.push({ credits: r.credits, priceCents: r.price_cents });
+      }
+    }
+    // Only replace the fallback packs if the DB actually returned some (an empty
+    // table → keep the compiled list so checkout upsell never goes blank).
+    if (packs.length > 0) {
+      packs.sort((a, b) => a.credits - b.credits);
+      result.packs = packs;
+    }
+  } catch (err) {
+    console.error(
+      "[pricing-config] grade pricing read threw, using fallback:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  return result;
+}
+
+/** Live grade-tier pricing + credit packs (DB-backed, cached, compiled fallback). */
+export async function getGradePricing(): Promise<GradePricing> {
+  const now = Date.now();
+  if (gradePricingCache && gradePricingCache.expires > now) return gradePricingCache.value;
+  const value = await loadGradePricing();
+  gradePricingCache = { value, expires: now + CACHE_TTL_MS };
+  return value;
 }

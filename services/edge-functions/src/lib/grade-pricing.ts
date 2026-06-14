@@ -50,12 +50,62 @@ export function tierPriceDollars(tier: GradeTier): number {
   return TIER_PRICE_CENTS[tier] / 100;
 }
 
+// Per-tier turnaround SLA (hours). Mirrors GRADETHREAD_TIERS.slaHours. Editable
+// from admin via pricing_config (US-885); this is the compiled fallback.
+export const TIER_SLA_HOURS: Record<GradeTier, number> = {
+  standard: 48,
+  premium: 12,
+  express: 1,
+};
+
+export interface CreditPack {
+  credits: number;
+  priceCents: number;
+}
+
+// Credit packs, smallest → largest. Mirrors CREDIT_PACKS in src/lib/constants.ts.
+// Editable from admin via pricing_config (US-885); this is the compiled fallback.
+export const CREDIT_PACKS: readonly CreditPack[] = [
+  { credits: 10, priceCents: 2499 },
+  { credits: 25, priceCents: 5999 },
+  { credits: 50, priceCents: 10999 },
+  { credits: 100, priceCents: 19999 },
+];
+
+// Smallest credit pack from `packs` that satisfies the needed credit cost (upsell
+// hint). `packs` must be sorted smallest → largest; falls back to the largest. A
+// pure parametrized form of suggestPack so the live (DB) pack list can drive it.
+export function suggestPackFrom(
+  packs: readonly CreditPack[],
+  creditCost: number,
+): CreditPack | null {
+  if (packs.length === 0) return null;
+  for (const pack of packs) {
+    if (creditCost <= pack.credits) return pack;
+  }
+  return packs[packs.length - 1];
+}
+
 // Smallest credit pack that satisfies the needed credit cost (upsell hint).
-export function suggestPack(creditCost: number) {
-  if (creditCost <= 10) return { credits: 10, priceCents: 2499 };
-  if (creditCost <= 25) return { credits: 25, priceCents: 5999 };
-  if (creditCost <= 50) return { credits: 50, priceCents: 10999 };
-  return { credits: 100, priceCents: 19999 };
+// Compiled-constant variant; the billing path uses suggestPackFrom with the live
+// pricing_config packs (US-885).
+export function suggestPack(creditCost: number): CreditPack {
+  return suggestPackFrom(CREDIT_PACKS, creditCost) ?? { credits: 100, priceCents: 19999 };
+}
+
+// US-885 (AC#5): resolve the included-grade cap to enforce for the CURRENT
+// billing period. On a fresh period (rolledOver) the live, possibly just-edited
+// cap applies; within a period the snapshot taken at period start governs, so an
+// admin changing a plan's included-grade count never retroactively grants or
+// revokes grades in a period already in progress. A null snapshot (legacy /
+// not-yet-reset row) falls back to the live cap. Pure + unit-tested.
+export function resolveIncludedCap(
+  snapshot: number | null | undefined,
+  liveCap: number,
+  rolledOver: boolean,
+): number {
+  if (rolledOver) return liveCap;
+  return snapshot ?? liveCap;
 }
 
 // Resolve the plan that governs included grades + caps, accounting for a paused

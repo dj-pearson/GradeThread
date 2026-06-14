@@ -2589,3 +2589,27 @@ Branch: ralph/gradethread-build
   - Verified: npx tsc --noEmit (clean), npm run build:locked (41 pages), npm test (772 pass), deno check + deno lint + deno test (pass), npm run verify:db (migrations apply from zero, 00208 included).
 - Timestamp: 2026-06-14
 ---
+
+## US-885: Plans, pricing & grading-tier config editor
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00209_pricing_config.sql (NEW — pricing_config table for grade-tier + credit-pack prices, seeded == constants; +users.included_grades_this_period snapshot column for AC#5)
+  - services/edge-functions/src/lib/grade-pricing.ts (NEW pure: TIER_SLA_HOURS, CREDIT_PACKS, CreditPack, suggestPackFrom, resolveIncludedCap)
+  - services/edge-functions/src/lib/pricing-config.ts (NEW getGradePricing() — DB-backed grade-tier+pack loader, cached, compiled fallback; clearPricingConfigCache busts it too)
+  - services/edge-functions/src/lib/grade-billing.ts (runPaymentPrecedence reads tier price/credit-cost/packs from getGradePricing + included cap from getPlanMatrix; per-period snapshot via resolveIncludedCap)
+  - services/edge-functions/src/routes/webhooks.ts (cycle reset snapshots included_grades_this_period to the live cap)
+  - services/edge-functions/src/routes/admin-config.ts (NEW — /api/admin/config: re-mounts pricing_plans editor at /plans + new GET/PUT /pricing for pricing_config; super_admin+step-up+audited; validatePricingBody)
+  - services/edge-functions/src/main.ts (mount /api/admin/config), src/lib/schema-version.ts (00208->00209)
+  - services/edge-functions/src/tests/pricing-config-grades_test.ts (NEW — seed-vs-constants parity, resolveIncludedCap non-retroactive, suggestPackFrom, validator)
+  - src/pages/admin/config-pricing.tsx (NEW — grade tiers + credit packs + per-plan included-grades editors; Stripe-source-of-truth guardrail; MFA step-up)
+  - src/routes/index.tsx (route /admin/ops/pricing), src/layouts/admin-layout.tsx (Operations > "Pricing & Tiers" nav)
+  - prd.json
+- Notes:
+  - Plan entitlements (caps/included/gate-flags/Stripe IDs) were ALREADY DB-driven via pricing_plans (US-587) + admin-pricing.ts + /admin/pricing page. Per the anti-duplication convention, did NOT create a redundant plan_config table; pricing_config holds only the genuinely-still-hardcoded grade-tier + credit-pack prices. /api/admin/config/plans is satisfied by re-mounting the existing audited pricing_plans router under /config (zero handler/table duplication).
+  - AC#5 "next reset, not retroactive": users.included_grades_this_period snapshots the cap when a period resets (webhook cycle reset + the clock-based rollover CAS); resolveIncludedCap(snapshot, liveCap, rolledOver) returns the snapshot within a period and the live cap on rollover, so an admin lowering/raising included grades never alters a period already in progress. Pure + unit-tested.
+  - Stripe stays source of truth: pricing_config stores display price + credit/SLA math + the NAME of the env var carrying the live Stripe price id (never the id itself); stripe_price_ref is read-only via the API and shown as a hint in the editor.
+  - Seeded values are asserted == legacy constants by a parity test that parses the migration's INSERT (deno test runs with --allow-read) — nothing changes on launch.
+  - Verified: deno check src/main.ts clean, deno lint clean, full edge suite 1384 passed/0 failed (incl. 14 new pricing-config-grades tests), frontend tsc --noEmit clean, build:locked 41 pages, vitest 771 passed (1 pre-existing flaky timing test in concurrency.test.ts — passes in isolation, unrelated), verify:db re-applied 209 migrations from zero (28.4s).
+  - Did NOT touch the concurrently-edited grading files (ai-grading.ts/grading-pipeline.ts/grading-zoom_test.ts — other agent's uncommitted WIP).
+- Timestamp: 2026-06-14
+---

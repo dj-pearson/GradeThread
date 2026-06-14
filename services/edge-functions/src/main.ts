@@ -47,6 +47,7 @@ import {
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminPricingRoutes } from "./routes/admin-pricing.ts";
+import { adminConfigRoutes } from "./routes/admin-config.ts";
 import { adminCategoryMapRoutes } from "./routes/admin-category-map.ts";
 import { adminWaitlistRoutes } from "./routes/admin-waitlist.ts";
 import { waitlistRoutes } from "./routes/waitlist.ts";
@@ -668,6 +669,10 @@ app.route("/api/admin/feature-flags", adminFlagsRoutes);
 // US-587 data-driven plan pricing/limits editor. Admin JWT + AAL2 via the
 // /api/admin/* group; mutations additionally require super_admin + MFA step-up.
 app.route("/api/admin/pricing", adminPricingRoutes);
+// US-885 unified pricing config: plan entitlements (reuses pricing_plans) +
+// per-grading-tier / per-credit-pack prices (pricing_config). Same admin JWT +
+// AAL2; mutations require super_admin + MFA step-up.
+app.route("/api/admin/config", adminConfigRoutes);
 // US-722 per-platform category map: extend/override/confirm the no-API taxonomy
 // mappings read by every seller's listing generation (admin JWT via /api/admin/*).
 app.route("/api/admin/category-map", adminCategoryMapRoutes);

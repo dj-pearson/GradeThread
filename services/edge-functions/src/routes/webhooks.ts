@@ -20,6 +20,7 @@ import {
 import { captureServer } from "../lib/posthog.ts";
 import { recordMetric } from "../lib/observability.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
+import { getPlanMatrix } from "../lib/pricing-config.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 import { maybeQualifyReferral } from "../lib/referrals.ts";
@@ -636,11 +637,24 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
     const now = new Date().toISOString();
     const nextReset = new Date();
     nextReset.setMonth(nextReset.getMonth() + 1);
+    // US-885 (AC#5): snapshot the live included-grade cap for the new period so an
+    // admin editing the plan's included count mid-cycle takes effect on the NEXT
+    // reset, never retroactively. Best-effort — a read hiccup leaves it null and
+    // the resolver falls back to the live cap.
+    let includedSnapshot: number | null = null;
+    try {
+      const matrix = await getPlanMatrix();
+      includedSnapshot =
+        matrix[user.flipdesk_plan as keyof typeof matrix]?.includedStandardGradesPerMonth ?? null;
+    } catch {
+      includedSnapshot = null;
+    }
     const { error } = await supabaseAdmin
       .from("users")
       .update({
         grades_used_this_month: 0,
         grade_reset_at: nextReset.toISOString(),
+        included_grades_this_period: includedSnapshot,
         ai_actions_used_this_month: 0,
         ai_actions_reset_at: now,
         subscription_status: "active",

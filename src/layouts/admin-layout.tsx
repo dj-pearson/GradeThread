@@ -87,6 +87,7 @@ const opsNavItems = [
   // US-884 settings registry. Reads are admin; the PUT mutation is super_admin +
   // MFA step-up gated server-side.
   { to: "/admin/ops/settings", icon: SlidersHorizontal, label: "Settings Registry", end: false },
+  { to: "/admin/ops/pricing", icon: DollarSign, label: "Pricing & Tiers", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +

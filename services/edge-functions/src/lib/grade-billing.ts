@@ -2,11 +2,11 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   effectivePlanFor,
   INCLUDED_STANDARD_PER_MONTH,
-  suggestPack,
-  TIER_CREDIT_COST,
-  TIER_PRICE_CENTS,
+  resolveIncludedCap,
+  suggestPackFrom,
   type GradeTier,
 } from "./grade-pricing.ts";
+import { type FlipdeskPlan, getGradePricing, getPlanMatrix } from "./pricing-config.ts";
 
 // ── Canonical grade billing (US-207) ─────────────────────────────
 //
@@ -20,13 +20,17 @@ import {
 // don't need to change.
 export {
   computeBatchCredits,
+  CREDIT_PACKS,
   effectivePlanFor,
   GRADE_TIERS,
   INCLUDED_STANDARD_PER_MONTH,
   isGradeTier,
+  resolveIncludedCap,
   suggestPack,
+  suggestPackFrom,
   TIER_CREDIT_COST,
   TIER_PRICE_CENTS,
+  TIER_SLA_HOURS,
   tierPriceDollars,
   tierSupportsAuthenticityAddon,
 } from "./grade-pricing.ts";
@@ -117,7 +121,7 @@ export async function runPaymentPrecedence(
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
     .select(
-      "role, flipdesk_plan, grades_used_this_month, grade_reset_at, grade_credit_balance, subscription_status, trial_ends_at, past_due_since",
+      "role, flipdesk_plan, grades_used_this_month, grade_reset_at, included_grades_this_period, grade_credit_balance, subscription_status, trial_ends_at, past_due_since",
     )
     .eq("id", userId)
     .single();
@@ -163,7 +167,11 @@ export async function runPaymentPrecedence(
     new Date(),
     user.past_due_since,
   );
-  const includedCap = INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0;
+
+  // US-885: tier prices, credit cost, and credit packs are now DB-driven
+  // (pricing_config) with the compiled constants as fallback. Loaded once per
+  // call (both reads are short-cached).
+  const pricing = await getGradePricing();
 
   // Roll over the included counter if we crossed the reset boundary. (Normal
   // case is the invoice.payment_succeeded webhook resets it on cycle, but
@@ -172,6 +180,22 @@ export async function runPaymentPrecedence(
   const resetAt = new Date(user.grade_reset_at);
   const rolledOver = resetAt <= new Date();
   if (rolledOver) includedUsed = 0;
+
+  // US-885 (AC#2/#5): the included-grade cap is read from the live, operator-
+  // editable pricing_plans matrix (DB-backed, cached) — not the hardcoded
+  // INCLUDED_STANDARD_PER_MONTH map. The per-period SNAPSHOT
+  // (users.included_grades_this_period) governs the cap WITHIN a period so an
+  // admin edit never retroactively changes a period already in progress; the
+  // live cap applies from the next reset. INCLUDED_STANDARD_PER_MONTH remains the
+  // ultimate fallback (baked into FALLBACK_MATRIX) if the DB read fails.
+  const planCfg = (await getPlanMatrix())[effectivePlan as FlipdeskPlan];
+  const liveCap = planCfg?.includedStandardGradesPerMonth ??
+    (INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0);
+  const includedCap = resolveIncludedCap(
+    user.included_grades_this_period,
+    liveCap,
+    rolledOver,
+  );
 
   // ─ (1) Try included grades — Standard only, with bounded CAS retries (US-782) ─
   if (tier === "standard" && includedUsed < includedCap) {
@@ -190,6 +214,12 @@ export async function runPaymentPrecedence(
           // still equalling expectedDbUsed (the optimistic compare).
           const updatePayload: Record<string, unknown> = {
             grades_used_this_month: (didRollOver ? 0 : expectedDbUsed) + 1,
+            // US-885 (AC#5): lock the per-period included-grade cap. On rollover
+            // (or the first claim of a period where it's still null) this captures
+            // the current live cap; a subsequent admin edit then only takes effect
+            // on the next reset, never retroactively. `includedCap` already
+            // resolved to liveCap on rollover / first claim.
+            included_grades_this_period: includedCap,
           };
           if (didRollOver) updatePayload.grade_reset_at = nextReset.toISOString();
           const { data, error } = await supabaseAdmin
@@ -241,7 +271,7 @@ export async function runPaymentPrecedence(
   }
 
   // ─ (2) Try credits ─
-  const cost = TIER_CREDIT_COST[tier];
+  const cost = pricing.tiers[tier].creditCost;
   if (user.grade_credit_balance >= cost) {
     const { data: newBalance, error: debitError } = await supabaseAdmin.rpc(
       "debit_grade_credits",
@@ -280,7 +310,7 @@ export async function runPaymentPrecedence(
     paid: false,
     checkoutRequired: true,
     suggestedTier: tier,
-    suggestedPack: suggestPack(cost),
-    tierPriceCents: TIER_PRICE_CENTS[tier],
+    suggestedPack: suggestPackFrom(pricing.packs, cost),
+    tierPriceCents: pricing.tiers[tier].priceCents,
   };
 }
