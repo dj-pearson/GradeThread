@@ -277,6 +277,10 @@ export interface UserRow {
   verified_since: string | null;
   // Storefront opt-in: list active listings on the public profile (migration 00122).
   verified_show_listings: boolean;
+  // US-864: opt into the public top-referrers leaderboard + the PII-free alias
+  // shown there (migration 00195).
+  referral_leaderboard_enabled: boolean;
+  referral_display_name: string | null;
   // Cross-source sync-conflict email alert: send one email when the open
   // conflict count crosses this number (US-148, migration 00133). NULL disables.
   sync_conflict_email_threshold: number | null;

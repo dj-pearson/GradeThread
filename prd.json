@@ -12732,8 +12732,8 @@
         "npm run build passes and edge deno check/tests pass"
       ],
       "priority": 864,
-      "passes": false,
-      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Builds on referrals.ts + admin-growth.ts. Verify whether credits already apply to billing before adding the path (avoid double-grant)."
+      "passes": true,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Builds on referrals.ts + admin-growth.ts. Verify whether credits already apply to billing before adding the path (avoid double-grant). [DONE 2026-06-13] Auto-grant path closes the loop: maybeQualifyReferral now flips pending→qualified AND auto-grants via the new shared grantReferralReward() (lib/referrals.ts) — claim-before-grant (race/double-grant safe), suspended-party safeguard, both-side credit via grant_grade_credits RPC (applied to balance, consumed by debit_grade_credits in grading). Admin grant route refactored to the same shared fn (override remains). /referrals/me now returns credits {earned,pending,per_referral} + leaderboard opt-in. New PUT /referrals/leaderboard opt-in. Public PII-free /api/content/public/referral-leaderboard.json (alias + granted count only). New public /leaderboard page (prerendered shell, client-filled) + reusable TopReferrers component + referrals-page opt-in UI. Migration 00195 adds users.referral_leaderboard_enabled + referral_display_name. Pure rankReferrers unit-tested."
     },
     {
       "id": "US-865",

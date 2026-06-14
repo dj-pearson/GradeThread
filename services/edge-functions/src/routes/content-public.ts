@@ -5,6 +5,7 @@ import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
+import { rankReferrers } from "../lib/referral-rewards.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
 // NEVER carry raw error.message — that leaks DB/PostgREST internals (table
@@ -893,5 +894,52 @@ contentPublicRoutes.get("/sellers.json", async (c) => {
       };
     }),
   });
+});
+
+// ── GET /referral-leaderboard.json ────────────────────────────────
+// Public, opt-in "top referrers" board (US-864). Renders ONLY a user-chosen
+// display alias + their count of granted referrals — never an email, real name,
+// or user id (no PII leaves this endpoint). Opt-in: only rows with
+// referral_leaderboard_enabled = true are eligible, and only those with at least
+// one GRANTED (rewarded) referral are ranked. Counts come from referral_events,
+// which the service-role client can read; we expose only the aggregate.
+contentPublicRoutes.get("/referral-leaderboard.json", async (c) => {
+  const { data: optedIn, error } = await supabaseAdmin
+    .from("users")
+    .select("id, referral_display_name")
+    .eq("referral_leaderboard_enabled", true)
+    .not("referral_display_name", "is", null)
+    .limit(5000);
+  if (error) return publicError(c, error, "leaderboard-users");
+
+  const users = (optedIn ?? []) as Array<{
+    id: string;
+    referral_display_name: string | null;
+  }>;
+  if (users.length === 0) return c.json({ referrers: [] });
+
+  const ids = users.map((u) => u.id);
+  // Count granted (rewarded) referrals per opted-in referrer.
+  const { data: grantedRows, error: gErr } = await supabaseAdmin
+    .from("referral_events")
+    .select("referrer_user_id")
+    .in("referrer_user_id", ids)
+    .eq("reward_status", "granted")
+    .limit(DIRECTORY_STATS_SAMPLE);
+  if (gErr) return publicError(c, gErr, "leaderboard-counts");
+
+  const countById = new Map<string, number>();
+  for (const r of (grantedRows ?? []) as Array<{ referrer_user_id: string }>) {
+    countById.set(r.referrer_user_id, (countById.get(r.referrer_user_id) ?? 0) + 1);
+  }
+
+  // A leaderboard of zero-referral aliases isn't a leaderboard — rankReferrers
+  // ranks by granted count desc, drops zero-referral rows, and caps the list.
+  const referrers = rankReferrers(
+    users.map((u) => ({ id: u.id, display_name: u.referral_display_name as string })),
+    countById,
+  );
+
+  return c.json({ referrers });
 });
 

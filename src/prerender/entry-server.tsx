@@ -49,6 +49,7 @@ import { GradingByCategoryPage } from "@/pages/marketing/grading-by-category";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
 import { VerifiedDirectoryPage } from "@/pages/verified-directory";
 import { StatusPage } from "@/pages/status";
+import { ReferralLeaderboardPage } from "@/pages/referral-leaderboard";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 
 // Static map of prerenderable routes → page element.
@@ -84,6 +85,9 @@ const PAGES: Record<string, React.ReactNode> = {
   // US-500: probes run client-side only (useEffect); SSR emits the checking
   // shell, which the live SPA re-renders over with real component health.
   "/status": <StatusPage />,
+  // US-864: opt-in top-referrers leaderboard. The ranked list loads client-side
+  // from the public feed; SSR emits the header + metadata shell.
+  "/leaderboard": <ReferralLeaderboardPage />,
   // Glossary hub (US-303): the /grading/:slug route resolves its slug from
   // useParams at runtime; here we render each entry with an explicit slug prop
   // since the prerender renders a path directly with no router param match.

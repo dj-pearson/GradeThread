@@ -81,6 +81,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/dmca": "2026-04-01",
   "/accessibility": "2026-04-01",
   "/status": "2026-06-12",
+  "/leaderboard": "2026-06-13",
 };
 
 /** Stable content-change date for a route's sitemap <lastmod>. */
@@ -319,6 +320,17 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     description:
       "Live operational status of GradeThread's web app, grading API, database and authentication.",
     changefreq: "always",
+    priority: 0.3,
+  },
+  {
+    // US-864: public opt-in top-referrers leaderboard. The ranked list loads
+    // client-side from the public feed; the prerendered shell carries the chrome
+    // + metadata (like /status and /verified).
+    path: "/leaderboard",
+    title: "Top Referrers Leaderboard",
+    description:
+      "The GradeThread top-referrers leaderboard — members who share GradeThread and earn grade credits when friends join and qualify.",
+    changefreq: "daily",
     priority: 0.3,
   },
   // Condition-grading glossary hub (US-303): one page per grade tier + factor,

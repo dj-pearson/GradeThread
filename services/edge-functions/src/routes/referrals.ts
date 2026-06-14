@@ -10,10 +10,15 @@
 
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { REFERRER_REWARD_CREDITS } from "../lib/referral-rewards.ts";
 
 type Env = { Variables: { userId?: string } };
 
 export const referralRoutes = new Hono<Env>();
+
+// Public leaderboard alias: shown on the opt-in top-referrers board. PII-free by
+// construction (no email/name unless the user types it here).
+const MAX_LEADERBOARD_NAME = 40;
 
 // Unambiguous alphabet (no 0/O, 1/I/L) for a human-shareable code.
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -84,15 +89,112 @@ referralRoutes.get("/me", async (c) => {
     .eq("referred_user_id", userId)
     .maybeSingle();
 
+  // Leaderboard opt-in + public alias (US-864).
+  const { data: prefs } = await supabaseAdmin
+    .from("users")
+    .select("referral_leaderboard_enabled, referral_display_name")
+    .eq("id", userId)
+    .maybeSingle();
+  const pref = prefs as
+    | { referral_leaderboard_enabled?: boolean; referral_display_name?: string | null }
+    | null;
+
+  const grantedCount = granted.count ?? 0;
+  const inProgressCount = (pending.count ?? 0) + (qualified.count ?? 0);
+
   return c.json({
     code,
     stats: {
       total: total.count ?? 0,
       pending: pending.count ?? 0,
       qualified: qualified.count ?? 0,
-      granted: granted.count ?? 0,
+      granted: grantedCount,
+    },
+    // US-864: surface the referrer's reward in actual grade credits — earned
+    // (already applied to their balance) vs. pending (referrals still in flight).
+    credits: {
+      per_referral: REFERRER_REWARD_CREDITS,
+      earned: grantedCount * REFERRER_REWARD_CREDITS,
+      pending: inProgressCount * REFERRER_REWARD_CREDITS,
+    },
+    leaderboard: {
+      enabled: pref?.referral_leaderboard_enabled ?? false,
+      display_name: pref?.referral_display_name ?? null,
     },
     referred_by: referredRow ? { status: referredRow.reward_status, code: referredRow.code } : null,
+  });
+});
+
+// US-864: opt in/out of the public top-referrers leaderboard and set the public
+// alias shown there. Scoped to the caller (`.eq("id", userId)`) — never touches
+// another tenant's row (US-268). The alias is the ONLY identity that surfaces
+// publicly, so going public requires one.
+referralRoutes.put("/leaderboard", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  let body: { enabled?: unknown; display_name?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const update: Record<string, unknown> = {};
+
+  let nextName: string | null | undefined;
+  if (body.display_name !== undefined) {
+    const dn = typeof body.display_name === "string" ? body.display_name.trim() : "";
+    nextName = dn ? dn.slice(0, MAX_LEADERBOARD_NAME) : null;
+    update.referral_display_name = nextName;
+  }
+
+  if (body.enabled !== undefined) {
+    const enabled = body.enabled === true;
+    if (enabled) {
+      // Resolve the alias that WOULD result from this write.
+      let resultingName = nextName;
+      if (resultingName === undefined) {
+        const { data: cur } = await supabaseAdmin
+          .from("users")
+          .select("referral_display_name")
+          .eq("id", userId)
+          .maybeSingle();
+        resultingName = (cur as { referral_display_name?: string | null } | null)
+          ?.referral_display_name ?? null;
+      }
+      if (!resultingName) {
+        return c.json(
+          { error: "Add a display name before joining the leaderboard." },
+          400,
+        );
+      }
+    }
+    update.referral_leaderboard_enabled = enabled;
+  }
+
+  if (Object.keys(update).length === 0) {
+    return c.json({ error: "Nothing to update." }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .update(update)
+    .eq("id", userId)
+    .select("referral_leaderboard_enabled, referral_display_name")
+    .maybeSingle();
+  if (error) {
+    console.error("[referrals] leaderboard opt-in update failed:", error);
+    return c.json({ error: "Couldn't update your leaderboard settings." }, 500);
+  }
+  const row = data as
+    | { referral_leaderboard_enabled?: boolean; referral_display_name?: string | null }
+    | null;
+  return c.json({
+    leaderboard: {
+      enabled: row?.referral_leaderboard_enabled ?? false,
+      display_name: row?.referral_display_name ?? null,
+    },
   });
 });
 

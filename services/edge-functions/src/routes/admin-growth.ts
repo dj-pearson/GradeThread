@@ -24,9 +24,13 @@ import {
   validateRules,
 } from "../lib/segments.ts";
 import type { SegmentRules } from "../lib/segments.ts";
-import { sendBroadcastEmail, sendReferralRewardEmail } from "../lib/email.ts";
-import { notifyUser } from "../lib/notify.ts";
+import { sendBroadcastEmail } from "../lib/email.ts";
 import { sendPushToUser } from "../lib/apns.ts";
+import { grantReferralReward } from "../lib/referrals.ts";
+import {
+  REFERRED_REWARD_CREDITS,
+  REFERRER_REWARD_CREDITS,
+} from "../lib/referral-rewards.ts";
 
 type AdminEnv = {
   Variables: {
@@ -784,9 +788,9 @@ adminGrowthRoutes.get("/timeseries", async (c) => {
 // REFERRALS (US-629, admin side)
 // ════════════════════════════════════════════════════════════════════
 
-// Reward sizes (grade credits) granted when a referral is approved.
-const REFERRER_REWARD_CREDITS = 5;
-const REFERRED_REWARD_CREDITS = 3;
+// Reward sizes (grade credits) granted when a referral is approved live in the
+// shared leaf module (referral-rewards.ts) so the auto-grant path, this admin
+// overview, and the public surfaces all read the same numbers.
 
 // Overview: funnel counts, top referrers, and the pending/qualified reward queue.
 adminGrowthRoutes.get("/referrals", async (c) => {
@@ -877,7 +881,11 @@ adminGrowthRoutes.get("/referrals", async (c) => {
 });
 
 // Approve a referral: grant grade credits to BOTH parties and mark it granted.
-// super_admin + fresh step-up (it moves real credit balances); audited.
+// super_admin + fresh step-up (it moves real credit balances); audited. This is
+// the ADMIN OVERRIDE for the auto-grant path (US-864) — it resolves rows that
+// auto-grant intentionally left at `qualified` (a suspended party, a transient
+// failure) or legacy `qualified` rows. The actual grant + notifications run
+// through the single shared grantReferralReward() so there's one grant per event.
 adminGrowthRoutes.post("/referrals/:id/grant", async (c) => {
   const gate = requireSuperAdmin(c);
   if (gate) return gate;
@@ -891,35 +899,20 @@ adminGrowthRoutes.post("/referrals/:id/grant", async (c) => {
     .eq("id", id)
     .single();
   if (!event) return c.json({ error: "Referral not found" }, 404);
-  if (event.reward_status === "granted") return c.json({ error: "Already granted" }, 409);
 
-  // Grant to both sides via the existing row-locked ledger RPC.
-  const grant = (userId: string, credits: number) =>
-    supabaseAdmin.rpc("grant_grade_credits", {
-      p_user_id: userId,
-      p_credits: credits,
-      p_reason: "admin_grant",
-      p_stripe_payment_intent: null,
-      p_notes: `Referral reward (event ${id})`,
-    });
-  const [{ error: e1 }, { error: e2 }] = await Promise.all([
-    grant(event.referrer_user_id, REFERRER_REWARD_CREDITS),
-    grant(event.referred_user_id, REFERRED_REWARD_CREDITS),
-  ]);
-  if (e1 || e2) {
-    console.error("[admin-growth] referral grant failed:", e1 ?? e2);
-    return c.json({ error: "Credit grant failed" }, 500);
+  const result = await grantReferralReward(id);
+  switch (result.status) {
+    case "not_found":
+      return c.json({ error: "Referral not found" }, 404);
+    case "already_granted":
+      return c.json({ error: "Already granted" }, 409);
+    case "blocked":
+      return c.json({ error: result.reason }, 409);
+    case "error":
+      return c.json({ error: result.reason }, 500);
+    case "granted":
+      break;
   }
-
-  await supabaseAdmin
-    .from("referral_events")
-    .update({
-      reward_status: "granted",
-      granted_at: new Date().toISOString(),
-      referrer_reward_credits: REFERRER_REWARD_CREDITS,
-      referred_reward_credits: REFERRED_REWARD_CREDITS,
-    })
-    .eq("id", id);
 
   await writeAuditLog(c, {
     action: "growth.referral.grant",
@@ -928,48 +921,10 @@ adminGrowthRoutes.post("/referrals/:id/grant", async (c) => {
     details: {
       referrer_user_id: event.referrer_user_id,
       referred_user_id: event.referred_user_id,
-      referrer_credits: REFERRER_REWARD_CREDITS,
-      referred_credits: REFERRED_REWARD_CREDITS,
+      referrer_credits: result.referrer_credits,
+      referred_credits: result.referred_credits,
     },
   });
-
-  // US-802: tell both parties their reward landed — in-app + email. Best-effort:
-  // the credits are already granted and the status is persisted, so a
-  // notification failure must not 500 the grant. notifyUser swallows its own
-  // errors; the email is wrapped so a throw can't bubble.
-  const rewardNotify = async (
-    rewardUserId: string,
-    credits: number,
-    isReferrer: boolean,
-  ): Promise<void> => {
-    await notifyUser(rewardUserId, {
-      type: "billing",
-      title: "Referral reward added",
-      message: `${credits} grade credit${credits === 1 ? "" : "s"} were added to your account from a referral.`,
-      link: "/dashboard/billing",
-    });
-    const { data: u } = await supabaseAdmin
-      .from("users")
-      .select("email, full_name")
-      .eq("id", rewardUserId)
-      .maybeSingle();
-    const row = u as { email?: string; full_name?: string | null } | null;
-    if (row?.email) {
-      await sendReferralRewardEmail(row.email, {
-        userName: row.full_name ?? null,
-        credits,
-        isReferrer,
-      });
-    }
-  };
-  await Promise.all([
-    rewardNotify(event.referrer_user_id, REFERRER_REWARD_CREDITS, true).catch(
-      (err) => console.error("[admin-growth] referrer reward notify failed:", err),
-    ),
-    rewardNotify(event.referred_user_id, REFERRED_REWARD_CREDITS, false).catch(
-      (err) => console.error("[admin-growth] referred reward notify failed:", err),
-    ),
-  ]);
 
   return c.json({ ok: true });
 });

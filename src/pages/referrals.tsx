@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -14,11 +14,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { affiliateBadgeEmbed, affiliateLink } from "@/lib/affiliate";
-import { Gift, Copy, Check, BadgeCheck } from "lucide-react";
+import { TopReferrers } from "@/components/referral/top-referrers";
+import { Gift, Copy, Check, BadgeCheck, Trophy } from "lucide-react";
 
 interface ReferralMe {
   code: string;
   stats: { total: number; pending: number; qualified: number; granted: number };
+  // US-864: reward shown in actual grade credits.
+  credits: { per_referral: number; earned: number; pending: number };
+  leaderboard: { enabled: boolean; display_name: string | null };
   referred_by: { status: string; code: string } | null;
 }
 
@@ -35,6 +39,9 @@ export function ReferralsPage() {
   const [copiedBadgeLink, setCopiedBadgeLink] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
+  // US-864: leaderboard opt-in form.
+  const [leaderboardName, setLeaderboardName] = useState("");
+  const [savingLeaderboard, setSavingLeaderboard] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["referrals-me"],
@@ -106,6 +113,39 @@ export function ReferralsPage() {
     }
   };
 
+  // Seed the leaderboard-alias input from the saved value once it loads.
+  const savedLeaderboardName = data?.leaderboard.display_name ?? "";
+  useEffect(() => {
+    setLeaderboardName(savedLeaderboardName);
+  }, [savedLeaderboardName]);
+
+  // US-864: save the leaderboard opt-in + public alias. `enabled` toggles
+  // visibility; the alias is the only identity shown publicly.
+  const saveLeaderboard = async (enabled: boolean) => {
+    const name = leaderboardName.trim();
+    if (enabled && !name) {
+      toast.error("Add a display name before joining the leaderboard.");
+      return;
+    }
+    setSavingLeaderboard(true);
+    try {
+      const res = await edgeFetch("/api/referrals/leaderboard", {
+        method: "PUT",
+        json: { enabled, display_name: name || null },
+        silentGate: true,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "Couldn't update your leaderboard settings.");
+        return;
+      }
+      toast.success(enabled ? "You're on the leaderboard!" : "Removed from the leaderboard.");
+      qc.invalidateQueries({ queryKey: ["referrals-me"] });
+    } finally {
+      setSavingLeaderboard(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -148,6 +188,25 @@ export function ReferralsPage() {
                   <div className="text-xs text-muted-foreground">Rewarded</div>
                 </div>
               </div>
+
+              {/* US-864: rewards in actual grade credits — earned (already on
+                  your balance) vs. pending (still-qualifying referrals). */}
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div className="rounded-md border border-brand-red/30 bg-brand-red/5 p-3">
+                  <div className="text-2xl font-bold tabular-nums text-brand-red-text">
+                    {data.credits.earned}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Credits earned</div>
+                </div>
+                <div className="rounded-md bg-muted p-3">
+                  <div className="text-2xl font-bold tabular-nums">{data.credits.pending}</div>
+                  <div className="text-xs text-muted-foreground">Credits pending</div>
+                </div>
+              </div>
+              <p className="text-center text-xs text-muted-foreground">
+                You earn {data.credits.per_referral} grade credits each time a
+                referral qualifies — applied to your balance automatically.
+              </p>
             </CardContent>
           </Card>
 
@@ -253,6 +312,78 @@ export function ReferralsPage() {
                   </div>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* US-864: opt into the public top-referrers leaderboard. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Trophy className="h-5 w-5 text-brand-red-text" /> Top referrers leaderboard
+              </CardTitle>
+              <CardDescription>
+                Opt in to appear on the public{" "}
+                <a href="/leaderboard" className="font-medium underline">
+                  leaderboard
+                </a>
+                . Only the display name you choose is shown — never your email.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Public display name
+                </label>
+                <Input
+                  value={leaderboardName}
+                  onChange={(e) => setLeaderboardName(e.target.value.slice(0, 40))}
+                  placeholder="e.g. ThriftKing"
+                  maxLength={40}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {data.leaderboard.enabled
+                    ? "You're visible on the leaderboard."
+                    : "You're not on the leaderboard yet."}
+                </p>
+                {data.leaderboard.enabled ? (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      disabled={savingLeaderboard}
+                      onClick={() => saveLeaderboard(true)}
+                    >
+                      Save name
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={savingLeaderboard}
+                      onClick={() => saveLeaderboard(false)}
+                    >
+                      Hide me
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    disabled={savingLeaderboard || !leaderboardName.trim()}
+                    onClick={() => saveLeaderboard(true)}
+                  >
+                    {savingLeaderboard ? "Saving…" : "Join leaderboard"}
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Live top-referrers preview (public feed). */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Leaderboard</CardTitle>
+              <CardDescription>The current top referrers.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TopReferrers limit={5} />
             </CardContent>
           </Card>
         </>

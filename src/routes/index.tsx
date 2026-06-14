@@ -178,6 +178,9 @@ const GrowthCampaignsPage = lazy(() => import("@/pages/admin/growth/campaigns").
 const GrowthAnnouncementsPage = lazy(() => import("@/pages/admin/growth/announcements").then(m => ({ default: m.GrowthAnnouncementsPage })));
 const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").then(m => ({ default: m.GrowthReferralsPage })));
 const ReferralsPage = lazy(() => import("@/pages/referrals").then(m => ({ default: m.ReferralsPage })));
+// US-864: public, opt-in top-referrers leaderboard. Dynamic (loads the public
+// feed client-side), NOT registered in PUBLIC_ROUTES — like /status.
+const ReferralLeaderboardPage = lazy(() => import("@/pages/referral-leaderboard").then(m => ({ default: m.ReferralLeaderboardPage })));
 
 function PageLoader() {
   // Live region (US-452): the bare spinner is decorative, so announce the load
@@ -264,6 +267,10 @@ export const router = createBrowserRouter([
 
       // System status (public, US-500)
       { path: "/status", element: <SuspenseWrapper><StatusPage /></SuspenseWrapper> },
+
+      // Public top-referrers leaderboard (US-864) — opt-in, PII-free. Dynamic,
+      // NOT prerendered (loads the public feed client-side).
+      { path: "/leaderboard", element: <SuspenseWrapper><ReferralLeaderboardPage /></SuspenseWrapper> },
 
       // US-585: waitlist-pending — shown when a signed-in account isn't yet
       // approved while the launch gate is active (edge-fetch redirects here).
