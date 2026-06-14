@@ -14490,6 +14490,672 @@
       "priority": 977,
       "passes": false,
       "notes": "[SEO / E-E-A-T] Added 2026-06-13. Advances content-depth epic US-878. Files: functions/blog/[[path]].ts (Article author node ~246-250), functions/_shared/blog-render.ts (Person author helper ~770), the content scheduler author assignment, new /authors route in src/lib/seo/public-routes.ts + entry-server + sitemap. A Person author with sameAs strengthens BOTH Google trust signals and AI entity grounding."
+    },
+    {
+      "id": "US-978",
+      "title": "iOS: PaywallView subscription disclosures (Apple Guideline 3.1.2)",
+      "description": "As a user on the paywall, I want to see each subscription's price and billing period plus links to Terms of Use and Privacy Policy, so I can make an informed purchase — and so the app passes App Review. Today productRow shows only title + blurb + a price button: no per-period price line, no auto-renew terms, no Terms/Privacy links.",
+      "acceptanceCriteria": [
+        "Each auto-renewing subscription row shows price + billing period (from Product.subscription).",
+        "A visible footer states the subscription auto-renews and how to cancel.",
+        "Terms of Use and Privacy Policy links are present and open.",
+        "Credit packs (consumables) are visually distinguished from auto-renewing subscriptions.",
+        "Build + PaywallStoreTests green."
+      ],
+      "priority": 978,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=ui/app-store. ios/GradeThread/Billing/PaywallView.swift (productRow ~121-130)"
+    },
+    {
+      "id": "US-979",
+      "title": "iOS: keep sensitive photos out of the public item-photos bucket (signed URLs)",
+      "description": "As a seller, I want grading/label/tag close-ups (which can show PII) stored privately and read via short-TTL signed URLs, not written to the public item-photos bucket with a permanent guessable public URL. Per CLAUDE.md, private grading labels and PII must live in submission-images and be read only via createSignedUrl (TTL <= 900s).",
+      "acceptanceCriteria": [
+        "No code path writes a label/tag/grading photo to the public item-photos bucket.",
+        "item_photos.photo_url no longer contains /object/public/; display resolves a signed URL.",
+        "A unit test maps each PhotoSlotType to its expected bucket and fails if a sensitive type maps to public.",
+        "Signed URLs expire within 15 minutes."
+      ],
+      "priority": 979,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=security. ios/GradeThread/Upload/PhotoUploadService.swift (bucket ~25, storagePublicURL ~324-331, photo_url persist ~292-298)"
+    },
+    {
+      "id": "US-980",
+      "title": "iOS: confirm credit spend before submitting a paid grade",
+      "description": "As a user, I want a confirmation before a tap spends a paid grading credit, so a mis-tap doesn't cost real money with no undo. GradeRequestSheet.submit() and the bulk path fire immediately; costLabel already knows whether it's Included vs N credits.",
+      "acceptanceCriteria": [
+        "When the grade is not Included, tapping submit shows a confirmation naming the credit count before any charge.",
+        "Included/free grades still submit in one tap (no regression).",
+        "Bulk grading shows the total credit cost and a single confirm.",
+        "Cancelling the dialog leaves the credit balance unchanged."
+      ],
+      "priority": 980,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=ux. ios/GradeThread/Grading/GradeRequestSheet.swift (submitButton ~224-237, costLabel ~207-213); Grading/BulkGradeSheet.swift"
+    },
+    {
+      "id": "US-981",
+      "title": "iOS: wire NetworkMonitor offline guards into action surfaces",
+      "description": "As a reseller working on flaky signal, I want network-dependent buttons (Publish, Grade, Record Sale, Add Expense, comps, AI extract, repricing) to show an offline state and short-circuit with a friendly message instead of firing blindly and surfacing a raw 'Network error' card. NetworkMonitor.isConnected exists but is only read by the sync engine.",
+      "acceptanceCriteria": [
+        "With airplane mode on, Publish/Grade/Record-Sale/Add-Expense primary buttons show an offline state rather than firing.",
+        "An offline tap shows a 'You're offline' message, not a raw URLError description.",
+        "Buttons re-enable automatically within ~1s of reconnecting (connectivity stream).",
+        "No regression to the item-create/photo-upload offline-queue paths."
+      ],
+      "priority": 981,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=functional. ios/GradeThread/Networking/NetworkMonitor.swift; action-bearing views (PublishDialog, GradeRequestSheet, ExpenseFormSheet, etc.)"
+    },
+    {
+      "id": "US-982",
+      "title": "iOS: expand the offline write queue to sales, expenses, and item edits",
+      "description": "As a reseller, I want sales, expenses, and item edits made offline to be queued and replayed on reconnect, not lost. Only item-create and photo-upload enqueue a LocalPendingMutation today; the SyncEngine.apply switch already supports createSale/updateInventoryItem/deleteInventoryItem replay but no UI path enqueues them, and ExpenseStore writes directly.",
+      "acceptanceCriteria": [
+        "Recording a sale offline shows 'Saved offline — will sync' and appears in the local mirror immediately.",
+        "Expenses gain createExpense/deleteExpense MutationKinds + replay handlers; item edits enqueue updateInventoryItem.",
+        "Queued mutations flush on reconnect and appear server-side exactly once (idempotent via client id).",
+        "A pending-changes inspector lists queued sale/expense/edit with retry/discard.",
+        "Application-level 4xx rejections are NOT queued (only true network failures)."
+      ],
+      "priority": 982,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=functional. ios/GradeThread/Persistence/SyncEngine.swift (apply ~599-616); Money/ExpenseStore.swift (~76,89); sale recording; item edit path"
+    },
+    {
+      "id": "US-983",
+      "title": "iOS: AutolisterBatchStore must reach a terminal failed state and offer resume",
+      "description": "As a user running a bulk AutoLister batch, I want the queue to show a terminal failed/disconnected state with a Resume action when polling gives up, instead of a perpetual 'running' spinner. startPolling breaks on gaveUpPolling but never sets a terminal phase (pollOnce only sets errorMessage), and isTerminal excludes .running.",
+      "acceptanceCriteria": [
+        "After the consecutive-failure cap, the batch view shows a terminal failed/disconnected state, not a spinner.",
+        "A Resume/Try-again button restarts polling and clears the failure streak.",
+        "isTerminal returns true in the give-up state.",
+        "Reconnection mid-batch still completes normally; AutolisterStoreTests cover the give-up transition."
+      ],
+      "priority": 983,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=functional. ios/GradeThread/AutoLister/AutolisterBatchStore.swift (startPolling ~130-140, pollOnce ~162-167, isTerminal ~59-64)"
+    },
+    {
+      "id": "US-984",
+      "title": "iOS: background refresh should await the real sync, not a fixed 8s sleep",
+      "description": "As a user, I want background-refresh new-sale/new-grade notifications to be reliable. BackgroundRefreshService posts .inventoryPullRequested to a ContentView listener then sleeps 8s before snapshotting — within a tight 25s budget — so on slow networks detection reads stale data (missed/duplicate notifications) and on cold launch the pull may never run yet success is reported.",
+      "acceptanceCriteria": [
+        "BG handler holds a weak SyncEngine handle and awaits syncEngine.sync() directly (no fixed sleep).",
+        "Work is cancelled on task.expirationHandler and setTaskCompleted reflects the real outcome.",
+        "New-sale/new-grade detection runs only after the pull merge commits.",
+        "A sale that landed server-side fires its notification within a single BG run; BackgroundRefreshTests updated."
+      ],
+      "priority": 984,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=performance/functional. ios/GradeThread/Background/BackgroundRefreshService.swift (~125-138)"
+    },
+    {
+      "id": "US-985",
+      "title": "iOS: add @Index to SwiftData models (predicates/merges do full scans)",
+      "description": "As a user with a large catalog, I want realtime upserts/deletes and per-mutation lookups to be fast. The SwiftData models declare no #Index (uniqueness on id is not a query index), so predicated fetches and sortBy in SyncMergeActor/SyncEngine/EbaySyncService do O(n) scans on every realtime event.",
+      "acceptanceCriteria": [
+        "Each @Model declares #Index covering columns used in #Predicate / sortBy (id, status, updatedAt, listingStatus, inventoryItemId, etc.).",
+        "A large-store realtime-upsert benchmark shows per-event fetch time drop materially vs baseline.",
+        "No #Predicate / FetchDescriptor.sortBy references a column without a covering index.",
+        "Index migration applies cleanly on an existing store (non-destructive)."
+      ],
+      "priority": 985,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=performance. ios/GradeThread/Persistence/Models/LocalInventoryItem.swift, LocalItemPhoto.swift; SyncMergeActor.swift (~173,196), SyncEngine.swift (~808,819)"
+    },
+    {
+      "id": "US-986",
+      "title": "iOS: delta-sync merge should fetch only affected rows, not the whole table",
+      "description": "As a user, I want incremental sync to be cheap. SyncMergeActor.mergeItems/mergePhotos/mergeSales fetch the ENTIRE table into memory plus an id->object dictionary on every delta, so even a 1-row pull materializes every inventory/photo/sale row — repeated memory churn on every connectivity change and pull-to-refresh.",
+      "acceptanceCriteria": [
+        "Delta merge fetches only rows whose ids appear in the payload (predicate / batched in lookup).",
+        "Full-table fetch occurs only when prune == true (full backfill).",
+        "A 1-row delta against a large store fetches a handful of rows (asserted via fetch-count instrumentation in a test).",
+        "Prune behavior for full backfill is unchanged (existing prune tests pass)."
+      ],
+      "priority": 986,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=performance. ios/GradeThread/Persistence/SyncMergeActor.swift (~40,92,133)"
+    },
+    {
+      "id": "US-987",
+      "title": "iOS: recover gracefully from a corrupt SwiftData store instead of fatalError",
+      "description": "As a user, I don't want the app to crash on every launch if the local cache corrupts (migration mismatch, disk pressure). App.swift calls fatalError on container-init failure, leaving no way to even sign out or clear data.",
+      "acceptanceCriteria": [
+        "On container-init failure, the app attempts a one-time destructive recovery (delete + recreate the store) before giving up.",
+        "If recovery fails, it falls back to an in-memory container with a 'local data was reset' notice.",
+        "A deliberately corrupted store file launches into a recovered (empty) cache, not a crash; a sync repopulates it.",
+        "Normal launches are unaffected."
+      ],
+      "priority": 987,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=stability. ios/GradeThread/App.swift (~34 fatalError)"
+    },
+    {
+      "id": "US-988",
+      "title": "iOS: strict auth-callback deep-link matching on iOS 17.4+ (drop claimable scheme)",
+      "description": "As a security measure, on iOS 17.4+ the app should accept Supabase auth callbacks ONLY via the https Universal Link, not the claimable custom scheme, and use strict scheme+host+path matching. AuthStore.handleAuthCallback currently treats any URL whose absoluteString contains 'auth-callback' as a callback and processes the custom scheme regardless of OS version.",
+      "acceptanceCriteria": [
+        "On 17.4+, a com.gradethread.app://auth-callback?... URL is ignored (test).",
+        "The absoluteString.contains('auth-callback') clause is removed in favor of exact matching.",
+        "Only https://gradethread.com/app/auth-callback* is accepted on 17.4+ (test accept + reject of look-alike hosts like gradethread.com.evil.com).",
+        "Custom-scheme handling remains only for <17.4."
+      ],
+      "priority": 988,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Auth/AuthStore.swift (handleAuthCallback ~130-140)"
+    },
+    {
+      "id": "US-989",
+      "title": "iOS: sanitize eBay OAuth callback error text and allowlist the consent URL host",
+      "description": "As a user, I don't want attacker-controllable text injected into the UI or arbitrary URLs opened in an authenticated-looking browser. EbayConnectResult.from surfaces the raw 'error' query param verbatim, and fetchConsentURL opens whatever consentUrl the edge returns with only a URL(string:) parse check.",
+      "acceptanceCriteria": [
+        "Unknown/oversized error values render a generic 'eBay sign-in failed' message; only an allowlist of codes maps to specific copy (test).",
+        "No raw callback query-param string reaches a SwiftUI Text.",
+        "A consent URL not on the eBay domain allowlist (*.ebay.com, signin.ebay.com, sandbox equivalents) is rejected with a clear error (test).",
+        "URL(string:) success alone no longer gates opening the web-auth session."
+      ],
+      "priority": 989,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Marketplaces/EbayConnectionTypes.swift (from ~124-139); EbayConnectionService.swift (fetchConsentURL ~249-262)"
+    },
+    {
+      "id": "US-990",
+      "title": "iOS: move storage uploads off URLSession.shared and redact storage URLs in breadcrumbs",
+      "description": "As a security measure, raw storage uploads that set Authorization/apikey headers should run on a dedicated URLSession (not the Sentry-swizzled shared session), and TelemetryScrubber should redact signed-storage URLs and header dicts. SyncEngine replay upload uses URLSession.shared; PhotoUploadService sets bearer+apikey on raw requests.",
+      "acceptanceCriteria": [
+        "SyncEngine replay upload no longer uses URLSession.shared.",
+        "A breadcrumb whose data['http.url'] contains a signed /storage/v1/object/...?token= URL is redacted (test).",
+        "No Sentry event/breadcrumb contains a bearer token (test over Telemetry.scrubBreadcrumb).",
+        "apikey header value redaction is covered by a test."
+      ],
+      "priority": 990,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Upload/PhotoUploadService.swift (~206-211); SyncEngine.swift (~674-678); Telemetry/TelemetryScrubber.swift"
+    },
+    {
+      "id": "US-991",
+      "title": "iOS: PostHog PII hardening (disable screen autocapture, scrub event props, consent)",
+      "description": "As a privacy-conscious user, I don't want item titles, consignor names, or handles leaking to analytics. PostHog has captureScreenViews + captureApplicationLifecycleEvents ON and Telemetry.event forwards arbitrary props with no scrubbing — unlike Sentry these bypass TelemetryScrubber.",
+      "acceptanceCriteria": [
+        "captureScreenViews is disabled (named screens instrumented explicitly with non-PII ids) or a screen-name sanitizer is registered.",
+        "Telemetry.event redacts string property values via TelemetryScrubber (test).",
+        "Analytics consent state is explicit and documented; PostHog never receives a free-text item/consignor name."
+      ],
+      "priority": 991,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security/privacy. ios/GradeThread/Telemetry/Telemetry.swift (~79-82,162-163)"
+    },
+    {
+      "id": "US-992",
+      "title": "iOS: set request timeouts on EdgeAPI / AIExtract / PhotoRotate sessions",
+      "description": "As a reseller on flaky cellular, I don't want requests hanging ~60s (then retried 2x to ~3min) behind a spinner. EdgeAPI/AIExtractService/PhotoRotateService use URLSession.shared with no timeoutInterval; grep finds no timeoutIntervalForRequest anywhere.",
+      "acceptanceCriteria": [
+        "Edge requests time out in a configured interval (~15-20s), not 60s, via a dedicated URLSession or request.timeoutInterval.",
+        "Timeout surfaces as EdgeAPIError.network and is treated as transient by the retry path.",
+        "A test with a stalled mock server confirms the call returns within the configured budget.",
+        "AIExtractService and PhotoRotateService get the same bounded timeout."
+      ],
+      "priority": 992,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Networking/EdgeAPI.swift (~12,153-186); AIExtract/AIExtractService.swift (~15); ItemCanvas/Photos/PhotoRotateService.swift (~21)"
+    },
+    {
+      "id": "US-993",
+      "title": "iOS: remove force-unwrapped URL construction in upload/storage paths",
+      "description": "As a user, a misconfigured/empty base URL should produce a recoverable error, not a crash. PhotoUploadService, SyncEngine.storageObjectURL, and PhotoRotateService force-unwrap URLComponents(...)! and .url!; CameraPreview force-casts the layer with as!.",
+      "acceptanceCriteria": [
+        "No URLComponents(...)! / .url! remain in upload/storage code paths (guard let + typed error instead).",
+        "A nil/invalid base URL produces a typed error routed to the existing .failed/SyncReplayError path, not a crash (test with empty config).",
+        "CameraPreview degrades gracefully if the layer cast fails (as?)."
+      ],
+      "priority": 993,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=stability. ios/GradeThread/Upload/PhotoUploadService.swift (~223-228); SyncEngine.swift (~675,708-711); PhotoRotateService.swift (~111-113); Capture/CameraPreview.swift (~37)"
+    },
+    {
+      "id": "US-994",
+      "title": "iOS: model item<->photo as a SwiftData relationship (kill the N+1/proxy hack)",
+      "description": "As a developer, I want an item's photos modeled as a real relationship so photo lookups fault lazily and cascade-delete is correct. LocalItemPhoto stores a loose inventoryItemId string with no @Relationship; InventoryRow uses a denormalized primaryPhotoURL as a stand-in for 'has photos' which drifts.",
+      "acceptanceCriteria": [
+        "Item<->photo modeled as a SwiftData @Relationship with an inverse.",
+        "Deleting an item cascades its photos (test).",
+        "'Ready to list' / photo-presence derives from the relationship, not a denormalized string.",
+        "Sync merge populates the relationship."
+      ],
+      "priority": 994,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Persistence/Models/LocalItemPhoto.swift, LocalInventoryItem.swift (~51); Inventory/InventoryRow.swift (~84-88)"
+    },
+    {
+      "id": "US-995",
+      "title": "iOS: bound and evict the EdgeAPI in-memory response cache",
+      "description": "As a user paging many comps/categories, I don't want the response cache to grow forever. EdgeAPI.responseCache is an unbounded dictionary of Data blobs keyed by method+path+query; expired entries are skipped but never removed.",
+      "acceptanceCriteria": [
+        "responseCache has a hard entry/byte cap and evicts oldest/expired (NSCache or bounded LRU).",
+        "Expired entries are removed on insert, not just skipped.",
+        "A test inserting > cap entries confirms bounded size."
+      ],
+      "priority": 995,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Networking/EdgeAPI.swift (~28,88,114)"
+    },
+    {
+      "id": "US-996",
+      "title": "iOS: restore drafts off-main with downsampled thumbnails",
+      "description": "As a user reopening a saved draft, I don't want a main-thread hitch. IntakeDraftStore.restore is @MainActor and synchronously reads + fully decodes up to ~10 multi-MB JPEGs, keeping full-res UIImages as 'thumbnails'. PhotoCompressor.compressOffMain exists but isn't used on this path.",
+      "acceptanceCriteria": [
+        "Draft restore performs file read + decode off the main actor (async).",
+        "Restored thumbnails are downsampled (~160px long edge), not full-res.",
+        "Restoring a 10-photo draft shows no main-thread hitch (no dropped frames)."
+      ],
+      "priority": 996,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/DetailsIntake/IntakeDraftStore.swift (~150-163); AIExtract/AIExtractView.swift (~332); Capture/PhotoPreview.swift (~18)"
+    },
+    {
+      "id": "US-997",
+      "title": "iOS: debounce connectivity-driven syncs",
+      "description": "As a user walking between Wi-Fi/cell, I don't want every connectivity flap to kick a full flush+pull. SyncEngine runs flushPending()+pull() on every connected==true event from NetworkMonitor; combined with full-table merges this drains battery/data on flaky connections.",
+      "acceptanceCriteria": [
+        "Rapid connectivity flaps coalesce into at most one sync per debounce window.",
+        "A test simulating 5 reconnects in 2s triggers <= 1 pull.",
+        "Manual pull-to-refresh remains immediate (not debounced)."
+      ],
+      "priority": 997,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Persistence/SyncEngine.swift (~74-86); Networking/NetworkMonitor.swift (~52)"
+    },
+    {
+      "id": "US-998",
+      "title": "iOS: pipeline AutoLister uploads and warn on partial-upload timeout",
+      "description": "As a user running a bulk batch, I want uploads to overlap (the session already allows 3 concurrent) instead of serializing create->upload->wait per group with a 90s per-group cap, and I want a warning if a group times out with photos still pending rather than silently generating a listing from a partial set.",
+      "acceptanceCriteria": [
+        "Uploads for later groups begin while earlier groups are still transferring (respecting maxConcurrent).",
+        "A 20-group batch completes in roughly batch-size/concurrency time, not sum of per-group timeouts.",
+        "On a 90s timeout with incomplete uploads, the user sees a warning and can retry uploads + regenerate (not silent generation).",
+        "Per-group failure reports cleanly without stalling the rest."
+      ],
+      "priority": 998,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance/functional. ios/GradeThread/AutoLister/AutoListerGenerator.swift (~65-80,138-145)"
+    },
+    {
+      "id": "US-999",
+      "title": "iOS: notification deep-links for offers/messages and grade-ready-without-id",
+      "description": "As a user, tapping an offer/message push should open the Negotiation inbox (today it lands on the Marketplaces tab root with no targeting), and a grade-ready push lacking an itemId should still navigate (today it returns nil and the tap does nothing).",
+      "acceptanceCriteria": [
+        "Tapping an offer/message push opens the Negotiation inbox (filtered to the offer when an id is present).",
+        "Tapping a grade-ready push always navigates somewhere (item canvas if id, else Grades list).",
+        "No notification category resolves to a no-op tap.",
+        "Existing item-targeted routes unchanged; PushNotificationTests updated."
+      ],
+      "priority": 999,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional. ios/GradeThread/Notifications/NotificationDelegate.swift (~67-90)"
+    },
+    {
+      "id": "US-1000",
+      "title": "iOS: retry APNs edge-registration after a transient server failure",
+      "description": "As a user, I want push notifications to keep working even if the one-time edge registration hit a transient 500. registerWithEdge runs once from handleDeviceToken; iOS no-ops APNs registration when the token is unchanged, so a failed register is never retried until the OS rotates the token — the device silently stops receiving sale/offer alerts.",
+      "acceptanceCriteria": [
+        "On launch/reconnect, if registration previously failed (or is stale), the cached hex token is re-POSTed to /api/notifications/register.",
+        "A simulated edge 500 on first registration is retried and succeeds; phase reaches .registered.",
+        "Repeated successful registers are idempotent server-side.",
+        "PushNotificationTests cover the retry."
+      ],
+      "priority": 1000,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional. ios/GradeThread/Notifications/PushService.swift (~63,101-121)"
+    },
+    {
+      "id": "US-1001",
+      "title": "iOS: queue photo retry when the DB-link insert fails after a successful upload",
+      "description": "As a user, a photo that uploaded to Storage but failed the item_photos insert (e.g. token expired between phases) should be auto-retried, not orphaned. Only the transport-failure path enqueues a pending mutation; the insert-failure catch just sets .failed and relies on manual retry that's lost if the user leaves the screen.",
+      "acceptanceCriteria": [
+        "A simulated DB-insert failure after a successful storage upload enqueues a pending mutation.",
+        "The queued mutation re-links the photo on next sync without re-prompting the user.",
+        "No duplicate item_photos rows (upsert by deterministic id).",
+        "Leaving and returning to the item shows the photo once it syncs."
+      ],
+      "priority": 1001,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional. ios/GradeThread/Upload/PhotoUploadService.swift (~313-321,335)"
+    },
+    {
+      "id": "US-1002",
+      "title": "iOS: unify eBay publish profit/price math through Money/MoneyMath",
+      "description": "As a user, I want the publish-composer's estimated net profit to match the Money tab to the cent. PublishDialog uses naive %.2f and unrounded Double math (ListingProfit.estimate) while rollups use the drift-free Money type.",
+      "acceptanceCriteria": [
+        "The composer's est. net profit matches the Money tab's computed net for an equivalent completed sale to the cent.",
+        "Price sent to the push is cents-normalized.",
+        "Locale inputs like '24,99' round identically in both surfaces.",
+        "Existing SalePnL rollup output unchanged; tests added."
+      ],
+      "priority": 1002,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/data-integrity. ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (~629,661-663); Money/MoneyMath.swift"
+    },
+    {
+      "id": "US-1003",
+      "title": "iOS: stop silently swallowing sync-cursor and AutoLister classify failures",
+      "description": "As a developer, I want diagnosable sync failures. EbaySyncService coerces a failed fetchLastSyncedAt to nil with try? (risking a full/duplicate pull or a skipped window), and AutoListerGenerator/RepricingRulesStore swallow classify + photo-role write-backs with try? and no breadcrumb.",
+      "acceptanceCriteria": [
+        "A failed fetchLastSyncedAt is logged/breadcrumbed, not silently coerced to nil.",
+        "AutoLister classify + photo-role write-back failures emit a Telemetry.breadcrumb.",
+        "A genuine first-sync (legitimately nil cursor) still behaves as before.",
+        "No new user-facing errors for the legitimate-nil case."
+      ],
+      "priority": 1003,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/observability. ios/GradeThread/Marketplaces/EbaySyncService.swift (~45,95,205); AutoLister/AutoListerGenerator.swift (~152,164); Pricing/RepricingRulesStore.swift (~37,95-96)"
+    },
+    {
+      "id": "US-1004",
+      "title": "iOS: classify offline failures by typed error, not localized strings",
+      "description": "As an international user, I want offline item-creates to be queued regardless of device language. DetailsIntakeView.isNetworkFailure falls back to matching English substrings ('network'/'offline'/'timed out') in localizedDescription, so a non-English offline failure is misclassified as an app rejection and the data is silently lost.",
+      "acceptanceCriteria": [
+        "Offline item-create is queued regardless of device language (URLError codes: notConnectedToInternet, timedOut, networkConnectionLost, cannotFindHost, dnsLookupFailed; plus EdgeAPIError.network).",
+        "A 4xx/validation error is still NOT queued.",
+        "Unit test covers a non-English URLError localized description being correctly classified.",
+        "The English-substring fallback is removed or only a last resort behind code checks."
+      ],
+      "priority": 1004,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/i18n. ios/GradeThread/DetailsIntake/DetailsIntakeView.swift (isNetworkFailure ~482-494)"
+    },
+    {
+      "id": "US-1005",
+      "title": "iOS: real Photo Library fallback when camera permission is denied",
+      "description": "As a user who declined camera access, I want a working 'Pick from Library' path. The permission-denied view says the library button is '(coming soon)' even though PhotoLibraryPicker is fully implemented, dead-ending photo intake.",
+      "acceptanceCriteria": [
+        "With camera permission denied, the user can pick photos from the library and complete intake.",
+        "The 'coming soon' copy is removed.",
+        "Picked library photos flow through the same upload/grade pipeline as captured ones.",
+        "Camera-allowed flow unchanged."
+      ],
+      "priority": 1005,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ux/functional. ios/GradeThread/Capture/PhotoIntakeView.swift (~400-418,455,643); Capture/PhotoLibraryPicker.swift"
+    },
+    {
+      "id": "US-1006",
+      "title": "iOS: PublishDialog offline pre-check + preserve composer edits on retry",
+      "description": "As a user publishing to eBay, I want an offline pre-check and I don't want a transient push failure's 'Try again' to discard the title/description/condition I just typed (it restarts at runValidate, wiping edits).",
+      "acceptanceCriteria": [
+        "Offline publish shows an offline message, not a raw network error.",
+        "After a transient push failure, 'Try again' preserves the user's composer edits (re-hydrate from the saved draft).",
+        "A genuine 422 blockers response still routes to the blockers card.",
+        "Successful publish path unchanged."
+      ],
+      "priority": 1006,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/ux. ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (runPush ~292-339, retry ~233, draft save ~299)"
+    },
+    {
+      "id": "US-1007",
+      "title": "iOS: eBay sync poller — hoist ISO8601 formatters and make the summary deterministic",
+      "description": "As a user, I want the eBay sync modal to finish promptly and report accurate counts. EbaySyncService.didAdvance allocates two ISO8601DateFormatters per poll, and buildSummary does a blind 1.2s Task.sleep then counts rows (race with the local refresh).",
+      "acceptanceCriteria": [
+        "No ISO8601DateFormatter allocated inside a loop or per-call comparator (reuse cached/static formatters).",
+        "buildSummary reflects post-sync counts deterministically by awaiting the SyncEngine result instead of a fixed sleep.",
+        "The poll loop yields/cancels promptly when the modal is dismissed.",
+        "EbaySyncTests updated."
+      ],
+      "priority": 1007,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Marketplaces/EbaySyncService.swift (~94,188-191,205)"
+    },
+    {
+      "id": "US-1008",
+      "title": "iOS: assert https-only base URLs in AppConfig and CI-check merged ATS",
+      "description": "As a security measure, AppConfig should reject non-https supabaseURL/edgeAPIURL (config drift has bitten this project) and CI should confirm the merged Release Info.plist has no ATS relaxation.",
+      "acceptanceCriteria": [
+        "AppConfig.supabaseURL/edgeAPIURL reject non-https values (test; fail-fast in debug, refuse in release).",
+        "Merged Release Info.plist contains no NSAllowsArbitraryLoads / per-domain ATS exception (CI check).",
+        "Build fails fast if an http base URL is configured."
+      ],
+      "priority": 1008,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Networking/AppConfig.swift (~10-37); Info.plist"
+    },
+    {
+      "id": "US-1009",
+      "title": "iOS: accessible eBay account rows + confirm before disconnect",
+      "description": "As a VoiceOver/Switch-Control user, I need eBay account rows to be operable (they use a bare onTapGesture with no button trait, and all actions live in swipeActions which assistive tech can't reach), and disconnect — which breaks publishing/sync — should require confirmation.",
+      "acceptanceCriteria": [
+        "VoiceOver announces each account row as a button and exposes make-primary/rename/disconnect via accessibilityActions.",
+        "Disconnect shows a confirmation naming the account.",
+        "Make-primary works via VoiceOver double-tap.",
+        "EbayAccountsTests/AccessibilityTests updated."
+      ],
+      "priority": 1009,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=accessibility/ux. ios/GradeThread/Marketplaces/EbayAccountsView.swift (~123-148)"
+    },
+    {
+      "id": "US-1010",
+      "title": "iOS: inline validation feedback on the login form",
+      "description": "As a user, I want to know why the Sign in button is disabled. LoginView only dims the button when invalid (password < 6 chars) with no message and no email-format check, dead-ending the user.",
+      "acceptanceCriteria": [
+        "Entering a short password shows a visible reason near the field.",
+        "Invalid email format is flagged before submit.",
+        "VoiceOver reads the validation hint.",
+        "Valid input clears all hints."
+      ],
+      "priority": 1010,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ux/accessibility. ios/GradeThread/Auth/LoginView.swift (~136-137,194-197)"
+    },
+    {
+      "id": "US-1011",
+      "title": "iOS: mark Title required and explain the disabled Save in manual intake",
+      "description": "As a user filling the manual intake form, I want to know Title is the field gating Save. Both Save buttons disable on empty title with no required marker and no helper text.",
+      "acceptanceCriteria": [
+        "Title is visually marked required.",
+        "A helper ('A title is required to save') shows while title is empty.",
+        "The helper disappears once a title is entered.",
+        "DetailsIntakeTests updated."
+      ],
+      "priority": 1011,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ux. ios/GradeThread/DetailsIntake/DetailsIntakeView.swift (~165,332-349); IntakeFormState.swift (~35-37)"
+    },
+    {
+      "id": "US-1012",
+      "title": "iOS: replace system semantic colors with brand tokens (high-contrast variants)",
+      "description": "As a low-vision user with Increase Contrast on, I want status colors to use the brand asset-catalog tokens (brandEmerald/brandAmber/brandRed) that swap to high-contrast variants, instead of raw .orange/.yellow/.green used in ~30 sites which bypass that and look inconsistent. Also give the grade-report defect severity a non-color signal (icon/shape) so it isn't color-only.",
+      "acceptanceCriteria": [
+        "Grep for foregroundStyle(.orange|.yellow|.green) and Color.(orange|yellow|green) in feature views returns zero matches.",
+        "Increase Contrast visibly darkens these banners/labels.",
+        "Grade-report defect severity is distinguishable without color (icon/shape) and uses brand tokens.",
+        "DesignTokensTests/BrandFontTests still pass."
+      ],
+      "priority": 1012,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ui/accessibility. ios/GradeThread/Grading/GradeReportView.swift (~117-127,148,266); GradeRequestSheet.swift; Marketplaces/EbayAccountsView.swift; Publish/PublishDialog.swift"
+    },
+    {
+      "id": "US-1013",
+      "title": "iOS: stop PHPicker from escalating to full photo-library access",
+      "description": "As a privacy-conscious user, I shouldn't be prompted for full library access just to pick a few photos. PhotoLibraryPicker uses PHPickerConfiguration(photoLibrary: .shared()) and PHAsset.fetchAssets (capture-date lookup), which requires NSPhotoLibraryUsageDescription and exposes the whole library — contradicting the in-code 'no permission needed' comment.",
+      "acceptanceCriteria": [
+        "Picker uses PHPickerConfiguration() (no photoLibrary) unless a feature truly needs library access.",
+        "The misleading 'does not require permission' comment is corrected.",
+        "creationDate() is removed or only invoked when library access is already authorized."
+      ],
+      "priority": 1013,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security/privacy. ios/GradeThread/Capture/PhotoLibraryPicker.swift (~9-12,24,75-79)"
+    },
+    {
+      "id": "US-1014",
+      "title": "iOS: drop email from Telemetry.setUser, gate breadcrumbs on opt-out, widen print guard",
+      "description": "As a privacy measure: don't pass user.email into Telemetry.setUser (it's discarded today but one refactor from shipping), document/gate non-crash Sentry breadcrumbs when analytics is opted out, and ensure the no-ungated-print CI guard scans the Share Extension and Widget targets too.",
+      "acceptanceCriteria": [
+        "Telemetry.setUser no longer accepts an email; a test asserts Sentry User.email is never set.",
+        "Non-crash breadcrumb behavior under analytics opt-out is documented or gated.",
+        "no-ungated-print.py scans ShareExtension/ and GradeThreadWidget/; no print( reaches a Release build."
+      ],
+      "priority": 1014,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=security/privacy. ios/GradeThread/Telemetry/Telemetry.swift (~56-66,87-95); Auth/AuthStore.swift (~191); ios/Scripts/no-ungated-print.py"
+    },
+    {
+      "id": "US-1015",
+      "title": "iOS: add the data-protection entitlement floor to the Share Extension",
+      "description": "As a security measure, the Share Extension should declare default-data-protection = NSFileProtectionCompleteUntilFirstUserAuthentication so future writes (temp files, NSItemProvider materialization) don't default to a weaker class than the main app.",
+      "acceptanceCriteria": [
+        "Share Extension entitlements include the default-data-protection key matching the app.",
+        "Files written by the extension report a complete-until-first-auth protection class (manual verification).",
+        "No extension write uses the default (.none) protection class."
+      ],
+      "priority": 1015,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=security. ios/ShareExtension/ShareExtension.entitlements; GradeThread.entitlements (~41-42)"
+    },
+    {
+      "id": "US-1016",
+      "title": "iOS: clarify App Lock auth policy (passcode fallback) and offer biometrics-only",
+      "description": "As a user enabling App Lock, I want the toggle copy to state that the device passcode can satisfy the lock (.deviceOwnerAuthentication), optionally a biometrics-only mode, and the anti-lockout 'unlock when no auth configured' behavior to be documented/telemetered.",
+      "acceptanceCriteria": [
+        "Toggle copy states whether the device passcode satisfies the lock.",
+        "Optional biometrics-only mode evaluates .deviceOwnerAuthenticationWithBiometrics with a lockout warning.",
+        "Behavior when no auth method is configured is documented and tested (AppLockTests)."
+      ],
+      "priority": 1016,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=security. ios/GradeThread/Security/AppLock.swift (~75-78,96-103)"
+    },
+    {
+      "id": "US-1017",
+      "title": "iOS: memoize inventory facets / filtered list / stage counts",
+      "description": "As a user with a large catalog, I don't want a full filter+sort and per-stage count to recompute on the main thread on every unrelated body re-render. InventoryFacets.derive runs inside .sheet content, and filteredItems/stageCounts are computed properties read from body.",
+      "acceptanceCriteria": [
+        "InventoryFacets.derive runs at most once per filter-sheet presentation (assert via counter).",
+        "filteredItems/stageCounts recompute only when items/stage/debouncedQuery/sort/criteria change, not on unrelated @State changes (instrument).",
+        "Opening a non-filter sheet does not trigger a full filter pass."
+      ],
+      "priority": 1017,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=performance. ios/GradeThread/Inventory/InventoryListView.swift (~88-95,543-564); InventoryFacets.swift (~42)"
+    },
+    {
+      "id": "US-1018",
+      "title": "iOS: deterministic PhotoUploadService.cancelAll reset (no timer race)",
+      "description": "As a developer, cancelAll should reset store/id-maps off the getAllTasks cancellation completion rather than a fixed 250ms Task.sleep, so sign-out -> sign-in shows no residual upload state.",
+      "acceptanceCriteria": [
+        "Store/id-map reset happens deterministically after cancellation, not after a fixed delay.",
+        "Sign-out -> sign-in shows no residual upload progress (test)."
+      ],
+      "priority": 1018,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=stability. ios/GradeThread/Upload/PhotoUploadService.swift (cancelAll ~155-171)"
+    },
+    {
+      "id": "US-1019",
+      "title": "iOS: replace the AI-extract ProgressDots Timer with phaseAnimator/TimelineView",
+      "description": "As a performance nicety, the in-flight AI-extract loading dots should not use a free-running Timer.publish(every:0.4, on:.main).autoconnect() tied to view identity; use phaseAnimator/TimelineView cancelled on disappear.",
+      "acceptanceCriteria": [
+        "No free-running Timer.publish().autoconnect() drives the loading animation.",
+        "The animation stops (no main-thread wakeups) once the extract finishes or the view disappears."
+      ],
+      "priority": 1019,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=performance. ios/GradeThread/AIExtract/AIExtractView.swift (~358)"
+    },
+    {
+      "id": "US-1020",
+      "title": "iOS: scale interactive icon glyphs with Dynamic Type",
+      "description": "As a low-vision user, interactive icon buttons (barcode scan, dictation mic, slot controls) should grow with Dynamic Type. ~40 sites hardcode .font(.system(size:)) which doesn't scale, leaving controls small at large accessibility sizes.",
+      "acceptanceCriteria": [
+        "Interactive icon buttons (barcode, mic, slot controls) grow with Dynamic Type (relativeTo: or @ScaledMetric).",
+        "No interactive control's glyph stays a fixed size at AX5.",
+        "Layout doesn't break at the largest accessibility size."
+      ],
+      "priority": 1020,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=accessibility. ios/GradeThread/DetailsIntake/DetailsIntakeView.swift (~183,309); Capture/SlotThumbnail.swift; Inventory/InventoryRow.swift (~72)"
+    },
+    {
+      "id": "US-1021",
+      "title": "iOS: pull-to-refresh failure banner — add retry + VoiceOver announcement",
+      "description": "As a user, an inventory sync failure should be announced to VoiceOver and offer a retry. The current banner is a red capsule that auto-dismisses in 3.5s with no retry and no A11yAnnounce.",
+      "acceptanceCriteria": [
+        "Refresh failure is announced to VoiceOver via A11yAnnounce.",
+        "The banner offers a retry, or persists until dismissed when VoiceOver is on.",
+        "Success path unchanged."
+      ],
+      "priority": 1021,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=accessibility/ux. ios/GradeThread/Inventory/InventoryListView.swift (~235-251)"
+    },
+    {
+      "id": "US-1022",
+      "title": "iOS: visible delete affordance for captured photo slots",
+      "description": "As a sighted user, I should be able to discover how to delete a captured photo. Deletion currently depends on an undiscoverable 0.4s long-press (VoiceOver has an action, sighted users have no hint).",
+      "acceptanceCriteria": [
+        "A visible delete affordance exists for a captured slot (trash overlay and/or in PhotoPreview).",
+        "Long-press still works as a shortcut.",
+        "VoiceOver delete action unchanged."
+      ],
+      "priority": 1022,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ux. ios/GradeThread/Capture/PhotoIntakeView.swift (~315-332); Capture/PhotoPreview.swift (~147-149)"
+    },
+    {
+      "id": "US-1023",
+      "title": "iOS: announce onboarding page position to VoiceOver",
+      "description": "As a VoiceOver user in onboarding, I want 'page X of N' feedback. The page dots are accessibilityHidden and the TabView pages expose no position.",
+      "acceptanceCriteria": [
+        "VoiceOver announces the current page position.",
+        "Swiping pages updates the announced position.",
+        "Visual dots unchanged for sighted users."
+      ],
+      "priority": 1023,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=accessibility. ios/GradeThread/Onboarding/OnboardingView.swift (~79-90)"
+    },
+    {
+      "id": "US-1024",
+      "title": "iOS: align login social buttons and fix the Apple button accessibility",
+      "description": "As a user, the Apple and Google sign-in buttons should be the same height and the Apple button should announce correctly. Apple uses .frame(height:48) vs Google ~52pt, and the Apple button disables hit-testing with a clear overlay onTapGesture that has no accessibility label/trait.",
+      "acceptanceCriteria": [
+        "Apple and Google buttons are the same height.",
+        "VoiceOver announces 'Sign in with Apple, button.'",
+        "Tap still drives the nonce handshake; SignInWithAppleTests pass."
+      ],
+      "priority": 1024,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ui/accessibility. ios/GradeThread/Auth/LoginView.swift (~163-184)"
+    },
+    {
+      "id": "US-1025",
+      "title": "iOS: map raw errors to friendly copy on auth and intake screens",
+      "description": "As a user, I want friendly, actionable messages instead of raw error.localizedDescription (technical Supabase/URLError strings) on login and intake.",
+      "acceptanceCriteria": [
+        "Wrong-password and unconfirmed-email show specific friendly messages.",
+        "Offline shows an offline-specific message.",
+        "Raw technical strings no longer appear in the auth UI; the raw detail is logged to Sentry."
+      ],
+      "priority": 1025,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ux. ios/GradeThread/Auth/LoginView.swift (~52); DetailsIntake/DetailsIntakeView.swift (~437); Capture/PhotoIntakeView.swift (~508,553)"
+    },
+    {
+      "id": "US-1026",
+      "title": "iOS: add pull-to-refresh to Grades, Analytics, and Consignors",
+      "description": "As a user, I want manual pull-to-refresh on screens that currently rely only on background/connectivity sync. GradesListView, AnalyticsView, and ConsignorsView lack .refreshable (a user waiting on a grade naturally pulls to refresh).",
+      "acceptanceCriteria": [
+        "Pull-to-refresh works on Grades, Analytics, and Consignors.",
+        "The gesture triggers a real reload reflecting success/failure.",
+        "No duplicate concurrent loads if a sync is already running."
+      ],
+      "priority": 1026,
+      "passes": false,
+      "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ux. ios/GradeThread/Grading/GradesListView.swift; Analytics/AnalyticsView.swift; Consignment/ConsignorsView.swift"
     }
   ]
 }
