@@ -1573,6 +1573,42 @@ export function useEbayEndSale() {
   });
 }
 
+// ── Bulk price / quantity update (US-1046 clean surface) ────────────
+
+export interface BulkPriceQtyUpdate {
+  listing_id: string;
+  price?: number;
+  quantity?: number;
+}
+
+export interface BulkPriceQtyResult {
+  listing_id: string;
+  ok: boolean;
+  error?: string;
+}
+
+export function useEbayBulkPriceQuantity() {
+  return useMutation<
+    { ok: true; results: BulkPriceQtyResult[]; succeeded: number; total: number },
+    Error,
+    { updates: BulkPriceQtyUpdate[] }
+  >({
+    mutationFn: async ({ updates }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/bulk-price-quantity`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ updates }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Bulk update failed.");
+      return json;
+    },
+  });
+}
+
 // ── Leave buyer feedback (US-1047) ──────────────────────────────────
 // The edge resolves the legacy ItemID/TransactionID from the order id, so the
 // UI only needs the sale's platform_order_id.
