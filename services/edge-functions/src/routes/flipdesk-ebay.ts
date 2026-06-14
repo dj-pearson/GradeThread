@@ -50,6 +50,8 @@ import {
   syncExistingOffer,
   updateOfferFields,
   updateOfferPrice,
+  bulkUpdatePriceQuantity,
+  EBAY_BULK_MAX,
   upsertConnection,
   withdrawOffer,
   findEligibleNegotiationItems,
@@ -123,6 +125,12 @@ import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog, writeSystemAuditLog } from "../lib/audit-log.ts";
 import { getSetting } from "../lib/system-settings.ts";
+import {
+  buildPriceQtyRequest,
+  chunk,
+  normalizeBulkEntry,
+  type PriceQtyUpdate,
+} from "../lib/ebay-bulk.ts";
 import {
   approveCancellation,
   decideReturn,
@@ -3029,6 +3037,121 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
     .eq("id", listingId);
 
   return c.json({ ok: true, listing_id: listingId, price });
+});
+
+// ── Bulk price / quantity update (US-1046 clean surface) ────────────
+// POST /listings/bulk-price-quantity — body { updates: [{ listing_id, price?,
+// quantity? }] }. Updates up to 25 offers per eBay call (chunked), tenant-scoped,
+// per-item success/failure reported, local listings rows updated for successes.
+flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { updates?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const rawUpdates = Array.isArray(body.updates) ? body.updates : [];
+  if (rawUpdates.length === 0) return c.json({ error: "updates required" }, 400);
+  if (rawUpdates.length > 500) {
+    return c.json({ error: "Too many updates (max 500)." }, 400);
+  }
+
+  // Normalize + validate. price>0, quantity>=0 integer; at least one present.
+  const wanted = new Map<string, { price?: number; quantity?: number }>();
+  for (const u of rawUpdates as Array<Record<string, unknown>>) {
+    if (!u || typeof u.listing_id !== "string") continue;
+    const priceNum = Number(u.price);
+    const qtyNum = Number(u.quantity);
+    const price = u.price != null && Number.isFinite(priceNum) && priceNum > 0
+      ? priceNum
+      : undefined;
+    const quantity = u.quantity != null && Number.isInteger(qtyNum) && qtyNum >= 0
+      ? qtyNum
+      : undefined;
+    if (price === undefined && quantity === undefined) continue;
+    wanted.set(u.listing_id, { price, quantity });
+  }
+  const listingIds = [...wanted.keys()];
+  if (listingIds.length === 0) return c.json({ error: "No valid updates." }, 400);
+
+  // Load owned listings with their SKU + offer id (tenant-scoped, US-268).
+  const { data: rows } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, platform_offer_id, inventory_items!inner(user_id, sku)",
+    )
+    .in("id", listingIds)
+    .eq("inventory_items.user_id", userId);
+  const owned = (rows ?? []) as unknown as Array<{
+    id: string;
+    platform_offer_id: string | null;
+    inventory_items: { user_id: string; sku: string | null };
+  }>;
+
+  const results: Array<{ listing_id: string; ok: boolean; error?: string }> = [];
+  const items: Array<PriceQtyUpdate & { listingId: string }> = [];
+  for (const lid of listingIds) {
+    const row = owned.find((r) => r.id === lid);
+    const want = wanted.get(lid)!;
+    if (!row) {
+      results.push({ listing_id: lid, ok: false, error: "Listing not found" });
+      continue;
+    }
+    const offerId = row.platform_offer_id;
+    const sku = row.inventory_items.sku;
+    if (!offerId || !sku) {
+      results.push({ listing_id: lid, ok: false, error: "Listing has no eBay offer/SKU" });
+      continue;
+    }
+    items.push({ listingId: lid, sku, offerId, priceValue: want.price, quantity: want.quantity });
+  }
+
+  for (const batch of chunk(items, EBAY_BULK_MAX)) {
+    let entries: Array<Record<string, unknown>>;
+    try {
+      entries = await bulkUpdatePriceQuantity(
+        userId,
+        batch.map((b) => buildPriceQtyRequest(b)),
+      ) as unknown as Array<Record<string, unknown>>;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      for (const b of batch) {
+        results.push({ listing_id: b.listingId, ok: false, error: msg.slice(0, 200) });
+      }
+      continue;
+    }
+    batch.forEach((b, i) => {
+      const norm = normalizeBulkEntry({ offerId: b.offerId, ...(entries[i] ?? {}) }, b.offerId);
+      results.push(
+        norm.ok
+          ? { listing_id: b.listingId, ok: true }
+          : { listing_id: b.listingId, ok: false, error: norm.error },
+      );
+    });
+  }
+
+  // Persist local rows for the successes.
+  const okIds = new Set(results.filter((r) => r.ok).map((r) => r.listing_id));
+  for (const b of items) {
+    if (!okIds.has(b.listingId)) continue;
+    const patch: Record<string, unknown> = {};
+    if (b.priceValue != null) patch.listing_price = b.priceValue;
+    if (b.quantity != null) patch.quantity = b.quantity;
+    if (Object.keys(patch).length > 0) {
+      await supabaseAdmin.from("listings").update(patch as never).eq("id", b.listingId);
+    }
+  }
+
+  await writeAuditLog(c, {
+    action: "ebay.bulk_price_quantity",
+    targetType: "listings",
+    details: { requested: listingIds.length, succeeded: okIds.size },
+  });
+  return c.json({ ok: true, results, succeeded: okIds.size, total: results.length });
 });
 
 // ── Markdown / Sale events (US-1045) ────────────────────────────────

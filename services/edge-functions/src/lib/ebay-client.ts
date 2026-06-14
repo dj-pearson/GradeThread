@@ -1871,6 +1871,22 @@ export async function bulkPublishOffer(
   return data.responses ?? [];
 }
 
+// US-1046 clean surface: update price and/or available quantity for up to 25
+// SKUs/offers in one call. Idempotent (re-applying the same values is a no-op),
+// so a failed chunk is safe to retry. Request entries come from
+// ebay-bulk.ts:buildPriceQtyRequest.
+export async function bulkUpdatePriceQuantity(
+  userId: string,
+  requests: Array<Record<string, unknown>>,
+): Promise<BulkResponseEntry[]> {
+  const data = await fetchAuthedOnce<{ responses?: BulkResponseEntry[] }>(
+    userId,
+    `/sell/inventory/v1/bulk_update_price_quantity`,
+    { method: "POST", body: JSON.stringify({ requests }) },
+  );
+  return data.responses ?? [];
+}
+
 // US-464: idempotent publish at the FLOW level. publishOffer reconciles WITHIN
 // one call (across its internal retries), but publishItemForOwner persists the
 // local listings row only AFTER publishOffer returns — so a publish that

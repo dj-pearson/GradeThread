@@ -1,9 +1,26 @@
 import { assertEquals } from "@std/assert";
 import {
+  buildPriceQtyRequest,
   bulkPublishWithFallback,
   chunk,
   normalizeBulkEntry,
 } from "../lib/ebay-bulk.ts";
+
+Deno.test("buildPriceQtyRequest sets price + quantity on offer and SKU availability", () => {
+  const r = buildPriceQtyRequest({ sku: "GT-1", offerId: "off-1", priceValue: 24.5, quantity: 3 });
+  assertEquals(r.sku, "GT-1");
+  assertEquals(r.shipToLocationAvailability, { quantity: 3 });
+  assertEquals(r.offers, [{ offerId: "off-1", availableQuantity: 3, price: { value: "24.50", currency: "USD" } }]);
+});
+
+Deno.test("buildPriceQtyRequest omits unspecified fields", () => {
+  const priceOnly = buildPriceQtyRequest({ sku: "S", offerId: "o", priceValue: 10 });
+  assertEquals(priceOnly.shipToLocationAvailability, undefined);
+  assertEquals(priceOnly.offers, [{ offerId: "o", price: { value: "10.00", currency: "USD" } }]);
+  const qtyOnly = buildPriceQtyRequest({ sku: "S", offerId: "o", quantity: 0 });
+  assertEquals(qtyOnly.shipToLocationAvailability, { quantity: 0 });
+  assertEquals(qtyOnly.offers, [{ offerId: "o", availableQuantity: 0 }]);
+});
 
 Deno.test("chunk splits into <=size groups", () => {
   assertEquals(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);

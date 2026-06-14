@@ -25,6 +25,32 @@ export interface BulkItemResult {
   error?: string;
 }
 
+// ── Bulk price/quantity (US-1046 clean surface) ─────────────────────
+
+export interface PriceQtyUpdate {
+  sku: string;
+  offerId: string;
+  priceValue?: number; // dollars; omitted = leave price unchanged
+  quantity?: number; // omitted = leave quantity unchanged
+  currency?: string;
+}
+
+/// Build one `bulk_update_price_quantity` request entry. Pure + unit-tested.
+/// Price rides the offer; quantity updates both the offer's availableQuantity
+/// and the SKU's ship-to-location availability so the live listing reflects it.
+export function buildPriceQtyRequest(u: PriceQtyUpdate): Record<string, unknown> {
+  const offer: Record<string, unknown> = { offerId: u.offerId };
+  if (u.quantity != null) offer.availableQuantity = u.quantity;
+  if (u.priceValue != null) {
+    offer.price = { value: u.priceValue.toFixed(2), currency: u.currency ?? "USD" };
+  }
+  const req: Record<string, unknown> = { sku: u.sku, offers: [offer] };
+  if (u.quantity != null) {
+    req.shipToLocationAvailability = { quantity: u.quantity };
+  }
+  return req;
+}
+
 // eBay marks success with 200/201; anything else (or an errors[] entry) fails.
 function entryOk(e: BulkResponseEntry): boolean {
   const code = e.statusCode ?? 0;
