@@ -4,6 +4,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
+import { getSetting } from "../lib/system-settings.ts";
+import { createMarkdownSale } from "../lib/ebay-marketing.ts";
 import {
   isEbayConfigured,
   searchBrowseComps,
@@ -527,7 +529,9 @@ interface RuleListingRow {
   listing_price: number;
   listed_at: string;
   platform_offer_id: string | null;
+  platform_listing_id: string | null;
   platform_category_id: string | null;
+  platform_fields: { markdown_promotion_id?: unknown } | null;
   inventory_items: {
     user_id: string;
     brand: string | null;
@@ -576,6 +580,14 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
     actions: [],
   };
 
+  // US-1045: when enabled (default off), a due price drop is pushed as an eBay
+  // markdown Sale event (strike-through price + SALE badge + watcher alert)
+  // instead of a silent base-price revise. Global toggle via system_settings.
+  const useSaleEvents = await getSetting<boolean>(
+    "repricing.use_sale_events",
+    false,
+  );
+
   const { data: ruleRows } = await supabaseAdmin
     .from("repricing_rules")
     .select(RULE_COLUMNS)
@@ -589,7 +601,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
   const { data: listingRows } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, listing_price, listed_at, platform_offer_id, platform_category_id, " +
+      "id, inventory_item_id, listing_price, listed_at, platform_offer_id, platform_listing_id, platform_category_id, platform_fields, " +
         "inventory_items!inner(user_id, brand, ebay_category_id)",
     )
     .eq("platform", "ebay")
@@ -681,27 +693,64 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
     const newDollars = decision.newCents / 100;
     const offerId = listing.platform_offer_id;
     const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
-    if (hasLiveOffer) {
+
+    // Sale-event mode: push a markdown promotion at the rule's drop % and leave
+    // the base price untouched (markdown is an overlay). Only when the toggle is
+    // on, the listing is live on eBay, and it doesn't already have a Sale.
+    const alreadyOnSale = typeof listing.platform_fields?.markdown_promotion_id ===
+      "string";
+    const saleMode = useSaleEvents &&
+      isEbayConfigured() &&
+      Boolean(listing.platform_listing_id) &&
+      !alreadyOnSale;
+
+    if (saleMode) {
       try {
-        await updateOfferPrice(ownerId, offerId!, newDollars);
+        const promotionId = await createMarkdownSale(ownerId, {
+          ebayListingId: listing.platform_listing_id!,
+          percentOff: rule.drop_pct,
+        });
+        const pf = {
+          ...(listing.platform_fields ?? {}),
+          markdown_promotion_id: promotionId,
+          markdown_pct: rule.drop_pct,
+        };
+        await supabaseAdmin
+          .from("listings")
+          .update({ platform_fields: pf } as never)
+          .eq("id", listing.id);
       } catch (err) {
         result.errors++;
         console.error(
-          "[repricing-rules] updateOfferPrice failed for",
+          "[repricing-rules] createMarkdownSale failed for",
           listing.id,
           err instanceof Error ? err.message : String(err),
         );
         continue;
       }
-    }
+    } else {
+      if (hasLiveOffer) {
+        try {
+          await updateOfferPrice(ownerId, offerId!, newDollars);
+        } catch (err) {
+          result.errors++;
+          console.error(
+            "[repricing-rules] updateOfferPrice failed for",
+            listing.id,
+            err instanceof Error ? err.message : String(err),
+          );
+          continue;
+        }
+      }
 
-    const { error: updErr } = await supabaseAdmin
-      .from("listings")
-      .update({ listing_price: newDollars, price_is_estimated: false })
-      .eq("id", listing.id);
-    if (updErr) {
-      result.errors++;
-      continue;
+      const { error: updErr } = await supabaseAdmin
+        .from("listings")
+        .update({ listing_price: newDollars, price_is_estimated: false })
+        .eq("id", listing.id);
+      if (updErr) {
+        result.errors++;
+        continue;
+      }
     }
 
     if (decision.reason === "auto_accept") {
@@ -712,6 +761,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
         .eq("user_id", ownerId);
     }
 
+    const ebaySynced = saleMode || hasLiveOffer;
     await supabaseAdmin.from("repricing_actions").insert({
       user_id: ownerId,
       rule_id: rule.id,
@@ -720,7 +770,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
       old_price_cents: currentCents,
       new_price_cents: decision.newCents,
       reason: decision.reason,
-      ebay_synced: hasLiveOffer,
+      ebay_synced: ebaySynced,
     });
 
     result.applied++;
@@ -730,7 +780,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
       old_price_cents: currentCents,
       new_price_cents: decision.newCents,
       reason: decision.reason,
-      ebay_synced: hasLiveOffer,
+      ebay_synced: ebaySynced,
     });
   }
 
