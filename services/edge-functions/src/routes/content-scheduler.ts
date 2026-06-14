@@ -19,7 +19,13 @@ import {
   purgeCloudflareCache,
 } from "../lib/cloudflare-purge.ts";
 import { writeSystemAuditLog } from "../lib/audit-log.ts";
-import { buildContentSummary } from "../lib/content-summary.ts";
+import {
+  buildContentSummary,
+  buildDigestRecommendations,
+  type ContentSummary,
+} from "../lib/content-summary.ts";
+import { sendContentDigestEmail } from "../lib/email.ts";
+import { captureException, recordMetric } from "../lib/observability.ts";
 import { reviewContentSafety } from "../lib/content-safety.ts";
 import { ensureHeroImage } from "../lib/openai-images.ts";
 import {
@@ -1043,11 +1049,9 @@ contentSchedulerRoutes.post("/tick", async (c) => {
 // success rate, current bank levels, and suggested doc edits when voice drift is
 // signalled. Same auth as the rest of the scheduler routes (job secret OR admin
 // JWT). The window is configurable via ?days= (default 7).
-contentSchedulerRoutes.get("/summary", async (c) => {
-  const days = Math.min(
-    90,
-    Math.max(1, Number(c.req.query("days")) || 7),
-  );
+// Build the weekly content summary. Shared by GET /summary (read) and POST
+// /digest (deliver) so the two never drift. `days` is the trailing window.
+async function computeContentSummary(days: number): Promise<ContentSummary> {
   const now = new Date();
   const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -1126,7 +1130,7 @@ contentSchedulerRoutes.get("/summary", async (c) => {
     bankMap.set(key, e);
   }
 
-  const summary = buildContentSummary({
+  return buildContentSummary({
     windowDays: days,
     generatedAt: now.toISOString(),
     blogPublished: (blogPub.data ?? []) as Array<{ product_focus: string }>,
@@ -1140,8 +1144,113 @@ contentSchedulerRoutes.get("/summary", async (c) => {
     refreshedPosts: refreshRuns.count ?? 0,
     searchOpportunities,
   });
+}
 
+contentSchedulerRoutes.get("/summary", async (c) => {
+  const days = Math.min(
+    90,
+    Math.max(1, Number(c.req.query("days")) || 7),
+  );
+  const summary = await computeContentSummary(days);
   return c.json(summary);
+});
+
+// ── POST /digest (US-880) ───────────────────────────────────────
+// Deliver the weekly readout + tuning recommendations to the owner by email,
+// and act on the data (recommendations link into the admin content UI). Same
+// auth as the rest of the scheduler routes: the Coolify weekly cron calls it
+// with the job secret, and an admin can trigger it on demand from the dashboard
+// (US-852 schedule, AC#5). Window via ?days= (default 7). Failures are reported
+// (Sentry + metric), never silent (AC#4). Recipient resolves from
+// CONTENT_DIGEST_EMAIL → CONTENT_ALERT_EMAIL → SMTP_ADMIN_EMAIL.
+contentSchedulerRoutes.post("/digest", async (c) => {
+  const days = Math.min(90, Math.max(1, Number(c.req.query("days")) || 7));
+  const summary = await computeContentSummary(days);
+  const recommendations = buildDigestRecommendations(summary);
+
+  const to = Deno.env.get("CONTENT_DIGEST_EMAIL")?.trim() ||
+    Deno.env.get("CONTENT_ALERT_EMAIL")?.trim() ||
+    Deno.env.get("SMTP_ADMIN_EMAIL")?.trim() ||
+    "";
+
+  if (!to) {
+    // A digest that can reach no one must be reported, not dropped silently.
+    recordMetric("content_digest.no_recipient", 1);
+    captureException(
+      new Error(
+        "content digest has no recipient — set CONTENT_DIGEST_EMAIL, " +
+          "CONTENT_ALERT_EMAIL, or SMTP_ADMIN_EMAIL.",
+      ),
+      { level: "warn", route: "content-scheduler.digest" },
+    );
+    return c.json(
+      {
+        ok: false,
+        delivered: false,
+        reason: "no_recipient",
+        window_days: days,
+        recommendations: recommendations.length,
+      },
+      // 200 for the cron (it ran fine; config is the gap) but flag undelivered.
+      200,
+    );
+  }
+
+  const bankLow = summary.bank_levels
+    .filter((b) => b.below_min)
+    .map((b) => ({
+      surface: b.surface,
+      product_focus: b.product_focus,
+      queued: b.queued,
+      min: b.min,
+    }));
+
+  let delivered = false;
+  try {
+    delivered = await sendContentDigestEmail(to, {
+      windowDays: summary.window_days,
+      generatedAt: summary.generated_at,
+      published: {
+        blog: summary.published.blog.total,
+        social: summary.published.social.total,
+        total: summary.published.total,
+      },
+      topics: { added: summary.topics.added, used: summary.topics.used },
+      webhooks: {
+        total: summary.webhooks.total,
+        succeeded: summary.webhooks.succeeded,
+        failed: summary.webhooks.failed,
+        successRate: summary.webhooks.success_rate,
+      },
+      refreshedPosts: summary.refreshes.posts_refreshed,
+      bankLow,
+      contentGaps: summary.opportunities.content_gaps.map((g) => ({
+        query: g.query,
+        impressions: g.impressions,
+      })),
+      recommendations,
+    });
+  } catch (err) {
+    captureException(err, { route: "content-scheduler.digest.email" });
+  }
+
+  if (!delivered) {
+    recordMetric("content_digest.undelivered", 1);
+    captureException(
+      new Error(`content digest to ${to} was not delivered`),
+      { level: "warn", route: "content-scheduler.digest" },
+    );
+  } else {
+    recordMetric("content_digest.delivered", 1);
+  }
+
+  return c.json({
+    ok: true,
+    delivered,
+    window_days: days,
+    recommendations: recommendations.length,
+    recommendation_codes: recommendations.map((r) => r.code),
+  });
 });
 
 // Lightweight ping — useful for Make.com to validate the secret + URL

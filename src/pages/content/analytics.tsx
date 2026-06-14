@@ -1,8 +1,14 @@
 import { Link } from "react-router-dom";
+import { Mail } from "lucide-react";
 import { SEO } from "@/components/seo";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useContentSettings, useContentStats } from "@/hooks/use-content";
+import {
+  useContentSettings,
+  useContentStats,
+  useSendContentDigest,
+} from "@/hooks/use-content";
 import { PRODUCT_LABELS } from "@/lib/constants";
 
 // At-a-glance health for the content module. No external analytics —
@@ -15,6 +21,7 @@ import { PRODUCT_LABELS } from "@/lib/constants";
 export function ContentAnalyticsPage() {
   const { data: stats, isLoading } = useContentStats();
   const { data: settings } = useContentSettings();
+  const sendDigest = useSendContentDigest();
 
   if (isLoading || !stats) {
     return (
@@ -71,11 +78,23 @@ export function ContentAnalyticsPage() {
   return (
     <div className="space-y-6">
       <SEO title="Content Analytics" noindex />
-      <div>
-        <h1 className="text-2xl font-bold">Content Analytics</h1>
-        <p className="text-sm text-muted-foreground">
-          Health of the content pipeline at a glance. Refreshes every minute.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Content Analytics</h1>
+          <p className="text-sm text-muted-foreground">
+            Health of the content pipeline at a glance. Refreshes every minute.
+          </p>
+        </div>
+        {/* US-880: send the weekly digest email on demand to verify delivery
+            + the tuning recommendations. */}
+        <Button
+          variant="outline"
+          onClick={() => sendDigest.mutate()}
+          disabled={sendDigest.isPending}
+        >
+          <Mail className="mr-2 h-4 w-4" />
+          {sendDigest.isPending ? "Sending…" : "Send weekly digest"}
+        </Button>
       </div>
 
       {/* Headline KPIs */}

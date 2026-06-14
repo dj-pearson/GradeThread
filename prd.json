@@ -12985,8 +12985,8 @@
         "npm run verify passes"
       ],
       "priority": 880,
-      "passes": false,
-      "notes": "[EPIC: Content Authority Depth 2026-06-11] Wires the already-built GET /api/content/scheduler/summary to actually deliver + recommend. Closes the human-oversight side of the full-auto engine. Depends on US-852; consumes US-875/US-879 signals."
+      "passes": true,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Wires the already-built GET /api/content/scheduler/summary to actually deliver + recommend. Closes the human-oversight side of the full-auto engine. Depends on US-852; consumes US-875/US-879 signals. DONE 2026-06-14: extracted computeContentSummary() in content-scheduler.ts (shared by GET /summary + new POST /digest); added pure buildDigestRecommendations() in content-summary.ts (voice-drift→knowledge docs, no/low output→cadence settings, silent social surface, below-min topic banks→topic bank, webhook degradation, striking-distance refresh candidates→analytics, inactive freshness loop, GSC content gaps→topic bank, title/meta→blog) — each carries an /admin/content/* deep-link. New sendContentDigestEmail() in email.ts reuses emailLayout/SMTP/outbox (category 'content_digest', durable retry). POST /api/content/scheduler/digest uses schedulerAuth (CONTENT_INTERNAL_JOB_SECRET cron OR admin JWT on-demand); recipient CONTENT_DIGEST_EMAIL→CONTENT_ALERT_EMAIL→SMTP_ADMIN_EMAIL; undelivered/no-recipient captured in Sentry + metric (never silent). Frontend: useSendContentDigest() hook + 'Send weekly digest' button on /admin/content/analytics. Coolify cron (Mon 14:00) documented in LAUNCH_CHECKLIST.md + COOLIFY.md. 8 new unit tests in content-summary_test.ts (18 pass). tsc/build/vitest(772)/deno check+lint all green."
     },
     {
       "id": "US-881",

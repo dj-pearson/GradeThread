@@ -177,6 +177,7 @@ the handler returns 401.
 | north-star-digest       | `0 14 * * 1` (Mon 14:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/north-star-digest`                   |
 | content-watchdog        | `0 */3 * * *` (3h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/content-watchdog`                      |
 | content-refresh         | `30 4 * * *` (daily)  | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/content-refresh`                       |
+| content-digest          | `0 14 * * 1` (Mon 14:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $CONTENT_INTERNAL_JOB_SECRET" http://localhost:8787/api/content/scheduler/digest`                |
 
 > **Cadence notes (US-496):**
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h
@@ -201,6 +202,14 @@ the handler returns 401.
 >   thrashing; toggle the whole job with `content_settings.auto_refresh_enabled`.
 >   Each run logs to `content_scheduler_runs` (surface='refresh') and is counted
 >   in the weekly digest.
+> - `content-digest` (US-880) is the weekly owner readout. It reuses the
+>   **`CONTENT_INTERNAL_JOB_SECRET`** (same secret as `content-scheduler-tick`,
+>   NOT the FlipDesk one) and emails the engine summary — posts published, topic
+>   bank + webhook health, GSC opportunities, refresh activity — plus tuning
+>   recommendations that deep-link into the admin content UI. Routes to
+>   **`CONTENT_DIGEST_EMAIL`** (falling back to `CONTENT_ALERT_EMAIL` /
+>   `SMTP_ADMIN_EMAIL`); an undelivered digest is captured in Sentry, never
+>   silent. Admins can also fire it on demand from `/admin/content/analytics`.
 > - `automation-rules` (US-150) applies user-defined price-drop / promo / end
 >   rules hourly (offset to :30 so it never races reprice-scan for the eBay
 >   rate budget). Per-rule cooldowns stop hourly re-fires; overlap-locked.

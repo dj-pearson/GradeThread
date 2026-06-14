@@ -3,7 +3,11 @@
 //   deno test src/tests/content-summary_test.ts
 
 import { assertEquals, assert } from "@std/assert";
-import { buildContentSummary, type SummaryInput } from "../lib/content-summary.ts";
+import {
+  buildContentSummary,
+  buildDigestRecommendations,
+  type SummaryInput,
+} from "../lib/content-summary.ts";
 
 const BASE: SummaryInput = {
   windowDays: 7,
@@ -177,4 +181,110 @@ Deno.test("opportunities are passed through and produce digest suggestions", () 
   assert(s.suggestions.some((x) => x.includes("no dedicated post")));
   assert(s.suggestions.some((x) => x.includes("rewrite the title")));
   assert(s.suggestions.some((x) => x.includes("striking distance")));
+});
+
+// ── US-880: structured digest recommendations ────────────────────
+
+Deno.test("digest: a fully idle window recommends checking cadence", () => {
+  const s = buildContentSummary({ ...BASE });
+  const recs = buildDigestRecommendations(s);
+  assert(recs.some((r) => r.code === "no_blog_output"));
+  // every recommendation carries an admin deep-link
+  assert(recs.every((r) => r.action_path.startsWith("/admin/content/")));
+});
+
+Deno.test("digest: a healthy week produces no recommendations", () => {
+  const s = buildContentSummary({
+    ...BASE,
+    blogPublished: [{ product_focus: "gradethread" }],
+    socialPublished: [{ product_focus: "gradethread" }],
+    blogAuthored: [{ generated_by: "ai" }, { generated_by: "ai" }],
+    bankLevels: [
+      { surface: "blog", product_focus: "gradethread", queued: 10 },
+    ],
+    webhookLog: [{ succeeded: true }, { succeeded: true }],
+    refreshedPosts: 2,
+  });
+  assertEquals(buildDigestRecommendations(s), []);
+});
+
+Deno.test("digest: high human-override share flags voice drift → knowledge docs", () => {
+  const s = buildContentSummary({
+    ...BASE,
+    blogPublished: [{ product_focus: "gradethread" }],
+    socialPublished: [{ product_focus: "gradethread" }],
+    blogAuthored: [
+      { generated_by: "human" },
+      { generated_by: "human" },
+      { generated_by: "ai" },
+    ],
+    bankLevels: [{ surface: "blog", product_focus: "gradethread", queued: 10 }],
+    refreshedPosts: 1,
+  });
+  const drift = buildDigestRecommendations(s).find((r) => r.code === "voice_drift");
+  assert(drift);
+  assertEquals(drift.action_path, "/admin/content/knowledge");
+});
+
+Deno.test("digest: a below-min topic bank links to the topic bank", () => {
+  const s = buildContentSummary({
+    ...BASE,
+    blogPublished: [{ product_focus: "gradethread" }],
+    socialPublished: [{ product_focus: "gradethread" }],
+    blogAuthored: [{ generated_by: "ai" }],
+    bankLevels: [{ surface: "social", product_focus: "flipdesk", queued: 1 }],
+    minTopicsInBank: 3,
+    refreshedPosts: 1,
+  });
+  const low = buildDigestRecommendations(s).find(
+    (r) => r.code === "bank_low:social:flipdesk",
+  );
+  assert(low);
+  assertEquals(low.action_path, "/admin/content/topics");
+});
+
+Deno.test("digest: silent social surface is flagged when the blog publishes", () => {
+  const s = buildContentSummary({
+    ...BASE,
+    blogPublished: [{ product_focus: "gradethread" }],
+    blogAuthored: [{ generated_by: "ai" }],
+    bankLevels: [{ surface: "blog", product_focus: "gradethread", queued: 10 }],
+    refreshedPosts: 1,
+  });
+  assert(
+    buildDigestRecommendations(s).some((r) => r.code === "social_underperforming"),
+  );
+});
+
+Deno.test("digest: GSC opportunities become linked refresh/gap/title recommendations", () => {
+  const s = buildContentSummary({
+    ...BASE,
+    blogPublished: [{ product_focus: "gradethread" }],
+    socialPublished: [{ product_focus: "gradethread" }],
+    blogAuthored: [{ generated_by: "ai" }],
+    bankLevels: [{ surface: "blog", product_focus: "gradethread", queued: 10 }],
+    refreshedPosts: 1,
+    searchOpportunities: {
+      striking_pages: [
+        { page: "/blog/wool-coat", slug: "wool-coat", position: 11, impressions: 200, clicks: 4 },
+      ],
+      content_gaps: [{ query: "leather boot care", impressions: 500, position: 18 }],
+      title_meta: [
+        { query: "thrift flipping", impressions: 1000, clicks: 5, ctr: 0.005, position: 6 },
+      ],
+    },
+  });
+  const recs = buildDigestRecommendations(s);
+  assertEquals(
+    recs.find((r) => r.code === "refresh_candidates")?.action_path,
+    "/admin/content/analytics",
+  );
+  assertEquals(
+    recs.find((r) => r.code === "content_gaps")?.action_path,
+    "/admin/content/topics",
+  );
+  assertEquals(
+    recs.find((r) => r.code === "title_meta")?.action_path,
+    "/admin/content/blog",
+  );
 });

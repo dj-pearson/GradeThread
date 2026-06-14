@@ -753,6 +753,41 @@ export function useSchedulerTick() {
   });
 }
 
+// US-880: trigger the weekly content digest email on demand (the same endpoint
+// the Monday cron hits). Lets the owner verify delivery + recommendations from
+// the dashboard without waiting for the schedule.
+export function useSendContentDigest() {
+  return useMutation({
+    mutationFn: async () => {
+      const data = await jfetch<{
+        ok: boolean;
+        delivered: boolean;
+        reason?: string;
+        window_days: number;
+        recommendations: number;
+        recommendation_codes?: string[];
+      }>(`/api/content/scheduler/digest`, { method: "POST", json: {} });
+      return data;
+    },
+    onSuccess: (r) => {
+      if (r.delivered) {
+        toast.success(
+          `Digest sent — ${r.recommendations} recommendation${
+            r.recommendations === 1 ? "" : "s"
+          }.`,
+        );
+      } else if (r.reason === "no_recipient") {
+        toast.error(
+          "No digest recipient configured (set CONTENT_DIGEST_EMAIL or SMTP_ADMIN_EMAIL).",
+        );
+      } else {
+        toast.error("Digest could not be delivered — check email/SMTP config.");
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 export interface ContentStats {
   bank: Record<string, number>;
   published_7d: {

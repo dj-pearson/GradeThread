@@ -1143,6 +1143,105 @@ export async function sendContentWatchdogAlertEmail(
   });
 }
 
+// ─── Weekly content digest (US-880) ─────────────────────────────────
+
+interface ContentDigestRecommendation {
+  title: string;
+  detail: string;
+  action_label: string;
+  // Relative admin path (e.g. "/admin/content/settings"); prefixed with SITE_URL.
+  action_path: string;
+}
+
+interface ContentDigestData {
+  windowDays: number;
+  generatedAt: string;
+  published: { blog: number; social: number; total: number };
+  topics: { added: number; used: number };
+  webhooks: { total: number; succeeded: number; failed: number; successRate: number };
+  refreshedPosts: number;
+  bankLow: Array<{ surface: string; product_focus: string; queued: number; min: number }>;
+  contentGaps: Array<{ query: string; impressions: number }>;
+  recommendations: ContentDigestRecommendation[];
+}
+
+/**
+ * US-880: deliver the weekly content-engine readout the /scheduler/summary
+ * endpoint already computes, plus the structured tuning recommendations, each
+ * linking back into the admin content UI so the owner can act in one click.
+ * Goes through the same emailLayout/SMTP/outbox path as every other admin
+ * notification; categorized so a transient SMTP failure retries (US-801).
+ */
+export async function sendContentDigestEmail(
+  to: string,
+  data: ContentDigestData,
+): Promise<boolean> {
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+  const statRow = (label: string, value: string) => `
+    <tr>
+      <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 14px; color:#666;">${escapeHtml(label)}</td>
+      <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 14px; font-weight:600; color:${BRAND_NAVY}; text-align:right;">${escapeHtml(value)}</td>
+    </tr>`;
+
+  const stats = `
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
+      ${statRow("Published (blog / social)", `${data.published.blog} / ${data.published.social}`)}
+      ${statRow("Topics added / used", `${data.topics.added} / ${data.topics.used}`)}
+      ${statRow("Webhook success rate", data.webhooks.total > 0 ? `${pct(data.webhooks.successRate)} (${data.webhooks.failed} failed)` : "no deliveries")}
+      ${statRow("Posts refreshed", `${data.refreshedPosts}`)}
+    </table>`;
+
+  const bankBlock = data.bankLow.length === 0 ? "" : `
+    <h3 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 15px;">Topic banks below minimum</h3>
+    <ul style="margin: 0 0 16px; padding-left: 18px; color:#444; font-size: 13px; line-height: 1.7;">
+      ${data.bankLow.map((b) => `<li>${escapeHtml(`${b.surface} / ${b.product_focus}`)}: <strong>${b.queued}/${b.min}</strong></li>`).join("")}
+    </ul>`;
+
+  const gapsBlock = data.contentGaps.length === 0 ? "" : `
+    <h3 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 15px;">Top search opportunities</h3>
+    <ul style="margin: 0 0 16px; padding-left: 18px; color:#444; font-size: 13px; line-height: 1.7;">
+      ${data.contentGaps.slice(0, 5).map((g) => `<li>${escapeHtml(g.query)} — <strong>${g.impressions}</strong> impressions, no dedicated post</li>`).join("")}
+    </ul>`;
+
+  const recsBlock = data.recommendations.length === 0
+    ? `<p style="margin: 0 0 16px; color:#2e7d32; font-size: 14px;">No tuning needed this week — the engine is healthy. ✅</p>`
+    : data.recommendations.map((r) => `
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 12px; background:${BRAND_GRAY}; border-radius: 8px;">
+        <tr><td style="padding: 12px 14px;">
+          <p style="margin: 0 0 4px; font-size: 14px; font-weight: 700; color:${BRAND_NIGHT};">${escapeHtml(r.title)}</p>
+          <p style="margin: 0 0 8px; font-size: 13px; color:#555; line-height: 1.5;">${escapeHtml(r.detail)}</p>
+          <a href="${SITE_URL}${escapeHtml(r.action_path)}" style="font-size: 13px; font-weight: 600; color:${BRAND_RED}; text-decoration: underline;">${escapeHtml(r.action_label)} →</a>
+        </td></tr>
+      </table>`).join("");
+
+  const content = `
+    <div style="background:${BRAND_NAVY};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      Weekly content digest
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your content engine over the last ${data.windowDays} days
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      A readout of what the autonomous engine published, the state of its topic
+      banks and webhooks, and the specific tuning actions worth taking — each
+      linking straight into the admin content tools.
+    </p>
+    ${stats}
+    ${bankBlock}
+    ${gapsBlock}
+    <h3 style="margin: 0 0 12px; color: ${BRAND_NIGHT}; font-size: 16px;">Recommendations</h3>
+    ${recsBlock}
+    ${ctaButton("Open content analytics", `${SITE_URL}/admin/content/analytics`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `📊 GradeThread weekly content digest (${data.published.total} published)`,
+    html: emailLayout(content),
+    category: "content_digest", // US-880: durable retry on transient SMTP failure
+  });
+}
+
 // ─── Grade dispute filed (internal/admin alert) ─────────────────────
 
 interface DisputeFiledData {
