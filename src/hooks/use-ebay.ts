@@ -1305,3 +1305,172 @@ export function useEbayReplyMessage() {
     },
   });
 }
+
+// ── Returns (US-1043) ───────────────────────────────────────────────
+
+export interface EbayReturn {
+  returnId: string;
+  state: string | null;
+  orderId: string | null;
+  itemId: string | null;
+  reason: string | null;
+  creationDate: string | null;
+}
+
+export function useEbayReturns(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_returns"],
+    enabled,
+    queryFn: async (): Promise<EbayReturn[]> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/returns`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load returns.");
+      return (json.returns ?? []) as EbayReturn[];
+    },
+  });
+}
+
+export function useEbayDecideReturn() {
+  return useMutation<
+    { ok: true },
+    Error,
+    { returnId: string; decision: "approve" | "decline"; comments?: string; orderId?: string }
+  >({
+    mutationFn: async ({ returnId, decision, comments, orderId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/decide`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ decision, comments, order_id: orderId }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Return decision failed.");
+      return json;
+    },
+  });
+}
+
+export function useEbayRefundReturn() {
+  return useMutation<
+    { ok: true },
+    Error,
+    { returnId: string; comments?: string; orderId?: string }
+  >({
+    mutationFn: async ({ returnId, comments, orderId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/refund`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ comments, order_id: orderId }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Refund failed.");
+      return json;
+    },
+  });
+}
+
+// ── Cancellations (US-1043) ─────────────────────────────────────────
+
+export interface EbayCancellation {
+  cancelId: string;
+  state: string | null;
+  orderId: string | null;
+  reason: string | null;
+  requestorType: string | null;
+  creationDate: string | null;
+}
+
+export function useEbayCancellations(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_cancellations"],
+    enabled,
+    queryFn: async (): Promise<EbayCancellation[]> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cancellations`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load cancellations.");
+      return (json.cancellations ?? []) as EbayCancellation[];
+    },
+  });
+}
+
+export function useEbayDecideCancellation() {
+  return useMutation<
+    { ok: true },
+    Error,
+    { cancelId: string; action: "approve" | "reject"; orderId?: string }
+  >({
+    mutationFn: async ({ cancelId, action, orderId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/cancellations/${encodeURIComponent(cancelId)}/${action}`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ order_id: orderId }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Cancellation action failed.");
+      return json;
+    },
+  });
+}
+
+// ── Payment disputes (US-1049) ──────────────────────────────────────
+
+export interface EbayPaymentDispute {
+  paymentDisputeId: string;
+  orderId: string | null;
+  status: string | null;
+  reason: string | null;
+  amount: number | null;
+  currency: string | null;
+  openedDate: string | null;
+  respondByDate: string | null;
+  buyerUsername: string | null;
+}
+
+export function useEbayPaymentDisputes(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_payment_disputes"],
+    enabled,
+    queryFn: async (): Promise<EbayPaymentDispute[]> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/payment-disputes`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load payment disputes.");
+      return (json.disputes ?? []) as EbayPaymentDispute[];
+    },
+  });
+}
+
+export function useEbayResolveDispute() {
+  return useMutation<
+    { ok: true },
+    Error,
+    { disputeId: string; action: "accept" | "contest"; note?: string; orderId?: string }
+  >({
+    mutationFn: async ({ disputeId, action, note, orderId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/payment-disputes/${encodeURIComponent(disputeId)}/${action}`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ note, order_id: orderId }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Dispute action failed.");
+      return json;
+    },
+  });
+}
