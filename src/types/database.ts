@@ -2517,6 +2517,8 @@ export interface BlogPostRow {
   completion_tokens: number | null;
   // Blog GEO / E-E-A-T fields (US-304). Nullable/defaulted → legacy posts OK.
   author: string | null;
+  // Linked author entity (US-874). NULL → legacy `author` byline fallback.
+  author_id: string | null;
   key_takeaways: string[];
   faqs: BlogFaq[];
   // Pre-publish safety review state (US-486).
@@ -2526,6 +2528,19 @@ export interface BlogPostRow {
   // Topic-cluster pillar slug (US-873) — the seo.pillars cluster this post
   // ladders to, set at publish. Null until interlinked.
   pillar: string | null;
+  created_at: string;
+  updated_at: string;
+}
+// Author entity (US-874) — named blog authors with bio pages + Person JSON-LD.
+export interface ContentAuthorRow {
+  id: string;
+  slug: string;
+  name: string;
+  title: string | null;
+  bio_md: string | null;
+  avatar_url: string | null;
+  credentials: string[];
+  same_as: string[];
   created_at: string;
   updated_at: string;
 }

@@ -214,6 +214,49 @@ export function articleLd(opts: {
   };
 }
 
+/**
+ * Person node for a blog author entity (US-874). E-E-A-T: a named author with a
+ * profile page, jobTitle, sameAs, and credentials carries far more weight than a
+ * byline string. The canonical implementation that the blog/author SSR uses is
+ * authorPersonLd() in functions/_shared/blog-render.ts; this typed builder
+ * mirrors it for any SPA-side surface that needs the same node. Omits empty
+ * optional fields so we never assert a blank jobTitle / image / sameAs.
+ */
+export function personLd(opts: {
+  name: string;
+  slug: string;
+  title?: string | null;
+  avatarUrl?: string | null;
+  sameAs?: string[];
+  credentials?: string[];
+}): JsonLd {
+  const node: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: opts.name,
+    url: `${SITE_URL}/authors/${opts.slug}`,
+  };
+  if (opts.title?.trim()) node.jobTitle = opts.title.trim();
+  if (opts.avatarUrl?.trim()) node.image = opts.avatarUrl.trim();
+  const sameAs = (opts.sameAs ?? [])
+    .map((u) => u.trim())
+    .filter((u) => /^https?:\/\//.test(u));
+  if (sameAs.length) node.sameAs = sameAs;
+  const knows = (opts.credentials ?? []).map((c) => c.trim()).filter(Boolean);
+  if (knows.length) node.knowsAbout = knows;
+  return node;
+}
+
+/** ProfilePage node wrapping a Person, emitted on the author page itself (US-874). */
+export function profilePageLd(opts: Parameters<typeof personLd>[0]): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ProfilePage",
+    url: `${SITE_URL}/authors/${opts.slug}`,
+    mainEntity: personLd(opts),
+  };
+}
+
 /** BreadcrumbList for hierarchy/topical-authority signals. */
 export function breadcrumbLd(
   items: ReadonlyArray<{ name: string; url: string }>,

@@ -94,6 +94,22 @@ export interface BlogFaq {
   a: string;
 }
 
+// US-874: a named author entity (content_authors row) surfaced to the SSR for
+// the Person JSON-LD on articles and for the /authors/:slug profile page.
+export interface PublicAuthor {
+  slug: string;
+  name: string;
+  /** jobTitle in Person JSON-LD, e.g. "Lead Condition Analyst". */
+  title: string | null;
+  /** Markdown bio (rendered as escaped paragraphs on the author page). */
+  bio_md?: string | null;
+  avatar_url: string | null;
+  /** Credentials / qualifications (E-E-A-T expertise signal). */
+  credentials?: string[];
+  /** External profile URLs → Person.sameAs. */
+  same_as?: string[];
+}
+
 export interface PublicPost extends PublicPostListItem {
   body_html: string;
   seo_title: string | null;
@@ -103,6 +119,9 @@ export interface PublicPost extends PublicPostListItem {
   tags: string[];
   // Blog GEO / E-E-A-T fields (US-304). Optional → legacy posts render fine.
   author?: string | null;
+  // US-874: the linked author entity. Present when the post has an author_id;
+  // absent on legacy posts (the byline-only `author` string is the fallback).
+  author_entity?: PublicAuthor | null;
   key_takeaways?: string[];
   faqs?: BlogFaq[];
   related?: PublicPostListItem[];
@@ -346,6 +365,22 @@ const BASE_STYLES = `
   .related-card:hover { background: #f9fafb; }
   .related-card h3 { margin: 0 0 6px; font-size: 1rem; }
   .related-card p { margin: 0; color: var(--muted); font-size: 0.875rem; }
+  .post-meta .author a { color: inherit; text-decoration: none; }
+  .post-meta .author a:hover { text-decoration: underline; }
+  .author-header { display: flex; align-items: center; gap: 20px; margin: 8px 0 24px; }
+  .author-avatar { width: 96px; height: 96px; border-radius: 999px; object-fit: cover; flex-shrink: 0; background: #f3f4f6; }
+  .author-header h1 { margin: 0 0 4px; }
+  .author-title { color: var(--accent); font-weight: 600; margin: 0; }
+  .author-credentials { margin: 24px 0; }
+  .author-credentials h2 { font-size: 1.1rem; }
+  .author-credentials ul { margin: 0 0 0 24px; }
+  .author-sameas { margin: 16px 0 0; display: flex; flex-wrap: wrap; gap: 12px; }
+  .author-sameas a { font-size: 0.9rem; }
+  .author-posts { margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 24px; }
+  .author-card { display: block; padding: 16px 0; border-bottom: 1px solid #e5e7eb; text-decoration: none; color: inherit; }
+  .author-card:hover { background: #f9fafb; }
+  .author-card h3 { margin: 0 0 6px; font-size: 1.1rem; }
+  .author-card p { margin: 0; color: var(--muted); font-size: 0.9rem; }
 `;
 
 export function renderLayout(input: LayoutInput): string {
@@ -905,6 +940,97 @@ export function articleAuthorLd(
   return name
     ? { "@type": "Person", name }
     : { "@type": "Organization", name: "GradeThread Team", url: siteUrl };
+}
+
+// ─── Author entities (US-874) ─────────────────────────────────────────────
+// E-E-A-T: a linked author entity becomes a full Person node (name, url to the
+// author page, jobTitle, sameAs) instead of a bare byline string. The author
+// page itself emits ProfilePage → Person. Pure (no CF globals) → unit-testable.
+
+/** Absolute URL of an author's profile page. */
+export function authorUrl(siteUrl: string, slug: string): string {
+  return `${siteUrl}/authors/${slug}`;
+}
+
+/** Live external profile URLs for an author's Person.sameAs (http(s) only). */
+function cleanSameAs(sameAs: string[] | undefined | null): string[] {
+  return (sameAs ?? [])
+    .map((u) => (u ?? "").trim())
+    .filter((u) => /^https?:\/\//.test(u));
+}
+
+/**
+ * A full Person node for an author entity (US-874). Used as the Article `author`
+ * and embedded in the author page's ProfilePage. Omits empty optional fields so
+ * we never assert a blank jobTitle / image / sameAs.
+ */
+export function authorPersonLd(
+  author: PublicAuthor,
+  siteUrl: string,
+): Record<string, unknown> {
+  const node: Record<string, unknown> = {
+    "@type": "Person",
+    name: author.name,
+    url: authorUrl(siteUrl, author.slug),
+  };
+  if (author.title?.trim()) node.jobTitle = author.title.trim();
+  if (author.avatar_url?.trim()) node.image = author.avatar_url.trim();
+  const sameAs = cleanSameAs(author.same_as);
+  if (sameAs.length) node.sameAs = sameAs;
+  const knows = (author.credentials ?? [])
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (knows.length) node.knowsAbout = knows;
+  return node;
+}
+
+/**
+ * The Article `author` node: the linked Person entity when present, else the
+ * legacy byline string (Person) / "GradeThread Team" (Organization) fallback.
+ */
+export function postAuthorLd(post: PublicPost, siteUrl: string): Record<string, unknown> {
+  return post.author_entity
+    ? authorPersonLd(post.author_entity, siteUrl)
+    : articleAuthorLd(post.author, siteUrl);
+}
+
+/** ProfilePage JSON-LD emitted on the author page itself (US-874). */
+export function profilePageLd(
+  author: PublicAuthor,
+  siteUrl: string,
+): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ProfilePage",
+    url: authorUrl(siteUrl, author.slug),
+    mainEntity: authorPersonLd(author, siteUrl),
+  };
+}
+
+/**
+ * Render an author's markdown bio as escaped paragraphs. We do NOT run a full
+ * markdown parser at the edge — the bio is plain prose, so we split on blank
+ * lines and escape every paragraph (no raw HTML reaches the page).
+ */
+export function renderAuthorBio(md: string | null | undefined): string {
+  const text = (md ?? "").trim();
+  if (!text) return "";
+  return text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+/** Credentials list block for the author page. Empty string when none. */
+export function renderAuthorCredentials(
+  credentials: string[] | undefined | null,
+): string {
+  const clean = (credentials ?? []).map((c) => c.trim()).filter(Boolean);
+  if (clean.length === 0) return "";
+  const lis = clean.map((c) => `<li>${escape(c)}</li>`).join("");
+  return `<section class="author-credentials"><h2>Credentials</h2><ul>${lis}</ul></section>`;
 }
 
 /** True when the post was meaningfully updated after publish (date differs). */

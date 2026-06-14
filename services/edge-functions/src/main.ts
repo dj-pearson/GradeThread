@@ -88,6 +88,7 @@ import { announcementRoutes } from "./routes/announcements.ts";
 import { referralRoutes } from "./routes/referrals.ts";
 import { affiliateRoutes } from "./routes/affiliate.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
+import { contentAuthorsRoutes } from "./routes/content-authors.ts";
 import { contentSocialRoutes } from "./routes/content-social.ts";
 import { contentTopicsRoutes } from "./routes/content-topics.ts";
 import { contentKnowledgeRoutes } from "./routes/content-knowledge.ts";
@@ -422,6 +423,8 @@ app.use("/api/admin/messages/*", rateLimiter(20, 60_000, "admin-messages", undef
 // FlipDesk wiring above.
 app.use("/api/content/blog/*", authMiddleware);
 app.use("/api/content/blog/*", adminAuthMiddleware);
+app.use("/api/content/authors/*", authMiddleware);
+app.use("/api/content/authors/*", adminAuthMiddleware);
 app.use("/api/content/social/*", authMiddleware);
 app.use("/api/content/social/*", adminAuthMiddleware);
 app.use("/api/content/topics/*", authMiddleware);
@@ -784,6 +787,7 @@ app.post("/api/jobs/growth-dispatch", (c) => handleGrowthDispatchCron(c));
 // Coolify cron (suggested 0 */3 * * *).
 app.post("/api/jobs/content-watchdog", (c) => handleContentWatchdogCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
+app.route("/api/content/authors", contentAuthorsRoutes);
 app.route("/api/content/social", contentSocialRoutes);
 app.route("/api/content/topics", contentTopicsRoutes);
 app.route("/api/content/knowledge", contentKnowledgeRoutes);

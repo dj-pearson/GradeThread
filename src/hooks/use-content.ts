@@ -6,6 +6,7 @@ import { track } from "@/lib/analytics";
 import type {
   BlogPostListRow,
   BlogPostRow,
+  ContentAuthorRow,
   ContentKnowledgeListRow,
   ContentKnowledgeRow,
   ContentProduct,
@@ -88,6 +89,73 @@ export function useBlogPost(id: string | null) {
       );
       return data.post;
     },
+  });
+}
+
+// US-874: author entities for the blog editor's author picker + admin page.
+export function useBlogAuthors() {
+  return useQuery({
+    queryKey: ["content_authors"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const data = await jfetch<{ authors: ContentAuthorRow[] }>(
+        `/api/content/authors`,
+      );
+      return data.authors;
+    },
+  });
+}
+
+export interface AuthorInput {
+  name?: string;
+  slug?: string;
+  title?: string | null;
+  bio_md?: string | null;
+  avatar_url?: string | null;
+  credentials?: string[];
+  same_as?: string[];
+}
+
+export function useCreateAuthor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AuthorInput) => {
+      const data = await jfetch<{ author: ContentAuthorRow }>(
+        `/api/content/authors`,
+        { method: "POST", json: input },
+      );
+      return data.author;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["content_authors"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useUpdateAuthor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: AuthorInput & { id: string }) => {
+      const data = await jfetch<{ author: ContentAuthorRow }>(
+        `/api/content/authors/${id}`,
+        { method: "PATCH", json: patch },
+      );
+      return data.author;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["content_authors"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useDeleteAuthor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await jfetch<{ ok: true }>(`/api/content/authors/${id}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["content_authors"] }),
+    onError: (e: Error) => toast.error(e.message),
   });
 }
 

@@ -53,13 +53,18 @@ const POST_COLUMNS =
   "id, slug, title, excerpt, body_html, product_focus, hero_image_url, " +
   "seo_title, seo_description, primary_keyword, secondary_keywords, " +
   "reading_time_min, published_at, updated_at, jsonld, " +
-  // Blog GEO / E-E-A-T fields (US-304).
-  "author, key_takeaways, faqs, " +
+  // Blog GEO / E-E-A-T fields (US-304); author entity FK (US-874).
+  "author, author_id, key_takeaways, faqs, " +
   // Topic-cluster pillar (US-873).
   "pillar";
 const LIST_COLUMNS =
   "id, slug, title, excerpt, product_focus, hero_image_url, primary_keyword, " +
   "reading_time_min, published_at, updated_at";
+
+// US-874: public author-entity projection (Person JSON-LD + author page). The
+// `same_as` array feeds Person.sameAs; nothing private (created_at, id) leaks.
+const AUTHOR_COLUMNS =
+  "id, slug, name, title, bio_md, avatar_url, credentials, same_as, updated_at";
 
 // Max related posts surfaced on an article (US-304). The tag-based fallback
 // shows up to 3; the curated editorial set (US-873) may surface up to 6.
@@ -88,9 +93,53 @@ interface BlogFullRow extends BlogListRow {
   secondary_keywords: string[] | null;
   jsonld: unknown;
   author: unknown;
+  author_id: string | null;
   key_takeaways: unknown;
   faqs: unknown;
   pillar: string | null;
+}
+interface AuthorRow {
+  id: string;
+  slug: string;
+  name: string;
+  title: string | null;
+  bio_md: string | null;
+  avatar_url: string | null;
+  credentials: string[] | null;
+  same_as: string[] | null;
+  updated_at: string | null;
+}
+
+/** Public author projection (drops the internal id; normalizes nullable arrays). */
+function publicAuthor(row: AuthorRow): {
+  slug: string;
+  name: string;
+  title: string | null;
+  bio_md: string | null;
+  avatar_url: string | null;
+  credentials: string[];
+  same_as: string[];
+} {
+  return {
+    slug: row.slug,
+    name: row.name,
+    title: row.title ?? null,
+    bio_md: row.bio_md ?? null,
+    avatar_url: row.avatar_url ?? null,
+    credentials: Array.isArray(row.credentials) ? row.credentials : [],
+    same_as: Array.isArray(row.same_as) ? row.same_as : [],
+  };
+}
+
+/** Load a single author entity by id, or null. Powers the article Person node. */
+async function fetchAuthorEntity(authorId: string | null): Promise<ReturnType<typeof publicAuthor> | null> {
+  if (!authorId) return null;
+  const { data } = await supabaseAdmin
+    .from("content_authors")
+    .select(AUTHOR_COLUMNS)
+    .eq("id", authorId)
+    .maybeSingle();
+  return data ? publicAuthor(data as unknown as AuthorRow) : null;
 }
 interface CertReportRow {
   overall_score: number;
@@ -274,6 +323,9 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
   const pillarUrl = pillar ? PILLAR_CORNERSTONE_URL[pillar] ?? null : null;
   const pillarLabel = pillar ? PILLAR_LABELS[pillar] ?? null : null;
 
+  // US-874: linked author entity → full Person JSON-LD + linked byline.
+  const authorEntity = await fetchAuthorEntity(row.author_id);
+
   return c.json({
     post: {
       ...row,
@@ -283,7 +335,55 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
       pillar,
       pillar_url: pillarUrl,
       pillar_label: pillarLabel,
+      author_entity: authorEntity,
     },
+  });
+});
+
+// ── GET /authors.json ─────────────────────────────────────
+// Compact list of every author for the sitemap + llms.txt (US-874). Public
+// projection only (no internal id beyond the slug); updated_at is the lastmod.
+contentPublicRoutes.get("/authors.json", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("content_authors")
+    .select(AUTHOR_COLUMNS)
+    .order("name", { ascending: true })
+    .limit(1000);
+  if (error) return publicError(c, error, "authors");
+  const authors = ((data ?? []) as unknown as AuthorRow[]).map((row) => ({
+    ...publicAuthor(row),
+    updated_at: row.updated_at,
+  }));
+  return c.json({ authors });
+});
+
+// ── GET /authors/:slug ────────────────────────────────────
+// One author entity + their published posts (newest first). 404 for an unknown
+// slug. Service-role bypasses RLS, so the posts query is hard-filtered to
+// status='published' (only live content is ever exposed).
+contentPublicRoutes.get("/authors/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  const { data: author, error } = await supabaseAdmin
+    .from("content_authors")
+    .select(AUTHOR_COLUMNS)
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) return publicError(c, error, "author");
+  if (!author) return c.json({ error: "Not found" }, 404);
+  const row = author as unknown as AuthorRow;
+
+  const { data: posts, error: postsErr } = await supabaseAdmin
+    .from("blog_posts")
+    .select(LIST_COLUMNS)
+    .eq("status", "published")
+    .eq("author_id", row.id)
+    .order("published_at", { ascending: false })
+    .limit(MAX_LIMIT);
+  if (postsErr) return publicError(c, postsErr, "author-posts");
+
+  return c.json({
+    author: publicAuthor(row),
+    posts: (posts ?? []) as unknown as BlogListRow[],
   });
 });
 

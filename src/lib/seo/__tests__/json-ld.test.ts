@@ -7,6 +7,8 @@ import {
   breadcrumbLd,
   howToLd,
   certificateLd,
+  personLd,
+  profilePageLd,
 } from "../json-ld";
 import { SITE_URL } from "../public-routes";
 // US-425: the cert SSR Pages Function builds its Product JSON-LD from this shared
@@ -54,6 +56,28 @@ describe("JSON-LD builders (US-298/299/300)", () => {
     const first = entities[0]!;
     expect(first["@type"]).toBe("Question");
     expect((first.acceptedAnswer as Record<string, unknown>).text).toBe("A1");
+  });
+
+  it("personLd builds a Person with author-page url, dropping blanks (US-874)", () => {
+    const ld = personLd({
+      name: "Jane Doe",
+      slug: "jane-doe",
+      title: "Lead Analyst",
+      sameAs: ["https://x.com/jane", "bad"],
+      credentials: ["Cert A", "  "],
+    });
+    expect(ld["@type"]).toBe("Person");
+    expect(ld.url).toBe(`${SITE_URL}/authors/jane-doe`);
+    expect(ld.jobTitle).toBe("Lead Analyst");
+    expect(ld.sameAs).toEqual(["https://x.com/jane"]);
+    expect(ld.knowsAbout).toEqual(["Cert A"]);
+  });
+
+  it("profilePageLd wraps a Person as mainEntity (US-874)", () => {
+    const ld = profilePageLd({ name: "X", slug: "x" });
+    expect(ld["@type"]).toBe("ProfilePage");
+    expect(ld.url).toBe(`${SITE_URL}/authors/x`);
+    expect((ld.mainEntity as Record<string, unknown>)["@type"]).toBe("Person");
   });
 
   it("breadcrumbLd numbers positions from 1", () => {

@@ -81,6 +81,7 @@ const growthNavItems = [
 // dashboard's "Content" group).
 const contentNavItems = [
   { to: "/admin/content/blog", icon: Newspaper, label: "Blog", end: false },
+  { to: "/admin/content/authors", icon: Users, label: "Authors", end: false },
   { to: "/admin/content/social", icon: MessageCircle, label: "Social", end: false },
   { to: "/admin/content/topics", icon: Lightbulb, label: "Topic Bank", end: false },
   { to: "/admin/content/knowledge", icon: BookOpen, label: "Knowledge", end: false },

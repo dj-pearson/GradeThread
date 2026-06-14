@@ -34,6 +34,7 @@ import {
   PRODUCT_LABELS,
 } from "@/lib/constants";
 import {
+  useBlogAuthors,
   useBlogPost,
   useCreatePreviewLink,
   useGenerateBlogPost,
@@ -97,6 +98,8 @@ interface BlogPostShape {
   tags?: string[];
   // Blog GEO / E-E-A-T fields (US-304).
   author: string | null;
+  // Linked author entity (US-874).
+  author_id: string | null;
   key_takeaways: string[];
   faqs: { q: string; a: string }[];
 }
@@ -132,6 +135,8 @@ function Editor({
   // GEO / E-E-A-T (US-304): byline, answer-first takeaways (one per line),
   // and FAQs ("Question | Answer" per line).
   const [author, setAuthor] = useState(initial.author ?? "");
+  // US-874: linked author entity. "" → none (legacy byline fallback).
+  const [authorId, setAuthorId] = useState(initial.author_id ?? "");
   const [keyTakeaways, setKeyTakeaways] = useState(
     (initial.key_takeaways ?? []).join("\n"),
   );
@@ -150,6 +155,7 @@ function Editor({
   // selectable options until the user picks one (which becomes post.title).
   const [titleSuggestions, setTitleSuggestions] = useState<TitleSuggestion[]>([]);
 
+  const { data: authors } = useBlogAuthors();
   const update = useUpdateBlogPost(postId);
   const publish = usePublishBlogPost(postId);
   const generate = useGenerateBlogPost(postId);
@@ -213,8 +219,9 @@ function Editor({
         .split(",")
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean),
-      // GEO / E-E-A-T fields (US-304).
+      // GEO / E-E-A-T fields (US-304); linked author entity (US-874).
       author: author.trim() || null,
+      author_id: authorId || null,
       key_takeaways: keyTakeaways
         .split("\n")
         .map((s) => s.trim())
@@ -508,12 +515,36 @@ function Editor({
             </CardHeader>
             <CardContent className="space-y-3">
               <div>
-                <Label htmlFor="bp-author">Author byline</Label>
+                <Label htmlFor="bp-author-entity">Author</Label>
+                <Select
+                  value={authorId || "none"}
+                  onValueChange={(v) => setAuthorId(v === "none" ? "" : v)}
+                >
+                  <SelectTrigger id="bp-author-entity">
+                    <SelectValue placeholder="Select an author" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No linked author</SelectItem>
+                    {(authors ?? []).map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                        {a.title ? ` — ${a.title}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Links to an E-E-A-T author page + Person structured data. Manage
+                  authors in Content → Authors.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="bp-author">Byline fallback</Label>
                 <Input
                   id="bp-author"
                   value={author}
                   onChange={(e) => setAuthor(e.target.value)}
-                  placeholder="e.g. Jane Doe (blank → GradeThread Team)"
+                  placeholder="e.g. Jane Doe (used only when no author is linked)"
                 />
               </div>
               <div>

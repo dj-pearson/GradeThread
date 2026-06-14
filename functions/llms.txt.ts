@@ -30,6 +30,9 @@ interface CertSitemap {
 interface SellerSitemap {
   sellers: Array<{ handle: string }>;
 }
+interface AuthorSitemap {
+  authors: Array<{ slug: string; name: string }>;
+}
 
 async function fetchJsonSafe<T>(url: string, init?: RequestInit): Promise<T | null> {
   try {
@@ -73,11 +76,14 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     : FALLBACK_ROUTES;
 
   // Representative dynamic URLs — best-effort, gracefully omitted on failure.
-  const [certs, sellers] = await Promise.all([
+  const [certs, sellers, authors] = await Promise.all([
     fetchJsonSafe<CertSitemap>(`${api}/api/content/public/certificates.json`, {
       headers: { Accept: "application/json" },
     }),
     fetchJsonSafe<SellerSitemap>(`${api}/api/content/public/sellers.json`, {
+      headers: { Accept: "application/json" },
+    }),
+    fetchJsonSafe<AuthorSitemap>(`${api}/api/content/public/authors.json`, {
       headers: { Accept: "application/json" },
     }),
   ]);
@@ -89,12 +95,18 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     title: `Verified seller @${s.handle}`,
     url: `/verified/${s.handle}`,
   }));
+  // US-874: list every author (small, curated set) so AI engines can attribute
+  // articles to the expert behind them.
+  const authorUrls = (authors?.authors ?? []).map((a) => ({
+    title: a.name,
+    url: `/authors/${a.slug}`,
+  }));
 
   const body = buildLlmsTxt({
     siteUrl: base,
     summary: LLMS_SUMMARY,
     policyNote: AI_CRAWLER_POLICY_NOTE,
-    sections: buildLlmsSections({ routes, certUrls, sellerUrls }),
+    sections: buildLlmsSections({ routes, certUrls, sellerUrls, authorUrls }),
   });
 
   return new Response(body, {

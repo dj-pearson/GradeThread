@@ -46,6 +46,9 @@ interface CertSitemap {
 interface SellerSitemap {
   sellers: Array<{ handle: string; updated_at: string }>;
 }
+interface AuthorSitemap {
+  authors: Array<{ slug: string; updated_at: string | null }>;
+}
 
 // Fetch a same-origin static asset (the build-emitted manifest). Falls back to
 // null so the sitemap still renders (blog/cert sections) if it's missing.
@@ -161,6 +164,27 @@ export async function sellerUrls(env: PagesEnv): Promise<SitemapUrl[]> {
       lastmod: s.updated_at?.slice(0, 10),
       changefreq: "weekly",
       priority: 0.6,
+    });
+  }
+  return urls;
+}
+
+// US-874: public author (E-E-A-T) pages — the /authors hub + each profile.
+export async function authorUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/authors`, lastmod: today(), changefreq: "weekly", priority: 0.5 },
+  ];
+  const data = await fetchEdgeJson<AuthorSitemap>(
+    env,
+    "/api/content/public/authors.json",
+  );
+  for (const a of data?.authors ?? []) {
+    urls.push({
+      loc: `${base}/authors/${encodeURIComponent(a.slug)}`,
+      lastmod: a.updated_at?.slice(0, 10),
+      changefreq: "monthly",
+      priority: 0.5,
     });
   }
   return urls;

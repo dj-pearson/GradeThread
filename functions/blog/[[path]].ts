@@ -31,7 +31,7 @@ import {
   renderHeroImage,
   rewriteContentImages,
   imageResizingEnabled,
-  articleAuthorLd,
+  postAuthorLd,
   wasUpdatedAfterPublish,
   twitterSiteHandle,
   socialProfileUrls,
@@ -202,7 +202,13 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   // GEO enhancements (US-304): author byline + visible "Updated <date>",
   // answer-first key-takeaways, auto TOC from the body's H2s, on-page FAQ,
   // and a related-posts internal-link block.
-  const authorName = post.author?.trim() || "GradeThread Team";
+  // US-874: prefer the linked author entity (links to its profile page); fall
+  // back to the legacy byline string, then "GradeThread Team".
+  const authorName =
+    post.author_entity?.name?.trim() || post.author?.trim() || "GradeThread Team";
+  const authorByline = post.author_entity
+    ? `<a href="/authors/${escape(post.author_entity.slug)}">${escape(authorName)}</a>`
+    : escape(authorName);
   const updatedHtml = wasUpdatedAfterPublish(post.published_at, post.updated_at)
     ? `<span class="sep">·</span><span class="updated">Updated <time datetime="${escape(
         post.updated_at,
@@ -246,7 +252,7 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   ${heroHtml}
   <h1>${escape(post.title)}</h1>
   <div class="post-meta">
-    <span class="author">By ${escape(authorName)}</span>
+    <span class="author">By ${authorByline}</span>
     <span class="sep">·</span>
     <time datetime="${escape(post.published_at)}">${escape(formatDate(post.published_at))}</time>
     ${post.reading_time_min ? `<span class="sep">·</span>${post.reading_time_min} min read` : ""}
@@ -273,8 +279,9 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
     datePublished: post.published_at,
     dateModified: post.updated_at,
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
-    // E-E-A-T author signal (US-304): a named Person when supplied, else the team.
-    author: articleAuthorLd(post.author, siteUrl(env)),
+    // E-E-A-T author signal (US-874): a full Person node (name, url, jobTitle,
+    // sameAs) for a linked author entity, else the legacy byline fallback.
+    author: postAuthorLd(post, siteUrl(env)),
     publisher: organizationLd(env),
     keywords:
       [post.primary_keyword, ...(post.secondary_keywords ?? [])]

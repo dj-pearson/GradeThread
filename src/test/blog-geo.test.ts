@@ -8,7 +8,15 @@ import {
   faqPageJsonLd,
   renderRelatedPosts,
   articleAuthorLd,
+  authorPersonLd,
+  postAuthorLd,
+  profilePageLd,
+  authorUrl,
+  renderAuthorBio,
+  renderAuthorCredentials,
   wasUpdatedAfterPublish,
+  type PublicAuthor,
+  type PublicPost,
   type PublicPostListItem,
 } from "../../functions/_shared/blog-render";
 
@@ -164,6 +172,85 @@ describe("articleAuthorLd", () => {
     expect(articleAuthorLd("   ", "https://gradethread.com")).toMatchObject({
       "@type": "Organization",
     });
+  });
+});
+
+// US-874: author entities — Person/ProfilePage JSON-LD + author-page render.
+describe("author entities (US-874)", () => {
+  const author: PublicAuthor = {
+    slug: "jane-doe",
+    name: "Jane Doe",
+    title: "Lead Condition Analyst",
+    bio_md: "First paragraph.\n\nSecond paragraph.",
+    avatar_url: "https://gradethread.com/a.jpg",
+    credentials: ["10 years grading", "  "],
+    same_as: ["https://x.com/jane", "not-a-url", " "],
+  };
+  const site = "https://gradethread.com";
+
+  it("authorUrl builds the profile URL", () => {
+    expect(authorUrl(site, "jane-doe")).toBe("https://gradethread.com/authors/jane-doe");
+  });
+
+  it("authorPersonLd emits a full Person node, dropping blanks/non-urls", () => {
+    expect(authorPersonLd(author, site)).toEqual({
+      "@type": "Person",
+      name: "Jane Doe",
+      url: "https://gradethread.com/authors/jane-doe",
+      jobTitle: "Lead Condition Analyst",
+      image: "https://gradethread.com/a.jpg",
+      sameAs: ["https://x.com/jane"],
+      knowsAbout: ["10 years grading"],
+    });
+  });
+
+  it("authorPersonLd omits optional fields when empty", () => {
+    expect(authorPersonLd({ slug: "x", name: "X", title: null, avatar_url: null }, site)).toEqual({
+      "@type": "Person",
+      name: "X",
+      url: "https://gradethread.com/authors/x",
+    });
+  });
+
+  it("postAuthorLd prefers the entity, else falls back to the byline string", () => {
+    const base = { author_entity: undefined, author: "Legacy Name" } as Partial<PublicPost>;
+    expect(postAuthorLd({ ...base, author_entity: author } as PublicPost, site)).toMatchObject({
+      "@type": "Person",
+      url: "https://gradethread.com/authors/jane-doe",
+    });
+    expect(postAuthorLd(base as PublicPost, site)).toEqual({
+      "@type": "Person",
+      name: "Legacy Name",
+    });
+    expect(postAuthorLd({ author: null } as PublicPost, site)).toMatchObject({
+      "@type": "Organization",
+      name: "GradeThread Team",
+    });
+  });
+
+  it("profilePageLd wraps the Person as the mainEntity", () => {
+    const ld = profilePageLd(author, site);
+    expect(ld).toMatchObject({
+      "@type": "ProfilePage",
+      url: "https://gradethread.com/authors/jane-doe",
+      mainEntity: { "@type": "Person", name: "Jane Doe" },
+    });
+  });
+
+  it("renderAuthorBio splits paragraphs + escapes; empty → ''", () => {
+    expect(renderAuthorBio("")).toBe("");
+    expect(renderAuthorBio(null)).toBe("");
+    const html = renderAuthorBio("A & B\n\nNext <x>");
+    expect(html).toBe("<p>A &amp; B</p><p>Next &lt;x&gt;</p>");
+  });
+
+  it("renderAuthorCredentials renders a list, empty → ''", () => {
+    expect(renderAuthorCredentials([])).toBe("");
+    expect(renderAuthorCredentials(["  "])).toBe("");
+    const html = renderAuthorCredentials(["Cert A", "Cert B"]);
+    expect(html).toContain("Credentials");
+    expect(html).toContain("<li>Cert A</li>");
+    expect(html).toContain("<li>Cert B</li>");
   });
 });
 

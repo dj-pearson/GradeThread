@@ -69,6 +69,16 @@ describe("llms.txt registry coverage (US-431)", () => {
     expect(body).toContain(`${SITE_URL}/verified/demo)`);
   });
 
+  it("renders an Authors section when author URLs are provided (US-874)", () => {
+    const sections = buildLlmsSections({
+      routes: registryRoutes,
+      authorUrls: [{ title: "Jane Doe", url: "/authors/jane-doe" }],
+    });
+    const body = buildLlmsTxt({ siteUrl: SITE_URL, summary: LLMS_SUMMARY, sections });
+    expect(body).toContain("## Authors");
+    expect(body).toContain(`${SITE_URL}/authors/jane-doe)`);
+  });
+
   it("groups legal pages under a Legal heading", () => {
     const body = renderLlmsTxt();
     expect(body).toContain("## Legal");

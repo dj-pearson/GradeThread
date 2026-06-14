@@ -230,6 +230,8 @@ export function buildLlmsSections(opts: {
   routes: LlmsRoute[];
   certUrls?: Array<{ title: string; url: string }>;
   sellerUrls?: Array<{ title: string; url: string }>;
+  /** US-874: representative author (E-E-A-T) pages. */
+  authorUrls?: Array<{ title: string; url: string }>;
 }): LlmsSection[] {
   const product: LlmsSection["links"] = [];
   const glossary: LlmsSection["links"] = [];
@@ -262,9 +264,17 @@ export function buildLlmsSections(opts: {
         url: "/blog",
         note: "Condition-grading guides, reseller workflows, and FlipDesk how-tos.",
       },
+      {
+        title: "Authors",
+        url: "/authors",
+        note: "The experts behind GradeThread's grading standard and articles.",
+      },
       { title: "RSS feed", url: "/rss.xml", note: "Latest published articles." },
     ],
   });
+  if (opts.authorUrls?.length) {
+    sections.push({ heading: "Authors", links: opts.authorUrls });
+  }
   const verified = [...(opts.certUrls ?? []), ...(opts.sellerUrls ?? [])];
   if (verified.length) {
     sections.push({ heading: "Verified Certificates & Sellers", links: verified });

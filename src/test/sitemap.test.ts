@@ -5,6 +5,7 @@ import {
   staticUrls,
   blogUrls,
   certUrls,
+  authorUrls,
   SITEMAP_MAX_URLS,
   type SitemapUrl,
 } from "../../functions/_shared/sitemap";
@@ -161,6 +162,32 @@ describe("blogUrls + certUrls", () => {
   it("certUrls returns empty (not throw) when the endpoint is down", async () => {
     vi.stubGlobal("fetch", mockFetch({}));
     expect(await certUrls(env)).toEqual([]);
+  });
+
+  it("authorUrls includes the /authors hub + each author profile (US-874)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/content/public/authors.json": {
+          authors: [
+            { slug: "gradethread-team", updated_at: "2026-06-01T00:00:00Z" },
+          ],
+        },
+      }),
+    );
+    const urls = await authorUrls(env);
+    const locs = urls.map((u) => u.loc);
+    expect(locs).toContain("https://gradethread.com/authors");
+    expect(locs).toContain("https://gradethread.com/authors/gradethread-team");
+    expect(urls.find((u) => u.loc.endsWith("/gradethread-team"))!.lastmod).toBe(
+      "2026-06-01",
+    );
+  });
+
+  it("authorUrls still lists the hub when the endpoint is down", async () => {
+    vi.stubGlobal("fetch", mockFetch({}));
+    const urls = await authorUrls(env);
+    expect(urls.map((u) => u.loc)).toEqual(["https://gradethread.com/authors"]);
   });
 });
 

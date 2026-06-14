@@ -2419,3 +2419,26 @@ Branch: ralph/gradethread-build
   - Verify: web tsc OK; functions tsc OK; vitest 719 passed; build:locked 41 pages; deno check+lint+test OK (11 new); verify:db applies 00200 cleanly from zero.
 - Timestamp: 2026-06-13
 ---
+
+## US-874: Author entities + E-E-A-T author pages (Person schema, real bylines)
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00201_content_authors.sql (new: content_authors table + RLS + blog_posts.author_id FK + house-author seed)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00200 -> 00201)
+  - functions/_shared/blog-render.ts (PublicAuthor type, author_entity on PublicPost, authorPersonLd/postAuthorLd/profilePageLd/authorUrl/renderAuthorBio/renderAuthorCredentials + author-page CSS)
+  - functions/blog/[[path]].ts (Article author = postAuthorLd Person node; byline links to author page)
+  - functions/authors/[[path]].ts (new: /authors + /authors/:slug edge-SSR pages)
+  - functions/_shared/sitemap.ts + functions/sitemap.xml.ts + functions/sitemap-authors.xml.ts (authorUrls)
+  - functions/_shared/seo-config.ts + functions/llms.txt.ts (Authors section in llms.txt)
+  - services/edge-functions/src/routes/content-public.ts (author_entity on /posts/:slug; new /authors/:slug + /authors.json)
+  - services/edge-functions/src/routes/content-authors.ts (new admin CRUD) + main.ts (mount + admin middleware)
+  - src/types/database.ts (BlogPostRow.author_id, ContentAuthorRow)
+  - src/hooks/use-content.ts (useBlogAuthors + create/update/delete author hooks)
+  - src/pages/content/blog-editor.tsx (author picker dropdown -> author_id)
+  - src/pages/content/authors.tsx (new admin page) + src/routes/index.tsx + src/layouts/admin-layout.tsx (route + nav)
+  - src/lib/seo/json-ld.ts (personLd/profilePageLd builders)
+  - public/_routes.json (/authors/* + /sitemap-authors.xml in Cloudflare Function allowlist)
+  - tests: src/test/blog-geo.test.ts, src/test/sitemap.test.ts, src/test/llms-txt.test.ts, src/lib/seo/__tests__/json-ld.test.ts
+- Notes: Migration suggested 00148 was stale; repo at 00200 so used 00201 and bumped schema version. Author pages are EDGE-SSR'd like the blog (no SPA/React route, no PUBLIC_ROUTES entry) -> registered via the dynamic sitemap + llms.txt + _routes.json allowlist instead. DB column is snake_case `same_as` (mapped to Person.sameAs). articleAuthorLd kept as legacy byline fallback; postAuthorLd prefers the linked entity. Had to add /authors/* + /sitemap-authors.xml to public/_routes.json (routes-json guard test). Verified: web tsc, functions tsc, edge deno check+lint, vitest 731/731, build:locked (41 pages), verify:db (00201 applies from zero).
+- Timestamp: 2026-06-13
+---
