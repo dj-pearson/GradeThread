@@ -106,6 +106,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | ☐ | |
 | ebay-performance-sync | `0 */6 * * *` | `/api/flipdesk/ebay/sync/performance` | ☐ | |
 | ebay-publish-due | `*/5 * * * *` | `/api/flipdesk/ebay/jobs/publish-due` | ☐ | |
+| ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | ☐ | no-op unless system setting `feedback.auto_leave`=true (US-1047) |
 | gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | ☐ | |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | ☐ | |
 | appstore-expiry-sweep | `30 */6 * * *` | `/api/jobs/appstore-expiry-sweep` | ☐ | backstop: lapses appstore-billed users to free when Apple's expiry notification was lost (stale period_end past a 72h grace; tune `APPSTORE_SWEEP_GRACE_HOURS`) (US-811) |

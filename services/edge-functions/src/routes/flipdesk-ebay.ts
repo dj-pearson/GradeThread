@@ -121,7 +121,8 @@ import { acquireJobLock } from "../lib/job-lock.ts";
 import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
 import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts";
 import { failSafe } from "../lib/http-errors.ts";
-import { writeAuditLog } from "../lib/audit-log.ts";
+import { writeAuditLog, writeSystemAuditLog } from "../lib/audit-log.ts";
+import { getSetting } from "../lib/system-settings.ts";
 import {
   approveCancellation,
   decideReturn,
@@ -2765,6 +2766,104 @@ flipdeskEbayRoutes.post("/feedback", async (c) => {
     return c.json({ ok: true, count: targets.length, already_left: alreadyLeftAll });
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the feedback.", err, "ebay.feedback");
+  }
+});
+
+// US-1047: scheduled auto-leave positive feedback on recently-completed orders.
+// Gated by system_settings "feedback.auto_leave" (default off). Idempotent via an
+// admin_audit_log marker per order (shared with manual leaves so neither repeats).
+flipdeskEbayRoutes.post("/jobs/leave-feedback", async (c) => {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  if (!(await getSetting<boolean>("feedback.auto_leave", false))) {
+    return c.json({ skipped: true, reason: "disabled" });
+  }
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const lock = await acquireJobLock("leave-feedback", 240);
+  if (!lock.acquired) {
+    return c.json({ skipped: true, reason: lock.reason });
+  }
+  try {
+    const { data: conns } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("user_id")
+      .eq("marketplace", "ebay")
+      .eq("is_active", true);
+    const ownerIds = Array.from(
+      new Set(((conns ?? []) as { user_id: string }[]).map((r) => r.user_id)),
+    );
+    // Leave a 2-day grace (payment settles) and look back 30 days.
+    const windowStart = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const windowEnd = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    const PER_OWNER = 50;
+    let left = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const ownerId of ownerIds) {
+      const { data: saleRows } = await supabaseAdmin
+        .from("sales")
+        .select("platform_order_id")
+        .eq("user_id", ownerId)
+        .eq("status", "completed")
+        .not("platform_order_id", "is", null)
+        .gte("sold_at", windowStart)
+        .lte("sold_at", windowEnd)
+        .limit(PER_OWNER);
+      const orderIds = Array.from(
+        new Set(
+          ((saleRows ?? []) as { platform_order_id: string }[]).map(
+            (r) => r.platform_order_id,
+          ),
+        ),
+      );
+      for (const orderId of orderIds) {
+        // Idempotency: skip if feedback was already left for this order.
+        const { data: prior } = await supabaseAdmin
+          .from("admin_audit_log")
+          .select("id")
+          .eq("action", "ebay.feedback.leave")
+          .eq("target_id", orderId)
+          .limit(1)
+          .maybeSingle();
+        if (prior) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          const lineItems = await getOrderLegacyLineItems(ownerId, orderId);
+          for (const li of lineItems) {
+            if (!li.buyerUsername) continue;
+            await leaveFeedback(ownerId, {
+              itemId: li.itemId,
+              transactionId: li.transactionId,
+              targetUser: li.buyerUsername,
+              comment: "Great buyer — fast payment, smooth transaction. Thank you!",
+            });
+          }
+          await writeSystemAuditLog({
+            action: "ebay.feedback.leave",
+            targetType: "ebay_feedback",
+            targetId: orderId,
+            details: { auto: true, count: lineItems.length },
+          });
+          left += 1;
+        } catch (err) {
+          errors += 1;
+          console.error(
+            "[ebay.jobs.leave-feedback]",
+            orderId,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    }
+    return c.json({ ok: true, owners: ownerIds.length, left, skipped, errors });
+  } finally {
+    await lock.release();
   }
 });
 

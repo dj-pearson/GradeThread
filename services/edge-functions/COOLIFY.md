@@ -158,6 +158,7 @@ the handler returns 401.
 | ebay-performance-sync   | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/sync/performance`             |
 | ebay-publish-due        | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/publish-due`             |
 | ebay-promoted-sync      | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/promoted-sync`           |
+| ebay-leave-feedback     | `0 10 * * *` (daily)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/leave-feedback`          |
 | ebay-sync-reaper        | `*/15 * * * *` (15min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/sync-reaper`                           |
 | gsc-sync                | `30 6 * * *` (06:30)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/gsc-sync`                              |
 | trial-check             | `0 14 * * *` (14:00)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/notifications/trial-check`                  |
