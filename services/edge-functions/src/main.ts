@@ -62,6 +62,7 @@ import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
 import { adminJobsRoutes } from "./routes/admin-jobs.ts";
+import { adminOpsRoutes } from "./routes/admin-ops.ts";
 import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
@@ -398,11 +399,15 @@ app.use("/api/jobs/*", async (c, next) => {
   if (!isCron) return;
   const httpStatus = c.res.status;
   const jobName = c.req.path.split("/").pop() ?? "unknown";
+  // US-881: attribute the run. A manual Run-now from the Operations console
+  // sets X-Triggered-By: admin:<uuid>; a scheduled Coolify cron does not.
+  const triggeredBy = c.req.header("X-Triggered-By")?.trim() || "schedule";
   void recordCronRun({
     jobName,
     status: httpStatus >= 400 ? "error" : "success",
     httpStatus,
     durationMs: Date.now() - startedMs,
+    triggeredBy,
   });
 });
 
@@ -693,6 +698,9 @@ app.route("/api/admin/messages", adminMessagesRoutes);
 // US-584 admin job/queue monitoring + manual retry/cancel + cron health. Admin
 // JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/jobs", adminJobsRoutes);
+// US-881 Operations console: background-jobs & scheduler view + manual Run-now
+// (super_admin + MFA step-up + job_lock + audit). Admin JWT + AAL2 via group.
+app.route("/api/admin/ops", adminOpsRoutes);
 // US-589 bulk admin operations (bulk credit grant / suspend-unsuspend / regrade).
 // Idempotency-keyed + audited; admin JWT + AAL2 via the /api/admin/* group,
 // with credit/suspend additionally requiring a fresh MFA step-up.

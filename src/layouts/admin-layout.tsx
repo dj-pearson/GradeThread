@@ -76,6 +76,13 @@ const growthNavItems = [
   { to: "/admin/growth/referrals", icon: Gift, label: "Referrals", end: false },
 ];
 
+// Operations console (US-881) — platform automation surface. Same admin +
+// super_admin access; the Run-now action is additionally super_admin + MFA
+// step-up gated server-side.
+const opsNavItems = [
+  { to: "/admin/ops/jobs", icon: Server, label: "Background Jobs", end: false },
+];
+
 // Content module — its own section in the admin sidebar. Same admin +
 // super_admin access as the rest of the panel (moved here from the regular
 // dashboard's "Content" group).
@@ -125,6 +132,19 @@ export function AdminLayout() {
       const res = await edgeFetch("/api/admin/support/conversations?status=escalated");
       const json = await res.json().catch(() => ({}));
       return res.ok ? (json.conversations?.length ?? 0) : 0;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
+  // US-881: count of background jobs with consecutive failures, for the
+  // Operations > Background Jobs nav badge (light poll, like Reviews above).
+  const { data: failingJobsCount } = useQuery({
+    queryKey: ["admin-ops-failing-jobs-count"],
+    queryFn: async (): Promise<number> => {
+      const res = await edgeFetch("/api/admin/ops/jobs?page_size=1");
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? Number(json.failing_count ?? 0) : 0;
     },
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
@@ -191,6 +211,27 @@ export function AdminLayout() {
             >
               <item.icon className="h-5 w-5" />
               {item.label}
+            </NavLink>
+          ))}
+
+          {/* Operations console (US-881). */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Operations
+          </div>
+          {opsNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              <span className="flex-1">{item.label}</span>
+              {item.to === "/admin/ops/jobs" && (failingJobsCount ?? 0) > 0 && (
+                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+                  {failingJobsCount}
+                </span>
+              )}
             </NavLink>
           ))}
 

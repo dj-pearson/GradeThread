@@ -20,6 +20,12 @@ export interface CronRunInsert {
   httpStatus?: number;
   durationMs?: number;
   detail?: Record<string, unknown>;
+  // US-881: who fired this run — 'schedule' (Coolify cron) or 'admin:<uuid>'
+  // (manual Run-now from the Operations console). The middleware reads it from
+  // the X-Triggered-By header, defaulting to 'schedule'.
+  triggeredBy?: string;
+  // US-881: optional count of items the run processed.
+  rowsProcessed?: number;
 }
 
 // Best-effort: a ledger write must never break the cron itself. Never throws.
@@ -31,6 +37,8 @@ export async function recordCronRun(run: CronRunInsert): Promise<void> {
       http_status: run.httpStatus ?? null,
       duration_ms: run.durationMs ?? null,
       detail: run.detail ?? {},
+      triggered_by: run.triggeredBy ?? "schedule",
+      rows_processed: run.rowsProcessed ?? null,
     });
     if (error) logEvent("warn", "cron_run.record_failed", { job: run.jobName, error: error.message });
   } catch (err) {
