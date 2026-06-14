@@ -127,6 +127,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | north-star-digest | `0 14 * * 1` | `/api/jobs/north-star-digest` | ☐ | weekly (Mon) items-listed encouragement + milestone emails, streak tracking (US-597) |
 | content-scheduler-tick | `0 * * * *` | `/api/content/scheduler/tick` | ☐ | **uses `CONTENT_INTERNAL_JOB_SECRET`**; idle returns `{skipped:true}`. Hourly tick enforces per-day cadence + promotes scheduled drafts. Start with autopilot OFF — `docs/CONTENT_SCHEDULER.md` (US-852) |
 | content-watchdog | `0 */3 * * *` | `/api/jobs/content-watchdog` | ☐ | shared `FLIPDESK_INTERNAL_JOB_SECRET`. Heartbeat check on the auto-publisher: alerts the owner if no healthy scheduler tick in 3h or >25% webhook failures over 24h. Routes to `CONTENT_ALERT_EMAIL`/`MONITOR_ALERT_EMAIL`/`SMTP_ADMIN_EMAIL` (+ optional `CONTENT_ALERT_WEBHOOK`) (US-869) |
+| content-refresh | `30 4 * * *` | `/api/jobs/content-refresh` | ☐ | shared `FLIPDESK_INTERNAL_JOB_SECRET`. Daily freshness loop: refreshes the single top stale-but-important published post (GSC-weighted, else reading-time), only when the change is material — bumps dateModified, purges CF cache, re-pings IndexNow. Honours `content_settings.auto_refresh_enabled` + the cooldown/min-stale windows (US-875) |
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`
 (same secret header) once after the final pre-launch deploy — it seals every

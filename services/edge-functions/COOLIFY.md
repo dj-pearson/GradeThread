@@ -176,6 +176,7 @@ the handler returns 401.
 | ebay-pending-webhooks   | `*/15 * * * *` (15min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ebay-pending-webhooks`                 |
 | north-star-digest       | `0 14 * * 1` (Mon 14:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/north-star-digest`                   |
 | content-watchdog        | `0 */3 * * *` (3h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/content-watchdog`                      |
+| content-refresh         | `30 4 * * *` (daily)  | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/content-refresh`                       |
 
 > **Cadence notes (US-496):**
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h
@@ -191,6 +192,15 @@ the handler returns 401.
 >   to `MONITOR_ALERT_EMAIL`/`SMTP_ADMIN_EMAIL`), plus optional
 >   **`CONTENT_ALERT_WEBHOOK`** (falling back to `MONITOR_ALERT_WEBHOOK`). Only
 >   meaningful once `content-scheduler-tick` is enabled (US-852).
+> - `content-refresh` (US-875) is the freshness loop: once per day it refreshes
+>   the single top stale-but-important published post (ranked by GSC
+>   impressions/clicks when available, else a reading-time fallback), writing only
+>   when the change is material — then it bumps `dateModified`, purges the
+>   Cloudflare cache, and re-pings IndexNow. A per-post cooldown
+>   (`content_settings.content_refresh_cooldown_days`, default 30) prevents
+>   thrashing; toggle the whole job with `content_settings.auto_refresh_enabled`.
+>   Each run logs to `content_scheduler_runs` (surface='refresh') and is counted
+>   in the weekly digest.
 > - `automation-rules` (US-150) applies user-defined price-drop / promo / end
 >   rules hourly (offset to :30 so it never races reprice-scan for the eBay
 >   rate budget). Per-rule cooldowns stop hourly re-fires; overlap-locked.

@@ -12905,8 +12905,8 @@
         "Refresh activity is logged (content_scheduler_runs) and counted in the weekly digest; npm run verify passes"
       ],
       "priority": 875,
-      "passes": false,
-      "notes": "[EPIC: Content Authority Depth 2026-06-11] Owner chose full-auto. Reuses content-ai-blog.ts regenerate-section + the existing publish cache-purge/IndexNow path. GSC signal (US-879) is optional input; degrade gracefully without it."
+      "passes": true,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Owner chose full-auto. DONE. Migration 00202_content_freshness.sql adds blog_posts.last_refreshed_at + refresh_count, a partial expression index on COALESCE(last_refreshed_at, published_at) WHERE status='published', and content_settings knobs (auto_refresh_enabled, content_refresh_cooldown_days=30, content_refresh_min_stale_days=30). lib/content-freshness.ts is the pure selector (staleness × importance; GSC impressions+clicks when available via gsc_performance, else reading-time fallback) + thrash guard + materialChangeRatio (multiset word diff, formatting/typo edits skipped). lib/content-ai-refresh.ts + buildBlogRefreshUserPrompt regenerate/expand body + key_takeaways + faqs (title/slug fixed). POST /api/jobs/content-refresh (jobs-content-refresh.ts, job-secret + job-lock) picks the top eligible post per run; writes only when material → bumps updated_at + last_refreshed_at (dateModified/visible Updated date move via blog-render wasUpdatedAfterPublish), purges CF cache, re-pings IndexNow; trivial diffs just advance last_refreshed_at to avoid re-picking. Logged to content_scheduler_runs (surface='refresh') + counted in the weekly digest (content-summary.ts refreshes.posts_refreshed). Registered in LAUNCH_CHECKLIST + COOLIFY (daily 30 4 * * *). Tests: content-freshness_test.ts (15) + content-summary_test.ts additions. verify:db applies 00202 from zero; EXPECTED_SCHEMA_VERSION→00202."
     },
     {
       "id": "US-876",

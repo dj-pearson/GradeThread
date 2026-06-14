@@ -2442,3 +2442,21 @@ Branch: ralph/gradethread-build
 - Notes: Migration suggested 00148 was stale; repo at 00200 so used 00201 and bumped schema version. Author pages are EDGE-SSR'd like the blog (no SPA/React route, no PUBLIC_ROUTES entry) -> registered via the dynamic sitemap + llms.txt + _routes.json allowlist instead. DB column is snake_case `same_as` (mapped to Person.sameAs). articleAuthorLd kept as legacy byline fallback; postAuthorLd prefers the linked entity. Had to add /authors/* + /sitemap-authors.xml to public/_routes.json (routes-json guard test). Verified: web tsc, functions tsc, edge deno check+lint, vitest 731/731, build:locked (41 pages), verify:db (00201 applies from zero).
 - Timestamp: 2026-06-13
 ---
+
+## US-875: Content freshness loop (auto-detect + refresh stale top posts)
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00202_content_freshness.sql (blog_posts.last_refreshed_at + refresh_count, partial expr index on COALESCE(last_refreshed_at,published_at) WHERE status='published', content_settings: auto_refresh_enabled + content_refresh_cooldown_days + content_refresh_min_stale_days)
+  - services/edge-functions/src/lib/content-freshness.ts (NEW: pure selector rankStalePosts/pickStalePost, GSC vs reading-time importance, thrash guard, materialChangeRatio multiset word diff)
+  - services/edge-functions/src/lib/content-ai-refresh.ts (NEW: refreshBlogArticle generator)
+  - services/edge-functions/src/lib/content-ai-prompts.ts (refresh-article task + buildBlogRefreshUserPrompt + BlogRefreshOutput/BLOG_REFRESH_PROMPT_VERSION)
+  - services/edge-functions/src/routes/jobs-content-refresh.ts (NEW: POST /api/jobs/content-refresh handler)
+  - services/edge-functions/src/main.ts (mount the cron route)
+  - services/edge-functions/src/lib/content-summary.ts (refreshedPosts input + refreshes.posts_refreshed output + suggestion)
+  - services/edge-functions/src/routes/content-scheduler.ts (/summary counts content_scheduler_runs surface='refresh')
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION -> 00202)
+  - services/edge-functions/src/tests/content-freshness_test.ts (NEW, 15 tests), content-summary_test.ts (refresh coverage + fixture fix)
+  - LAUNCH_CHECKLIST.md, services/edge-functions/COOLIFY.md (content-refresh scheduled task, daily 30 4 * * *)
+- Notes: Suggested migration 00149 was stale (repo at 00201) -> used 00202. content_scheduler_runs.outcome/surface are free text (no CHECK), so refresh runs reuse the table with surface='refresh' (doubles as a liveness heartbeat; daily cadence can't mask the hourly main-tick watchdog). Material gate uses a multiset word diff (changed-words OR net-growth threshold) so formatting/typo edits are skipped; trivial diffs still advance last_refreshed_at so the next run moves to the next stale post. GSC is optional input (US-879 not yet built) - degrades to reading-time fallback when gsc_performance is empty. Had to cast posts query through `as unknown as PostRow[]` (Supabase deno typing infers GenericStringError on jsonb/array columns). Verified: deno check (all edge src) + lint clean, deno test 34/34 (freshness+summary+schema-version) + plan-gate 24/24 + rls-guard, web tsc --noEmit clean, vitest 731/731, verify:db applies 00202 from zero (29s).
+- Timestamp: 2026-06-13
+---

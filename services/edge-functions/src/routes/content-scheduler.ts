@@ -1032,6 +1032,7 @@ contentSchedulerRoutes.get("/summary", async (c) => {
     topicsUsed,
     queuedTopics,
     webhookRows,
+    refreshRuns,
   ] = await Promise.all([
     supabaseAdmin
       .from("blog_posts")
@@ -1064,6 +1065,13 @@ contentSchedulerRoutes.get("/summary", async (c) => {
       .from("content_webhook_log")
       .select("succeeded")
       .gte("created_at", since),
+    // US-875: count material content refreshes in the window for the digest.
+    supabaseAdmin
+      .from("content_scheduler_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("surface", "refresh")
+      .eq("outcome", "success")
+      .gte("ran_at", since),
   ]);
 
   // Aggregate current queued topics into per-(surface,product) bank levels.
@@ -1090,6 +1098,7 @@ contentSchedulerRoutes.get("/summary", async (c) => {
     bankLevels: [...bankMap.values()],
     webhookLog: (webhookRows.data ?? []) as Array<{ succeeded: boolean }>,
     minTopicsInBank: minTopics,
+    refreshedPosts: refreshRuns.count ?? 0,
   });
 
   return c.json(summary);

@@ -25,6 +25,12 @@ export interface SummaryInput {
   webhookLog: Array<{ succeeded: boolean }>;
   /** content_settings.min_topics_in_bank — the refill floor. */
   minTopicsInBank: number;
+  /**
+   * US-875: material content refreshes applied by the freshness job within the
+   * window (content_scheduler_runs surface='refresh', outcome='success').
+   * Optional — defaults to 0 so older callers/fixtures stay valid.
+   */
+  refreshedPosts?: number;
 }
 
 export interface ContentSummary {
@@ -57,6 +63,10 @@ export interface ContentSummary {
     blog_posts_created: number;
     human_authored: number;
     human_override_rate: number; // 0..1
+  };
+  /** US-875: freshness-loop activity within the window. */
+  refreshes: {
+    posts_refreshed: number;
   };
   suggestions: string[];
 }
@@ -135,6 +145,13 @@ export function buildContentSummary(input: SummaryInput): ContentSummary {
     );
   }
 
+  const refreshedPosts = input.refreshedPosts ?? 0;
+  if (refreshedPosts === 0 && blog.total > 0) {
+    suggestions.push(
+      `No posts were refreshed in the last ${input.windowDays}d — verify the content-refresh cron is scheduled and auto_refresh_enabled is on.`,
+    );
+  }
+
   return {
     window_days: input.windowDays,
     generated_at: input.generatedAt,
@@ -155,6 +172,9 @@ export function buildContentSummary(input: SummaryInput): ContentSummary {
       blog_posts_created: blogCreated,
       human_authored: humanAuthored,
       human_override_rate: overrideRate,
+    },
+    refreshes: {
+      posts_refreshed: refreshedPosts,
     },
     suggestions,
   };

@@ -82,6 +82,7 @@ import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
+import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
@@ -786,6 +787,13 @@ app.post("/api/jobs/growth-dispatch", (c) => handleGrowthDispatchCron(c));
 // intercept it; the handler enforces X-Internal-Job-Secret itself. Schedule on
 // Coolify cron (suggested 0 */3 * * *).
 app.post("/api/jobs/content-watchdog", (c) => handleContentWatchdogCron(c));
+// US-875: content-freshness loop. Ranks published posts by staleness ×
+// importance (GSC when available, else reading-time fallback), refreshes the
+// top eligible post when the change is material — bumping dateModified, purging
+// the CF cache, and re-pinging IndexNow — and honours a per-post cooldown.
+// OUTSIDE /api/admin; the handler enforces X-Internal-Job-Secret itself.
+// Schedule on Coolify cron (suggested daily, e.g. 30 4 * * *).
+app.post("/api/jobs/content-refresh", (c) => handleContentRefreshCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/authors", contentAuthorsRoutes);
 app.route("/api/content/social", contentSocialRoutes);

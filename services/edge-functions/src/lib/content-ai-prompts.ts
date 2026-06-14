@@ -32,7 +32,8 @@ export function buildSystemPrompt(input: {
     | "write-blog-article"
     | "write-social-post"
     | "research-topics"
-    | "regenerate-section";
+    | "regenerate-section"
+    | "refresh-article";
 }): string {
   const taskHeader =
     {
@@ -44,6 +45,8 @@ export function buildSystemPrompt(input: {
         "Your task is to propose a batch of fresh topic candidates that do NOT overlap with anything in the history index.",
       "regenerate-section":
         "Your task is to regenerate or rewrite a specific passage of an existing article.",
+      "refresh-article":
+        "Your task is to refresh and improve an existing, already-published blog article so it stays accurate, current, and competitive — without rewriting it from scratch.",
     }[input.task];
 
   return [
@@ -227,6 +230,88 @@ export function buildBlogArticleUserPrompt(topic: BlogTopicInput): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+// ──────────────────────────────────────────────────────────
+// BLOG ARTICLE REFRESH (US-875)
+// ──────────────────────────────────────────────────────────
+// The freshness loop re-runs an EXISTING published post through the model to
+// expand thin sections, correct anything stale, and tighten the answer-first
+// blocks (key takeaways + FAQs). Unlike generation, the title and slug are
+// FIXED — we never break the canonical URL — and the model is told to preserve
+// what already works rather than start over. The job decides whether the result
+// is materially different before it writes anything (see content-freshness.ts).
+export const BLOG_REFRESH_PROMPT_VERSION = "blog_refresh_v1";
+
+export interface BlogRefreshInput {
+  title: string; // fixed — do not change
+  primary_keyword: string;
+  secondary_keywords: string[];
+  product_focus: ContentProduct;
+  current_html: string;
+  current_excerpt: string | null;
+  current_key_takeaways: string[];
+  current_faqs: Array<{ q: string; a: string }>;
+  published_at: string | null;
+}
+
+export function buildBlogRefreshUserPrompt(input: BlogRefreshInput): string {
+  const faqLines = input.current_faqs.length > 0
+    ? input.current_faqs.map((f) => `- Q: ${f.q}\n  A: ${f.a}`).join("\n")
+    : "(none)";
+  return [
+    "Refresh and improve this already-published blog article. Keep everything that works; do NOT rewrite from scratch and do NOT change the title.",
+    "",
+    `Title (FIXED — keep exactly): ${input.title}`,
+    `Primary keyword: ${input.primary_keyword}`,
+    input.secondary_keywords.length > 0
+      ? `Secondary keywords: ${input.secondary_keywords.join(", ")}`
+      : "",
+    `Product focus: ${input.product_focus}`,
+    input.published_at ? `Originally published: ${input.published_at.slice(0, 10)}` : "",
+    "",
+    "Current key takeaways:",
+    input.current_key_takeaways.length > 0
+      ? input.current_key_takeaways.map((k) => `- ${k}`).join("\n")
+      : "(none)",
+    "",
+    "Current FAQs:",
+    faqLines,
+    "",
+    "Current article body (HTML):",
+    input.current_html,
+    "",
+    "How to refresh:",
+    "- Expand thin or shallow sections with concrete specifics; add a new H2 section only if it genuinely adds value.",
+    "- Correct anything dated, and add current best-practice detail where the topic has moved on.",
+    "- Keep the strongest existing sentences; this is an edit, not a teardown.",
+    "- Do NOT add an H1 (the page renders the title separately). Start body at <h2>.",
+    "- Refresh the answer-first key takeaways and the FAQ Q&A so they reflect the updated body.",
+    "- No <script>, no inline style, no on* handlers.",
+    "",
+    "Return JSON matching exactly this schema:",
+    "{",
+    '  "body_html": "<the refreshed article body as semantic HTML, starting at <h2>>",',
+    '  "excerpt": "<140–180 char hook; keep close to the current one unless it should change>",',
+    '  "seo_description": "<≤155 chars, includes primary keyword>",',
+    '  "key_takeaways": ["<3–5 answer-first bullets>"],',
+    '  "faqs": [ { "q": "<question>", "a": "<concise answer>" } ],',
+    '  "summary_one_line": "<single sentence, ≤140 chars>",',
+    '  "change_summary": "<one sentence: what you changed and why it is a genuine improvement>"',
+    "}",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export interface BlogRefreshOutput {
+  body_html: string;
+  excerpt: string;
+  seo_description: string;
+  key_takeaways: string[];
+  faqs: Array<{ q: string; a: string }>;
+  summary_one_line: string;
+  change_summary: string;
 }
 
 // ──────────────────────────────────────────────────────────

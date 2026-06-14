@@ -119,6 +119,29 @@ Deno.test("clean week with content produces no suggestions", () => {
     bankLevels: [{ surface: "blog", product_focus: "gradethread", queued: 10 }],
     webhookLog: [{ succeeded: true }],
     blogAuthored: [{ generated_by: "ai" }],
+    refreshedPosts: 1,
   });
   assertEquals(s.suggestions, []);
+});
+
+Deno.test("US-875: counts refreshed posts and reports them", () => {
+  const s = buildContentSummary({ ...BASE, refreshedPosts: 3 });
+  assertEquals(s.refreshes.posts_refreshed, 3);
+});
+
+Deno.test("US-875: defaults refreshes to 0 when not provided", () => {
+  const s = buildContentSummary({ ...BASE });
+  assertEquals(s.refreshes.posts_refreshed, 0);
+});
+
+Deno.test("US-875: suggests checking the cron when posts published but none refreshed", () => {
+  const s = buildContentSummary({
+    ...BASE,
+    blogPublished: [{ product_focus: "gradethread" }],
+    bankLevels: [{ surface: "blog", product_focus: "gradethread", queued: 10 }],
+    webhookLog: [{ succeeded: true }],
+    blogAuthored: [{ generated_by: "ai" }],
+    refreshedPosts: 0,
+  });
+  assert(s.suggestions.some((x) => x.includes("No posts were refreshed")));
 });
