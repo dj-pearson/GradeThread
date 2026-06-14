@@ -221,6 +221,18 @@ export function jsonSafe(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003C");
 }
 
+// US-872: Open Graph `article:*` metadata for rich pins / social cards. Only
+// emitted on og:type="article" pages (the blog posts). Pinterest's rich-pin
+// validator reads article:published_time + article:author to upgrade a pin to
+// an Article rich pin.
+export interface ArticleMeta {
+  publishedTime?: string | null;
+  modifiedTime?: string | null;
+  author?: string | null;
+  section?: string | null;
+  tags?: string[] | null;
+}
+
 interface LayoutInput {
   title: string;
   description: string;
@@ -233,6 +245,8 @@ interface LayoutInput {
   // passes "product" so og:type stays consistent with the page's primary
   // entity (a Product JSON-LD node) and matches the SPA cert route.
   ogType?: string;
+  // US-872: article:* OG tags (rich pins). Emitted only when ogType="article".
+  articleMeta?: ArticleMeta;
   // US-428: brand X @handle for twitter:site (pass twitterSiteHandle(env)).
   // Omitted from the head when empty.
   twitterSite?: string;
@@ -300,6 +314,9 @@ const BASE_STYLES = `
   .tag-list a:hover { background: var(--accent); color: white; }
   .cta { display: inline-block; margin-top: 24px; padding: 12px 24px; background: var(--accent); color: white; text-decoration: none; border-radius: 6px; font-weight: 500; }
   .cta:hover { background: #0a274a; text-decoration: none; }
+  .pin-save { margin: 16px 0 0; }
+  .pin-button { display: inline-block; padding: 8px 16px; background: #e60023; color: white; text-decoration: none; border-radius: 999px; font-weight: 600; font-size: 0.9rem; }
+  .pin-button:hover { background: #ad081b; text-decoration: none; }
   .post-meta .author { font-weight: 600; color: var(--fg); }
   .post-meta .updated { color: var(--accent); }
   .key-takeaways { background: #f9fafb; border: 1px solid #e5e7eb; border-left: 4px solid var(--accent); border-radius: 8px; padding: 16px 20px; margin: 0 0 24px; }
@@ -354,6 +371,7 @@ ${input.ogImage ? `<meta property="og:image" content="${escape(input.ogImage)}">
 <meta name="twitter:description" content="${escape(input.description)}">
 ${input.ogImage ? `<meta name="twitter:image" content="${escape(input.ogImage)}">` : ""}
 ${input.twitterSite ? `<meta name="twitter:site" content="${escape(input.twitterSite)}">` : ""}
+${ogType === "article" ? renderArticleMetaTags(input.articleMeta) : ""}
 <style>${BASE_STYLES}</style>
 ${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId) : ""}
 ${ldScripts}
@@ -587,6 +605,98 @@ export function renderRelatedPosts(
     )
     .join("");
   return `<section class="related"><h2>Keep reading</h2><div class="related-grid">${cards}</div></section>`;
+}
+
+// ─── Pinterest rich pins + vertical pin pipeline (US-872) ──────────────────
+// Pinterest is a primary discovery channel for clothing + reselling. Two
+// surfaces feed it: (1) `article:*` OG tags (renderArticleMetaTags) so a pinned
+// post validates as an Article rich pin, and (2) a vertical 1000x1500 "pin"
+// card via the US-871 social-card endpoint plus an on-page "Save to Pinterest"
+// affordance carrying that media + a keyword-rich description + the destination
+// URL. All pure + escaped so they're unit-testable from Vitest.
+
+export type PinProduct = "gradethread" | "flipdesk" | "both";
+
+/**
+ * `article:*` Open Graph meta tags Pinterest (and other crawlers) read to
+ * validate an article rich pin. Returns "" when meta is absent; the caller only
+ * passes it for og:type="article" pages so product/cert pages stay clean.
+ * Times must be ISO-8601; author/section/tags are escaped.
+ */
+export function renderArticleMetaTags(meta: ArticleMeta | undefined): string {
+  if (!meta) return "";
+  const tags: string[] = [];
+  if (meta.publishedTime) {
+    tags.push(
+      `<meta property="article:published_time" content="${escape(meta.publishedTime)}">`,
+    );
+  }
+  if (meta.modifiedTime) {
+    tags.push(
+      `<meta property="article:modified_time" content="${escape(meta.modifiedTime)}">`,
+    );
+  }
+  if (meta.author?.trim()) {
+    tags.push(
+      `<meta property="article:author" content="${escape(meta.author.trim())}">`,
+    );
+  }
+  if (meta.section?.trim()) {
+    tags.push(
+      `<meta property="article:section" content="${escape(meta.section.trim())}">`,
+    );
+  }
+  for (const t of meta.tags ?? []) {
+    if (t?.trim()) {
+      tags.push(`<meta property="article:tag" content="${escape(t.trim())}">`);
+    }
+  }
+  return tags.join("\n");
+}
+
+/**
+ * Vertical 1000x1500 pin image URL via the US-871 card endpoint
+ * (`/og/social/card?ratio=pin`). `kind=title` renders the post title on-brand.
+ * `siteBase` is the absolute origin (https://gradethread.com).
+ */
+export function buildPinImageUrl(
+  siteBase: string,
+  opts: { title: string; product?: PinProduct; eyebrow?: string | null },
+): string {
+  const base = siteBase.replace(/\/$/, "");
+  const qs = new URLSearchParams({
+    ratio: "pin",
+    kind: "title",
+    text: opts.title,
+    product: opts.product ?? "gradethread",
+  });
+  if (opts.eyebrow?.trim()) qs.set("eyebrow", opts.eyebrow.trim());
+  return `${base}/og/social/card?${qs.toString()}`;
+}
+
+/**
+ * "Save to Pinterest" affordance: a dedicated pin-create link carrying the
+ * destination URL (with UTM), the vertical pin media, and a keyword-rich
+ * description, plus the `data-pin-*` attributes the Pinterest Save button /
+ * browser extension read. `pinUrl` should be the canonical post URL with pin
+ * UTM params; `description` is capped to Pinterest's 500-char limit.
+ */
+export function renderPinterestSave(opts: {
+  pinUrl: string;
+  media: string;
+  description: string;
+}): string {
+  const description = opts.description.trim().slice(0, 500);
+  const href = "https://www.pinterest.com/pin/create/button/?" +
+    new URLSearchParams({
+      url: opts.pinUrl,
+      media: opts.media,
+      description,
+    }).toString();
+  return `<div class="pin-save"><a class="pin-button" href="${escape(href)}" ` +
+    `target="_blank" rel="nofollow noopener" data-pin-do="buttonPin" ` +
+    `data-pin-url="${escape(opts.pinUrl)}" data-pin-media="${escape(opts.media)}" ` +
+    `data-pin-description="${escape(description)}">Save to Pinterest</a></div>`;
 }
 
 // ─── Responsive images (US-306) ───────────────────────────────────────────

@@ -2381,3 +2381,19 @@ Branch: ralph/gradethread-build
   - No DB migration.
 - Timestamp: 2026-06-13
 ---
+
+## US-872: Pinterest rich pins + vertical pin pipeline (fashion-resale channel)
+- Status: COMPLETE
+- Files changed: functions/_shared/blog-render.ts, functions/blog/[[path]].ts, services/edge-functions/src/tests/content-social-publish_test.ts, src/test/pinterest-rich-pins.test.ts, docs/CONTENT_PUBLISHING.md, prd.json, scripts/ralph/progress.txt
+- Notes:
+  - The US-870/871 work already routed Pinterest generically (pin_vertical -> ratio=pin card, 500-char keyword body, social.published fan-out). US-872 makes it FIRST-CLASS on the blog and locks the contract.
+  - AC1 (rich-pin OG tags): new pure helper renderArticleMetaTags() emits article:published_time/modified_time/author/section/tag from the post, wired into renderLayout and gated to og:type=article (cert/product SSR stays clean). renderPost passes articleMeta.
+  - AC2 (vertical pin + Pinterest image): buildPinImageUrl() -> /og/social/card?ratio=pin&kind=title (US-871 1000x1500 card); renderPinterestSave() adds an on-page "Save to Pinterest" pin-create link with media=pin card, url=canonical+utm_source=pinterest, description=SEO desc (capped 500), mirrored to data-pin-url/media/description.
+  - AC3 (Pinterest variant payload): already produced by planSocialFanout (pin image + keyword body + cta_url w/ UTM); locked with a new Deno test.
+  - AC4 (docs): CONTENT_PUBLISHING.md gains a Pinterest section (rich-pin meta table, pin creative/Save button, Make create-pin module mapping board/image/title/description/link) + image_url added to the social.published payload contract.
+  - AC5: documented 5-step rich-pin verification checklist (incl. Pinterest URL-debugger validator).
+  - GOTCHA reminder: functions/ is NOT typechecked by `npm run build`; ran `npx tsc -p tsconfig.functions.json --noEmit` (green).
+  - The social-engine cta_url stays homepage+UTM (generic topic posts aren't blog-bound); the blog post's own Save-to-Pinterest link carries the destination blog URL with UTM.
+  - Verify: tsc functions OK; eslint OK (only pre-existing warnings); vitest 719 passed (new pinterest-rich-pins.test.ts, 11 cases); deno test content-social-publish OK; build:locked wrote 41 pages. No DB migration.
+- Timestamp: 2026-06-13
+---

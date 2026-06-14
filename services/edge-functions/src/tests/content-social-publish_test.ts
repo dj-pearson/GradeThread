@@ -77,6 +77,37 @@ Deno.test("US-871: auto-fills a branded card URL when the post has no asset", ()
   assert(!decodeURIComponent(url).includes("#reselling"));
 });
 
+Deno.test("US-872: the Pinterest variant carries vertical pin image + keyword body + destination URL w/ UTM", () => {
+  const payloads = planSocialFanout({
+    post: {
+      ...POST,
+      cta_url:
+        "https://gradethread.com/?utm_source=social&utm_medium=social&utm_campaign=denim",
+    },
+    enabled: ["pinterest"],
+    variants: [{
+      platform: "pinterest" as never,
+      body: "How to grade pre-owned denim before you list it for resale.",
+      hashtags: ["reselling", "denim"],
+      image_field: "pin_vertical",
+      char_limit: 500,
+    }],
+    timestamp: TS,
+    siteUrl: "https://gradethread.com",
+  });
+  assertEquals(payloads.length, 1);
+  const p = payloads[0];
+  assertEquals(p.platform, "pinterest");
+  // Keyword-rich description = the tailored variant body verbatim.
+  assertEquals(p.data.body, "How to grade pre-owned denim before you list it for resale.");
+  // Vertical 1000x1500 pin card (pin_vertical → ratio=pin).
+  assert((p.data.image_url ?? "").includes("ratio=pin"));
+  assertEquals(p.data.image_field, "pin_vertical");
+  // Destination URL carries UTM params for attribution.
+  assert((p.data.cta_url ?? "").includes("utm_source=social"));
+  assert((p.data.cta_url ?? "").includes("utm_campaign=denim"));
+});
+
 Deno.test("US-871: an uploaded asset overrides the auto card for every platform", () => {
   const asset = "https://cdn.example.com/social/post-1/card_1.png";
   const payloads = planSocialFanout({

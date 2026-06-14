@@ -132,7 +132,8 @@ All payloads are `{ event, timestamp, … , data }`. `timestamp` is ISO-8601 UTC
     "hashtags": ["grading", "reselling"], // string[], without the leading '#'
     "cta_url": "https://gradethread.com/?utm_source=social&utm_medium=social&utm_campaign=<campaign>", // string | null
     "product_focus": "flipdesk",          // "gradethread" | "flipdesk" | "both"
-    "image_field": "card_landscape"       // branded social-card aspect to attach (US-871/US-872): card_landscape | card_square | pin_vertical
+    "image_field": "pin_vertical",        // branded social-card aspect to attach (US-871/US-872): card_landscape | card_square | pin_vertical
+    "image_url": "https://gradethread.com/og/social/card?ratio=pin&kind=quote&text=…&product=flipdesk" // ready-to-attach branded card (US-871)
   }
 }
 ```
@@ -145,7 +146,8 @@ All payloads are `{ event, timestamp, … , data }`. `timestamp` is ISO-8601 UTC
 | `data.hashtags` | `string[]` | Lowercased, **no `#` prefix**, deduped. Add the `#` per channel convention. |
 | `data.cta_url` | `string \| null` | Pre-built CTA link carrying neutral UTM params (see below). |
 | `data.product_focus` | enum | Route to brand voice / channel set. |
-| `data.image_field` | `string \| null` | Forward-looking label for the branded card aspect (US-871/US-872). |
+| `data.image_field` | `string \| null` | Label for the branded card aspect: `card_landscape` (1200×630), `card_square` (1080×1080), `pin_vertical` (1000×1500 — Pinterest). |
+| `data.image_url` | `string \| null` | **Ready-to-attach image** (US-871). The post's uploaded `asset_image_url` if set, else an auto-built `/og/social/card` URL in the aspect this platform wants (Pinterest → `ratio=pin`). Use it directly as the channel's image/media. |
 
 > **Legacy fallback shape:** a post with no platform variants instead emits the
 > old `{ "format": "long" \| "short" }` events (no `platform`, no `image_field`).
@@ -246,6 +248,83 @@ point/repoint scenarios without a redeploy; a changed URL even takes effect on a
 > deliberately built to carry the full field set (`body`, `hashtags`, `cta_url`,
 > `product_focus`, …) so real publishes don't go out with unmapped/empty fields.
 > Always test-fire before the first real publish.
+
+---
+
+## Pinterest rich pins + vertical pin pipeline (US-872)
+
+Pinterest is a primary discovery channel for clothing + reselling, so it gets
+first-class support. Three pieces feed it:
+
+### 1. Rich-pin metadata (blog SSR)
+
+Every published blog post (`functions/blog/[[path]].ts` → `renderLayout`) emits
+the Open Graph tags Pinterest's crawler reads to **upgrade a pin to an Article
+rich pin**:
+
+| Tag | Source | Notes |
+|---|---|---|
+| `og:type` | `"article"` | Pinterest classifies the pin as an article. |
+| `og:title` / `og:description` | `seo_title`/`title`, `seo_description`/`excerpt` | Pin title + body. |
+| `og:image` | `/og/blog/<slug>` | Share/preview image. |
+| `article:published_time` | `published_at` | Required for article rich pins. |
+| `article:modified_time` | `updated_at` | Freshness signal. |
+| `article:author` | post author (or "GradeThread Team") | Author byline on the pin. |
+| `article:section` / `article:tag` | `primary_keyword` / `tags[]` | Topical context. |
+
+(`renderArticleMetaTags` in `functions/_shared/blog-render.ts` — only emitted on
+`og:type="article"` pages, so cert/product SSR stays clean.)
+
+### 2. Vertical pin creative + on-page Save button
+
+The post page exposes a **"Save to Pinterest"** affordance
+(`renderPinterestSave`) carrying:
+
+- **media** — a vertical **1000×1500** branded card via the US-871 endpoint
+  (`/og/social/card?ratio=pin&kind=title&text=<title>&product=<focus>`),
+- **destination url** — the canonical post URL with
+  `utm_source=pinterest&utm_medium=social&utm_campaign=<slug>`,
+- **description** — the keyword-rich SEO description (capped to Pinterest's 500
+  chars),
+
+…and mirrors them onto `data-pin-url` / `data-pin-media` / `data-pin-description`
+so the Pinterest Save button + browser extension pick up the right creative.
+
+### 3. Social-engine Pinterest variant (US-870 fan-out)
+
+A `social.published` event with `platform: "pinterest"` carries everything the
+Make **create-pin** module needs (see the payload table above):
+
+| Pin field | Map from |
+|---|---|
+| **Board** | A fixed board per `product_focus` (e.g. *Reselling Tips* / *Condition Grading*), set in the Make scenario. |
+| **Image / media** | `data.image_url` (auto-built `ratio=pin` card, or the uploaded `asset_image_url`). |
+| **Title** | First line of `data.body`, or the source post title. |
+| **Description** | `data.body` (≤500 chars, keyword-rich) + `#` + `data.hashtags`. |
+| **Destination link** | `data.cta_url`, with `utm_source` rewritten to `pinterest` (see [UTM rewriting](#utm-source-rewriting-applied-downstream)). |
+
+Make scenario steps mirror [How to add a channel](#how-to-add-a-channel): branch
+the `make_webhook_social` router on `platform == "pinterest"`, rewrite
+`utm_source=pinterest`, map the fields above, connect the Pinterest OAuth +
+**Create a Pin** module, test-fire, then activate.
+
+### Verification checklist — Pinterest rich pins
+
+Run once per representative post after deploy (documents AC5):
+
+1. **Tags present:** `curl -s https://gradethread.com/blog/<slug> | grep -E 'og:(type|title|description|image)|article:(published_time|author)'` returns all six.
+2. **Rich-pin validator:** paste `https://gradethread.com/blog/<slug>` into the
+   Pinterest Rich Pins validator (<https://developers.pinterest.com/tools/url-debugger/>)
+   and confirm it reports a valid **Article** rich pin (title, description,
+   author, published time resolved).
+3. **Pin creative:** open `https://gradethread.com/og/social/card?ratio=pin&kind=title&text=Test`
+   and confirm a 1000×1500 PNG renders on-brand.
+4. **Save button:** load the post, click **Save to Pinterest**, and confirm the
+   pin opens with the vertical card as media, the description prefilled, and the
+   destination URL carrying `utm_source=pinterest`.
+5. **Variant fan-out:** with `pinterest` enabled in `social_platforms`, test-fire
+   the social webhook and confirm one `platform: "pinterest"` event whose
+   `image_url` is a `ratio=pin` card.
 
 ---
 

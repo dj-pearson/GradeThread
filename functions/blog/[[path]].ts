@@ -25,6 +25,8 @@ import {
   renderFaqSection,
   faqPageJsonLd,
   renderRelatedPosts,
+  buildPinImageUrl,
+  renderPinterestSave,
   renderHeroImage,
   rewriteContentImages,
   imageResizingEnabled,
@@ -220,6 +222,24 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
     { name: post.title, url: canonical },
   ];
 
+  // US-872: Pinterest pin pipeline. A vertical 1000x1500 pin card (US-871
+  // /og/social/card?ratio=pin) plus a "Save to Pinterest" affordance whose
+  // destination is the post URL with Pinterest UTM params and whose description
+  // is the keyword-rich SEO description (capped to Pinterest's 500-char limit).
+  const pinUrl = `${canonical}?utm_source=pinterest&utm_medium=social&utm_campaign=${encodeURIComponent(
+    post.slug,
+  )}`;
+  const pinImage = buildPinImageUrl(siteUrl(env), {
+    title: post.title,
+    product: post.product_focus,
+    eyebrow: post.primary_keyword,
+  });
+  const pinSaveHtml = renderPinterestSave({
+    pinUrl,
+    media: pinImage,
+    description,
+  });
+
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, siteUrl(env))}
   <main class="container">
   ${heroHtml}
@@ -237,6 +257,7 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   <article>${articleHtml}</article>
   ${renderFaqSection(post.faqs)}
   <a class="cta" href="${escape(ctaHref)}">${escape(ctaText)} &rarr;</a>
+  ${pinSaveHtml}
   ${renderRelatedPosts(post.related)}
 </main>`;
 
@@ -276,6 +297,14 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       // renders a branded 1200x630 PNG via Satori (workers-og). The static
       // logo is the last-ditch fallback if the OG worker errors.
       ogImage: `${siteUrl(env)}/og/blog/${encodeURIComponent(post.slug)}`,
+      // US-872: article:* OG tags for Pinterest (and other) rich pins.
+      articleMeta: {
+        publishedTime: post.published_at,
+        modifiedTime: post.updated_at,
+        author: authorName,
+        section: post.primary_keyword,
+        tags: post.tags,
+      },
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
       jsonLd: [articleLd, breadcrumbLd, ...(faqLd ? [faqLd] : [])],
