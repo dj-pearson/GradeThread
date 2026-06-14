@@ -2885,3 +2885,10 @@ Branch: ralph/gradethread-build
     (all migrations apply from zero incl. 00223).
 - Timestamp: 2026-06-14
 ---
+
+## US-901: Global admin search / command palette
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/routes/admin-search.ts (new), services/edge-functions/src/main.ts (mount), services/edge-functions/src/lib/schema-version.ts (bump 00224), services/edge-functions/src/tests/admin-search_test.ts (new), supabase/migrations/00224_admin_search_indexes.sql (new), src/lib/admin-search.ts (new), src/lib/admin-search.test.ts (new), src/components/admin/command-palette.tsx (new), src/layouts/admin-layout.tsx (Cmd/Ctrl-K + header trigger + palette mount), prd.json
+- Notes: GET /api/admin/search returns grouped typed results (6/type) with admin deep links. UUID/cus_ exact-probe; free-text prefix/substring on pg_trgm GIN-indexed columns (migration 00224). Palette uses existing useKeyboardShortcuts (Cmd/Ctrl-K), debounced 300ms, AbortController cancellation, arrow-key nav. Admin-gated cross-tenant via the /api/admin/* middleware group (admin JWT + AAL2); read-only so no step-up/audit. Verified: tsc --noEmit, deno check, deno lint, eslint, build (41 pages), verify:db (clean), npm test (776 passed), admin-search + schema-version deno tests pass.
+- Timestamp: 2026-06-14
+---

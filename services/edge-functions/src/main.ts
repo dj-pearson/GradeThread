@@ -61,6 +61,7 @@ import { adminSupportTicketsRoutes } from "./routes/admin-support-tickets.ts";
 import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
+import { adminSearchRoutes } from "./routes/admin-search.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
 import { adminJobsRoutes } from "./routes/admin-jobs.ts";
@@ -735,6 +736,10 @@ app.route("/api/admin/support-monitoring", adminMonitoringRoutes);
 // AAL2 MFA via the /api/admin/* group.
 app.route("/api/admin/knowledge-base", adminKnowledgeBaseRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
+// US-901 global admin search / command palette: unified, ranked lookup across
+// users, submissions, certificates, listings, sales and tickets. Read-only;
+// admin JWT + AAL2 via the /api/admin/* group is the authorization boundary.
+app.route("/api/admin/search", adminSearchRoutes);
 // US-581 super-admin impersonation / "view as" + audited start/stop. Admin JWT
 // + AAL2 via the /api/admin/* group; start additionally requires super_admin +
 // a fresh MFA step-up (it mints a real session as the target user).

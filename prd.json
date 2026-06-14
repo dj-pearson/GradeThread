@@ -13305,8 +13305,8 @@
         "Search is admin-gated; results never leak fields the admin pages don't already show."
       ],
       "priority": 901,
-      "passes": false,
-      "notes": "[Platform Admin Command Center / Support] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+      "passes": true,
+      "notes": "[Platform Admin Command Center / Support] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination. DONE 2026-06-14: GET /api/admin/search (admin-search.ts, mounted /api/admin/search) — unified ranked lookup across users/submissions/certificates/listings/sales/tickets, bounded to 6/type, typed results with admin deep links. UUID/cus_ exact-probe across id columns; free-text prefix/substring on trigram-indexed cols (pg_trgm GIN in migration 00224 for email/full_name/title/sku/platform_listing_id/buyer_username/subject; certificate_id unique + PKs already indexed). Cmd/Ctrl-K command palette (src/components/admin/command-palette.tsx) wired into admin-layout via useKeyboardShortcuts; debounced 300ms, grouped+keyboard-nav, AbortController cancel. Admin-gated cross-tenant (admin+AAL2 gate); results only expose already-admin-visible fields. Pure helpers in src/lib/admin-search.ts (tested). EXPECTED_SCHEMA_VERSION bumped to 00224."
     },
     {
       "id": "US-902",

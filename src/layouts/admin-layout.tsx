@@ -43,9 +43,13 @@ import {
   GitMerge,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Search } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
+import { CommandPalette } from "@/components/admin/command-palette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
 
@@ -159,6 +163,18 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 export function AdminLayout() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // US-901: Cmd/Ctrl-K opens the global admin command palette. allowInInput so
+  // it still fires while focus is in a field (the standard palette behaviour).
+  useKeyboardShortcuts([
+    {
+      key: "k",
+      ctrlOrMeta: true,
+      allowInInput: true,
+      handler: () => setPaletteOpen((o) => !o),
+    },
+  ]);
 
   const isSuperAdmin = profile?.role === "super_admin";
   const visibleNavItems = adminNavItems.filter(
@@ -408,6 +424,19 @@ export function AdminLayout() {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            {/* US-901 global search trigger (also Cmd/Ctrl-K). */}
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50"
+              aria-label="Open global search"
+            >
+              <Search className="h-4 w-4" />
+              <span className="hidden sm:inline">Search…</span>
+              <kbd className="hidden rounded border bg-muted px-1.5 text-[10px] font-medium sm:inline">
+                ⌘K
+              </kbd>
+            </button>
             <span className="text-sm text-muted-foreground">
               {profile?.full_name ?? user?.email}
             </span>
@@ -434,6 +463,8 @@ export function AdminLayout() {
       {/* Billing dialogs — also mounted here so admin routes (their own layout)
           still get the 402 hard-trigger; only one layout is ever live at once. */}
       <AppBillingDialogs />
+      {/* US-901 global admin search / command palette. */}
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }
