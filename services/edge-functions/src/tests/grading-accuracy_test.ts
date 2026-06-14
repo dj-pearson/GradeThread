@@ -20,7 +20,50 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { calculateReviewAccuracy } = await import("../lib/accuracy-tracking.ts");
+const { calculateReviewAccuracy, publicCategoryQuality } = await import(
+  "../lib/accuracy-tracking.ts"
+);
+
+// ── US-866: public per-category accuracy projection ─────────────────
+const CAT = (
+  garment_category: string,
+  mean_absolute_error: number,
+  agreement_rate: number,
+  count: number,
+) => ({
+  garment_category,
+  mean_absolute_error,
+  agreement_rate,
+  intentional_misread_rate: 0,
+  count,
+});
+
+Deno.test("publicCategoryQuality drops 'unknown' and sub-sample categories", () => {
+  const out = publicCategoryQuality([
+    CAT("jeans", 0.9, 0.8, 25),
+    CAT("tees", 0.3, 0.95, 9), // below PUBLIC_MIN_SAMPLE (10) — dropped
+    CAT("unknown", 0.5, 0.9, 100), // never published
+    CAT("jackets", 0.4, 0.92, 10), // exactly at the bar — kept
+  ]);
+  assertEquals(out.map((c) => c.garment_category), ["jeans", "jackets"]);
+  // Public projection exposes only the safe fields (no intentional_misread_rate).
+  assertEquals(Object.keys(out[0]).sort(), [
+    "agreement_rate",
+    "garment_category",
+    "mean_absolute_error",
+    "reviews",
+  ]);
+  assertEquals(out[0].reviews, 25);
+});
+
+Deno.test("publicCategoryQuality sorts worst (highest MAE) first", () => {
+  const out = publicCategoryQuality([
+    CAT("tees", 0.3, 0.95, 20),
+    CAT("jeans", 1.2, 0.7, 20),
+    CAT("jackets", 0.6, 0.85, 20),
+  ]);
+  assertEquals(out.map((c) => c.garment_category), ["jeans", "jackets", "tees"]);
+});
 
 const AI = {
   overall_score: 6.0,

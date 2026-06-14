@@ -1078,6 +1078,37 @@ adminGradingRoutes.post("/reliability/studies/:id/close", async (c) => {
   return c.json({ ok: true });
 });
 
+// POST /reliability/studies/:id/publish — mark/unmark a study as published to
+// the public transparency report (US-866). Only the human-vs-human baseline of
+// a CLOSED study should appear publicly, so publishing requires status=closed.
+// Body: { published: boolean } (defaults to true).
+adminGradingRoutes.post("/reliability/studies/:id/publish", async (c) => {
+  const studyId = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const published = body.published === undefined ? true : body.published === true;
+
+  const { data: study, error: studyErr } = await supabaseAdmin
+    .from("reliability_studies")
+    .select("id, status")
+    .eq("id", studyId)
+    .maybeSingle();
+  if (studyErr) return c.json({ error: studyErr.message }, 500);
+  if (!study) return c.json({ error: "Study not found" }, 404);
+  if (published && study.status !== "closed") {
+    return c.json({ error: "Close the study before publishing it to transparency" }, 400);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("reliability_studies")
+    .update({ published_to_transparency: published })
+    .eq("id", studyId);
+  if (error) return c.json({ error: error.message }, 500);
+  await auditLog(c, "publish_reliability_study", "reliability_study", studyId, {
+    published,
+  });
+  return c.json({ ok: true, published });
+});
+
 // GET /reliability/studies/:id/report — compute the IRR report: human baseline,
 // Krippendorff's alpha, and AI-vs-human-consensus comparison.
 adminGradingRoutes.get("/reliability/studies/:id/report", async (c) => {

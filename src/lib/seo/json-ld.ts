@@ -159,20 +159,23 @@ export function transparencyDatasetLd(): JsonLd {
     "@id": `${canonical}#dataset`,
     name: "GradeThread Grading Accuracy & Transparency Report",
     description:
-      "Platform-wide measures of GradeThread's clothing condition grading quality: AI-vs-human agreement rate, mean absolute error against expert reviewers, intentional-design misread rate, model confidence, and post-sale buyer dispute rate. Updated continuously as new grades and reviews accrue.",
+      "Platform-wide measures of GradeThread's clothing condition grading quality: AI-vs-human agreement rate, mean absolute error against expert reviewers, per-garment-category accuracy, intentional-design misread rate, model confidence, post-sale buyer dispute rate, and a published human-vs-human reliability baseline (Krippendorff's alpha). Updated continuously as new grades and reviews accrue.",
     url: canonical,
     creator: { "@id": ORG_ID },
     publisher: { "@id": ORG_ID },
     isAccessibleForFree: true,
     license: "https://gradethread.com/terms",
     measurementTechnique:
-      "Comparison of AI condition grades against expert human reviewer corrections (agreement within 0.5 points, mean absolute error) plus post-sale buyer dispute tracking on opted-in graded items.",
+      "Comparison of AI condition grades against expert human reviewer corrections (agreement within 0.5 points, mean absolute error), sliced per garment category, plus blind multi-rater inter-rater reliability studies (human-vs-human agreement, Krippendorff's alpha, AI-vs-human-consensus agreement) and post-sale buyer dispute tracking on opted-in graded items.",
     variableMeasured: [
       "AI-vs-human grade agreement rate",
       "Mean absolute error vs. expert reviewers",
+      "Per-garment-category accuracy and mean absolute error",
       "Intentional-design misread rate",
       "Average model confidence",
       "Buyer dispute rate on graded sales",
+      "Human-vs-human reliability baseline (Krippendorff's alpha)",
+      "AI-vs-human-consensus agreement rate",
     ],
   };
 }

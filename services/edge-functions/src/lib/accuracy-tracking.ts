@@ -692,6 +692,17 @@ export interface PublicTransparencyReport {
     // Share of graded, opted-in sales that drew a buyer condition dispute.
     dispute_rate: number | null;
   };
+  // US-866: per-garment-category accuracy/MAE breakdown — where "jeans MAE is 3x
+  // tees" surfaces publicly. Aggregate-only and sample-gated: a category appears
+  // only when it has >= PUBLIC_MIN_SAMPLE reviewed grades behind it (so no thinly
+  // sampled category prints a misleading rate). Empty until a category clears the
+  // bar; "unknown" is never published.
+  category_quality: Array<{
+    garment_category: string;
+    mean_absolute_error: number;
+    agreement_rate: number;
+    reviews: number;
+  }>;
   // The published activation gate every model version must clear before it can
   // grade live traffic. Static facts — always safe to publish.
   gate: { max_mae: number; min_agreement: number };
@@ -723,10 +734,11 @@ export interface PublicTransparencyReport {
   } | null;
 }
 
-// US-334: load the human-vs-human baseline + AI comparison from the most recent
-// CLOSED reliability study that meets the citable-sample bar. Returns null when
-// none qualifies (so the public report omits the section rather than show a
-// weak baseline). Aggregate-only; safe to publish.
+// US-334/US-866: load the human-vs-human baseline + AI comparison from the most
+// recent CLOSED reliability study an admin has explicitly PUBLISHED to
+// transparency (US-866) AND that meets the citable-sample bar. Returns null when
+// none qualifies (so the public report shows a clean "baseline pending" state
+// rather than a study the team hasn't vetted). Aggregate-only; safe to publish.
 async function loadCitableReliability(): Promise<
   PublicTransparencyReport["reliability"]
 > {
@@ -734,6 +746,7 @@ async function loadCitableReliability(): Promise<
     .from("reliability_studies")
     .select("id, name, tolerance")
     .eq("status", "closed")
+    .eq("published_to_transparency", true)
     .order("created_at", { ascending: false })
     .limit(10);
 
@@ -789,6 +802,24 @@ async function loadCitableReliability(): Promise<
 // null so the page says "not enough data yet" instead of a misleading number.
 function publishedRate(rate: number, sample: number): number | null {
   return sample >= PUBLIC_MIN_SAMPLE ? rate : null;
+}
+
+// US-866: project the internal per-category accuracy onto a public-safe, sample-
+// gated breakdown. Pure + exported for unit testing. Drops the catch-all
+// "unknown" bucket and any category below PUBLIC_MIN_SAMPLE so the public page
+// never prints a rate a single outlier could swing. Worst categories first.
+export function publicCategoryQuality(
+  categories: CategoryAccuracy[],
+): PublicTransparencyReport["category_quality"] {
+  return categories
+    .filter((c) => c.garment_category !== "unknown" && c.count >= PUBLIC_MIN_SAMPLE)
+    .map((c) => ({
+      garment_category: c.garment_category,
+      mean_absolute_error: c.mean_absolute_error,
+      agreement_rate: c.agreement_rate,
+      reviews: c.count,
+    }))
+    .sort((a, b) => b.mean_absolute_error - a.mean_absolute_error);
 }
 
 /**
@@ -866,6 +897,7 @@ export async function computePublicTransparency(): Promise<PublicTransparencyRep
     outcomes: {
       dispute_rate: publishedRate(outcomes.overall_dispute_rate, gradedSales),
     },
+    category_quality: publicCategoryQuality(accuracy.category_accuracies),
     gate: evalThresholds(),
     model: {
       active: (activeVersions ?? []).map((v) => ({

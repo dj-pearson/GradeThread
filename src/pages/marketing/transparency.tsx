@@ -31,6 +31,13 @@ interface TransparencyReport {
     human_review_rate: number | null;
   };
   outcomes: { dispute_rate: number | null };
+  // US-866: per-garment-category accuracy/MAE breakdown (sample-gated, public-safe).
+  category_quality: Array<{
+    garment_category: string;
+    mean_absolute_error: number;
+    agreement_rate: number;
+    reviews: number;
+  }>;
   gate: { max_mae: number; min_agreement: number };
   model: { active: Array<{ stage: string; version_name: string }> };
   changelog: Array<{
@@ -68,6 +75,15 @@ function num(n: number | null, digits = 2): string {
 
 function count(n: number | undefined): string {
   return (n ?? 0).toLocaleString("en-US");
+}
+
+// Categories arrive as lowercase enum-ish slugs (e.g. "jeans", "t_shirts").
+function categoryLabel(slug: string): string {
+  return slug
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 function useTransparencyReport() {
@@ -216,7 +232,78 @@ export function TransparencyPage() {
         </div>
       </section>
 
-      {/* US-334: human-vs-human reliability baseline */}
+      {/* US-866: per-category accuracy breakdown */}
+      <section className="border-t px-6 py-16">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-2xl font-bold">Accuracy by garment category</h2>
+          <p className="mt-3 max-w-3xl text-muted-foreground">
+            Some categories are harder to grade than others — distressed denim is
+            easy to misread, a plain tee is not. We break the same AI-vs-human
+            comparison down by category so the number isn't a single average that
+            hides where grading is weakest. A category appears once it has enough
+            reviewed grades to report truthfully.
+          </p>
+          {data && data.category_quality.length > 0 ? (
+            <div className="mt-8 overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">Category</th>
+                    <th className="px-4 py-3 text-right font-semibold">Agreement</th>
+                    <th className="px-4 py-3 text-right font-semibold">Mean error</th>
+                    <th className="px-4 py-3 text-right font-semibold">Reviews</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.category_quality.map((row) => (
+                    <tr key={row.garment_category} className="border-t">
+                      <td className="px-4 py-3 font-medium">
+                        {categoryLabel(row.garment_category)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {pct(row.agreement_rate, 0)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {num(row.mean_absolute_error)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-muted-foreground">
+                        {count(row.reviews)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-8 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              {isLoading
+                ? "Loading category breakdown…"
+                : "Per-category accuracy appears here once individual garment categories have enough reviewed grades to report a meaningful number."}
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* US-334/US-866: human-vs-human reliability baseline (published studies only) */}
+      {data && !data.reliability && (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-5xl">
+            <h2 className="text-2xl font-bold">
+              How good is “good”? The expert baseline
+            </h2>
+            <p className="mt-3 max-w-3xl text-muted-foreground">
+              The fairest bar for an AI grader is how often two human experts
+              agree with each other. We measure that in blind multi-rater
+              reliability studies and publish the baseline here once a study is
+              complete and reviewed.
+            </p>
+            <p className="mt-8 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              Baseline pending — a published reliability study will appear here
+              with expert-vs-expert agreement, mean error, and how the AI compares.
+            </p>
+          </div>
+        </section>
+      )}
       {data?.reliability && (
         <section className="border-t px-6 py-16">
           <div className="mx-auto max-w-5xl">

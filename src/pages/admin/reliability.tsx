@@ -38,6 +38,9 @@ interface Study {
   status: "open" | "closed";
   tolerance: number;
   created_at: string;
+  // US-866: when true, this closed study's human-vs-human baseline is shown on
+  // the public /transparency report.
+  published_to_transparency?: boolean;
   counts?: StudyCounts;
 }
 // US-488: the queue payload is MINIMIZED server-side — non-identifying garment
@@ -230,6 +233,25 @@ export function AdminReliabilityPage() {
     }
   }
 
+  // US-866: publish/unpublish this closed study's human baseline to the public
+  // transparency report.
+  async function togglePublish() {
+    if (!selected) return;
+    const next = !selected.published_to_transparency;
+    try {
+      const res = await edgeFetch(
+        `/api/admin/grading/reliability/studies/${selected.id}/publish`,
+        { method: "POST", json: { published: next } },
+      );
+      if (!res.ok) throw new Error(await res.text());
+      toast.success(next ? "Published to transparency" : "Unpublished");
+      await loadStudies();
+      setSelected({ ...selected, published_to_transparency: next });
+    } catch (e) {
+      toast.error(`Publish failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div>
@@ -312,13 +334,35 @@ export function AdminReliabilityPage() {
         <Card className="border-primary/40">
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
-              <CardTitle className="text-lg">{selected.name}</CardTitle>
-              {selected.status === "open" && (
-                <Button variant="outline" size="sm" onClick={closeStudy}>
-                  <Lock className="h-4 w-4" /> Close study
-                </Button>
-              )}
+              <CardTitle className="flex items-center gap-2 text-lg">
+                {selected.name}
+                {selected.published_to_transparency && (
+                  <Badge className="bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300">
+                    <ShieldCheck className="mr-1 h-3 w-3" /> Public
+                  </Badge>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {selected.status === "open" ? (
+                  <Button variant="outline" size="sm" onClick={closeStudy}>
+                    <Lock className="h-4 w-4" /> Close study
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={togglePublish}>
+                    <ShieldCheck className="h-4 w-4" />
+                    {selected.published_to_transparency
+                      ? "Unpublish"
+                      : "Publish to transparency"}
+                  </Button>
+                )}
+              </div>
             </div>
+            {selected.status === "closed" && !report?.sufficient_sample && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                Sample is below the citable bar — the public page will keep its
+                "baseline pending" state even if published.
+              </p>
+            )}
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Report */}
