@@ -2767,3 +2767,27 @@ Branch: ralph/gradethread-build
   * Verified: deno check (main graph) clean, deno lint clean, edge suite 1460 passed/0 failed (6 new), schema-version + rls-guard pass, tsc --noEmit clean, vitest 772 passed, build:locked 41 pages, verify:db re-applied 218 migrations from zero (43s).
 - Timestamp: 2026-06-14
 ---
+
+## US-895: AI cost budget guardrails + auto-throttle
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00219_ai_cost_budget_guardrails.sql (new: ai_budgets + ai_budget_breaches tables, 2 enums, ai_budget_status() RPC; deny-all RLS)
+  - services/edge-functions/src/lib/ai-budget.ts (new: pure decision logic + DI'd runBudgetGuardrails orchestrator)
+  - services/edge-functions/src/routes/jobs-ai-budget.ts (new: scheduled cron — kill flag + alert + breach + audit)
+  - services/edge-functions/src/routes/admin-ai-budgets.ts (new: admin CRUD + /breaches/:id/resolve re-enable; super_admin + step-up + audit)
+  - services/edge-functions/src/lib/email.ts (added sendAiBudgetAlertEmail)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00218 -> 00219)
+  - services/edge-functions/src/main.ts (mount admin route + cron)
+  - services/edge-functions/src/tests/ai-budget_test.ts (new: 5 tests incl. AC5 over-budget-kill-and-audit)
+  - src/components/admin/ai-budgets-card.tsx (new: budgets table + breach banner + re-enable, step-up aware)
+  - src/pages/admin/ai-spend.tsx (embed AiBudgetsCard)
+  - LAUNCH_CHECKLIST.md, services/edge-functions/COOLIFY.md, services/edge-functions/.env.example (cron + alert env docs)
+- Notes:
+  - Reuses ai_usage_events + system_settings.ai_model_prices (00218) so budgets measure against the SAME re-priced cost basis as the AI-spend dashboard (AC4 — cost-per-model lives in config).
+  - Auto-kill flips feature_flags off via the existing isFeatureEnabled kill-switch; feature->flag map handles non-1:1 names (content->content_ai). A feature with no flag still alerts (killed=false).
+  - Idempotency: partial-unique one-OPEN-breach-per-budget + open-breach suppression means a 15-min cron records/alerts/kills ONCE per breach until an operator re-enables.
+  - AC2 says 'ai_log' but the real ledger is ai_usage_events; US-906 'critical-event alerting' isn't built yet, so alerts reuse the grading-monitor email+webhook pattern. The persisted breach + system audit row are the durable ops signal surfaced on /admin/ai-spend.
+  - New operator tables have no user_id (only updated_by/resolved_by audit FKs) so rls-guard treats them as operator surfaces (deny-all RLS) — confirmed green.
+  - Verified: deno check + lint clean; 1473 edge tests pass; 772 web tests pass; verify:db applies 00219 cleanly from zero; build:locked OK.
+- Timestamp: 2026-06-14
+---

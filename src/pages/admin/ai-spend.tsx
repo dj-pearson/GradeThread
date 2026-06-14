@@ -37,6 +37,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { AiBudgetsCard } from "@/components/admin/ai-budgets-card";
 
 // ── API payload types (mirror the ai_spend RPC, migration 00218) ──
 
@@ -306,6 +307,9 @@ export function AdminAiSpendPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* US-895: budget guardrails — caps, breaches, one-click re-enable */}
+      <AiBudgetsCard />
 
       {/* Top spending features today */}
       <Card>

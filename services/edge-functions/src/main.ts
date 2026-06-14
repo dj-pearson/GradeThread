@@ -72,6 +72,7 @@ import { adminFraudRoutes } from "./routes/admin-fraud.ts";
 import { adminSafetyRoutes } from "./routes/admin-safety.ts";
 import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
+import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -92,6 +93,7 @@ import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
+import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
@@ -765,6 +767,10 @@ app.route("/api/admin/revenue", adminRevenueRoutes);
 // config-driven price table). Admin JWT + AAL2 via the /api/admin/* group;
 // read-only, so no step-up.
 app.route("/api/admin/ai", adminAiSpendRoutes);
+// US-895 AI cost budget guardrails — operator-editable per-feature spend budgets
+// (alert/throttle/kill) + breach history + one-click re-enable. Admin JWT + AAL2
+// via the /api/admin/* group; writes are super_admin + MFA step-up + audited.
+app.route("/api/admin/ai-budgets", adminAiBudgetsRoutes);
 // US-846 Condition Index catalog curation — list/create/edit/disable
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.
@@ -777,6 +783,10 @@ app.route("/api/grading/public", publicGradingRoutes);
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
 app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
+// US-895 AI cost budget guardrails cron. OUTSIDE /api/admin; the handler enforces
+// X-Internal-Job-Secret itself. Evaluates per-feature spend budgets and, on a
+// fresh breach, alerts + (for action=kill) flips the feature kill-switch off.
+app.post("/api/jobs/ai-budget-guardrails", (c) => handleAiBudgetCron(c));
 // US-495 stuck-submission recovery sweep. OUTSIDE the JWT groups; the handler
 // enforces X-Internal-Job-Secret itself. Fails orphaned 'processing' grades and
 // reverses their charge so a crash/redeploy can't strand paid work.

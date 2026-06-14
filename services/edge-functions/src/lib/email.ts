@@ -1143,6 +1143,67 @@ export async function sendContentWatchdogAlertEmail(
   });
 }
 
+// ─── AI cost budget guardrail breach (internal/owner alert) ─────────
+
+interface AiBudgetAlertData {
+  feature: string;
+  period: "day" | "month";
+  action: "alert" | "throttle" | "kill";
+  limitUsd: number;
+  spendUsd: number;
+  /** Whether the matching feature kill-switch was auto-flipped off. */
+  killed: boolean;
+  flagKey: string | null;
+}
+
+/**
+ * US-895: alert ops the moment a per-feature AI spend budget is breached — and,
+ * for action=kill, that the feature was auto-disabled to stop the bleed. Goes
+ * through the same emailLayout/SMTP/outbox path as every other admin alert;
+ * categorized so a transient SMTP failure retries (US-801).
+ */
+export async function sendAiBudgetAlertEmail(
+  to: string,
+  data: AiBudgetAlertData,
+): Promise<boolean> {
+  const usd = (n: number) =>
+    n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  const banner = data.killed ? BRAND_RED : "#eab308";
+  const headline = data.killed
+    ? `AI feature "${data.feature}" auto-disabled — budget exceeded`
+    : `AI spend budget exceeded — ${data.feature}`;
+
+  const content = `
+    <div style="background:${banner};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      AI cost guardrail — ${data.killed ? "FEATURE KILLED" : "BUDGET BREACH"}
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${escapeHtml(headline)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      ${
+    data.killed
+      ? `The <strong>${escapeHtml(data.period)}</strong> AI spend budget for <strong>${escapeHtml(data.feature)}</strong> was exceeded, so the guardrail flipped the <code>${escapeHtml(data.flagKey ?? data.feature)}</code> feature kill-switch <strong>off</strong> to stop further Claude spend. Investigate, then re-enable it from the AI Spend page.`
+      : `The <strong>${escapeHtml(data.period)}</strong> AI spend budget for <strong>${escapeHtml(data.feature)}</strong> was exceeded. No feature was auto-disabled (action: ${escapeHtml(data.action)}) — review usage on the AI Spend page.`
+  }
+    </p>
+    <ul style="margin: 0 0 16px; padding-left: 18px; color:#444; font-size: 13px; line-height: 1.7;">
+      <li>Feature: <strong>${escapeHtml(data.feature)}</strong></li>
+      <li>Period: <strong>${escapeHtml(data.period)}</strong></li>
+      <li>Budget: <strong>${usd(data.limitUsd)}</strong></li>
+      <li>Spend: <strong>${usd(data.spendUsd)}</strong></li>
+      <li>Action: <strong>${escapeHtml(data.action)}</strong>${data.killed ? " (kill-switch flipped off)" : ""}</li>
+    </ul>
+    ${ctaButton("Open AI Spend dashboard", `${SITE_URL}/admin/ai-spend`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `${data.killed ? "🔴" : "🟡"} GradeThread AI budget breach — ${data.feature} (${data.period})`,
+    html: emailLayout(content),
+    category: "ai_budget_alert", // US-801: durable retry on transient failure
+  });
+}
+
 // ─── Weekly content digest (US-880) ─────────────────────────────────
 
 interface ContentDigestRecommendation {
