@@ -119,6 +119,18 @@ import { acquireJobLock } from "../lib/job-lock.ts";
 import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
 import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
+import {
+  approveCancellation,
+  decideReturn,
+  getCancellation,
+  getReturn,
+  issueReturnRefund,
+  outcomeToSaleStatus,
+  rejectCancellation,
+  searchCancellations,
+  searchReturns,
+} from "../lib/ebay-postorder.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
 import { notifyUser } from "../lib/notify.ts";
@@ -2445,6 +2457,206 @@ flipdeskEbayRoutes.get("/sync-runs", async (c) => {
     .limit(limit);
   if (error) return failSafe(c, 500, "Couldn't load sync runs.", error, "ebay.sync-runs");
   return c.json({ runs: data ?? [] });
+});
+
+// ── Returns & cancellations management (US-1043, Post-Order API) ─────
+//
+// The seller's eBay token only ever sees that seller's own returns/cancels, so
+// listing is inherently tenant-scoped to the workspace owner. After an action we
+// best-effort update the matching local sale (tenant-scoped by user_id +
+// platform_order_id) and always write an audit row. The action calls are
+// idempotent at the eBay layer (a second decide on a resolved case is treated as
+// success).
+
+// Update the local sale's lifecycle after an eBay outcome (best-effort). Scoped
+// to the owner; needs the eBay order id from the request (the UI has it).
+async function applyOutcomeToSale(
+  ownerId: string,
+  orderId: unknown,
+  outcome:
+    | "return_refunded"
+    | "return_declined"
+    | "cancel_approved"
+    | "cancel_rejected",
+): Promise<void> {
+  const status = outcomeToSaleStatus(outcome);
+  if (!status || typeof orderId !== "string" || !orderId) return;
+  const { error } = await supabaseAdmin
+    .from("sales")
+    .update({ status, cancelled_at: new Date().toISOString() })
+    .eq("user_id", ownerId)
+    .eq("platform_order_id", orderId);
+  if (error) {
+    console.error("[ebay.postorder] local sale update failed:", error.message);
+  }
+}
+
+// A 4xx whose body says the case is already resolved → treat the action as a
+// successful no-op (idempotency) rather than surfacing an error to the user.
+function isAlreadyResolved(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /already (been )?(decided|closed|refunded|approved|rejected|processed)/i
+    .test(msg);
+}
+
+// GET /returns — open returns for the seller.
+flipdeskEbayRoutes.get("/returns", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  try {
+    return c.json({ returns: await searchReturns(ownerId, { limit }) });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't load eBay returns.", err, "ebay.returns.list");
+  }
+});
+
+// POST /returns/:returnId/decide — body { decision: approve|decline, comments?, order_id? }
+flipdeskEbayRoutes.post("/returns/:returnId/decide", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const returnId = c.req.param("returnId");
+  let body: { decision?: unknown; comments?: unknown; order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const decision = String(body.decision ?? "").toLowerCase();
+  if (decision !== "approve" && decision !== "decline") {
+    return c.json({ error: "decision must be 'approve' or 'decline'." }, 400);
+  }
+  const comments = typeof body.comments === "string" ? body.comments : undefined;
+  try {
+    await decideReturn(
+      ownerId,
+      returnId,
+      decision === "approve" ? "APPROVE" : "DECLINE",
+      comments,
+    );
+  } catch (err) {
+    if (!isAlreadyResolved(err)) {
+      return failSafe(c, 502, "eBay rejected the return decision.", err, "ebay.returns.decide");
+    }
+  }
+  if (decision === "decline") {
+    await applyOutcomeToSale(ownerId, body.order_id, "return_declined");
+  }
+  await writeAuditLog(c, {
+    action: `ebay.return.${decision}`,
+    targetType: "ebay_return",
+    targetId: returnId,
+    details: { order_id: body.order_id ?? null },
+  });
+  return c.json({ ok: true });
+});
+
+// POST /returns/:returnId/refund — body { comments?, order_id? }
+flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const returnId = c.req.param("returnId");
+  let body: { comments?: unknown; order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const comments = typeof body.comments === "string" ? body.comments : undefined;
+  try {
+    await issueReturnRefund(ownerId, returnId, comments);
+  } catch (err) {
+    if (!isAlreadyResolved(err)) {
+      return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.returns.refund");
+    }
+  }
+  await applyOutcomeToSale(ownerId, body.order_id, "return_refunded");
+  await writeAuditLog(c, {
+    action: "ebay.return.refund",
+    targetType: "ebay_return",
+    targetId: returnId,
+    details: { order_id: body.order_id ?? null },
+  });
+  return c.json({ ok: true });
+});
+
+// GET /cancellations — open cancellation requests for the seller.
+flipdeskEbayRoutes.get("/cancellations", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  try {
+    return c.json({ cancellations: await searchCancellations(ownerId, { limit }) });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't load eBay cancellations.", err, "ebay.cancellations.list");
+  }
+});
+
+// POST /cancellations/:cancelId/approve — body { order_id? }
+flipdeskEbayRoutes.post("/cancellations/:cancelId/approve", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const cancelId = c.req.param("cancelId");
+  let body: { order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await approveCancellation(ownerId, cancelId);
+  } catch (err) {
+    if (!isAlreadyResolved(err)) {
+      return failSafe(c, 502, "eBay rejected the cancellation approval.", err, "ebay.cancel.approve");
+    }
+  }
+  await applyOutcomeToSale(ownerId, body.order_id, "cancel_approved");
+  await writeAuditLog(c, {
+    action: "ebay.cancellation.approve",
+    targetType: "ebay_cancellation",
+    targetId: cancelId,
+    details: { order_id: body.order_id ?? null },
+  });
+  return c.json({ ok: true });
+});
+
+// POST /cancellations/:cancelId/reject — body { order_id? }
+flipdeskEbayRoutes.post("/cancellations/:cancelId/reject", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const cancelId = c.req.param("cancelId");
+  let body: { order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await rejectCancellation(ownerId, cancelId);
+  } catch (err) {
+    if (!isAlreadyResolved(err)) {
+      return failSafe(c, 502, "eBay rejected the cancellation rejection.", err, "ebay.cancel.reject");
+    }
+  }
+  await writeAuditLog(c, {
+    action: "ebay.cancellation.reject",
+    targetType: "ebay_cancellation",
+    targetId: cancelId,
+    details: { order_id: body.order_id ?? null },
+  });
+  return c.json({ ok: true });
 });
 
 // ── Publish flow (Week 3) ──────────────────────────────────────────

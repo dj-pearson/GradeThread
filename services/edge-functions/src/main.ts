@@ -285,6 +285,11 @@ app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
 // userId was unset → handlers queried user_id="undefined" → 22P02 / 500.
 app.use("/api/flipdesk/ebay/sync-runs", authMiddleware);
 app.use("/api/flipdesk/ebay/orders/*", authMiddleware);
+// US-1043: returns + cancellations management (Post-Order API).
+app.use("/api/flipdesk/ebay/returns", authMiddleware);
+app.use("/api/flipdesk/ebay/returns/*", authMiddleware);
+app.use("/api/flipdesk/ebay/cancellations", authMiddleware);
+app.use("/api/flipdesk/ebay/cancellations/*", authMiddleware);
 // Shopify (US-599): everything authed EXCEPT /oauth/callback (Shopify
 // redirects the browser there unauthenticated; the `state` row identifies the
 // user and the request is HMAC-verified with our app secret).
@@ -384,6 +389,10 @@ app.use("/api/flipdesk/ebay/messages", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/messages/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/sync-runs", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/orders/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/returns", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/returns/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/cancellations", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/cancellations/*", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/listings/*", workspaceMiddleware);
