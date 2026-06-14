@@ -2654,3 +2654,10 @@ Branch: ralph/gradethread-build
   - Left the concurrent agent's uncommitted grading WIP (ai-grading.ts / grading-pipeline.ts / grading-zoom_test.ts) untouched.
 - Timestamp: 2026-06-14
 ---
+
+## US-889: Cross-tenant listing & photo moderation
+- Status: COMPLETE
+- Files changed: supabase/migrations/00213_content_moderation.sql (new), services/edge-functions/src/lib/moderation-queue.ts (new), services/edge-functions/src/routes/admin-moderation.ts, services/edge-functions/src/lib/schema-version.ts, services/edge-functions/src/tests/content-moderation_test.ts (new), services/edge-functions/src/tests/rls-guard_test.ts, src/types/database.ts, src/pages/admin/moderation.tsx
+- Notes: Extended moderation beyond grading submissions to listings + item_photos. Migration adds reversible takedown markers (listings.moderation_hidden, item_photos.is_hidden) + content_moderation_flags reusable queue (service-role-only, deny-all RLS, keyed by owner_user_id so the rls-guard treats it as operator data — classified it in SERVICE_ROLE_ONLY). New endpoints on the existing /api/admin/moderation router: GET /listings + /photos (cross-tenant by design, server-side paginated, item-photos public-bucket previews), POST /listings/:id/takedown|restore, /photos/:id/hide|unhide, /notify-owner, /flag. Every write resolves id->owner before mutating (listings via denormalized user_id, photos via inventory_items parent), is audited, and is reversible; destructive takedowns require fresh MFA step-up. lib/moderation-queue.ts enqueueModerationFlag() is the reusable producer for the fraud console + user reports. Frontend page now has Submissions/Listings/Photos tabs reusing the approve/reject UX + MfaStepUpDialog. GOTCHA: an inline "(NOT user_id)" comment inside a CREATE TABLE block trips the rls-guard's \buser_id\b discovery — classify such tables in SERVICE_ROLE_ONLY. Verified: deno check/lint/test, npm run build:locked (41 pages), npm test (772 passed), npm run verify:db (migrations apply from zero).
+- Timestamp: 2026-06-14
+---

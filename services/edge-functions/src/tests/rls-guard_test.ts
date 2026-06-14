@@ -97,6 +97,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // (migration 00185). Appended by the abuse pipeline via the service-role
   // client and read ONLY by the admin abuse-monitoring dashboard; never client-readable.
   "support_abuse_events",
+  // US-889 cross-tenant moderation queue: RLS enabled with an explicit
+  // `revoke insert,update,delete from anon, authenticated` and zero policies by
+  // design (migration 00213). Enqueued by the fraud console/user reports and
+  // drained ONLY by the admin moderation endpoints via the service-role client;
+  // the SPA never reads it directly. Keyed by owner_user_id (not user_id) so it
+  // is an operator surface, not user-owned tenant data.
+  "content_moderation_flags",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

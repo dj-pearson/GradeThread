@@ -936,6 +936,10 @@ export interface ListingRow {
   auction_buy_it_now_price_cents: number | null;
   auction_duration: string | null;
   variations: ListingVariations | null;
+  // US-889: admin moderation takedown marker (migration 00213). An operator
+  // unpublish sets this true (alongside is_active=false, listing_status='ended');
+  // the audited restore endpoint flips it back. Default false.
+  moderation_hidden: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1135,6 +1139,31 @@ export interface ItemPhotoRow {
   // 00066 — photo-dump reconciliation: original EXIF capture time + session.
   captured_at: string | null;
   reconcile_session_id: string | null;
+  // US-889 (migration 00213): admin moderation marker. A hide sets this true so
+  // the photo is withheld from public/marketplace surfaces; the audited unhide
+  // endpoint flips it back. Default false.
+  is_hidden: boolean;
+}
+
+// US-889: reusable moderation queue row for listings + item_photos. Operator-only
+// (service-role; deny-all RLS) — mirrors public.content_moderation_flags (00213).
+export type ModerationContentType = "listing" | "photo";
+export type ModerationFlagStatus = "open" | "resolved" | "dismissed";
+
+export interface ContentModerationFlagRow {
+  id: string;
+  content_type: ModerationContentType;
+  content_id: string;
+  owner_user_id: string | null;
+  reason: string;
+  source: string;
+  status: ModerationFlagStatus;
+  flagged_by: string | null;
+  resolved_by: string | null;
+  resolution_action: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type ReconcileSessionStatus = "open" | "committed" | "abandoned";
@@ -2813,6 +2842,15 @@ export interface Database {
         Row: ItemPhotoRow;
         Insert: ItemPhotoInsert;
         Update: ItemPhotoUpdate;
+      };
+      content_moderation_flags: {
+        Row: ContentModerationFlagRow;
+        Insert: Omit<ContentModerationFlagRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Omit<ContentModerationFlagRow, "id" | "created_at" | "updated_at">>;
       };
       marketplace_connections: {
         Row: MarketplaceConnectionRow;

@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,12 @@ import {
   Ban,
   Loader2,
   ExternalLink,
+  EyeOff,
+  Eye,
+  Undo2,
+  Tags,
+  Image as ImageIcon,
+  Bell,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -51,6 +58,12 @@ interface FlagType {
   cls: string;
 }
 
+const RED =
+  "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
+const AMBER =
+  "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
+const SLATE = "border-slate-200 bg-slate-100 text-slate-700";
+
 // Derive the specific reasons a submission is in the queue from the structured
 // grade signals (US-336/337/338) + the free-text flag reason, so a reviewer
 // sees WHAT to check rather than a generic "flagged".
@@ -62,27 +75,70 @@ function deriveFlagTypes(
   const auth = report?.image_authenticity ?? null;
   const notes = report?.detailed_notes ?? {};
   const reason = (submission.flag_reason ?? "").toLowerCase();
-  const red = "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
-  const amber = "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
-  const slate = "border-slate-200 bg-slate-100 text-slate-700";
 
   if (auth?.manipulation_suspected) {
-    types.push({ label: "Possible photo edit", cls: red });
+    types.push({ label: "Possible photo edit", cls: RED });
   }
   if (auth?.screenshot_or_watermark_detected) {
-    types.push({ label: "Screenshot / watermark", cls: amber });
+    types.push({ label: "Screenshot / watermark", cls: AMBER });
   }
   if (notes["photo_reuse"] || reason.includes("match an image")) {
-    types.push({ label: "Reused photo", cls: red });
+    types.push({ label: "Reused photo", cls: RED });
   }
   if (reason.includes("clothing")) {
-    types.push({ label: "May not be clothing", cls: slate });
+    types.push({ label: "May not be clothing", cls: SLATE });
   }
-  if (types.length === 0) types.push({ label: "Flagged", cls: slate });
+  if (types.length === 0) types.push({ label: "Flagged", cls: SLATE });
   return types;
 }
 
 export function AdminModerationPage() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <ShieldAlert className="h-6 w-6 text-brand-red-text" />
+        <div>
+          <h1 className="text-2xl font-bold">Content Moderation</h1>
+          <p className="text-sm text-muted-foreground">
+            Review and take down content across all tenants — flagged grading
+            submissions, marketplace listings, and uploaded item photos.
+          </p>
+        </div>
+      </div>
+
+      <Tabs defaultValue="submissions">
+        <TabsList>
+          <TabsTrigger value="submissions">
+            <ShieldAlert className="mr-1.5 h-4 w-4" />
+            Submissions
+          </TabsTrigger>
+          <TabsTrigger value="listings">
+            <Tags className="mr-1.5 h-4 w-4" />
+            Listings
+          </TabsTrigger>
+          <TabsTrigger value="photos">
+            <ImageIcon className="mr-1.5 h-4 w-4" />
+            Photos
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="submissions" className="mt-6">
+          <SubmissionsTab />
+        </TabsContent>
+        <TabsContent value="listings" className="mt-6">
+          <ListingsTab />
+        </TabsContent>
+        <TabsContent value="photos" className="mt-6">
+          <PhotosTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Submissions tab (the original grading-submission moderation queue).
+// ─────────────────────────────────────────────────────────────────────────────
+function SubmissionsTab() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [banTarget, setBanTarget] = useState<FlaggedSubmission | null>(null);
   // US-476: the ban endpoint requires a fresh MFA step-up; on a STEP_UP_REQUIRED
@@ -241,18 +297,7 @@ export function AdminModerationPage() {
   const entries = data ?? [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <ShieldAlert className="h-6 w-6 text-brand-red-text" />
-        <div>
-          <h1 className="text-2xl font-bold">Content Moderation</h1>
-          <p className="text-sm text-muted-foreground">
-            Submissions flagged for review — non-clothing images, suspected photo
-            editing, screenshots/watermarks, or photos reused across accounts.
-          </p>
-        </div>
-      </div>
-
+    <>
       {isLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 2 }).map((_, i) => (
@@ -307,10 +352,7 @@ export function AdminModerationPage() {
                         </Badge>
                       ))}
                       {entry.user?.suspended && (
-                        <Badge
-                          variant="outline"
-                          className="border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
-                        >
+                        <Badge variant="outline" className={RED}>
                           User suspended
                         </Badge>
                       )}
@@ -482,6 +524,626 @@ export function AdminModerationPage() {
           if (target) void handleBan(target);
         }}
       />
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared types + helpers for the listing/photo moderation tabs (US-889).
+// ─────────────────────────────────────────────────────────────────────────────
+interface ModOwner {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  suspended: boolean;
+}
+interface ModFlag {
+  id: string;
+  reason: string;
+  source: string;
+  createdAt: string;
+}
+interface ListingRowDto {
+  id: string;
+  ownerUserId: string;
+  owner: ModOwner | null;
+  title: string | null;
+  url: string | null;
+  platform: string;
+  price: number;
+  listingStatus: string;
+  isActive: boolean;
+  moderationHidden: boolean;
+  previewUrl: string | null;
+  updatedAt: string;
+  flag: ModFlag | null;
+}
+interface PhotoRowDto {
+  id: string;
+  inventoryItemId: string;
+  ownerUserId: string | null;
+  owner: ModOwner | null;
+  photoType: string;
+  isHidden: boolean;
+  previewUrl: string | null;
+  createdAt: string;
+  flag: ModFlag | null;
+}
+interface ModPage<T> {
+  rows: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+function OwnerLink({ owner }: { owner: ModOwner | null }) {
+  if (!owner) return <span>Unknown user</span>;
+  return (
+    <Link to={`/admin/users/${owner.id}`} className="hover:underline">
+      {owner.full_name || owner.email}
+    </Link>
+  );
+}
+
+function Pager({
+  page,
+  totalPages,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  onPage: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-end gap-2 pt-2">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={page <= 1}
+        onClick={() => onPage(page - 1)}
+      >
+        Previous
+      </Button>
+      <span className="text-sm text-muted-foreground">
+        Page {page} of {totalPages}
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={page >= totalPages}
+        onClick={() => onPage(page + 1)}
+      >
+        Next
+      </Button>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Listings tab — cross-tenant listing moderation (takedown / restore / notify).
+// ─────────────────────────────────────────────────────────────────────────────
+function ListingsTab() {
+  const [page, setPage] = useState(1);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [pendingTakedown, setPendingTakedown] = useState<string | null>(null);
+  const [notifyTarget, setNotifyTarget] = useState<ListingRowDto | null>(null);
+  const [notifyMsg, setNotifyMsg] = useState("");
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-moderation-listings", page],
+    queryFn: async (): Promise<ModPage<ListingRowDto>> => {
+      const res = await edgeFetch(
+        `/api/admin/moderation/listings?page=${page}&page_size=20`,
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to load listings.");
+      return j as ModPage<ListingRowDto>;
+    },
+    staleTime: 30 * 1000,
+  });
+
+  async function takedown(id: string) {
+    setBusyId(id);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/moderation/listings/${id}/takedown`,
+        { method: "POST", json: {}, silentGate: true },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 403 && j?.code === "STEP_UP_REQUIRED") {
+        setPendingTakedown(id);
+        setStepUpOpen(true);
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "Failed to take down listing.");
+      toast.success("Listing taken down (unpublished).");
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to take down listing.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function restore(id: string) {
+    setBusyId(id);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/moderation/listings/${id}/restore`,
+        { method: "POST", json: {} },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to restore listing.");
+      toast.success("Listing restored.");
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to restore listing.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function sendNotice() {
+    if (!notifyTarget || !notifyMsg.trim()) return;
+    setBusyId(notifyTarget.id);
+    try {
+      const res = await edgeFetch(`/api/admin/moderation/notify-owner`, {
+        method: "POST",
+        json: {
+          content_type: "listing",
+          content_id: notifyTarget.id,
+          message: notifyMsg.trim(),
+        },
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to notify owner.");
+      toast.success("Owner notified.");
+      setNotifyTarget(null);
+      setNotifyMsg("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to notify owner.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const rows = data?.rows ?? [];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-36 w-full" />
+        ))}
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon={CheckCircle2}
+          title="No flagged listings"
+          description="Listings flagged by the fraud console or user reports will appear here for takedown review."
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <div className="space-y-4">
+        {rows.map((row) => {
+          const busy = busyId === row.id;
+          const down = row.moderationHidden;
+          return (
+            <Card key={row.id}>
+              <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row">
+                <div className="aspect-square h-24 w-24 shrink-0 overflow-hidden rounded-md border bg-muted">
+                  {row.previewUrl ? (
+                    <img
+                      src={row.previewUrl}
+                      alt="Listing"
+                      loading="lazy"
+                      decoding="async"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                      <ImageIcon className="h-6 w-6" />
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">
+                        {row.title || "Untitled listing"}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        <OwnerLink owner={row.owner} /> · {row.platform} · $
+                        {Number(row.price).toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="outline" className={down ? RED : SLATE}>
+                        {down ? "Taken down" : row.listingStatus}
+                      </Badge>
+                      {row.flag && (
+                        <Badge variant="outline" className={AMBER}>
+                          {row.flag.source}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  {row.flag && (
+                    <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-sm text-destructive">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{row.flag.reason}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {down ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => restore(row.id)}
+                      >
+                        {busy ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Undo2 className="mr-1.5 h-4 w-4" />
+                        )}
+                        Restore
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={busy}
+                        onClick={() => takedown(row.id)}
+                      >
+                        {busy ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <EyeOff className="mr-1.5 h-4 w-4" />
+                        )}
+                        Take down
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => {
+                        setNotifyTarget(row);
+                        setNotifyMsg("");
+                      }}
+                    >
+                      <Bell className="mr-1.5 h-4 w-4" />
+                      Notify owner
+                    </Button>
+                    {row.url && (
+                      <Button size="sm" variant="ghost" asChild>
+                        <a href={row.url} target="_blank" rel="noreferrer">
+                          <ExternalLink className="mr-1.5 h-4 w-4" />
+                          View
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      <Pager
+        page={data?.page ?? 1}
+        totalPages={data?.totalPages ?? 1}
+        onPage={setPage}
+      />
+
+      <NotifyDialog
+        open={notifyTarget !== null}
+        label={notifyTarget?.title || "this listing"}
+        message={notifyMsg}
+        onMessage={setNotifyMsg}
+        busy={busyId !== null}
+        onClose={() => setNotifyTarget(null)}
+        onSend={sendNotice}
+      />
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => {
+          const id = pendingTakedown;
+          setPendingTakedown(null);
+          if (id) void takedown(id);
+        }}
+      />
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Photos tab — cross-tenant item-photo moderation (hide / unhide / notify).
+// ─────────────────────────────────────────────────────────────────────────────
+function PhotosTab() {
+  const [page, setPage] = useState(1);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [pendingHide, setPendingHide] = useState<string | null>(null);
+  const [notifyTarget, setNotifyTarget] = useState<PhotoRowDto | null>(null);
+  const [notifyMsg, setNotifyMsg] = useState("");
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-moderation-photos", page],
+    queryFn: async (): Promise<ModPage<PhotoRowDto>> => {
+      const res = await edgeFetch(
+        `/api/admin/moderation/photos?page=${page}&page_size=20`,
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to load photos.");
+      return j as ModPage<PhotoRowDto>;
+    },
+    staleTime: 30 * 1000,
+  });
+
+  async function hide(id: string) {
+    setBusyId(id);
+    try {
+      const res = await edgeFetch(`/api/admin/moderation/photos/${id}/hide`, {
+        method: "POST",
+        json: {},
+        silentGate: true,
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 403 && j?.code === "STEP_UP_REQUIRED") {
+        setPendingHide(id);
+        setStepUpOpen(true);
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "Failed to hide photo.");
+      toast.success("Photo hidden.");
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to hide photo.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function unhide(id: string) {
+    setBusyId(id);
+    try {
+      const res = await edgeFetch(`/api/admin/moderation/photos/${id}/unhide`, {
+        method: "POST",
+        json: {},
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to unhide photo.");
+      toast.success("Photo restored.");
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to unhide photo.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function sendNotice() {
+    if (!notifyTarget || !notifyMsg.trim()) return;
+    setBusyId(notifyTarget.id);
+    try {
+      const res = await edgeFetch(`/api/admin/moderation/notify-owner`, {
+        method: "POST",
+        json: {
+          content_type: "photo",
+          content_id: notifyTarget.id,
+          message: notifyMsg.trim(),
+        },
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to notify owner.");
+      toast.success("Owner notified.");
+      setNotifyTarget(null);
+      setNotifyMsg("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to notify owner.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const rows = data?.rows ?? [];
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-56 w-full" />
+        ))}
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon={CheckCircle2}
+          title="No flagged photos"
+          description="Item photos flagged by the fraud console or user reports will appear here for takedown review."
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {rows.map((row) => {
+          const busy = busyId === row.id;
+          return (
+            <Card key={row.id} className="flex flex-col overflow-hidden">
+              <div className="aspect-square w-full overflow-hidden border-b bg-muted">
+                {row.previewUrl ? (
+                  <img
+                    src={row.previewUrl}
+                    alt="Item photo"
+                    loading="lazy"
+                    decoding="async"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                    <EyeOff className="h-6 w-6" />
+                    <span className="text-xs">Hidden</span>
+                  </div>
+                )}
+              </div>
+              <CardContent className="flex flex-1 flex-col gap-2 p-3">
+                <div className="flex items-center justify-between gap-1">
+                  <Badge variant="outline" className={SLATE}>
+                    {row.photoType}
+                  </Badge>
+                  {row.isHidden && (
+                    <Badge variant="outline" className={RED}>
+                      Hidden
+                    </Badge>
+                  )}
+                </div>
+                <p className="truncate text-xs text-muted-foreground">
+                  <OwnerLink owner={row.owner} />
+                </p>
+                {row.flag && (
+                  <p className="line-clamp-2 text-xs text-destructive">
+                    {row.flag.reason}
+                  </p>
+                )}
+                <div className="mt-auto flex flex-wrap gap-1.5">
+                  {row.isHidden ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => unhide(row.id)}
+                    >
+                      {busy ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Eye className="mr-1.5 h-4 w-4" />
+                      )}
+                      Unhide
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={busy}
+                      onClick={() => hide(row.id)}
+                    >
+                      {busy ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <EyeOff className="mr-1.5 h-4 w-4" />
+                      )}
+                      Hide
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setNotifyTarget(row);
+                      setNotifyMsg("");
+                    }}
+                  >
+                    <Bell className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      <Pager
+        page={data?.page ?? 1}
+        totalPages={data?.totalPages ?? 1}
+        onPage={setPage}
+      />
+
+      <NotifyDialog
+        open={notifyTarget !== null}
+        label="this photo"
+        message={notifyMsg}
+        onMessage={setNotifyMsg}
+        busy={busyId !== null}
+        onClose={() => setNotifyTarget(null)}
+        onSend={sendNotice}
+      />
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => {
+          const id = pendingHide;
+          setPendingHide(null);
+          if (id) void hide(id);
+        }}
+      />
+    </>
+  );
+}
+
+// Shared "notify owner" composer dialog.
+function NotifyDialog({
+  open,
+  label,
+  message,
+  onMessage,
+  busy,
+  onClose,
+  onSend,
+}: {
+  open: boolean;
+  label: string;
+  message: string;
+  onMessage: (v: string) => void;
+  busy: boolean;
+  onClose: () => void;
+  onSend: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Notify owner</DialogTitle>
+          <DialogDescription>
+            Send the owner of {label} an in-app moderation notice.
+          </DialogDescription>
+        </DialogHeader>
+        <textarea
+          value={message}
+          onChange={(e) => onMessage(e.target.value)}
+          rows={4}
+          placeholder="Explain why this content was flagged or removed…"
+          className="w-full rounded-md border bg-background p-2 text-sm"
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={onSend} disabled={busy || !message.trim()}>
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Send notice
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
