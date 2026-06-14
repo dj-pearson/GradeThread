@@ -70,6 +70,7 @@ const AcceptInvitePage = lazy(() => import("@/pages/accept-invite").then(m => ({
 const PriceSuggestionsPage = lazy(() => import("@/pages/price-suggestions").then(m => ({ default: m.PriceSuggestionsPage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
 const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m => ({ default: m.VerifiedSellerPage })));
+const VerifiedDirectoryPage = lazy(() => import("@/pages/verified-directory").then(m => ({ default: m.VerifiedDirectoryPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
 // visitor's browser. Dynamic, NOT registered in PUBLIC_ROUTES (no prerender).
@@ -230,6 +231,10 @@ export const router = createBrowserRouter([
       // Public routes
       { path: "/", element: <SuspenseWrapper><LandingPage /></SuspenseWrapper> },
       { path: "/cert/:id", element: <SuspenseWrapper><CertificatePage /></SuspenseWrapper> },
+      // GradeThread Verified — public seller directory + leaderboard (US-863).
+      // Static, indexable, prerendered (registered in PUBLIC_ROUTES); the seller
+      // list itself loads client-side from the public sellers feed.
+      { path: "/verified", element: <SuspenseWrapper><VerifiedDirectoryPage /></SuspenseWrapper> },
       // GradeThread Verified — public seller trust profile. Dynamic (like
       // /cert/:id): served by the SSR Pages Function in prod; this SPA route is
       // the dev / in-app fallback. NOT registered in PUBLIC_ROUTES (dynamic).

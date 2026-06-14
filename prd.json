@@ -12717,8 +12717,8 @@
         "npm run build passes (public-routes guard green)"
       ],
       "priority": 863,
-      "passes": false,
-      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Builds on content-public.ts sellers + verified-seller.tsx + functions/sitemap-sellers.xml.ts."
+      "passes": true,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Builds on content-public.ts sellers + verified-seller.tsx + functions/sitemap-sellers.xml.ts. IMPLEMENTED: new public /verified directory page (src/pages/verified-directory.tsx) — client-side fetch of /api/content/public/sellers.json, sortable by volume/average-grade/recency, search box, ranked leaderboard cards linking to /verified/:handle. Enhanced /sellers.json (content-public.ts) with per-seller total_graded + average_grade (one batched aggregate over certified reports, no migration; backward-compatible for the sitemap which still reads handle+updated_at). Registered /verified in PUBLIC_ROUTES + entry-server PAGES (prerendered) + ROUTE_LAST_MODIFIED; added directory hub URL to sellerUrls() in functions/_shared/sitemap.ts. Only verified_enabled profiles + certificate_id-not-null stats = no private leaks. tsc/deno check/build/686 unit tests green; shortened meta description to satisfy US-435 snippet-window guard."
     },
     {
       "id": "US-864",

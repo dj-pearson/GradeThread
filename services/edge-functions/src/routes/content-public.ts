@@ -816,23 +816,82 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
   });
 });
 
+// Upper bound on certified rows scanned when aggregating directory stats. The
+// verified cohort is opt-in (a small, bounded set), so one query covers it; if
+// it ever grows large this should move to a DB-side aggregate (materialized
+// view / RPC).
+const DIRECTORY_STATS_SAMPLE = 50000;
+
 // ── GET /sellers.json ─────────────────────────────────────────────
-// Compact list of public seller handles for the sitemap (verified profiles
-// are indexable organic surfaces). Capped; lastmod is the row's updated_at.
+// Compact list of public seller handles for the sitemap (verified profiles are
+// indexable organic surfaces) AND the public /verified directory + leaderboard
+// (US-863). Carries the headline trust stats the directory ranks by
+// (total_graded, average_grade) alongside the handle + lastmod the sitemap
+// reads. Same public projection as the per-seller profile: only verified_enabled
+// profiles, and stats counted over CERTIFIED (public) reports only — no private
+// data leaks. Capped; lastmod is the row's updated_at.
 contentPublicRoutes.get("/sellers.json", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("users")
-    .select("verified_handle, updated_at")
+    .select(
+      "id, verified_handle, verified_display_name, verified_since, updated_at",
+    )
     .eq("verified_enabled", true)
     .not("verified_handle", "is", null)
     .order("updated_at", { ascending: false })
     .limit(5000);
   if (error) return publicError(c, error, "query");
+
+  const sellers = (data ?? []) as Array<{
+    id: string;
+    verified_handle: string;
+    verified_display_name: string | null;
+    verified_since: string | null;
+    updated_at: string | null;
+  }>;
+
+  // Headline stats per seller — count + average of their CERTIFIED (public)
+  // grades — aggregated in ONE query over the whole verified set and grouped in
+  // JS. The inner join + certificate_id filter keep it to public reports owned
+  // by these sellers (US-268); we never read a private report or another tenant.
+  const statById = new Map<string, { count: number; sum: number }>();
+  if (sellers.length > 0) {
+    const ids = sellers.map((s) => s.id);
+    const { data: certRows, error: certErr } = await supabaseAdmin
+      .from("grade_reports")
+      .select("overall_score, submissions!inner(user_id)")
+      .in("submissions.user_id", ids)
+      .not("certificate_id", "is", null)
+      .limit(DIRECTORY_STATS_SAMPLE);
+    if (certErr) return publicError(c, certErr, "seller-stats");
+    for (
+      const r of (certRows ?? []) as unknown as Array<{
+        overall_score: number;
+        submissions: { user_id: string } | null;
+      }>
+    ) {
+      const uid = r.submissions?.user_id;
+      if (!uid) continue;
+      const agg = statById.get(uid) ?? { count: 0, sum: 0 };
+      agg.count += 1;
+      agg.sum += Number(r.overall_score);
+      statById.set(uid, agg);
+    }
+  }
+
   return c.json({
-    sellers: (data ?? []).map((r) => ({
-      handle: r.verified_handle,
-      updated_at: r.updated_at,
-    })),
+    sellers: sellers.map((s) => {
+      const agg = statById.get(s.id);
+      const total = agg?.count ?? 0;
+      return {
+        handle: s.verified_handle,
+        display_name: s.verified_display_name ?? s.verified_handle,
+        verified_since: s.verified_since ?? null,
+        updated_at: s.updated_at,
+        total_graded: total,
+        average_grade: total > 0 ? Math.round((agg!.sum / total) * 10) / 10 : 0,
+      };
+    }),
   });
 });
 

@@ -47,6 +47,7 @@ import { DesignVsDamagePage } from "@/pages/marketing/design-vs-damage";
 import { ResaleValueByConditionPage } from "@/pages/marketing/resale-value-by-condition";
 import { GradingByCategoryPage } from "@/pages/marketing/grading-by-category";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
+import { VerifiedDirectoryPage } from "@/pages/verified-directory";
 import { StatusPage } from "@/pages/status";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 
@@ -63,6 +64,9 @@ const PAGES: Record<string, React.ReactNode> = {
   "/verify": <VerifyGradePage />,
   "/developers": <DevelopersPage />,
   "/whats-it-worth": <WhatsItWorthPage />,
+  // US-863: public verified-seller directory. The seller list loads client-side;
+  // the prerendered shell carries the header + metadata.
+  "/verified": <VerifiedDirectoryPage />,
   // Cornerstone pillar pages (US-855)
   "/reduce-returns": <ReduceReturnsPage />,
   "/reseller-grading-guide": <ResellerGradingGuidePage />,

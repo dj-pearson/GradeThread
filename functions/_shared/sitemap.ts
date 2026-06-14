@@ -147,17 +147,23 @@ export async function certUrls(env: PagesEnv): Promise<SitemapUrl[]> {
 
 export async function sellerUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   const base = siteUrl(env);
+  // US-863: lead with the public directory/leaderboard hub, then each profile.
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/verified`, lastmod: today(), changefreq: "weekly", priority: 0.7 },
+  ];
   const data = await fetchEdgeJson<SellerSitemap>(
     env,
     "/api/content/public/sellers.json",
   );
-  if (!data) return [];
-  return data.sellers.map((s) => ({
-    loc: `${base}/verified/${encodeURIComponent(s.handle)}`,
-    lastmod: s.updated_at?.slice(0, 10),
-    changefreq: "weekly",
-    priority: 0.6,
-  }));
+  for (const s of data?.sellers ?? []) {
+    urls.push({
+      loc: `${base}/verified/${encodeURIComponent(s.handle)}`,
+      lastmod: s.updated_at?.slice(0, 10),
+      changefreq: "weekly",
+      priority: 0.6,
+    });
+  }
+  return urls;
 }
 
 // US-621: public Condition Index hub + per-item pages.

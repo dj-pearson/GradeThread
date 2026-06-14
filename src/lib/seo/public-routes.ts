@@ -62,6 +62,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/grading-standard": "2026-06-01",
   "/transparency": "2026-06-01",
   "/verify": "2026-06-12",
+  "/verified": "2026-06-13",
   "/developers": "2026-06-12",
   "/whats-it-worth": "2026-06-13",
   // US-855 cornerstone pillar pages.
@@ -168,6 +169,17 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "HowTo",
+  },
+  {
+    // US-863: public verified-seller directory + leaderboard. Indexable
+    // authority surface; the ranked seller list loads client-side from the
+    // public sellers feed (/api/content/public/sellers.json).
+    path: "/verified",
+    title: "Verified Seller Directory",
+    description:
+      "Browse trusted GradeThread Verified sellers, ranked by graded volume and average condition grade. Every item is independently AI condition-graded.",
+    changefreq: "weekly",
+    priority: 0.7,
   },
   {
     // US-849: public "what's my item worth?" condition-value tool — a

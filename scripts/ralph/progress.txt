@@ -2286,3 +2286,10 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean; npm run build:locked green (37 prerendered pages); npm test 684/684 pass; eslint clean on all 5 changed source files.
 - Timestamp: 2026-06-13
 ---
+
+## US-863: Public verified-seller directory + leaderboard
+- Status: COMPLETE
+- Files changed: src/pages/verified-directory.tsx (new), src/routes/index.tsx, src/lib/seo/public-routes.ts, src/prerender/entry-server.tsx, functions/_shared/sitemap.ts, services/edge-functions/src/routes/content-public.ts, prd.json
+- Notes: New public /verified directory ranks opt-in verified sellers by volume/avg-grade/recency, links to /verified/:handle profiles. Enhanced /sellers.json with per-seller total_graded + average_grade (single batched aggregate over certified reports — no migration, backward-compatible for the sitemap). Registered /verified in PUBLIC_ROUTES + entry-server (prerendered/indexed) + sellerUrls(). Only verified_enabled profiles, stats over certificate_id-not-null reports = no private leaks. Had to shorten the meta description to <=160 chars for the US-435 snippet-window guard. tsc --noEmit, deno check/lint, npm run build:locked (38 prerendered routes incl /verified), and all 686 unit tests pass.
+- Timestamp: 2026-06-13
+---
