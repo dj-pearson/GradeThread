@@ -2627,3 +2627,30 @@ Branch: ralph/gradethread-build
 - Notes: Migration adds maintenance_windows (maintenance_scope + maintenance_mode enums; message/starts_at/ends_at/is_active/created_by; updated_at trigger; service-role-only RLS — no user_id so it's not a tenant table, rls-guard untouched). lib/maintenance.ts is the single read path + PURE decision: decideMaintenance() (severity blocked>read_only>banner; admins ALWAYS allow; /api/admin + webhooks/crons/oauth-callbacks exempt), isWindowEffective() (master switch + schedule bounds), scopesForPath() (grade→grading, flipdesk→flipdesk, payments→checkout, +platform), a 30s active-window cache (fail-open) and a 60s admin-role cache (the guard runs where adminAuthMiddleware didn't, so it resolves admin status itself). maintenanceGuard mounted on /api/grade,/api/flipdesk,/api/payments as the LAST middleware before routes (so userId is set): blocked→503 code MAINTENANCE, read_only→503 code MAINTENANCE_READ_ONLY (writes only), banner→no-op. Public GET /api/maintenance/active (unauthed) projects effective windows for the SPA. Admin GET/POST/PATCH/DELETE /api/admin/ops/maintenance in admin-ops.ts: list is any-admin; create/edit/delete are super_admin + requireStepUp + writeAuditLog with before/after; PATCH is_active=false is the 'end now' control (audited maintenance_window.end); every write busts the cache. Frontend MaintenanceBanner reuses announcement-banner styling (banner dismissible per-session by id via sessionStorage; read_only/blocked non-dismissible) and renders in dashboard-layout above AnnouncementBanner; admin page at /admin/ops/maintenance (scope/mode selects, message, optional datetime-local schedule, per-window End now/Activate/Delete with MFA step-up dialog) + Wrench nav item under Operations. AC#6 covered by maintenance_test.ts (admin never blocked under a platform block; /api/admin exempt). Verified: deno check/lint clean, full edge suite 1403 passed/0 failed (incl. 12 new + schema-version + rls-guard), tsc --noEmit clean, npm test 772 passed, npm run build 41 prerendered pages, npm run verify:db (00211 applies from zero). Left the concurrent agent's US-1035 grading-zoom changes (ai-grading.ts/grading-pipeline.ts/grading-zoom_test.ts) untouched.
 - Timestamp: 2026-06-14
 ---
+
+## US-888: Fraud & abuse signals console
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00212_abuse_signals.sql (NEW — enums abuse_signal_type/severity/status; abuse_signals table: subject_user_id, evidence jsonb, dedupe_key unique, triage cols; service-role-only RLS deny-all; updated_at trigger; triage + subject indexes)
+  - services/edge-functions/src/lib/abuse-signals.ts (NEW pure: buildPhashCollisionSignals cross-account only, buildVelocitySignals, dedupe keys, assertSafeEvidence allow-list)
+  - services/edge-functions/src/routes/jobs-abuse-scan.ts (NEW cron — job-secret + lock, idempotent upsert on dedupe_key)
+  - services/edge-functions/src/routes/admin-safety.ts (NEW /api/admin/safety: GET /signals paginated+filtered, GET /signals/:id, PATCH /signals/:id triage w/ step-up+audit)
+  - services/edge-functions/src/main.ts (mount /api/admin/safety + /api/jobs/abuse-scan)
+  - services/edge-functions/src/lib/schema-version.ts (00211->00212)
+  - services/edge-functions/src/lib/cron-runs.ts (CRON_REGISTRY abuse-scan every 6h)
+  - services/edge-functions/src/tests/abuse-signals_test.ts (NEW 12 pure tests incl. evidence-leak guards)
+  - services/edge-functions/src/tests/tenant-isolation_test.ts (non-admin cannot read abuse-signals console)
+  - src/pages/admin/safety-signals.tsx (NEW Trust & Safety console: filters, pagination, Sheet detail drawer, enforcement actions)
+  - src/layouts/admin-layout.tsx (NEW "Trust & Safety" sidebar group; moved Moderation + Abuse & Fraud into it)
+  - src/routes/index.tsx (route /admin/safety/signals)
+  - prd.json
+- Notes:
+  - Complements (does NOT duplicate) the existing live /api/admin/fraud aggregate: that computes on-the-fly each request with no memory; this is the DURABLE, triageable queue, and its headline signal (cross-account phash photo reuse) is something the live dashboard does not compute.
+  - AC4 cross-tenant safety: evidence carries only ids + hash + distance + counts. assertSafeEvidence() enforces a key allow-list and rejects anything resembling image bytes / signed storage URLs; unit-tested. The detector only ever touches phash text + submission->user-id maps, never image bytes.
+  - subject_user_id (NOT user_id) is deliberate: the rls-guard auto-discovers `\buser_id\b` and would misclassify this admin-only safety table as user-owned tenant data. It's service-role-only (deny-all RLS) so users can't read signals raised about themselves.
+  - Actions reuse existing audited endpoints (suspend = /api/admin/users/:id/suspend, void grade = /api/admin/moderation/:id/reject); only the signal's own triage state lives on the safety router. Resolving (actioned/dismissed/open) requires super_admin MFA step-up + a reason, matching the bar of the destructive actions it represents.
+  - Idempotent scan: dedupe_key unique; re-run upserts evidence/last_seen without duplicating or reopening resolved signals (status not in the upsert payload).
+  - Verified: deno check/lint clean, full edge suite 1415 passed/0 failed, tsc --noEmit clean, build:locked 41 pages, vitest 772 passed, verify:db re-applied 212 migrations from zero (28.7s).
+  - Left the concurrent agent's uncommitted grading WIP (ai-grading.ts / grading-pipeline.ts / grading-zoom_test.ts) untouched.
+- Timestamp: 2026-06-14
+---

@@ -34,6 +34,7 @@ import {
   DollarSign,
   LineChart,
   Flag,
+  Siren,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -52,8 +53,6 @@ const adminNavItems = [
   { to: "/admin/support", icon: Headset, label: "Support", end: true, superAdminOnly: false },
   { to: "/admin/support/kb", icon: BookOpen, label: "Knowledge Base", end: false, superAdminOnly: false },
   { to: "/admin/support/monitoring", icon: Activity, label: "Assistant Monitoring", end: false, superAdminOnly: false },
-  { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false, superAdminOnly: false },
-  { to: "/admin/fraud", icon: ShieldX, label: "Abuse & Fraud", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
   { to: "/admin/reliability", icon: BarChart3, label: "Reliability", end: false, superAdminOnly: false },
   { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
@@ -65,6 +64,16 @@ const adminNavItems = [
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
   { to: "/admin/jobs", icon: Server, label: "Jobs & Queues", end: false, superAdminOnly: false },
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
+];
+
+// Trust & Safety (US-888) — moderation, the live abuse/fraud aggregate, and the
+// durable abuse-signal queue. Same admin + super_admin access; resolving a
+// signal / suspending is additionally super_admin + MFA step-up gated
+// server-side.
+const safetyNavItems = [
+  { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false },
+  { to: "/admin/fraud", icon: ShieldX, label: "Abuse & Fraud", end: false },
+  { to: "/admin/safety/signals", icon: Siren, label: "Abuse Signals", end: false },
 ];
 
 // Growth / Promote suite (US-632) — segments, broadcast campaigns, in-app
@@ -209,6 +218,22 @@ export function AdminLayout() {
                   {escalatedCount}
                 </span>
               )}
+            </NavLink>
+          ))}
+
+          {/* Trust & Safety (US-888). */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Trust &amp; Safety
+          </div>
+          {safetyNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
             </NavLink>
           ))}
 

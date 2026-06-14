@@ -180,6 +180,7 @@ const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags").t
 const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log").then(m => ({ default: m.AdminAuditLogPage })));
 const AdminModerationPage = lazy(() => import("@/pages/admin/moderation").then(m => ({ default: m.AdminModerationPage })));
 const AdminFraudPage = lazy(() => import("@/pages/admin/fraud").then(m => ({ default: m.AdminFraudPage })));
+const AdminSafetySignalsPage = lazy(() => import("@/pages/admin/safety-signals").then(m => ({ default: m.AdminSafetySignalsPage })));
 const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
 const AdminPricingPage = lazy(() => import("@/pages/admin/pricing").then(m => ({ default: m.AdminPricingPage })));
 const AdminWaitlistPage = lazy(() => import("@/pages/admin/waitlist").then(m => ({ default: m.AdminWaitlistPage })));
@@ -443,6 +444,7 @@ export const router = createBrowserRouter([
               { path: "/admin/waitlist", element: <SuspenseWrapper><AdminWaitlistPage /></SuspenseWrapper> },
               { path: "/admin/moderation", element: <SuspenseWrapper><AdminModerationPage /></SuspenseWrapper> },
               { path: "/admin/fraud", element: <SuspenseWrapper><AdminFraudPage /></SuspenseWrapper> },
+              { path: "/admin/safety/signals", element: <SuspenseWrapper><AdminSafetySignalsPage /></SuspenseWrapper> },
               { path: "/admin/tasks", element: <SuspenseWrapper><AdminTasksPage /></SuspenseWrapper> },
               { path: "/admin/tasks/:id", element: <SuspenseWrapper><AdminTaskBoardPage /></SuspenseWrapper> },
               // Growth / Promote suite (US-632) — admin + super_admin; the

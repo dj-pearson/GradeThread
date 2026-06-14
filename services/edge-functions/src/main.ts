@@ -69,6 +69,7 @@ import { adminSettingsRoutes } from "./routes/admin-settings.ts";
 import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
+import { adminSafetyRoutes } from "./routes/admin-safety.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -83,6 +84,7 @@ import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
+import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
@@ -743,6 +745,12 @@ app.route("/api/admin/moderation", adminModerationRoutes);
 // (repeat offenders, velocity / rate-limit abuse, duplicate-account /
 // shared-payment, chargebacks). Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/fraud", adminFraudRoutes);
+// US-888 Trust & Safety — durable, triageable fraud/abuse signals queue
+// (cross-account phash photo reuse + velocity), populated by the abuse-scan
+// cron. List/triage API; suspend/void-grade actions reuse the existing audited
+// moderation/user endpoints. Admin JWT + AAL2 via the /api/admin/* group;
+// resolving a signal additionally requires a super_admin MFA step-up.
+app.route("/api/admin/safety", adminSafetyRoutes);
 // US-846 Condition Index catalog curation — list/create/edit/disable
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.
@@ -789,6 +797,10 @@ app.post("/api/jobs/appstore-expiry-sweep", (c) => handleAppstoreExpirySweepCron
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
+// US-888 abuse-signal scan — populates the Trust & Safety queue with
+// cross-account phash photo-reuse + submission-velocity signals. Idempotent
+// (dedupe_key); the handler enforces X-Internal-Job-Secret itself.
+app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
 // US-547 AutoLister listing-prompt A/B auto-promotion. Compares the in-trial
 // challenger against the champion on seller keep-rate + sell-through and
 // promotes (eval-gated) / ends the trial. Handler enforces the job secret.

@@ -114,6 +114,23 @@ Deno.test({
 });
 
 Deno.test({
+  // US-888: the Trust & Safety abuse-signals console is an OPERATOR surface.
+  // A regular tenant must never read fraud/abuse signals raised about other
+  // accounts (the signal evidence references cross-tenant submission/image ids).
+  // adminAuthMiddleware denies any non-admin caller before a row is read.
+  name: "B (non-admin) cannot read the abuse-signals console",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/admin/safety/signals?status=all`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "GET abuse signals");
+  },
+});
+
+Deno.test({
   name: "B cannot reprice A's eBay listing",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
   fn: async () => {
