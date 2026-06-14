@@ -3161,6 +3161,7 @@ interface PromoListingRow {
   promo_rate_pct: number | null;
   promo_ad_id: string | null;
   promo_status: string | null;
+  platform_fields: { markdown_promotion_id?: unknown; markdown_pct?: unknown } | null;
 }
 
 async function loadPromoRow(
@@ -3170,7 +3171,7 @@ async function loadPromoRow(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "platform_listing_id, platform_category_id, promo_opt_out, promo_rate_pct, promo_ad_id, promo_status, inventory_items!inner(user_id)",
+      "platform_listing_id, platform_category_id, promo_opt_out, promo_rate_pct, promo_ad_id, promo_status, platform_fields, inventory_items!inner(user_id)",
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -3190,12 +3191,17 @@ flipdeskEbayRoutes.get("/listings/:id/promotion", async (c) => {
   const listingId = c.req.param("id");
   const row = await loadPromoRow(listingId, userId);
   if (!row) return c.json({ error: "Listing not found" }, 404);
+  const saleActive = typeof row.platform_fields?.markdown_promotion_id === "string";
   return c.json({
     opt_out: row.promo_opt_out ?? false,
     rate_pct: row.promo_rate_pct,
     ad_id: row.promo_ad_id,
     status: row.promo_status,
     suggested_rate_pct: suggestedAdRateForCategory(row.platform_category_id),
+    sale_active: saleActive,
+    sale_pct: typeof row.platform_fields?.markdown_pct === "number"
+      ? row.platform_fields.markdown_pct
+      : null,
   });
 });
 

@@ -286,6 +286,10 @@ struct ItemCanvasView: View {
             if !itemListings.isEmpty {
                 listingsSection
             }
+            // US-1044/1045: Promoted Listings + Sale controls for the live eBay listing.
+            if let listing = activeEbayListing {
+                EbayMarketingControls(listingId: listing.id)
+            }
             specificsSection
             if canPublish {
                 publishSection
