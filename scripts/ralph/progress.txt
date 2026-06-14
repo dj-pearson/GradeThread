@@ -2537,3 +2537,19 @@ Branch: ralph/gradethread-build
 - Notes: Reused the existing cron_runs ledger (US-584/00164) as the job-runs store rather than a redundant job_runs table — the /api/jobs/* middleware already records every cron run (AC#1 satisfied), mirroring the project's reuse norm (US-879/US-882). Migration 00205 only adds triggered_by + rows_processed columns. US-881's running/succeeded/failed/skipped enum maps onto stored success/error/skipped (mapRunStatus); 'running' derived live from a held job_locks lease (append model + CHECK unchanged). Run-now fires the job's real endpoint with X-Internal-Job-Secret + X-Triggered-By (so the existing ledger middleware records it), guarded by acquireJobLock('manual-run:<key>') against concurrent manual triggers while the handler's own lock guards the scheduled run; super_admin + requireStepUp + writeAuditLog(ops.job_run). Restricted to recorded:true crons (eBay/Google are observe-only). Verified: deno check+lint clean on new files, ops-jobs_test 11/11, schema-version_test 9/9, frontend tsc clean, build:locked 41 pages, vitest 772/772, verify:db re-applied 205 migrations from zero (Docker up). grade.ts has unrelated correlationId type errors from a concurrent agent's uncommitted WIP — not in this commit.
 - Timestamp: 2026-06-14
 ---
+
+## US-882: Unified webhook & email dead-letter queue console
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00206_dead_letter_console.sql (NEW: extend webhook_dead_letters provider CHECK +'content', both tables +'discarded' status, webhook +replay_attempts/last_replay_at, email +discard_reason/discarded_at/discarded_by)
+  - services/edge-functions/src/lib/schema-version.ts (00205 -> 00206)
+  - services/edge-functions/src/lib/ops-dead-letters.ts (NEW pure: source unification, parseDeadLetterQuery, buildUnifiedPage, payloadPreview, isWebhookReplayable, normalizeDiscardReason, retry/discard/bulk audit shapes)
+  - services/edge-functions/src/routes/admin-ops.ts (GET /dead-letters + retry/discard/bulk routes + replay IO helpers)
+  - services/edge-functions/src/routes/webhooks.ts (refactor /stripe switch -> exported dispatchStripeEvent for replay)
+  - services/edge-functions/src/lib/content-webhook.ts (record terminal failures to webhook_dead_letters provider='content'; replayContentWebhook export)
+  - services/edge-functions/src/tests/ops-dead-letters_test.ts (NEW 10 tests)
+  - src/pages/admin/ops-dead-letters.tsx (NEW page), src/routes/index.tsx (route), src/layouts/admin-layout.tsx (Operations > Dead Letters nav)
+  - prd.json
+- Notes: Reused the two EXISTING DLQ stores (webhook_dead_letters US-772 + email_deliveries US-498) rather than a redundant table — migration 00206 only extends them. Source-appropriate retry: email re-queues the same row to the outbox cron (no dup send); stripe re-fetches the authoritative event via stripe.events.retrieve + re-runs the exported handler switch (idempotent on object id); content re-dispatches the stored raw payload through dispatchContentWebhook (AC#6 — wires US-487 into the DLQ, not a re-impl). eBay/AppStore inspect/discard-only (no replay path -> 422). Discard requires a reason; all writes super_admin + requireStepUp + writeAuditLog. Bulk = bounded server-side batch (25/tick) + remaining count; client drains via repeated ticks. Verified: deno check src/main.ts + lint clean, full edge suite 1355 passed, frontend tsc + build:locked (41 pages), verify:db 206 migrations from zero (30.4s), vitest 772 passed.
+- Timestamp: 2026-06-14
+---

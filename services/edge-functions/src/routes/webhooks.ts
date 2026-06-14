@@ -107,41 +107,7 @@ webhookRoutes.post("/stripe", async (c) => {
   }
 
   try {
-    switch (event.type) {
-      case "customer.subscription.created":
-      case "customer.subscription.updated":
-      case "customer.subscription.paused":
-      case "customer.subscription.resumed":
-        await handleSubscriptionChange(event);
-        break;
-
-      case "customer.subscription.deleted":
-        await handleSubscriptionDeleted(event);
-        break;
-
-      case "invoice.payment_succeeded":
-        await handleInvoicePaymentSucceeded(event);
-        break;
-
-      case "invoice.payment_failed":
-        await handleInvoicePaymentFailed(event);
-        break;
-
-      case "checkout.session.completed":
-        await handleCheckoutCompleted(event);
-        break;
-
-      case "charge.refunded":
-        await handleChargeRefunded(event);
-        break;
-
-      case "charge.dispute.created":
-        await handleChargeDisputeCreated(event);
-        break;
-
-      default:
-        console.log(`[Webhook] Unhandled event type: ${event.type}`);
-    }
+    await dispatchStripeEvent(event);
   } catch (err) {
     // US-397/US-772: classify the failure (transient vs code-bug), release the
     // claim + retry on transient, or durably dead-letter + 200 on a code bug.
@@ -154,6 +120,53 @@ webhookRoutes.post("/stripe", async (c) => {
 
   return c.json({ received: true });
 });
+
+// The Stripe event → handler routing, extracted from the route so the unified
+// dead-letter console (US-882) can re-dispatch a dropped event through the exact
+// same handlers when an operator hits "retry". The handlers are individually
+// idempotent on the Stripe object id (submission payment_status guard,
+// grant_grade_credits dedupes on the payment_intent), so a replay can't
+// double-apply — which is what makes a console retry safe without re-claiming
+// the processed_webhook_events row. A handler throwing surfaces to the caller
+// (the route's dispatch-error policy on the live path; a failed replay on the
+// console path), never a swallowed error.
+export async function dispatchStripeEvent(event: Stripe.Event): Promise<void> {
+  switch (event.type) {
+    case "customer.subscription.created":
+    case "customer.subscription.updated":
+    case "customer.subscription.paused":
+    case "customer.subscription.resumed":
+      await handleSubscriptionChange(event);
+      break;
+
+    case "customer.subscription.deleted":
+      await handleSubscriptionDeleted(event);
+      break;
+
+    case "invoice.payment_succeeded":
+      await handleInvoicePaymentSucceeded(event);
+      break;
+
+    case "invoice.payment_failed":
+      await handleInvoicePaymentFailed(event);
+      break;
+
+    case "checkout.session.completed":
+      await handleCheckoutCompleted(event);
+      break;
+
+    case "charge.refunded":
+      await handleChargeRefunded(event);
+      break;
+
+    case "charge.dispute.created":
+      await handleChargeDisputeCreated(event);
+      break;
+
+    default:
+      console.log(`[Webhook] Unhandled event type: ${event.type}`);
+  }
+}
 
 // US-397 + US-772: the /stripe dispatcher's error policy, extracted so it can be
 // unit-tested with injected fakes (the route always uses the real deps).

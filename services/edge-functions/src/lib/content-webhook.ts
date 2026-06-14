@@ -300,6 +300,11 @@ async function alertDeliveryFailure(
     tags: { event: payload.event, target: target.field },
   });
 
+  // US-882: land the terminal failure in the unified dead-letter queue
+  // (webhook_dead_letters, provider='content') so it's inspectable + replayable
+  // from the cross-provider console — not just buried in content_webhook_log.
+  await recordContentDeadLetter(payload, label, target.field, lastStatus);
+
   const hook = Deno.env.get("CONTENT_ALERT_WEBHOOK")?.trim() ||
     Deno.env.get("MONITOR_ALERT_WEBHOOK")?.trim() || "";
   if (!hook) return;
@@ -320,6 +325,76 @@ async function alertDeliveryFailure(
   } catch (err) {
     captureException(err, { route: "content-webhook.alert" });
   }
+}
+
+// US-882: a stable (provider, event_id) key for a content dead letter. A single
+// post can fail to several platform targets, so the key includes the target
+// label — each failed destination is its own replayable row, deduped on re-drop.
+function contentDeadLetterEventId(
+  payload: WebhookPayload,
+  label: string | undefined,
+): string {
+  return `${payload.data.id}:${label ?? payload.event}`;
+}
+
+// US-882: record a terminal content-webhook failure into webhook_dead_letters so
+// the unified console can surface + replay it. Content payloads are public
+// blog/social data (no PII/secrets), so they're stored raw — replay reconstructs
+// the exact WebhookPayload and re-dispatches. Never throws (best-effort, mirrors
+// recordWebhookDeadLetter's contract).
+async function recordContentDeadLetter(
+  payload: WebhookPayload,
+  label: string | undefined,
+  targetField: string,
+  lastStatus: number | null,
+): Promise<void> {
+  try {
+    const eventType = `${payload.event}${label ? `/${label}` : ""}`;
+    const { error } = await supabaseAdmin
+      .from("webhook_dead_letters")
+      .upsert(
+        {
+          provider: "content",
+          event_id: contentDeadLetterEventId(payload, label),
+          event_type: eventType,
+          payload,
+          error_message:
+            `content webhook delivery to ${targetField} failed after ${ATTEMPT_DELAYS_MS.length} ` +
+            `attempts (last status: ${lastStatus ?? "network error"})`,
+        },
+        { onConflict: "provider,event_id", ignoreDuplicates: true },
+      );
+    if (error && error.code !== "23505") {
+      console.warn("[content-webhook] dead-letter write failed:", error.message);
+    }
+  } catch (err) {
+    console.warn(
+      "[content-webhook] dead-letter write threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+// US-882: replay a content dead letter — narrow the stored payload back to a
+// WebhookPayload and re-dispatch it through the normal content webhook path
+// (the same dispatcher, not a re-implementation — satisfies AC#6). Returns
+// whether delivery succeeded so the console can mark the row resolved.
+export async function replayContentWebhook(
+  payload: unknown,
+): Promise<{ delivered: boolean }> {
+  if (!isWebhookPayload(payload)) {
+    throw new Error("dead-letter payload is not a valid content webhook payload");
+  }
+  const result = await dispatchContentWebhook(payload);
+  return { delivered: result.delivered };
+}
+
+function isWebhookPayload(p: unknown): p is WebhookPayload {
+  if (!p || typeof p !== "object") return false;
+  const o = p as Record<string, unknown>;
+  if (o.event !== "blog.published" && o.event !== "social.published") return false;
+  const data = o.data as Record<string, unknown> | undefined;
+  return !!data && typeof data.id === "string";
 }
 
 // US-255: emit the server-side 'webhook.dispatched' analytics event once a

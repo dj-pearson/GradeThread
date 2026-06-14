@@ -29,6 +29,7 @@ import {
   Bell,
   Gift,
   Server,
+  Inbox,
   DoorOpen,
   DollarSign,
   LineChart,
@@ -81,6 +82,7 @@ const growthNavItems = [
 // step-up gated server-side.
 const opsNavItems = [
   { to: "/admin/ops/jobs", icon: Server, label: "Background Jobs", end: false },
+  { to: "/admin/ops/dead-letters", icon: Inbox, label: "Dead Letters", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +
