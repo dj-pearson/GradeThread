@@ -2668,3 +2668,27 @@ Branch: ralph/gradethread-build
 - Notes: Per-user temporary rate-limit overrides (multiplier/cap/block) honored by the edge limiter. rate_limit_overrides keyed by subject_user_id (avoids rls-guard auto-discovery), service-role-only deny-all RLS, CHECK shape constraint per mode. lib/rate-limit-overrides.ts: 30s in-process cache of ALL active overrides (one query/window), sync hot-path getter that double-checks expiry at read time (AC3 — no cleanup job), pure apply+validate shared with tests. Limiter consults overrides for user subjects only; block short-circuits to 429+Retry-After; injectable resolver keeps it unit-testable and inert without a DB (existing limiter tests untouched). Endpoints on /api/admin/safety: GET /rate-limits (top-N noisiest from rate_limit_counters + active overrides), GET /rate-limits/:userId (counters + override + registry bounds), POST/DELETE override (super_admin + MFA step-up + audit, bust+warm cache). Caps/defaults seeded into system_settings (US-884) and validated server-side (AC5). UI: UserRateLimitsCard 'Limits' section on user-detail + Trust & Safety rate-limits console page. GOTCHA: making rateLimiter's maxRequests-derived limit mutable required changing `const limit` -> `let limit`; the override module dynamic-imports supabase so rate-limit.ts stays import-safe in DB-less test runs. Verified: deno check/lint, edge 1427 passed/0 failed, tsc clean, vitest 772 passed, build:locked 41 pages, verify:db from zero (214 migrations). Concurrent US-1035 grading WIP (ai-grading.ts/grading-pipeline.ts/grading-zoom_test.ts) left untouched.
 - Timestamp: 2026-06-14
 ---
+
+## US-891: Revenue & MRR analytics dashboard
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00215_revenue_dashboard.sql (NEW — revenue_dashboard(p_start,p_end,p_granularity) RPC: one jsonb doc, all aggregation server-side)
+  - services/edge-functions/src/lib/revenue-window.ts (NEW pure resolveRevenueWindow — import-safe, no supabase)
+  - services/edge-functions/src/routes/admin-revenue.ts (NEW GET /summary; resolves period -> window, calls RPC)
+  - services/edge-functions/src/main.ts (import + mount /api/admin/revenue)
+  - services/edge-functions/src/lib/schema-version.ts (00214 -> 00215)
+  - services/edge-functions/src/tests/revenue-dashboard_test.ts (NEW 13 pure period-resolution tests)
+  - src/pages/admin/revenue.tsx (NEW dashboard: period selector + custom range, 8 KPI cards, pie/bar/line charts, Stripe reconciliation note)
+  - src/layouts/admin-layout.tsx (NEW "Revenue" sidebar group)
+  - src/routes/index.tsx (lazy import + route /admin/revenue)
+  - prd.json
+- Notes:
+  - All figures aggregated SERVER-SIDE in the RPC (AC5). MRR/ARR + plan mix priced from pricing_plans (00166); credit-pack revenue joins grade_credit_transactions(reason='pack_purchase').delta = pricing_config.credits (00209). MRR movement (new/churned/expansion/contraction) from flipdesk_subscription_events. Pricing single-sourced from the data-driven tables, never hardcoded in SQL.
+  - Documented reconciliation tolerance (AC4): event-based movement uses each plan's MONTHLY list price (interval not recorded per event); credit-pack revenue is gross of refunds. Migration header + an in-UI note both state Stripe is the source of truth for cash.
+  - RPC guard is `auth.uid() is not null and not is_admin()` (deliberately NOT auth.role()) so the service-role edge call (null uid) passes while authenticated non-admins are blocked and anon is never granted execute — avoids the self-hosted auth.role() availability risk.
+  - GOTCHA: admin-revenue.ts imports lib/supabase.ts (throws at import if SUPABASE_URL unset), so the period-resolution logic was extracted to lib/revenue-window.ts; the unit test imports ONLY that, keeping it DB-less in CI (same import-safety split as US-890 rate-limit-overrides).
+  - Trial conversion is a to-date cohort rate (cohort = trial_started_at in window, converted = now on a paid status) — documented as such.
+  - Left the concurrent agent's uncommitted grading WIP (ai-grading.ts / grading-pipeline.ts / grading-zoom_test.ts) untouched.
+  - Verified: deno check/lint clean, edge suite 1440 passed/0 failed, tsc --noEmit clean, build:locked 41 pages, vitest 772 passed, verify:db re-applied 215 migrations from zero (28.4s).
+- Timestamp: 2026-06-14
+---

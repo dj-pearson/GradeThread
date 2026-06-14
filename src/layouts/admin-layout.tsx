@@ -67,6 +67,12 @@ const adminNavItems = [
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
 ];
 
+// Revenue Ops (US-891) — operator MRR/ARR dashboard. Same admin + super_admin
+// access; read-only (no destructive actions, so no extra step-up).
+const revenueNavItems = [
+  { to: "/admin/revenue", icon: DollarSign, label: "Revenue & MRR", end: false },
+];
+
 // Trust & Safety (US-888) — moderation, the live abuse/fraud aggregate, and the
 // durable abuse-signal queue. Same admin + super_admin access; resolving a
 // signal / suspending is additionally super_admin + MFA step-up gated
@@ -221,6 +227,22 @@ export function AdminLayout() {
                   {escalatedCount}
                 </span>
               )}
+            </NavLink>
+          ))}
+
+          {/* Revenue Ops (US-891). */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Revenue
+          </div>
+          {revenueNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
             </NavLink>
           ))}
 

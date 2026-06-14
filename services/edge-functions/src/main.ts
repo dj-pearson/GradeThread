@@ -70,6 +70,7 @@ import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
 import { adminSafetyRoutes } from "./routes/admin-safety.ts";
+import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -752,6 +753,11 @@ app.route("/api/admin/fraud", adminFraudRoutes);
 // moderation/user endpoints. Admin JWT + AAL2 via the /api/admin/* group;
 // resolving a signal additionally requires a super_admin MFA step-up.
 app.route("/api/admin/safety", adminSafetyRoutes);
+// US-891 Revenue & MRR analytics dashboard — read-only server-side rollup
+// (MRR/ARR, plan mix, MRR movement, trial conversion, credit-pack revenue +
+// daily/weekly time series) from the revenue_dashboard RPC. Admin JWT + AAL2 via
+// the /api/admin/* group; no writes, so no step-up.
+app.route("/api/admin/revenue", adminRevenueRoutes);
 // US-846 Condition Index catalog curation — list/create/edit/disable
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.

@@ -182,6 +182,7 @@ const AdminModerationPage = lazy(() => import("@/pages/admin/moderation").then(m
 const AdminFraudPage = lazy(() => import("@/pages/admin/fraud").then(m => ({ default: m.AdminFraudPage })));
 const AdminSafetySignalsPage = lazy(() => import("@/pages/admin/safety-signals").then(m => ({ default: m.AdminSafetySignalsPage })));
 const AdminRateLimitsPage = lazy(() => import("@/pages/admin/rate-limits").then(m => ({ default: m.AdminRateLimitsPage })));
+const AdminRevenuePage = lazy(() => import("@/pages/admin/revenue").then(m => ({ default: m.AdminRevenuePage })));
 const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
 const AdminPricingPage = lazy(() => import("@/pages/admin/pricing").then(m => ({ default: m.AdminPricingPage })));
 const AdminWaitlistPage = lazy(() => import("@/pages/admin/waitlist").then(m => ({ default: m.AdminWaitlistPage })));
@@ -430,6 +431,7 @@ export const router = createBrowserRouter([
               { path: "/admin/reliability", element: <SuspenseWrapper><AdminReliabilityPage /></SuspenseWrapper> },
               { path: "/admin/seo", element: <SuspenseWrapper><AdminSeoPage /></SuspenseWrapper> },
               { path: "/admin/condition-index", element: <SuspenseWrapper><AdminConditionIndexPage /></SuspenseWrapper> },
+              { path: "/admin/revenue", element: <SuspenseWrapper><AdminRevenuePage /></SuspenseWrapper> },
               { path: "/admin/system", element: <SuspenseWrapper><AdminSystemPage /></SuspenseWrapper> },
               { path: "/admin/jobs", element: <SuspenseWrapper><AdminJobsPage /></SuspenseWrapper> },
               { path: "/admin/ops/health", element: <SuspenseWrapper><AdminOpsHealthPage /></SuspenseWrapper> },
