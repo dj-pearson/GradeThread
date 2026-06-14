@@ -15459,7 +15459,7 @@
         "Graceful no-op when the grant isn't present (no errors); the active-comps path is unchanged."
       ],
       "priority": 1048,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=low. services/edge-functions/src/lib/ebay-client.ts searchSoldComps + isMarketplaceInsightsEnabled() (~line 2743-2754); ops grant + flag"
     }
   ]
