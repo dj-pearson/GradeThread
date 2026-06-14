@@ -2791,3 +2791,26 @@ Branch: ralph/gradethread-build
   - Verified: deno check + lint clean; 1473 edge tests pass; 772 web tests pass; verify:db applies 00219 cleanly from zero; build:locked OK.
 - Timestamp: 2026-06-14
 ---
+
+## US-897: Marketplace connection health console (all tenants)
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/marketplace-health.ts (new: pure deriveHealth + token-sanitizing toConnectionHealth DTO)
+  - services/edge-functions/src/routes/admin-marketplace-connections.ts (new: GET list+summary, POST /:id/refresh, POST /:id/flag-reconnect)
+  - services/edge-functions/src/main.ts (import + mount /api/admin/marketplace-connections)
+  - services/edge-functions/src/tests/admin-marketplace-connections_test.ts (new, 6 tests incl. AC2 no-token-leak)
+  - src/pages/admin/marketplace-connections.tsx (new admin page)
+  - src/layouts/admin-layout.tsx (new 'Marketplace' sidebar group + PlugZap icon)
+  - src/routes/index.tsx (lazy import + route)
+  - prd.json, scripts/ralph/progress.txt
+- Notes:
+  * No migration: marketplace_connections (00008) already had every column the AC needs (token_expires_at, refresh_error, last_synced_at, last_refresh_attempt_at, account_handle, is_active) — so no EXPECTED_SCHEMA_VERSION bump, no verify:db, no rls-guard impact.
+  * AC2 (tokens never returned) is enforced two ways: CONNECTION_SELECT never selects the *_encrypted columns, and the pure toConnectionHealth() sanitizer builds the DTO field-by-field. Unit test feeds a row WITH the secrets and asserts they're absent from the DTO + serialized JSON.
+  * Derived health order: refresh_error -> 'error' (wins even if is_active=false, since a permanent eBay failure deactivates AND stores the error); else !is_active -> 'inactive'; else token within 7d / unknown -> 'expiring'; else 'healthy'. Summary = 4 mutually-exclusive head:count queries (sum = total).
+  * AC5 reuse: refresh calls getUserAccessToken (ebay) / getDepopAccessToken (depop) — the existing AES-GCM refresh-and-persist path — instead of reimplementing crypto. Caveat (documented): those operate on the owner's active connection for that marketplace and only rotate when the token is <60s from expiry; for a valid token the action confirms validity. Non-ebay/depop marketplaces return 400 -> use flag-for-reconnect.
+  * flag-reconnect soft-sets refresh_error (so it reads 'error' in the console) WITHOUT revoking — listings keep syncing until expiry — and notifies the owner via notifyUser(type:'system', link:/dashboard/flipdesk/marketplaces). A later successful refresh clears the marker.
+  * Mutations are super_admin + requireStepUp + writeAuditLog; frontend is step-up-aware (catches STEP_UP_REQUIRED -> MfaStepUpDialog -> retry). Cross-tenant reads are intentional (admin oversight surface), documented in the route header re: CLAUDE.md US-268.
+  * Concurrent Ralph agent was mid-flight in the grading subsystem (US-1034 model-comparison WIP + committed US-1036); deliberately picked US-897 (cold FlipDesk/marketplace subsystem) to avoid file conflicts. Staged ONLY my files at commit.
+  * Verified: deno check + lint clean; full edge suite 1486 passed/0 failed; tsc --noEmit clean; vitest 772 passed; build:locked 41 pages.
+- Timestamp: 2026-06-14
+---

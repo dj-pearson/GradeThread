@@ -73,6 +73,7 @@ import { adminSafetyRoutes } from "./routes/admin-safety.ts";
 import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
+import { adminMarketplaceConnectionsRoutes } from "./routes/admin-marketplace-connections.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -771,6 +772,12 @@ app.route("/api/admin/ai", adminAiSpendRoutes);
 // (alert/throttle/kill) + breach history + one-click re-enable. Admin JWT + AAL2
 // via the /api/admin/* group; writes are super_admin + MFA step-up + audited.
 app.route("/api/admin/ai-budgets", adminAiBudgetsRoutes);
+// US-897 Marketplace connection health console — cross-tenant view of every
+// marketplace_connection's token expiry / refresh error / last sync with a
+// derived health, plus admin-triggered token refresh and flag-for-reconnect.
+// Reads are admin + AAL2 (read-only, no token material returned); the refresh /
+// flag mutations are super_admin + MFA step-up + audited.
+app.route("/api/admin/marketplace-connections", adminMarketplaceConnectionsRoutes);
 // US-846 Condition Index catalog curation — list/create/edit/disable
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.

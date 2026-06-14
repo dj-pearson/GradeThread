@@ -38,6 +38,7 @@ import {
   Gauge,
   RefreshCw,
   Coins,
+  PlugZap,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -119,6 +120,13 @@ const opsNavItems = [
   // US-887 maintenance mode + scheduled windows. List is admin; create/edit/end
   // is super_admin + MFA step-up gated server-side.
   { to: "/admin/ops/maintenance", icon: Wrench, label: "Maintenance", end: false },
+];
+
+// Marketplace ops (US-897) — cross-tenant marketplace-connection health. Same
+// admin + super_admin access; the per-connection refresh / flag-for-reconnect
+// actions are additionally super_admin + MFA step-up gated server-side.
+const marketplaceNavItems = [
+  { to: "/admin/marketplace-connections", icon: PlugZap, label: "Connections", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +
@@ -302,6 +310,22 @@ export function AdminLayout() {
                   {failingJobsCount}
                 </span>
               )}
+            </NavLink>
+          ))}
+
+          {/* Marketplace ops (US-897). */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Marketplace
+          </div>
+          {marketplaceNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
             </NavLink>
           ))}
 
