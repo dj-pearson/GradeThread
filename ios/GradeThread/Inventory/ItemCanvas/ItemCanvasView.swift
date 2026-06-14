@@ -72,6 +72,18 @@ struct ItemCanvasView: View {
         }
     }
 
+    /// True when the item's edited target price differs from what's published on
+    /// the live eBay listing — i.e. a saved price change hasn't been pushed yet.
+    /// Price is the only field the local listing mirror carries, so it's the one
+    /// reliable "unsynced" signal on iOS (title/description aren't mirrored).
+    /// Saving the canvas writes FlipDesk only; "Edit live listing" pushes to eBay.
+    private var listingPriceUnsynced: Bool {
+        guard let listing = activeEbayListing, let target = item.targetPrice else {
+            return false
+        }
+        return abs(target - listing.listingPrice) >= 0.01
+    }
+
     /// The item's most recent ended eBay listing, if any — drives relist mode
     /// (an ended listing republishes as a brand-new listing on the same SKU).
     private var endedEbayListing: LocalListing? {
@@ -371,6 +383,15 @@ struct ItemCanvasView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if listing.id == activeEbayListing?.id && listingPriceUnsynced {
+                        Text("Not on eBay")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.brandAmber.opacity(0.18), in: Capsule())
+                            .foregroundStyle(Color.brandAmber)
+                            .accessibilityLabel("Price not yet pushed to eBay")
+                    }
                     Text(currencyFormatter.formatDisplay(listing.listingPrice))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -385,11 +406,20 @@ struct ItemCanvasView: View {
             }
 
             if activeEbayListing != nil {
+                if listingPriceUnsynced {
+                    Text("You changed the price — tap “Edit live listing” to push it to eBay.")
+                        .font(.caption)
+                        .foregroundStyle(Color.brandAmber)
+                }
                 Button {
                     AppRouter.haptic()
                     showingReviseSheet = true
                 } label: {
-                    Label("Edit live listing", systemImage: "square.and.pencil")
+                    Label(
+                        listingPriceUnsynced ? "Update eBay listing" : "Edit live listing",
+                        systemImage: "square.and.pencil"
+                    )
+                    .fontWeight(.semibold)
                 }
                 // Relist as a NEW listing: ends the current live listing and
                 // publishes a fresh one (new eBay item #). The publish sheet
