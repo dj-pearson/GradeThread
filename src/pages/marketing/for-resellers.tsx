@@ -5,6 +5,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { StatCounters } from "@/components/marketing/stat-counters";
 
 const BENEFITS = [
   {
@@ -76,6 +77,9 @@ export function ForResellersPage() {
           </div>
         </div>
       </section>
+
+      {/* Live platform counters (US-865) — real aggregate social proof. */}
+      <StatCounters />
 
       <section className="border-t bg-card px-6 py-16">
         <div className="mx-auto max-w-4xl">

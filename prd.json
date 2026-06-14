@@ -12747,8 +12747,8 @@
         "npm run build passes"
       ],
       "priority": 865,
-      "passes": false,
-      "notes": "[EPIC: Public Authority Signals 2026-06-11] transparency endpoint already returns items_graded/human_reviews/graded_sales + agreement/MAE. This just surfaces them prominently."
+      "passes": true,
+      "notes": "[EPIC: Public Authority Signals 2026-06-11] transparency endpoint already returns items_graded/human_reviews/graded_sales + agreement/MAE. This just surfaces them prominently. [DONE 2026-06-13] New aggregate-only edge endpoint GET /api/grading/public/stats (computePublicStats in accuracy-tracking.ts; cheap head counts for grade_reports/verified users/grade_outcomes + sample-gated agreement from computeAccuracySummary), cached 30min in-memory + s-maxage=1800. New reusable <StatCounters/> (src/components/marketing/stat-counters.tsx) with pure resolver in stat-counters-logic.ts (unit-tested, 7 cases): renders nothing while loading/error/no-data (never blocks render; hydrates cleanly over the prerendered shell), shows exact localized counts above per-metric thresholds and degrades to 'Thousands of …'/'Hundreds of …' copy below them; small-cohort metrics (verified sellers) hide rather than fabricate magnitude; agreement omitted until citable. Wired into landing (after hero, above the static product-facts proof band) and for-resellers. No per-tenant data (mirrors computePublicTransparency safety contract)."
     },
     {
       "id": "US-866",

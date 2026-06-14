@@ -885,6 +885,57 @@ export async function computePublicTransparency(): Promise<PublicTransparencyRep
   };
 }
 
+// ─── Public stat counters (US-865) ─────────────────────────────────
+//
+// A slim, aggregate-only set of headline numbers for the homepage + marketing
+// "social proof" counters. Same safety contract as computePublicTransparency:
+// only platform-wide counts and a published agreement rate leave this function —
+// no per-user, per-item, or per-tenant data. Kept separate from (and cheaper
+// than) the full transparency report so the homepage isn't carrying the
+// changelog/reliability/calibration weight just to show four numbers.
+
+export interface PublicStats {
+  generated_at: string;
+  // Exact platform-wide grade count.
+  items_graded: number;
+  // Opt-in verified-seller profiles (same projection as the public directory).
+  verified_sellers: number;
+  // Tracked graded sales (opt-in sale-outcome feedback rows).
+  graded_sales: number;
+  // Mean AI-vs-human agreement (share within 0.5 pts). null until a citable
+  // sample exists — the frontend then omits the counter rather than show a
+  // misleading figure.
+  agreement_rate: number | null;
+}
+
+/**
+ * Compute the public stat counters. Aggregate-only and safe to expose
+ * unauthenticated. Callers should cache it aggressively (these move slowly) —
+ * see routes/public-grading.ts.
+ */
+export async function computePublicStats(): Promise<PublicStats> {
+  const [graded, sellers, sales, accuracy] = await Promise.all([
+    // Cheap exact head counts.
+    supabaseAdmin.from("grade_reports").select("id", { count: "exact", head: true }),
+    supabaseAdmin
+      .from("users")
+      .select("id", { count: "exact", head: true })
+      .eq("verified_enabled", true)
+      .not("verified_handle", "is", null),
+    supabaseAdmin.from("grade_outcomes").select("id", { count: "exact", head: true }),
+    // The agreement rate reuses the existing accuracy engine (sample-gated).
+    computeAccuracySummary(),
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    items_graded: graded.count ?? 0,
+    verified_sellers: sellers.count ?? 0,
+    graded_sales: sales.count ?? 0,
+    agreement_rate: publishedRate(accuracy.global_agreement_rate, accuracy.total_reviews),
+  };
+}
+
 // ─── Confidence calibration (US-331) ────────────────────────────────
 //
 // Is the model's confidence score actually predictive of grading error? We

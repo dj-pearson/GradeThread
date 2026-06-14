@@ -33,6 +33,7 @@ import {
   faqPageLd,
 } from "@/lib/seo/json-ld";
 import { LaunchBanner } from "@/components/launch-banner";
+import { StatCounters } from "@/components/marketing/stat-counters";
 import { WaitlistForm } from "@/components/waitlist-form";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import {
@@ -609,6 +610,10 @@ export function LandingPage() {
           </a>
         </div>
       </section>
+
+      {/* Live platform counters (US-865) — real aggregate social proof. Renders
+          nothing until a metric is large enough to cite honestly. */}
+      <StatCounters />
 
       {/* Proof band — objective product facts only (no fabricated ratings). */}
       <section className="border-t border-b bg-brand-navy px-6 py-10 text-white">

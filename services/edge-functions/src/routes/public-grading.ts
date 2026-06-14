@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import {
+  computePublicStats,
   computePublicTransparency,
+  type PublicStats,
   type PublicTransparencyReport,
 } from "../lib/accuracy-tracking.ts";
 import { getIndexCurveBySlug, getIndexHub } from "../lib/condition-index.ts";
@@ -37,6 +39,33 @@ publicGradingRoutes.get("/transparency", async (c) => {
     // generic body, mirroring the global app.onError in main.ts.
     console.error(
       "public-grading /transparency:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Internal error" }, 500);
+  }
+});
+
+// ── Public stat counters (US-865) ────────────────────────────────────
+// Slim headline numbers for the homepage + marketing social-proof counters.
+// Aggregate-only (see computePublicStats). Cached harder than /transparency —
+// these move slowly and the homepage hits this on every cold visit.
+const STATS_CACHE_TTL_MS = 30 * 60 * 1000;
+let statsCache: { at: number; stats: PublicStats } | null = null;
+
+// GET /stats — items graded, verified sellers, graded sales, AI-vs-human agreement.
+publicGradingRoutes.get("/stats", async (c) => {
+  try {
+    const now = Date.now();
+    if (!statsCache || now - statsCache.at > STATS_CACHE_TTL_MS) {
+      statsCache = { at: now, stats: await computePublicStats() };
+    }
+    return c.json(statsCache.stats, 200, {
+      "Cache-Control": "public, max-age=600, s-maxage=1800",
+    });
+  } catch (err) {
+    // US-580: unauthenticated surface — log server-side, return a generic body.
+    console.error(
+      "public-grading /stats:",
       err instanceof Error ? err.message : String(err),
     );
     return c.json({ error: "Internal error" }, 500);
