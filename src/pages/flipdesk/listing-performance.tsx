@@ -130,13 +130,21 @@ export function FlipdeskListingPerformancePage() {
     queryKey: ["listing_performance_titles", user?.id, itemIds.length],
     enabled: itemIds.length > 0,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("inventory_items")
-        .select("id, title")
-        .in("id", itemIds);
+      // Chunk the id list: a single `.in("id", [...])` with hundreds of UUIDs
+      // builds a request URL that overflows the server's URL length limit
+      // (observed ERR_FAILED on large catalogs). 100 ids/request keeps every
+      // URL well under the cap.
       const map: Record<string, string> = {};
-      for (const r of (data ?? []) as Array<{ id: string; title: string }>) {
-        map[r.id] = r.title;
+      const CHUNK = 100;
+      for (let i = 0; i < itemIds.length; i += CHUNK) {
+        const slice = itemIds.slice(i, i + CHUNK);
+        const { data } = await supabase
+          .from("inventory_items")
+          .select("id, title")
+          .in("id", slice);
+        for (const r of (data ?? []) as Array<{ id: string; title: string }>) {
+          map[r.id] = r.title;
+        }
       }
       return map;
     },
