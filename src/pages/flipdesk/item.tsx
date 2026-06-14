@@ -1,11 +1,12 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Store, Zap } from "lucide-react";
+import { ArrowLeft, Megaphone, Percent, Store, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
@@ -13,7 +14,12 @@ import { supabase } from "@/lib/supabase";
 import { useItemsFull } from "@/hooks/use-items-full";
 import {
   useEbayConnection,
+  useEbayEndSale,
+  useEbayPromotion,
+  useEbayRemovePromotion,
   useEbayReviseListing,
+  useEbaySetPromotion,
+  useEbayStartSale,
   type ReviseListingPatch,
 } from "@/hooks/use-ebay";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
@@ -119,6 +125,8 @@ export function FlipdeskItemPage() {
           so edits must be pushed explicitly. This surfaces that right where the
           user edits, with an "unsynced" badge. */}
       <UpdateEbayListingCard itemId={item.id} />
+
+      <PromotionSaleCard itemId={item.id} />
 
       {/* On the page, Save keeps the user here (the query refetches); only
           Cancel and the back button navigate away. */}
@@ -270,6 +278,201 @@ function UpdateEbayListingCard({ itemId }: { itemId: string }) {
               ? "Update eBay listing"
               : "Re-sync photos & details"}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// US-1044/1045: per-listing Promoted Listings (opt in/out + ad rate) and eBay
+// Sale (markdown) controls. Reads the item's active eBay listing; the Sale's
+// active state is tracked in listings.platform_fields.markdown_promotion_id.
+function PromotionSaleCard({ itemId }: { itemId: string }) {
+  const queryClient = useQueryClient();
+  const { data: ebayConnection } = useEbayConnection();
+
+  const { data: listing } = useQuery({
+    queryKey: ["item_ebay_listing", itemId],
+    queryFn: async (): Promise<
+      { id: string; markdownActive: boolean } | null
+    > => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("id, platform_listing_id, platform_fields")
+        .eq("inventory_item_id", itemId)
+        .eq("listing_status", "active")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      const row = data as unknown as {
+        id: string;
+        platform_listing_id: string | null;
+        platform_fields: { markdown_promotion_id?: unknown } | null;
+      };
+      if (!row.platform_listing_id) return null; // not truly live on eBay
+      return {
+        id: row.id,
+        markdownActive: typeof row.platform_fields?.markdown_promotion_id ===
+          "string",
+      };
+    },
+  });
+
+  const listingId = listing?.id ?? null;
+  const { data: promo } = useEbayPromotion(listingId, !!ebayConnection);
+  const setPromo = useEbaySetPromotion();
+  const removePromo = useEbayRemovePromotion();
+  const startSale = useEbayStartSale();
+  const endSale = useEbayEndSale();
+
+  const [rate, setRate] = useState<string>("");
+  const [salePct, setSalePct] = useState<string>("15");
+
+  if (!ebayConnection || !listingId) return null;
+
+  const promoted = !!promo && !promo.opt_out && !!promo.ad_id;
+  const rateValue = rate !== ""
+    ? Number(rate)
+    : (promo?.rate_pct ?? promo?.suggested_rate_pct ?? 8);
+
+  async function applyPromo() {
+    try {
+      const res = await setPromo.mutateAsync({ listingId: listingId!, ratePct: rateValue });
+      toast.success(`Promoting at ${res.rate_pct}% ad rate.`);
+      setRate("");
+      queryClient.invalidateQueries({ queryKey: ["ebay_promotion", listingId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't update promotion.");
+    }
+  }
+  async function stopPromo() {
+    try {
+      await removePromo.mutateAsync({ listingId: listingId! });
+      toast.success("Stopped promoting this listing.");
+      queryClient.invalidateQueries({ queryKey: ["ebay_promotion", listingId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't stop promotion.");
+    }
+  }
+  async function beginSale() {
+    const pct = Number(salePct);
+    if (!Number.isFinite(pct) || pct <= 0) {
+      toast.error("Enter a valid Sale percentage.");
+      return;
+    }
+    try {
+      await startSale.mutateAsync({ listingId: listingId!, percentOff: pct });
+      toast.success(`Sale started — ${pct}% off with a SALE badge.`);
+      queryClient.invalidateQueries({ queryKey: ["item_ebay_listing", itemId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't start the Sale.");
+    }
+  }
+  async function stopSale() {
+    try {
+      await endSale.mutateAsync({ listingId: listingId! });
+      toast.success("Sale ended — original price restored.");
+      queryClient.invalidateQueries({ queryKey: ["item_ebay_listing", itemId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't end the Sale.");
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 pt-6">
+        {/* Promoted Listings */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 font-medium">
+            <Megaphone className="h-4 w-4 text-brand-red-text" />
+            Promoted Listing
+            {promoted && (
+              <Badge variant="outline" className="font-normal">
+                Active · {promo?.rate_pct ?? rateValue}%
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            A Cost-Per-Sale ad boosts visibility; eBay charges the ad rate only
+            when the item sells through the ad.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={2}
+                max={20}
+                step={0.5}
+                value={rate}
+                onChange={(e) => setRate(e.target.value)}
+                placeholder={String(promo?.rate_pct ?? promo?.suggested_rate_pct ?? 8)}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">% rate</span>
+            </div>
+            <Button size="sm" onClick={applyPromo} disabled={setPromo.isPending}>
+              {promoted ? "Update rate" : "Promote"}
+            </Button>
+            {promoted && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={stopPromo}
+                disabled={removePromo.isPending}
+              >
+                Stop promoting
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t" />
+
+        {/* Markdown Sale */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 font-medium">
+            <Percent className="h-4 w-4 text-brand-red-text" />
+            eBay Sale
+            {listing?.markdownActive && (
+              <Badge variant="outline" className="font-normal">
+                Running
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Runs a markdown promotion — buyers see a strike-through price and SALE
+            badge, and watchers get notified. Ending it restores the price.
+          </p>
+          {listing?.markdownActive ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={stopSale}
+              disabled={endSale.isPending}
+            >
+              End Sale
+            </Button>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={5}
+                  max={70}
+                  step={5}
+                  value={salePct}
+                  onChange={(e) => setSalePct(e.target.value)}
+                  className="w-24"
+                />
+                <span className="text-sm text-muted-foreground">% off</span>
+              </div>
+              <Button size="sm" onClick={beginSale} disabled={startSale.isPending}>
+                Start Sale
+              </Button>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

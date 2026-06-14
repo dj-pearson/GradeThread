@@ -1474,3 +1474,101 @@ export function useEbayResolveDispute() {
     },
   });
 }
+
+// ── Promoted Listings + Sale events (US-1044 / US-1045) ─────────────
+
+export interface EbayPromotion {
+  opt_out: boolean;
+  rate_pct: number | null;
+  ad_id: string | null;
+  status: string | null;
+  suggested_rate_pct: number;
+}
+
+export function useEbayPromotion(listingId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_promotion", listingId],
+    enabled: enabled && !!listingId,
+    queryFn: async (): Promise<EbayPromotion> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(listingId!)}/promotion`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load promotion.");
+      return json as EbayPromotion;
+    },
+  });
+}
+
+export function useEbaySetPromotion() {
+  return useMutation<
+    { ok: true; rate_pct: number; ad_id: string | null },
+    Error,
+    { listingId: string; ratePct: number }
+  >({
+    mutationFn: async ({ listingId, ratePct }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(listingId)}/promotion`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ rate_pct: ratePct }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't update promotion.");
+      return json;
+    },
+  });
+}
+
+export function useEbayRemovePromotion() {
+  return useMutation<{ ok: true }, Error, { listingId: string }>({
+    mutationFn: async ({ listingId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(listingId)}/promotion`,
+        { method: "DELETE", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't remove promotion.");
+      return json;
+    },
+  });
+}
+
+export function useEbayStartSale() {
+  return useMutation<
+    { ok: true; promotion_id: string | null },
+    Error,
+    { listingId: string; percentOff: number; endDate?: string }
+  >({
+    mutationFn: async ({ listingId, percentOff, endDate }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(listingId)}/sale`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ percent_off: percentOff, end_date: endDate }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't start the Sale.");
+      return json;
+    },
+  });
+}
+
+export function useEbayEndSale() {
+  return useMutation<{ ok: true }, Error, { listingId: string }>({
+    mutationFn: async ({ listingId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(listingId)}/sale`,
+        { method: "DELETE", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't end the Sale.");
+      return json;
+    },
+  });
+}
