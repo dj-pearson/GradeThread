@@ -15341,7 +15341,7 @@
       ],
       "priority": 1039,
       "passes": false,
-      "notes": "[eBay integration audit 2026-06-14] severity=high. services/edge-functions/src/lib/ebay-client.ts (no shipping_fulfillment today), services/edge-functions/src/routes/flipdesk-ebay.ts; Fulfillment module (ios FulfillmentService.swift, web fulfillment surface)"
+      "notes": "[eBay integration audit 2026-06-14] severity=high. services/edge-functions/src/lib/ebay-client.ts (no shipping_fulfillment today), services/edge-functions/src/routes/flipdesk-ebay.ts; Fulfillment module (ios FulfillmentService.swift, web fulfillment surface) [PROGRESS 2026-06-14] EDGE done: createShippingFulfillment + toEbayCarrierCode + POST /api/flipdesk/ebay/orders/:saleId/ship (tenant-scoped, idempotent; carrier-mapping tests). iOS done: FulfillmentService.markShipped routes eBay orders (platform_order_id) through the ship route. REMAINING: web ship-with-tracking — web only has item-status bulkMarkShipped (no tracking entry, item-centric not sale-centric); needs a per-sale ship dialog that collects tracking/carrier and calls the route."
     },
     {
       "id": "US-1040",
