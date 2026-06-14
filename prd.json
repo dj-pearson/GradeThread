@@ -13351,8 +13351,8 @@
         "Users who haven't re-accepted are not silently treated as accepted — verified by test; existing tos_accepted_version/privacy_accepted_at fields stay consistent."
       ],
       "priority": 904,
-      "passes": false,
-      "notes": "[Platform Admin Command Center / Compliance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+      "passes": true,
+      "notes": "[Platform Admin Command Center / Compliance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination. [DONE 2026-06-14] Migration 00226_legal_documents (kind enum + version/effective_date/url/body/requires_reacceptance/published_by; public read, service-role writes; seeded 2026-04-01 baseline). New lib/legal-versions.ts is the source of truth (current = latest published per kind; requiredSince = latest forcing version) with the 2026-04-01 baseline fallback; legal.ts /status,/accept,/export now read it dynamically. admin-legal.ts at /api/admin/compliance/legal: GET (versions + current/required + coverage %), POST publish (super_admin + MFA step-up + audited). legal-gate.tsx is now server-driven via /api/legal/status. Admin page src/pages/admin/legal.tsx + nav under Compliance. Pure logic unit-tested in legal-versions_test.ts (AC#5). EXPECTED_SCHEMA_VERSION bumped to 00226."
     },
     {
       "id": "US-905",

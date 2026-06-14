@@ -135,6 +135,9 @@ const opsNavItems = [
 // step-up gated server-side.
 const complianceNavItems = [
   { to: "/admin/compliance", icon: FileLock2, label: "Data Requests", end: false },
+  // US-904 legal/ToS version manager. Reads are admin; publishing a version is
+  // super_admin + MFA step-up gated server-side.
+  { to: "/admin/legal", icon: ScrollText, label: "Legal & Terms", end: false },
 ];
 
 // Marketplace ops (US-897) — cross-tenant marketplace-connection health. Same

@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScrollText } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { signOut } from "@/lib/auth";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { LEGAL_VERSIONS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,35 +16,63 @@ import {
 } from "@/components/ui/card";
 import { toast } from "sonner";
 
-// US-377: clickwrap acceptance gate for authenticated users.
+// US-377 / US-904: clickwrap acceptance gate for authenticated users.
 //
 // Email signups record consent server-side at account creation (the signup
 // metadata → handle_new_user). This gate covers the two remaining cases:
 //   1. OAuth (Google) signups — no checkbox survives the redirect, so consent is
 //      captured here BEFORE first dashboard access.
-//   2. Re-acceptance — when the ToS/Privacy version bumps, the recorded version
-//      no longer matches LEGAL_VERSIONS and every user must re-accept.
+//   2. Re-acceptance — when an operator publishes a new ToS/Privacy version with
+//      requires_reacceptance (US-904), every affected user must re-accept.
 //
-// It reads the accepted versions off the loaded profile (RLS-protected own-row
-// read) and blocks the dashboard until they match the current versions.
+// US-904: the gate is SERVER-DRIVEN. Rather than comparing the profile against a
+// hardcoded version constant, it asks /api/legal/status, whose answer reflects
+// the live legal_documents table. This means publishing a new version forces
+// re-acceptance with no frontend deploy.
+
+interface LegalStatus {
+  needsAcceptance: boolean;
+  current: { tos: string; privacy: string };
+  accepted: {
+    tosVersion: string | null;
+    privacyVersion: string | null;
+    tosAt: string | null;
+    privacyAt: string | null;
+  };
+}
+
 export function LegalGate({ children }: { children: React.ReactNode }) {
   const { profile, refreshProfile } = useAuth();
+  const queryClient = useQueryClient();
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Only gate once the profile is loaded. If it failed to load, don't trap the
-  // user behind the gate — ProtectedRoute already handled the no-session case.
-  const needsAcceptance =
-    !!profile &&
-    (profile.tos_accepted_version !== LEGAL_VERSIONS.tos ||
-      profile.privacy_accepted_version !== LEGAL_VERSIONS.privacy);
+  // Only check once a profile is loaded (i.e. the user is signed in).
+  const { data: status, isLoading } = useQuery<LegalStatus>({
+    queryKey: ["legal-status"],
+    enabled: !!profile,
+    queryFn: async () => {
+      const res = await edgeFetch("/api/legal/status", {
+        // Acceptance is the individual's, not the active workspace tenant's.
+        skipWorkspaceHeader: true,
+      });
+      if (!res.ok) throw new Error("status failed");
+      return (await res.json()) as LegalStatus;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
-  if (!needsAcceptance) return <>{children}</>;
+  // While the status loads (first navigation only — it's cached after), don't
+  // block the app behind a spinner. If acceptance is needed the gate appears the
+  // moment the status resolves; if it isn't, nothing flashes.
+  if (!profile || isLoading || !status?.needsAcceptance) {
+    return <>{children}</>;
+  }
 
-  // A prior (now-stale) acceptance means this is a re-acceptance, not a
-  // first-ever capture — pick the audit `method` accordingly.
+  // A prior recorded acceptance means this is a re-acceptance, not a first-ever
+  // capture — pick the audit `method` accordingly.
   const isUpdate = !!(
-    profile?.tos_accepted_version || profile?.privacy_accepted_version
+    status.accepted.tosVersion || status.accepted.privacyVersion
   );
 
   async function handleAccept() {
@@ -61,7 +89,9 @@ export function LegalGate({ children }: { children: React.ReactNode }) {
         skipWorkspaceHeader: true,
       });
       if (!res.ok) throw new Error("accept failed");
-      // Re-pull the profile so the updated accepted versions clear the gate.
+      // Re-pull both the status (clears the gate) and the profile (keeps the
+      // store's accepted-version fields consistent).
+      await queryClient.invalidateQueries({ queryKey: ["legal-status"] });
       await refreshProfile();
       toast.success("Thanks — you're all set.");
     } catch {

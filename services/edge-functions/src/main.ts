@@ -59,6 +59,7 @@ import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
 import { adminSupportTicketsRoutes } from "./routes/admin-support-tickets.ts";
 import { adminComplianceRoutes } from "./routes/admin-compliance.ts";
+import { adminLegalRoutes } from "./routes/admin-legal.ts";
 import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
@@ -732,6 +733,11 @@ app.route("/api/admin/support-tickets", adminSupportTicketsRoutes);
 // (data_requests is admin-select-only, never client-writable); admin JWT + AAL2
 // MFA via the /api/admin/* group; every action audited.
 app.route("/api/admin/compliance", adminComplianceRoutes);
+// US-904 legal/ToS version manager — publish Terms/Privacy versions + force
+// re-acceptance, with acceptance-coverage reporting. Reads are admin; publishing
+// is super_admin + a fresh MFA step-up and is audited. Mounted at the more
+// specific /legal sub-path so it doesn't overlap the compliance queue above.
+app.route("/api/admin/compliance/legal", adminLegalRoutes);
 // US-841 abuse & usage monitoring for the AI assistant — recent abuse events,
 // per-user usage rollups vs the US-836 caps, current lockouts + manual unlock,
 // and flagged messages. Service-role reads (usage/abuse/messages are RLS-no-

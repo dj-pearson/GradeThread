@@ -172,6 +172,7 @@ const AdminClaimsPage = lazy(() => import("@/pages/admin/claims").then(m => ({ d
 const AdminSupportPage = lazy(() => import("@/pages/admin/support").then(m => ({ default: m.AdminSupportPage })));
 const AdminSupportTicketsPage = lazy(() => import("@/pages/admin/support-tickets").then(m => ({ default: m.AdminSupportTicketsPage })));
 const AdminCompliancePage = lazy(() => import("@/pages/admin/compliance").then(m => ({ default: m.AdminCompliancePage })));
+const AdminLegalPage = lazy(() => import("@/pages/admin/legal").then(m => ({ default: m.AdminLegalPage })));
 const AdminKnowledgeBasePage = lazy(() => import("@/pages/admin/knowledge-base").then(m => ({ default: m.AdminKnowledgeBasePage })));
 const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring").then(m => ({ default: m.AdminMonitoringPage })));
 const AdminSystemPage = lazy(() => import("@/pages/admin/system").then(m => ({ default: m.AdminSystemPage })));
@@ -441,6 +442,9 @@ export const router = createBrowserRouter([
               // server-side).
               { path: "/admin/compliance", element: <SuspenseWrapper><AdminCompliancePage /></SuspenseWrapper> },
               { path: "/admin/compliance/:id", element: <SuspenseWrapper><AdminCompliancePage /></SuspenseWrapper> },
+              // US-904 legal/ToS version manager (publish + force re-acceptance;
+              // publishing is super_admin + step-up gated server-side).
+              { path: "/admin/legal", element: <SuspenseWrapper><AdminLegalPage /></SuspenseWrapper> },
               { path: "/admin/support/monitoring", element: <SuspenseWrapper><AdminMonitoringPage /></SuspenseWrapper> },
               { path: "/admin/support/kb", element: <SuspenseWrapper><AdminKnowledgeBasePage /></SuspenseWrapper> },
               { path: "/admin/ai-models", element: <SuspenseWrapper><AdminAiModelsPage /></SuspenseWrapper> },

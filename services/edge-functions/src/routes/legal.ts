@@ -1,8 +1,12 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  loadLegalVersionState,
+  needsReacceptance,
+} from "../lib/legal-versions.ts";
 
-// US-377: ToS/Privacy clickwrap acceptance.
+// US-377 / US-904: ToS/Privacy clickwrap acceptance.
 //
 // Mounted behind authMiddleware in main.ts, so c.var.userId is the verified
 // caller. Every query is scoped to that user (per the CLAUDE.md
@@ -14,11 +18,10 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 //                             row with best-effort IP/user-agent).
 //   GET  /api/legal/export  → the caller's full acceptance history (JSON download).
 //
-// The version strings are the documents' EFFECTIVE DATES — keep IN SYNC with
-// LEGAL_VERSIONS in src/lib/constants.ts and the effectiveDate in
-// src/pages/legal/{terms,privacy}.tsx.
-const TOS_VERSION = "2026-04-01";
-const PRIVACY_VERSION = "2026-04-01";
+// US-904: the CURRENT/REQUIRED versions are no longer hardcoded — they are read
+// from the operator-managed `legal_documents` table via loadLegalVersionState()
+// (with the 2026-04-01 baseline as a fallback). Publishing a new version flips
+// users to "must re-accept" with no deploy.
 
 type LegalEnv = { Variables: { userId: string } };
 
@@ -41,29 +44,33 @@ function clientIp(c: Context): string | null {
 // current document versions. Drives the dashboard legal gate.
 legalRoutes.get("/status", async (c) => {
   const userId = c.get("userId");
-  const { data, error } = await supabaseAdmin
-    .from("users")
-    .select("tos_accepted_version, privacy_accepted_version, tos_accepted_at, privacy_accepted_at")
-    .eq("id", userId)
-    .maybeSingle();
-  if (error) {
-    console.error("[legal/status] read failed:", error.message);
+  const [state, userRes] = await Promise.all([
+    loadLegalVersionState(),
+    supabaseAdmin
+      .from("users")
+      .select("tos_accepted_version, privacy_accepted_version, tos_accepted_at, privacy_accepted_at")
+      .eq("id", userId)
+      .maybeSingle(),
+  ]);
+  if (userRes.error) {
+    console.error("[legal/status] read failed:", userRes.error.message);
     return c.json({ error: "Failed to load acceptance status." }, 500);
   }
 
-  const row = (data ?? {}) as {
+  const row = (userRes.data ?? {}) as {
     tos_accepted_version?: string | null;
     privacy_accepted_version?: string | null;
     tos_accepted_at?: string | null;
     privacy_accepted_at?: string | null;
   };
-  const needsAcceptance =
-    row.tos_accepted_version !== TOS_VERSION ||
-    row.privacy_accepted_version !== PRIVACY_VERSION;
+  const needsAcceptance = needsReacceptance(state, {
+    tos: row.tos_accepted_version ?? null,
+    privacy: row.privacy_accepted_version ?? null,
+  });
 
   return c.json({
     needsAcceptance,
-    current: { tos: TOS_VERSION, privacy: PRIVACY_VERSION },
+    current: { tos: state.tos.current, privacy: state.privacy.current },
     accepted: {
       tosVersion: row.tos_accepted_version ?? null,
       privacyVersion: row.privacy_accepted_version ?? null,
@@ -93,12 +100,16 @@ legalRoutes.post("/accept", async (c) => {
       : "reacceptance";
 
   const now = new Date().toISOString();
+  // Stamp the CURRENT published versions (US-904 source of truth).
+  const state = await loadLegalVersionState();
+  const tosVersion = state.tos.current;
+  const privacyVersion = state.privacy.current;
 
   // 1. Append the immutable audit row (the provable record).
   const { error: logErr } = await supabaseAdmin.from("legal_acceptances").insert({
     user_id: userId,
-    tos_version: TOS_VERSION,
-    privacy_version: PRIVACY_VERSION,
+    tos_version: tosVersion,
+    privacy_version: privacyVersion,
     method,
     user_agent: (c.req.header("user-agent") ?? "").slice(0, 500) || null,
     ip_address: clientIp(c),
@@ -113,9 +124,9 @@ legalRoutes.post("/accept", async (c) => {
   const { error: updErr } = await supabaseAdmin
     .from("users")
     .update({
-      tos_accepted_version: TOS_VERSION,
+      tos_accepted_version: tosVersion,
       tos_accepted_at: now,
-      privacy_accepted_version: PRIVACY_VERSION,
+      privacy_accepted_version: privacyVersion,
       privacy_accepted_at: now,
     })
     .eq("id", userId);
@@ -126,7 +137,7 @@ legalRoutes.post("/accept", async (c) => {
 
   return c.json({
     ok: true,
-    accepted: { tos: TOS_VERSION, privacy: PRIVACY_VERSION, at: now },
+    accepted: { tos: tosVersion, privacy: privacyVersion, at: now },
   });
 });
 
@@ -144,10 +155,11 @@ legalRoutes.get("/export", async (c) => {
     return c.json({ error: "Failed to export acceptance record." }, 500);
   }
 
+  const state = await loadLegalVersionState();
   const payload = {
     exported_at: new Date().toISOString(),
     user_id: userId,
-    current_versions: { tos: TOS_VERSION, privacy: PRIVACY_VERSION },
+    current_versions: { tos: state.tos.current, privacy: state.privacy.current },
     acceptances: data ?? [],
   };
   return c.json(payload, 200, {
