@@ -102,6 +102,7 @@ import {
   respondToBestOffer,
   getMemberMessages,
   replyToMemberMessage,
+  leaveFeedback,
   type BestOfferAction,
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
@@ -2660,6 +2661,70 @@ flipdeskEbayRoutes.post("/cancellations/:cancelId/reject", async (c) => {
     details: { order_id: body.order_id ?? null },
   });
   return c.json({ ok: true });
+});
+
+// ── Leave buyer feedback (US-1047, Trading API) ─────────────────────
+// POST /feedback — body { buyer_username, comment?, order_line_item_id? OR
+// item_id+transaction_id }. Sellers may only leave POSITIVE feedback for buyers.
+// Idempotent: eBay rejects a duplicate, which we report as already_left rather
+// than an error. Inherently tenant-scoped (the owner's token can only leave
+// feedback on the owner's own transactions).
+flipdeskEbayRoutes.post("/feedback", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: {
+    buyer_username?: unknown;
+    comment?: unknown;
+    item_id?: unknown;
+    transaction_id?: unknown;
+    order_line_item_id?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const targetUser = String(body.buyer_username ?? "").trim();
+  if (!targetUser) {
+    return c.json({ error: "buyer_username is required." }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : undefined;
+  const transactionId = typeof body.transaction_id === "string"
+    ? body.transaction_id
+    : undefined;
+  const orderLineItemId = typeof body.order_line_item_id === "string"
+    ? body.order_line_item_id
+    : undefined;
+  if (!orderLineItemId && !(itemId && transactionId)) {
+    return c.json(
+      { error: "Provide order_line_item_id, or item_id + transaction_id." },
+      400,
+    );
+  }
+  const comment = typeof body.comment === "string" && body.comment.trim()
+    ? body.comment.trim()
+    : "Great buyer — fast payment, smooth transaction. Thank you!";
+
+  try {
+    const { alreadyLeft } = await leaveFeedback(userId, {
+      itemId,
+      transactionId,
+      orderLineItemId,
+      targetUser,
+      comment,
+    });
+    await writeAuditLog(c, {
+      action: "ebay.feedback.leave",
+      targetType: "ebay_feedback",
+      targetId: orderLineItemId ?? `${itemId}:${transactionId}`,
+      details: { buyer: targetUser, already_left: alreadyLeft },
+    });
+    return c.json({ ok: true, already_left: alreadyLeft });
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the feedback.", err, "ebay.feedback");
+  }
 });
 
 // ── Publish flow (Week 3) ──────────────────────────────────────────

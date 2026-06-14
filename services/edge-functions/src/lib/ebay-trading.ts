@@ -725,3 +725,79 @@ export async function replyToMemberMessage(
     );
   }
 }
+
+// ── US-1047: leave buyer feedback after a sale (Trading API) ─────────────────
+//
+// Leaving feedback is a legacy-only call (no REST equivalent). eBay policy:
+// sellers may ONLY leave POSITIVE feedback for buyers, so CommentType is fixed.
+// Identify the transaction by ItemID + TransactionID, or by OrderLineItemID.
+// Idempotency: eBay rejects a second feedback for the same transaction; we treat
+// that as success (alreadyLeft) so an automation never errors on a re-run.
+
+export interface LeaveFeedbackArgs {
+  itemId?: string;
+  transactionId?: string;
+  orderLineItemId?: string;
+  targetUser: string; // buyer's eBay username
+  comment: string;
+}
+
+// eBay's "feedback already left for this transaction" failure (code varies by
+// locale/version) — match on the stable wording. Pure.
+export function isFeedbackAlreadyLeft(message: string): boolean {
+  return /feedback.*already|already.*feedback|duplicate feedback/i.test(message);
+}
+
+// Build the LeaveFeedback XML. Pure + unit-tested. Requires either an
+// OrderLineItemID or an ItemID+TransactionID pair to identify the transaction.
+export function buildLeaveFeedbackXml(args: LeaveFeedbackArgs): string {
+  const lines = [
+    `<?xml version="1.0" encoding="utf-8"?>`,
+    `<LeaveFeedbackRequest xmlns="urn:ebay:apis:eBLBaseComponents">`,
+    `  <TargetUser>${xmlEscape(args.targetUser)}</TargetUser>`,
+    `  <CommentType>Positive</CommentType>`,
+    `  <CommentText>${xmlEscape(args.comment.slice(0, 500))}</CommentText>`,
+  ];
+  if (args.orderLineItemId) {
+    lines.push(`  <OrderLineItemID>${xmlEscape(args.orderLineItemId)}</OrderLineItemID>`);
+  } else {
+    if (!args.itemId || !args.transactionId) {
+      throw new Error(
+        "leaveFeedback needs orderLineItemId OR itemId+transactionId.",
+      );
+    }
+    lines.push(
+      `  <ItemID>${xmlEscape(args.itemId)}</ItemID>`,
+      `  <TransactionID>${xmlEscape(args.transactionId)}</TransactionID>`,
+    );
+  }
+  lines.push(`</LeaveFeedbackRequest>`);
+  return lines.join("\n");
+}
+
+// Leave positive feedback for the buyer on a completed transaction. Returns
+// { alreadyLeft } so callers can distinguish a fresh leave from an idempotent
+// no-op. Throws only on a genuine (non-duplicate) failure.
+export async function leaveFeedback(
+  userId: string,
+  args: LeaveFeedbackArgs,
+): Promise<{ alreadyLeft: boolean }> {
+  const xml = buildLeaveFeedbackXml(args);
+  const { ok, status, text } = await tradingCall(userId, "LeaveFeedback", xml);
+  if (!ok) {
+    if (isFeedbackAlreadyLeft(text)) return { alreadyLeft: true };
+    throw new Error(`eBay LeaveFeedback failed (${status}): ${text.slice(0, 300)}`);
+  }
+  const root = (getItemParser.parse(text) as {
+    LeaveFeedbackResponse?: {
+      Ack?: string;
+      Errors?: Array<{ LongMessage?: string }>;
+    };
+  }).LeaveFeedbackResponse;
+  if (!root || root.Ack === "Failure") {
+    const msg = root?.Errors?.[0]?.LongMessage ?? "no message";
+    if (isFeedbackAlreadyLeft(msg)) return { alreadyLeft: true };
+    throw new Error(`eBay LeaveFeedback (Failure): ${msg}`);
+  }
+  return { alreadyLeft: false };
+}
