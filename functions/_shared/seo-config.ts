@@ -232,6 +232,8 @@ export function buildLlmsSections(opts: {
   sellerUrls?: Array<{ title: string; url: string }>;
   /** US-874: representative author (E-E-A-T) pages. */
   authorUrls?: Array<{ title: string; url: string }>;
+  /** US-877: recent published blog posts (title + one-line summary + URL). */
+  articleUrls?: Array<{ title: string; url: string; note?: string }>;
 }): LlmsSection[] {
   const product: LlmsSection["links"] = [];
   const glossary: LlmsSection["links"] = [];
@@ -272,6 +274,19 @@ export function buildLlmsSections(opts: {
       { title: "RSS feed", url: "/rss.xml", note: "Latest published articles." },
     ],
   });
+  // US-877: recent articles with summaries, so AI answer engines can find and
+  // cite specific posts. Each post also has a clean-Markdown view at
+  // `<post-url>.md` (also linked via <link rel="alternate"> on the HTML page).
+  if (opts.articleUrls?.length) {
+    sections.push({
+      heading: "Recent Articles",
+      links: opts.articleUrls.map((a) => ({
+        title: a.title,
+        url: a.url,
+        note: [a.note, `Markdown: ${a.url}.md`].filter(Boolean).join(" — "),
+      })),
+    });
+  }
   if (opts.authorUrls?.length) {
     sections.push({ heading: "Authors", links: opts.authorUrls });
   }

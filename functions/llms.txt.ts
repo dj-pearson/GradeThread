@@ -33,6 +33,13 @@ interface SellerSitemap {
 interface AuthorSitemap {
   authors: Array<{ slug: string; name: string }>;
 }
+interface PostsIndex {
+  posts: Array<{ slug: string; title: string; excerpt: string | null }>;
+}
+
+// How many recent posts to list in llms.txt's Recent Articles section. Bounded
+// so the file stays a curated map, not a full feed (that's rss.xml/sitemap).
+const LLMS_ARTICLE_LIMIT = 25;
 
 async function fetchJsonSafe<T>(url: string, init?: RequestInit): Promise<T | null> {
   try {
@@ -76,7 +83,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     : FALLBACK_ROUTES;
 
   // Representative dynamic URLs — best-effort, gracefully omitted on failure.
-  const [certs, sellers, authors] = await Promise.all([
+  const [certs, sellers, authors, posts] = await Promise.all([
     fetchJsonSafe<CertSitemap>(`${api}/api/content/public/certificates.json`, {
       headers: { Accept: "application/json" },
     }),
@@ -86,6 +93,12 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     fetchJsonSafe<AuthorSitemap>(`${api}/api/content/public/authors.json`, {
       headers: { Accept: "application/json" },
     }),
+    // US-877: recent published posts (newest first) for the Recent Articles
+    // section — title + one-line excerpt summary + URL.
+    fetchJsonSafe<PostsIndex>(
+      `${api}/api/content/public/posts?limit=${LLMS_ARTICLE_LIMIT}`,
+      { headers: { Accept: "application/json" } },
+    ),
   ]);
   const certUrls = (certs?.certificates ?? []).slice(0, 3).map((cI) => ({
     title: `Verified grade certificate ${cI.id}`,
@@ -101,12 +114,28 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     title: a.name,
     url: `/authors/${a.slug}`,
   }));
+  // US-877: recent articles with a one-line summary. Each is also available as
+  // clean Markdown at `<url>.md` (the section builder appends that hint).
+  const articleUrls = (posts?.posts ?? [])
+    .filter((p) => p?.slug && p?.title)
+    .slice(0, LLMS_ARTICLE_LIMIT)
+    .map((p) => ({
+      title: p.title,
+      url: `/blog/${p.slug}`,
+      note: p.excerpt?.trim() || undefined,
+    }));
 
   const body = buildLlmsTxt({
     siteUrl: base,
     summary: LLMS_SUMMARY,
     policyNote: AI_CRAWLER_POLICY_NOTE,
-    sections: buildLlmsSections({ routes, certUrls, sellerUrls, authorUrls }),
+    sections: buildLlmsSections({
+      routes,
+      certUrls,
+      sellerUrls,
+      authorUrls,
+      articleUrls,
+    }),
   });
 
   return new Response(body, {
