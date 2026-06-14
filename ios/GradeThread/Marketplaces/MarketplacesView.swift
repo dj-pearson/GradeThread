@@ -33,6 +33,8 @@ struct MarketplacesView: View {
                         negotiationCard
                         // US-1043/1049: returns, cancellations, payment disputes.
                         postSaleCard
+                        // US-1046: bulk price/quantity update.
+                        bulkPricingCard
                     }
                     if orphanCheckFailed {
                         reconciliationErrorCard(userId: userId)
@@ -252,6 +254,35 @@ struct MarketplacesView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("Handle returns, cancellations, and payment disputes before their deadlines")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-1046: bulk price/quantity update entry point.
+    private var bulkPricingCard: some View {
+        NavigationLink {
+            BulkPricingView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "tag.square")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bulk pricing")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Update price and quantity across many eBay listings at once")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
