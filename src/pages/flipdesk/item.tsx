@@ -15,6 +15,7 @@ import { useItemsFull } from "@/hooks/use-items-full";
 import {
   useEbayConnection,
   useEbayEndSale,
+  useEbayLeaveFeedback,
   useEbayPromotion,
   useEbayRemovePromotion,
   useEbayReviseListing,
@@ -127,6 +128,8 @@ export function FlipdeskItemPage() {
       <UpdateEbayListingCard itemId={item.id} />
 
       <PromotionSaleCard itemId={item.id} />
+
+      <LeaveFeedbackCard itemId={item.id} />
 
       {/* On the page, Save keeps the user here (the query refetches); only
           Cancel and the back button navigate away. */}
@@ -277,6 +280,70 @@ function UpdateEbayListingCard({ itemId }: { itemId: string }) {
             : unsynced
               ? "Update eBay listing"
               : "Re-sync photos & details"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// US-1047: leave positive buyer feedback on a sold eBay order. The edge resolves
+// the legacy ItemID/TransactionID from the order id, so we only need the sale's
+// platform_order_id (an eBay order). Shown only once the item has such a sale.
+function LeaveFeedbackCard({ itemId }: { itemId: string }) {
+  const { data: ebayConnection } = useEbayConnection();
+  const leave = useEbayLeaveFeedback();
+
+  const { data: orderId } = useQuery({
+    queryKey: ["item_ebay_order", itemId],
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await supabase
+        .from("sales")
+        .select("platform_order_id")
+        .eq("inventory_item_id", itemId)
+        .not("platform_order_id", "is", null)
+        .order("sale_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as { platform_order_id: string | null } | null)
+        ?.platform_order_id ?? null;
+    },
+  });
+
+  if (!ebayConnection || !orderId) return null;
+
+  async function send() {
+    try {
+      const res = await leave.mutateAsync({ orderId: orderId! });
+      toast.success(
+        res.already_left
+          ? "Feedback was already left for this order."
+          : `Positive feedback left${res.count > 1 ? ` (${res.count} items)` : ""}.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't leave feedback.");
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-2 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 font-medium">
+            <Store className="h-4 w-4 text-brand-red-text" />
+            Buyer feedback
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Leave positive feedback for the buyer on this sold order.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={send}
+          disabled={leave.isPending}
+          className="shrink-0"
+        >
+          {leave.isPending ? "Leaving…" : "Leave positive feedback"}
         </Button>
       </CardContent>
     </Card>

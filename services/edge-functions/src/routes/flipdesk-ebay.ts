@@ -103,6 +103,7 @@ import {
   getMemberMessages,
   replyToMemberMessage,
   leaveFeedback,
+  getOrderLegacyLineItems,
   type BestOfferAction,
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
@@ -2696,10 +2697,10 @@ flipdeskEbayRoutes.post("/feedback", async (c) => {
   } catch {
     return c.json({ error: "Invalid JSON body." }, 400);
   }
-  const targetUser = String(body.buyer_username ?? "").trim();
-  if (!targetUser) {
-    return c.json({ error: "buyer_username is required." }, 400);
-  }
+  const bodyOrderId = typeof (body as { order_id?: unknown }).order_id === "string"
+    ? ((body as { order_id?: string }).order_id as string)
+    : undefined;
+  const explicitUser = String(body.buyer_username ?? "").trim();
   const itemId = typeof body.item_id === "string" ? body.item_id : undefined;
   const transactionId = typeof body.transaction_id === "string"
     ? body.transaction_id
@@ -2707,31 +2708,61 @@ flipdeskEbayRoutes.post("/feedback", async (c) => {
   const orderLineItemId = typeof body.order_line_item_id === "string"
     ? body.order_line_item_id
     : undefined;
-  if (!orderLineItemId && !(itemId && transactionId)) {
-    return c.json(
-      { error: "Provide order_line_item_id, or item_id + transaction_id." },
-      400,
-    );
-  }
   const comment = typeof body.comment === "string" && body.comment.trim()
     ? body.comment.trim()
     : "Great buyer — fast payment, smooth transaction. Thank you!";
 
+  // Build the list of transactions to leave feedback for. Either the caller
+  // passed explicit legacy ids, or we resolve them from the order id via the
+  // Trading GetOrders bridge (the modern lineItemId we store isn't a legacy id).
+  type Target = { itemId?: string; transactionId?: string; orderLineItemId?: string; user: string };
+  let targets: Target[] = [];
+  if (orderLineItemId && explicitUser) {
+    targets = [{ orderLineItemId, user: explicitUser }];
+  } else if (itemId && transactionId && explicitUser) {
+    targets = [{ itemId, transactionId, user: explicitUser }];
+  } else if (bodyOrderId) {
+    try {
+      const lineItems = await getOrderLegacyLineItems(userId, bodyOrderId);
+      targets = lineItems
+        .filter((li) => li.buyerUsername || explicitUser)
+        .map((li) => ({
+          itemId: li.itemId,
+          transactionId: li.transactionId,
+          user: li.buyerUsername ?? explicitUser,
+        }));
+    } catch (err) {
+      return failSafe(c, 502, "Couldn't resolve the order for feedback.", err, "ebay.feedback.resolve");
+    }
+    if (targets.length === 0) {
+      return c.json({ error: "No completed transactions found for that order." }, 404);
+    }
+  } else {
+    return c.json(
+      { error: "Provide order_id, or buyer_username + (order_line_item_id OR item_id + transaction_id)." },
+      400,
+    );
+  }
+
   try {
-    const { alreadyLeft } = await leaveFeedback(userId, {
-      itemId,
-      transactionId,
-      orderLineItemId,
-      targetUser,
-      comment,
-    });
+    let alreadyLeftAll = true;
+    for (const t of targets) {
+      const { alreadyLeft } = await leaveFeedback(userId, {
+        itemId: t.itemId,
+        transactionId: t.transactionId,
+        orderLineItemId: t.orderLineItemId,
+        targetUser: t.user,
+        comment,
+      });
+      if (!alreadyLeft) alreadyLeftAll = false;
+    }
     await writeAuditLog(c, {
       action: "ebay.feedback.leave",
       targetType: "ebay_feedback",
-      targetId: orderLineItemId ?? `${itemId}:${transactionId}`,
-      details: { buyer: targetUser, already_left: alreadyLeft },
+      targetId: bodyOrderId ?? orderLineItemId ?? `${itemId}:${transactionId}`,
+      details: { count: targets.length, already_left: alreadyLeftAll },
     });
-    return c.json({ ok: true, already_left: alreadyLeft });
+    return c.json({ ok: true, count: targets.length, already_left: alreadyLeftAll });
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the feedback.", err, "ebay.feedback");
   }

@@ -801,3 +801,78 @@ export async function leaveFeedback(
   }
   return { alreadyLeft: false };
 }
+
+// US-1047 (id resolution): the modern Sell APIs give us a Fulfillment lineItemId,
+// but LeaveFeedback needs the LEGACY ItemID + TransactionID. GetOrders bridges
+// them: it accepts the same order id and returns each transaction's legacy ids +
+// the buyer's username. Used by the /feedback route so the UI only needs the
+// order id we already store on the sale.
+
+const ordersParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "_",
+  textNodeName: "#text",
+  isArray: (name) =>
+    name === "Errors" || name === "Order" || name === "Transaction",
+});
+
+export interface OrderLegacyLineItem {
+  itemId: string;
+  transactionId: string;
+  buyerUsername: string | null;
+}
+
+interface RawTxn {
+  TransactionID?: unknown;
+  Item?: { ItemID?: unknown };
+  Buyer?: { UserID?: unknown };
+}
+interface RawOrder {
+  TransactionArray?: { Transaction?: RawTxn[] };
+}
+
+export async function getOrderLegacyLineItems(
+  userId: string,
+  orderId: string,
+): Promise<OrderLegacyLineItem[]> {
+  const body = [
+    `<?xml version="1.0" encoding="utf-8"?>`,
+    `<GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">`,
+    `  <OrderIDArray><OrderID>${xmlEscape(orderId)}</OrderID></OrderIDArray>`,
+    `  <OrderRole>Seller</OrderRole>`,
+    `  <DetailLevel>ReturnAll</DetailLevel>`,
+    `</GetOrdersRequest>`,
+  ].join("\n");
+
+  const { ok, status, text } = await tradingCall(userId, "GetOrders", body);
+  if (!ok) {
+    throw new Error(`eBay GetOrders failed (${status}): ${text.slice(0, 300)}`);
+  }
+  const root = (ordersParser.parse(text) as {
+    GetOrdersResponse?: {
+      Ack?: string;
+      Errors?: Array<{ LongMessage?: string }>;
+      OrderArray?: { Order?: RawOrder[] };
+    };
+  }).GetOrdersResponse;
+  if (!root || root.Ack === "Failure") {
+    throw new Error(
+      `eBay GetOrders (Failure): ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
+    );
+  }
+  const out: OrderLegacyLineItem[] = [];
+  for (const order of root.OrderArray?.Order ?? []) {
+    for (const t of order.TransactionArray?.Transaction ?? []) {
+      const itemId = asString(t.Item?.ItemID);
+      const transactionId = asString(t.TransactionID);
+      if (itemId && transactionId) {
+        out.push({
+          itemId,
+          transactionId,
+          buyerUsername: asString(t.Buyer?.UserID),
+        });
+      }
+    }
+  }
+  return out;
+}

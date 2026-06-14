@@ -1572,3 +1572,25 @@ export function useEbayEndSale() {
     },
   });
 }
+
+// ── Leave buyer feedback (US-1047) ──────────────────────────────────
+// The edge resolves the legacy ItemID/TransactionID from the order id, so the
+// UI only needs the sale's platform_order_id.
+export function useEbayLeaveFeedback() {
+  return useMutation<
+    { ok: true; count: number; already_left: boolean },
+    Error,
+    { orderId: string; comment?: string }
+  >({
+    mutationFn: async ({ orderId, comment }) => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/feedback`, {
+        method: "POST",
+        headers: await ebayHeaders(),
+        body: JSON.stringify({ order_id: orderId, comment }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't leave feedback.");
+      return json;
+    },
+  });
+}
