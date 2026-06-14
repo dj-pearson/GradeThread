@@ -15241,8 +15241,8 @@
         "max_tokens headroom re-verified against the larger schema; deno check + grading tests green."
       ],
       "priority": 1032,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=reliability. services/edge-functions/src/lib/ai-grading.ts (analyzeImage parse ~691-709, compositeGrade parse ~1154-1174)"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=reliability. services/edge-functions/src/lib/ai-grading.ts (analyzeImage parse ~691-709, compositeGrade parse ~1154-1174) [DONE 2026-06-14] Bumped @anthropic-ai/sdk 0.39.0->0.104.1 (non-breaking; full deno check + 1460 edge tests green) and adopted output_config.format structured outputs for analyzeImage + compositeGrade. Kept messages.create (US-414 limiter)."
     },
     {
       "id": "US-1033",
