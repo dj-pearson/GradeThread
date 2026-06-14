@@ -162,6 +162,7 @@ const AdminAiModelsPage = lazy(() => import("@/pages/admin/ai-models").then(m =>
 const AdminAiSpendPage = lazy(() => import("@/pages/admin/ai-spend").then(m => ({ default: m.AdminAiSpendPage })));
 const AdminReliabilityPage = lazy(() => import("@/pages/admin/reliability").then(m => ({ default: m.AdminReliabilityPage })));
 const AdminMarketplaceConnectionsPage = lazy(() => import("@/pages/admin/marketplace-connections").then(m => ({ default: m.AdminMarketplaceConnectionsPage })));
+const AdminMarketplaceOpsPage = lazy(() => import("@/pages/admin/marketplace-ops").then(m => ({ default: m.AdminMarketplaceOpsPage })));
 const AdminSeoPage = lazy(() => import("@/pages/admin/seo").then(m => ({ default: m.AdminSeoPage })));
 const AdminConditionIndexPage = lazy(() => import("@/pages/admin/condition-index").then(m => ({ default: m.AdminConditionIndexPage })));
 const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail").then(m => ({ default: m.AdminUserDetailPage })));
@@ -434,6 +435,7 @@ export const router = createBrowserRouter([
               { path: "/admin/ai-spend", element: <SuspenseWrapper><AdminAiSpendPage /></SuspenseWrapper> },
               { path: "/admin/reliability", element: <SuspenseWrapper><AdminReliabilityPage /></SuspenseWrapper> },
               { path: "/admin/marketplace-connections", element: <SuspenseWrapper><AdminMarketplaceConnectionsPage /></SuspenseWrapper> },
+              { path: "/admin/marketplace-ops", element: <SuspenseWrapper><AdminMarketplaceOpsPage /></SuspenseWrapper> },
               { path: "/admin/seo", element: <SuspenseWrapper><AdminSeoPage /></SuspenseWrapper> },
               { path: "/admin/condition-index", element: <SuspenseWrapper><AdminConditionIndexPage /></SuspenseWrapper> },
               { path: "/admin/revenue", element: <SuspenseWrapper><AdminRevenuePage /></SuspenseWrapper> },

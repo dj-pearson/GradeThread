@@ -2821,3 +2821,21 @@ Branch: ralph/gradethread-build
 - Notes: Live-percentage canary atop the eval/shadow infra. 00221 adds rollout_percentage+is_canary+rollout_started_at + a one-canary-per-(stage,scope) partial unique index; bumped EXPECTED_SCHEMA_VERSION 00220->00221. resolveActivePrompt now caches the SLOT (active+canary) and buckets each submission by stableBucket('grading-canary:'+slotKey+':'+submissionId); bucketKey threaded only from the live pipeline (eval/dry-run/quick-grade stay on active). GET /prompts/:id/canary = canary-vs-active metrics (mean score delta, confidence, human-review rate, early dispute rate) read from grade_reports.prompt_version (composite-measurable). PATCH /prompts/:id/canary set/rollback + Promote (reuses /activate) — all step-up + audited; eval gate enforced; activatePromptVersion clears canary flags on promotion. Kill-switch respected (route-level) + never routes to 0%/non-canary/promoted rows. GOTCHA: grade_reports.prompt_version is the COMPOSITE version a grade shipped under, so per-image canary metrics aren't live-measurable (measurable=false). Verified: deno check+lint, edge suite 1495 passed (9 new), schema-version test, tsc, vitest 772, build:locked 41 pages, verify:db from zero.
 - Timestamp: 2026-06-14
 ---
+
+## US-898: eBay sync & conflict resolution console
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/routes/admin-marketplace-ops.ts (NEW — GET sync-runs/conflicts/orphan-sales/counts + POST rerun/resolve/match)
+  - services/edge-functions/src/lib/sync-conflict-resolve.ts (NEW — extracted conflictPatchFor + applyConflictResolutions, shared by user + admin)
+  - services/edge-functions/src/lib/orphan-sale-match.ts (NEW — matchOrphanSale, owner-scoped, cross-tenant safe)
+  - services/edge-functions/src/routes/flipdesk-reconciliation.ts (refactored /conflicts/resolve to use shared lib)
+  - services/edge-functions/src/routes/main.ts (mount /api/admin/marketplace)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION -> 00222)
+  - services/edge-functions/src/tests/tenant-isolation_test.ts (US-898 orphan-match isolation tests + admin-denial)
+  - supabase/migrations/00222_marketplace_ops_settings.sql (NEW — seed marketplace_sync_stuck_threshold_min)
+  - src/pages/admin/marketplace-ops.tsx (NEW — tabbed console)
+  - src/routes/index.tsx (route /admin/marketplace-ops)
+  - src/layouts/admin-layout.tsx (nav item + badge count query)
+- Notes: Reused triggerEbaySyncForUser for re-run and extracted the conflict-resolution flow into a shared lib so the admin console and the user Reconciliation page use identical logic. Orphan-match loads BOTH the orphan and target item scoped to the orphan's owner, so it can never attach a sale to another tenant's item (CI-runnable isolation test added). Stuck threshold is config-driven via the settings registry (AC3). supabaseAdmin is untyped so multi-column selects needed `as unknown as` casts. All gates green incl. verify:db (00222 applies from zero).
+- Timestamp: 2026-06-14
+---

@@ -3,6 +3,12 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { saleNetEstimate } from "../lib/reconciliation-scoring.ts";
+import {
+  applyConflictResolutions,
+  type SyncConflictRow,
+  WINNING_SOURCES,
+  type WinningSource,
+} from "../lib/sync-conflict-resolve.ts";
 
 // Payout reconciliation: matches payout_imports rows to sales rows by listing ID
 // and timestamp window. Never silently mis-matches — unmatched rows stay queued.
@@ -621,25 +627,12 @@ flipdeskReconciliationRoutes.post("/dismiss/:id", async (c) => {
 // source per field (single, per-listing bulk, or multi-listing bulk —
 // all the same /conflicts/resolve body, just more entries).
 
-type ConflictFieldName = "price" | "quantity" | "listing_status" | "title";
-type WinningSource = "flipdesk" | "ebay" | "sheets";
-
+// ConflictFieldName / WinningSource / WINNING_SOURCES / SyncConflictRow and the
+// resolution flow (applyConflictResolutions / conflictPatchFor) now live in
+// lib/sync-conflict-resolve.ts so the admin sync console reuses the exact same
+// logic (US-898).
 const CONFLICT_LIST_LIMIT = 500;
 const RESOLVE_BATCH_MAX = 200;
-const WINNING_SOURCES = new Set<string>(["flipdesk", "ebay", "sheets"]);
-// listing_status DB enum values a resolution is allowed to write.
-const RESOLVABLE_STATUSES = new Set(["draft", "active", "ended", "sold", "relisted"]);
-
-interface SyncConflictRow {
-  id: string;
-  listing_id: string;
-  field_name: ConflictFieldName;
-  flipdesk_value: string | null;
-  ebay_value: string | null;
-  sheets_value: string | null;
-  suggested_action: string | null;
-  detected_at: string;
-}
 
 // GET /conflicts — open cross-source conflicts with listing context, newest
 // first. The UI groups rows by listing client-side.
@@ -721,50 +714,12 @@ flipdeskReconciliationRoutes.get("/conflicts", async (c) => {
   });
 });
 
-// Parses + validates the winning value for a field. Stored values are
-// normalized strings (see lib/sync-conflicts.ts normalizeConflictValue).
-// Returns the listings-column patch, or an error string.
-function conflictPatchFor(
-  field: ConflictFieldName,
-  value: string | null,
-): { patch: Record<string, unknown> } | { error: string } {
-  if (value === null || value === "") {
-    return { error: "That source has no value for this field." };
-  }
-  switch (field) {
-    case "price": {
-      const n = Number.parseFloat(value);
-      if (!Number.isFinite(n) || n < 0) {
-        return { error: `Not a usable price: "${value}".` };
-      }
-      return { patch: { listing_price: n } };
-    }
-    case "quantity": {
-      const n = Number.parseInt(value, 10);
-      if (!Number.isFinite(n) || n < 0) {
-        return { error: `Not a usable quantity: "${value}".` };
-      }
-      return { patch: { quantity: n } };
-    }
-    case "listing_status": {
-      const s = value.trim().toLowerCase();
-      // eBay reports "ended_by_seller"; FlipDesk's enum only has "ended".
-      const mapped = s === "ended_by_seller" ? "ended" : s;
-      if (!RESOLVABLE_STATUSES.has(mapped)) {
-        return { error: `Not a usable status: "${value}".` };
-      }
-      return { patch: { listing_status: mapped, is_active: mapped === "active" } };
-    }
-    case "title": {
-      return { patch: { listing_title: value } };
-    }
-  }
-}
-
 // POST /conflicts/resolve — pick the winning source for one or more open
 // conflicts. Applies the winning value to the listing row, pins the choice in
 // listings.source_of_truth (so the eBay pull won't overwrite it and detection
-// won't re-flag it), and closes the conflict with resolution = source.
+// won't re-flag it), and closes the conflict with resolution = source. The
+// per-listing apply/close flow is shared with the admin sync console
+// (lib/sync-conflict-resolve.ts → applyConflictResolutions).
 // Body: { resolutions: [{ conflict_id: string, source: "flipdesk"|"ebay"|"sheets" }] }
 flipdeskReconciliationRoutes.post("/conflicts/resolve", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -785,8 +740,9 @@ flipdeskReconciliationRoutes.post("/conflicts/resolve", async (c) => {
     );
   }
 
-  // Last entry wins if the same conflict appears twice in one call.
-  const bySource = new Map<string, WinningSource>();
+  // Validate + dedupe (last entry wins if the same conflict appears twice).
+  const seen = new Set<string>();
+  const resolutions: Array<{ conflictId: string; source: WinningSource }> = [];
   for (const r of body.resolutions as Array<Record<string, unknown>>) {
     const conflictId = typeof r?.conflict_id === "string" ? r.conflict_id : null;
     const source = typeof r?.source === "string" ? r.source : null;
@@ -796,115 +752,15 @@ flipdeskReconciliationRoutes.post("/conflicts/resolve", async (c) => {
         400,
       );
     }
-    bySource.set(conflictId, source as WinningSource);
+    if (seen.has(conflictId)) {
+      // Drop the earlier entry so the last one wins (mirrors map semantics).
+      const idx = resolutions.findIndex((x) => x.conflictId === conflictId);
+      if (idx >= 0) resolutions.splice(idx, 1);
+    }
+    seen.add(conflictId);
+    resolutions.push({ conflictId, source: source as WinningSource });
   }
 
-  // Tenant scope (US-268): conflicts load .eq(user_id); listings are touched
-  // only via ids taken from those rows. Already-resolved ids fall out here.
-  const { data: conflictsRaw, error: loadErr } = await supabaseAdmin
-    .from("flipdesk_sync_conflicts")
-    .select(
-      "id, listing_id, field_name, flipdesk_value, ebay_value, sheets_value, suggested_action, detected_at",
-    )
-    .eq("user_id", userId)
-    .is("resolved_at", null)
-    .in("id", [...bySource.keys()]);
-  if (loadErr) {
-    return c.json({ error: "Failed to load conflicts", detail: loadErr.message }, 500);
-  }
-  const conflicts = (conflictsRaw ?? []) as SyncConflictRow[];
-
-  const failed: Array<{ conflict_id: string; error: string }> = [];
-  for (const id of bySource.keys()) {
-    if (!conflicts.some((cf) => cf.id === id)) {
-      failed.push({ conflict_id: id, error: "Conflict not found or already resolved." });
-    }
-  }
-
-  // Current source_of_truth per listing, merged once per listing below.
-  const listingIds = [...new Set(conflicts.map((cf) => cf.listing_id))];
-  const sotByListing = new Map<string, Record<string, string>>();
-  if (listingIds.length > 0) {
-    const { data: listingsRaw, error: listingsErr } = await supabaseAdmin
-      .from("listings")
-      .select("id, source_of_truth")
-      .in("id", listingIds);
-    if (listingsErr) {
-      return c.json(
-        { error: "Failed to load listings", detail: listingsErr.message },
-        500,
-      );
-    }
-    for (const l of (listingsRaw ?? []) as Array<{
-      id: string;
-      source_of_truth: Record<string, string> | null;
-    }>) {
-      sotByListing.set(l.id, { ...(l.source_of_truth ?? {}) });
-    }
-  }
-
-  // Group per listing so N field picks on one listing are a single update.
-  const byListing = new Map<
-    string,
-    { patch: Record<string, unknown>; resolvedIds: Array<{ id: string; source: WinningSource }> }
-  >();
-  for (const cf of conflicts) {
-    const source = bySource.get(cf.id)!;
-    const value =
-      source === "flipdesk"
-        ? cf.flipdesk_value
-        : source === "ebay"
-          ? cf.ebay_value
-          : cf.sheets_value;
-    const parsed = conflictPatchFor(cf.field_name, value);
-    if ("error" in parsed) {
-      failed.push({ conflict_id: cf.id, error: parsed.error });
-      continue;
-    }
-    const sot = sotByListing.get(cf.listing_id);
-    if (!sot) {
-      failed.push({ conflict_id: cf.id, error: "Listing no longer exists." });
-      continue;
-    }
-    sot[cf.field_name] = source;
-    const group = byListing.get(cf.listing_id) ?? { patch: {}, resolvedIds: [] };
-    Object.assign(group.patch, parsed.patch);
-    group.resolvedIds.push({ id: cf.id, source });
-    byListing.set(cf.listing_id, group);
-  }
-
-  let resolved = 0;
-  const nowIso = new Date().toISOString();
-  for (const [listingId, group] of byListing) {
-    const { error: updateErr } = await supabaseAdmin
-      .from("listings")
-      .update({ ...group.patch, source_of_truth: sotByListing.get(listingId) })
-      .eq("id", listingId);
-    if (updateErr) {
-      for (const r of group.resolvedIds) {
-        failed.push({ conflict_id: r.id, error: "Failed to apply value to listing." });
-      }
-      console.error(
-        `[reconciliation/conflicts] listing ${listingId} update failed:`,
-        updateErr.message,
-      );
-      continue;
-    }
-    for (const r of group.resolvedIds) {
-      const { error: closeErr } = await supabaseAdmin
-        .from("flipdesk_sync_conflicts")
-        .update({ resolved_at: nowIso, resolution: r.source })
-        .eq("id", r.id)
-        .eq("user_id", userId);
-      if (closeErr) {
-        // Value applied but the row didn't close — detection will simply
-        // auto-converge it next sync (the source now matches the DB).
-        failed.push({ conflict_id: r.id, error: "Applied, but failed to close the conflict." });
-        continue;
-      }
-      resolved += 1;
-    }
-  }
-
+  const { resolved, failed } = await applyConflictResolutions(userId, resolutions);
   return c.json({ ok: failed.length === 0, resolved, failed });
 });

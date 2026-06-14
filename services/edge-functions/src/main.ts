@@ -74,6 +74,7 @@ import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
 import { adminMarketplaceConnectionsRoutes } from "./routes/admin-marketplace-connections.ts";
+import { adminMarketplaceOpsRoutes } from "./routes/admin-marketplace-ops.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -778,6 +779,12 @@ app.route("/api/admin/ai-budgets", adminAiBudgetsRoutes);
 // Reads are admin + AAL2 (read-only, no token material returned); the refresh /
 // flag mutations are super_admin + MFA step-up + audited.
 app.route("/api/admin/marketplace-connections", adminMarketplaceConnectionsRoutes);
+// US-898 eBay sync & conflict-resolution console — cross-tenant view of
+// flipdesk_sync_runs (with a config-driven STUCK flag), open sync_conflicts and
+// orphan eBay sales, plus re-run / accept-side / orphan-match resolution actions.
+// Reads are admin + AAL2; the three mutations are super_admin + MFA step-up +
+// audited, and each resolves the owning tenant from the row before writing.
+app.route("/api/admin/marketplace", adminMarketplaceOpsRoutes);
 // US-846 Condition Index catalog curation — list/create/edit/disable
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.

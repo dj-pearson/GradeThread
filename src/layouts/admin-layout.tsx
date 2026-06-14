@@ -39,6 +39,7 @@ import {
   RefreshCw,
   Coins,
   PlugZap,
+  GitMerge,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -127,6 +128,9 @@ const opsNavItems = [
 // actions are additionally super_admin + MFA step-up gated server-side.
 const marketplaceNavItems = [
   { to: "/admin/marketplace-connections", icon: PlugZap, label: "Connections", end: false },
+  // US-898 — cross-tenant sync runs, conflicts and orphan sales with resolution
+  // actions (re-run / accept-side / orphan-match), super_admin + step-up gated.
+  { to: "/admin/marketplace-ops", icon: GitMerge, label: "Sync & Conflicts", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +
@@ -191,6 +195,19 @@ export function AdminLayout() {
       const res = await edgeFetch("/api/admin/ops/jobs?page_size=1");
       const json = await res.json().catch(() => ({}));
       return res.ok ? Number(json.failing_count ?? 0) : 0;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
+  // US-898: open conflicts + unmatched orphans + stuck runs, for the Marketplace
+  // > Sync & Conflicts nav badge (light poll, like the others above).
+  const { data: marketplaceOpsCount } = useQuery({
+    queryKey: ["admin-marketplace-ops-counts"],
+    queryFn: async (): Promise<number> => {
+      const res = await edgeFetch("/api/admin/marketplace/counts");
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? Number(json.total ?? 0) : 0;
     },
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
@@ -325,7 +342,12 @@ export function AdminLayout() {
               className={navLinkClass}
             >
               <item.icon className="h-5 w-5" />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.to === "/admin/marketplace-ops" && (marketplaceOpsCount ?? 0) > 0 && (
+                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+                  {marketplaceOpsCount}
+                </span>
+              )}
             </NavLink>
           ))}
 

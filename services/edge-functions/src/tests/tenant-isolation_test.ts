@@ -1314,3 +1314,137 @@ Deno.test("US-843: search_knowledge_base → a public caller cannot reach subscr
   );
   assert(filteredAudiences.includes("public"), "public rows are the only allowed audience");
 });
+
+// ════════════════════════════════════════════════════════════════════
+// US-898: admin sync console — manual orphan-match can't cross tenants.
+//
+// The admin "match orphan sale" action resolves the owning tenant from the
+// orphan row, then matchOrphanSale loads BOTH the orphan AND the target
+// inventory item scoped to that owner. So even when an operator points an
+// orphan at an inventory_item id belonging to a DIFFERENT tenant, the item
+// lookup misses (it's filtered by the orphan owner's user_id) and NO sale is
+// created. Asserted directly against a faithful in-memory fake (no env fixture).
+// ════════════════════════════════════════════════════════════════════
+
+const { matchOrphanSale } = await import("../lib/orphan-sale-match.ts");
+
+interface FakeTableSet {
+  flipdesk_ebay_orphan_sales: FakeRow[];
+  inventory_items: FakeRow[];
+  sales: FakeRow[];
+}
+
+function makeOrphanFakeClient(tables: FakeTableSet) {
+  function from(table: keyof FakeTableSet) {
+    const filters: Array<{ col: string; val: unknown }> = [];
+    let op: "select" | "insert" | "update" = "select";
+    let insertRow: FakeRow | null = null;
+    let updatePatch: FakeRow | null = null;
+    const matching = (): FakeRow[] => {
+      let rows = (tables[table] ?? []).slice();
+      for (const f of filters) rows = rows.filter((r) => r[f.col] === f.val);
+      return rows;
+    };
+    const exec = (): { data: unknown; error: null } => {
+      if (op === "insert") {
+        const arr = tables[table] ?? (tables[table] = []);
+        const id = `${String(table)}-${arr.length + 1}`;
+        const row = { id, ...(insertRow ?? {}) };
+        arr.push(row);
+        return { data: { id }, error: null };
+      }
+      if (op === "update") {
+        for (const r of matching()) Object.assign(r, updatePatch ?? {});
+        return { data: null, error: null };
+      }
+      return { data: matching(), error: null };
+    };
+    // deno-lint-ignore no-explicit-any
+    const q: any = {
+      select: () => q,
+      insert: (row: FakeRow) => {
+        op = "insert";
+        insertRow = row;
+        return q;
+      },
+      update: (patch: FakeRow) => {
+        op = "update";
+        updatePatch = patch;
+        return q;
+      },
+      eq: (col: string, val: unknown) => {
+        filters.push({ col, val });
+        return q;
+      },
+      not: () => q,
+      maybeSingle: () => {
+        const res = exec();
+        const data = Array.isArray(res.data) ? (res.data[0] ?? null) : res.data;
+        return Promise.resolve({ data, error: res.error });
+      },
+      // deno-lint-ignore no-explicit-any
+      then: (onF: any, onR: any) => Promise.resolve(exec()).then(onF, onR),
+    };
+    return q;
+  }
+  // deno-lint-ignore no-explicit-any
+  return { from } as any;
+}
+
+function seedOrphanTables(): FakeTableSet {
+  return {
+    flipdesk_ebay_orphan_sales: [
+      {
+        id: "orphan-a", user_id: A, platform_order_id: "ORDER-A", line_item_id: "LI-1",
+        ebay_item_id: "9001", sku: "SKU-A", title: "A jacket", sale_price: 50,
+        shipping_collected: 5, tax: 2, buyer_username: "buyer", sold_at: "2026-06-05T00:00:00Z",
+        match_status: "unmatched", matched_item_id: null,
+      },
+    ],
+    inventory_items: [
+      { id: A_ITEM, user_id: A, status: "listed" },
+      { id: B_ITEM, user_id: B, status: "listed" },
+    ],
+    sales: [],
+  };
+}
+
+Deno.test("US-898: orphan-match cannot attach a sale to another tenant's item", async () => {
+  const tables = seedOrphanTables();
+  const client = makeOrphanFakeClient(tables);
+  // Owner is resolved from the orphan (A). The operator points it at B's item.
+  const res = await matchOrphanSale(A, "orphan-a", B_ITEM, client);
+  assert(!res.ok, "matching A's orphan to B's item must be refused");
+  assertEquals(res.ok === false && res.code, "item_not_found");
+  assertEquals(tables.sales.length, 0, "no sale row may be created for the cross-tenant attempt");
+  assertEquals(
+    tables.flipdesk_ebay_orphan_sales[0].match_status,
+    "unmatched",
+    "the orphan must stay unmatched after a refused cross-tenant match",
+  );
+});
+
+Deno.test("US-898: orphan-match links to the owner's OWN item (positive control)", async () => {
+  const tables = seedOrphanTables();
+  const client = makeOrphanFakeClient(tables);
+  const res = await matchOrphanSale(A, "orphan-a", A_ITEM, client);
+  assert(res.ok, "matching A's orphan to A's own item should succeed");
+  assertEquals(tables.sales.length, 1, "a sale row is created for the owner's item");
+  assertEquals(tables.sales[0].inventory_item_id, A_ITEM);
+  assertEquals(tables.flipdesk_ebay_orphan_sales[0].match_status, "matched");
+  assertEquals(tables.flipdesk_ebay_orphan_sales[0].matched_item_id, A_ITEM);
+});
+
+// Env-gated: a non-admin tenant must never reach the cross-tenant admin sync
+// console (adminAuthMiddleware denies before any row is read).
+Deno.test({
+  name: "B (non-admin) cannot read the admin marketplace sync console",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const path of ["/api/admin/marketplace/sync-runs", "/api/admin/marketplace/conflicts", "/api/admin/marketplace/orphan-sales"]) {
+      const res = await fetch(`${BASE}${path}`, { headers: authHeaders(B_JWT!) });
+      await res.body?.cancel();
+      assertDenied(res.status, `GET ${path}`);
+    }
+  },
+});
