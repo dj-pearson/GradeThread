@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Zap } from "lucide-react";
+import { ArrowLeft, Store, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
 import { useItemsFull } from "@/hooks/use-items-full";
+import {
+  useEbayConnection,
+  useEbayReviseListing,
+  type ReviseListingPatch,
+} from "@/hooks/use-ebay";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
@@ -109,6 +114,12 @@ export function FlipdeskItemPage() {
           (gated on the share_sale_outcomes opt-in + low-n suppression). */}
       <GradeOutcomeCard item={item} />
 
+      {/* When the item has a LIVE eBay listing, Save only updates FlipDesk's
+          local copy — eBay blocks editing tool-created listings on its own site,
+          so edits must be pushed explicitly. This surfaces that right where the
+          user edits, with an "unsynced" badge. */}
+      <UpdateEbayListingCard itemId={item.id} />
+
       {/* On the page, Save keeps the user here (the query refetches); only
           Cancel and the back button navigate away. */}
       <ItemCanvas item={item} onCancel={goBack} />
@@ -127,6 +138,140 @@ export function FlipdeskItemPage() {
       {/* US-150: per-listing opt-out from the price-drop/promo scheduler. */}
       <AutomationOptOutCard itemId={item.id} />
     </div>
+  );
+}
+
+// "Update eBay listing" — the supported way to push edits to a LIVE listing.
+// Save in the canvas writes only FlipDesk's local copy; eBay blocks editing
+// inventory/tool-created listings on its own site, so this pushes title /
+// description / price / photos to the live offer via the revise endpoint.
+// Compares LOCAL inventory_items values (what the canvas edits) to the PUBLISHED
+// listing values to show an "unsynced" badge — NOTE items_full.list_price is the
+// published price (l.listing_price), so the local price is read from
+// inventory_items directly.
+interface PublishedListing {
+  id: string;
+  platform_offer_id: string | null;
+  listing_title: string | null;
+  listing_description: string | null;
+  listing_price: number | null;
+}
+interface LocalItemFields {
+  title: string | null;
+  description: string | null;
+  list_price: number | null;
+}
+
+function UpdateEbayListingCard({ itemId }: { itemId: string }) {
+  const queryClient = useQueryClient();
+  const { data: ebayConnection } = useEbayConnection();
+  const revise = useEbayReviseListing();
+
+  const { data } = useQuery({
+    queryKey: ["item_ebay_sync", itemId],
+    queryFn: async (): Promise<{
+      local: LocalItemFields;
+      listing: PublishedListing | null;
+    }> => {
+      const [localRes, listingRes] = await Promise.all([
+        supabase
+          .from("inventory_items")
+          .select("title, description, list_price")
+          .eq("id", itemId)
+          .single(),
+        supabase
+          .from("listings")
+          .select(
+            "id, platform_offer_id, listing_title, listing_description, listing_price",
+          )
+          .eq("inventory_item_id", itemId)
+          .eq("listing_status", "active")
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (localRes.error) throw localRes.error;
+      if (listingRes.error) throw listingRes.error;
+      return {
+        local: localRes.data as LocalItemFields,
+        listing: (listingRes.data ?? null) as PublishedListing | null,
+      };
+    },
+  });
+
+  const listing = data?.listing ?? null;
+  const local = data?.local ?? null;
+
+  // Only relevant when there's a live eBay listing (offer id) + a connection.
+  if (!ebayConnection || !listing || !listing.platform_offer_id || !local) {
+    return null;
+  }
+
+  const localTitle = (local.title ?? "").trim();
+  const localDesc = (local.description ?? "").trim();
+  const localPrice = local.list_price;
+  const titleChanged =
+    localTitle.length > 0 && localTitle !== (listing.listing_title ?? "").trim();
+  const descChanged = localDesc !== (listing.listing_description ?? "").trim();
+  const priceChanged =
+    localPrice != null &&
+    Number.isFinite(localPrice) &&
+    localPrice !== listing.listing_price;
+  const unsynced = titleChanged || descChanged || priceChanged;
+
+  async function push() {
+    // Always re-PUT photos (and thus item specifics/condition) so changes the
+    // text/price diff can't see still reach eBay; add changed text/price fields.
+    const patch: ReviseListingPatch = { photos: true };
+    if (titleChanged) patch.title = localTitle;
+    if (descChanged) patch.description = localDesc;
+    if (priceChanged) patch.listing_price = localPrice as number;
+    try {
+      await revise.mutateAsync({ listingId: listing!.id, patch });
+      toast.success("eBay listing updated.");
+      queryClient.invalidateQueries({ queryKey: ["item_ebay_sync", itemId] });
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      toast.error(err.message || "Couldn't update the eBay listing.");
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 pt-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 font-medium">
+            <Store className="h-4 w-4 text-brand-red-text" />
+            Live on eBay
+          </div>
+          {unsynced ? (
+            <Badge variant="destructive" className="font-normal">
+              Changes not on eBay yet
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="font-normal">
+              In sync
+            </Badge>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          eBay doesn't allow editing tool-created listings on its own site.
+          Saving keeps your edits in FlipDesk — use this to push the title, price,
+          description, and photos to your live listing.
+        </p>
+        <Button
+          onClick={push}
+          disabled={revise.isPending}
+          className="w-full sm:w-auto"
+        >
+          {revise.isPending
+            ? "Updating eBay…"
+            : unsynced
+              ? "Update eBay listing"
+              : "Re-sync photos & details"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
