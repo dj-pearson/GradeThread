@@ -88,6 +88,13 @@ const revenueNavItems = [
   { to: "/admin/billing/reconciliation", icon: RefreshCw, label: "Reconciliation", end: false },
 ];
 
+// Analytics (US-907) — product funnel & weekly cohort retention. Read-only,
+// server-side aggregated; same admin + super_admin access (no destructive
+// actions). Complements the PostHog product analytics.
+const analyticsNavItems = [
+  { to: "/admin/analytics", icon: BarChart3, label: "Funnel & Retention", end: false },
+];
+
 // Trust & Safety (US-888) — moderation, the live abuse/fraud aggregate, and the
 // durable abuse-signal queue. Same admin + super_admin access; resolving a
 // signal / suspending is additionally super_admin + MFA step-up gated
@@ -340,6 +347,22 @@ export function AdminLayout() {
             Revenue
           </div>
           {revenueNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
+            </NavLink>
+          ))}
+
+          {/* Analytics (US-907). */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Analytics
+          </div>
+          {analyticsNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

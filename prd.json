@@ -13397,8 +13397,8 @@
         "Read-only, server-side aggregated; complements (does not replace) the PostHog product analytics."
       ],
       "priority": 907,
-      "passes": false,
-      "notes": "[Platform Admin Command Center / Observability] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+      "passes": true,
+      "notes": "[Platform Admin Command Center / Observability] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination. IMPLEMENTED: migration 00229 adds funnel_metrics(start,end) + retention_cohorts() (SECURITY DEFINER, admin/service-role guarded, no new tables). Edge route services/edge-functions/src/routes/admin-analytics.ts at /api/admin/analytics/{funnel,retention} (reuses resolveRevenueWindow for mtd/qtd/ytd/custom). Frontend src/pages/admin/analytics.tsx: strict-subset activation funnel (signup->submission->grade report->subscription) with per-step conversion % + drop-off, and a 12-week x W0..W8 weekly cohort retention heat-map. New Analytics sidebar group in admin-layout.tsx; route in routes/index.tsx. Read-only; complements PostHog. Schema version bumped to 00229."
     },
     {
       "id": "US-908",

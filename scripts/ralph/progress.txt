@@ -2963,3 +2963,10 @@ Branch: ralph/gradethread-build
 - Verify: deno check + lint (8 files); deno test ops-events+rls-guard+schema-version 18/18; tsc --noEmit; build:locked (41 pages); npm test 775 pass (1 pre-existing flaky timing test in concurrency.test.ts — passes in isolation); verify:db applies 00228 from zero.
 - Timestamp: 2026-06-14
 ---
+
+## US-907: Product funnel & retention analytics
+- Status: COMPLETE
+- Files changed: supabase/migrations/00229_funnel_retention_analytics.sql (new), services/edge-functions/src/routes/admin-analytics.ts (new), services/edge-functions/src/main.ts (mount + import), services/edge-functions/src/lib/schema-version.ts (00228->00229), src/pages/admin/analytics.tsx (new), src/routes/index.tsx (lazy import + route), src/layouts/admin-layout.tsx (Analytics nav group), prd.json, scripts/ralph/progress.txt
+- Notes: Two read-only SECURITY DEFINER RPCs (admin/service-role guarded, no new tables so rls-guard untouched). funnel_metrics(start,end): signup cohort in [start,end), each step a STRICT SUBSET of the prior (signup -> first submission -> first grade report -> ever-subscribed) so deltas are real drop-off. retention_cohorts(): last 12 Monday-aligned weekly cohorts x W0..W8, cell = count active (>=1 submission) that week, future weeks null. Edge route reuses resolveRevenueWindow (mtd/qtd/ytd/custom) for period parity with revenue dashboard. Page documents every step definition in-page (AC4) + notes it complements PostHog (AC5). "First paid grade" interpreted as a completed grade_report (AC explicitly lists grade_reports as a source). Verified: tsc --noEmit, build:locked (41 prerendered), vitest 776, eslint, deno check+lint, schema-version + rls-guard edge tests, verify:db applies 00229 from zero.
+- Timestamp: 2026-06-14
+---
