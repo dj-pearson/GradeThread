@@ -15340,8 +15340,8 @@
         "deno check + lint + tests (carrier mapping + idempotency are pure-testable) green."
       ],
       "priority": 1039,
-      "passes": false,
-      "notes": "[eBay integration audit 2026-06-14] severity=high. services/edge-functions/src/lib/ebay-client.ts (no shipping_fulfillment today), services/edge-functions/src/routes/flipdesk-ebay.ts; Fulfillment module (ios FulfillmentService.swift, web fulfillment surface) [PROGRESS 2026-06-14] EDGE done: createShippingFulfillment + toEbayCarrierCode + POST /api/flipdesk/ebay/orders/:saleId/ship (tenant-scoped, idempotent; carrier-mapping tests). iOS done: FulfillmentService.markShipped routes eBay orders (platform_order_id) through the ship route. REMAINING: web ship-with-tracking — web only has item-status bulkMarkShipped (no tracking entry, item-centric not sale-centric); needs a per-sale ship dialog that collects tracking/carrier and calls the route."
+      "passes": true,
+      "notes": "[eBay integration audit 2026-06-14] severity=high. services/edge-functions/src/lib/ebay-client.ts (no shipping_fulfillment today), services/edge-functions/src/routes/flipdesk-ebay.ts; Fulfillment module (ios FulfillmentService.swift, web fulfillment surface) [PROGRESS 2026-06-14] EDGE done: createShippingFulfillment + toEbayCarrierCode + POST /api/flipdesk/ebay/orders/:saleId/ship (tenant-scoped, idempotent; carrier-mapping tests). iOS done: FulfillmentService.markShipped routes eBay orders (platform_order_id) through the ship route. REMAINING: web ship-with-tracking — web only has item-status bulkMarkShipped (no tracking entry, item-centric not sale-centric); needs a per-sale ship dialog that collects tracking/carrier and calls the route. [DONE 2026-06-14] Edge (createShippingFulfillment + ship route), iOS (FulfillmentService routes eBay orders through it), and web (per-sale Mark-shipped dialog on the Sold tab) all push tracking to eBay. Carrier-mapping tests; tsc/deno/eslint green."
     },
     {
       "id": "US-1040",
@@ -15380,8 +15380,8 @@
         "tsc -b + eslint green."
       ],
       "priority": 1042,
-      "passes": false,
-      "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/routes/flipdesk-ebay.ts (/listings/:id/relist); iOS ItemCanvasView 'Relist as new listing'; web has only billing 'relist' strings"
+      "passes": true,
+      "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/routes/flipdesk-ebay.ts (/listings/:id/relist); iOS ItemCanvasView 'Relist as new listing'; web has only billing 'relist' strings [ALREADY DONE 2026-06-14] Web relist already exists: listings.tsx per-row 'End this listing and relist as a new one' (setPublishItem); iOS has it; edge /listings/:id/relist."
     },
     {
       "id": "US-1043",
