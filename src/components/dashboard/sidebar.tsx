@@ -28,6 +28,7 @@ import {
   Eye,
   CalendarClock,
   Handshake,
+  Tag,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -129,6 +130,7 @@ const navGroups: NavGroup[] = [
         title: "Channels & money",
         items: [
           { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
+          { to: "/dashboard/flipdesk/offers", icon: Tag, label: "Offers & Messages", end: false },
           { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
           { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
           { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },

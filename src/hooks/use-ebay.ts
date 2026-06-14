@@ -1118,3 +1118,190 @@ export function useSetItemAspect() {
     onError: (err) => toast.error(err.message),
   });
 }
+
+// ── US-1040/1041: Best Offers, send-offer, buyer messages ───────────
+// Edge returns camelCase keys (see ios NegotiationTypes). All hit the negotiation
+// + messages routes that already exist on the edge; this is the web client for
+// them (iOS already has the same surface).
+
+export interface EbayBestOffer {
+  bestOfferId: string;
+  itemId: string;
+  itemTitle?: string | null;
+  buyerUsername?: string | null;
+  price?: number | null;
+  currency?: string;
+  quantity?: number | null;
+  status?: string | null;
+  message?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface EbayEligibleItem {
+  listingId: string;
+  title?: string | null;
+}
+
+export interface EbayBuyerMessage {
+  messageId: string;
+  itemId?: string | null;
+  senderUsername?: string | null;
+  subject?: string | null;
+  body?: string | null;
+  creationDate?: string | null;
+  answered?: boolean;
+}
+
+export function useEbayBestOffers(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_best_offers"],
+    enabled,
+    queryFn: async (): Promise<EbayBestOffer[]> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/offers`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load best offers.");
+      return (json.offers ?? []) as EbayBestOffer[];
+    },
+  });
+}
+
+export function useEbayRespondOffer() {
+  return useMutation<
+    { ok: true },
+    Error & { status?: number },
+    {
+      bestOfferId: string;
+      itemId: string;
+      action: "Accept" | "Decline" | "Counter";
+      counterPrice?: number;
+      message?: string;
+    }
+  >({
+    mutationFn: async ({ bestOfferId, itemId, action, counterPrice, message }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/offers/${encodeURIComponent(
+          bestOfferId,
+        )}/respond`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            item_id: itemId,
+            action,
+            counter_price: counterPrice,
+            message,
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.detail || json.error || "Offer response failed.",
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    },
+  });
+}
+
+export function useEbayEligibleOffers(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_eligible_offers"],
+    enabled,
+    queryFn: async (): Promise<EbayEligibleItem[]> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/eligible`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load eligible listings.");
+      return (json.items ?? []) as EbayEligibleItem[];
+    },
+  });
+}
+
+export function useEbaySendOffer() {
+  return useMutation<
+    { ok: true; count: number },
+    Error & { status?: number },
+    { listingIds: string[]; discountPercentage?: string; message?: string }
+  >({
+    mutationFn: async ({ listingIds, discountPercentage, message }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/send-offer`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            listing_ids: listingIds,
+            discount_percentage: discountPercentage,
+            message,
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.detail || json.error || "Send-offer failed.",
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    },
+  });
+}
+
+export function useEbayMessages(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_messages"],
+    enabled,
+    queryFn: async (): Promise<EbayBuyerMessage[]> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/messages`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load messages.");
+      return (json.messages ?? []) as EbayBuyerMessage[];
+    },
+  });
+}
+
+export function useEbayReplyMessage() {
+  return useMutation<
+    { ok: true },
+    Error & { status?: number },
+    { messageId: string; itemId: string; recipientId: string; body: string }
+  >({
+    mutationFn: async ({ messageId, itemId, recipientId, body }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/messages/${encodeURIComponent(
+          messageId,
+        )}/reply`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            item_id: itemId,
+            recipient_id: recipientId,
+            body,
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.detail || json.error || "Reply failed.",
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    },
+  });
+}
