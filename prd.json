@@ -15327,6 +15327,140 @@
       "priority": 1038,
       "passes": true,
       "notes": "[Grading model deep-dive 2026-06-13] severity=low area=scoring-core. services/edge-functions/src/lib/ai-grading.ts (per-image neutral default rule ~507, clamp default 7.0 ~744, sanitizeFactorScores ~1001-1014, FACTOR_WEIGHTS ~782-788) [DONE 2026-06-14] Implemented in ai-grading.ts + grading-pipeline.ts (region-zoom + unassessable_factors). deno check+lint+tests green."
+    },
+    {
+      "id": "US-1039",
+      "title": "eBay: upload tracking to eBay on ship (Fulfillment API shipping_fulfillment)",
+      "description": "As a reseller, when I mark an order shipped in FlipDesk I want the tracking number + carrier pushed to eBay so the buyer sees tracking, the order shows Shipped, and I get late-shipment / Seller Protection credit. Today there is NO createShippingFulfillment call anywhere — shipping is recorded locally only, so eBay never gets the tracking.",
+      "acceptanceCriteria": [
+        "ebay-client gains createShippingFulfillment(orderId, { lineItemIds, trackingNumber, shippingCarrierCode }) → POST /sell/fulfillment/v1/order/{orderId}/shipping_fulfillment.",
+        "An edge route marks an eBay order shipped: validates the order is owned (tenant-scoped), maps the local carrier to eBay's shippingCarrierCode enum, posts the fulfillment, and records the result locally (idempotent — re-marking the same order doesn't duplicate).",
+        "The Fulfillment surfaces (web + iOS) push tracking to eBay when present, and show 'tracking on eBay' vs 'local only' state; a failure surfaces an actionable error and is retryable.",
+        "Carrier code mapping covers the common carriers (USPS/UPS/FedEx/DHL) with a safe 'Other' fallback.",
+        "deno check + lint + tests (carrier mapping + idempotency are pure-testable) green."
+      ],
+      "priority": 1039,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=high. services/edge-functions/src/lib/ebay-client.ts (no shipping_fulfillment today), services/edge-functions/src/routes/flipdesk-ebay.ts; Fulfillment module (ios FulfillmentService.swift, web fulfillment surface)"
+    },
+    {
+      "id": "US-1040",
+      "title": "eBay web: Best Offers inbox (accept / decline / counter) + send offers to watchers",
+      "description": "As a web FlipDesk user, I want to manage eBay Best Offers and send offers to interested buyers — iOS has this (Negotiation inbox) but the web app has NO negotiation UI at all, even though the edge endpoints exist.",
+      "acceptanceCriteria": [
+        "Web negotiation surface lists open Best Offers (GET /negotiation/offers) with accept / decline / counter (POST /negotiation/offers/:bestOfferId/respond).",
+        "Web 'send offer to interested buyers' flow: list eligible items (GET /negotiation/eligible) + send a % discount offer (POST /negotiation/send-offer).",
+        "Reachable from the Marketplaces / Listings area; matches the iOS NegotiationInboxView feature set.",
+        "tsc -b + eslint green."
+      ],
+      "priority": 1040,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=high. services/edge-functions/src/routes/flipdesk-ebay.ts (/negotiation/* exist); web has NO negotiation UI (src/); iOS ref: NegotiationInboxView.swift/NegotiationService.swift"
+    },
+    {
+      "id": "US-1041",
+      "title": "eBay web: buyer messages inbox + reply",
+      "description": "As a web FlipDesk user, I want to read and reply to eBay buyer messages. The edge has /messages + /messages/:id/reply and iOS uses them, but the web app has no messages UI.",
+      "acceptanceCriteria": [
+        "Web messages surface lists buyer messages (GET /ebay/messages) and supports reply (POST /ebay/messages/:messageId/reply).",
+        "Unread indication; reachable from the Marketplaces area.",
+        "tsc -b + eslint green."
+      ],
+      "priority": 1041,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/routes/flipdesk-ebay.ts (/messages, /messages/:id/reply); web has none; iOS NegotiationService covers it"
+    },
+    {
+      "id": "US-1042",
+      "title": "eBay web: relist action (end + republish as new)",
+      "description": "As a web FlipDesk user, I want to relist an ended/active eBay listing as a new listing. iOS has 'Relist as new listing'; the edge has POST /listings/:id/relist; web exposes no relist control.",
+      "acceptanceCriteria": [
+        "Web item/listing surface offers a Relist action calling POST /listings/:id/relist, with the same 'ends current + publishes new item #' warning iOS shows.",
+        "Disabled/hidden when not applicable (no eBay connection / not listed).",
+        "tsc -b + eslint green."
+      ],
+      "priority": 1042,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/routes/flipdesk-ebay.ts (/listings/:id/relist); iOS ItemCanvasView 'Relist as new listing'; web has only billing 'relist' strings"
+    },
+    {
+      "id": "US-1043",
+      "title": "eBay: returns & cancellations management (Post-Order API)",
+      "description": "As a reseller, I want to handle eBay returns and cancellations inside FlipDesk — approve/deny returns, issue refunds, accept/decline cancellations. Today reconciliation only READS/counts returns + cancellations; there's no management action.",
+      "acceptanceCriteria": [
+        "ebay-client adds Post-Order API helpers for return decision (approve/deny/refund) and cancellation decision (approve/reject).",
+        "Tenant-scoped edge routes for each action; local state reflects the outcome.",
+        "Web + iOS surfaces show open returns/cancellations with the actions; idempotent + audit-logged.",
+        "deno check + lint + tests green."
+      ],
+      "priority": 1043,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/lib/ebay-client.ts (no post-order); services/edge-functions/src/routes/flipdesk-ebay.ts reconciliation reads returns/cancellations only (~line 2019)"
+    },
+    {
+      "id": "US-1044",
+      "title": "eBay: Promoted Listings management UI (opt in/out, bid %, performance)",
+      "description": "As a reseller, I want to see and control Promoted Listings. ebay-marketing.ts auto-attaches an ad at publish + has a sync job + ad-rate suggestion, but there's no UI to opt a listing in/out, change the bid %, or view promoted performance — it runs invisibly.",
+      "acceptanceCriteria": [
+        "Per-listing promoted controls (web + iOS): show current ad status + bid %, opt in/out, adjust the rate (calls the marketing sync + an ad-rate update path).",
+        "A promotions overview showing promoted listings + their performance (clicks/sales attributed) where the Analytics API exposes it.",
+        "Honest copy on what eBay charges (ad fee only on attributed sale); tsc/deno green."
+      ],
+      "priority": 1044,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/lib/ebay-marketing.ts; services/edge-functions/src/routes/flipdesk-ebay.ts /marketing/* exist; no promoted UI on web or iOS"
+    },
+    {
+      "id": "US-1045",
+      "title": "eBay: markdown / Sale events via Marketing API (not local-only price revise)",
+      "description": "As a reseller, I want price-drop automations to use eBay's markdown/Sale promotions (strike-through 'Sale' price, watcher notifications) instead of just silently revising the price. flipdesk-pricing notes 'no eBay Marketing API client yet' — drops are local-first revises only.",
+      "acceptanceCriteria": [
+        "ebay-marketing gains markdown/Sale-event helpers (create/update/end an item markdown promotion).",
+        "The price-drop automation can push a Sale event (configurable) instead of/alongside a plain price revise; the listing shows the eBay Sale badge.",
+        "Reconcilable + revertible (ending the sale restores the price); deno check + lint + tests green."
+      ],
+      "priority": 1045,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/lib/ebay-marketing.ts; flipdesk-pricing.ts (~line 289 'no eBay Marketing API client yet')"
+    },
+    {
+      "id": "US-1046",
+      "title": "eBay: bulk publish/offer operations for AutoLister scale",
+      "description": "As a high-volume reseller, I want AutoLister to publish in bulk using eBay's bulk endpoints (bulkCreateOffer / bulkPublishOffer / bulkCreateOrReplaceInventoryItem) instead of one call per item, to cut latency and rate-limit pressure.",
+      "acceptanceCriteria": [
+        "ebay-client adds bulk variants; the AutoLister/publish path batches where safe (respecting eBay bulk size caps), falling back to single calls on partial failure.",
+        "Per-item success/failure reported so a bad item doesn't sink the batch.",
+        "deno check + lint + tests (batching/fallback pure-testable) green."
+      ],
+      "priority": 1046,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=low. services/edge-functions/src/lib/ebay-client.ts (single-item only: createOffer/publishOffer); AutoLister publish path"
+    },
+    {
+      "id": "US-1047",
+      "title": "eBay: leave buyer feedback after a sale",
+      "description": "As a reseller, I want to leave (or auto-leave) positive buyer feedback after a completed sale, since manual feedback is tedious at volume.",
+      "acceptanceCriteria": [
+        "ebay-client adds a leave-feedback helper; an edge route (and optional automation) leaves feedback for eligible completed orders.",
+        "Opt-in + templated comment; idempotent (never double-leaves); tenant-scoped.",
+        "deno check + lint + tests green."
+      ],
+      "priority": 1047,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=low. services/edge-functions/src/lib/ebay-client.ts (no feedback API today)"
+    },
+    {
+      "id": "US-1048",
+      "title": "eBay: enable sold-comps (Marketplace Insights) — gated grant",
+      "description": "As a reseller, I want sold-comp pricing. searchSoldComps (Browse Marketplace Insights) is implemented but gated behind isMarketplaceInsightsEnabled() — it needs a special eBay API grant and is likely off in prod. Confirm the grant, enable the flag, and surface sold comps in the composer.",
+      "acceptanceCriteria": [
+        "Document the eBay Marketplace Insights access request + the env flag that enables it.",
+        "When enabled, the composer/comps panel shows sold comps alongside active comps (web + iOS), clearly labeled 'sold'.",
+        "Graceful no-op when the grant isn't present (no errors); the active-comps path is unchanged."
+      ],
+      "priority": 1048,
+      "passes": false,
+      "notes": "[eBay integration audit 2026-06-14] severity=low. services/edge-functions/src/lib/ebay-client.ts searchSoldComps + isMarketplaceInsightsEnabled() (~line 2743-2754); ops grant + flag"
     }
   ]
 }
