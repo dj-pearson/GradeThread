@@ -10,6 +10,7 @@ import {
   exportTrainingDataset,
 } from "../lib/accuracy-tracking.ts";
 import { activatePromptVersion, runEval, runPromptDryRun } from "../lib/grading-eval.ts";
+import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
 import { invalidatePromptCache } from "../lib/ai-grading.ts";
 import {
   autoPromoteListingPrompt,
@@ -114,6 +115,27 @@ adminGradingRoutes.get("/calibration", async (c) => {
   } catch (err) {
     return c.json(
       { error: "Failed to compute calibration", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
+
+// GET /accuracy/defects — per-defect-type & per-size accuracy + weight-table
+// calibration recommendations (US-1036). ?period=week scopes the window.
+adminGradingRoutes.get("/accuracy/defects", async (c) => {
+  try {
+    const period = c.req.query("period");
+    const start =
+      period === "week"
+        ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        : undefined;
+    return c.json(await computeDefectAccuracyReport(start));
+  } catch (err) {
+    return c.json(
+      {
+        error: "Failed to compute defect accuracy",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       500,
     );
   }
