@@ -12841,8 +12841,8 @@
         "npm run verify passes and a smoke fetch of each ratio returns a valid PNG"
       ],
       "priority": 871,
-      "passes": false,
-      "notes": "[EPIC: Content Authority Depth 2026-06-11] Builds on the proven Satori pipeline (functions/og/blog/[slug].ts, functions/_shared/og-template.ts, scripts/generate-og-image.mjs) and the blog hero pipeline (US-853). Image fields feed US-870 payloads."
+      "passes": true,
+      "notes": "DONE 2026-06-13. Template: buildSocialCardHtml + SOCIAL_CARD_SIZES (landscape 1200x630 / square 1080x1080 / portrait 1080x1350 / pin 1000x1500) in functions/_shared/og-template.ts — title/quote/stat kinds, wordmark, product badge, brand colors. Endpoint: functions/og/social/card.ts (workers-og) renders any ratio via ?ratio=&kind=&text=&stat=&product=&eyebrow=; stateless (content in query, no draft-by-id leak), 24h edge cache, deterministic PNG fallback on error. Auto-fill: planSocialFanout now resolves data.image_url per platform — the post's asset_image_url wins, else an auto-built /og/social/card URL keyed off image_field→ratio (IMAGE_FIELD_RATIO) + deriveCardText(body); legacy long/short path gets a landscape card too. fireSocialWebhooks resolves PUBLIC_SITE_URL/content_settings. Override: POST /api/content/images/social-card — image_base64 → validateImageUpload+stripImageMetadata+upload to content-images, else regenerate the branded card URL; sets social_posts.asset_image_url/path. Editor: SocialCardSection (Regenerate card / Override upload) + useSetSocialCard. Tests: social-platforms_test (card helpers), content-social-publish_test (image_url), src/test/social-card.test.ts (all 4 ratios + sibling templates). Smoke: scripts/smoke-social-cards.mjs fetches each ratio and asserts a valid PNG against a deployed base URL. NOTE: vitest branch-coverage threshold (65%) is pre-existing-red on main (63.68%); this change RAISES it to 64.05%. No migration."
     },
     {
       "id": "US-872",

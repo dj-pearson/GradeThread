@@ -5,6 +5,9 @@ import {
 } from "./content-webhook.ts";
 import type { SocialVariantOutput } from "./content-ai-prompts.ts";
 import {
+  buildSocialCardUrl,
+  deriveCardText,
+  IMAGE_FIELD_RATIO,
   normalizeEnabledPlatforms,
   type SocialPlatform,
 } from "./social-platforms.ts";
@@ -35,6 +38,9 @@ export interface SocialPostForPublish {
   long_body: string;
   short_body: string;
   hashtags: string[];
+  // US-871: a manually uploaded/overridden card. When absent we auto-fill a
+  // branded /og/social/card URL per platform so the payload always has an image.
+  asset_image_url?: string | null;
 }
 
 // Replace the post's variant rows with a freshly generated set. We delete +
@@ -84,6 +90,20 @@ async function loadEnabledPlatforms(): Promise<SocialPlatform[]> {
   return normalizeEnabledPlatforms(data?.social_platforms);
 }
 
+// US-871: the public base URL the auto-filled card images point at. Prefers the
+// content_settings override, then PUBLIC_SITE_URL, then production.
+async function loadPublicSiteUrl(): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from("content_settings")
+    .select("public_site_url")
+    .eq("id", 1)
+    .maybeSingle();
+  const fromDb = (data?.public_site_url as string | undefined)?.trim();
+  if (fromDb) return fromDb.replace(/\/$/, "");
+  const envUrl = Deno.env.get("PUBLIC_SITE_URL")?.trim();
+  return (envUrl ?? "https://gradethread.com").replace(/\/$/, "");
+}
+
 // Pure selection logic (unit-tested): given the enabled platforms and the
 // variants on a post, return the webhook payloads to fire. Falls back to the
 // legacy long/short payloads when the post has no usable platform variants.
@@ -92,12 +112,30 @@ export function planSocialFanout(args: {
   enabled: SocialPlatform[];
   variants: SocialVariantRow[];
   timestamp: string;
+  // Base URL for auto-filled card images. Defaults to production.
+  siteUrl?: string;
 }): WebhookPayloadSocial[] {
   const { post, enabled, variants, timestamp } = args;
+  const siteUrl = args.siteUrl ?? "https://gradethread.com";
+  const asset = post.asset_image_url?.trim() || null;
   const byPlatform = new Map<SocialPlatform, SocialVariantRow>();
   for (const v of variants) {
     if (v.body?.trim()) byPlatform.set(v.platform, v);
   }
+
+  // US-871: resolve the image for a variant — the uploaded asset wins; otherwise
+  // an auto-filled branded card in the aspect this platform wants.
+  const imageFor = (v: SocialVariantRow): string => {
+    if (asset) return asset;
+    const ratio = IMAGE_FIELD_RATIO[v.image_field ?? ""] ?? "landscape";
+    return buildSocialCardUrl({
+      siteUrl,
+      ratio,
+      kind: "quote",
+      text: deriveCardText(v.body),
+      product: post.product_focus,
+    });
+  };
 
   const platformPayloads = enabled
     .map((platform) => byPlatform.get(platform))
@@ -113,12 +151,24 @@ export function planSocialFanout(args: {
         cta_url: post.cta_url ?? null,
         product_focus: post.product_focus,
         image_field: v.image_field ?? null,
+        image_url: imageFor(v),
       },
     }));
 
   if (platformPayloads.length > 0) return platformPayloads;
 
-  // Legacy fallback: no platform variants on this post.
+  // Legacy fallback: no platform variants on this post. Auto-fill a landscape
+  // card from whichever body is present so even legacy posts ship with an image.
+  const legacyImage = (body: string): string =>
+    asset ??
+      buildSocialCardUrl({
+        siteUrl,
+        ratio: "landscape",
+        kind: "quote",
+        text: deriveCardText(body),
+        product: post.product_focus,
+      });
+
   const legacy: WebhookPayloadSocial[] = [];
   if (post.long_body?.trim()) {
     legacy.push({
@@ -131,6 +181,7 @@ export function planSocialFanout(args: {
         hashtags: post.hashtags ?? [],
         cta_url: post.cta_url ?? null,
         product_focus: post.product_focus,
+        image_url: legacyImage(post.long_body),
       },
     });
   }
@@ -145,6 +196,7 @@ export function planSocialFanout(args: {
         hashtags: post.hashtags ?? [],
         cta_url: post.cta_url ?? null,
         product_focus: post.product_focus,
+        image_url: legacyImage(post.short_body),
       },
     });
   }
@@ -158,11 +210,12 @@ export async function fireSocialWebhooks(
   post: SocialPostForPublish,
   timestamp: string,
 ): Promise<void> {
-  const [enabled, variants] = await Promise.all([
+  const [enabled, variants, siteUrl] = await Promise.all([
     loadEnabledPlatforms(),
     loadSocialVariants(post.id),
+    loadPublicSiteUrl(),
   ]);
-  const payloads = planSocialFanout({ post, enabled, variants, timestamp });
+  const payloads = planSocialFanout({ post, enabled, variants, timestamp, siteUrl });
   await Promise.all(payloads.map((p) => dispatchContentWebhook(p))).catch((e) =>
     console.error("[content-social-publish] fan-out failed:", e)
   );

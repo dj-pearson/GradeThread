@@ -330,6 +330,33 @@ export function useGenerateSocialPost(id: string) {
   });
 }
 
+// US-871: set or override a social post's branded card. Pass `image_base64` to
+// upload a custom override (validated + EXIF-stripped server-side), or omit it
+// to (re)generate the auto branded card URL from the post body.
+export function useSetSocialCard(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input?: {
+      ratio?: "landscape" | "square" | "portrait" | "pin";
+      kind?: "title" | "quote" | "stat";
+      text?: string;
+      image_base64?: string;
+    }) => {
+      const data = await jfetch<{ url: string; path: string | null; source: string }>(
+        `/api/content/images/social-card`,
+        { method: "POST", json: { post_id: id, ...(input ?? {}) } },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["social_post", id] });
+      qc.invalidateQueries({ queryKey: ["social_posts"] });
+      toast.success("Social card updated.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 // US-870: per-platform variants for a social post.
 export function useSocialVariants(id: string | null) {
   return useQuery({

@@ -45,6 +45,59 @@ export const PLATFORM_IMAGE_FIELD: Record<SocialPlatform, string> = {
   instagram: "card_square",
 };
 
+// US-871: which branded-card aspect ratio each image_field maps to. The
+// /og/social/card endpoint renders these (landscape 1200x630, square 1080x1080,
+// pin 1000x1500). portrait (1080x1350) is also available but no platform
+// defaults to it today.
+export type SocialCardRatio = "landscape" | "square" | "portrait" | "pin";
+
+export const IMAGE_FIELD_RATIO: Record<string, SocialCardRatio> = {
+  card_landscape: "landscape",
+  card_square: "square",
+  pin_vertical: "pin",
+};
+
+// Build the auto-fill card URL for a social post that has no asset of its own.
+// Stateless: the card content rides in the query string, matching
+// functions/og/social/card.ts. Pure so it's unit-testable.
+export function buildSocialCardUrl(args: {
+  siteUrl: string;
+  ratio: SocialCardRatio;
+  text: string;
+  kind?: "title" | "quote" | "stat";
+  stat?: string | null;
+  product?: "gradethread" | "flipdesk" | "both";
+  eyebrow?: string | null;
+}): string {
+  const base = args.siteUrl.replace(/\/$/, "");
+  const u = new URL(`${base}/og/social/card`);
+  u.searchParams.set("ratio", args.ratio);
+  u.searchParams.set("kind", args.kind ?? "quote");
+  u.searchParams.set("text", args.text.slice(0, 200));
+  if (args.stat) u.searchParams.set("stat", args.stat.slice(0, 12));
+  if (args.product) u.searchParams.set("product", args.product);
+  if (args.eyebrow) u.searchParams.set("eyebrow", args.eyebrow.slice(0, 48));
+  return u.toString();
+}
+
+// Condense a social variant/post body into a short pull-quote for the card:
+// first sentence/line, hashtags + URLs stripped, capped. Pure.
+export function deriveCardText(body: string, fallback = "Verified condition grading"): string {
+  const firstLine = (body ?? "")
+    .split(/\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 0) ?? "";
+  const cleaned = firstLine
+    .replace(/https?:\/\/\S+/g, "") // drop links
+    .replace(/#[\p{L}\p{N}_]+/gu, "") // drop hashtags
+    .replace(/\s+/g, " ")
+    .trim();
+  // Prefer the first sentence if the line runs long.
+  const sentence = cleaned.split(/(?<=[.!?])\s/)[0] ?? cleaned;
+  const out = (sentence.length > 0 ? sentence : cleaned).slice(0, 180).trim();
+  return out || fallback;
+}
+
 export const PLATFORM_LABEL: Record<SocialPlatform, string> = {
   x: "X",
   linkedin: "LinkedIn",

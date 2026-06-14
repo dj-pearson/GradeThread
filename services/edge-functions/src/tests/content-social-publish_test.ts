@@ -42,6 +42,7 @@ Deno.test("fires one webhook per ENABLED platform that has a variant, in order",
     enabled: ["x", "linkedin", "facebook", "threads", "pinterest", "instagram"],
     variants: [variant("linkedin"), variant("x")], // insertion order reversed
     timestamp: TS,
+    siteUrl: "https://gradethread.com",
   });
   // Canonical order from `enabled`, not variant insertion order.
   assertEquals(payloads.map((p) => p.platform), ["x", "linkedin"]);
@@ -52,6 +53,40 @@ Deno.test("fires one webhook per ENABLED platform that has a variant, in order",
     assert(p.format === undefined); // platform path, not legacy
     assertEquals(p.data.image_field, "card_landscape");
   }
+});
+
+Deno.test("US-871: auto-fills a branded card URL when the post has no asset", () => {
+  const payloads = planSocialFanout({
+    post: POST,
+    enabled: ["pinterest"],
+    variants: [{
+      platform: "pinterest" as never,
+      body: "Best way to grade pre-owned denim. #reselling",
+      hashtags: ["reselling"],
+      image_field: "pin_vertical",
+      char_limit: 500,
+    }],
+    timestamp: TS,
+    siteUrl: "https://gradethread.com",
+  });
+  const url = payloads[0].data.image_url ?? "";
+  assert(url.startsWith("https://gradethread.com/og/social/card"));
+  assert(url.includes("ratio=pin")); // pin_vertical → pin
+  assert(url.includes("product=gradethread"));
+  // Hashtags/links are stripped from the derived card text.
+  assert(!decodeURIComponent(url).includes("#reselling"));
+});
+
+Deno.test("US-871: an uploaded asset overrides the auto card for every platform", () => {
+  const asset = "https://cdn.example.com/social/post-1/card_1.png";
+  const payloads = planSocialFanout({
+    post: { ...POST, asset_image_url: asset },
+    enabled: ["x", "pinterest"],
+    variants: [variant("x"), variant("pinterest")],
+    timestamp: TS,
+    siteUrl: "https://gradethread.com",
+  });
+  for (const p of payloads) assertEquals(p.data.image_url, asset);
 });
 
 Deno.test("disabled platforms are excluded even if a variant exists", () => {
@@ -85,6 +120,10 @@ Deno.test("falls back to legacy long/short when no usable variants", () => {
   assert(payloads.every((p) => p.platform === undefined));
   assertEquals(payloads[0].data.body, "LONG BODY");
   assertEquals(payloads[1].data.body, "SHORT BODY");
+  // US-871: even the legacy path ships an auto-filled landscape card.
+  assert(
+    (payloads[0].data.image_url ?? "").includes("ratio=landscape"),
+  );
 });
 
 Deno.test("fallback omits an empty body half", () => {

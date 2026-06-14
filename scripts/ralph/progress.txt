@@ -2358,3 +2358,26 @@ Branch: ralph/gradethread-build
 - Notes: Modeled per-platform tailoring as a child table (social_platform_variants) keeping social_posts as the editorial anchor (long/short retained for history/stats). One AI call now returns long/short PLUS a variants object per enabled platform. Publish fan-out unified into a shared, unit-tested pure planner (planSocialFanout): one social.published webhook per enabled platform that has a variant, canonical order, with platform + image_field; falls back to legacy long/short for variant-less posts. Webhook routing prefers a single make_webhook_social router (Make branches on `platform`), else maps platforms onto the legacy long/short URLs (x/threads→short) so existing deployments keep delivering. image_field is a forward-looking branded-card label for US-871/872. EXPECTED_SCHEMA_VERSION bumped to 00199 (keeps preexisting rls-guard/plan-gate edge tests green). Verified: deno check+lint, 1250 edge tests (incl. 9 new), verify:db applies 00199 from zero, npm run build:locked (41 prerendered), 700 web tests, eslint clean.
 - Timestamp: 2026-06-13
 ---
+
+## US-871: Auto social-card image generation (branded cards in every aspect ratio)
+- Status: COMPLETE
+- Files changed:
+  - functions/_shared/og-template.ts (buildSocialCardHtml, SOCIAL_CARD_SIZES, isSocialCardRatio, types)
+  - functions/og/social/card.ts (NEW — stateless dynamic card endpoint, 4 ratios, 24h cache, PNG fallback)
+  - services/edge-functions/src/lib/social-platforms.ts (IMAGE_FIELD_RATIO, buildSocialCardUrl, deriveCardText, SocialCardRatio)
+  - services/edge-functions/src/lib/content-social-publish.ts (auto-fill data.image_url per platform; siteUrl resolve)
+  - services/edge-functions/src/lib/content-webhook.ts (WebhookPayloadSocial.data.image_url)
+  - services/edge-functions/src/routes/content-images.ts (POST /social-card: override upload + regenerate)
+  - src/hooks/use-content.ts (useSetSocialCard)
+  - src/pages/content/social-editor.tsx (SocialCardSection: regenerate/override + preview)
+  - src/test/social-card.test.ts (NEW — template + sibling share-image templates)
+  - services/edge-functions/src/tests/{social-platforms,content-social-publish}_test.ts (new assertions)
+  - scripts/smoke-social-cards.mjs (NEW — fetch each ratio, assert valid PNG)
+- Verify: tsc --noEmit OK; tsc -p tsconfig.functions.json OK; build:locked OK; npm test 712 passed; deno check+lint OK on edited edge files; eslint OK.
+- Notes:
+  - Card endpoint is stateless (content via query string) — avoids leaking unpublished drafts by enumerable id, and is deterministic + edge-cacheable. The publish/generate fan-out builds the per-platform URL from image_field→ratio + a pull-quote derived from the variant body. An uploaded asset_image_url always overrides the auto card.
+  - GOTCHA: `tsc -b` / `npm run build` do NOT typecheck functions/ (tsconfig.json only references app + node). Run `npx tsc -p tsconfig.functions.json --noEmit` to catch Cloudflare Pages Function type errors — Cloudflare builds them at deploy, so they must be clean.
+  - Pre-existing: vitest branch coverage threshold (65%) is already red on clean main (63.68%). This story RAISES it to 64.05% by covering og-template.ts builders. `npm test` (no coverage) is green.
+  - No DB migration.
+- Timestamp: 2026-06-13
+---

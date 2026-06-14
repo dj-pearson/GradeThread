@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Hash, Save, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, Hash, Image as ImageIcon, RefreshCw, Save, Send, Sparkles, Upload } from "lucide-react";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUS_LABELS,
@@ -28,6 +28,7 @@ import {
 import {
   useGenerateSocialPost,
   usePublishSocialPost,
+  useSetSocialCard,
   useSocialPost,
   useSocialVariants,
   useSuggestHashtags,
@@ -64,6 +65,7 @@ export function SocialEditorPage() {
         short_body: post.short_body,
         hashtags: post.hashtags,
         cta_url: post.cta_url,
+        asset_image_url: post.asset_image_url,
       }}
       onBack={() => navigate("/admin/content/social")}
     />
@@ -83,6 +85,7 @@ function SocialEditorInner({
     short_body: string;
     hashtags: string[];
     cta_url: string | null;
+    asset_image_url: string | null;
   };
   onBack: () => void;
 }) {
@@ -273,6 +276,12 @@ Then the body..."
 
       <PlatformVariantsSection postId={postId} />
 
+      <SocialCardSection
+        postId={postId}
+        assetImageUrl={initial.asset_image_url}
+        productFocus={productFocus}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Meta</CardTitle>
@@ -358,6 +367,101 @@ Then the body..."
         </Button>
       </div>
     </div>
+  );
+}
+
+// US-871: branded social card. When a post has no asset of its own, publish
+// auto-fills a branded /og/social/card image per platform. Here an admin can
+// (re)generate that branded card or override it with a custom upload (validated
+// + EXIF-stripped server-side).
+function SocialCardSection({
+  postId,
+  assetImageUrl,
+  productFocus,
+}: {
+  postId: string;
+  assetImageUrl: string | null;
+  productFocus: ContentProduct;
+}) {
+  const setCard = useSetSocialCard(postId);
+  const [current, setCurrent] = useState<string | null>(assetImageUrl);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const regenerate = async () => {
+    const res = await setCard.mutateAsync({ ratio: "landscape", kind: "quote" });
+    setCurrent(res.url);
+  };
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    const res = await setCard.mutateAsync({ image_base64: dataUrl });
+    setCurrent(res.url);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base">Social card</CardTitle>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={setCard.isPending}
+            onClick={regenerate}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {setCard.isPending ? "Working…" : "Regenerate card"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={setCard.isPending}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload className="mr-2 h-4 w-4" /> Override
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={onFile}
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {current ? (
+          <img
+            src={current}
+            alt="Social card preview"
+            className="max-h-64 w-auto rounded-md border"
+          />
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ImageIcon className="h-4 w-4" />
+            No card yet — publish will auto-fill a branded card per platform, or
+            set one now.
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {productFocus === "flipdesk"
+            ? "FlipDesk"
+            : productFocus === "both"
+              ? "GradeThread + FlipDesk"
+              : "GradeThread"}{" "}
+          branding · auto-generated in each network's aspect ratio. Override
+          uploads are validated and stripped of metadata.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

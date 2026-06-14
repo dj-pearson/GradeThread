@@ -252,6 +252,111 @@ export function buildCertSlabHtml(input: CertSlabInput): string {
 </div>`;
 }
 
+// ─── Social cards (US-871) ────────────────────────────────────────────────
+// Branded "no-asset-needed" social card: when a social post ships without its
+// own image, the publish path auto-fills a URL to this template so every
+// network gets an on-brand image. Rendered by functions/og/social/card.ts in
+// each network's native aspect ratio.
+
+export type SocialCardRatio = "landscape" | "square" | "portrait" | "pin";
+
+// The four sizes each network needs. landscape = X/LinkedIn/Facebook,
+// square = Instagram square/Threads, portrait = Instagram portrait,
+// pin = Pinterest vertical.
+export const SOCIAL_CARD_SIZES: Record<
+  SocialCardRatio,
+  { width: number; height: number }
+> = {
+  landscape: { width: 1200, height: 630 },
+  square: { width: 1080, height: 1080 },
+  portrait: { width: 1080, height: 1350 },
+  pin: { width: 1000, height: 1500 },
+};
+
+export function isSocialCardRatio(v: unknown): v is SocialCardRatio {
+  return v === "landscape" || v === "square" || v === "portrait" || v === "pin";
+}
+
+export type SocialCardKind = "title" | "quote" | "stat";
+
+export interface SocialCardInput {
+  ratio: SocialCardRatio;
+  // title → headline; quote → pull-quote; stat → big number + caption.
+  kind: SocialCardKind;
+  // The headline / pull-quote / stat caption.
+  text: string;
+  // For kind="stat": the big value, e.g. "9.5" or "1.0–10.0".
+  stat?: string | null;
+  product?: "gradethread" | "flipdesk" | "both";
+  // Small label above the main text (e.g. "Condition grading").
+  eyebrow?: string | null;
+}
+
+const PRODUCT_BADGE: Record<NonNullable<SocialCardInput["product"]>, string> = {
+  gradethread: "GradeThread",
+  flipdesk: "FlipDesk",
+  both: "GradeThread + FlipDesk",
+};
+
+// One template, four aspect ratios. Typography scales off the card width so a
+// 1.91:1 banner and a 2:3 pin both read cleanly. Flexbox only (Satori), no
+// external fonts.
+export function buildSocialCardHtml(input: SocialCardInput): string {
+  const { width, height } = SOCIAL_CARD_SIZES[input.ratio] ??
+    SOCIAL_CARD_SIZES.landscape;
+  const pad = Math.round(width * 0.06);
+  const mark = Math.round(width * 0.037);
+  const badgeLabel = PRODUCT_BADGE[input.product ?? "gradethread"];
+  const eyebrow = input.eyebrow?.trim();
+
+  // Main content per kind. Sizes are proportional to the card width.
+  const titleSize = Math.round(width * 0.058);
+  const statSize = Math.round(width * 0.18);
+  const captionSize = Math.round(width * 0.03);
+
+  let main: string;
+  if (input.kind === "stat") {
+    const statText = (input.stat ?? "").trim() || "—";
+    main = `<div style="display:flex;flex-direction:column;">
+      <div style="display:flex;font-size:${statSize}px;font-weight:800;color:${BRAND_RED};line-height:1;">${escapeHtml(truncate(statText, 12))}</div>
+      <div style="display:flex;font-size:${captionSize}px;font-weight:600;color:#fff;line-height:1.2;margin-top:${Math.round(width * 0.02)}px;max-width:${width - pad * 2}px;">${escapeHtml(truncate(input.text, 120))}</div>
+    </div>`;
+  } else if (input.kind === "quote") {
+    main = `<div style="display:flex;flex-direction:column;">
+      <div style="display:flex;font-size:${Math.round(width * 0.12)}px;font-weight:800;color:${BRAND_RED};line-height:0.8;height:${Math.round(width * 0.07)}px;">“</div>
+      <div style="display:flex;font-size:${titleSize}px;font-weight:700;line-height:1.2;color:#fff;max-width:${width - pad * 2}px;">${escapeHtml(truncate(input.text, 200))}</div>
+    </div>`;
+  } else {
+    main = `<div style="display:flex;font-size:${titleSize}px;font-weight:700;line-height:1.15;color:#fff;max-width:${width - pad * 2}px;">${escapeHtml(truncate(input.text, 160))}</div>`;
+  }
+
+  const eyebrowBlock = eyebrow
+    ? `<div style="display:flex;font-size:${captionSize}px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:${BRAND_RED};margin-bottom:${Math.round(width * 0.02)}px;">${escapeHtml(truncate(eyebrow, 48))}</div>`
+    : "";
+
+  return `<div style="display:flex;flex-direction:column;height:${height}px;width:${width}px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:system-ui,sans-serif;padding:${pad}px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <div style="display:flex;align-items:center;gap:${Math.round(mark * 0.4)}px;">
+      <div style="width:${Math.round(mark * 1.7)}px;height:${Math.round(mark * 1.7)}px;border-radius:${Math.round(mark * 0.4)}px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${mark}px;color:#fff;">G</div>
+      <div style="display:flex;font-size:${mark}px;font-weight:600;letter-spacing:0.5px;">GradeThread</div>
+    </div>
+    <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:${Math.round(mark * 0.35)}px ${Math.round(mark * 0.7)}px;border-radius:999px;font-size:${Math.round(mark * 0.72)}px;font-weight:500;">
+      ${escapeHtml(badgeLabel)}
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;flex:1;justify-content:center;margin:${Math.round(width * 0.025)}px 0;">
+    ${eyebrowBlock}
+    ${main}
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;font-size:${captionSize}px;color:rgba(255,255,255,0.6);">
+    <div>Verified condition grading</div>
+    <div>gradethread.com</div>
+  </div>
+</div>`;
+}
+
 // 1x1 transparent PNG fallback — last-resort if Satori itself throws. The
 // blog/cert SSR still has its own static `logo_icon_512.png` fallback, so
 // this path is rarely hit in practice.

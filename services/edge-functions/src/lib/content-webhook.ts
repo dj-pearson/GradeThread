@@ -56,6 +56,10 @@ export interface WebhookPayloadSocial {
     product_focus: "gradethread" | "flipdesk" | "both";
     // US-870: branded social-card aspect label (US-871/US-872).
     image_field?: string | null;
+    // US-871: resolved image URL — the post's uploaded asset_image_url, or an
+    // auto-filled branded /og/social/card URL when no asset exists. Always
+    // present so the receiving automation never posts image-less.
+    image_url?: string | null;
   };
 }
 
