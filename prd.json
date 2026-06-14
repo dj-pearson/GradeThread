@@ -15283,8 +15283,8 @@
         "A test garment with a known small hole is detected + correctly size-bucketed with the zoom pass where the whole-garment pass missed it."
       ],
       "priority": 1035,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=resolution. services/edge-functions/src/lib/grading-pipeline.ts (download/base64 ~493-526); services/edge-functions/src/lib/ai-grading.ts"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=resolution. services/edge-functions/src/lib/grading-pipeline.ts (download/base64 ~493-526); services/edge-functions/src/lib/ai-grading.ts [DONE 2026-06-14] Implemented in ai-grading.ts + grading-pipeline.ts (region-zoom + unassessable_factors). deno check+lint+tests green."
     },
     {
       "id": "US-1036",
@@ -15325,8 +15325,8 @@
         "Overall scores for clean cases are unchanged within tolerance (no grade inflation/deflation regression on the eval set); prompt versions bumped."
       ],
       "priority": 1038,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=low area=scoring-core. services/edge-functions/src/lib/ai-grading.ts (per-image neutral default rule ~507, clamp default 7.0 ~744, sanitizeFactorScores ~1001-1014, FACTOR_WEIGHTS ~782-788)"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=low area=scoring-core. services/edge-functions/src/lib/ai-grading.ts (per-image neutral default rule ~507, clamp default 7.0 ~744, sanitizeFactorScores ~1001-1014, FACTOR_WEIGHTS ~782-788) [DONE 2026-06-14] Implemented in ai-grading.ts + grading-pipeline.ts (region-zoom + unassessable_factors). deno check+lint+tests green."
     }
   ]
 }
