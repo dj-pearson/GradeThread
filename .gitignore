@@ -95,3 +95,4 @@ ratio
 .claude/settings.local.json
 .claude/settings.local.json
 services/edge-functions/deno.lock
+.claude/settings.local.json

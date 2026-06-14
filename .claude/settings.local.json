@@ -158,7 +158,8 @@
       "mcp__claude_ai_Make__scenarios_list",
       "Bash('/c/Program Files/GitHub CLI/gh.exe' run view 27481762822 --log-failed)",
       "Bash(export SUPABASE_URL=\"http://localhost:54321\" SUPABASE_SERVICE_ROLE_KEY=\"test-key\" ANTHROPIC_API_KEY=\"test\")",
-      "Bash(export SUPABASE_URL=\"http://localhost:54321\" SUPABASE_SERVICE_ROLE_KEY=\"test-key\" ANTHROPIC_API_KEY=\"test\" STRIPE_SECRET_KEY=\"sk_test\" CERT_SIGNING_KEY=\"test-cert-key\")"
+      "Bash(export SUPABASE_URL=\"http://localhost:54321\" SUPABASE_SERVICE_ROLE_KEY=\"test-key\" ANTHROPIC_API_KEY=\"test\" STRIPE_SECRET_KEY=\"sk_test\" CERT_SIGNING_KEY=\"test-cert-key\")",
+      "Bash(awk '/negotiation\\\\/offers\"|negotiation\\\\/offers\\\\/:bestOfferId\\\\/respond|negotiation\\\\/eligible|negotiation\\\\/send-offer|\\\\/messages\"|messages\\\\/:messageId\\\\/reply/{p=1} p{print NR\": \"$0} /^}\\\\\\);/{if\\(p\\)c++; if\\(c>0 && p && /^}\\\\\\);/\\){p=0}}' services/edge-functions/src/routes/flipdesk-ebay.ts)"
     ]
   },
   "hooks": {
