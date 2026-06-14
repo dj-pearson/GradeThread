@@ -36,6 +36,36 @@ struct FulfillmentService: FulfillmentProviding {
     func markShipped(saleId: String, trackingNumber: String?, shippedAt: Date) async throws {
         // timestamptz accepts an ISO 8601 instant.
         let iso = ISO8601DateFormatter().string(from: shippedAt)
+
+        // US-1039: for an eBay order (platform_order_id set) WITH a tracking
+        // number, push the tracking to eBay via the edge — which also records
+        // shipped_at + tracking_number server-side (so we don't double-write).
+        // eBay's shipping_fulfillment requires a tracking number, so without one
+        // we fall through to the local-only write below (manual/other sales too).
+        if let tracking = trackingNumber, !tracking.isEmpty {
+            let response = try await SupabaseShared.client
+                .from("sales")
+                .select("platform_order_id")
+                .eq("id", value: saleId)
+                .limit(1)
+                .execute()
+            struct OrderRef: Decodable { let platform_order_id: String? }
+            let refs = (try? JSONDecoder().decode([OrderRef].self, from: response.data)) ?? []
+            if let oid = refs.first?.platform_order_id, !oid.isEmpty {
+                struct ShipBody: Encodable {
+                    let tracking_number: String
+                    let carrier: String?
+                }
+                struct OKResponse: Decodable { let ok: Bool? }
+                let _: OKResponse = try await EdgeAPI.shared.postJSON(
+                    "/api/flipdesk/ebay/orders/\(saleId)/ship",
+                    body: ShipBody(tracking_number: tracking, carrier: nil)
+                )
+                return
+            }
+        }
+
+        // Local-only write: manual/other-marketplace sales, or no tracking yet.
         // Scoped by id under RLS — the user can only update their own sale rows
         // (ownership flows through inventory_items), mirroring ReconciliationService.
         let builder = SupabaseShared.client.from("sales")
