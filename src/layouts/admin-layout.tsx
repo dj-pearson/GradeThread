@@ -37,6 +37,7 @@ import {
   Siren,
   Gauge,
   RefreshCw,
+  Coins,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +57,7 @@ const adminNavItems = [
   { to: "/admin/support/kb", icon: BookOpen, label: "Knowledge Base", end: false, superAdminOnly: false },
   { to: "/admin/support/monitoring", icon: Activity, label: "Assistant Monitoring", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
+  { to: "/admin/ai-spend", icon: Coins, label: "AI Spend", end: false, superAdminOnly: false },
   { to: "/admin/reliability", icon: BarChart3, label: "Reliability", end: false, superAdminOnly: false },
   { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
   { to: "/admin/condition-index", icon: LineChart, label: "Condition Index", end: false, superAdminOnly: false },

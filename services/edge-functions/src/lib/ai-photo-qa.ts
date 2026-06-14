@@ -9,6 +9,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 
 export const QA_ISSUE_TYPES = [
@@ -148,6 +149,7 @@ export async function assessPhotoQuality(
   if (photos.length === 0) {
     throw new Error("assessPhotoQuality requires at least one photo");
   }
+  enterAiFeature("photo_qa"); // US-894 spend attribution
 
   const model = getDefaultModel(); // vision-capable
   const client = getAnthropicClient();

@@ -3,6 +3,7 @@ import {
   getAnthropicClient,
   getDefaultModel,
 } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
 import {
@@ -161,6 +162,7 @@ function validateAndNormalize(parsed: unknown): BlogArticleOutput {
 export async function generateBlogArticle(
   input: GenerateBlogArticleInput,
 ): Promise<GenerateBlogArticleResult> {
+  enterAiFeature("content"); // US-894 spend attribution
   const knowledge = await loadKnowledge(
     input.topic.product_focus,
     input.styleKey,

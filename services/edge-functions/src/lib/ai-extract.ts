@@ -6,6 +6,7 @@ import {
   getLightweightModel,
   isCachingEnabled,
 } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 
 // Model routing: text-only requests use the cheap lightweight model; any
 // request that includes a photo uses the vision-capable default model.
@@ -368,6 +369,7 @@ function buildUserPrompt(input: ExtractInput): string {
 export async function extractItemFields(
   input: ExtractInput
 ): Promise<ExtractionResult> {
+  enterAiFeature("catalog_extract"); // US-894 spend attribution
   const photos = input.photos ?? [];
   const hasPhotos = photos.length > 0;
   const model = hasPhotos ? getSonnetModel() : getHaikuModel();
@@ -749,6 +751,7 @@ function buildAspectUserPrompt(input: AspectExtractionInput): string {
 export async function extractEbayAspects(
   input: AspectExtractionInput
 ): Promise<AspectExtractionResult> {
+  enterAiFeature("catalog_extract"); // US-894 spend attribution
   if (input.aspects.length === 0) {
     return {
       suggestions: {},
@@ -920,6 +923,7 @@ const LISTING_TOOL: Anthropic.Tool = {
 export async function generateListingCopy(
   input: ListingCopyInput
 ): Promise<ListingCopyResult> {
+  enterAiFeature("catalog_extract"); // US-894 spend attribution
   const photos = input.photos ?? [];
   const hasPhotos = photos.length > 0;
   const model = hasPhotos ? getSonnetModel() : getHaikuModel();
@@ -1091,6 +1095,7 @@ const REWRITE_TOOL: Anthropic.Tool = {
 export async function rewriteListingCopy(
   input: RewriteInput
 ): Promise<RewriteResult> {
+  enterAiFeature("catalog_extract"); // US-894 spend attribution
   const field = rewriteField(input.action);
   const photos = rewriteUsesPhotos(input.action) ? input.photos ?? [] : [];
   const hasPhotos = photos.length > 0;

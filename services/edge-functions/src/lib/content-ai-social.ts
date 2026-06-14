@@ -3,6 +3,7 @@ import {
   getAnthropicClient,
   getDefaultModel,
 } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
 import {
@@ -214,6 +215,7 @@ function validate(parsed: unknown, platforms: SocialPlatform[]): SocialPostOutpu
 export async function generateSocialPost(
   input: GenerateSocialPostInput,
 ): Promise<GenerateSocialPostResult> {
+  enterAiFeature("content"); // US-894 spend attribution
   const knowledge = await loadSocialKnowledge();
   const historyContext = await buildHistoryContext({
     surface: "social",

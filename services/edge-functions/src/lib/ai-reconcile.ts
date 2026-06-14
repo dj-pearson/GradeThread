@@ -10,6 +10,7 @@
 // board sends downscaled base64 because dump photos aren't uploaded yet).
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, getDefaultModel, getAiTemperature } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 
 export interface VisionImage {
   /** Public URL (post-upload) … */
@@ -108,6 +109,7 @@ const SIMILAR_TOOL: Anthropic.Tool = {
 /** Classify each photo into a reconcile photo type. Index is 0-based. */
 export async function classifyPhotoTypes(images: VisionImage[]): Promise<PhotoClassification[]> {
   if (images.length === 0) return [];
+  enterAiFeature("reconcile"); // US-894 spend attribution
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
   const response = await client.messages.create({
@@ -152,6 +154,7 @@ export async function classifyPhotoTypes(images: VisionImage[]): Promise<PhotoCl
 /** Returns same-garment groups of 0-based photo indices. */
 export async function groupSimilarPhotos(images: VisionImage[]): Promise<number[][]> {
   if (images.length < 2) return images.map((_, i) => [i]);
+  enterAiFeature("reconcile"); // US-894 spend attribution
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
   const response = await client.messages.create({
@@ -227,6 +230,7 @@ export interface MatchHints {
 /** Extracts brand + keyword hints from a cluster's photos for item matching. */
 export async function extractMatchHints(images: VisionImage[]): Promise<MatchHints> {
   if (images.length === 0) return { brand: null, keywords: [], confidence: 0 };
+  enterAiFeature("reconcile"); // US-894 spend attribution
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
   const response = await client.messages.create({

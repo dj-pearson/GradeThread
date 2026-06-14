@@ -3,6 +3,7 @@ import {
   getAnthropicClient,
   getLightweightModel,
 } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import {
   buildHistoryContext,
@@ -104,6 +105,7 @@ function normalizeCandidate(raw: unknown): ResearchedCandidate | null {
 export async function researchTopics(
   input: ResearchTopicsInput,
 ): Promise<ResearchTopicsResult> {
+  enterAiFeature("content"); // US-894 spend attribution
   const count = Math.min(Math.max(input.count ?? 10, 1), 25);
   const knowledge = await loadResearchKnowledge(input.surface, input.productFocus);
   const historyContext = await buildHistoryContext({

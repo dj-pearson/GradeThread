@@ -20,6 +20,7 @@ import {
   getDefaultModel,
   isCachingEnabled,
 } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import {
   estimateCost,
   extractEbayAspects,
@@ -418,6 +419,7 @@ function coerceItemSpecifics(raw: unknown): Record<string, string[]> {
 export async function generateListingFields(
   input: ListingGenInput,
 ): Promise<ListingGenResult> {
+  enterAiFeature("autolister"); // US-894 spend attribution
   if (!input.photos || input.photos.length === 0) {
     throw new Error("generateListingFields requires at least one photo");
   }
@@ -1444,6 +1446,7 @@ export async function generatePlatformVariantText(
   base: PlatformVariantBase,
   platforms: MarketplacePlatform[],
 ): Promise<{ byPlatform: Record<string, PlatformText>; model: string; tokensIn: number; tokensOut: number }> {
+  enterAiFeature("autolister"); // US-894 spend attribution
   const client = getAnthropicClient();
   const model = getDefaultModel();
   const temperature = getAiTemperature();

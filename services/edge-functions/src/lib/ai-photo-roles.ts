@@ -11,6 +11,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 
 // The subset of flipdesk_photo_type roles this pass assigns. Kept in sync with
@@ -126,6 +127,7 @@ export async function classifyPhotoRoles(
   if (photos.length === 0) {
     throw new Error("classifyPhotoRoles requires at least one photo");
   }
+  enterAiFeature("photo_roles"); // US-894 spend attribution
 
   const model = getDefaultModel(); // vision-capable
   const client = getAnthropicClient();

@@ -3,6 +3,7 @@ import {
   getAnthropicClient,
   getDefaultModel,
 } from "./ai-config.ts";
+import { enterAiFeature } from "./ai-feature-context.ts";
 import { loadKnowledge } from "./content-ai-blog.ts";
 import {
   BLOG_REFRESH_PROMPT_VERSION,
@@ -103,6 +104,7 @@ function validateAndNormalize(
 export async function refreshBlogArticle(
   input: RefreshBlogArticleInput,
 ): Promise<RefreshBlogArticleResult> {
+  enterAiFeature("content"); // US-894 spend attribution
   const knowledge = await loadKnowledge(input.product_focus, input.styleKey);
 
   const systemPrompt = buildSystemPrompt({

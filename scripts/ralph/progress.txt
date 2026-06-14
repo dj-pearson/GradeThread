@@ -2745,3 +2745,25 @@ Branch: ralph/gradethread-build
   - Verified: deno check (main graph) clean, deno lint clean, edge suite 1454 passed/0 failed (8 new), rls-guard + schema-version pass, tsc --noEmit clean, vitest 772 passed, build:locked 41 pages, verify:db re-applied 217 migrations from zero (26.1s).
 - Timestamp: 2026-06-14
 ---
+## US-894: AI spend & token-usage dashboard
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00218_ai_spend.sql (new) — extends ai_usage_events (feature/prompt_hash/latency_ms), seeds config-driven system_settings.ai_model_prices, adds ai_spend(period,groupBy) RPC
+  - services/edge-functions/src/lib/ai-feature-context.ts (new) — AsyncLocalStorage feature tagging (enterAiFeature/withAiFeature/currentAiFeature)
+  - services/edge-functions/src/lib/ai-usage.ts — hashPrompt(), feature on rows, recordAiCall()
+  - services/edge-functions/src/lib/ai-config.ts — applyAiLimiter now records token spend for feature-tagged non-streaming calls (opt-in; grading not double-counted)
+  - tagged entries: ai-listing, ai-reconcile, ai-extract, ai-tag-ocr, ai-photo-qa, ai-photo-roles, content-ai-blog/social/refresh/research
+  - services/edge-functions/src/routes/admin-ai-spend.ts (new) + mounted /api/admin/ai in main.ts
+  - services/edge-functions/src/lib/schema-version.ts (00217 -> 00218)
+  - services/edge-functions/src/tests/ai-spend_test.ts (new, 6 tests)
+  - src/pages/admin/ai-spend.tsx (new), src/routes/index.tsx, src/layouts/admin-layout.tsx (nav)
+  - prd.json, scripts/ralph/progress.txt
+- Notes:
+  * Mapped the AC's "ai_log" to the existing ai_usage_events ledger (00163) instead of a new table.
+  * Cost is re-priced at QUERY time from system_settings.ai_model_prices (jsonb USD/MTok), so a price change is an operator edit (Settings Registry) — no deploy. The RPC handles unknown models as $0 (tokens still counted/visible).
+  * Logging is OPT-IN via AsyncLocalStorage: the limiter captures only feature-tagged non-streaming calls. Grading self-logs (recordAiUsage) and is NEVER tagged, so no double-count. ai-authenticity is deliberately NOT tagged because the grading pipeline already logs it.
+  * Streaming calls bypass the limiter (and thus capture) — documented in the UI note.
+  * Left the concurrent grading WIP (ai-grading.ts / grading-pipeline.ts / grading-zoom_test.ts) untouched — staged only my files. ai-config.ts was concurrently edited (GradingEffort typing) and my capture changes coexist cleanly.
+  * Verified: deno check (main graph) clean, deno lint clean, edge suite 1460 passed/0 failed (6 new), schema-version + rls-guard pass, tsc --noEmit clean, vitest 772 passed, build:locked 41 pages, verify:db re-applied 218 migrations from zero (43s).
+- Timestamp: 2026-06-14
+---

@@ -71,6 +71,7 @@ import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
 import { adminSafetyRoutes } from "./routes/admin-safety.ts";
 import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
+import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -759,6 +760,11 @@ app.route("/api/admin/safety", adminSafetyRoutes);
 // daily/weekly time series) from the revenue_dashboard RPC. Admin JWT + AAL2 via
 // the /api/admin/* group; no writes, so no step-up.
 app.route("/api/admin/revenue", adminRevenueRoutes);
+// US-894 AI spend & token-usage dashboard — token/cost rollups by
+// model/feature/day from the ai_usage_events ledger (re-priced from the
+// config-driven price table). Admin JWT + AAL2 via the /api/admin/* group;
+// read-only, so no step-up.
+app.route("/api/admin/ai", adminAiSpendRoutes);
 // US-846 Condition Index catalog curation — list/create/edit/disable
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.

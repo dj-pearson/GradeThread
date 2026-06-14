@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { runAiCall } from "./ai-limiter.ts";
 import { getSettingSync } from "./system-settings.ts";
+import { currentAiFeature } from "./ai-feature-context.ts";
 
 // Central reader for AI configuration. Values come from Coolify Team Shared
 // Variables so every Pearson Media project flips together when a model or
@@ -156,9 +157,10 @@ export function modelUsesEffort(model: string): boolean {
 // Effort level for grading on effort-based models. Low keeps the bounded
 // per-image/composite task reproducible + cheap; an operator may raise it via
 // GRADING_AI_EFFORT (e.g. to "medium" if an eval shows it improves small-defect
-// recall). Clamped to the supported set.
-export const GRADING_DEFAULT_EFFORT = "low";
-const GRADING_EFFORTS: ReadonlySet<string> = new Set([
+// recall). Clamped to the supported set. Typed as the SDK's effort literal union.
+export type GradingEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export const GRADING_DEFAULT_EFFORT: GradingEffort = "low";
+const GRADING_EFFORTS: ReadonlySet<string> = new Set<GradingEffort>([
   "low",
   "medium",
   "high",
@@ -166,16 +168,18 @@ const GRADING_EFFORTS: ReadonlySet<string> = new Set([
   "max",
 ]);
 
-export function getGradingEffort(): string {
+export function getGradingEffort(): GradingEffort {
   const raw = Deno.env.get("GRADING_AI_EFFORT")?.trim().toLowerCase();
-  return raw && GRADING_EFFORTS.has(raw) ? raw : GRADING_DEFAULT_EFFORT;
+  return raw && GRADING_EFFORTS.has(raw)
+    ? (raw as GradingEffort)
+    : GRADING_DEFAULT_EFFORT;
 }
 
 // Per-call sampling knobs for grading, model-family-aware (US-1033). Spread into
 // the messages.create body in place of a hardcoded `temperature`.
 export type GradingSamplingParams =
   | { temperature: number }
-  | { output_config: { effort: string } };
+  | { output_config: { effort: GradingEffort } };
 
 export function gradingSamplingParams(model: string): GradingSamplingParams {
   if (modelUsesEffort(model)) {
@@ -233,16 +237,67 @@ function applyAiLimiter(client: Anthropic): Anthropic {
   const rawCreate = messages.create.bind(messages);
 
   messages.create = (...args: unknown[]) => {
-    const body = args[0] as { stream?: boolean } | undefined;
+    const body = args[0] as
+      | { stream?: boolean; model?: string; system?: unknown; messages?: unknown }
+      | undefined;
     // Streaming → bypass the limiter (don't await/retry a stream).
     if (body?.stream) return rawCreate(...args);
     const options = (args[1] as Record<string, unknown> | undefined) ?? {};
     const rest = args.slice(2);
-    return runAiCall(() =>
-      rawCreate(body, { ...options, maxRetries: 0 }, ...rest) as Promise<unknown>
-    );
+    // US-894: capture token spend for any feature-tagged call (opt-in via
+    // enterAiFeature). No tag → record nothing, so the grading pipeline (which
+    // logs its own per-grade rows) is never double-counted.
+    const featureCtx = currentAiFeature();
+    return runAiCall(async () => {
+      const startedAt = Date.now();
+      const result = await (rawCreate(
+        body,
+        { ...options, maxRetries: 0 },
+        ...rest,
+      ) as Promise<unknown>);
+      if (featureCtx) {
+        void captureAiUsage(featureCtx, body, result, Date.now() - startedAt);
+      }
+      return result;
+    });
   };
   return client;
+}
+
+// US-894: best-effort, fire-and-forget recording of one Anthropic call into the
+// ai_usage_events ledger. Dynamically imports lib/ai-usage.ts (which pulls in
+// the supabase client) so this module stays import-safe for unit tests that
+// never make a real call. Never throws.
+async function captureAiUsage(
+  ctx: { feature: string; userId: string | null },
+  body: { model?: string; system?: unknown; messages?: unknown } | undefined,
+  result: unknown,
+  latencyMs: number,
+): Promise<void> {
+  try {
+    const usage = (result as { usage?: unknown } | null)?.usage;
+    if (!usage) return;
+    const model = body?.model ??
+      (result as { model?: string } | null)?.model ?? "unknown";
+    const { toAiTokenUsage, recordAiCall, hashPrompt } = await import(
+      "./ai-usage.ts"
+    );
+    await recordAiCall({
+      feature: ctx.feature,
+      userId: ctx.userId,
+      usage: toAiTokenUsage(model, usage as Anthropic.Usage),
+      latencyMs,
+      promptHash: hashPrompt({
+        system: body?.system,
+        messages: body?.messages,
+        model,
+      }),
+    });
+  } catch (e) {
+    console.warn(
+      `[ai-config] usage capture failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 export function getAnthropicClient(): Anthropic {

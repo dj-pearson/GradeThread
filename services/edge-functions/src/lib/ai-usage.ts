@@ -91,9 +91,25 @@ export function computeCostUsd(usage: AiTokenUsage): number {
   return Math.round(cost * 1e6) / 1e6;
 }
 
+// US-894: fast, stable, non-crypto fingerprint of a prompt body so the spend
+// view can spot a repeated/runaway prompt. FNV-1a (32-bit) — NOT a security
+// hash; collisions are acceptable for "is this the same prompt again".
+export function hashPrompt(input: unknown): string {
+  const s = typeof input === "string" ? input : JSON.stringify(input ?? "");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
 export interface RecordAiUsageInput {
   userId: string | null;
   submissionId: string | null;
+  // Feature that made the call. Defaults to 'grading' — the only feature that
+  // logged before US-894 — so existing callers stay correct.
+  feature?: string;
   // One entry per phase; `phase` labels the grading stage that made the call.
   usages: Array<{ phase: string; usage: AiTokenUsage }>;
 }
@@ -102,12 +118,14 @@ export interface RecordAiUsageInput {
 // throws: a cost-tracking write must never fail a paid grade. The table is not
 // in the generated Database types, so the client is cast locally.
 export async function recordAiUsage(input: RecordAiUsageInput): Promise<void> {
+  const feature = input.feature ?? "grading";
   const rows = input.usages
     .filter((u) => u.usage)
     .map(({ phase, usage }) => ({
       user_id: input.userId,
       submission_id: input.submissionId,
       phase,
+      feature,
       model: usage.model,
       input_tokens: usage.inputTokens,
       output_tokens: usage.outputTokens,
@@ -128,6 +146,49 @@ export async function recordAiUsage(input: RecordAiUsageInput): Promise<void> {
   } catch (e) {
     console.warn(
       `[ai-usage] failed to record usage: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
+export interface RecordAiCallInput {
+  feature: string;
+  userId: string | null;
+  submissionId?: string | null;
+  usage: AiTokenUsage;
+  latencyMs: number | null;
+  promptHash: string | null;
+}
+
+// US-894: record ONE Anthropic call to the ledger, attributed to a feature.
+// Called by the limiter capture in ai-config.ts for any feature-tagged call.
+// Best-effort + never throws — usage tracking must never break a live AI flow.
+export async function recordAiCall(input: RecordAiCallInput): Promise<void> {
+  const row = {
+    user_id: input.userId,
+    submission_id: input.submissionId ?? null,
+    // `phase` predates the `feature` column; keep it populated for back-compat.
+    phase: input.feature,
+    feature: input.feature,
+    model: input.usage.model,
+    input_tokens: input.usage.inputTokens,
+    output_tokens: input.usage.outputTokens,
+    cache_creation_tokens: input.usage.cacheCreationTokens,
+    cache_read_tokens: input.usage.cacheReadTokens,
+    cost_usd: computeCostUsd(input.usage),
+    prompt_hash: input.promptHash,
+    latency_ms: input.latencyMs,
+  };
+
+  try {
+    const { error } = await supabaseAdmin
+      .from("ai_usage_events")
+      .insert(row as never);
+    if (error) {
+      console.warn(`[ai-usage] failed to record call: ${error.message}`);
+    }
+  } catch (e) {
+    console.warn(
+      `[ai-usage] failed to record call: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 }
