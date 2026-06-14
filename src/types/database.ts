@@ -2523,6 +2523,9 @@ export interface BlogPostRow {
   safety_status: ContentSafetyStatus;
   safety_notes: string | null;
   safety_checked_at: string | null;
+  // Topic-cluster pillar slug (US-873) — the seo.pillars cluster this post
+  // ladders to, set at publish. Null until interlinked.
+  pillar: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -25,6 +25,7 @@ import {
   renderFaqSection,
   faqPageJsonLd,
   renderRelatedPosts,
+  renderPillarLink,
   buildPinImageUrl,
   renderPinterestSave,
   renderHeroImage,
@@ -256,6 +257,7 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   ${renderTableOfContents(toc)}
   <article>${articleHtml}</article>
   ${renderFaqSection(post.faqs)}
+  ${renderPillarLink(post.pillar_url, post.pillar_label)}
   <a class="cta" href="${escape(ctaHref)}">${escape(ctaText)} &rarr;</a>
   ${pinSaveHtml}
   ${renderRelatedPosts(post.related)}

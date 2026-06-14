@@ -106,6 +106,12 @@ export interface PublicPost extends PublicPostListItem {
   key_takeaways?: string[];
   faqs?: BlogFaq[];
   related?: PublicPostListItem[];
+  // Topic-cluster hub-and-spoke uplink (US-873): the cornerstone pillar page
+  // this post ladders up to. Absent on posts published before the interlinker
+  // or whose pillar (e.g. FlipDesk clusters) has no cornerstone page yet.
+  pillar?: string | null;
+  pillar_url?: string | null;
+  pillar_label?: string | null;
 }
 
 // Defaults. The Pages Function reads context.env first; these are fallbacks
@@ -331,6 +337,8 @@ const BASE_STYLES = `
   .faq dl { margin: 16px 0 0; }
   .faq dt { font-weight: 600; margin-top: 16px; }
   .faq dd { margin: 4px 0 0; color: var(--muted); }
+  .pillar-link { margin: 24px 0 0; font-size: 0.9375rem; color: var(--muted); }
+  .pillar-link a { color: var(--brand-navy, #0F3460); font-weight: 500; }
   .related { margin-top: 48px; border-top: 1px solid #e5e7eb; padding-top: 24px; }
   .related-grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
   @media (min-width: 640px) { .related-grid { grid-template-columns: repeat(3, 1fr); } }
@@ -605,6 +613,24 @@ export function renderRelatedPosts(
     )
     .join("");
   return `<section class="related"><h2>Keep reading</h2><div class="related-grid">${cards}</div></section>`;
+}
+
+/**
+ * Hub-and-spoke uplink (US-873): a contextual line laddering the post up to its
+ * cornerstone pillar page. Empty string when the post has no pillar with a
+ * cornerstone (e.g. a FlipDesk-cluster post). Internal relative href + escaped
+ * label, so it's inherently within the content-sanitize allowlist.
+ */
+export function renderPillarLink(
+  url: string | null | undefined,
+  label: string | null | undefined,
+): string {
+  const href = (url ?? "").trim();
+  const text = (label ?? "").trim();
+  if (!href || !text) return "";
+  return `<p class="pillar-link">Part of our <a href="${escape(href)}">${escape(
+    text,
+  )}</a> guide.</p>`;
 }
 
 // ─── Pinterest rich pins + vertical pin pipeline (US-872) ──────────────────

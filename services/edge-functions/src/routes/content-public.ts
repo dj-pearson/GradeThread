@@ -6,6 +6,7 @@ import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
+import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
 // NEVER carry raw error.message — that leaks DB/PostgREST internals (table
@@ -53,13 +54,17 @@ const POST_COLUMNS =
   "seo_title, seo_description, primary_keyword, secondary_keywords, " +
   "reading_time_min, published_at, updated_at, jsonld, " +
   // Blog GEO / E-E-A-T fields (US-304).
-  "author, key_takeaways, faqs";
+  "author, key_takeaways, faqs, " +
+  // Topic-cluster pillar (US-873).
+  "pillar";
 const LIST_COLUMNS =
   "id, slug, title, excerpt, product_focus, hero_image_url, primary_keyword, " +
   "reading_time_min, published_at, updated_at";
 
-// Max related posts surfaced on an article (US-304).
+// Max related posts surfaced on an article (US-304). The tag-based fallback
+// shows up to 3; the curated editorial set (US-873) may surface up to 6.
 const MAX_RELATED = 3;
+const MAX_EDITORIAL_RELATED = 6;
 
 // Row shapes for the column lists above. The lists are built by string
 // concatenation, so they widen to `string` and Supabase can't infer the row
@@ -85,6 +90,7 @@ interface BlogFullRow extends BlogListRow {
   author: unknown;
   key_takeaways: unknown;
   faqs: unknown;
+  pillar: string | null;
 }
 interface CertReportRow {
   overall_score: number;
@@ -173,6 +179,42 @@ async function fetchRelated(
     .slice(0, MAX_RELATED);
 }
 
+/**
+ * Curated editorial related posts (US-873): the topic-cluster interlinks chosen
+ * at publish and stored in blog_post_links (relation='related', rank order).
+ * Returns LIST_COLUMNS-shaped rows in rank order, filtered to still-published
+ * targets (a target archived after linking is silently dropped). Empty when the
+ * post predates the interlinker or has no editorial links — the caller then
+ * falls back to the tag-based set, so the two never duplicate.
+ */
+async function fetchEditorialRelated(postId: string): Promise<unknown[]> {
+  const { data: links } = await supabaseAdmin
+    .from("blog_post_links")
+    .select("target_post_id, rank")
+    .eq("source_post_id", postId)
+    .eq("relation", "related")
+    .order("rank", { ascending: true });
+
+  const orderedIds = (links ?? [])
+    .map((l) => l.target_post_id as string | null)
+    .filter((id): id is string => !!id);
+  if (orderedIds.length === 0) return [];
+
+  const { data: posts } = await supabaseAdmin
+    .from("blog_posts")
+    .select(LIST_COLUMNS)
+    .eq("status", "published")
+    .in("id", orderedIds);
+
+  const byId = new Map(
+    ((posts ?? []) as unknown as BlogListRow[]).map((p) => [p.id, p]),
+  );
+  return orderedIds
+    .map((id) => byId.get(id))
+    .filter((p): p is BlogListRow => !!p)
+    .slice(0, MAX_EDITORIAL_RELATED);
+}
+
 // ── GET /posts ────────────────────────────────────────────
 // Cursor pagination by published_at (newest first). Cursor is the
 // raw timestamp string of the last item in the previous page.
@@ -221,8 +263,16 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
     .eq("post_id", row.id);
   const tags = (tagRows ?? []).map((r) => r.tag as string);
 
-  // GEO enhancements (US-304): normalized FAQs + related posts (by shared tag).
-  const related = await fetchRelated(row.id, tags);
+  // GEO enhancements (US-304): normalized FAQs + related posts. US-873: prefer
+  // the curated editorial topic-cluster links; fall back to the shared-tag set
+  // only when the post has none (so the two never duplicate).
+  const editorial = await fetchEditorialRelated(row.id);
+  const related = editorial.length > 0 ? editorial : await fetchRelated(row.id, tags);
+
+  // US-873: hub-and-spoke uplink to the cornerstone pillar page.
+  const pillar = row.pillar ?? null;
+  const pillarUrl = pillar ? PILLAR_CORNERSTONE_URL[pillar] ?? null : null;
+  const pillarLabel = pillar ? PILLAR_LABELS[pillar] ?? null : null;
 
   return c.json({
     post: {
@@ -230,6 +280,9 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
       tags,
       faqs: normalizeFaqs(row.faqs),
       related,
+      pillar,
+      pillar_url: pillarUrl,
+      pillar_label: pillarLabel,
     },
   });
 });

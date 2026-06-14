@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
+import { applyInterlinks } from "../lib/content-interlink.ts";
 import { generateBlogArticle, loadKnowledge } from "../lib/content-ai-blog.ts";
 import { ensureHeroImage } from "../lib/openai-images.ts";
 import { streamAnthropicText } from "../lib/content-ai-stream.ts";
@@ -324,6 +325,21 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
     summary_one_line: updated.excerpt ?? null,
     published_at: now,
   }).catch((e) => console.error("[content-blog] history append failed:", e));
+
+  // US-873: topic-cluster interlinking. Infer the pillar + rebuild the
+  // related-links graph (blog_post_links) so the post interlinks within its
+  // cluster and ladders up to its cornerstone page. Best-effort + idempotent;
+  // a failure logs and never rolls back the publish.
+  await applyInterlinks({
+    id: updated.id,
+    slug: updated.slug,
+    title: updated.title,
+    product_focus: updated.product_focus,
+    primary_keyword: updated.primary_keyword ?? null,
+    secondary_keywords: updated.secondary_keywords ?? [],
+    topic_id: updated.topic_id ?? null,
+    pillar: updated.pillar ?? null,
+  }).catch((e) => console.error("[content-blog] interlink failed:", e));
 
   // Cloudflare cache purge — best-effort, doesn't block the response.
   // The SSR pages serve with s-maxage=3600; without this, readers would

@@ -2397,3 +2397,25 @@ Branch: ralph/gradethread-build
   - Verify: tsc functions OK; eslint OK (only pre-existing warnings); vitest 719 passed (new pinterest-rich-pins.test.ts, 11 cases); deno test content-social-publish OK; build:locked wrote 41 pages. No DB migration.
 - Timestamp: 2026-06-13
 ---
+
+## US-873: Automated internal topic-cluster interlinking at publish (topical authority)
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00200_blog_interlinks.sql (blog_posts.pillar + blog_post_links graph; public read, service-role write)
+  - services/edge-functions/src/lib/content-interlink.ts (NEW — pillar map, inferPillar, scoreRelatedPosts, normalizeKeywords, applyInterlinks)
+  - services/edge-functions/src/routes/content-blog.ts (publish path calls applyInterlinks, best-effort)
+  - services/edge-functions/src/routes/content-public.ts (fetchEditorialRelated preferred over tag fallback; /posts/:slug returns pillar/pillar_url/pillar_label)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00199 -> 00200)
+  - functions/_shared/blog-render.ts (PublicPost pillar fields, renderPillarLink, CSS)
+  - functions/blog/[[path]].ts (render pillar uplink above CTA)
+  - src/types/database.ts (BlogPostRow.pillar)
+  - services/edge-functions/src/tests/content-interlink_test.ts (NEW — 11 cases)
+  - prd.json, scripts/ralph/progress.txt
+- Notes:
+  - Hub-and-spoke is DATA-driven + render-time, NOT body_html mutation: editorial links live in blog_post_links and the SSR "Keep reading" block reads them (reconciled with the tag fallback so they never duplicate). This keeps re-publish idempotent (delete-by-source then insert) and avoids touching stored HTML / the sanitize allowlist.
+  - Candidate pool is blog_posts WHERE status='published' (not content_history_index — that table has no slug/status, so it can't be the link source). This is what guarantees AC6: a generated post can only link to existing published slugs.
+  - Cornerstone "down" links to cluster posts = queryable via the indexed blog_posts.pillar column. Did NOT add dynamic post lists to the US-855 cornerstone pages — they're static prerendered React under a byte-identical SPA/prerender parity guard, so a dynamic block would break it. Pillar "up" link IS rendered on the live blog post (renderPillarLink), where SSR is safe.
+  - GOTCHA reminder: bump EXPECTED_SCHEMA_VERSION in the SAME commit as a new migration (schema-version_test.ts enforces it). functions/ is NOT typechecked by npm run build — ran `npx tsc -p tsconfig.functions.json --noEmit` (green).
+  - Verify: web tsc OK; functions tsc OK; vitest 719 passed; build:locked 41 pages; deno check+lint+test OK (11 new); verify:db applies 00200 cleanly from zero.
+- Timestamp: 2026-06-13
+---
