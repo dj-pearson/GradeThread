@@ -916,6 +916,43 @@ async function runSocialTick(
   };
 }
 
+// ── Heartbeat (US-869) ───────────────────────────────────────
+// One content_scheduler_runs row per tick so the content-watchdog cron can
+// prove the autonomous engine is still alive. A "non-error tick" (success OR a
+// benign skip) is the heartbeat; an error outcome does NOT count as alive.
+type RunOutcome = "success" | "skip" | "error";
+
+// Benign skips (paused, cadence met, no queued topics) → 'skip'. A skip whose
+// reason signals a failure mid-tick (generation/insert failed) → 'error' so it
+// neither counts as a healthy heartbeat nor hides the failure from the log.
+function classifyOutcome(result: TickResult): RunOutcome {
+  if (result.skipped) {
+    return /fail|error/i.test(result.reason ?? "") ? "error" : "skip";
+  }
+  return "success";
+}
+
+async function recordSchedulerRun(
+  outcome: RunOutcome,
+  result: Partial<TickResult>,
+): Promise<void> {
+  const { error } = await supabaseAdmin.from("content_scheduler_runs").insert({
+    surface: result.surface ?? null,
+    product_focus: result.product_focus ?? null,
+    outcome,
+    post_id: result.post_id ?? null,
+    refilled_topics: result.refilled_topics ?? 0,
+    published_scheduled: result.published_scheduled ?? 0,
+    // The `error` column doubles as the human-readable reason for skips too —
+    // it's the only free-text column and is invaluable when debugging a stall.
+    error: result.reason ?? null,
+  });
+  if (error) {
+    // Never let a heartbeat failure break a tick — log and move on.
+    console.warn("[scheduler] heartbeat insert failed:", error.message);
+  }
+}
+
 // ── POST /tick ──────────────────────────────────────────────
 // Main entry point. Make.com hits this every hour on cron.
 contentSchedulerRoutes.post("/tick", async (c) => {
@@ -928,6 +965,11 @@ contentSchedulerRoutes.post("/tick", async (c) => {
 
   const settings = await loadSettings();
   if (!settings) {
+    // Misconfiguration that wedges the whole engine — record it as an error
+    // heartbeat (NOT a healthy tick) so the watchdog flags the stall.
+    await recordSchedulerRun("error", {
+      reason: "content_settings row missing",
+    });
     return c.json({ error: "content_settings row missing" }, 500);
   }
 
@@ -935,10 +977,13 @@ contentSchedulerRoutes.post("/tick", async (c) => {
   // draft promotion, no generation, no auto-publish. One toggle stops the
   // whole autonomous pipeline; manual dashboard publishes still work.
   if (settings.publishing_paused) {
-    return c.json({
+    const result: TickResult = {
       skipped: true,
       reason: "publishing paused (kill-switch)",
-    } satisfies TickResult);
+    };
+    // A deliberate pause is a healthy heartbeat — the scheduler ran fine.
+    await recordSchedulerRun("skip", result);
+    return c.json(result satisfies TickResult);
   }
 
   // First: pick up anything the admin scheduled (status='scheduled' with
@@ -966,11 +1011,13 @@ contentSchedulerRoutes.post("/tick", async (c) => {
     else if (socialToday < settings.post_cadence_per_day_social) surface = "social";
   }
   if (!surface) {
-    return c.json({
+    const result: TickResult = {
       skipped: true,
       reason: "cadence already met for today",
       published_scheduled: publishedScheduled,
-    } satisfies TickResult);
+    };
+    await recordSchedulerRun("skip", result);
+    return c.json(result satisfies TickResult);
   }
 
   const product: Product = body.force_product ?? (await pickProductFocus(surface));
@@ -1008,11 +1055,13 @@ contentSchedulerRoutes.post("/tick", async (c) => {
       ? await runBlogTick(product, autoPublish, settings)
       : await runSocialTick(product, autoPublish);
 
-  return c.json({
+  const fullResult: TickResult = {
     ...result,
     refilled_topics: refilled,
     published_scheduled: publishedScheduled,
-  } satisfies TickResult);
+  };
+  await recordSchedulerRun(classifyOutcome(fullResult), fullResult);
+  return c.json(fullResult satisfies TickResult);
 });
 
 // ── GET /summary (US-260) ───────────────────────────────────────

@@ -175,6 +175,7 @@ the handler returns 401.
 | push-token-prune        | `0 3 * * *` (03:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/push-token-prune`                |
 | ebay-pending-webhooks   | `*/15 * * * *` (15min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ebay-pending-webhooks`                 |
 | north-star-digest       | `0 14 * * 1` (Mon 14:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/north-star-digest`                   |
+| content-watchdog        | `0 */3 * * *` (3h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/content-watchdog`                      |
 
 > **Cadence notes (US-496):**
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h
@@ -184,6 +185,12 @@ the handler returns 401.
 >   Set **`MONITOR_ALERT_EMAIL`** (and/or **`MONITOR_ALERT_WEBHOOK`** for
 >   Slack/PagerDuty) so a regression actually pages someone; with neither set the
 >   run records the alert but reports it as undelivered (US-502).
+> - `content-watchdog` (US-869) is the heartbeat check for the auto-publisher: it
+>   alerts the owner if the scheduler has had no healthy tick in 3h or its publish
+>   webhooks fail >25% over 24h. Routes to **`CONTENT_ALERT_EMAIL`** (falling back
+>   to `MONITOR_ALERT_EMAIL`/`SMTP_ADMIN_EMAIL`), plus optional
+>   **`CONTENT_ALERT_WEBHOOK`** (falling back to `MONITOR_ALERT_WEBHOOK`). Only
+>   meaningful once `content-scheduler-tick` is enabled (US-852).
 > - `automation-rules` (US-150) applies user-defined price-drop / promo / end
 >   rules hourly (offset to :30 so it never races reprice-scan for the eBay
 >   rate budget). Per-rule cooldowns stop hourly re-fires; overlap-locked.

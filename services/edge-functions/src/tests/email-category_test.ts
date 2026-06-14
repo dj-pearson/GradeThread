@@ -22,6 +22,7 @@ const TRANSACTIONAL_SENDERS = [
   "sendTrialExpiringEmail",
   "sendWorkspaceInvitationEmail",
   "sendGradingRegressionAlertEmail",
+  "sendContentWatchdogAlertEmail",
   "sendDisputeFiledAdminEmail",
   "sendAccountDeletedEmail",
   "sendFeedbackEmail",

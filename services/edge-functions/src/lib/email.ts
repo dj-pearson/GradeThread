@@ -1073,6 +1073,76 @@ export async function sendGradingRegressionAlertEmail(
   });
 }
 
+// ─── Content scheduler/webhook watchdog (internal/owner alert) ──────
+
+interface ContentWatchdogAlertData {
+  /** Human-readable flag lines, e.g. "Scheduler stalled: no healthy tick…". */
+  flags: string[];
+  /** Hours since the last healthy (non-error) tick, or null if none ever. */
+  hoursSinceHealthyTick: number | null;
+  /** Trailing-24h webhook delivery stats. */
+  webhookAttempts: number;
+  webhookFailures: number;
+}
+
+/**
+ * US-869: alert the owner the moment the auto-publishing content engine
+ * silently stalls or its publish webhooks start failing — a hands-off engine
+ * is dangerous without a heartbeat. Categorized so a transient SMTP failure is
+ * retried from the outbox (US-801).
+ */
+export async function sendContentWatchdogAlertEmail(
+  to: string,
+  data: ContentWatchdogAlertData,
+): Promise<boolean> {
+  const rows = data.flags
+    .map(
+      (f) => `
+      <tr>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; color:${BRAND_RED};">
+          ${escapeHtml(f)}
+        </td>
+      </tr>`,
+    )
+    .join("");
+
+  const failureRate = data.webhookAttempts > 0
+    ? `${((data.webhookFailures / data.webhookAttempts) * 100).toFixed(1)}%`
+    : "n/a";
+  const tickAge = data.hoursSinceHealthyTick == null
+    ? "never (no healthy tick on record)"
+    : `${data.hoursSinceHealthyTick.toFixed(1)}h ago`;
+
+  const content = `
+    <div style="background:${BRAND_RED};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      Content engine watchdog — action needed
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      The auto-publishing engine needs a look
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      The watchdog detected the content scheduler stalled and/or its publish
+      webhooks are failing at an elevated rate. While this is unresolved, new
+      posts may not be publishing or syndicating.
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
+      ${rows}
+    </table>
+    <h3 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 15px;">Current state</h3>
+    <ul style="margin: 0 0 16px; padding-left: 18px; color:#444; font-size: 13px; line-height: 1.7;">
+      <li>Last healthy scheduler tick: <strong>${escapeHtml(tickAge)}</strong></li>
+      <li>Webhook delivery (trailing 24h): <strong>${data.webhookFailures}/${data.webhookAttempts} failed (${failureRate})</strong></li>
+    </ul>
+    ${ctaButton("Open Content settings", `${SITE_URL}/admin/content`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: "🔴 GradeThread content engine watchdog alert",
+    html: emailLayout(content),
+    category: "content_watchdog_alert", // US-801: durable retry on transient failure
+  });
+}
+
 // ─── Grade dispute filed (internal/admin alert) ─────────────────────
 
 interface DisputeFiledData {

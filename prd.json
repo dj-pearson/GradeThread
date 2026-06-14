@@ -12808,8 +12808,8 @@
         "A test simulates a stale heartbeat and a high failure rate and asserts the watchdog flags both; npm run verify passes"
       ],
       "priority": 869,
-      "passes": false,
-      "notes": "[EPIC: Content Authority Depth 2026-06-11] Depends on US-852 (scheduler activated). Reuses content_webhook_log (populated by content-webhook.ts) + the existing email sender. Makes full-auto safe to leave running."
+      "passes": true,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Depends on US-852 (scheduler activated). Reuses content_webhook_log (populated by content-webhook.ts) + the existing email sender. Makes full-auto safe to leave running. | DONE 2026-06-13: migration 00198_content_scheduler_runs.sql (admin-read RLS, ran_at index, service-role write); content-scheduler.ts recordSchedulerRun() writes one heartbeat per tick (success/skip/error); POST /api/jobs/content-watchdog (jobs-content-watchdog.ts, X-Internal-Job-Secret, job-lock) flags stalled scheduler (no non-error tick in 3h) + >25% webhook failures over 24h with a 4-attempt sample guard; alerts owner via sendContentWatchdogAlertEmail (CONTENT_ALERT_EMAIL/MONITOR_ALERT_EMAIL/SMTP_ADMIN_EMAIL) + optional CONTENT_ALERT_WEBHOOK; pure evaluateWatchdog unit-tested (7 cases incl. both-flags); registered in LAUNCH_CHECKLIST (0 */3 * * *) + COOLIFY.md. EXPECTED_SCHEMA_VERSION bumped to 00198. verify:db + 1240 edge + 700 web tests green."
     },
     {
       "id": "US-870",

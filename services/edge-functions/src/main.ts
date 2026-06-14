@@ -81,6 +81,7 @@ import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
+import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
@@ -776,6 +777,12 @@ app.route("/api/affiliate", affiliateRoutes);
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
 app.post("/api/jobs/growth-dispatch", (c) => handleGrowthDispatchCron(c));
+// US-869 content engine watchdog. Flags a stalled scheduler (no healthy tick in
+// 3h) or an elevated publish-webhook failure rate (>25% over 24h) and alerts
+// the owner. OUTSIDE /api/admin so the wildcard admin-JWT middleware doesn't
+// intercept it; the handler enforces X-Internal-Job-Secret itself. Schedule on
+// Coolify cron (suggested 0 */3 * * *).
+app.post("/api/jobs/content-watchdog", (c) => handleContentWatchdogCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/social", contentSocialRoutes);
 app.route("/api/content/topics", contentTopicsRoutes);
