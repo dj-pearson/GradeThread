@@ -710,6 +710,43 @@ export function useEbayReviseListing() {
   });
 }
 
+// US-1039: mark an eBay order shipped + push tracking/carrier to eBay (Sell
+// Fulfillment API). The server records shipped_at + tracking locally too. A 409
+// means the sale has no eBay order id (manual/other-marketplace) — the caller
+// should fall back to a local-only write.
+export function useEbayShipOrder() {
+  return useMutation<
+    { ok: true; pushed_to_ebay: boolean },
+    Error & { status?: number },
+    { saleId: string; trackingNumber: string; carrier?: string | null }
+  >({
+    mutationFn: async ({ saleId, trackingNumber, carrier }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/orders/${encodeURIComponent(
+          saleId
+        )}/ship`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            tracking_number: trackingNumber,
+            carrier: carrier ?? null,
+          }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.detail || json.error || "Mark-shipped failed."
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    },
+  });
+}
+
 // Ends a live listing on eBay (Sell API withdrawOffer). Writes through to
 // local state on success: listings.listing_status='ended', inventory_items.
 // status='drafted'. Returns 409 when there's no platform_offer_id.

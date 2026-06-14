@@ -79,6 +79,7 @@ import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { ReviseListingDialog } from "@/components/flipdesk/revise-listing-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
@@ -405,6 +406,7 @@ export function FlipdeskListingsPage() {
   );
   const [publishItem, setPublishItem] = useState<ItemFullRow | null>(null);
   const [reviseItem, setReviseItem] = useState<ItemFullRow | null>(null);
+  const [shipItem, setShipItem] = useState<ItemFullRow | null>(null);
   const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(
     null,
   );
@@ -1827,23 +1829,36 @@ export function FlipdeskListingsPage() {
                                   {pay}
                                 </Badge>
                               </TableCell>
-                              <TableCell>
-                                {ship.tone !== "none" && (
-                                  <span
-                                    className={cn(
-                                      "inline-flex items-center gap-1 text-[10px] font-medium",
-                                      ship.tone === "red" &&
-                                        "text-destructive",
-                                      ship.tone === "amber" &&
-                                        "text-amber-600 dark:text-amber-400",
-                                      ship.tone === "green" &&
-                                        "text-emerald-600 dark:text-emerald-400",
-                                    )}
-                                  >
-                                    <Truck className="h-3 w-3" />
-                                    {ship.label}
-                                  </span>
-                                )}
+                              <TableCell onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-2">
+                                  {ship.tone !== "none" && (
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center gap-1 text-[10px] font-medium",
+                                        ship.tone === "red" &&
+                                          "text-destructive",
+                                        ship.tone === "amber" &&
+                                          "text-amber-600 dark:text-amber-400",
+                                        ship.tone === "green" &&
+                                          "text-emerald-600 dark:text-emerald-400",
+                                      )}
+                                    >
+                                      <Truck className="h-3 w-3" />
+                                      {ship.label}
+                                    </span>
+                                  )}
+                                  {ship.tone !== "green" && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 px-2 text-[10px]"
+                                      onClick={() => setShipItem(it)}
+                                      title="Mark shipped + push tracking to eBay"
+                                    >
+                                      Mark shipped
+                                    </Button>
+                                  )}
+                                </div>
                               </TableCell>
                               <TableCell>
                                 {repeat && (
@@ -2323,6 +2338,7 @@ export function FlipdeskListingsPage() {
         item={recordSaleItem}
         onClose={() => setRecordSaleItem(null)}
       />
+      <ShipOrderDialog item={shipItem} onClose={() => setShipItem(null)} />
 
       <SaveViewDialog
         open={saveViewOpen}
