@@ -15461,6 +15461,21 @@
       "priority": 1048,
       "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=low. services/edge-functions/src/lib/ebay-client.ts searchSoldComps + isMarketplaceInsightsEnabled() (~line 2743-2754); ops grant + flag"
+    },
+    {
+      "id": "US-1049",
+      "title": "eBay: payment disputes - contest/accept with evidence (Fulfillment Payment Disputes API)",
+      "description": "As a reseller, I want to handle eBay payment disputes (buyer-opened cases / chargebacks escalated to eBay) inside FlipDesk - see open disputes, accept or contest them, and upload supporting evidence before the response deadline. Today FlipDesk does nothing with eBay payment disputes, so a seller can lose a case by default.",
+      "acceptanceCriteria": [
+        "ebay-client adds Payment Disputes API helpers (/sell/fulfillment/v1/payment_dispute): list/summary, get detail + activity, accept, contest, and evidence add/upload.",
+        "Tenant-scoped edge routes for list/get/accept/contest (+ evidence); local state + audit log reflect the outcome; idempotent on already-resolved disputes.",
+        "Web + iOS surfaces show open disputes with the response deadline, the accept/contest actions, and an evidence uploader.",
+        "Confirm the required scope (sell.payment.dispute vs sell.fulfillment); if a new scope is needed, add it to EBAY_SCOPES and document re-consent.",
+        "deno check + lint + tests (pure builders/parsers) green."
+      ],
+      "priority": 1049,
+      "passes": false,
+      "notes": "[eBay scope audit 2026-06-14] severity=medium. Surfaced from granted scope sell.payment.dispute. eBay Payment Disputes API is under /sell/fulfillment/v1/payment_dispute. No payment-dispute handling exists today (only an internal Stripe flag_reason=payment_disputed in webhooks.ts/admin-fraud.ts, unrelated). Sibling to US-1043 returns/cancellations."
     }
   ]
 }
