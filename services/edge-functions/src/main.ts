@@ -58,6 +58,7 @@ import { adminClaimsRoutes } from "./routes/admin-claims.ts";
 import { guaranteePublicRoutes } from "./routes/guarantee-public.ts";
 import { adminSupportRoutes } from "./routes/admin-support.ts";
 import { adminSupportTicketsRoutes } from "./routes/admin-support-tickets.ts";
+import { adminComplianceRoutes } from "./routes/admin-compliance.ts";
 import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
@@ -724,6 +725,13 @@ app.route("/api/admin/support", adminSupportRoutes);
 // add operator-only internal notes; public replies notify the user (US-582
 // email). Distinct from the assistant inbox above. Admin JWT + MFA + audited.
 app.route("/api/admin/support-tickets", adminSupportTicketsRoutes);
+// US-903 GDPR/CCPA data-subject request workflow — the operator queue for
+// export/delete requests. List/detail/create/reject + process (export assembles
+// a signed-URL archive; delete is super_admin + MFA step-up staged anonymize/
+// erase that retains financial/audit records). Service-role reads/writes
+// (data_requests is admin-select-only, never client-writable); admin JWT + AAL2
+// MFA via the /api/admin/* group; every action audited.
+app.route("/api/admin/compliance", adminComplianceRoutes);
 // US-841 abuse & usage monitoring for the AI assistant — recent abuse events,
 // per-user usage rollups vs the US-836 caps, current lockouts + manual unlock,
 // and flagged messages. Service-role reads (usage/abuse/messages are RLS-no-

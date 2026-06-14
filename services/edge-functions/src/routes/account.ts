@@ -214,6 +214,61 @@ accountRoutes.get("/export", async (c) => {
   });
 });
 
+// US-903: self-serve data-subject request entrypoint. An authenticated user
+// files a formal export OR deletion request for THEIR OWN account; it lands in
+// the admin compliance queue (data_requests) for an operator to process. This is
+// distinct from the immediate /export + /delete above: it creates an audited,
+// tracked request rather than acting inline, which is what GDPR/CCPA expects for
+// a verifiable, defensible workflow. Tenant-scoped: the row is always keyed to
+// c.var.userId — a caller can never file a request against another account.
+accountRoutes.post("/data-requests", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { type?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const type = body.type === "export" || body.type === "delete" ? body.type : "";
+  if (!type) {
+    return c.json({ error: "type must be 'export' or 'delete'" }, 400);
+  }
+
+  // De-dupe: don't stack multiple open requests of the same type for one user.
+  const { data: pending } = await supabaseAdmin
+    .from("data_requests")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("type", type)
+    .in("status", ["received", "processing"])
+    .maybeSingle();
+  if (pending) {
+    return c.json(
+      { error: "You already have a pending request of this type.", id: (pending as { id: string }).id },
+      409,
+    );
+  }
+
+  const { data: inserted, error } = await supabaseAdmin
+    .from("data_requests")
+    .insert({
+      user_id: userId,
+      type,
+      status: "received",
+      requested_by: userId,
+      source: "self_serve",
+    })
+    .select("id")
+    .single();
+  if (error || !inserted) {
+    console.error("[account/data-requests] insert failed:", error?.message);
+    return c.json({ error: "Failed to file your request." }, 500);
+  }
+
+  return c.json({ ok: true, id: (inserted as { id: string }).id }, 201);
+});
+
 // Permanent account deletion (US-275 / GDPR right to erasure, App Store 5.1.1(v)).
 // The delete_account() RPC only cascades the DB; it leaves Storage objects, the
 // Stripe customer, and stored eBay tokens behind. This endpoint does the full

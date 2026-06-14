@@ -131,6 +131,7 @@ export function SettingsPage() {
   const [savingPrefs, setSavingPrefs] = useState(false);
 
   const [exporting, setExporting] = useState(false);
+  const [filingRequest, setFilingRequest] = useState<"export" | "delete" | null>(null);
   const [exportStage, setExportStage] = useState("");
   const [exportPct, setExportPct] = useState(0);
 
@@ -466,6 +467,32 @@ export function SettingsPage() {
       );
     } finally {
       setExporting(false);
+    }
+  }
+
+  // US-903: file a formal GDPR/CCPA data-subject request (export or deletion).
+  // Unlike the instant export above, this lands an audited, tracked request in
+  // the compliance queue for an operator to fulfill.
+  async function handleFileDataRequest(type: "export" | "delete") {
+    setFilingRequest(type);
+    try {
+      const res = await edgeFetch("/api/account/data-requests", {
+        method: "POST",
+        json: { type },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to file your request.");
+      }
+      toast.success(
+        type === "export"
+          ? "Data export request filed. We'll process it and email you."
+          : "Deletion request filed. Our team will process it.",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to file request.");
+    } finally {
+      setFilingRequest(null);
     }
   }
 
@@ -865,6 +892,39 @@ export function SettingsPage() {
           </p>
         </CardContent>
       </Card>
+
+          {/* US-903: formal data-subject requests (tracked compliance queue). */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Formal data requests</CardTitle>
+              <CardDescription>
+                File a tracked GDPR/CCPA request. We log it, fulfill it, and keep
+                a compliance record — distinct from the instant export above.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-3">
+              <Button
+                variant="outline"
+                onClick={() => handleFileDataRequest("export")}
+                disabled={filingRequest !== null}
+              >
+                {filingRequest === "export" && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Request data export
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleFileDataRequest("delete")}
+                disabled={filingRequest !== null}
+              >
+                {filingRequest === "delete" && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Request data deletion
+              </Button>
+            </CardContent>
+          </Card>
 
         </TabsContent>
 

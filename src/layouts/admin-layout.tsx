@@ -31,6 +31,7 @@ import {
   Server,
   Inbox,
   Ticket,
+  FileLock2,
   DoorOpen,
   DollarSign,
   LineChart,
@@ -127,6 +128,13 @@ const opsNavItems = [
   // US-887 maintenance mode + scheduled windows. List is admin; create/edit/end
   // is super_admin + MFA step-up gated server-side.
   { to: "/admin/ops/maintenance", icon: Wrench, label: "Maintenance", end: false },
+];
+
+// Compliance (US-903) — GDPR/CCPA data-subject request queue. Same admin +
+// super_admin access; processing a deletion is additionally super_admin + MFA
+// step-up gated server-side.
+const complianceNavItems = [
+  { to: "/admin/compliance", icon: FileLock2, label: "Data Requests", end: false },
 ];
 
 // Marketplace ops (US-897) — cross-tenant marketplace-connection health. Same
@@ -238,6 +246,19 @@ export function AdminLayout() {
       const res = await edgeFetch("/api/admin/marketplace/counts");
       const json = await res.json().catch(() => ({}));
       return res.ok ? Number(json.total ?? 0) : 0;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
+  // US-903: open (received/processing) data-subject requests, for the Compliance
+  // nav badge (light poll, like the others above).
+  const { data: complianceOpenCount } = useQuery({
+    queryKey: ["admin-compliance-open-count"],
+    queryFn: async (): Promise<number> => {
+      const res = await edgeFetch("/api/admin/compliance/data-requests/count");
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? Number(json.open_count ?? 0) : 0;
     },
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
@@ -381,6 +402,27 @@ export function AdminLayout() {
               {item.to === "/admin/marketplace-ops" && (marketplaceOpsCount ?? 0) > 0 && (
                 <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
                   {marketplaceOpsCount}
+                </span>
+              )}
+            </NavLink>
+          ))}
+
+          {/* Compliance (US-903). */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Compliance
+          </div>
+          {complianceNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              <span className="flex-1">{item.label}</span>
+              {item.to === "/admin/compliance" && (complianceOpenCount ?? 0) > 0 && (
+                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+                  {complianceOpenCount}
                 </span>
               )}
             </NavLink>
