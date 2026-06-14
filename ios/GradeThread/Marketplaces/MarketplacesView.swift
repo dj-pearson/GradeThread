@@ -31,6 +31,8 @@ struct MarketplacesView: View {
                         ebayAccountsCard(userId: userId)
                         // US-673: best offers + buyer messages.
                         negotiationCard
+                        // US-1043/1049: returns, cancellations, payment disputes.
+                        postSaleCard
                     }
                     if orphanCheckFailed {
                         reconciliationErrorCard(userId: userId)
@@ -221,6 +223,35 @@ struct MarketplacesView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("Review best offers and reply to buyers without leaving the app")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-1043/1049: returns, cancellations & payment disputes entry point.
+    private var postSaleCard: some View {
+        NavigationLink {
+            PostSaleView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Returns & disputes")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Handle returns, cancellations, and payment disputes before their deadlines")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
