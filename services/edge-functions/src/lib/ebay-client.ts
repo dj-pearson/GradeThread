@@ -1816,6 +1816,61 @@ export async function publishOffer(
   throw lastErr;
 }
 
+// ── Bulk operations (US-1046) ───────────────────────────────────────
+// eBay's Inventory API exposes bulk variants (max 25 items/call) that cut both
+// latency and rate-limit pressure vs. one HTTP call per item. These are thin
+// wrappers returning eBay's raw `responses[]` array; the chunking + per-item
+// result aggregation + single-call fallback lives in ebay-bulk.ts (pure, tested).
+
+export const EBAY_BULK_MAX = 25;
+
+export interface BulkResponseEntry {
+  sku?: string;
+  offerId?: string;
+  listingId?: string;
+  statusCode?: number;
+  errors?: Array<{ errorId?: number; message?: string }>;
+}
+
+export async function bulkCreateOrReplaceInventoryItem(
+  userId: string,
+  requests: Array<Record<string, unknown>>,
+): Promise<BulkResponseEntry[]> {
+  const data = await fetchAuthedOnce<{ responses?: BulkResponseEntry[] }>(
+    userId,
+    `/sell/inventory/v1/bulk_create_or_replace_inventory_item`,
+    { method: "POST", body: JSON.stringify({ requests }) },
+  );
+  return data.responses ?? [];
+}
+
+export async function bulkCreateOffer(
+  userId: string,
+  requests: Array<Record<string, unknown>>,
+): Promise<BulkResponseEntry[]> {
+  const data = await fetchAuthedOnce<{ responses?: BulkResponseEntry[] }>(
+    userId,
+    `/sell/inventory/v1/bulk_create_offer`,
+    { method: "POST", body: JSON.stringify({ requests }) },
+  );
+  return data.responses ?? [];
+}
+
+export async function bulkPublishOffer(
+  userId: string,
+  offerIds: string[],
+): Promise<BulkResponseEntry[]> {
+  const data = await fetchAuthedOnce<{ responses?: BulkResponseEntry[] }>(
+    userId,
+    `/sell/inventory/v1/bulk_publish_offer`,
+    {
+      method: "POST",
+      body: JSON.stringify({ requests: offerIds.map((offerId) => ({ offerId })) }),
+    },
+  );
+  return data.responses ?? [];
+}
+
 // US-464: idempotent publish at the FLOW level. publishOffer reconciles WITHIN
 // one call (across its internal retries), but publishItemForOwner persists the
 // local listings row only AFTER publishOffer returns — so a publish that
