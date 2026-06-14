@@ -571,9 +571,16 @@ export async function activatePromptVersion(
     : deactivateQuery.is("garment_scope", null);
   await deactivateQuery;
 
+  // US-896: promoting to active = "promote canary to 100%". Clear the canary
+  // flags so the now-champion is never ALSO routed to as a canary challenger.
   const { error: activateError } = await supabaseAdmin
     .from("ai_prompt_versions")
-    .update({ is_active: true })
+    .update({
+      is_active: true,
+      is_canary: false,
+      rollout_percentage: 0,
+      rollout_started_at: null,
+    })
     .eq("id", v.id);
   if (activateError) return { ok: false, reason: activateError.message };
 

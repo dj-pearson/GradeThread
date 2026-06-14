@@ -13,7 +13,11 @@ import { activatePromptVersion, runEval, runPromptDryRun } from "../lib/grading-
 import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
-import { invalidatePromptCache } from "../lib/ai-grading.ts";
+import {
+  COMPOSITE_PROMPT_VERSION,
+  invalidatePromptCache,
+  PER_IMAGE_PROMPT_VERSION,
+} from "../lib/ai-grading.ts";
 import {
   autoPromoteListingPrompt,
   summarizeListingPromptPerformance,
@@ -424,6 +428,279 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
   await invalidatePromptCache();
   await auditLog(c, "deactivate_prompt_version", "ai_prompt_version", id, {});
   return c.json({ ok: true });
+});
+
+// ── US-896: staged rollout / canary % ────────────────────────────────
+//
+// A canary routes a configurable PERCENTAGE of live grading traffic to an
+// eval-passed challenger, bucketed by a stable per-submission hash, while the
+// active champion serves the rest. The operator watches canary-vs-active
+// signals before promoting (the existing /activate path) or rolling back.
+// Live-percentage complement to shadow (offline). The grading kill-switch
+// (feature_flags "grading") gates all grading, canary included (AC#4).
+
+const CANARY_METRIC_LIMIT = 20_000;
+const DISPUTE_IN_CHUNK = 1_000;
+
+interface CanaryVersionMetrics {
+  version_name: string;
+  grades: number;
+  mean_score: number | null;
+  mean_confidence: number | null;
+  human_review_rate: number | null;
+  early_dispute_rate: number | null;
+  dispute_count: number;
+}
+
+// Live metrics for one prompt VERSION over a window, read from grade_reports
+// (.prompt_version records the composite version a grade shipped under) + the
+// early-dispute join. Platform-admin analytics over the whole corpus.
+async function computeCanaryVersionMetrics(
+  versionName: string,
+  since: string,
+): Promise<CanaryVersionMetrics> {
+  const empty: CanaryVersionMetrics = {
+    version_name: versionName,
+    grades: 0,
+    mean_score: null,
+    mean_confidence: null,
+    human_review_rate: null,
+    early_dispute_rate: null,
+    dispute_count: 0,
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, overall_score, confidence_score, needs_human_review")
+    .eq("prompt_version", versionName)
+    .gte("created_at", since)
+    .limit(CANARY_METRIC_LIMIT);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as Array<{
+    id: string;
+    overall_score: number;
+    confidence_score: number;
+    needs_human_review: boolean | null;
+  }>;
+  if (rows.length === 0) return empty;
+
+  const grades = rows.length;
+  const sumScore = rows.reduce((s, r) => s + Number(r.overall_score), 0);
+  const sumConf = rows.reduce((s, r) => s + Number(r.confidence_score), 0);
+  const reviewed = rows.filter(
+    (r) => r.needs_human_review === true || Number(r.confidence_score) < 0.75,
+  ).length;
+
+  // Early dispute rate: of these grades, how many drew a dispute. Chunk the IN
+  // so a large window stays a bounded set of queries.
+  const ids = rows.map((r) => r.id);
+  const disputed = new Set<string>();
+  for (let i = 0; i < ids.length; i += DISPUTE_IN_CHUNK) {
+    const slice = ids.slice(i, i + DISPUTE_IN_CHUNK);
+    const { data: disp } = await supabaseAdmin
+      .from("disputes")
+      .select("grade_report_id")
+      .in("grade_report_id", slice);
+    for (const d of (disp ?? []) as Array<{ grade_report_id: string }>) {
+      disputed.add(d.grade_report_id);
+    }
+  }
+
+  return {
+    version_name: versionName,
+    grades,
+    mean_score: sumScore / grades,
+    mean_confidence: sumConf / grades,
+    human_review_rate: reviewed / grades,
+    early_dispute_rate: disputed.size / grades,
+    dispute_count: disputed.size,
+  };
+}
+
+// The active champion's version_name for a (stage, scope) slot — falls back to
+// the code-default version name when no DB override is active (that's what the
+// grades are attributed to). Mirrors resolveActivePrompt's scope preference.
+async function resolveSlotActiveVersionName(
+  stage: string,
+  garmentScope: string | null,
+): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("version_name, garment_scope")
+    .eq("stage", stage)
+    .eq("is_active", true);
+  const rows = (data ?? []) as Array<{ version_name: string; garment_scope: string | null }>;
+  const scoped = garmentScope ? rows.find((r) => r.garment_scope === garmentScope) : undefined;
+  const global = rows.find((r) => !r.garment_scope);
+  const picked = scoped ?? global;
+  if (picked) return picked.version_name;
+  return stage === "composite" ? COMPOSITE_PROMPT_VERSION : PER_IMAGE_PROMPT_VERSION;
+}
+
+// GET /prompts/:id/canary?days=<n> — live canary-vs-active metrics side by side
+// (mean score delta, confidence, human-review rate, early dispute rate). NOTE:
+// grade_reports.prompt_version is the COMPOSITE version a grade shipped under,
+// so live metrics are meaningful for composite-stage canaries (measurable=true).
+adminGradingRoutes.get("/prompts/:id/canary", async (c) => {
+  const id = c.req.param("id");
+  const days = Math.min(Math.max(Number(c.req.query("days")) || 14, 1), 90);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  const { data: row, error } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select(
+      "id, version_name, stage, garment_scope, is_active, is_canary, " +
+        "rollout_percentage, rollout_started_at, eval_passed",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!row) return c.json({ error: "Prompt version not found" }, 404);
+  // The concatenated SELECT string defeats supabase-js's static row inference, so
+  // cast through unknown (the shape is the select by construction).
+  const v = row as unknown as {
+    id: string;
+    version_name: string;
+    stage: string;
+    garment_scope: string | null;
+    is_active: boolean;
+    is_canary: boolean;
+    rollout_percentage: number | null;
+    rollout_started_at: string | null;
+    eval_passed: boolean | null;
+  };
+
+  try {
+    const activeVersionName = await resolveSlotActiveVersionName(v.stage, v.garment_scope);
+    const [canary, active] = await Promise.all([
+      computeCanaryVersionMetrics(v.version_name, since),
+      computeCanaryVersionMetrics(activeVersionName, since),
+    ]);
+    const scoreDelta =
+      canary.mean_score !== null && active.mean_score !== null
+        ? canary.mean_score - active.mean_score
+        : null;
+    return c.json({
+      prompt: {
+        id: v.id,
+        version_name: v.version_name,
+        stage: v.stage,
+        garment_scope: v.garment_scope,
+        is_active: v.is_active,
+        is_canary: v.is_canary,
+        rollout_percentage: v.rollout_percentage ?? 0,
+        rollout_started_at: v.rollout_started_at,
+        eval_passed: v.eval_passed,
+      },
+      active_version_name: activeVersionName,
+      window_days: days,
+      // Live grade attribution is by composite version; per-image canary metrics
+      // can't be measured from grade_reports.
+      measurable: v.stage === "composite",
+      canary,
+      active,
+      score_delta: scoreDelta,
+    });
+  } catch (err) {
+    return c.json(
+      {
+        error: "Failed to compute canary metrics",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+});
+
+// PATCH /prompts/:id/canary — set the canary traffic % (0 = roll back). Gated:
+// eval must pass, the version can't be the active champion, and only one canary
+// per (stage, scope) slot. Step-up + audited (changes live grading routing).
+// Body: { rollout_percentage: 0..100 }.
+adminGradingRoutes.patch("/prompts/:id/canary", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const id = c.req.param("id");
+  let body: { rollout_percentage?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const pct = Number(body.rollout_percentage);
+  if (!Number.isInteger(pct) || pct < 0 || pct > 100) {
+    return c.json({ error: "rollout_percentage must be an integer 0–100" }, 400);
+  }
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, stage, garment_scope, is_active, is_canary, eval_passed")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!row) return c.json({ error: "Prompt version not found" }, 404);
+  const v = row as {
+    stage: string;
+    garment_scope: string | null;
+    is_active: boolean;
+    is_canary: boolean;
+    eval_passed: boolean | null;
+  };
+
+  if (pct > 0) {
+    if (v.is_active) {
+      return c.json(
+        { error: "The active champion already serves 100% — it can't also be a canary. Use deactivate + promote a challenger instead." },
+        422,
+      );
+    }
+    if (v.eval_passed !== true) {
+      return c.json(
+        { error: "Run the eval gate (must pass) before routing live traffic to this version." },
+        422,
+      );
+    }
+    // One canary per slot: clear any OTHER canary in the same (stage, scope).
+    let clear = supabaseAdmin
+      .from("ai_prompt_versions")
+      .update({ is_canary: false, rollout_percentage: 0, rollout_started_at: null })
+      .eq("stage", v.stage)
+      .eq("is_canary", true)
+      .neq("id", id);
+    clear = v.garment_scope
+      ? clear.eq("garment_scope", v.garment_scope)
+      : clear.is("garment_scope", null);
+    await clear;
+  }
+
+  // Stamp rollout_started_at only when OPENING a new slice (not when adjusting an
+  // already-running canary), so the "since rollout" window is preserved.
+  const update: Record<string, unknown> =
+    pct > 0
+      ? {
+          is_canary: true,
+          rollout_percentage: pct,
+          ...(v.is_canary ? {} : { rollout_started_at: new Date().toISOString() }),
+        }
+      : { is_canary: false, rollout_percentage: 0, rollout_started_at: null };
+
+  const { data, error } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .update(update)
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+
+  // Propagate the new routing to every replica's prompt cache immediately.
+  await invalidatePromptCache();
+  await auditLog(
+    c,
+    pct > 0 ? "set_prompt_canary" : "rollback_prompt_canary",
+    "ai_prompt_version",
+    id,
+    { rollout_percentage: pct, stage: v.stage, garment_scope: v.garment_scope },
+  );
+  return c.json({ prompt: data });
 });
 
 // ── US-547: AutoLister listing-prompt self-improvement ────────────────

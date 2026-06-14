@@ -12,6 +12,12 @@ import {
 import { supabaseAdmin } from "./supabase.ts";
 import { captureServer } from "./posthog.ts";
 import { createVersionedCache } from "./coherent-cache.ts";
+import {
+  pickPromptForBucket,
+  resolveSlotFromRows,
+  type SlotPromptRow,
+  type SlotResolution,
+} from "./canary-rollout.ts";
 import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
 import {
   applyDefectWeighting,
@@ -427,7 +433,11 @@ export interface ResolvedPrompt {
 // signal micro-TTL (≈5s) instead of being served stale up to a local TTL. Bump
 // the signal from the write path via invalidatePromptCache().
 const PROMPT_CACHE_SIGNAL = "grading-prompt";
-const promptCache = createVersionedCache<ResolvedPrompt>({
+// US-896: cache the resolved SLOT (active + optional canary prompt) per
+// (stage, scope) rather than a single resolved prompt, so per-submission canary
+// bucketing runs on each call WITHOUT re-reading the DB. The signal-stamped
+// cache still invalidates cluster-wide on activate / set-canary / rollback.
+const promptCache = createVersionedCache<SlotResolution>({
   signalKey: PROMPT_CACHE_SIGNAL,
 });
 
@@ -442,45 +452,40 @@ export async function invalidatePromptCache(): Promise<void> {
 }
 
 /**
- * Resolve the active prompt for a grading stage. Prefers a garment_scope-
- * specific active row, then a global (null-scope) active row, then the code
- * default. A row with empty prompt_text means "use the code default text but
- * attribute to this version_name" (that's how the seeded default rows work).
- * Never throws — a DB hiccup falls back to the code default.
+ * Resolve the prompt for a grading stage + submission. Loads the slot's active
+ * + canary prompts (cached) and, when a canary is configured, routes a stable
+ * per-submission hash slice to it (US-896). Without a bucketKey — eval, dry-run,
+ * quick-grade: paths that aren't a real customer submission — the canary is
+ * never used and the active (champion) prompt always wins.
+ *
+ * Prefers a garment_scope-specific row, then the global (null-scope) row, then
+ * the code default. A row with empty prompt_text means "use the code default
+ * text but attribute to this version_name". Never throws — a DB hiccup falls
+ * back to the code default.
+ *
+ * The global grading kill-switch (feature_flags "grading") is enforced upstream
+ * at the route layer, so a killed grading flow never reaches here — canary
+ * traffic is gated by the same switch as all other grading (AC#4).
  */
 async function resolveActivePrompt(
   stage: "per_image" | "composite",
   garmentScope: string | null,
   codeDefault: ResolvedPrompt,
+  bucketKey?: string,
 ): Promise<ResolvedPrompt> {
   const cacheKey = `${stage}:${garmentScope ?? ""}`;
-  return await promptCache.get(cacheKey, async () => {
-    let resolved = codeDefault;
+  const slot = await promptCache.get(cacheKey, async () => {
     try {
       const { data, error } = await supabaseAdmin
         .from("ai_prompt_versions")
-        .select("version_name, prompt_text, garment_scope")
+        .select(
+          "version_name, prompt_text, garment_scope, is_active, is_canary, rollout_percentage",
+        )
         .eq("stage", stage)
-        .eq("is_active", true);
+        .or("is_active.eq.true,is_canary.eq.true");
 
       if (!error && Array.isArray(data) && data.length > 0) {
-        const rows = data as Array<{
-          version_name: string;
-          prompt_text: string | null;
-          garment_scope: string | null;
-        }>;
-        const scoped = garmentScope
-          ? rows.find((r) => r.garment_scope === garmentScope)
-          : undefined;
-        const global = rows.find((r) => !r.garment_scope);
-        const picked = scoped ?? global;
-        if (picked) {
-          const text =
-            picked.prompt_text && picked.prompt_text.trim().length > 0
-              ? picked.prompt_text
-              : codeDefault.text;
-          resolved = { text, versionName: picked.version_name };
-        }
+        return resolveSlotFromRows(data as SlotPromptRow[], garmentScope, codeDefault);
       }
     } catch (err) {
       console.error(
@@ -488,8 +493,9 @@ async function resolveActivePrompt(
         err instanceof Error ? err.message : String(err),
       );
     }
-    return resolved;
+    return { active: codeDefault, canary: null } as SlotResolution;
   });
+  return pickPromptForBucket(slot, cacheKey, bucketKey);
 }
 
 export function buildUserPrompt(
@@ -897,6 +903,9 @@ export async function analyzeImage(
   // US-1034: eval/comparison harness may pin a specific (allowlisted) model to
   // qualify a stronger vision model; ignored if not on the grading allowlist.
   modelOverride?: string,
+  // US-896: stable per-submission key for canary bucketing. Omitted by eval /
+  // dry-run / quick-grade so they always use the active prompt.
+  bucketKey?: string,
 ): Promise<PerImageAnalysis> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -918,10 +927,15 @@ export async function analyzeImage(
   // the caller supplied an explicit candidate prompt.
   const prompt =
     promptOverride ??
-    (await resolveActivePrompt("per_image", garmentCategory || null, {
-      text: SYSTEM_PROMPT,
-      versionName: PER_IMAGE_PROMPT_VERSION,
-    }));
+    (await resolveActivePrompt(
+      "per_image",
+      garmentCategory || null,
+      {
+        text: SYSTEM_PROMPT,
+        versionName: PER_IMAGE_PROMPT_VERSION,
+      },
+      bucketKey,
+    ));
 
   // Cache the (static) system prompt so repeated per-image calls within a
   // submission — and across submissions inside the 5-min cache window —
@@ -1539,6 +1553,8 @@ export async function compositeGrade(
   promptOverride?: ResolvedPrompt,
   // US-1034: pin a specific (allowlisted) composite model for model A/B eval.
   modelOverride?: string,
+  // US-896: stable per-submission key for canary bucketing (see analyzeImage).
+  bucketKey?: string,
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -1559,10 +1575,15 @@ export async function compositeGrade(
   // recorded on the grade so accuracy tracking can attribute it.
   const prompt =
     promptOverride ??
-    (await resolveActivePrompt("composite", garmentInfo.garment_category || null, {
-      text: COMPOSITE_SYSTEM_PROMPT,
-      versionName: COMPOSITE_PROMPT_VERSION,
-    }));
+    (await resolveActivePrompt(
+      "composite",
+      garmentInfo.garment_category || null,
+      {
+        text: COMPOSITE_SYSTEM_PROMPT,
+        versionName: COMPOSITE_PROMPT_VERSION,
+      },
+      bucketKey,
+    ));
   const promptVersion = prompt.versionName;
 
   // Cache the static composite system prompt (tier definitions + weights).

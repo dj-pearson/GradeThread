@@ -115,6 +115,9 @@ async function runDefectZoomPass(
   images: ZoomImageRow[],
   submission: { garment_type: string; garment_category: string },
   styleHint: string[],
+  // US-896: stable canary bucket key so the zoom re-analysis uses the SAME
+  // (active vs canary) per-image prompt the submission was graded with.
+  bucketKey?: string,
 ): Promise<PerImageAnalysis[]> {
   const candidates = selectDefectsForZoom(perImageResults);
   if (candidates.length === 0) return perImageResults;
@@ -158,6 +161,9 @@ async function runDefectZoomPass(
         submission.garment_type,
         submission.garment_category,
         styleHint,
+        undefined,
+        undefined,
+        bucketKey,
       );
       const target = byType.get(cand.image_type);
       const issue = target?.detected_issues[cand.issueIndex];
@@ -660,7 +666,12 @@ export async function processSubmission(submissionId: string) {
           img.imageType,
           submission.garment_type,
           submission.garment_category,
-          styleHint
+          styleHint,
+          // US-896: no prompt/model override on the live path; submissionId is the
+          // stable canary bucket key so the whole submission resolves consistently.
+          undefined,
+          undefined,
+          submissionId,
         )
       );
 
@@ -787,6 +798,7 @@ export async function processSubmission(submissionId: string) {
       images as ZoomImageRow[],
       submission,
       styleHint,
+      submissionId,
     ).catch((err) => {
       console.error(
         `[Pipeline] defect zoom pass error for submission ${submissionId}:`,
@@ -809,7 +821,11 @@ export async function processSubmission(submissionId: string) {
 
     const compositeResult: CompositeGradeResult = await compositeGrade(
       perImageResults,
-      garmentInfo
+      garmentInfo,
+      // US-896: live path — no override; submissionId buckets the canary slice.
+      undefined,
+      undefined,
+      submissionId,
     );
 
     // US-485: a grade produced from an incomplete image set must not ship

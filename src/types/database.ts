@@ -1664,6 +1664,12 @@ export interface AiPromptVersionRow {
   eval_passed: boolean | null;
   eval_run_id: string | null;
   notes: string | null;
+  // US-896: staged rollout / canary %. A non-active, eval-passed challenger can
+  // take `rollout_percentage`% of live grading traffic for its (stage, scope)
+  // slot, bucketed by a stable per-submission hash, while is_canary is set.
+  rollout_percentage: number;
+  is_canary: boolean;
+  rollout_started_at: string | null;
   created_at: string;
 }
 

@@ -2814,3 +2814,10 @@ Branch: ralph/gradethread-build
   * Verified: deno check + lint clean; full edge suite 1486 passed/0 failed; tsc --noEmit clean; vitest 772 passed; build:locked 41 pages.
 - Timestamp: 2026-06-14
 ---
+
+## US-896: Staged prompt rollout manager (canary %)
+- Status: COMPLETE
+- Files changed: supabase/migrations/00221_staged_prompt_rollout.sql (new), services/edge-functions/src/lib/canary-rollout.ts (new), services/edge-functions/src/tests/canary-rollout_test.ts (new), src/components/admin/grading-canary-panel.tsx (new), services/edge-functions/src/lib/ai-grading.ts, services/edge-functions/src/lib/grading-pipeline.ts, services/edge-functions/src/lib/grading-eval.ts, services/edge-functions/src/lib/schema-version.ts, services/edge-functions/src/routes/admin-grading.ts, src/pages/admin/ai-models.tsx, src/types/database.ts
+- Notes: Live-percentage canary atop the eval/shadow infra. 00221 adds rollout_percentage+is_canary+rollout_started_at + a one-canary-per-(stage,scope) partial unique index; bumped EXPECTED_SCHEMA_VERSION 00220->00221. resolveActivePrompt now caches the SLOT (active+canary) and buckets each submission by stableBucket('grading-canary:'+slotKey+':'+submissionId); bucketKey threaded only from the live pipeline (eval/dry-run/quick-grade stay on active). GET /prompts/:id/canary = canary-vs-active metrics (mean score delta, confidence, human-review rate, early dispute rate) read from grade_reports.prompt_version (composite-measurable). PATCH /prompts/:id/canary set/rollback + Promote (reuses /activate) — all step-up + audited; eval gate enforced; activatePromptVersion clears canary flags on promotion. Kill-switch respected (route-level) + never routes to 0%/non-canary/promoted rows. GOTCHA: grade_reports.prompt_version is the COMPOSITE version a grade shipped under, so per-image canary metrics aren't live-measurable (measurable=false). Verified: deno check+lint, edge suite 1495 passed (9 new), schema-version test, tsc, vitest 772, build:locked 41 pages, verify:db from zero.
+- Timestamp: 2026-06-14
+---
