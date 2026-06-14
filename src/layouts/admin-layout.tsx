@@ -81,6 +81,7 @@ const growthNavItems = [
 // super_admin access; the Run-now action is additionally super_admin + MFA
 // step-up gated server-side.
 const opsNavItems = [
+  { to: "/admin/ops/health", icon: Activity, label: "System Health", end: false },
   { to: "/admin/ops/jobs", icon: Server, label: "Background Jobs", end: false },
   { to: "/admin/ops/dead-letters", icon: Inbox, label: "Dead Letters", end: false },
 ];

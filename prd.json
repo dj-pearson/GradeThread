@@ -13032,8 +13032,8 @@
         "Page is read-only, gated by /api/admin/* middleware, added under the Operations sidebar group."
       ],
       "priority": 883,
-      "passes": false,
-      "notes": "[Platform Admin Command Center / Admin Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+      "passes": true,
+      "notes": "[Platform Admin Command Center / Admin Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination. [DONE 2026-06-14] Migration 00207: system_settings registry (generic key→jsonb, seeded ops_health_thresholds — seed of US-884) + system_health() RPC (SECURITY DEFINER, service_role/is_admin() gated): hot-table sizes/rows, per-bucket storage objects+bytes, open dispute/review/webhook+email DLQ depths, 24h job failures + slowest runs, 7d trends, thresholds. GET /api/admin/ops/health adds edge uptime/version + Supabase reachability probe and builds green/amber/red tiles via pure lib ops-health.ts. Read-only page src/pages/admin/ops-health.tsx with sparkline trends, under Operations sidebar."
     },
     {
       "id": "US-884",

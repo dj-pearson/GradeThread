@@ -34,6 +34,14 @@ import {
 } from "../lib/ops-dead-letters.ts";
 import { dispatchStripeEvent } from "./webhooks.ts";
 import { replayContentWebhook } from "../lib/content-webhook.ts";
+import {
+  buildHealthReport,
+  type EdgeRuntime,
+  type HealthMetrics,
+  PROCESS_STARTED_AT_MS,
+} from "../lib/ops-health.ts";
+import { releaseSha } from "../lib/observability.ts";
+import { edgeEnv } from "../lib/env.ts";
 
 // Operations console — background jobs & scheduler (US-881).
 //
@@ -166,6 +174,74 @@ adminOpsRoutes.post("/jobs/:key/run", async (c) => {
   } finally {
     await lock.release();
   }
+});
+
+// ── System health & infrastructure dashboard (US-883) ────────────
+//
+// GET /health — read-only. Calls the SECURITY DEFINER system_health() RPC for
+// the platform-wide aggregates (table sizes/rows, storage usage, queue/DLQ
+// depths, job failures + slowest jobs, trends), adds edge process uptime/version
+// + a Supabase reachability probe, and turns it all into green/amber/red status
+// tiles via the pure ops-health lib (thresholds read from system_settings so
+// they're tunable without a deploy). Inherits the /api/admin/* admin gate.
+adminOpsRoutes.get("/health", async (c) => {
+  // Reachability probe — cheapest "can we reach Postgres?" query, separate from
+  // the RPC so a reachable-DB-but-failing-RPC is still reported as reachable.
+  const probeStart = Date.now();
+  let reachable = false;
+  try {
+    const { error } = await supabaseAdmin
+      .from("users")
+      .select("id", { head: true, count: "exact" })
+      .limit(1);
+    reachable = !error;
+  } catch {
+    reachable = false;
+  }
+  const dbLatencyMs = Date.now() - probeStart;
+
+  const runtime: EdgeRuntime = {
+    uptimeSeconds: Math.floor((Date.now() - PROCESS_STARTED_AT_MS) / 1000),
+    version: releaseSha(),
+    env: edgeEnv(),
+    supabaseReachable: reachable,
+    dbLatencyMs: reachable ? dbLatencyMs : null,
+  };
+
+  let metrics: HealthMetrics | null = null;
+  try {
+    const { data, error } = await supabaseAdmin.rpc("system_health");
+    if (error) {
+      captureException(error, { tags: { area: "ops-health" } });
+    } else if (data) {
+      metrics = data as HealthMetrics;
+    }
+  } catch (err) {
+    captureException(err, { tags: { area: "ops-health" } });
+  }
+
+  // DB unreachable or RPC failed → a minimal red report (don't 500: the
+  // dashboard should still render and SHOW the outage rather than erroring out).
+  if (!metrics) {
+    return c.json({
+      overall: "red",
+      tiles: [{
+        key: "supabase",
+        label: "Database",
+        status: reachable ? "amber" : "red",
+        value: reachable ? "RPC unavailable" : "unreachable",
+        detail: reachable
+          ? `reachable (${dbLatencyMs} ms) but system_health() failed`
+          : "Supabase unreachable",
+      }],
+      runtime,
+      metrics: null,
+      thresholds: null,
+      generatedAt: new Date().toISOString(),
+    });
+  }
+
+  return c.json(buildHealthReport(metrics, runtime));
 });
 
 // ── Unified dead-letter console (US-882) ─────────────────────────

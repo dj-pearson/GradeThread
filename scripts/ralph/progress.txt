@@ -2553,3 +2553,18 @@ Branch: ralph/gradethread-build
 - Notes: Reused the two EXISTING DLQ stores (webhook_dead_letters US-772 + email_deliveries US-498) rather than a redundant table — migration 00206 only extends them. Source-appropriate retry: email re-queues the same row to the outbox cron (no dup send); stripe re-fetches the authoritative event via stripe.events.retrieve + re-runs the exported handler switch (idempotent on object id); content re-dispatches the stored raw payload through dispatchContentWebhook (AC#6 — wires US-487 into the DLQ, not a re-impl). eBay/AppStore inspect/discard-only (no replay path -> 422). Discard requires a reason; all writes super_admin + requireStepUp + writeAuditLog. Bulk = bounded server-side batch (25/tick) + remaining count; client drains via repeated ticks. Verified: deno check src/main.ts + lint clean, full edge suite 1355 passed, frontend tsc + build:locked (41 pages), verify:db 206 migrations from zero (30.4s), vitest 772 passed.
 - Timestamp: 2026-06-14
 ---
+
+## US-883: System health & infrastructure dashboard
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00207_system_health.sql (NEW: system_settings registry + seeded ops_health_thresholds; system_health() SECURITY DEFINER RPC)
+  - services/edge-functions/src/lib/schema-version.ts (00206 -> 00207)
+  - services/edge-functions/src/lib/ops-health.ts (NEW pure: classify/mergeThresholds/storagePct/formatBytes/overallStatus/buildHealthReport + PROCESS_STARTED_AT_MS)
+  - services/edge-functions/src/routes/admin-ops.ts (GET /health: reachability probe + system_health() RPC + uptime/version, builds tiles)
+  - services/edge-functions/src/tests/ops-health_test.ts (NEW 13 tests)
+  - src/pages/admin/ops-health.tsx (NEW read-only page: status tiles, sparklines, table/storage/slowest-jobs)
+  - src/routes/index.tsx (lazy + route /admin/ops/health), src/layouts/admin-layout.tsx (Operations > System Health nav)
+  - prd.json
+- Notes: AC#4's "system settings registry" (US-884) did not exist yet — created a minimal generic system_settings (key→jsonb, RLS service-role-only like cron_runs) seeded with ops_health_thresholds, so thresholds are deploy-free tunable now and US-884 builds the editor on the same table. system_health() guard allows service_role (edge admin endpoint calls via service-role where auth.uid() is null) OR is_admin() — non-admins rejected. Reused existing is_admin() (00003). "Review queue" depth = grade_reports.needs_human_review=true with no matching human_reviews row. Endpoint is read-only (no step-up). Pure lib merges DEFAULT thresholds over the (untrusted/partial) registry so a deleted row still colors tiles. Did NOT touch the concurrently-edited grading files (ai-grading.ts/grading-pipeline.ts/grading-zoom_test.ts — other agent's WIP). Verified: deno check+lint clean, full edge suite 1368 passed/0 failed, ops-health_test 13/13, frontend tsc clean, build:locked 41 pages, vitest 772 passed, verify:db re-applied 207 migrations from zero (29.6s).
+- Timestamp: 2026-06-14
+---

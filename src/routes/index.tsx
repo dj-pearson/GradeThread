@@ -170,6 +170,7 @@ const AdminKnowledgeBasePage = lazy(() => import("@/pages/admin/knowledge-base")
 const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring").then(m => ({ default: m.AdminMonitoringPage })));
 const AdminSystemPage = lazy(() => import("@/pages/admin/system").then(m => ({ default: m.AdminSystemPage })));
 const AdminJobsPage = lazy(() => import("@/pages/admin/jobs").then(m => ({ default: m.AdminJobsPage })));
+const AdminOpsHealthPage = lazy(() => import("@/pages/admin/ops-health").then(m => ({ default: m.AdminOpsHealthPage })));
 const AdminOpsJobsPage = lazy(() => import("@/pages/admin/ops-jobs").then(m => ({ default: m.AdminOpsJobsPage })));
 const AdminOpsDeadLettersPage = lazy(() => import("@/pages/admin/ops-dead-letters").then(m => ({ default: m.AdminOpsDeadLettersPage })));
 const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log").then(m => ({ default: m.AdminAuditLogPage })));
@@ -425,6 +426,7 @@ export const router = createBrowserRouter([
               { path: "/admin/condition-index", element: <SuspenseWrapper><AdminConditionIndexPage /></SuspenseWrapper> },
               { path: "/admin/system", element: <SuspenseWrapper><AdminSystemPage /></SuspenseWrapper> },
               { path: "/admin/jobs", element: <SuspenseWrapper><AdminJobsPage /></SuspenseWrapper> },
+              { path: "/admin/ops/health", element: <SuspenseWrapper><AdminOpsHealthPage /></SuspenseWrapper> },
               { path: "/admin/ops/jobs", element: <SuspenseWrapper><AdminOpsJobsPage /></SuspenseWrapper> },
               { path: "/admin/ops/dead-letters", element: <SuspenseWrapper><AdminOpsDeadLettersPage /></SuspenseWrapper> },
               { path: "/admin/audit-log", element: <SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper> },
