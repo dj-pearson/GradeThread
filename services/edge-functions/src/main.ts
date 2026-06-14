@@ -90,6 +90,7 @@ import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-pro
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
+import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
@@ -852,6 +853,12 @@ app.post("/api/jobs/content-watchdog", (c) => handleContentWatchdogCron(c));
 // OUTSIDE /api/admin; the handler enforces X-Internal-Job-Secret itself.
 // Schedule on Coolify cron (suggested daily, e.g. 30 4 * * *).
 app.post("/api/jobs/content-refresh", (c) => handleContentRefreshCron(c));
+// US-893: Stripe-vs-DB subscription reconciliation. Precomputes divergences
+// (cached subscription_status/plan vs the latest recorded Stripe event) into
+// billing_reconciliation_flags so the admin console reads a ready list instead of
+// recomputing per page load. OUTSIDE /api/admin; enforces X-Internal-Job-Secret.
+// Schedule on Coolify cron (suggested hourly, e.g. 15 * * * *).
+app.post("/api/jobs/billing-reconciliation", (c) => handleBillingReconciliationCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/authors", contentAuthorsRoutes);
 app.route("/api/content/social", contentSocialRoutes);

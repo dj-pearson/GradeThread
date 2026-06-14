@@ -10,6 +10,15 @@ import {
 } from "../lib/proration.ts";
 import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 import { findLedgerInvariantViolation } from "../lib/credit-ledger.ts";
+import { nextPastDueSince } from "../lib/grade-pricing.ts";
+import {
+  mapSubscriptionInterval,
+  mapSubscriptionStatus,
+  mapSubscriptionToFlipdeskPlan,
+} from "./webhooks.ts";
+import { sendAdminMessageEmail } from "../lib/email.ts";
+
+const SITE_URL = Deno.env.get("SITE_URL") ?? "https://gradethread.com";
 
 // Admin billing routes (US-221). All endpoints require admin role —
 // mounted with both authMiddleware + adminAuthMiddleware in main.ts.
@@ -1321,6 +1330,376 @@ adminBillingRoutes.post("/webhook-dead-letters/:id/resolve", async (c) => {
     provider: row.provider,
     event_id: row.event_id,
     note,
+  });
+
+  return c.json({ ok: true });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// US-893: Stripe reconciliation & dunning console.
+//
+// Surfaces revenue leaks — past-due/paused accounts, recent failed invoices, and
+// Stripe-vs-DB subscription divergences precomputed by the scheduled
+// billing-reconciliation job — and the recovery actions: re-sync a user from live
+// Stripe state, send a dunning nudge (reuses the US-582 transactional sender), or
+// mark a divergence resolved. All paths are mounted under /api/admin (this router)
+// so the AC paths are /billing/reconciliation*.
+// ═══════════════════════════════════════════════════════════════════
+
+interface PastDueRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  flipdesk_plan: string | null;
+  subscription_status: string | null;
+  past_due_since: string | null;
+  flipdesk_period_end: string | null;
+  flipdesk_subscription_id: string | null;
+  stripe_customer_id: string | null;
+}
+
+// GET /billing/reconciliation — three operator panels (AC1). The past-due/paused
+// account list is the primary server-side-paginated surface; recent failed
+// invoices and precomputed divergences are bounded secondary panels.
+adminBillingRoutes.get("/billing/reconciliation", async (c) => {
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 25, 1), 100);
+  const offset = Math.max(Number(c.req.query("offset")) || 0, 0);
+
+  // (a) Past-due / paused accounts — paginated.
+  const { data: pastDueData, error: pastDueErr, count: pastDueCount } = await supabaseAdmin
+    .from("users")
+    .select(
+      "id, email, full_name, flipdesk_plan, subscription_status, past_due_since, flipdesk_period_end, flipdesk_subscription_id, stripe_customer_id",
+      { count: "exact" },
+    )
+    .in("subscription_status", ["past_due", "paused"])
+    .order("past_due_since", { ascending: true, nullsFirst: false })
+    .range(offset, offset + limit - 1);
+  if (pastDueErr) {
+    console.error("[admin-billing] reconciliation past-due query failed:", pastDueErr.message);
+    return c.json({ error: "Failed to load past-due accounts" }, 500);
+  }
+  const pastDue = (pastDueData ?? []) as PastDueRow[];
+
+  // (b) Recent failed invoices (last 30 days), bounded. Emails resolved in a
+  // second scoped query to keep the typed client simple.
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: failedRaw } = await supabaseAdmin
+    .from("flipdesk_subscription_events")
+    .select("id, user_id, event_type, raw_payload, created_at")
+    .eq("event_type", "invoice.payment_failed")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(25);
+  const failedRows = (failedRaw ?? []) as Array<{
+    id: string;
+    user_id: string;
+    raw_payload: Record<string, unknown> | null;
+    created_at: string;
+  }>;
+  const emailById = new Map<string, string>();
+  if (failedRows.length > 0) {
+    const ids = [...new Set(failedRows.map((r) => r.user_id))];
+    const { data: emailRows } = await supabaseAdmin
+      .from("users")
+      .select("id, email")
+      .in("id", ids);
+    for (const u of (emailRows ?? []) as Array<{ id: string; email: string }>) {
+      emailById.set(u.id, u.email);
+    }
+  }
+  const failedInvoices = failedRows.map((r) => ({
+    id: r.id,
+    user_id: r.user_id,
+    email: emailById.get(r.user_id) ?? null,
+    created_at: r.created_at,
+    detail: r.raw_payload ?? {},
+  }));
+
+  // (c) Precomputed divergences from the scheduled job (AC3) — bounded + counted.
+  const { data: divData, count: divCount } = await supabaseAdmin
+    .from("billing_reconciliation_flags")
+    .select(
+      "id, subject_user_id, kind, db_status, expected_status, db_plan, expected_plan, latest_event_type, detail, detected_at, last_seen_at",
+      { count: "exact" },
+    )
+    .eq("status", "open")
+    .order("detected_at", { ascending: false })
+    .limit(100);
+
+  // Last time the reconciliation job wrote anything, so the UI can show staleness.
+  const { data: lastScan } = await supabaseAdmin
+    .from("billing_reconciliation_flags")
+    .select("last_seen_at")
+    .order("last_seen_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return c.json({
+    pastDue: { data: pastDue, total: pastDueCount ?? pastDue.length, limit, offset },
+    failedInvoices,
+    divergences: { data: divData ?? [], total: divCount ?? (divData?.length ?? 0) },
+    lastScanAt: (lastScan as { last_seen_at: string } | null)?.last_seen_at ?? null,
+  });
+});
+
+interface ResyncUserRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  flipdesk_plan: FlipdeskPlan | null;
+  subscription_status: string | null;
+  flipdesk_subscription_id: string | null;
+  stripe_customer_id: string | null;
+  trial_ends_at: string | null;
+  past_due_since: string | null;
+}
+
+// Pick the most relevant subscription from a customer's list: a live one
+// (active/trialing/past_due/paused) wins; otherwise the most recently created.
+function pickRelevantSubscription(
+  subs: Stripe.Subscription[],
+): Stripe.Subscription | null {
+  if (subs.length === 0) return null;
+  const live = subs.find((s) =>
+    ["active", "trialing", "past_due", "unpaid", "paused"].includes(s.status)
+  );
+  if (live) return live;
+  return [...subs].sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0] ?? null;
+}
+
+// POST /billing/reconciliation/users/:id/resync — pull live Stripe state and
+// apply it (AC2). Idempotent: it sets the cached columns to whatever Stripe
+// currently reports, so running it twice yields the same result, and it NEVER
+// writes processed_webhook_events — a real future webhook (a new event.id) is
+// unaffected, so this can't double-apply an event already processed (AC5).
+adminBillingRoutes.post("/billing/reconciliation/users/:id/resync", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const adminId = c.get("userId");
+  const targetUserId = c.req.param("id");
+
+  const { data: userRaw, error: loadErr } = await supabaseAdmin
+    .from("users")
+    .select(
+      "id, email, full_name, flipdesk_plan, subscription_status, flipdesk_subscription_id, stripe_customer_id, trial_ends_at, past_due_since",
+    )
+    .eq("id", targetUserId)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  const user = userRaw as ResyncUserRow | null;
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Billing is not configured" }, 503);
+
+  // Resolve the live subscription: prefer the stored id, fall back to the
+  // customer's subscription list.
+  let sub: Stripe.Subscription | null = null;
+  try {
+    if (user.flipdesk_subscription_id) {
+      try {
+        sub = await stripe.subscriptions.retrieve(user.flipdesk_subscription_id, {
+          expand: ["items.data.price"],
+        });
+      } catch {
+        sub = null; // deleted / not found → fall through to customer lookup
+      }
+    }
+    if (!sub && user.stripe_customer_id) {
+      const list = await stripe.subscriptions.list({
+        customer: user.stripe_customer_id,
+        status: "all",
+        limit: 10,
+        expand: ["data.items.data.price"],
+      });
+      sub = pickRelevantSubscription(list.data);
+    }
+  } catch (err) {
+    console.error("[admin-billing] resync Stripe lookup failed:", err);
+    return c.json({ error: "Failed to read live subscription from Stripe" }, 502);
+  }
+
+  // Compute the cached state from live Stripe data (or no-subscription Free).
+  let plan: FlipdeskPlan;
+  let status: "none" | "trialing" | "active" | "past_due" | "paused" | "canceled";
+  let interval: "monthly" | "yearly" | null = null;
+  let periodEnd: string | null = null;
+  let pauseUntil: string | null = null;
+  let cancelAtPeriodEnd = false;
+  let subscriptionId: string | null = null;
+
+  if (sub) {
+    plan = mapSubscriptionToFlipdeskPlan(sub) ?? "free";
+    status = sub.pause_collection ? "paused" : mapSubscriptionStatus(sub.status);
+    interval = mapSubscriptionInterval(sub);
+    periodEnd = sub.current_period_end
+      ? new Date(sub.current_period_end * 1000).toISOString()
+      : null;
+    pauseUntil = sub.pause_collection?.resumes_at
+      ? new Date(sub.pause_collection.resumes_at * 1000).toISOString()
+      : null;
+    cancelAtPeriodEnd = sub.cancel_at_period_end ?? false;
+    subscriptionId = sub.id;
+  } else {
+    // No live subscription in Stripe. If the user previously had one, it's
+    // canceled; otherwise they're simply on Free.
+    plan = "free";
+    status = user.flipdesk_subscription_id ? "canceled" : "none";
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("users")
+    .update({
+      flipdesk_plan: plan,
+      flipdesk_interval: interval,
+      subscription_status: status,
+      flipdesk_subscription_id: subscriptionId,
+      flipdesk_period_end: periodEnd,
+      flipdesk_pause_until: pauseUntil,
+      flipdesk_cancel_at_period_end: cancelAtPeriodEnd,
+      past_due_since: nextPastDueSince(
+        user.subscription_status,
+        user.past_due_since,
+        status,
+      ),
+    })
+    .eq("id", user.id);
+  if (updErr) {
+    console.error("[admin-billing] resync update failed:", updErr.message);
+    return c.json({ error: "Failed to apply subscription state" }, 500);
+  }
+
+  // Mirror the action into the subscription event trail (stripe_event_id null —
+  // NOT processed_webhook_events, preserving AC5 idempotency).
+  await supabaseAdmin.from("flipdesk_subscription_events").insert({
+    user_id: user.id,
+    stripe_event_id: null,
+    event_type: "admin_resync",
+    from_plan: user.flipdesk_plan,
+    to_plan: plan,
+    raw_payload: {
+      admin_id: adminId,
+      source: "reconciliation",
+      subscription_id: subscriptionId,
+      stripe_status: sub?.status ?? null,
+    },
+  });
+
+  // Any open divergence flag for this account is now reconciled.
+  await supabaseAdmin
+    .from("billing_reconciliation_flags")
+    .update({
+      status: "resolved",
+      resolution: "resynced",
+      resolved_at: new Date().toISOString(),
+      resolved_by: adminId,
+    })
+    .eq("subject_user_id", user.id)
+    .eq("status", "open");
+
+  await auditLog(c, "admin.subscription_resync", "user", user.id, {
+    from: { plan: user.flipdesk_plan, status: user.subscription_status },
+    to: { plan, status, interval },
+    subscription_id: subscriptionId,
+    had_live_subscription: sub !== null,
+  });
+
+  return c.json({ ok: true, applied: { plan, status, interval }, subscriptionId });
+});
+
+// POST /billing/reconciliation/users/:id/dunning-email — send a dunning nudge
+// (AC2). Reuses the US-582 transactional sender + in-app notification + audit.
+adminBillingRoutes.post("/billing/reconciliation/users/:id/dunning-email", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const targetUserId = c.req.param("id");
+  const { data: userRaw, error: loadErr } = await supabaseAdmin
+    .from("users")
+    .select("id, email, full_name, flipdesk_plan, subscription_status")
+    .eq("id", targetUserId)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  const user = userRaw as
+    | { id: string; email: string; full_name: string | null; flipdesk_plan: string | null; subscription_status: string | null }
+    | null;
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const planLabel = user.flipdesk_plan
+    ? user.flipdesk_plan.charAt(0).toUpperCase() + user.flipdesk_plan.slice(1)
+    : "your";
+  const subject = "Action needed: update your payment method";
+  const body =
+    `We weren't able to process the most recent payment for your FlipDesk ${planLabel} plan.\n\n` +
+    "To avoid an interruption to your account, please update your payment method as soon as possible. " +
+    "Once your card is updated we'll retry the charge automatically.\n\n" +
+    "If you've already updated your billing details, you can disregard this message.";
+  const ctaUrl = `${SITE_URL}/dashboard/billing`;
+
+  const sent = await sendAdminMessageEmail(user.email, {
+    userName: user.full_name || user.email,
+    subject,
+    body,
+    ctaLabel: "Update payment method",
+    ctaUrl,
+  });
+
+  // In-app copy so the nudge isn't email-only (mirrors admin-messages, US-582).
+  const { error: notifErr } = await supabaseAdmin.from("notifications").insert({
+    user_id: user.id,
+    type: "system",
+    title: subject,
+    message: body.length > 500 ? `${body.slice(0, 497)}…` : body,
+    link: ctaUrl,
+  });
+  if (notifErr) {
+    console.error("[admin-billing] dunning notification insert failed:", notifErr.message);
+  }
+
+  await auditLog(c, "admin.dunning_email", "user", user.id, {
+    recipient_email: user.email,
+    subscription_status: user.subscription_status,
+    email_accepted: sent,
+  });
+
+  return c.json({ ok: true, delivered: sent }, sent ? 200 : 202);
+});
+
+// POST /billing/reconciliation/flags/:flagId/resolve — manually clear a
+// divergence flag without re-syncing (AC2 "mark resolved").
+adminBillingRoutes.post("/billing/reconciliation/flags/:flagId/resolve", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const adminId = c.get("userId");
+  const flagId = c.req.param("flagId");
+
+  const { data: updated, error } = await supabaseAdmin
+    .from("billing_reconciliation_flags")
+    .update({
+      status: "resolved",
+      resolution: "manual",
+      resolved_at: new Date().toISOString(),
+      resolved_by: adminId,
+    })
+    .eq("id", flagId)
+    .eq("status", "open")
+    .select("id, subject_user_id, kind")
+    .maybeSingle();
+  if (error) {
+    console.error("[admin-billing] resolve reconciliation flag failed:", error.message);
+    return c.json({ error: "Failed to resolve flag" }, 500);
+  }
+  if (!updated) {
+    return c.json({ error: "Flag not found or already resolved" }, 404);
+  }
+
+  const row = updated as { subject_user_id: string; kind: string };
+  await auditLog(c, "admin.reconciliation_flag_resolved", "billing_reconciliation_flag", flagId, {
+    subject_user_id: row.subject_user_id,
+    kind: row.kind,
   });
 
   return c.json({ ok: true });

@@ -2716,3 +2716,32 @@ Branch: ralph/gradethread-build
   - Verified: deno lint/check clean, edge 1446 passed/0 failed, tsc --noEmit clean, vitest 772 passed, build:locked 41 pages, verify:db 216 migrations from zero. Concurrent grading WIP left untouched.
 - Timestamp: 2026-06-14
 ---
+
+## US-893: Stripe reconciliation & dunning console
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00217_billing_reconciliation.sql (NEW — billing_reconciliation_flags table + reconciliation_candidates() RPC)
+  - services/edge-functions/src/lib/billing-reconciliation.ts (NEW pure detector — deriveExpectedState + detectDivergence, import-safe)
+  - services/edge-functions/src/routes/jobs-billing-reconciliation.ts (NEW scheduled job)
+  - services/edge-functions/src/routes/admin-billing.ts (4 endpoints under /billing/reconciliation: GET list, resync, dunning-email, flags/:id/resolve)
+  - services/edge-functions/src/routes/webhooks.ts (export mapSubscriptionInterval for reuse in resync)
+  - services/edge-functions/src/main.ts (import + mount POST /api/jobs/billing-reconciliation)
+  - services/edge-functions/src/lib/schema-version.ts (00216 -> 00217)
+  - services/edge-functions/src/tests/billing-reconciliation_test.ts (NEW 8 pure divergence tests)
+  - services/edge-functions/src/tests/rls-guard_test.ts (classify billing_reconciliation_flags as SERVICE_ROLE_ONLY)
+  - src/pages/admin/reconciliation.tsx (NEW console page)
+  - src/layouts/admin-layout.tsx (Reconciliation item in Revenue nav group + RefreshCw import)
+  - src/routes/index.tsx (lazy import + route /admin/billing/reconciliation)
+  - prd.json
+- Notes:
+  - AC1 GET /api/admin/billing/reconciliation: three panels — past_due/paused accounts (server-side paginated, count:exact), recent failed invoices (last 30d, bounded 25, emails resolved via a scoped 2nd query), and OPEN divergences (bounded 100, counted) precomputed by the job + a lastScanAt staleness marker.
+  - AC3 scheduled job: one reconciliation_candidates() RPC (DISTINCT ON latest event per user joined to cached state — no N+1) feeds the pure detector; diverging accounts upsert via update-then-insert (PostgREST can't target the PARTIAL unique index, so no .upsert()), and accounts scanned-but-no-longer-diverging are auto-resolved. Job is job-secret + lock guarded, run logged by the /api/jobs/* cron-run middleware.
+  - AC2 actions: resync pulls live Stripe state (stored sub id, else customer's sub list via pickRelevantSubscription) and applies the same columns the webhook sets (reusing mapSubscription* + nextPastDueSince); dunning-email reuses US-582 sendAdminMessageEmail + in-app notification; flags/:id/resolve marks manual. All require step-up + writeAuditLog.
+  - AC5 idempotency: resync sets cached columns to live Stripe values (applying twice = same result) and deliberately does NOT write processed_webhook_events, so a real future webhook (new event.id) is never blocked/double-applied. It records an 'admin_resync' flipdesk_subscription_events row (stripe_event_id null) for the trail.
+  - AC4: dedicated page under the Revenue nav group.
+  - Detector is conservative: skips null/unknown implied status, and treats the plan as lenient during past_due/paused (dunning grace keeps the paid tier) to avoid false positives.
+  - billing_reconciliation_flags keyed by subject_user_id (not user_id) so rls-guard treats it as operator data; classified in SERVICE_ROLE_ONLY.
+  - Left the concurrent grading WIP (ai-grading.ts / grading-pipeline.ts / grading-zoom_test.ts) untouched — staged only my files.
+  - Verified: deno check (main graph) clean, deno lint clean, edge suite 1454 passed/0 failed (8 new), rls-guard + schema-version pass, tsc --noEmit clean, vitest 772 passed, build:locked 41 pages, verify:db re-applied 217 migrations from zero (26.1s).
+- Timestamp: 2026-06-14
+---

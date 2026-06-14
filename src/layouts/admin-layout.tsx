@@ -36,6 +36,7 @@ import {
   Flag,
   Siren,
   Gauge,
+  RefreshCw,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -71,6 +72,9 @@ const adminNavItems = [
 // access; read-only (no destructive actions, so no extra step-up).
 const revenueNavItems = [
   { to: "/admin/revenue", icon: DollarSign, label: "Revenue & MRR", end: false },
+  // US-893 — past-due/paused accounts, failed invoices, Stripe-vs-DB divergences,
+  // with re-sync / dunning / mark-resolved actions (step-up gated server-side).
+  { to: "/admin/billing/reconciliation", icon: RefreshCw, label: "Reconciliation", end: false },
 ];
 
 // Trust & Safety (US-888) — moderation, the live abuse/fraud aggregate, and the

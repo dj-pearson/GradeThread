@@ -1124,7 +1124,7 @@ export function mapSubscriptionToFlipdeskPlan(sub: Stripe.Subscription): Flipdes
   return null;
 }
 
-function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly" {
+export function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly" {
   const intvl = sub.items?.data?.[0]?.price?.recurring?.interval;
   return intvl === "year" ? "yearly" : "monthly";
 }

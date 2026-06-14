@@ -104,6 +104,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // the SPA never reads it directly. Keyed by owner_user_id (not user_id) so it
   // is an operator surface, not user-owned tenant data.
   "content_moderation_flags",
+  // US-893 Stripe reconciliation flags: RLS enabled, zero policies by design
+  // (migration 00217). Written by the scheduled billing-reconciliation job and
+  // read/resolved ONLY by the admin reconciliation console via the service-role
+  // client; the SPA never reads it. Keyed by subject_user_id (not user_id) so it
+  // is an operator surface, not user-owned tenant data.
+  "billing_reconciliation_flags",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
