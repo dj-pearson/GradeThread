@@ -143,6 +143,29 @@ struct AIExtractResponse: Decodable, Equatable {
     }
 }
 
+extension AIExtractResponse {
+    /// Custom decode so the OPTIONAL-with-default fields (`attributes`,
+    /// `conflicts`, `ebay`, `ebayCategoryQuery`) tolerate an absent key. Swift's
+    /// synthesized Decodable requires every CodingKey for a non-Optional stored
+    /// property even when it has a default — so `attributes` (added in US-821)
+    /// broke decoding of any response without it (older edge builds, the test
+    /// fixtures, Live Text fallbacks). Declared in an extension so the
+    /// synthesized memberwise init is preserved for callers/tests.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        suggestions = try c.decode([String: FieldSuggestion].self, forKey: .suggestions)
+        conditionSummary = try c.decodeIfPresent(String.self, forKey: .conditionSummary)
+        conflicts = try c.decodeIfPresent([FieldConflict].self, forKey: .conflicts) ?? []
+        measurements = try c.decodeIfPresent([String: Double].self, forKey: .measurements)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        logId = try c.decodeIfPresent(String.self, forKey: .logId)
+        actionsRemaining = try c.decode(Int.self, forKey: .actionsRemaining)
+        ebay = try c.decodeIfPresent(AIExtractEbayBlock.self, forKey: .ebay)
+        attributes = try c.decodeIfPresent([String: AttributeSuggestion].self, forKey: .attributes) ?? [:]
+        ebayCategoryQuery = try c.decodeIfPresent(String.self, forKey: .ebayCategoryQuery)
+    }
+}
+
 /// One row in the review screen. Renderable directly + decoupled from the
 /// wire shape so the UI can re-order or filter independently.
 struct FieldSuggestionEntry: Identifiable, Equatable {
