@@ -84,6 +84,9 @@ const opsNavItems = [
   { to: "/admin/ops/health", icon: Activity, label: "System Health", end: false },
   { to: "/admin/ops/jobs", icon: Server, label: "Background Jobs", end: false },
   { to: "/admin/ops/dead-letters", icon: Inbox, label: "Dead Letters", end: false },
+  // US-884 settings registry. Reads are admin; the PUT mutation is super_admin +
+  // MFA step-up gated server-side.
+  { to: "/admin/ops/settings", icon: SlidersHorizontal, label: "Settings Registry", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +

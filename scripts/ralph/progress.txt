@@ -2568,3 +2568,24 @@ Branch: ralph/gradethread-build
 - Notes: AC#4's "system settings registry" (US-884) did not exist yet — created a minimal generic system_settings (key→jsonb, RLS service-role-only like cron_runs) seeded with ops_health_thresholds, so thresholds are deploy-free tunable now and US-884 builds the editor on the same table. system_health() guard allows service_role (edge admin endpoint calls via service-role where auth.uid() is null) OR is_admin() — non-admins rejected. Reused existing is_admin() (00003). "Review queue" depth = grade_reports.needs_human_review=true with no matching human_reviews row. Endpoint is read-only (no step-up). Pure lib merges DEFAULT thresholds over the (untrusted/partial) registry so a deleted row still colors tiles. Did NOT touch the concurrently-edited grading files (ai-grading.ts/grading-pipeline.ts/grading-zoom_test.ts — other agent's WIP). Verified: deno check+lint clean, full edge suite 1368 passed/0 failed, ops-health_test 13/13, frontend tsc clean, build:locked 41 pages, vitest 772 passed, verify:db re-applied 207 migrations from zero (29.6s).
 - Timestamp: 2026-06-14
 ---
+
+## US-884: DB-backed system settings registry
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00208_system_settings_registry.sql (NEW — extends US-883's system_settings, not recreated)
+  - services/edge-functions/src/lib/system-settings.ts (NEW — getSetting/getSettingSync/coerceSettingValue, TTL cache, service-role only)
+  - services/edge-functions/src/routes/admin-settings.ts (NEW — GET grouped, PUT type-validated + super_admin + step-up + audited)
+  - services/edge-functions/src/tests/system-settings_test.ts (NEW — deno unit tests for coercion/validation)
+  - services/edge-functions/src/lib/ai-config.ts (reviewConfidenceThreshold reads registry via getSettingSync)
+  - services/edge-functions/src/main.ts (mount /api/admin/settings; /api/grade cap reads rate_limit_grade_per_min; startup cache prime)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00207 -> 00208)
+  - src/pages/admin/settings-registry.tsx (NEW — type-aware editors, inline validation, reset-to-default, MFA step-up)
+  - src/routes/index.tsx (route /admin/ops/settings)
+  - src/layouts/admin-layout.tsx (Operations nav item "Settings Registry")
+- Notes:
+  - Built ON the existing 00207 system_settings table per memory note (ALTER ADD COLUMN value_type/default_value/category + backfill + CHECK), did NOT recreate it.
+  - Kept reviewConfidenceThreshold() SYNCHRONOUS (getSettingSync) so the concurrent agent's uncommitted ai-grading.ts/grading-pipeline.ts edits stay untouched — no call-site changes needed. Same pattern as the rate-limit resolver.
+  - getSettingSync serves cached value + warms in background; getSetting busts on admin write so edits land next request. Both fall back to safe defaults (= seeded values) so behavior is unchanged before cache warm.
+  - Verified: npx tsc --noEmit (clean), npm run build:locked (41 pages), npm test (772 pass), deno check + deno lint + deno test (pass), npm run verify:db (migrations apply from zero, 00208 included).
+- Timestamp: 2026-06-14
+---

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { runAiCall } from "./ai-limiter.ts";
+import { getSettingSync } from "./system-settings.ts";
 
 // Central reader for AI configuration. Values come from Coolify Team Shared
 // Variables so every Pearson Media project flips together when a model or
@@ -187,12 +188,28 @@ export function isCachingEnabled(): boolean {
   return readBool("AI_ENABLE_CACHING", DEFAULTS.enableCaching);
 }
 
-// Confidence below which a grade is routed to human review. Configurable
-// (US-331) so the calibration report's recommended operating point can be
-// applied without a code change. Defaults to 0.75. Clamped to (0, 1].
-export function reviewConfidenceThreshold(): number {
+// The env-var fallback for the review threshold (US-331), used when the
+// settings registry has no row (fresh DB) or is unreadable. Clamped to (0, 1].
+function reviewConfidenceEnvFallback(): number {
   const raw = Number(Deno.env.get("GRADING_REVIEW_CONFIDENCE_THRESHOLD"));
   return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 0.75;
+}
+
+// Confidence below which a grade is routed to human review. US-884: now read
+// through the DB-backed settings registry (key `grading_review_confidence_
+// threshold`) so the calibration report's recommended operating point can be
+// applied WITHOUT a deploy; the env var (US-331) is the fallback default.
+// Synchronous (getSettingSync serves the cached value + warms in the
+// background) so the existing sync call sites are unchanged. Clamped to (0, 1]
+// so a bad stored value can never disable review.
+export function reviewConfidenceThreshold(): number {
+  const fallback = reviewConfidenceEnvFallback();
+  const raw = getSettingSync<number>(
+    "grading_review_confidence_threshold",
+    fallback,
+  );
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : fallback;
 }
 
 let anthropicClient: Anthropic | null = null;

@@ -63,6 +63,7 @@ import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
 import { adminJobsRoutes } from "./routes/admin-jobs.ts";
 import { adminOpsRoutes } from "./routes/admin-ops.ts";
+import { adminSettingsRoutes } from "./routes/admin-settings.ts";
 import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
@@ -107,6 +108,7 @@ import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter, pagesOriginBypass } from "./middleware/rate-limit.ts";
+import { getSetting, getSettingSync } from "./lib/system-settings.ts";
 import {
   apiV1RateLimitBody,
   apiV1ReadLimit,
@@ -463,7 +465,14 @@ app.use("/api/waitlist", rateLimiter(10, 60_000, "waitlist", undefined, { failCl
 // US-867: buyer trust-guarantee claim intake is UNAUTHENTICATED (buyers have no
 // account) — cap tightly per-IP and fail-closed so a flood can't fill the table.
 app.use("/api/guarantee/*", rateLimiter(5, 60_000, "guarantee", undefined, { failClosed: true, methods: ["POST"] }));
-app.use("/api/grade/*", rateLimiter(60, 60_000, "grade"));
+// US-884: the grade cap is read through the DB-backed settings registry
+// (`rate_limit_grade_per_min`) via the per-request resolver so it can be retuned
+// without a deploy. getSettingSync serves the cached value (default 60) and
+// warms the cache in the background — no await on the request path.
+app.use(
+  "/api/grade/*",
+  rateLimiter((_) => getSettingSync<number>("rate_limit_grade_per_min", 60), 60_000, "grade"),
+);
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
 app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
@@ -701,6 +710,9 @@ app.route("/api/admin/jobs", adminJobsRoutes);
 // US-881 Operations console: background-jobs & scheduler view + manual Run-now
 // (super_admin + MFA step-up + job_lock + audit). Admin JWT + AAL2 via group.
 app.route("/api/admin/ops", adminOpsRoutes);
+// US-884 DB-backed settings registry. Admin JWT + AAL2 via the /api/admin/*
+// group; the PUT mutation is additionally super_admin + MFA step-up + audited.
+app.route("/api/admin/settings", adminSettingsRoutes);
 // US-589 bulk admin operations (bulk credit grant / suspend-unsuspend / regrade).
 // Idempotency-keyed + audited; admin JWT + AAL2 via the /api/admin/* group,
 // with credit/suspend additionally requiring a fresh MFA step-up.
@@ -867,6 +879,11 @@ warnMissingFeatureGroups();
 // migration the DB hasn't applied corrupts data). Fail-open on an unreadable
 // migrations table; fatal only on a confirmed behind-version in prod.
 await assertSchemaVersion();
+
+// US-884: warm the settings cache for the hot-path keys so the first requests
+// read the live registry value rather than the fallback (background, non-fatal).
+void getSetting<number>("rate_limit_grade_per_min", 60);
+void getSetting<number>("grading_review_confidence_threshold", 0.75);
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
 logEvent("info", "edge.boot", {
