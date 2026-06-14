@@ -2600,6 +2600,27 @@ export type SocialPostUpdate = Partial<
   Omit<SocialPostRow, "id" | "created_at" | "updated_at">
 >;
 
+// US-870: one tailored social variant per platform, child of social_posts.
+export type SocialPlatform =
+  | "x"
+  | "linkedin"
+  | "facebook"
+  | "threads"
+  | "pinterest"
+  | "instagram";
+
+export interface SocialPlatformVariantRow {
+  id: string;
+  social_post_id: string;
+  platform: SocialPlatform;
+  body: string;
+  hashtags: string[];
+  image_field: string | null;
+  char_limit: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContentKnowledgeRow {
   id: string;
   key: string;
@@ -2622,6 +2643,9 @@ export interface ContentSettingsRow {
   make_webhook_blog: string | null;
   make_webhook_social_long: string | null;
   make_webhook_social_short: string | null;
+  // US-870: single platform-router webhook + per-platform enable list.
+  make_webhook_social: string | null;
+  social_platforms: SocialPlatform[];
   auto_publish_blog: boolean;
   auto_publish_social: boolean;
   default_blog_model: string;
@@ -2873,6 +2897,13 @@ export interface Database {
         Row: SocialPostRow;
         Insert: SocialPostInsert;
         Update: SocialPostUpdate;
+      };
+      social_platform_variants: {
+        Row: SocialPlatformVariantRow;
+        Insert: Omit<SocialPlatformVariantRow, "id" | "created_at" | "updated_at">;
+        Update: Partial<
+          Omit<SocialPlatformVariantRow, "id" | "social_post_id" | "created_at" | "updated_at">
+        >;
       };
       content_knowledge: {
         Row: ContentKnowledgeRow;

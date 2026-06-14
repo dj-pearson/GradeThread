@@ -19,6 +19,8 @@ import { captureException, recordMetric } from "./observability.ts";
 //     attempt; intermediate failures retry. The caller still wraps in
 //     a try/catch so a webhook failure never rolls back a publish.
 
+import type { SocialPlatform } from "./social-platforms.ts";
+
 export type WebhookEvent = "blog.published" | "social.published";
 export type SocialFormat = "long" | "short";
 
@@ -39,7 +41,12 @@ export interface WebhookPayloadBlog {
 
 export interface WebhookPayloadSocial {
   event: "social.published";
-  format: SocialFormat;
+  // Legacy long/short discriminator. Optional now that US-870 fans out by
+  // platform; retained so old log rows + the test-fire path keep working.
+  format?: SocialFormat;
+  // US-870: the platform this variant targets. Present on platform fan-out;
+  // absent on the legacy long/short path.
+  platform?: SocialPlatform;
   timestamp: string;
   data: {
     id: string;
@@ -47,6 +54,8 @@ export interface WebhookPayloadSocial {
     hashtags: string[];
     cta_url: string | null;
     product_focus: "gradethread" | "flipdesk" | "both";
+    // US-870: branded social-card aspect label (US-871/US-872).
+    image_field?: string | null;
   };
 }
 
@@ -93,43 +102,54 @@ interface ResolvedTarget {
 }
 
 async function resolveTargetUrl(
-  event: WebhookEvent,
-  format?: SocialFormat,
+  payload: WebhookPayload,
 ): Promise<ResolvedTarget | null> {
   const { data, error } = await supabaseAdmin
     .from("content_settings")
     .select(
-      "make_webhook_blog, make_webhook_social_long, make_webhook_social_short",
+      "make_webhook_blog, make_webhook_social, make_webhook_social_long, make_webhook_social_short",
     )
     .eq("id", 1)
     .maybeSingle();
   if (error || !data) return null;
 
-  if (event === "blog.published") {
+  if (payload.event === "blog.published") {
     return data.make_webhook_blog
       ? { url: data.make_webhook_blog as string, field: "blog" }
       : null;
   }
-  if (event === "social.published") {
-    if (format === "long" && data.make_webhook_social_long) {
-      return {
-        url: data.make_webhook_social_long as string,
-        field: "social_long",
-      };
-    }
-    if (format === "short" && data.make_webhook_social_short) {
-      return {
-        url: data.make_webhook_social_short as string,
-        field: "social_short",
-      };
-    }
+
+  // social.published
+  const socialRouter = (data.make_webhook_social as string | null) ?? null;
+  const longUrl = (data.make_webhook_social_long as string | null) ?? null;
+  const shortUrl = (data.make_webhook_social_short as string | null) ?? null;
+
+  // US-870 platform fan-out: prefer the single router webhook (a Make.com
+  // router branches on `platform`); fall back to the legacy long/short URLs so
+  // existing deployments keep delivering — X/Threads → short, the rest → long.
+  if (payload.platform) {
+    const field = `social_${payload.platform}`;
+    if (socialRouter) return { url: socialRouter, field };
+    const legacy = payload.platform === "x" || payload.platform === "threads"
+      ? shortUrl
+      : longUrl;
+    return legacy ? { url: legacy, field } : null;
+  }
+
+  // Legacy long/short path (no platform).
+  if (payload.format === "long" && longUrl) {
+    return { url: longUrl, field: "social_long" };
+  }
+  if (payload.format === "short" && shortUrl) {
+    return { url: shortUrl, field: "social_short" };
   }
   return null;
 }
 
 async function logAttempt(row: {
   event: WebhookEvent;
-  format: SocialFormat | null;
+  // Carries the platform (US-870) or legacy long/short label, for grouping.
+  format: string | null;
   target_url: string;
   payload: WebhookPayload;
   attempt_no: number;
@@ -158,11 +178,15 @@ export async function dispatchContentWebhook(
 ): Promise<{ delivered: boolean; attempts: number; last_status: number | null }> {
   const format =
     payload.event === "social.published" ? payload.format : undefined;
-  const target = await resolveTargetUrl(payload.event, format);
+  const platform =
+    payload.event === "social.published" ? payload.platform : undefined;
+  // Short label for headers/logs/console: platform (US-870) else long/short.
+  const label = platform ?? format;
+  const target = await resolveTargetUrl(payload);
   if (!target) {
     console.log(
       `[content-webhook] no URL configured for event=${payload.event}${
-        format ? `/${format}` : ""
+        label ? `/${label}` : ""
       } — skipping`,
     );
     return { delivered: false, attempts: 0, last_status: null };
@@ -188,6 +212,7 @@ export async function dispatchContentWebhook(
           ...(signature ? { "X-Content-Signature": signature } : {}),
           "X-Content-Event": payload.event,
           ...(format ? { "X-Content-Format": format } : {}),
+          ...(platform ? { "X-Content-Platform": platform } : {}),
         },
         body,
         signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
@@ -202,7 +227,7 @@ export async function dispatchContentWebhook(
 
     await logAttempt({
       event: payload.event,
-      format: format ?? null,
+      format: label ?? null,
       target_url: target.url,
       payload,
       attempt_no: attemptNo,
@@ -215,7 +240,7 @@ export async function dispatchContentWebhook(
     if (ok) {
       console.log(
         `[content-webhook] delivered ${payload.event}${
-          format ? `/${format}` : ""
+          label ? `/${label}` : ""
         } on attempt ${attemptNo} (${status})`,
       );
       captureWebhookDispatched(payload, true);
@@ -230,11 +255,11 @@ export async function dispatchContentWebhook(
 
   console.error(
     `[content-webhook] gave up on ${payload.event}${
-      format ? `/${format}` : ""
+      label ? `/${label}` : ""
     } after ${ATTEMPT_DELAYS_MS.length} attempts`,
   );
   captureWebhookDispatched(payload, false);
-  await alertDeliveryFailure(payload, format, target, lastStatus);
+  await alertDeliveryFailure(payload, label, target, lastStatus);
   return {
     delivered: false,
     attempts: ATTEMPT_DELAYS_MS.length,
@@ -251,13 +276,13 @@ export async function dispatchContentWebhook(
 // the dashboard (POST /webhooks/:logId/retry).
 async function alertDeliveryFailure(
   payload: WebhookPayload,
-  format: SocialFormat | undefined,
+  label: string | undefined,
   target: ResolvedTarget,
   lastStatus: number | null,
 ): Promise<void> {
   const summary =
     `[GradeThread content] webhook delivery FAILED: ${payload.event}` +
-    `${format ? `/${format}` : ""} (post ${payload.data.id}) to ${target.field} ` +
+    `${label ? `/${label}` : ""} (post ${payload.data.id}) to ${target.field} ` +
     `after ${ATTEMPT_DELAYS_MS.length} attempts ` +
     `(last status: ${lastStatus ?? "network error"}). ` +
     `Retry from Content Settings → webhook log.`;

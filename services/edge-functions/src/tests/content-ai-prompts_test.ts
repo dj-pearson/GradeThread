@@ -9,8 +9,10 @@ import {
   buildBlogArticleUserPrompt,
   buildBlogComposeStreamUserPrompt,
   buildSectionRegenStreamUserPrompt,
+  buildSocialPostUserPrompt,
   buildStreamSystemPrompt,
   normalizeTitleSuggestions,
+  SOCIAL_POST_PROMPT_VERSION,
 } from "../lib/content-ai-prompts.ts";
 
 Deno.test("US-254: article prompt requests 3-style title_suggestions (v2)", () => {
@@ -57,6 +59,31 @@ Deno.test("US-254: normalizeTitleSuggestions coerces, dedups, caps, falls back",
   assertEquals(normalizeTitleSuggestions(undefined, "Fallback"), [
     { style: "question", title: "Fallback" },
   ]);
+});
+
+Deno.test("US-870: social prompt is v2 and asks for per-platform variants", () => {
+  assertEquals(SOCIAL_POST_PROMPT_VERSION, "social_post_v2");
+  const topic = {
+    title: "How to grade vintage denim",
+    angle: null,
+    primary_keyword: "grade vintage denim",
+    product_focus: "gradethread" as const,
+    cta_url: "https://gradethread.com/?utm_source=social",
+  };
+  // No platforms → legacy long/short schema only, no variants block.
+  const base = buildSocialPostUserPrompt(topic);
+  assert(base.includes("long_body"));
+  assert(!base.includes('"variants"'));
+
+  // With platforms → variants object + each platform's rules appear.
+  const withVariants = buildSocialPostUserPrompt(topic, [
+    { platform: "x", rules: "<=280 chars" },
+    { platform: "linkedin", rules: "800-1500 chars professional" },
+  ]);
+  assert(withVariants.includes('"variants"'));
+  assert(withVariants.includes("x:"));
+  assert(withVariants.includes("linkedin:"));
+  assert(withVariants.includes("800-1500 chars professional"));
 });
 
 Deno.test("US-251/252: stream system prompt is HTML-only (no JSON envelope)", () => {

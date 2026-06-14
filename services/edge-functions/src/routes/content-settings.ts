@@ -4,6 +4,7 @@ import {
   dispatchContentWebhook,
   signContentBody,
 } from "../lib/content-webhook.ts";
+import { normalizeEnabledPlatforms } from "../lib/social-platforms.ts";
 
 // Singleton settings table (id=1). The dashboard's Content Settings page
 // reads/writes here for webhook URLs, auto-publish toggles, cadence,
@@ -39,6 +40,9 @@ interface SettingsPatch {
   make_webhook_blog?: string | null;
   make_webhook_social_long?: string | null;
   make_webhook_social_short?: string | null;
+  // US-870: single platform-router webhook + per-platform enable list.
+  make_webhook_social?: string | null;
+  social_platforms?: string[];
   auto_publish_blog?: boolean;
   auto_publish_social?: boolean;
   default_blog_model?: string;
@@ -63,6 +67,8 @@ contentSettingsRoutes.patch("/", async (c) => {
     "make_webhook_blog",
     "make_webhook_social_long",
     "make_webhook_social_short",
+    "make_webhook_social",
+    "social_platforms",
     "auto_publish_blog",
     "auto_publish_social",
     "default_blog_model",
@@ -80,6 +86,10 @@ contentSettingsRoutes.patch("/", async (c) => {
   const patch: Partial<SettingsPatch> = {};
   for (const k of allowed) {
     if (k in body) (patch as Record<string, unknown>)[k] = body[k];
+  }
+  // US-870: keep the enable list to known platforms in canonical order.
+  if ("social_platforms" in patch) {
+    patch.social_platforms = normalizeEnabledPlatforms(patch.social_platforms);
   }
 
   const { data, error } = await supabaseAdmin
@@ -263,7 +273,7 @@ contentSettingsRoutes.post("/webhooks/:logId/retry", async (c) => {
 // settings page's "Test webhook" button hits this.
 contentSettingsRoutes.post("/webhooks/test", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
-    target: "blog" | "social_long" | "social_short";
+    target: "blog" | "social_long" | "social_short" | "social";
   };
   if (!body.target) return c.json({ error: "target is required" }, 400);
 
@@ -280,7 +290,9 @@ contentSettingsRoutes.post("/webhooks/test", async (c) => {
       ? settings.make_webhook_blog
       : body.target === "social_long"
         ? settings.make_webhook_social_long
-        : settings.make_webhook_social_short;
+        : body.target === "social"
+          ? settings.make_webhook_social
+          : settings.make_webhook_social_short;
   if (!url) {
     return c.json({ error: `No URL configured for ${body.target}` }, 400);
   }

@@ -1071,6 +1071,38 @@ export const TOPIC_STATUS_LABELS: Record<
 export const SOCIAL_LONG_LIMIT = 3000;
 export const SOCIAL_SHORT_LIMIT = 280;
 
+// US-870: per-platform social variants. Mirrors the edge spec in
+// services/edge-functions/src/lib/social-platforms.ts — keep in sync.
+export const SOCIAL_PLATFORMS = [
+  "x",
+  "linkedin",
+  "facebook",
+  "threads",
+  "pinterest",
+  "instagram",
+] as const;
+
+export type SocialPlatformKey = (typeof SOCIAL_PLATFORMS)[number];
+
+export const SOCIAL_PLATFORM_LABELS: Record<SocialPlatformKey, string> = {
+  x: "X",
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  threads: "Threads",
+  pinterest: "Pinterest",
+  instagram: "Instagram",
+};
+
+// Hard character ceilings per platform (matches PLATFORM_CHAR_LIMIT edge-side).
+export const SOCIAL_PLATFORM_CHAR_LIMITS: Record<SocialPlatformKey, number> = {
+  x: 280,
+  linkedin: 3000,
+  facebook: 5000,
+  threads: 500,
+  pinterest: 500,
+  instagram: 2200,
+};
+
 // Seed knowledge doc keys (cannot be deleted via the dashboard).
 export const SEED_KNOWLEDGE_KEYS = [
   "brand.voice",

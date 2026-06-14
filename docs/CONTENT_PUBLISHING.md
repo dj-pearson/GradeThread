@@ -17,19 +17,34 @@ field-by-field contract for those events plus how to wire up a new channel.
 
 ## Events
 
-| Event | Format | Fired when | Target setting |
+| Event | Discriminator | Fired when | Target setting |
 |---|---|---|---|
 | `blog.published` | — | A blog post transitions to `published` | `make_webhook_blog` |
-| `social.published` | `long` | A social post with a non-empty `long_body` is published | `make_webhook_social_long` |
-| `social.published` | `short` | A social post with a non-empty `short_body` is published | `make_webhook_social_short` |
+| `social.published` | `platform` (`x`/`linkedin`/`facebook`/`threads`/`pinterest`/`instagram`) | A social post is published **and** has a tailored variant for that enabled platform (US-870) | `make_webhook_social` (router) |
+| `social.published` | `format` (`long`/`short`) | **Legacy fallback** — a published post with no platform variants | `make_webhook_social_long` / `make_webhook_social_short` |
 
-A single social post can fire **both** `long` and `short` events (one per
-non-empty body) — they go to separate Make.com scenarios because LinkedIn/Facebook
-(long form) and X/Threads (short form) have different copy and channel
-connections. The two fire concurrently; one failing never blocks the other.
+### Platform fan-out (US-870)
 
-If the matching target URL is unset in `content_settings`, the dispatch is a
-no-op (logged, not an error) — so you can enable channels one at a time.
+Every social post can carry a **tailored variant per platform** — X, LinkedIn,
+Facebook, Threads, Pinterest, Instagram — each with its own body, hashtags, and
+character limit (see `social_platform_variants` + `social-platforms.ts`). On
+publish, the dispatcher fires **one `social.published` webhook per *enabled*
+platform that has a variant** (enabled list = `content_settings.social_platforms`,
+default all six). Each payload carries a `platform` field so a **single Make.com
+router** keyed on `make_webhook_social` can branch to the right channel scenario.
+
+- **Preferred routing:** set `make_webhook_social` to one router webhook; it
+  receives all platform variants and branches on `platform`.
+- **Legacy fallback:** if `make_webhook_social` is **unset**, each platform
+  resolves to the old long/short URL instead (`x`/`threads` → `_short`, the rest
+  → `_long`), so existing deployments keep delivering with the new `platform`
+  field added.
+- **No variants on a post** (legacy or pre-US-870): the dispatcher falls back to
+  the old `long`/`short` events keyed on `format`.
+
+All variants fire concurrently; one failing never blocks the others. If the
+resolved target URL is unset, that platform's dispatch is a logged no-op (not an
+error) — so you can enable channels one at a time.
 
 ---
 
@@ -41,7 +56,8 @@ Every request (real publish **and** test fire) is an HTTP `POST` with a JSON bod
 |---|---|
 | `Content-Type` | `application/json` |
 | `X-Content-Event` | `blog.published` or `social.published` |
-| `X-Content-Format` | `long` / `short` (social only; omitted for blog) |
+| `X-Content-Platform` | `x` / `linkedin` / `facebook` / `threads` / `pinterest` / `instagram` (US-870 platform fan-out; omitted on the legacy long/short path) |
+| `X-Content-Format` | `long` / `short` (legacy social fallback only; omitted for blog + platform events) |
 | `X-Content-Signature` | hex HMAC-SHA256 of the **raw request body** keyed with `CONTENT_WEBHOOK_SIGNING_SECRET` (omitted only if the secret is unset) |
 
 **Delivery / retries** (`dispatchContentWebhook`): up to **3 attempts** at `0s`,
@@ -103,31 +119,37 @@ All payloads are `{ event, timestamp, … , data }`. `timestamp` is ISO-8601 UTC
 | `data.tags` | `string[]` | Topic tags; may be empty. |
 | `data.product_focus` | enum | Route to the brand voice / channel set. |
 
-### `social.published` (`long` and `short`)
+### `social.published` (platform fan-out — US-870)
 
 ```jsonc
 {
   "event": "social.published",
-  "format": "long",                       // "long" | "short" — also in X-Content-Format
+  "platform": "linkedin",                 // x | linkedin | facebook | threads | pinterest | instagram — also in X-Content-Platform
   "timestamp": "2026-06-13T17:42:09.123Z",
   "data": {
-    "id": "3a8e…",                        // social_posts.id (uuid) — SAME id for long & short
-    "body": "Full post copy already sized for the platform…",
+    "id": "3a8e…",                        // social_posts.id (uuid) — SAME id across a post's platform events
+    "body": "Post copy already tailored to this platform's length + tone…",
     "hashtags": ["grading", "reselling"], // string[], without the leading '#'
     "cta_url": "https://gradethread.com/?utm_source=social&utm_medium=social&utm_campaign=<campaign>", // string | null
-    "product_focus": "flipdesk"           // "gradethread" | "flipdesk" | "both"
+    "product_focus": "flipdesk",          // "gradethread" | "flipdesk" | "both"
+    "image_field": "card_landscape"       // branded social-card aspect to attach (US-871/US-872): card_landscape | card_square | pin_vertical
   }
 }
 ```
 
 | Field | Type | Notes |
 |---|---|---|
-| `format` | `"long" \| "short"` | `long` → LinkedIn/Facebook scenario; `short` → X/Threads scenario. |
-| `data.id` | `string` (uuid) | Same id across the long/short events from one post — dedupe per `(id, format)`. |
-| `data.body` | `string` | **Post verbatim.** Already written to the format's length; don't re-summarize. |
-| `data.hashtags` | `string[]` | Lowercased, **no `#` prefix**, deduped, ≤ 5. Add the `#` per channel convention. |
+| `platform` | enum | Which network this variant targets. Branch your Make router on it. |
+| `data.id` | `string` (uuid) | Same id across a post's platform events — dedupe per `(id, platform)`. |
+| `data.body` | `string` | **Post verbatim.** Already written to this platform's length/tone; don't re-summarize. |
+| `data.hashtags` | `string[]` | Lowercased, **no `#` prefix**, deduped. Add the `#` per channel convention. |
 | `data.cta_url` | `string \| null` | Pre-built CTA link carrying neutral UTM params (see below). |
 | `data.product_focus` | enum | Route to brand voice / channel set. |
+| `data.image_field` | `string \| null` | Forward-looking label for the branded card aspect (US-871/US-872). |
+
+> **Legacy fallback shape:** a post with no platform variants instead emits the
+> old `{ "format": "long" \| "short" }` events (no `platform`, no `image_field`).
+> Dedupe those per `(id, format)`.
 
 ---
 
@@ -181,11 +203,14 @@ Set in `services/edge-functions/.env` (Coolify env for prod):
 | `CONTENT_ALERT_WEBHOOK` | Slack/PagerDuty URL pinged on terminal delivery failure. Falls back to `MONITOR_ALERT_WEBHOOK`. | Optional |
 | `PUBLIC_SITE_URL` | Canonical site root for building `url`/`cta_url`. | Yes (defaults to `https://gradethread.com`). |
 
-The three **target URLs** are **not** env vars — they live in
-`content_settings` (row id 1) and are edited at `/admin/content/settings`:
-`make_webhook_blog`, `make_webhook_social_long`, `make_webhook_social_short`.
-This lets you point/repoint scenarios without a redeploy; a changed URL even
-takes effect on a **retry** of a previously-failed log row.
+The **target URLs** are **not** env vars — they live in `content_settings`
+(row id 1) and are edited at `/admin/content/settings`: `make_webhook_blog`,
+`make_webhook_social` (the US-870 platform router — preferred), and the legacy
+`make_webhook_social_long` / `make_webhook_social_short` fallbacks. The same page
+also has the per-platform **enable toggles** (`social_platforms`) that decide
+which networks get a variant generated + a webhook fired. This lets you
+point/repoint scenarios without a redeploy; a changed URL even takes effect on a
+**retry** of a previously-failed log row.
 
 ---
 
@@ -226,7 +251,7 @@ takes effect on a **retry** of a previously-failed log row.
 
 ## Test fires
 
-`POST /api/content/settings/webhooks/test` `{ "target": "blog" | "social_long" | "social_short" }`
+`POST /api/content/settings/webhooks/test` `{ "target": "blog" | "social" | "social_long" | "social_short" }`
 (wired to the "Test webhook" buttons on the settings page). It sends a payload
 **identical in shape** to a real publish for that target, plus a top-level
 `test: true`, signs it with the same secret/headers, logs the attempt to

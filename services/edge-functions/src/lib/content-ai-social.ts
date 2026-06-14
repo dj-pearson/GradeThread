@@ -11,7 +11,15 @@ import {
   SOCIAL_POST_PROMPT_VERSION,
   type SocialPostOutput,
   type SocialTopicInput,
+  type SocialVariantOutput,
 } from "./content-ai-prompts.ts";
+import {
+  normalizeEnabledPlatforms,
+  PLATFORM_CHAR_LIMIT,
+  PLATFORM_GENERATION_RULES,
+  PLATFORM_IMAGE_FIELD,
+  type SocialPlatform,
+} from "./social-platforms.ts";
 
 // Paired long-format + short-format generator. One call returns both
 // variants so they stay editorially coherent. CTA URL is composed
@@ -24,6 +32,9 @@ export interface GenerateSocialPostInput {
   model?: string;
   // Optional UTM campaign override. Defaults to a slugified topic title.
   utmCampaign?: string;
+  // US-870: which platforms to generate tailored variants for. When omitted,
+  // resolved from content_settings.social_platforms (default: all six).
+  platforms?: SocialPlatform[];
 }
 
 export interface GenerateSocialPostResult {
@@ -64,6 +75,17 @@ async function loadSocialKnowledge() {
     surfaceStyle: `## Long-format rules\n${longStyle}\n\n## Short-format rules\n${shortStyle}`,
     pillarMap: map.get("seo.pillars") ?? "",
   };
+}
+
+// US-870: which platforms are enabled for fan-out. Read from the singleton
+// content_settings row; normalized + defaulted to all six.
+export async function loadEnabledPlatforms(): Promise<SocialPlatform[]> {
+  const { data } = await supabaseAdmin
+    .from("content_settings")
+    .select("social_platforms")
+    .eq("id", 1)
+    .maybeSingle();
+  return normalizeEnabledPlatforms(data?.social_platforms);
 }
 
 async function loadPublicSiteUrl(): Promise<string> {
@@ -131,7 +153,44 @@ function normalizeHashtags(input: unknown): string[] {
   return out;
 }
 
-function validate(parsed: unknown): SocialPostOutput {
+// Truncate body to a hard character ceiling at the last whitespace before the
+// limit, appending an ellipsis. Models shouldn't be trusted to honor limits.
+function truncateToLimit(body: string, limit: number): string {
+  if (body.length <= limit) return body;
+  const cut = body.lastIndexOf(" ", limit - 3);
+  return `${body.slice(0, cut > 0 ? cut : limit - 1)}…`;
+}
+
+// Pull the platform-tailored variants out of the model's `variants` object,
+// keeping only the platforms we asked for, truncating each to its limit, and
+// stamping the char_limit + image_field from the spec.
+function normalizeVariants(
+  input: unknown,
+  platforms: SocialPlatform[],
+): SocialVariantOutput[] {
+  const obj = input && typeof input === "object"
+    ? (input as Record<string, unknown>)
+    : {};
+  const out: SocialVariantOutput[] = [];
+  for (const platform of platforms) {
+    const raw = obj[platform];
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const body = String(r.body ?? "").trim();
+    if (!body) continue;
+    const limit = PLATFORM_CHAR_LIMIT[platform];
+    out.push({
+      platform,
+      body: truncateToLimit(body, limit),
+      hashtags: normalizeHashtags(r.hashtags),
+      char_limit: limit,
+      image_field: PLATFORM_IMAGE_FIELD[platform],
+    });
+  }
+  return out;
+}
+
+function validate(parsed: unknown, platforms: SocialPlatform[]): SocialPostOutput {
   if (!parsed || typeof parsed !== "object") {
     throw new Error("AI response was not a JSON object");
   }
@@ -143,15 +202,12 @@ function validate(parsed: unknown): SocialPostOutput {
   }
   // Hard truncate short to 280 — the prompt requests this but defenders
   // shouldn't trust models. Truncate at the last whitespace before 280.
-  let shortBody = short;
-  if (shortBody.length > 280) {
-    const cut = shortBody.lastIndexOf(" ", 277);
-    shortBody = `${shortBody.slice(0, cut > 0 ? cut : 277)}…`;
-  }
+  const shortBody = truncateToLimit(short, 280);
   return {
     long_body: long,
     short_body: shortBody,
     hashtags: normalizeHashtags(p.hashtags),
+    variants: normalizeVariants(p.variants, platforms),
   };
 }
 
@@ -172,15 +228,25 @@ export async function generateSocialPost(
     campaign,
   });
 
+  // US-870: resolve the enabled platforms (explicit override → settings).
+  const platforms = input.platforms ?? (await loadEnabledPlatforms());
+  const platformSpecs = platforms.map((p) => ({
+    platform: p,
+    rules: PLATFORM_GENERATION_RULES[p],
+  }));
+
   const systemPrompt = buildSystemPrompt({
     ...knowledge,
     historyContext,
     task: "write-social-post",
   });
-  const userPrompt = buildSocialPostUserPrompt({
-    ...input.topic,
-    cta_url: ctaUrl,
-  });
+  const userPrompt = buildSocialPostUserPrompt(
+    {
+      ...input.topic,
+      cta_url: ctaUrl,
+    },
+    platformSpecs,
+  );
 
   const client = getAnthropicClient();
   const model = input.model ?? getDefaultModel();
@@ -189,7 +255,8 @@ export async function generateSocialPost(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 1024,
+    // Bumped from 1024 — six platform variants add materially to the output.
+    max_tokens: 3072,
     ...(temperature !== undefined ? { temperature } : {}),
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
@@ -211,11 +278,12 @@ export async function generateSocialPost(
     );
     throw new Error("AI returned invalid JSON for social post");
   }
-  const post = validate(parsed);
+  const post = validate(parsed, platforms);
 
   console.log(
     `[content-ai-social] generated | model=${model} | product=${input.topic.product_focus} | ` +
       `long_len=${post.long_body.length} | short_len=${post.short_body.length} | ` +
+      `variants=${post.variants.map((v) => v.platform).join(",") || "none"} | ` +
       `latency_ms=${latencyMs}`,
   );
 

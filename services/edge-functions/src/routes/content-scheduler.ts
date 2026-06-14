@@ -11,6 +11,10 @@ import { sanitizeHtml } from "../lib/content-sanitize.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { dispatchContentWebhook } from "../lib/content-webhook.ts";
 import {
+  fireSocialWebhooks,
+  persistSocialVariants,
+} from "../lib/content-social-publish.ts";
+import {
   buildBlogPurgeFiles,
   purgeCloudflareCache,
 } from "../lib/cloudflare-purge.ts";
@@ -345,40 +349,8 @@ async function publishDueScheduledPosts(settings: SettingsRow): Promise<number> 
         console.error("[scheduler] scheduled social history failed:", e),
       );
 
-      const fires: Promise<unknown>[] = [];
-      if (updated.long_body?.trim()) {
-        fires.push(
-          dispatchContentWebhook({
-            event: "social.published",
-            format: "long",
-            timestamp: nowIso,
-            data: {
-              id: updated.id,
-              body: updated.long_body,
-              hashtags: updated.hashtags ?? [],
-              cta_url: updated.cta_url ?? null,
-              product_focus: updated.product_focus,
-            },
-          }),
-        );
-      }
-      if (updated.short_body?.trim()) {
-        fires.push(
-          dispatchContentWebhook({
-            event: "social.published",
-            format: "short",
-            timestamp: nowIso,
-            data: {
-              id: updated.id,
-              body: updated.short_body,
-              hashtags: updated.hashtags ?? [],
-              cta_url: updated.cta_url ?? null,
-              product_focus: updated.product_focus,
-            },
-          }),
-        );
-      }
-      Promise.all(fires).catch((e) =>
+      // US-870: platform-aware fan-out (falls back to long/short).
+      fireSocialWebhooks(updated, nowIso).catch((e) =>
         console.error("[scheduler] scheduled social webhook failed:", e),
       );
 
@@ -762,6 +734,9 @@ async function runSocialTick(
         completion_tokens: result.meta.completion_tokens,
       })
       .eq("id", draft.id);
+    // US-870: (re)write the per-platform variant rows so the publish fan-out
+    // can dispatch by platform.
+    await persistSocialVariants(draft.id, result.post.variants);
   } catch (e) {
     await supabaseAdmin
       .from("social_posts")
@@ -870,40 +845,8 @@ async function runSocialTick(
       published_at: now,
     }).catch((e) => console.error("[scheduler] history append failed:", e));
 
-    const fires: Promise<unknown>[] = [];
-    if (published.long_body?.trim()) {
-      fires.push(
-        dispatchContentWebhook({
-          event: "social.published",
-          format: "long",
-          timestamp: now,
-          data: {
-            id: published.id,
-            body: published.long_body,
-            hashtags: published.hashtags ?? [],
-            cta_url: published.cta_url ?? null,
-            product_focus: published.product_focus,
-          },
-        }),
-      );
-    }
-    if (published.short_body?.trim()) {
-      fires.push(
-        dispatchContentWebhook({
-          event: "social.published",
-          format: "short",
-          timestamp: now,
-          data: {
-            id: published.id,
-            body: published.short_body,
-            hashtags: published.hashtags ?? [],
-            cta_url: published.cta_url ?? null,
-            product_focus: published.product_focus,
-          },
-        }),
-      );
-    }
-    Promise.all(fires).catch((e) =>
+    // US-870: platform-aware fan-out (falls back to long/short).
+    fireSocialWebhooks(published, now).catch((e) =>
       console.error("[scheduler] social webhook fan-out failed:", e),
     );
   }

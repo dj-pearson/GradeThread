@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { generateSocialPost } from "../lib/content-ai-social.ts";
-import { dispatchContentWebhook } from "../lib/content-webhook.ts";
+import {
+  fireSocialWebhooks,
+  loadSocialVariants,
+  persistSocialVariants,
+} from "../lib/content-social-publish.ts";
+import { isSocialPlatform } from "../lib/social-platforms.ts";
 import {
   getAiTemperature,
   getAnthropicClient,
@@ -161,44 +166,11 @@ contentSocialRoutes.post("/:id/publish", async (c) => {
     published_at: now,
   }).catch((e) => console.error("[content-social] history append failed:", e));
 
-  // Fire one webhook per non-empty format. We do this concurrently
-  // because LI/FB and X/Threads have separate Make.com scenarios.
-  // Best-effort: errors are logged in content_webhook_log; publish
-  // succeeds even if both webhooks fail.
-  const fires: Promise<unknown>[] = [];
-  if (updated.long_body?.trim()) {
-    fires.push(
-      dispatchContentWebhook({
-        event: "social.published",
-        format: "long",
-        timestamp: now,
-        data: {
-          id: updated.id,
-          body: updated.long_body,
-          hashtags: updated.hashtags ?? [],
-          cta_url: updated.cta_url ?? null,
-          product_focus: updated.product_focus,
-        },
-      }),
-    );
-  }
-  if (updated.short_body?.trim()) {
-    fires.push(
-      dispatchContentWebhook({
-        event: "social.published",
-        format: "short",
-        timestamp: now,
-        data: {
-          id: updated.id,
-          body: updated.short_body,
-          hashtags: updated.hashtags ?? [],
-          cta_url: updated.cta_url ?? null,
-          product_focus: updated.product_focus,
-        },
-      }),
-    );
-  }
-  Promise.all(fires).catch((e) =>
+  // US-870: fan one social.published webhook out per ENABLED platform that has
+  // a tailored variant (falls back to long/short for variant-less posts).
+  // Best-effort: errors are logged in content_webhook_log; publish succeeds
+  // even if delivery fails.
+  fireSocialWebhooks(updated, now).catch((e) =>
     console.error("[content-social] webhook dispatch failed:", e),
   );
 
@@ -383,10 +355,75 @@ contentSocialRoutes.post("/:id/generate", async (c) => {
       .single();
     if (upErr) return c.json({ error: upErr.message }, 500);
 
-    return c.json({ post: updated, meta: result.meta });
+    // US-870: (re)write the per-platform variant rows from this generation.
+    await persistSocialVariants(id, result.post.variants);
+    const variants = await loadSocialVariants(id);
+
+    return c.json({ post: updated, variants, meta: result.meta });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[content-social] generate failed:", msg);
     return c.json({ error: msg }, 500);
   }
+});
+
+// ── PLATFORM VARIANTS (US-870) ────────────────────────────
+// List the per-platform variants for a post.
+contentSocialRoutes.get("/:id/variants", async (c) => {
+  const id = c.req.param("id");
+  const { data: post } = await supabaseAdmin
+    .from("social_posts")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!post) return c.json({ error: "Not found" }, 404);
+  const variants = await loadSocialVariants(id);
+  return c.json({ variants });
+});
+
+// Edit a single platform variant before publish (body + hashtags). The editor
+// tweaks each tailored variant independently.
+contentSocialRoutes.patch("/:id/variants/:platform", async (c) => {
+  const id = c.req.param("id");
+  const platform = c.req.param("platform");
+  if (!isSocialPlatform(platform)) {
+    return c.json({ error: "Unknown platform" }, 400);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as {
+    body?: string;
+    hashtags?: string[];
+  };
+
+  // Confirm the parent post (and thus the variant) belongs to this content
+  // surface before mutating — variants are admin-only but we still scope writes
+  // to a real post row.
+  const { data: post } = await supabaseAdmin
+    .from("social_posts")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  const patch: Record<string, unknown> = {};
+  if (typeof body.body === "string") patch.body = body.body;
+  if (Array.isArray(body.hashtags)) {
+    patch.hashtags = body.hashtags
+      .filter((h): h is string => typeof h === "string")
+      .map((h) => h.trim().toLowerCase().replace(/^#/, "").replace(/\s+/g, ""))
+      .filter(Boolean);
+  }
+  if (Object.keys(patch).length === 0) {
+    return c.json({ error: "Nothing to update" }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("social_platform_variants")
+    .update(patch)
+    .eq("social_post_id", id)
+    .eq("platform", platform)
+    .select("platform, body, hashtags, image_field, char_limit")
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data) return c.json({ error: "Variant not found" }, 404);
+  return c.json({ variant: data });
 });

@@ -233,7 +233,10 @@ export function buildBlogArticleUserPrompt(topic: BlogTopicInput): string {
 // SOCIAL POST GENERATION (v1)
 // ──────────────────────────────────────────────────────────
 
-export const SOCIAL_POST_PROMPT_VERSION = "social_post_v1";
+// v2 (US-870): the model now also returns a tailored variant per enabled
+// platform (X/LinkedIn/Facebook/Threads/Pinterest/Instagram) in the same call,
+// alongside the legacy long_body/short_body the rest of the system still reads.
+export const SOCIAL_POST_PROMPT_VERSION = "social_post_v2";
 
 export interface SocialTopicInput {
   title: string;
@@ -243,7 +246,44 @@ export interface SocialTopicInput {
   cta_url: string; // already includes utm_*
 }
 
-export function buildSocialPostUserPrompt(topic: SocialTopicInput): string {
+// A platform + its hard rules, passed in by the caller (content-ai-social.ts)
+// from social-platforms.ts so the prompt and the spec never drift.
+export interface SocialPlatformPromptSpec {
+  platform: string;
+  rules: string;
+}
+
+export function buildSocialPostUserPrompt(
+  topic: SocialTopicInput,
+  platforms: SocialPlatformPromptSpec[] = [],
+): string {
+  const variantBlock = platforms.length > 0
+    ? [
+      "",
+      "Also write a tailored variant for EACH of these platforms — same idea,",
+      "but matched to that network's length, tone, hashtag, and link conventions:",
+      ...platforms.map((p) => `- ${p.platform}: ${p.rules}`),
+      "",
+      'Add a "variants" object keyed by platform. For each platform include',
+      '"body" (the post text, honoring its character limit) and "hashtags"',
+      "(lowercase, no spaces, no '#' prefix). Only include the platforms listed above.",
+    ]
+    : [];
+
+  const variantSchema = platforms.length > 0
+    ? [
+      "  ,",
+      '  "variants": {',
+      ...platforms.map(
+        (p, i) =>
+          `    "${p.platform}": { "body": "<see rules>", "hashtags": ["reselling"] }${
+            i < platforms.length - 1 ? "," : ""
+          }`,
+      ),
+      "  }",
+    ]
+    : [];
+
   return [
     "Write a paired long-format and short-format social post for this topic.",
     "",
@@ -256,12 +296,14 @@ export function buildSocialPostUserPrompt(topic: SocialTopicInput): string {
     "Long body: 800–1500 characters. Hook line on its own. One blank line between paragraphs. End with the CTA URL on its own line.",
     "Short body: ≤280 characters TOTAL including the URL. One thought, sharp insight, link.",
     "Hashtags: 3–5 lowercase, no spaces, no '#' prefix in the array values.",
+    ...variantBlock,
     "",
     "Return JSON matching exactly this schema:",
     "{",
     '  "long_body": "<see rules above>",',
     '  "short_body": "<see rules above, ≤280 chars>",',
     '  "hashtags": ["reselling","thrifting"]',
+    ...variantSchema,
     "}",
   ]
     .filter(Boolean)
@@ -393,10 +435,21 @@ export interface BlogArticleOutput {
   summary_one_line: string;
 }
 
+// US-870: one tailored, normalized variant per platform.
+export interface SocialVariantOutput {
+  platform: string;
+  body: string;
+  hashtags: string[];
+  char_limit: number;
+  image_field: string;
+}
+
 export interface SocialPostOutput {
   long_body: string;
   short_body: string;
   hashtags: string[];
+  // Platform-tailored variants (US-870). Empty when no platforms requested.
+  variants: SocialVariantOutput[];
 }
 
 export interface TopicResearchOutput {

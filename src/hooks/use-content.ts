@@ -12,6 +12,8 @@ import type {
   ContentSettingsRow,
   ContentSurface,
   ContentTopicRow,
+  SocialPlatform,
+  SocialPlatformVariantRow,
   SocialPostRow,
   TopicStatus,
 } from "@/types/database";
@@ -321,7 +323,45 @@ export function useGenerateSocialPost(id: string) {
     onSuccess: ({ post }) => {
       qc.setQueryData(["social_post", id], post);
       qc.invalidateQueries({ queryKey: ["social_posts"] });
+      qc.invalidateQueries({ queryKey: ["social_variants", id] });
       toast.success("Generated.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// US-870: per-platform variants for a social post.
+export function useSocialVariants(id: string | null) {
+  return useQuery({
+    queryKey: ["social_variants", id],
+    enabled: !!id,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const data = await jfetch<{ variants: SocialPlatformVariantRow[] }>(
+        `/api/content/social/${id}/variants`,
+      );
+      return data.variants;
+    },
+  });
+}
+
+export function useUpdateSocialVariant(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      platform: SocialPlatform;
+      body?: string;
+      hashtags?: string[];
+    }) => {
+      const { platform, ...patch } = input;
+      const data = await jfetch<{ variant: SocialPlatformVariantRow }>(
+        `/api/content/social/${id}/variants/${platform}`,
+        { method: "PATCH", json: patch },
+      );
+      return data.variant;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["social_variants", id] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -719,7 +759,9 @@ export function useRetryWebhook() {
 
 export function useTestWebhook() {
   return useMutation({
-    mutationFn: async (target: "blog" | "social_long" | "social_short") => {
+    mutationFn: async (
+      target: "blog" | "social_long" | "social_short" | "social",
+    ) => {
       const data = await jfetch<{
         succeeded: boolean;
         http_status: number;

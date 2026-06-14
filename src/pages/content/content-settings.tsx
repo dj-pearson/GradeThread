@@ -15,6 +15,8 @@ import {
   useUpdateContentSettings,
   useWebhookLog,
 } from "@/hooks/use-content";
+import { SOCIAL_PLATFORMS, SOCIAL_PLATFORM_LABELS } from "@/lib/constants";
+import type { SocialPlatform } from "@/types/database";
 
 // Singleton settings page. Admin-only via the route gate.
 // All inputs are debounce-free — the user clicks Save to commit (it's
@@ -60,8 +62,9 @@ export function ContentSettingsPage() {
           {(
             [
               ["make_webhook_blog", "Blog publish", "blog"],
-              ["make_webhook_social_long", "Social long (LinkedIn/Facebook)", "social_long"],
-              ["make_webhook_social_short", "Social short (X/Threads)", "social_short"],
+              ["make_webhook_social", "Social platform router (all platforms)", "social"],
+              ["make_webhook_social_long", "Social long (LinkedIn/Facebook) — legacy fallback", "social_long"],
+              ["make_webhook_social_short", "Social short (X/Threads) — legacy fallback", "social_short"],
             ] as const
           ).map(([field, label, target]) => (
             <div key={field} className="space-y-1">
@@ -96,6 +99,43 @@ export function ContentSettingsPage() {
               )}
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Social platforms</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Which platforms get a tailored variant generated and a publish
+            webhook fired. The AI writes one post per enabled platform; the
+            router webhook above dispatches each by platform.
+          </p>
+          {SOCIAL_PLATFORMS.map((platform) => {
+            const enabled = (draft.social_platforms ?? []).includes(platform);
+            return (
+              <div
+                key={platform}
+                className="flex items-center justify-between rounded-md border p-3"
+              >
+                <p className="font-medium">
+                  {SOCIAL_PLATFORM_LABELS[platform]}
+                </p>
+                <Switch
+                  checked={enabled}
+                  onCheckedChange={(v) => {
+                    const current = (draft.social_platforms ??
+                      []) as SocialPlatform[];
+                    const next = v
+                      ? Array.from(new Set([...current, platform]))
+                      : current.filter((p) => p !== platform);
+                    setField("social_platforms", next);
+                  }}
+                />
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
