@@ -4,6 +4,7 @@ import {
   getDefaultModel,
   getGradingCompositeModel,
   gradingSamplingParams,
+  isAllowedGradingModel,
   isCachingEnabled,
   reviewConfidenceThreshold,
   type GradingEffort,
@@ -892,12 +893,18 @@ export async function analyzeImage(
   garmentCategory = "",
   styleHint: string[] = [],
   // Eval harness passes a candidate prompt to score a not-yet-active version.
-  promptOverride?: ResolvedPrompt
+  promptOverride?: ResolvedPrompt,
+  // US-1034: eval/comparison harness may pin a specific (allowlisted) model to
+  // qualify a stronger vision model; ignored if not on the grading allowlist.
+  modelOverride?: string,
 ): Promise<PerImageAnalysis> {
   const client = getAnthropicClient();
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
-  const model = getDefaultModel();
+  const model =
+    modelOverride && isAllowedGradingModel(modelOverride)
+      ? modelOverride
+      : getDefaultModel();
   // US-481/US-1033/US-1032: reproducible, model-family-aware sampling (low temp
   // on Sonnet/Haiku, effort on Opus-4.7+/Fable) MERGED with a structured-output
   // schema so the response is guaranteed-valid JSON (no parse-failure path).
@@ -1529,11 +1536,16 @@ export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,
   // Eval harness passes a candidate prompt to score a not-yet-active version.
-  promptOverride?: ResolvedPrompt
+  promptOverride?: ResolvedPrompt,
+  // US-1034: pin a specific (allowlisted) composite model for model A/B eval.
+  modelOverride?: string,
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
-  const compositeModel = getGradingCompositeModel();
+  const compositeModel =
+    modelOverride && isAllowedGradingModel(modelOverride)
+      ? modelOverride
+      : getGradingCompositeModel();
   // US-481/US-1033/US-1032: reproducible sampling + structured-output schema
   // (see analyzeImage).
   const { outputConfig, temperature } = gradingTuning(

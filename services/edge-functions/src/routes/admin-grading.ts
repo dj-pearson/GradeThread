@@ -11,6 +11,8 @@ import {
 } from "../lib/accuracy-tracking.ts";
 import { activatePromptVersion, runEval, runPromptDryRun } from "../lib/grading-eval.ts";
 import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
+import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
+import { isAllowedGradingModel } from "../lib/ai-config.ts";
 import { invalidatePromptCache } from "../lib/ai-grading.ts";
 import {
   autoPromoteListingPrompt,
@@ -134,6 +136,60 @@ adminGradingRoutes.get("/accuracy/defects", async (c) => {
     return c.json(
       {
         error: "Failed to compute defect accuracy",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+});
+
+// POST /model-comparison — qualify a stronger grading model via the eval gate
+// (US-1034). Runs the active golden cases under model_a and model_b and returns
+// a grade-error comparison + promotion recommendation. EXPENSIVE: grades every
+// eval case twice through the real vision model. Body: { prompt_version_id,
+// model_a, model_b }. prompt_version_id should reference a default/empty-text
+// version to evaluate current grading behavior under each model.
+adminGradingRoutes.post("/model-comparison", async (c) => {
+  const userId = c.get("userId") ?? null;
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const promptVersionId = String(body.prompt_version_id ?? "");
+    const modelA = String(body.model_a ?? "");
+    const modelB = String(body.model_b ?? "");
+    if (!promptVersionId || !modelA || !modelB) {
+      return c.json(
+        { error: "prompt_version_id, model_a and model_b are required" },
+        400,
+      );
+    }
+    if (!isAllowedGradingModel(modelA) || !isAllowedGradingModel(modelB)) {
+      return c.json(
+        { error: "model_a and model_b must be on the grading allowlist" },
+        400,
+      );
+    }
+    const [runA, runB] = await Promise.all([
+      runEval(promptVersionId, userId, modelA),
+      runEval(promptVersionId, userId, modelB),
+    ]);
+    const toEvalRun = (r: typeof runA): ModelEvalRun => ({
+      model: r.model,
+      mean_absolute_error: r.mean_absolute_error,
+      agreement_rate: r.agreement_rate,
+      cases_total: r.cases_total,
+      cases_passed: r.cases_passed,
+      per_tag: r.per_tag,
+      cost_per_grade_usd: null,
+    });
+    return c.json({
+      run_a: runA,
+      run_b: runB,
+      comparison: compareModelEvals(toEvalRun(runA), toEvalRun(runB)),
+    });
+  } catch (err) {
+    return c.json(
+      {
+        error: "Failed to run model comparison",
         detail: err instanceof Error ? err.message : String(err),
       },
       500,

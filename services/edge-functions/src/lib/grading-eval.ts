@@ -9,7 +9,7 @@ import {
   type PerImageAnalysis,
   type ResolvedPrompt,
 } from "./ai-grading.ts";
-import { getGradingCompositeModel } from "./ai-config.ts";
+import { getGradingCompositeModel, isAllowedGradingModel } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
 
 // ─── Eval harness + activation gate ─────────────────────────────────
@@ -127,6 +127,9 @@ export async function downloadCaseImage(
 export async function runEval(
   promptVersionId: string,
   triggeredBy: string | null,
+  // US-1034: pin a specific (allowlisted) model for both grading stages so the
+  // same golden cases can be scored under model A vs B; ignored if not allowed.
+  modelOverride?: string,
 ): Promise<EvalRunResult> {
   // Load the candidate prompt version.
   const { data: version, error: versionError } = await supabaseAdmin
@@ -185,7 +188,10 @@ export async function runEval(
     );
   }
 
-  const model = getGradingCompositeModel();
+  const model =
+    modelOverride && isAllowedGradingModel(modelOverride)
+      ? modelOverride
+      : getGradingCompositeModel();
   const perCase: EvalCaseResult[] = [];
 
   for (const row of cases as EvalCaseRow[]) {
@@ -207,6 +213,7 @@ export async function runEval(
             row.garment_category,
             styleHint,
             perImageOverride,
+            modelOverride,
           ),
         );
       }
@@ -219,7 +226,12 @@ export async function runEval(
         description: row.description,
         style_attributes: styleHint,
       };
-      const result = await compositeGrade(perImage, garmentInfo, compositeOverride);
+      const result = await compositeGrade(
+        perImage,
+        garmentInfo,
+        compositeOverride,
+        modelOverride,
+      );
       const error = Math.abs(result.overall_score - row.expected_score);
 
       perCase.push({
