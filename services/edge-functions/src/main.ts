@@ -64,6 +64,7 @@ import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
 import { adminJobsRoutes } from "./routes/admin-jobs.ts";
 import { adminOpsRoutes } from "./routes/admin-ops.ts";
+import { maintenanceRoutes } from "./routes/maintenance.ts";
 import { adminSettingsRoutes } from "./routes/admin-settings.ts";
 import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
@@ -107,6 +108,7 @@ import { verifiedRoutes } from "./routes/verified.ts";
 import { supportAssistantRoutes } from "./routes/support-assistant.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
+import { maintenanceGuard } from "./middleware/maintenance.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter, pagesOriginBypass } from "./middleware/rate-limit.ts";
 import { getSetting, getSettingSync } from "./lib/system-settings.ts";
@@ -607,8 +609,20 @@ app.use(
 // partner usage/billing dashboard. Fire-and-forget; never blocks the response.
 app.use("/api/v1/*", apiUsageMiddleware);
 
+// US-887: maintenance-window enforcement. Runs LAST in the middleware chain (so
+// userId is already set by the per-prefix authMiddleware above) on the
+// user-facing action surfaces. Under an effective 'blocked'/'read_only' window
+// it 503s non-admin traffic; a no-op (one cached read) when nothing is active.
+// /api/admin is intentionally NOT guarded — admins are never locked out (AC#6).
+app.use("/api/grade/*", maintenanceGuard);
+app.use("/api/flipdesk/*", maintenanceGuard);
+app.use("/api/payments/*", maintenanceGuard);
+
 // Routes
 app.route("/health", healthRoutes);
+// US-887: PUBLIC maintenance status — the SPA app-shell banner reads this with
+// no auth so logged-out / public surfaces show the notice too.
+app.route("/api/maintenance", maintenanceRoutes);
 app.route("/api/grade", gradeRoutes);
 // US-585: waitlist — public capture (POST /) + authed access check (GET /me).
 app.route("/api/waitlist", waitlistRoutes);

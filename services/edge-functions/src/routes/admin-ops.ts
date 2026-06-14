@@ -42,6 +42,15 @@ import {
 } from "../lib/ops-health.ts";
 import { releaseSha } from "../lib/observability.ts";
 import { edgeEnv } from "../lib/env.ts";
+import {
+  bustMaintenanceCache,
+  isMaintenanceMode,
+  isMaintenanceScope,
+  MAINTENANCE_SELECT,
+  type MaintenanceMode,
+  type MaintenanceScope,
+  type MaintenanceWindow,
+} from "../lib/maintenance.ts";
 
 // Operations console — background jobs & scheduler (US-881).
 //
@@ -609,4 +618,242 @@ adminOpsRoutes.post("/dead-letters/bulk", async (c) => {
   );
 
   return c.json({ ok: true, action, processed, succeeded, failed, remaining });
+});
+
+// ── Maintenance mode + scheduled maintenance windows (US-887) ─────
+//
+// GET    /maintenance      — every window, newest first (any admin).
+// POST   /maintenance      — create a window (super_admin + MFA step-up; audited).
+// PATCH  /maintenance/:id  — edit / activate / "end now" (super_admin + step-up).
+// DELETE /maintenance/:id  — remove a window (super_admin + step-up; audited).
+//
+// A window puts a scope (platform|grading|flipdesk|checkout) into a mode
+// (banner|read_only|blocked), immediately or on a schedule. The edge guard
+// (middleware/maintenance.ts) enforces it; the public /api/maintenance/active
+// endpoint + the SPA banner surface it. Every mutation busts the short-TTL cache
+// so it lands on the next request, and admins always bypass enforcement (AC#6).
+
+// Trim a message to a sane bound; returns null when empty.
+function normalizeMaintenanceMessage(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (!t) return null;
+  return t.slice(0, 1000);
+}
+
+// Parse an optional ISO timestamp. Empty/null → null (open bound).
+function parseMaintenanceTs(
+  v: unknown,
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (v === null || v === undefined || v === "") return { ok: true, value: null };
+  if (typeof v !== "string" || Number.isNaN(Date.parse(v))) {
+    return { ok: false, error: "starts_at / ends_at must be ISO timestamps." };
+  }
+  return { ok: true, value: new Date(v).toISOString() };
+}
+
+function maintenanceWindowAudit(action: string, id: string, after?: unknown, before?: unknown) {
+  return {
+    action,
+    targetType: "maintenance_window",
+    targetId: id,
+    before,
+    after,
+  };
+}
+
+// GET /maintenance — list all windows (admin read).
+adminOpsRoutes.get("/maintenance", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("maintenance_windows")
+    .select(MAINTENANCE_SELECT)
+    .order("created_at", { ascending: false });
+  if (error) {
+    captureException(error, { tags: { area: "admin-maintenance" } });
+    return c.json({ error: "Failed to load maintenance windows" }, 500);
+  }
+  return c.json({
+    windows: (data ?? []) as MaintenanceWindow[],
+    server_now: new Date().toISOString(),
+  });
+});
+
+// POST /maintenance — create a window. super_admin + fresh MFA step-up.
+adminOpsRoutes.post("/maintenance", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin access required" }, 403);
+  }
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!isMaintenanceScope(body.scope)) {
+    return c.json({ error: "scope must be platform | grading | flipdesk | checkout" }, 400);
+  }
+  if (!isMaintenanceMode(body.mode)) {
+    return c.json({ error: "mode must be banner | read_only | blocked" }, 400);
+  }
+  const message = normalizeMaintenanceMessage(body.message);
+  if (!message) return c.json({ error: "A message is required." }, 400);
+
+  const starts = parseMaintenanceTs(body.starts_at);
+  if (!starts.ok) return c.json({ error: starts.error }, 400);
+  const ends = parseMaintenanceTs(body.ends_at);
+  if (!ends.ok) return c.json({ error: ends.error }, 400);
+  if (starts.value && ends.value && Date.parse(ends.value) <= Date.parse(starts.value)) {
+    return c.json({ error: "ends_at must be after starts_at." }, 400);
+  }
+
+  const scope = body.scope as MaintenanceScope;
+  const mode = body.mode as MaintenanceMode;
+  const isActive = typeof body.is_active === "boolean" ? body.is_active : true;
+
+  const { data, error } = await supabaseAdmin
+    .from("maintenance_windows")
+    .insert({
+      scope,
+      mode,
+      message,
+      starts_at: starts.value,
+      ends_at: ends.value,
+      is_active: isActive,
+      created_by: c.get("userId"),
+    })
+    .select(MAINTENANCE_SELECT)
+    .maybeSingle();
+  if (error || !data) {
+    captureException(error ?? new Error("insert returned no row"), {
+      tags: { area: "admin-maintenance" },
+    });
+    return c.json({ error: "Failed to create maintenance window" }, 500);
+  }
+
+  bustMaintenanceCache();
+  const row = data as MaintenanceWindow;
+  await writeAuditLog(c, maintenanceWindowAudit("maintenance_window.create", row.id, row));
+
+  return c.json({ ok: true, window: row });
+});
+
+// PATCH /maintenance/:id — edit / activate / "end now". super_admin + step-up.
+adminOpsRoutes.patch("/maintenance/:id", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin access required" }, 403);
+  }
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  const id = c.req.param("id");
+  const { data: existing, error: loadErr } = await supabaseAdmin
+    .from("maintenance_windows")
+    .select(MAINTENANCE_SELECT)
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) {
+    captureException(loadErr, { tags: { area: "admin-maintenance" } });
+    return c.json({ error: "Failed to load maintenance window" }, 500);
+  }
+  if (!existing) return c.json({ error: "Maintenance window not found" }, 404);
+  const before = existing as MaintenanceWindow;
+
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const patch: Record<string, unknown> = {};
+
+  if ("scope" in body) {
+    if (!isMaintenanceScope(body.scope)) {
+      return c.json({ error: "scope must be platform | grading | flipdesk | checkout" }, 400);
+    }
+    patch.scope = body.scope;
+  }
+  if ("mode" in body) {
+    if (!isMaintenanceMode(body.mode)) {
+      return c.json({ error: "mode must be banner | read_only | blocked" }, 400);
+    }
+    patch.mode = body.mode;
+  }
+  if ("message" in body) {
+    const message = normalizeMaintenanceMessage(body.message);
+    if (!message) return c.json({ error: "A message is required." }, 400);
+    patch.message = message;
+  }
+  if ("starts_at" in body) {
+    const starts = parseMaintenanceTs(body.starts_at);
+    if (!starts.ok) return c.json({ error: starts.error }, 400);
+    patch.starts_at = starts.value;
+  }
+  if ("ends_at" in body) {
+    const ends = parseMaintenanceTs(body.ends_at);
+    if (!ends.ok) return c.json({ error: ends.error }, 400);
+    patch.ends_at = ends.value;
+  }
+  if ("is_active" in body) {
+    if (typeof body.is_active !== "boolean") {
+      return c.json({ error: "is_active must be a boolean." }, 400);
+    }
+    patch.is_active = body.is_active;
+  }
+
+  // Validate the resulting schedule ordering against the merged state.
+  const nextStarts = (patch.starts_at as string | null | undefined) ?? before.starts_at;
+  const nextEnds = (patch.ends_at as string | null | undefined) ?? before.ends_at;
+  if (nextStarts && nextEnds && Date.parse(nextEnds) <= Date.parse(nextStarts)) {
+    return c.json({ error: "ends_at must be after starts_at." }, 400);
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return c.json({ error: "No updatable fields supplied." }, 400);
+  }
+
+  const { data: updated, error: updErr } = await supabaseAdmin
+    .from("maintenance_windows")
+    .update(patch)
+    .eq("id", id)
+    .select(MAINTENANCE_SELECT)
+    .maybeSingle();
+  if (updErr || !updated) {
+    captureException(updErr ?? new Error("update returned no row"), {
+      tags: { area: "admin-maintenance" },
+    });
+    return c.json({ error: "Failed to update maintenance window" }, 500);
+  }
+
+  bustMaintenanceCache();
+  const after = updated as MaintenanceWindow;
+  // "End now" (is_active flipped false) is the most common patch — record it
+  // distinctly so the audit trail reads clearly.
+  const action = before.is_active && after.is_active === false
+    ? "maintenance_window.end"
+    : "maintenance_window.update";
+  await writeAuditLog(c, maintenanceWindowAudit(action, id, after, before));
+
+  return c.json({ ok: true, window: after });
+});
+
+// DELETE /maintenance/:id — remove a window. super_admin + step-up.
+adminOpsRoutes.delete("/maintenance/:id", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin access required" }, 403);
+  }
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  const id = c.req.param("id");
+  const { data, error } = await supabaseAdmin
+    .from("maintenance_windows")
+    .delete()
+    .eq("id", id)
+    .select(MAINTENANCE_SELECT)
+    .maybeSingle();
+  if (error) {
+    captureException(error, { tags: { area: "admin-maintenance" } });
+    return c.json({ error: "Failed to delete maintenance window" }, 500);
+  }
+  if (!data) return c.json({ error: "Maintenance window not found" }, 404);
+
+  bustMaintenanceCache();
+  const row = data as MaintenanceWindow;
+  await writeAuditLog(c, maintenanceWindowAudit("maintenance_window.delete", id, undefined, row));
+
+  return c.json({ ok: true, id });
 });

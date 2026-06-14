@@ -92,6 +92,9 @@ const opsNavItems = [
   // US-886 feature flags v2. List/toggle is admin; the targeting rule editor is
   // super_admin + MFA step-up gated server-side.
   { to: "/admin/ops/feature-flags", icon: Flag, label: "Feature Flags", end: false },
+  // US-887 maintenance mode + scheduled windows. List is admin; create/edit/end
+  // is super_admin + MFA step-up gated server-side.
+  { to: "/admin/ops/maintenance", icon: Wrench, label: "Maintenance", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +

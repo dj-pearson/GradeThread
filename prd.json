@@ -13094,8 +13094,8 @@
         "Admins are never locked out of /admin by a window — covered by test."
       ],
       "priority": 887,
-      "passes": false,
-      "notes": "[Platform Admin Command Center / Platform Config] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+      "passes": true,
+      "notes": "[Platform Admin Command Center / Platform Config] Added 2026-06-11. DONE: migration 00211_maintenance_windows.sql (scope/mode enums + table, service-role-only RLS, updated_at trigger); EXPECTED_SCHEMA_VERSION bumped 00210→00211. lib/maintenance.ts holds the PURE decideMaintenance() + isWindowEffective()/scopesForPath()/isMaintenanceExemptPath() + a 30s active-window cache (fail-open) + a 60s admin-role cache. middleware/maintenance.ts (maintenanceGuard) is mounted on /api/grade,/api/flipdesk,/api/payments AFTER their authMiddleware (last gate before routes): blocked→503 MAINTENANCE for non-admin in-scope reqs, read_only→503 MAINTENANCE_READ_ONLY for non-admin writes, banner→no-op; admins always bypass and /api/admin is exempt (AC#6). Public GET /api/maintenance/active (no auth) feeds the SPA. Admin mgmt GET/POST/PATCH/DELETE /api/admin/ops/maintenance added to admin-ops.ts (super_admin + requireStepUp + writeAuditLog; PATCH is_active=false = 'end now', audited as maintenance_window.end). Frontend: MaintenanceBanner (reuses announcement styling; banner dismissible per-session, read_only/blocked non-dismissible) in dashboard-layout; admin page src/pages/admin/maintenance.tsx at /admin/ops/maintenance + Wrench nav item. Webhooks/crons/oauth-callbacks exempt so integrations don't lose events. Tests: maintenance_test.ts (12, incl. AC#6 admin-never-blocked + /api/admin exempt). Verified: 1403 edge tests, 772 web tests, npm run build (41 pages), verify:db (00211 applies from zero)."
     },
     {
       "id": "US-888",

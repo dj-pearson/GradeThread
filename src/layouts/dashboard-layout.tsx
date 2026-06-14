@@ -11,6 +11,7 @@ import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { UsageAlertWatcher } from "@/components/billing/usage-alert-watcher";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
 import { AnnouncementBanner } from "@/components/announcements/announcement-banner";
+import { MaintenanceBanner } from "@/components/maintenance/maintenance-banner";
 import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { ImpersonationBanner } from "@/components/admin/impersonation-banner";
 import { SupportChatWidget } from "@/components/support/support-chat-widget";
@@ -43,6 +44,7 @@ export function DashboardLayout() {
         >
           <ErrorBoundary>
             <FlipdeskOnboarding />
+            <MaintenanceBanner />
             <AnnouncementBanner />
             <PastDueBanner />
             <Outlet />
