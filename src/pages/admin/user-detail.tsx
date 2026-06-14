@@ -75,6 +75,7 @@ import * as Sentry from "@sentry/react";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
 import { CreditLedgerCard } from "@/components/admin/credit-ledger-card";
 import { UserRateLimitsCard } from "@/components/admin/user-rate-limits-card";
+import { UserTimelineCard } from "@/components/admin/user-timeline-card";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 
@@ -770,6 +771,9 @@ export function AdminUserDetailPage() {
 
       {/* Rate-limit administration (US-890) — counters + temporary overrides. */}
       <UserRateLimitsCard userId={targetUser.id} />
+
+      {/* User 360 activity timeline (US-902) — one chronological cross-domain feed. */}
+      <UserTimelineCard userId={targetUser.id} />
 
       {/* Submission History */}
       <Card>

@@ -13320,8 +13320,8 @@
         "Pagination is cursor/time-based so a long-lived account still loads quickly."
       ],
       "priority": 902,
-      "passes": false,
-      "notes": "[Platform Admin Command Center / Support] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+      "passes": true,
+      "notes": "[Platform Admin Command Center / Support] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination. [DONE 2026-06-14] GET /api/admin/users/:id/timeline added to admin-users.ts: merges signup, submissions, grades (via submissions!inner user_id scope), grade_credit_transactions, flipdesk_subscription_events, disputes, support_tickets and admin_audit_log (target_type=user,target_id) into one newest-first feed. Cursor/time-based pagination (each source over-fetches limit+1 strictly older than the ISO cursor, merged+resliced; tail timestamp = nextCursor). ?types= filters sources. Strictly scoped to the one target id. Frontend: UserTimelineCard (useInfiniteQuery, type chips, Load more) rendered on user-detail.tsx."
     },
     {
       "id": "US-903",

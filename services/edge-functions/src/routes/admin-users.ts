@@ -143,6 +143,334 @@ adminUsersRoutes.get("/lookup", async (c: Context<AdminEnv>) => {
   return c.json({ matches });
 });
 
+// ── User 360 activity timeline (US-902) ──────────────────────────────────────
+//
+// GET /:id/timeline — one chronological, cross-domain feed of everything that
+// happened to a single user (signup, submissions, grades, credit ledger,
+// FlipDesk subscription events, disputes, support tickets, and admin actions
+// taken AGAINST them). Read-only; admin + AAL2 is already enforced by the
+// /api/admin/* middleware group, so no step-up / audit write here.
+//
+// Strictly scoped to the one (already-verified) target id: every source query
+// filters by user_id / target_id, and grades — which carry no user_id — are
+// reached only through an inner join on their parent submission's user_id
+// (US-268). No cross-user leakage is possible.
+//
+// Pagination is cursor/time-based: `cursor` is the ISO timestamp of the last
+// event from the previous page; each source fetches the page-sized window of
+// rows strictly OLDER than it, the windows are merged + re-sorted newest-first,
+// and the slice's tail timestamp becomes the next cursor. This keeps a
+// long-lived account fast — we never scan a user's entire history.
+
+const TIMELINE_TYPES = [
+  "signup",
+  "submission",
+  "grade",
+  "credit",
+  "subscription",
+  "dispute",
+  "ticket",
+  "admin_action",
+] as const;
+type TimelineType = (typeof TIMELINE_TYPES)[number];
+
+interface TimelineEvent {
+  /** Stable composite id (`<type>:<rowId>`) — safe React key, no collisions. */
+  id: string;
+  type: TimelineType;
+  /** ISO timestamp the event occurred at. */
+  timestamp: string;
+  summary: string;
+  /** Deep link to the underlying record/surface, or null when shown inline. */
+  link: string | null;
+}
+
+const PLAN_LABELS: Record<string, string> = {
+  free: "Free",
+  starter: "Starter",
+  professional: "Professional",
+  business: "Business",
+  enterprise: "Enterprise",
+};
+
+adminUsersRoutes.get("/:id/timeline", async (c: Context<AdminEnv>) => {
+  const targetId = c.req.param("id");
+  if (!UUID_RE.test(targetId)) {
+    return c.json({ error: "Invalid user id" }, 400);
+  }
+
+  // The target is the already-verified scope — confirm it exists and grab the
+  // signup timestamp in one read.
+  const { data: target, error: userErr } = await supabaseAdmin
+    .from("users")
+    .select("id, created_at")
+    .eq("id", targetId)
+    .maybeSingle();
+  if (userErr) return c.json({ error: userErr.message }, 500);
+  if (!target) return c.json({ error: "User not found" }, 404);
+  const signupAt = (target as { created_at: string }).created_at;
+
+  const limitRaw = Number(c.req.query("limit"));
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
+    : 25;
+  // Cursor: ISO timestamp; fetch only events strictly older than it.
+  const cursorRaw = (c.req.query("cursor") ?? "").trim();
+  const cursor = cursorRaw && !Number.isNaN(Date.parse(cursorRaw)) ? cursorRaw : null;
+
+  // `types` filter — comma-separated subset of TIMELINE_TYPES. Absent = all.
+  const typesRaw = (c.req.query("types") ?? "").trim();
+  const requested = typesRaw
+    ? new Set(typesRaw.split(",").map((s) => s.trim()).filter(Boolean))
+    : null;
+  const wants = (t: TimelineType) => requested === null || requested.has(t);
+
+  // Over-fetch one extra row per source so the merge has enough to fill a page
+  // and to detect "there's more".
+  const perSource = limit + 1;
+
+  const events: TimelineEvent[] = [];
+
+  // signup — a single synthetic event; include only when it falls inside the
+  // current (older-than-cursor) window.
+  if (wants("signup") && (!cursor || signupAt < cursor)) {
+    events.push({
+      id: `signup:${targetId}`,
+      type: "signup",
+      timestamp: signupAt,
+      summary: "Account created",
+      link: `/admin/users/${targetId}`,
+    });
+  }
+
+  await Promise.all([
+    // submissions
+    (async () => {
+      if (!wants("submission")) return;
+      let q = supabaseAdmin
+        .from("submissions")
+        .select("id, title, status, created_at")
+        .eq("user_id", targetId);
+      if (cursor) q = q.lt("created_at", cursor);
+      const { data } = await q
+        .order("created_at", { ascending: false })
+        .limit(perSource);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        title: string | null;
+        status: string;
+        created_at: string;
+      }>) {
+        events.push({
+          id: `submission:${r.id}`,
+          type: "submission",
+          timestamp: r.created_at,
+          summary: `Submitted "${r.title ?? "Untitled"}" (${r.status})`,
+          link: "/admin/submissions",
+        });
+      }
+    })(),
+
+    // grades — reached via the parent submission's user_id (grade_reports has
+    // no user_id of its own); inner join keeps it tenant-scoped (US-268).
+    (async () => {
+      if (!wants("grade")) return;
+      let q = supabaseAdmin
+        .from("grade_reports")
+        .select(
+          "id, overall_score, grade_tier, certificate_id, created_at, submissions!inner(user_id, title)",
+        )
+        .eq("submissions.user_id", targetId);
+      if (cursor) q = q.lt("created_at", cursor);
+      const { data } = await q
+        .order("created_at", { ascending: false })
+        .limit(perSource);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        overall_score: number;
+        grade_tier: string;
+        certificate_id: string | null;
+        created_at: string;
+        submissions: { title: string | null } | { title: string | null }[] | null;
+      }>) {
+        const sub = Array.isArray(r.submissions) ? r.submissions[0] : r.submissions;
+        const title = sub?.title ?? "item";
+        events.push({
+          id: `grade:${r.id}`,
+          type: "grade",
+          timestamp: r.created_at,
+          summary: `Graded "${title}" — ${Number(r.overall_score).toFixed(1)} (${r.grade_tier})`,
+          link: r.certificate_id ? `/certificate/${r.certificate_id}` : null,
+        });
+      }
+    })(),
+
+    // grade-credit ledger
+    (async () => {
+      if (!wants("credit")) return;
+      let q = supabaseAdmin
+        .from("grade_credit_transactions")
+        .select("id, delta, reason, balance_after, created_at")
+        .eq("user_id", targetId);
+      if (cursor) q = q.lt("created_at", cursor);
+      const { data } = await q
+        .order("created_at", { ascending: false })
+        .limit(perSource);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        delta: number;
+        reason: string;
+        balance_after: number | null;
+        created_at: string;
+      }>) {
+        const sign = r.delta > 0 ? `+${r.delta}` : `${r.delta}`;
+        events.push({
+          id: `credit:${r.id}`,
+          type: "credit",
+          timestamp: r.created_at,
+          summary:
+            `Grade credits ${sign} (${r.reason.replace(/_/g, " ")})` +
+            (r.balance_after !== null ? ` → balance ${r.balance_after}` : ""),
+          link: null,
+        });
+      }
+    })(),
+
+    // FlipDesk subscription events
+    (async () => {
+      if (!wants("subscription")) return;
+      let q = supabaseAdmin
+        .from("flipdesk_subscription_events")
+        .select("id, event_type, from_plan, to_plan, created_at")
+        .eq("user_id", targetId);
+      if (cursor) q = q.lt("created_at", cursor);
+      const { data } = await q
+        .order("created_at", { ascending: false })
+        .limit(perSource);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        event_type: string;
+        from_plan: string | null;
+        to_plan: string | null;
+        created_at: string;
+      }>) {
+        let summary = `Subscription ${r.event_type.replace(/[_.]/g, " ")}`;
+        if (r.from_plan || r.to_plan) {
+          const from = r.from_plan ? (PLAN_LABELS[r.from_plan] ?? r.from_plan) : "—";
+          const to = r.to_plan ? (PLAN_LABELS[r.to_plan] ?? r.to_plan) : "—";
+          summary += `: ${from} → ${to}`;
+        }
+        events.push({
+          id: `subscription:${r.id}`,
+          type: "subscription",
+          timestamp: r.created_at,
+          summary,
+          link: "/admin/revenue",
+        });
+      }
+    })(),
+
+    // disputes
+    (async () => {
+      if (!wants("dispute")) return;
+      let q = supabaseAdmin
+        .from("disputes")
+        .select("id, reason, status, created_at")
+        .eq("user_id", targetId);
+      if (cursor) q = q.lt("created_at", cursor);
+      const { data } = await q
+        .order("created_at", { ascending: false })
+        .limit(perSource);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        reason: string;
+        status: string;
+        created_at: string;
+      }>) {
+        const reason = r.reason.length > 80 ? `${r.reason.slice(0, 80)}…` : r.reason;
+        events.push({
+          id: `dispute:${r.id}`,
+          type: "dispute",
+          timestamp: r.created_at,
+          summary: `Dispute (${r.status}): ${reason}`,
+          link: "/admin/disputes",
+        });
+      }
+    })(),
+
+    // support tickets
+    (async () => {
+      if (!wants("ticket")) return;
+      let q = supabaseAdmin
+        .from("support_tickets")
+        .select("id, subject, status, created_at")
+        .eq("user_id", targetId);
+      if (cursor) q = q.lt("created_at", cursor);
+      const { data } = await q
+        .order("created_at", { ascending: false })
+        .limit(perSource);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        subject: string;
+        status: string;
+        created_at: string;
+      }>) {
+        events.push({
+          id: `ticket:${r.id}`,
+          type: "ticket",
+          timestamp: r.created_at,
+          summary: `Support ticket (${r.status}): ${r.subject}`,
+          link: `/admin/support-tickets/${r.id}`,
+        });
+      }
+    })(),
+
+    // admin actions taken AGAINST this user
+    (async () => {
+      if (!wants("admin_action")) return;
+      let q = supabaseAdmin
+        .from("admin_audit_log")
+        .select("id, action, created_at")
+        .eq("target_type", "user")
+        .eq("target_id", targetId);
+      if (cursor) q = q.lt("created_at", cursor);
+      const { data } = await q
+        .order("created_at", { ascending: false })
+        .limit(perSource);
+      for (const r of (data ?? []) as Array<{
+        id: string;
+        action: string;
+        created_at: string;
+      }>) {
+        events.push({
+          id: `admin_action:${r.id}`,
+          type: "admin_action",
+          timestamp: r.created_at,
+          summary: `Admin action: ${r.action.replace(/[._]/g, " ")}`,
+          link: "/admin/audit-log",
+        });
+      }
+    })(),
+  ]);
+
+  // Merge newest-first; break timestamp ties on the composite id for a stable
+  // order across sources.
+  events.sort((a, b) => {
+    if (a.timestamp === b.timestamp) return a.id < b.id ? 1 : -1;
+    return a.timestamp < b.timestamp ? 1 : -1;
+  });
+
+  const hasMore = events.length > limit;
+  const page = events.slice(0, limit);
+  const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].timestamp : null;
+
+  return c.json({
+    events: page,
+    nextCursor,
+    availableTypes: TIMELINE_TYPES,
+  });
+});
+
 // POST /:id/role — change a user's role. super_admin only + fresh step-up.
 adminUsersRoutes.post("/:id/role", async (c: Context<AdminEnv>) => {
   // Only super-admins manage roles.

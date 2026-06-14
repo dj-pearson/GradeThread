@@ -2892,3 +2892,10 @@ Branch: ralph/gradethread-build
 - Notes: GET /api/admin/search returns grouped typed results (6/type) with admin deep links. UUID/cus_ exact-probe; free-text prefix/substring on pg_trgm GIN-indexed columns (migration 00224). Palette uses existing useKeyboardShortcuts (Cmd/Ctrl-K), debounced 300ms, AbortController cancellation, arrow-key nav. Admin-gated cross-tenant via the /api/admin/* middleware group (admin JWT + AAL2); read-only so no step-up/audit. Verified: tsc --noEmit, deno check, deno lint, eslint, build (41 pages), verify:db (clean), npm test (776 passed), admin-search + schema-version deno tests pass.
 - Timestamp: 2026-06-14
 ---
+
+## US-902: User 360 activity timeline
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/routes/admin-users.ts (GET /:id/timeline), src/components/admin/user-timeline-card.tsx (new), src/pages/admin/user-detail.tsx (import + render), prd.json
+- Notes: New GET /api/admin/users/:id/timeline merges 8 event sources (signup, submissions, grades, grade_credit_transactions, flipdesk_subscription_events, disputes, support_tickets, admin_audit_log target=user) into one newest-first feed. Grades carry no user_id, so they are tenant-scoped via submissions!inner(user_id) per US-268. Pagination is cursor/time-based: each source over-fetches limit+1 rows strictly older than the ISO `cursor`, the windows merge + re-sort newest-first, and the slice tail timestamp becomes nextCursor — never scans the whole history. `?types=` filters which sources are included. Admin + AAL2 already enforced by /api/admin/* middleware; read-only so no step-up/audit write. Frontend UserTimelineCard uses useInfiniteQuery with type-chip filters and a Load more button. Verified: npx tsc --noEmit clean, npm run build:locked exit 0 (41 prerendered pages), npm test 776/776 pass, deno check + deno lint clean on the edge route.
+- Timestamp: 2026-06-14
+---
