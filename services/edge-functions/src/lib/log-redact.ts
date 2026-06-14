@@ -49,5 +49,20 @@ export function redact(input: unknown): string {
 // Convenience: the redacted single-line message for an unknown thrown value.
 export function redactError(err: unknown): string {
   if (err instanceof Error) return redact(`${err.name}: ${err.message}`);
+  // Supabase PostgrestError (and similar provider errors) are PLAIN objects, not
+  // Error instances — String() would yield "[object Object]" and hide the cause.
+  // Surface the useful fields (code/message/details/hint) when present.
+  if (err && typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    const parts = [o.code, o.message, o.details, o.hint]
+      .filter((v) => typeof v === "string" && v.length > 0)
+      .join(" | ");
+    if (parts) return redact(parts);
+    try {
+      return redact(JSON.stringify(err));
+    } catch {
+      return redact(String(err));
+    }
+  }
   return redact(String(err));
 }

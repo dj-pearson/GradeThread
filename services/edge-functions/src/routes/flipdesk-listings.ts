@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import {
   type AdapterResult,
   type CrossListingPlatform,
@@ -515,14 +516,16 @@ flipdeskListingsRoutes.get("/pending-delists", async (c) => {
     .from("listings")
     .select(
       "id, platform, listing_url, inventory_item_id, delist_requested_at, " +
-        "inventory_items!inner(user_id, item_title)",
+        // item_title is an items_full VIEW alias; the base inventory_items table
+        // has `title`. Alias it back so PendingDelistRow.item_title resolves.
+        "inventory_items!inner(user_id, item_title:title)",
     )
     .eq("inventory_items.user_id", ownerId)
     .in("platform", [...EXTENSION_PLATFORMS])
     .not("delist_requested_at", "is", null)
     .order("delist_requested_at", { ascending: true });
   if (error) {
-    return c.json({ error: "Could not load pending delists." }, 500);
+    return failSafe(c, 500, "Could not load pending delists.", error, "flipdesk.pending-delists");
   }
   const rows = (data ?? []) as unknown as PendingDelistRow[];
   return c.json({
