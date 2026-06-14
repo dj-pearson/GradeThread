@@ -68,10 +68,10 @@ struct BulkPricingService: BulkPricingProviding {
             } else {
                 price = 0
             }
-            if let i = try? c.decodeIfPresent(Int.self, forKey: .quantity) {
+            if let i = (try? c.decodeIfPresent(Int.self, forKey: .quantity)) ?? nil {
                 quantity = i
-            } else if let s = try? c.decodeIfPresent(String.self, forKey: .quantity) {
-                quantity = s.flatMap(Int.init)
+            } else if let s = (try? c.decodeIfPresent(String.self, forKey: .quantity)) ?? nil {
+                quantity = Int(s)
             } else {
                 quantity = nil
             }
