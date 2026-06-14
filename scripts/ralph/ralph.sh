@@ -85,6 +85,20 @@ fi
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 
 for i in $(seq 1 $MAX_ITERATIONS); do
+  # Graceful stop: by the time control returns to the top of the loop, the
+  # previous iteration has fully finished and committed (passes flipped to true).
+  # So if a stop flag was dropped (scripts/ralph/STOP — e.g. via stop-ralph.ps1
+  # / stop-ralph.sh) exit cleanly BEFORE starting the next iteration. Unlike
+  # kill-ralph (a force kill mid-iteration), this never interrupts in-progress
+  # work. The flag is consumed so the next `npm run ralph` starts fresh.
+  if [ -f "$SCRIPT_DIR/STOP" ]; then
+    rm -f "$SCRIPT_DIR/STOP"
+    echo ""
+    echo "Graceful stop requested — completed $((i - 1)) of $MAX_ITERATIONS iteration(s)."
+    echo "Current work is committed; not starting iteration $i. (Flag consumed.)"
+    exit 0
+  fi
+
   echo ""
   echo "==============================================================="
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
