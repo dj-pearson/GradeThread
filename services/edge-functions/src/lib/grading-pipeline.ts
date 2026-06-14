@@ -2,13 +2,16 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   analyzeImage,
   compositeGrade,
+  mergeZoomIntoIssue,
   partitionImageResults,
+  selectDefectsForZoom,
   PARTIAL_IMAGE_CONFIDENCE_CAP,
   type SettledImage,
   type PerImageAnalysis,
   type GarmentInfo,
   type CompositeGradeResult,
 } from "./ai-grading.ts";
+import { Image } from "imagescript";
 import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
@@ -46,6 +49,129 @@ function uint8ToBase64(bytes: Uint8Array): string {
     );
   }
   return btoa(binary);
+}
+
+// US-1035: crop a normalized-bbox defect region from a full-res image, padded
+// for context and upscaled if tiny, so the vision model sees real detail on a
+// small defect instead of a sub-pixel speck. Returns JPEG bytes, or null on any
+// decode/crop failure (the zoom for that defect is then skipped).
+const ZOOM_PAD_FRAC = 0.3; // context around the defect box
+const ZOOM_MIN_PX = 320; // upscale crops whose long edge is below this
+const ZOOM_MAX_DOWNLOADS = 4; // cap distinct originals fetched per submission
+
+async function cropDefectRegion(
+  bytes: Uint8Array,
+  bbox: [number, number, number, number],
+): Promise<Uint8Array | null> {
+  try {
+    const img = await Image.decode(bytes);
+    const W = img.width;
+    const H = img.height;
+    let [x, y, w, h] = bbox;
+    const padW = w * ZOOM_PAD_FRAC;
+    const padH = h * ZOOM_PAD_FRAC;
+    x = Math.max(0, x - padW);
+    y = Math.max(0, y - padH);
+    w = Math.min(1 - x, w + 2 * padW);
+    h = Math.min(1 - y, h + 2 * padH);
+    const px = Math.max(0, Math.min(W - 1, Math.round(x * W)));
+    const py = Math.max(0, Math.min(H - 1, Math.round(y * H)));
+    let pw = Math.max(1, Math.round(w * W));
+    let ph = Math.max(1, Math.round(h * H));
+    pw = Math.min(pw, W - px);
+    ph = Math.min(ph, H - py);
+    if (pw < 2 || ph < 2) return null;
+    const crop = img.clone().crop(px, py, pw, ph);
+    const longEdge = Math.max(crop.width, crop.height);
+    if (longEdge < ZOOM_MIN_PX) {
+      const scale = ZOOM_MIN_PX / longEdge;
+      crop.resize(
+        Math.max(1, Math.round(crop.width * scale)),
+        Math.max(1, Math.round(crop.height * scale)),
+      );
+    }
+    return await crop.encodeJPEG(92);
+  } catch {
+    return null;
+  }
+}
+
+interface ZoomImageRow {
+  image_type: string;
+  storage_path: string;
+  original_storage_path?: string | null;
+}
+
+/**
+ * US-1035: re-analyze small / low-confidence defects at high resolution. For each
+ * selected defect, crop its region from the retained ORIGINAL (or the stored
+ * image) and run a focused per-image analysis on the crop, then merge the
+ * higher-fidelity size/severity read back. Best-effort and bounded: capped at a
+ * few zooms, downloads cached, and any failure leaves the original read intact —
+ * a zoom must never fail a paid grade. Returns the (possibly) updated results.
+ */
+async function runDefectZoomPass(
+  perImageResults: PerImageAnalysis[],
+  images: ZoomImageRow[],
+  submission: { garment_type: string; garment_category: string },
+  styleHint: string[],
+): Promise<PerImageAnalysis[]> {
+  const candidates = selectDefectsForZoom(perImageResults);
+  if (candidates.length === 0) return perImageResults;
+
+  // image_type → best source (prefer the retained uncompressed original).
+  const srcByType = new Map<string, string>();
+  for (const img of images) {
+    if (img.storage_path && !srcByType.has(img.image_type)) {
+      srcByType.set(img.image_type, img.original_storage_path || img.storage_path);
+    }
+  }
+
+  // Copy so we never mutate the array element identities mid-pass.
+  const updated = perImageResults.map((r) => ({
+    ...r,
+    detected_issues: r.detected_issues.map((d) => ({ ...d })),
+  }));
+  const byType = new Map(updated.map((r) => [r.image_type, r]));
+  const bytesCache = new Map<string, Uint8Array | null>();
+
+  for (const cand of candidates) {
+    try {
+      const srcPath = srcByType.get(cand.image_type);
+      if (!srcPath) continue;
+      let bytes = bytesCache.get(srcPath);
+      if (bytes === undefined) {
+        if (bytesCache.size >= ZOOM_MAX_DOWNLOADS) continue;
+        const { data: blob, error } = await supabaseAdmin.storage
+          .from("submission-images")
+          .download(srcPath);
+        bytes = error || !blob ? null : new Uint8Array(await blob.arrayBuffer());
+        bytesCache.set(srcPath, bytes);
+      }
+      if (!bytes) continue;
+      const cropBytes = await cropDefectRegion(bytes, cand.bbox);
+      if (!cropBytes) continue;
+      const dataUri = `data:image/jpeg;base64,${uint8ToBase64(cropBytes)}`;
+      const zoom = await analyzeImage(
+        dataUri,
+        "defect",
+        submission.garment_type,
+        submission.garment_category,
+        styleHint,
+      );
+      const target = byType.get(cand.image_type);
+      const issue = target?.detected_issues[cand.issueIndex];
+      if (target && issue) {
+        target.detected_issues[cand.issueIndex] = mergeZoomIntoIssue(issue, zoom);
+      }
+    } catch (err) {
+      console.error(
+        `[Pipeline] defect zoom failed (${cand.image_type}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return updated;
 }
 
 /**
@@ -612,7 +738,7 @@ export async function processSubmission(submissionId: string) {
       });
     }
 
-    const perImageResults: PerImageAnalysis[] = usable;
+    let perImageResults: PerImageAnalysis[] = usable;
 
     console.log(`[Pipeline] Per-image analysis complete for submission ${submissionId}`);
 
@@ -650,6 +776,24 @@ export async function processSubmission(submissionId: string) {
       await reverseChargeForUngradedSubmission(submissionId, "quality abstention");
       return null;
     }
+
+    // --- Step 4c: high-res region-zoom for small / uncertain defects (US-1035) ---
+    // A sub-3mm defect can be lost to the vision API's downscale of a whole-
+    // garment shot; re-analyze just the defect region from the original at high
+    // resolution and merge the better size/severity read. Best-effort + bounded;
+    // a failure leaves the original read intact.
+    perImageResults = await runDefectZoomPass(
+      perImageResults,
+      images as ZoomImageRow[],
+      submission,
+      styleHint,
+    ).catch((err) => {
+      console.error(
+        `[Pipeline] defect zoom pass error for submission ${submissionId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      return perImageResults;
+    });
 
     // --- Step 5: Run compositeGrade() with all per-image results ---
     const garmentInfo: GarmentInfo = {

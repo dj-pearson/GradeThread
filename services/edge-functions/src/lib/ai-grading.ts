@@ -28,12 +28,14 @@ import {
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
 // attribute grades to a version and write the score back. Bump the suffix
 // whenever the prompt text below changes in a way that could move grades.
-// US-1027/1028/1031: v3 adds the structured defect taxonomy (defect_type +
+// US-1027/1028/1031: v3 added the structured defect taxonomy (defect_type +
 // repairability), per-defect size (size_bucket + area_pct), and severity-by-
-// type-and-size rubric anchors. Bumped so accuracy tracking attributes grades to
-// the new prompt.
-export const PER_IMAGE_PROMPT_VERSION = "per_image_v3";
-export const COMPOSITE_PROMPT_VERSION = "composite_v3";
+// type-and-size rubric anchors. US-1038: v4 adds per-factor assessability
+// (unassessable_factors) so a "not assessable from this image" neutral 7.0 stops
+// diluting the composite. Bumped so accuracy tracking attributes grades to the
+// new prompt.
+export const PER_IMAGE_PROMPT_VERSION = "per_image_v4";
+export const COMPOSITE_PROMPT_VERSION = "composite_v4";
 
 // --- Types ---
 
@@ -46,6 +48,12 @@ export interface PerImageAnalysis {
   // must not reduce estimated_scores.
   style_attributes: StyleAttribute[];
   estimated_scores: FactorScores;
+  // US-1038: factor keys this image could NOT genuinely assess (e.g. odor from a
+  // front shot, functional_elements with no closures in frame). Their
+  // estimated_scores value is a neutral placeholder, so the composite must
+  // down-weight it instead of averaging a fake 7.0 into the grade. Empty/absent
+  // means every factor was assessable from this image.
+  unassessable_factors?: string[];
   // US-336/US-338: photo-authenticity assessment for THIS image (the per-image
   // pass is the only one that sees pixels). Optional for back-compat with
   // historical/eval traces.
@@ -544,6 +552,7 @@ Respond with a JSON object matching this exact schema:
     "functional_elements": <1.0-10.0>,
     "odor_cleanliness": <1.0-10.0>
   },
+  "unassessable_factors": ["<factor keys you could NOT judge from THIS image, e.g. odor_cleanliness>"],
   "authenticity": {
     "manipulation_suspected": true | false,
     "manipulation_confidence": <0.0-1.0>,
@@ -567,7 +576,7 @@ Rules:
 - style_attributes: List intentional design features you observe (the design language of the garment). Empty array if none.
 - estimated_scores: Score each factor 1.0-10.0 based on what is visible in THIS image only, GRADING AGAINST THE AS-MANUFACTURED STATE. Intentional design features (is_intentional=true) must NOT lower any score — only genuine wear/damage and any degradation BEYOND the original design intent counts.
 - condition_signals: List all positive AND negative indicators you observe.
-- For factors not assessable from this image type, score 7.0 (neutral) and note it in condition_signals.
+- For a factor you genuinely CANNOT assess from THIS image (e.g. odor_cleanliness from a plain front shot, or functional_elements when no zipper/buttons are in frame), put a neutral 7.0 in estimated_scores AND add that factor's key to unassessable_factors so the composite ignores the placeholder rather than averaging it in. Only list a factor there when this image truly gives no signal for it — never to avoid penalizing visible damage.
 - authenticity: Inspect for signs the photo was DIGITALLY EDITED TO CONCEAL A DEFECT — content-aware fill / clone / heal over a hole, stain, or worn area; localized smoothing or blur inconsistent with the surrounding fabric or weave; repeated (cloned) texture patches; warped or "melted" patterns; or halos/soft edges around an edited region (pay special attention near seams, hems, and high-wear points). Set manipulation_suspected=true with manipulation_confidence reflecting how sure you are, and list concrete tells. CRITICAL — do NOT flag benign, non-deceptive edits: cropping, rotation, exposure/brightness/contrast/white-balance or color adjustment, background removal, and ordinary compression are NOT manipulation. Separately, set screenshot_or_watermark=true if the image is clearly a screenshot of another listing (UI chrome, status bar, other-platform branding) or carries a visible watermark/overlay — but distinguish that from a garment's own printed graphic/logo, which is NOT a watermark. When nothing is suspicious, set both booleans false, manipulation_confidence 0, and tells [].
 - quality: Assess whether THIS photo is good enough to grade from. blur: "none" if sharp, "mild" if slightly soft, "severe" if too out-of-focus to judge condition. lighting: "ok" if well-lit, "dim" if noticeably underexposed, "dark" if too dark to see detail. framing: "full" if the intended subject is fully in frame (the whole garment for front/back shots), "partial" if it's cut off. legible: for a label/tag photo, true if the brand/size/care text is readable, false if not; for non-label photos set legible=true. Judge quality independently of condition — a pristine garment shot badly is still low quality, and a worn garment shot well is high quality.
 - Be precise and objective. Do not guess about things not visible in the image.`;
@@ -763,6 +772,7 @@ export async function analyzeImage(
       style_attributes?: StyleAttribute[];
       condition_signals: ConditionSignal[];
       estimated_scores: FactorScores;
+      unassessable_factors?: unknown;
       authenticity?: unknown;
       quality?: unknown;
     };
@@ -838,12 +848,21 @@ export async function analyzeImage(
       }
     }
 
+    // US-1038: keep only valid factor keys the model flagged as unassessable.
+    const unassessableFactors = Array.isArray(parsed.unassessable_factors)
+      ? parsed.unassessable_factors.filter(
+          (k): k is string =>
+            typeof k === "string" && (factorKeys as string[]).includes(k),
+        )
+      : [];
+
     return {
       image_type: imageType,
       detected_issues: parsed.detected_issues,
       style_attributes: parsed.style_attributes,
       condition_signals: parsed.condition_signals,
       estimated_scores: parsed.estimated_scores,
+      unassessable_factors: unassessableFactors,
       authenticity: normalizeAuthenticity(parsed.authenticity),
       quality: normalizeQuality(parsed.quality),
       // US-583: token usage for per-grade AI-cost tracking.
@@ -867,6 +886,115 @@ export async function analyzeImage(
     }
     throw new Error(`AI analysis failed for ${imageType} image: ${errorMessage}`);
   }
+}
+
+// --- US-1035: defect region-zoom (small / low-confidence defects) ---
+//
+// A sub-3mm hole on a whole-garment shot can fall below a pixel once the vision
+// API downscales the image, so it's easy to miss or mis-size. For genuine
+// defects that are small or whose size is uncertain (and that have a bbox), the
+// pipeline crops the defect region from the high-res ORIGINAL and re-analyzes
+// just that crop, then merges the higher-fidelity read back. These helpers are
+// pure + unit-tested; grading-pipeline.ts does the crop + extra AI call.
+
+const ZOOM_SIZE_RANK: Record<string, number> = {
+  pinhole: 0, small: 1, medium: 2, large: 3, extensive: 4, unknown: 0,
+};
+const ZOOM_SEV_RANK: Record<string, number> = { minor: 0, moderate: 1, major: 2 };
+
+export interface ZoomCandidate {
+  image_type: string;
+  /** Index into that image's detected_issues array. */
+  issueIndex: number;
+  bbox: [number, number, number, number];
+  issue: string;
+}
+
+/**
+ * Pick the genuine, localized defects most worth a high-res second look: small
+ * or low-size-confidence defects that carry a bbox. Capped + prioritized
+ * (lowest size confidence and smallest box first) to bound extra AI cost.
+ */
+export function selectDefectsForZoom(
+  results: PerImageAnalysis[],
+  maxZooms = 3,
+): ZoomCandidate[] {
+  const scored: Array<ZoomCandidate & { priority: number }> = [];
+  for (const r of results) {
+    r.detected_issues.forEach((d, idx) => {
+      if (d.is_intentional || !d.bbox) return;
+      const conf = typeof d.size_confidence === "number" ? d.size_confidence : 0.6;
+      const smallOrUncertain =
+        d.size_bucket === "pinhole" ||
+        d.size_bucket === "small" ||
+        d.size_bucket === "unknown" ||
+        d.size_bucket === undefined ||
+        conf < 0.5;
+      if (!smallOrUncertain) return;
+      const area = d.bbox[2] * d.bbox[3];
+      // Lower priority value = more worth zooming (less confident, smaller).
+      scored.push({
+        image_type: r.image_type,
+        issueIndex: idx,
+        bbox: d.bbox,
+        issue: d.issue,
+        priority: conf + area,
+      });
+    });
+  }
+  scored.sort((a, b) => a.priority - b.priority);
+  return scored.slice(0, Math.max(0, maxZooms)).map(
+    ({ priority: _p, ...c }) => c,
+  );
+}
+
+/**
+ * Merge a high-res zoom analysis of one defect region back into the original
+ * detected issue. The crop's read is authoritative for SIZE (more pixels), so we
+ * take the more severe severity, the larger size bucket, and the higher size
+ * confidence. If the zoom found nothing genuine, the original was likely a faint
+ * or false positive — lower its size confidence.
+ */
+export function mergeZoomIntoIssue(
+  original: DetectedIssue,
+  zoom: PerImageAnalysis,
+): DetectedIssue {
+  const genuine = zoom.detected_issues.filter((d) => !d.is_intentional);
+  if (genuine.length === 0) {
+    return {
+      ...original,
+      size_confidence: Math.min(
+        typeof original.size_confidence === "number" ? original.size_confidence : 0.6,
+        0.3,
+      ),
+    };
+  }
+  const best = genuine.reduce((a, b) =>
+    (ZOOM_SIZE_RANK[b.size_bucket ?? "unknown"] ?? 0) >
+    (ZOOM_SIZE_RANK[a.size_bucket ?? "unknown"] ?? 0)
+      ? b
+      : a,
+  );
+  const moreSevere =
+    (ZOOM_SEV_RANK[best.severity] ?? 0) > (ZOOM_SEV_RANK[original.severity] ?? 0)
+      ? best.severity
+      : original.severity;
+  const largerBucket =
+    (ZOOM_SIZE_RANK[best.size_bucket ?? "unknown"] ?? 0) >
+    (ZOOM_SIZE_RANK[original.size_bucket ?? "unknown"] ?? 0)
+      ? best.size_bucket
+      : original.size_bucket;
+  return {
+    ...original,
+    severity: moreSevere,
+    size_bucket: largerBucket,
+    area_pct: best.area_pct ?? original.area_pct,
+    defect_type: best.defect_type ?? original.defect_type,
+    size_confidence: Math.max(
+      typeof original.size_confidence === "number" ? original.size_confidence : 0.6,
+      typeof best.size_confidence === "number" ? best.size_confidence : 0.7,
+    ),
+  };
 }
 
 // --- Composite Grading ---
@@ -993,7 +1121,7 @@ Respond with a JSON object matching this exact schema:
 Rules:
 - overall_score must be the weighted average of factor scores, rounded to nearest 0.5
 - grade_tier must match the overall_score according to the tier definitions
-- factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state
+- factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state. For each factor, IGNORE any per-image estimated score whose factor key appears in that image's unassessable_factors (it is a neutral placeholder, not evidence) — synthesize the factor only from images that could actually judge it. If NO image could assess a factor, set it to a neutral 7.0 and lower confidence_score, noting it in ai_summary.
 - ai_summary: professional, objective summary suitable for a grade certificate
 - buyer_writeup: a longer, honest, buyer-facing condition report for the certificate. Composed ONLY from supported evidence — never invent attributes or upgrade condition. If you lack enough signal for a full report, keep it brief rather than fabricating
 - defects_found: consolidate all unique GENUINE defects (empty array if none). Do NOT list intentional design features here. For each, carry defect_type, severity, repairability, and size (size_bucket + area_pct) from the per-image analyses, picking the most severe/largest observation when images disagree.
