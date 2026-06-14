@@ -93,3 +93,5 @@ supabase/migrations/00122_verified_storefront_listings.sql
 scripts/ralph/STOP
 ratio
 .claude/settings.local.json
+.claude/settings.local.json
+services/edge-functions/deno.lock
