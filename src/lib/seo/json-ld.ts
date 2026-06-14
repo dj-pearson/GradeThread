@@ -52,6 +52,9 @@ export function organizationLd(): JsonLd {
       "The 1.0–10.0 clothing condition grade scale",
       "Clothing condition tiers (NWT, NWOT, Excellent, Very Good, Good, Fair, Poor)",
       "Garment grading factors: fabric condition, structural integrity, cosmetic appearance, functional elements, odor and cleanliness",
+      "Distinguishing intentional garment design from damage",
+      "Condition-based resale value of used clothing (the GradeThread Condition Index)",
+      "Verifiable condition certificates for pre-owned clothing",
       "Reselling pre-owned clothing on eBay, Poshmark, Mercari, Depop, and Grailed",
       "Reducing returns and disputes on resold apparel",
     ],
@@ -224,6 +227,29 @@ export function breadcrumbLd(
       name: it.name,
       item: it.url,
     })),
+  };
+}
+
+/**
+ * AboutPage node for the company/about page (US-868). Models the page as an
+ * AboutPage whose `mainEntity` is the GradeThread Organization (referenced by
+ * @id — MarketingLayout already emits the Organization node, so the graph
+ * resolves), giving search and AI answer engines an explicit, machine-readable
+ * authority surface for the entity. Deterministic (no dates) so the prerendered
+ * head and the live SPA emit byte-identical structured data.
+ */
+export function aboutPageLd(url: string): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "AboutPage",
+    "@id": `${url}#aboutpage`,
+    url,
+    name: "About GradeThread",
+    description:
+      "About GradeThread and Pearson Media LLC: the mission to make pre-owned clothing condition objective and verifiable, the published grading methodology behind every grade, and the team standardizing condition grading.",
+    mainEntity: { "@id": ORG_ID },
+    publisher: { "@id": ORG_ID },
+    isAccessibleForFree: true,
   };
 }
 

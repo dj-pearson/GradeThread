@@ -22,6 +22,7 @@ import { ResellerGradingGuidePage } from "@/pages/marketing/reseller-grading-gui
 import { DesignVsDamagePage } from "@/pages/marketing/design-vs-damage";
 import { ResaleValueByConditionPage } from "@/pages/marketing/resale-value-by-condition";
 import { GradingByCategoryPage } from "@/pages/marketing/grading-by-category";
+import { AboutPage } from "@/pages/marketing/about";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
 
 // US-423 / AC3: the build-time prerender is string-based (head-builder.ts), so a
@@ -105,6 +106,7 @@ const CASES: Array<[string, ComponentType<Record<string, unknown>>, string]> = [
   ["design-vs-damage", DesignVsDamagePage, "/design-vs-damage"],
   ["resale-value-by-condition", ResaleValueByConditionPage, "/resale-value-by-condition"],
   ["grading-by-category", GradingByCategoryPage, "/grading-by-category"],
+  ["about", AboutPage, "/about"],
 ];
 
 describe("JSON-LD prerender parity (US-423)", () => {

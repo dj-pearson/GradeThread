@@ -66,6 +66,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/developers": "2026-06-12",
   "/whats-it-worth": "2026-06-13",
   "/buyer-guarantee": "2026-06-13",
+  "/about": "2026-06-13",
   // US-855 cornerstone pillar pages.
   "/reduce-returns": "2026-06-13",
   "/reseller-grading-guide": "2026-06-13",
@@ -205,6 +206,18 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "monthly",
     priority: 0.7,
     jsonLdType: "Article",
+  },
+  {
+    // US-868: company/about page — entity-level authority surface (E-E-A-T):
+    // mission, published methodology, and who runs GradeThread (Pearson Media
+    // LLC). Emits AboutPage + FAQPage JSON-LD (head-builder MARKETING_LD).
+    path: "/about",
+    title: "About",
+    description:
+      "GradeThread, built by Pearson Media LLC, is the standard for pre-owned clothing condition grading — our mission, our methodology, and how we keep grades honest.",
+    changefreq: "monthly",
+    priority: 0.6,
+    jsonLdType: "AboutPage",
   },
   // US-855: cornerstone pillar pages — durable, hand-curated authority content
   // on the queries GradeThread uniquely owns. Each emits Article + FAQPage

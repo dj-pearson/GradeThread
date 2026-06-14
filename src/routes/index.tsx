@@ -97,6 +97,7 @@ const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m 
 const WhatsItWorthPage = lazy(() => import("@/pages/marketing/whats-it-worth").then(m => ({ default: m.WhatsItWorthPage })));
 // US-867: buyer trust guarantee policy (prerendered) + claim intake form (dynamic).
 const BuyerGuaranteePage = lazy(() => import("@/pages/marketing/buyer-guarantee").then(m => ({ default: m.BuyerGuaranteePage })));
+const AboutPage = lazy(() => import("@/pages/marketing/about").then(m => ({ default: m.AboutPage })));
 const BuyerGuaranteeClaimPage = lazy(() => import("@/pages/buyer-guarantee-claim").then(m => ({ default: m.BuyerGuaranteeClaimPage })));
 // US-855: cornerstone pillar pages
 const ReduceReturnsPage = lazy(() => import("@/pages/marketing/reduce-returns").then(m => ({ default: m.ReduceReturnsPage })));
@@ -258,6 +259,8 @@ export const router = createBrowserRouter([
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },
       { path: "/developers", element: <SuspenseWrapper><DevelopersPage /></SuspenseWrapper> },
       { path: "/whats-it-worth", element: <SuspenseWrapper><WhatsItWorthPage /></SuspenseWrapper> },
+      // US-868: company/about page (entity-level authority surface)
+      { path: "/about", element: <SuspenseWrapper><AboutPage /></SuspenseWrapper> },
       // US-867: buyer trust guarantee. Policy page is prerendered (PUBLIC_ROUTES);
       // the claim intake form is a dynamic public route (no account needed).
       { path: "/buyer-guarantee", element: <SuspenseWrapper><BuyerGuaranteePage /></SuspenseWrapper> },

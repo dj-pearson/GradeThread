@@ -898,6 +898,9 @@ export function LandingPage() {
           </div>
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
             <nav className="flex flex-wrap gap-4 text-xs text-muted-foreground sm:gap-6">
+              <Link to="/about" className="hover:text-foreground">
+                About
+              </Link>
               <Link to="/privacy" className="hover:text-foreground">
                 Privacy Policy
               </Link>

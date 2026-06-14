@@ -8,6 +8,7 @@ import {
   howToLd,
   faqPageLd,
   articleLd,
+  aboutPageLd,
   transparencyDatasetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
@@ -477,6 +478,34 @@ export function buyerGuaranteeJsonLd(): JsonLd[] {
     }),
     faqPageLd(BUYER_GUARANTEE_FAQS),
   ];
+}
+
+// ── /about (US-868) ─────────────────────────────────────────────────
+// The company/about page that strengthens entity-level authority for E-E-A-T:
+// who runs GradeThread (Pearson Media LLC), the mission, and the published
+// methodology behind every grade. Emits an AboutPage (mainEntity = the
+// Organization) plus an FAQPage of company Q&A for AI answer engines.
+export const ABOUT_FAQS = [
+  {
+    q: "Who is behind GradeThread?",
+    a: "GradeThread is built and operated by Pearson Media LLC. We set out to fix a single problem in resale: condition is described in vague, inconsistent words. GradeThread replaces those words with one objective, published 1.0–10.0 standard and a certificate buyers can verify.",
+  },
+  {
+    q: "What is GradeThread's mission?",
+    a: "To make the condition of pre-owned clothing objective, comparable, and verifiable — so a grade means the same thing on every item, for every seller and buyer. That standard is what lets resellers build trust, cut returns, and sell faster.",
+  },
+  {
+    q: "What makes GradeThread an authority on condition grading?",
+    a: "We publish our methodology rather than asking you to trust a black box: a fixed rubric of five weighted factors on a 1.0–10.0 scale, confidence scoring with human review for low-confidence cases, and a public transparency report measuring our accuracy against expert reviewers. The standard is documented, measured, and open to inspection.",
+  },
+  {
+    q: "How does GradeThread keep grades objective?",
+    a: "Every submission is scored against the same published rubric and weights, each grade carries a confidence score, and low-confidence grades are routed for human review before they finalize. Reviewer corrections and buyer disputes feed an accuracy loop, and the results are published on our transparency report.",
+  },
+];
+
+export function aboutJsonLd(): JsonLd[] {
+  return [aboutPageLd(absoluteUrl("/about")), faqPageLd(ABOUT_FAQS)];
 }
 
 // ── /grading/* glossary hub (US-303) ────────────────────────────────

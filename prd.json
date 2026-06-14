@@ -12792,8 +12792,8 @@
         "npm run build passes (prerender + public-routes guard green)"
       ],
       "priority": 868,
-      "passes": false,
-      "notes": "[EPIC: Public Authority Signals 2026-06-11] json-ld.ts already has Organization/knowsAbout + correctly gates SearchAction (do NOT claim it without a real search endpoint). Pure SEO/authority polish."
+      "passes": true,
+      "notes": "[EPIC: Public Authority Signals 2026-06-11] json-ld.ts already has Organization/knowsAbout + correctly gates SearchAction (do NOT claim it without a real search endpoint). Pure SEO/authority polish. DONE: (1) refreshed Organization.knowsAbout to current pillars (design-vs-damage, Condition Index resale value, verifiable certificates); sameAs stays config-driven (GitHub always live, X/LinkedIn/IG/Crunchbase opt-in via VITE_SOCIAL_* — no placeholders). (2) New /about company page (src/pages/marketing/about.tsx) — mission, published methodology, Pearson Media LLC, cross-links to grading-standard/transparency/verify/buyer-guarantee/condition-index. Registered in public-routes.ts + entry-server.tsx + routes/index.tsx + head-builder MARKETING_LD; prerenders (41 pages) with exactly 1 title/canonical/description and 4 JSON-LD nodes (Organization, BreadcrumbList, AboutPage, FAQPage). (3) Added aboutPageLd() builder + aboutJsonLd() (AboutPage mainEntity->#organization + company FAQPage). BreadcrumbList already emitted on every marketing page via MarketingLayout + head-builder (not glossary-only). Added /about to footers (landing + MarketingLayout) and to jsonld-parity test CASES. tsc/lint/build/700 tests green."
     },
     {
       "id": "US-869",
