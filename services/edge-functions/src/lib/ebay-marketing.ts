@@ -470,3 +470,124 @@ export async function syncPromotedListingsForOwner(
   }
   return { scanned: promoted.length, updated };
 }
+
+// ── Markdown / Sale events (US-1045, Promotions Manager) ────────────
+//
+// A price-drop on eBay can be a silent Revise (no buyer signal) OR an
+// item_price_markdown promotion: eBay shows a strike-through "Sale" price, a
+// SALE badge, and notifies watchers. This is the missing Marketing client the
+// pricing automation needs to push a real Sale event instead of a bare revise.
+// A markdown is an OVERLAY, not a price change — ending the promotion restores
+// the original price automatically (US-1045 AC3 revertibility), so we only need
+// to track the promotion id to be able to end it.
+
+// Markdown percent bounds: eBay requires a meaningful discount; cap the top so a
+// fat-fingered drop can't gut a price.
+export const MIN_MARKDOWN_PCT = 5;
+export const MAX_MARKDOWN_PCT = 70;
+
+export function clampMarkdownPct(pct: number): number {
+  if (!Number.isFinite(pct)) return MIN_MARKDOWN_PCT;
+  return Math.min(MAX_MARKDOWN_PCT, Math.max(MIN_MARKDOWN_PCT, pct));
+}
+
+export interface MarkdownSaleInput {
+  ebayListingId: string;
+  percentOff: number;
+  name?: string;
+  startDate?: string; // ISO; omitted → starts now (RUNNING)
+  endDate?: string; // ISO; omitted → open-ended until ended
+}
+
+interface MarkdownPromotionBody {
+  name: string;
+  marketplaceId: string;
+  promotionStatus: "RUNNING" | "SCHEDULED";
+  applyDiscountToAllInventory: false;
+  inventoryCriterion: {
+    inventoryCriterionType: "INVENTORY_BY_VALUE";
+    listingIds: string[];
+  };
+  discountRules: Array<{
+    discountBenefit: { percentageOffItem: string };
+    ruleOrder: number;
+  }>;
+  startDate?: string;
+  endDate?: string;
+}
+
+// Build the item_price_markdown_promotion request body. Pure + unit-tested.
+export function buildMarkdownPromotionBody(
+  args: MarkdownSaleInput,
+): MarkdownPromotionBody {
+  const pct = clampMarkdownPct(args.percentOff);
+  const body: MarkdownPromotionBody = {
+    name: (args.name ?? `FlipDesk Sale ${args.ebayListingId}`).slice(0, 90),
+    marketplaceId: getMarketplaceId(),
+    // SCHEDULED if a future start was given, else start immediately.
+    promotionStatus: args.startDate ? "SCHEDULED" : "RUNNING",
+    applyDiscountToAllInventory: false,
+    inventoryCriterion: {
+      inventoryCriterionType: "INVENTORY_BY_VALUE",
+      listingIds: [args.ebayListingId],
+    },
+    discountRules: [
+      { discountBenefit: { percentageOffItem: pct.toFixed(1) }, ruleOrder: 1 },
+    ],
+  };
+  if (args.startDate) body.startDate = args.startDate;
+  if (args.endDate) body.endDate = args.endDate;
+  return body;
+}
+
+// Extract the promotion id from the create response's Location header
+// (…/item_price_markdown_promotion/{id}). Pure + unit-tested.
+export function promotionIdFromLocation(location: string | null): string | null {
+  if (!location) return null;
+  const seg = location.split("?")[0].split("/").filter(Boolean).pop();
+  return seg ?? null;
+}
+
+// Create a markdown Sale on a single listing. Returns the new promotion id.
+export async function createMarkdownSale(
+  userId: string,
+  args: MarkdownSaleInput,
+): Promise<string | null> {
+  const { body: respBody, location } = await marketingFetch<
+    { promotionId?: string }
+  >(userId, `/sell/marketing/v1/item_price_markdown_promotion`, {
+    method: "POST",
+    body: JSON.stringify(buildMarkdownPromotionBody(args)),
+  });
+  return respBody?.promotionId ?? promotionIdFromLocation(location);
+}
+
+// End (delete) a markdown Sale — restores the listing's original price.
+export async function endMarkdownSale(
+  userId: string,
+  promotionId: string,
+): Promise<void> {
+  await marketingFetch<unknown>(
+    userId,
+    `/sell/marketing/v1/item_price_markdown_promotion/${
+      encodeURIComponent(promotionId)
+    }`,
+    { method: "DELETE" },
+  );
+}
+
+// Read a markdown Sale's current status (for reconciliation).
+export async function getMarkdownSale(
+  userId: string,
+  promotionId: string,
+): Promise<{ promotionStatus?: string; name?: string }> {
+  const { body } = await marketingFetch<
+    { promotionStatus?: string; name?: string }
+  >(
+    userId,
+    `/sell/marketing/v1/item_price_markdown_promotion/${
+      encodeURIComponent(promotionId)
+    }`,
+  );
+  return body;
+}

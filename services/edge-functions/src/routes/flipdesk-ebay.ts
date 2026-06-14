@@ -136,6 +136,9 @@ import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts
 import { notifyUser } from "../lib/notify.ts";
 import {
   attachPromotionAtPublish,
+  clampMarkdownPct,
+  createMarkdownSale,
+  endMarkdownSale,
   resolvePublishAdRate,
   suggestedAdRateForCategory,
   syncPromotedListingsForOwner,
@@ -2726,6 +2729,125 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
     .eq("id", listingId);
 
   return c.json({ ok: true, listing_id: listingId, price });
+});
+
+// ── Markdown / Sale events (US-1045) ────────────────────────────────
+// POST /listings/:id/sale — start an eBay markdown Sale (strike-through price +
+// watcher notification) instead of a silent price revise. DELETE ends it and
+// restores the original price (markdown is an overlay). The promotion id is
+// stored in listings.platform_fields so we can end/reconcile it later.
+
+flipdeskEbayRoutes.post("/listings/:id/sale", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  let body: { percent_off?: unknown; end_date?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const percentOff = Number(body.percent_off);
+  if (!Number.isFinite(percentOff) || percentOff <= 0) {
+    return c.json({ error: "percent_off must be a positive number" }, 400);
+  }
+  const endDate = typeof body.end_date === "string" ? body.end_date : undefined;
+
+  const row = await loadListingOwned(listingId, userId);
+  if (!row.ok) return c.json(row.error, row.status);
+  if (!row.listing.platform_listing_id) {
+    return c.json(
+      { error: "This listing has no eBay listing id. Sync or republish first." },
+      409,
+    );
+  }
+
+  let promotionId: string | null;
+  try {
+    promotionId = await createMarkdownSale(userId, {
+      ebayListingId: row.listing.platform_listing_id,
+      percentOff,
+      endDate,
+    });
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the Sale event.", err, "ebay.markdown.create");
+  }
+
+  const { data: cur } = await supabaseAdmin
+    .from("listings")
+    .select("platform_fields")
+    .eq("id", listingId)
+    .maybeSingle();
+  const pf = {
+    ...(((cur as { platform_fields?: Record<string, unknown> } | null)
+      ?.platform_fields) ?? {}),
+    markdown_promotion_id: promotionId,
+    markdown_pct: clampMarkdownPct(percentOff),
+  };
+  await supabaseAdmin
+    .from("listings")
+    .update({ platform_fields: pf } as never)
+    .eq("id", listingId);
+
+  await writeAuditLog(c, {
+    action: "ebay.markdown.start",
+    targetType: "listing",
+    targetId: listingId,
+    details: { promotion_id: promotionId, percent_off: percentOff },
+  });
+  return c.json({ ok: true, listing_id: listingId, promotion_id: promotionId });
+});
+
+flipdeskEbayRoutes.delete("/listings/:id/sale", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+
+  const row = await loadListingOwned(listingId, userId);
+  if (!row.ok) return c.json(row.error, row.status);
+
+  const { data: cur } = await supabaseAdmin
+    .from("listings")
+    .select("platform_fields")
+    .eq("id", listingId)
+    .maybeSingle();
+  const pf = ((cur as { platform_fields?: Record<string, unknown> } | null)
+    ?.platform_fields) ?? {};
+  const promotionId = typeof pf.markdown_promotion_id === "string"
+    ? pf.markdown_promotion_id
+    : null;
+  if (!promotionId) {
+    return c.json({ error: "No active Sale on this listing." }, 409);
+  }
+
+  try {
+    await endMarkdownSale(userId, promotionId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // A 404 (already ended/deleted) is fine — fall through to clear local state.
+    if (!/\(404\)|not found/i.test(msg)) {
+      return failSafe(c, 502, "eBay rejected ending the Sale.", err, "ebay.markdown.end");
+    }
+  }
+
+  delete pf.markdown_promotion_id;
+  delete pf.markdown_pct;
+  await supabaseAdmin
+    .from("listings")
+    .update({ platform_fields: pf } as never)
+    .eq("id", listingId);
+
+  await writeAuditLog(c, {
+    action: "ebay.markdown.end",
+    targetType: "listing",
+    targetId: listingId,
+    details: { promotion_id: promotionId },
+  });
+  return c.json({ ok: true, listing_id: listingId });
 });
 
 // Revises a live listing — title / description / price / photo order. Photos
