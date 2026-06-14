@@ -33,6 +33,7 @@ import {
   DoorOpen,
   DollarSign,
   LineChart,
+  Flag,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -88,6 +89,9 @@ const opsNavItems = [
   // MFA step-up gated server-side.
   { to: "/admin/ops/settings", icon: SlidersHorizontal, label: "Settings Registry", end: false },
   { to: "/admin/ops/pricing", icon: DollarSign, label: "Pricing & Tiers", end: false },
+  // US-886 feature flags v2. List/toggle is admin; the targeting rule editor is
+  // super_admin + MFA step-up gated server-side.
+  { to: "/admin/ops/feature-flags", icon: Flag, label: "Feature Flags", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +

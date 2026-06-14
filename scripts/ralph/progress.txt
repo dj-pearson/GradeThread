@@ -2613,3 +2613,10 @@ Branch: ralph/gradethread-build
   - Did NOT touch the concurrently-edited grading files (ai-grading.ts/grading-pipeline.ts/grading-zoom_test.ts — other agent's uncommitted WIP).
 - Timestamp: 2026-06-14
 ---
+
+## US-886: Feature flags v2 — percentage rollout + plan/user targeting
+- Status: COMPLETE
+- Files changed: supabase/migrations/00210_feature_flag_rules.sql, services/edge-functions/src/lib/feature-flags.ts, services/edge-functions/src/routes/admin-flags.ts, services/edge-functions/src/tests/feature-flags_test.ts, services/edge-functions/src/lib/schema-version.ts (00209→00210), src/pages/admin/feature-flags.tsx, src/routes/index.tsx, src/layouts/admin-layout.tsx, prd.json
+- Notes: Extended feature_flags with rollout_percentage/plan_targets[]/user_allow[]/user_deny[]/starts_at/ends_at — backwards compatible (existing rows resolve as 100%/no targeting). New pure resolveFlagRule() precedence: global kill (enabled=false) ALWAYS wins, then schedule window, then deny, allow, plan targeting, then deterministic FNV-1a percentage bucket. Percentage + plan only gate calls that supply userId/plan, so existing no-arg kill-switch callers (grade.ts, autolister, repricing, support-assistant) are unchanged. isFeatureEnabled signature widened with {userId,plan,now} — fully back-compat. Admin route: GET / (list+rule+plans), PUT / (fast enabled-only toggle, admin-level for incident response), PUT /:key/rule (super_admin + MFA step-up + audited), POST /preview (counts who the PROPOSED rule resolves on for, against live users via the SAME resolver, sampled+scaled above 25k). Page at /admin/ops/feature-flags: kill toggle, native range slider, plan badges multiselect, allow/deny textareas, datetime-local schedule, debounced live reach preview. Used only existing shadcn components (no new installs). Verified: deno check/lint, 10 feature-flag deno tests + 9 schema-version tests, tsc --noEmit, npm run build (41 prerendered pages), npm test (772 passed), npm run verify:db (00210 applies from zero). Left concurrent agent's unrelated ai-grading.ts/grading-pipeline.ts/grading-zoom_test.ts changes untouched.
+- Timestamp: 2026-06-14
+---

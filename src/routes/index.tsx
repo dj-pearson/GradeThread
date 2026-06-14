@@ -175,6 +175,7 @@ const AdminOpsJobsPage = lazy(() => import("@/pages/admin/ops-jobs").then(m => (
 const AdminOpsDeadLettersPage = lazy(() => import("@/pages/admin/ops-dead-letters").then(m => ({ default: m.AdminOpsDeadLettersPage })));
 const AdminSettingsRegistryPage = lazy(() => import("@/pages/admin/settings-registry").then(m => ({ default: m.AdminSettingsRegistryPage })));
 const AdminConfigPricingPage = lazy(() => import("@/pages/admin/config-pricing").then(m => ({ default: m.AdminConfigPricingPage })));
+const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags").then(m => ({ default: m.AdminFeatureFlagsPage })));
 const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log").then(m => ({ default: m.AdminAuditLogPage })));
 const AdminModerationPage = lazy(() => import("@/pages/admin/moderation").then(m => ({ default: m.AdminModerationPage })));
 const AdminFraudPage = lazy(() => import("@/pages/admin/fraud").then(m => ({ default: m.AdminFraudPage })));
@@ -433,6 +434,7 @@ export const router = createBrowserRouter([
               { path: "/admin/ops/dead-letters", element: <SuspenseWrapper><AdminOpsDeadLettersPage /></SuspenseWrapper> },
               { path: "/admin/ops/settings", element: <SuspenseWrapper><AdminSettingsRegistryPage /></SuspenseWrapper> },
               { path: "/admin/ops/pricing", element: <SuspenseWrapper><AdminConfigPricingPage /></SuspenseWrapper> },
+              { path: "/admin/ops/feature-flags", element: <SuspenseWrapper><AdminFeatureFlagsPage /></SuspenseWrapper> },
               { path: "/admin/audit-log", element: <SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper> },
               { path: "/admin/coupons", element: <SuspenseWrapper><AdminCouponsPage /></SuspenseWrapper> },
               { path: "/admin/pricing", element: <SuspenseWrapper><AdminPricingPage /></SuspenseWrapper> },
