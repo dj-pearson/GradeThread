@@ -1,0 +1,71 @@
+# Ralph — start / stop / kill
+
+Ralph is the autonomous loop that implements `prd.json` user stories one per
+iteration (`ralph.sh`, launched via `run.mjs`). This folder holds everything you
+need to run and control it. Commands below are run from the **repo root**.
+
+## TL;DR
+
+| I want to… | Command |
+|---|---|
+| **Start** (simple) | `npm run ralph -- 200` |
+| **Start** (boxed: own CPU cores + below-normal priority) | `scripts\ralph\start-loop.bat 200` |
+| **Stop gracefully** (finish current story, then exit) | `powershell -ExecutionPolicy Bypass -File scripts\ralph\stop-ralph.ps1` |
+| **Stop NOW** (force, mid-iteration) | `powershell -ExecutionPolicy Bypass -File scripts\ralph\kill-ralph.ps1` |
+| **Cancel a pending graceful stop** | `Remove-Item scripts\ralph\STOP` |
+
+Git Bash equivalents: `bash scripts/ralph/stop-ralph.sh`, `bash scripts/ralph/kill-ralph.sh`.
+
+## Start
+
+- **`npm run ralph -- 200`** — run up to 200 iterations. `run.mjs` finds Git Bash
+  and execs `ralph.sh`. Each iteration runs the agent against `CLAUDE.md`, which
+  picks the highest-priority `passes:false` story, implements it, verifies
+  (`tsc`, `build:locked`, `npm test`, and `verify:db` for migrations), commits,
+  and flips `passes` to `true`.
+- **`scripts\ralph\start-loop.bat 200`** — same, but launches in a detached
+  window pinned to logical cores 0–11 at below-normal priority with a 3 GB heap
+  cap, so it can share the host with another agent loop without starving it. See
+  `../../docs/AGENT_COHABITATION.md`.
+
+Each iteration is capped by a timeout (default 2400s; override with
+`RALPH_ITER_TIMEOUT=<seconds>`) so a hung build can't stall the whole loop.
+
+## Stop gracefully  ← preferred
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\ralph\stop-ralph.ps1
+```
+
+Drops a `STOP` flag that `ralph.sh` checks **at the top of each iteration**.
+Because control only returns there once the current iteration has fully finished
+and **committed** (`passes → true`), Ralph completes the story it's on, then exits
+**before** starting the next one — never mid-work. The flag is consumed on exit.
+Use this whenever you can wait for the current story to land (could be a few
+minutes). Cancel a pending stop with `Remove-Item scripts\ralph\STOP`.
+
+## Stop immediately (force)
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\ralph\kill-ralph.ps1
+```
+
+Force-kills every Ralph process on the host (`run.mjs`, `ralph.sh`, the
+`claude --print` agent) plus build children (`prerender`, `build-lock`), matched
+by command-line signature. **Can leave the in-progress iteration's work
+uncommitted** — only use it when you must stop now. It never touches your
+interactive Claude session or VS Code.
+
+## Files in this folder
+
+| File | Purpose |
+|---|---|
+| `run.mjs` | Cross-platform launcher (`npm run ralph` → finds Git Bash → `ralph.sh`). |
+| `ralph.sh` | The loop: per-iteration timeout, graceful-stop check, stray-build sweep. |
+| `CLAUDE.md` | The agent prompt (how Ralph picks + implements + verifies a story). |
+| `start-loop.bat` | Boxed launcher (CPU affinity + priority + heap cap). |
+| `stop-ralph.ps1` / `.sh` | Graceful stop — finish current iteration, then exit. |
+| `kill-ralph.ps1` / `.sh` | Force kill — stop every Ralph process immediately. |
+| `kill-stray-builds.ps1` | Sweeps lingering build helpers between iterations. |
+| `progress.txt` | Append-only per-iteration progress log. |
+| `STOP` | Runtime graceful-stop flag (git-ignored; created/removed by the scripts). |

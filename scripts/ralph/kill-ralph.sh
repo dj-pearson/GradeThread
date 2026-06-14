@@ -11,7 +11,7 @@
 # tree). Never touches your interactive Claude session (no --print) or VS Code,
 # and never kills itself.
 #
-# Run:  bash scripts/kill-ralph.sh
+# Run:  bash scripts/ralph/kill-ralph.sh
 set -u
 
 case "$(uname -s)" in

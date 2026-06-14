@@ -9,7 +9,7 @@
 # Ralph harness (run.mjs / ralph.sh), the autonomous agent it drives
 # (claude --print), and the build steps Ralph spawns (prerender / build-lock).
 #
-# Run:  powershell -ExecutionPolicy Bypass -File scripts\kill-ralph.ps1
+# Run:  powershell -ExecutionPolicy Bypass -File scripts\ralph\kill-ralph.ps1
 
 $ErrorActionPreference = 'SilentlyContinue'
 
