@@ -18,7 +18,10 @@ export type GradeCreditReason =
   | "included_grant"
   | "admin_grant"
   | "refund"
-  | "expiration";
+  | "expiration"
+  // US-892: signed manual admin adjustment that is neither a pack purchase,
+  // organic grade debit, nor a refund.
+  | "correction";
 export type GarmentType = "tops" | "bottoms" | "outerwear" | "dresses" | "footwear" | "accessories";
 export type GarmentCategory =
   | "t-shirt" | "shirt" | "blouse" | "sweater" | "hoodie"
@@ -2170,6 +2173,9 @@ export interface GradeCreditTransactionRow {
   submission_id: string | null;
   stripe_payment_intent_id: string | null;
   notes: string | null;
+  // US-892: dedupe key for money-moving ops (admin adjust, pack refund). NULL
+  // for organic rows; UNIQUE when set.
+  idempotency_key: string | null;
   created_at: string;
 }
 

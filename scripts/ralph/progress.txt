@@ -2692,3 +2692,27 @@ Branch: ralph/gradethread-build
   - Verified: deno check/lint clean, edge suite 1440 passed/0 failed, tsc --noEmit clean, build:locked 41 pages, vitest 772 passed, verify:db re-applied 215 migrations from zero (28.4s).
 - Timestamp: 2026-06-14
 ---
+
+## US-892: Credit ledger & refund/adjustment console
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00216_credit_ledger_admin.sql (NEW - 'correction' reason, idempotency_key column + UNIQUE partial index, admin_adjust_credits RPC, revoke_grade_credits gains optional p_idempotency_key)
+  - services/edge-functions/src/lib/credit-ledger.ts (NEW pure findLedgerInvariantViolation/isLedgerConsistent - import-safe, no supabase)
+  - services/edge-functions/src/routes/admin-billing.ts (3 endpoints under /api/admin/billing/users/:id: ledger, adjust, refund-pack)
+  - services/edge-functions/src/routes/webhooks.ts (charge.refunded now passes p_idempotency_key 'pack-refund:<chargeId>')
+  - services/edge-functions/src/lib/schema-version.ts (00215 -> 00216)
+  - services/edge-functions/src/tests/credit-ledger_test.ts (NEW 6 pure invariant tests - AC5)
+  - src/components/admin/credit-ledger-card.tsx (NEW Credits & Ledger section)
+  - src/pages/admin/user-detail.tsx (mount CreditLedgerCard below BillingActionsCard)
+  - src/types/database.ts ('correction' reason + idempotency_key field on GradeCreditTransactionRow)
+  - prd.json
+- Notes:
+  - AC1 GET /ledger: server-side paginated (limit<=200/offset, count:exact), tenant-scoped by user_id, returns append-only rows with stored balance_after + current balance + invariant_ok (computed only when the page covers the whole ledger; null when paginated).
+  - AC2 POST /adjust: new row-locked admin_adjust_credits RPC applies a SIGNED delta (admin_grant|refund|correction), atomically updates grade_credit_balance, rejects a debit that would go negative (422), only ever INSERTs. Step-up + audit. /comp-credits (US-221) stays; this adds signed corrections + the read surface (AC4 extend-not-replace).
+  - AC3 idempotency: refund-pack creates the Stripe refund with idempotencyKey 'pack-refund:<chargeId>' AND the offsetting revoke_grade_credits with the SAME p_idempotency_key. revoke_grade_credits extended (DROP 4-arg + CREATE 5-arg, key DEFAULT NULL so webhook + env-gated test unaffected) to no-op when a row already carries the key; the charge.refunded webhook now passes that same key -> EXACTLY ONE reversal across either path/retry.
+  - Tenant scoping (US-268): refund-pack confirms the charge belongs to the user via metadata.user_id OR stripe_customer_id, requires product=credit_pack.
+  - AC5: pure lib/credit-ledger.ts is the testable unit (also feeds the GET invariant_ok flag); credit-ledger_test.ts proves SUM(delta)==balance_after on every balance-recording row, zero-delta NULL rows skipped.
+  - GOTCHA: admin-billing.ts mounts at /api/admin (not /api/admin/billing), so the AC paths are achieved by prefixing route paths with /billing/.
+  - Verified: deno lint/check clean, edge 1446 passed/0 failed, tsc --noEmit clean, vitest 772 passed, build:locked 41 pages, verify:db 216 migrations from zero. Concurrent grading WIP left untouched.
+- Timestamp: 2026-06-14
+---

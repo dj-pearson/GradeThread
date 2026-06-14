@@ -9,6 +9,7 @@ import {
   unusedProrationCents,
 } from "../lib/proration.ts";
 import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
+import { findLedgerInvariantViolation } from "../lib/credit-ledger.ts";
 
 // Admin billing routes (US-221). All endpoints require admin role —
 // mounted with both authMiddleware + adminAuthMiddleware in main.ts.
@@ -361,6 +362,323 @@ adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
   });
 
   return c.json({ ok: true, newBalance });
+});
+
+// ── Credit ledger & adjustments (US-892) ─────────────────────────
+//
+// GET  /billing/users/:id/ledger      — paginated append-only ledger + balance
+// POST /billing/users/:id/adjust      — audited manual credit/debit/correction
+// POST /billing/users/:id/refund-pack — Stripe pack refund + offsetting ledger
+//
+// These EXTEND the comp-credits/charge-refund endpoints above (US-892 AC#4) —
+// the ledger is the read surface, /adjust covers signed corrections the
+// positive-only /comp-credits can't, and /refund-pack does the Stripe refund AND
+// the ledger reversal in one idempotent flow.
+
+// GET /billing/users/:id/ledger — append-only ledger with running balance_after,
+// server-side paginated (newest-first for display). Tenant-scoped by user_id.
+adminBillingRoutes.get("/billing/users/:id/ledger", async (c) => {
+  const targetUserId = c.req.param("id");
+
+  const limitRaw = Number(c.req.query("limit"));
+  const offsetRaw = Number(c.req.query("offset"));
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200)
+    : 50;
+  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.trunc(offsetRaw) : 0;
+
+  const { data: targetUser, error: userError } = await supabaseAdmin
+    .from("users")
+    .select("id, email, grade_credit_balance")
+    .eq("id", targetUserId)
+    .single();
+  if (userError || !targetUser) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const { data, count, error } = await supabaseAdmin
+    .from("grade_credit_transactions")
+    .select(
+      "id, delta, reason, balance_after, submission_id, stripe_payment_intent_id, notes, idempotency_key, created_at",
+      { count: "exact" },
+    )
+    .eq("user_id", targetUserId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    console.error("[admin-billing] ledger query failed:", error);
+    return c.json({ error: "Failed to load ledger" }, 500);
+  }
+
+  const rows = (data ?? []) as Array<{ delta: number; balance_after: number | null }>;
+  const total = count ?? rows.length;
+
+  // Defense-in-depth: when this single page covers the WHOLE ledger we can verify
+  // the running per-row invariant (oldest-first). Null when paginated — the
+  // running sum can't be computed from a partial slice.
+  let invariantOk: boolean | null = null;
+  if (offset === 0 && rows.length === total) {
+    const oldestFirst = [...rows].reverse();
+    invariantOk = findLedgerInvariantViolation(oldestFirst) === null;
+  }
+
+  return c.json({
+    user: {
+      id: targetUser.id,
+      email: targetUser.email,
+      grade_credit_balance: targetUser.grade_credit_balance,
+    },
+    data: data ?? [],
+    page: { limit, offset, total },
+    invariant_ok: invariantOk,
+  });
+});
+
+// POST /billing/users/:id/adjust — audited signed adjustment. Body:
+//   { delta: number (non-zero int), reason: 'admin_grant'|'refund'|'correction',
+//     notes: string }
+// Writes a NEW ledger row updating grade_credit_balance atomically; never
+// mutates history. Destructive (mints/burns value) → fresh MFA step-up.
+adminBillingRoutes.post("/billing/users/:id/adjust", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const adminId = c.get("userId");
+  const targetUserId = c.req.param("id");
+
+  let body: { delta?: unknown; reason?: unknown; notes?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const delta = Number(body.delta);
+  const reason = typeof body.reason === "string" ? body.reason : "";
+  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 500) : "";
+
+  if (!Number.isInteger(delta) || delta === 0) {
+    return c.json({ error: "delta must be a non-zero integer" }, 400);
+  }
+  if (Math.abs(delta) > 10000) {
+    return c.json({ error: "delta magnitude must be <= 10000 per adjustment" }, 400);
+  }
+  if (reason !== "admin_grant" && reason !== "refund" && reason !== "correction") {
+    return c.json({ error: "reason must be one of: admin_grant, refund, correction" }, 400);
+  }
+  if (!notes) {
+    return c.json({ error: "notes (reason text) is required" }, 400);
+  }
+
+  const { data: targetUser, error: userError } = await supabaseAdmin
+    .from("users")
+    .select("id, email, grade_credit_balance")
+    .eq("id", targetUserId)
+    .single();
+  if (userError || !targetUser) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const { data, error } = await supabaseAdmin.rpc("admin_adjust_credits", {
+    p_user_id: targetUserId,
+    p_delta: delta,
+    p_reason: reason,
+    p_actor_id: adminId,
+    p_notes: notes,
+  });
+
+  if (error) {
+    const msg = (error.message ?? "").toString();
+    if (msg.includes("INSUFFICIENT_CREDITS")) {
+      return c.json(
+        { error: "Adjustment would drive the balance negative." },
+        422,
+      );
+    }
+    console.error("[admin-billing] adjust failed:", error);
+    return c.json({ error: "Failed to adjust credits" }, 500);
+  }
+
+  const result = (data ?? {}) as {
+    transaction_id?: string;
+    balance_after?: number;
+    delta?: number;
+  };
+
+  await auditLog(c, "admin.credit_adjust", "user", targetUserId, {
+    delta,
+    reason,
+    notes,
+    previous_balance: targetUser.grade_credit_balance,
+    new_balance: result.balance_after ?? null,
+    transaction_id: result.transaction_id ?? null,
+  });
+
+  return c.json({
+    ok: true,
+    newBalance: result.balance_after ?? null,
+    transactionId: result.transaction_id ?? null,
+  });
+});
+
+// POST /billing/users/:id/refund-pack — refund a credit-pack charge AND write
+// the offsetting ledger reversal in one idempotent flow. Body: { charge_id,
+// reason? }. The Stripe refund + the wallet claw-back share a per-charge
+// idempotency key so a retry — or the charge.refunded webhook — can't
+// double-refund. Destructive → fresh MFA step-up.
+adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const adminId = c.get("userId");
+  const targetUserId = c.req.param("id");
+
+  let body: { charge_id?: unknown; reason?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const chargeId = typeof body.charge_id === "string" ? body.charge_id.trim() : "";
+  const reasonNote = typeof body.reason === "string" ? body.reason.trim().slice(0, 200) : "";
+  if (!chargeId) {
+    return c.json({ error: "charge_id is required" }, 400);
+  }
+
+  const { data: targetUser, error: userError } = await supabaseAdmin
+    .from("users")
+    .select("id, email, stripe_customer_id")
+    .eq("id", targetUserId)
+    .single();
+  if (userError || !targetUser) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  // Load the charge to verify ownership + read the granted credit count.
+  let charge: Stripe.Charge;
+  try {
+    charge = await stripe.charges.retrieve(chargeId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: `Charge lookup failed: ${msg}` }, 404);
+  }
+
+  // Tenant scoping (CLAUDE.md US-268): the charge MUST belong to this user —
+  // by the user_id stamped on the pack checkout, or its Stripe customer.
+  const chargeUserId = charge.metadata?.user_id ?? null;
+  const customerId = typeof charge.customer === "string"
+    ? charge.customer
+    : charge.customer?.id ?? null;
+  const ownsByMetadata = chargeUserId === targetUserId;
+  const ownsByCustomer = Boolean(targetUser.stripe_customer_id) &&
+    customerId === targetUser.stripe_customer_id;
+  if (!ownsByMetadata && !ownsByCustomer) {
+    return c.json({ error: "Charge does not belong to this user." }, 403);
+  }
+  if (charge.metadata?.product !== "credit_pack") {
+    return c.json(
+      { error: "Not a credit-pack charge. Use Recent charges → Refund for other charges." },
+      422,
+    );
+  }
+  if (charge.refunded) {
+    return c.json({ error: "Charge is already fully refunded." }, 409);
+  }
+
+  const credits = Number.parseInt(charge.metadata?.credits ?? "", 10);
+  if (!Number.isFinite(credits) || credits <= 0) {
+    return c.json({ error: "Charge has no valid credit count in metadata." }, 422);
+  }
+
+  // (1) Stripe refund — idempotency key keyed on the charge so a retry returns
+  // the SAME refund object instead of refunding the money twice.
+  let refund: Stripe.Refund;
+  try {
+    refund = await stripe.refunds.create(
+      {
+        charge: chargeId,
+        reason: "requested_by_customer",
+        metadata: {
+          admin_id: adminId,
+          product: "credit_pack",
+          ...(reasonNote ? { admin_reason: reasonNote } : {}),
+        },
+      },
+      { idempotencyKey: `pack-refund:${chargeId}` },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[admin-billing] pack refund (stripe) failed:", msg);
+    return c.json({ error: `Refund failed: ${msg}` }, 500);
+  }
+
+  // (2) Offsetting ledger reversal — SAME per-charge idempotency key as the
+  // charge.refunded webhook, so the wallet is clawed back exactly once.
+  const paymentIntentId = typeof charge.payment_intent === "string"
+    ? charge.payment_intent
+    : charge.payment_intent?.id ?? null;
+  const { data: revokeData, error: revokeErr } = await supabaseAdmin.rpc(
+    "revoke_grade_credits",
+    {
+      p_user_id: targetUserId,
+      p_credits: credits,
+      p_stripe_payment_intent: paymentIntentId,
+      p_notes: `Admin pack refund for charge ${chargeId} by ${adminId}`,
+      p_idempotency_key: `pack-refund:${chargeId}`,
+    },
+  );
+
+  if (revokeErr) {
+    // The money refund SUCCEEDED — surface the ledger gap loudly (the webhook
+    // will also retry the reversal under the same idempotency key).
+    console.error("[admin-billing] pack refund ledger reversal failed:", revokeErr);
+    await auditLog(c, "admin.pack_refund", "charge", chargeId, {
+      user_id: targetUserId,
+      refund_id: refund.id,
+      credits,
+      ledger_error: (revokeErr.message ?? "").toString().slice(0, 500),
+    });
+    return c.json(
+      {
+        error: "Refund issued, but the ledger reversal failed — reconcile manually.",
+        refund_id: refund.id,
+      },
+      500,
+    );
+  }
+
+  const result = (revokeData ?? {}) as {
+    revoked?: number;
+    shortfall?: number;
+    balance_after?: number;
+    idempotent_replay?: boolean;
+  };
+
+  await auditLog(c, "admin.pack_refund", "charge", chargeId, {
+    user_id: targetUserId,
+    refund_id: refund.id,
+    refund_amount_cents: refund.amount,
+    credits,
+    revoked: result.revoked ?? null,
+    shortfall: result.shortfall ?? null,
+    balance_after: result.balance_after ?? null,
+    idempotent_replay: result.idempotent_replay ?? false,
+  });
+
+  return c.json({
+    ok: true,
+    refund_id: refund.id,
+    refund_amount_cents: refund.amount,
+    revoked: result.revoked ?? null,
+    shortfall: result.shortfall ?? null,
+    newBalance: result.balance_after ?? null,
+  });
 });
 
 // ── POST /users/:id/set-trial ────────────────────────────────────

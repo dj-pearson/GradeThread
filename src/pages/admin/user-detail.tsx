@@ -73,6 +73,7 @@ import { startImpersonation } from "@/lib/impersonation";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
+import { CreditLedgerCard } from "@/components/admin/credit-ledger-card";
 import { UserRateLimitsCard } from "@/components/admin/user-rate-limits-card";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
@@ -763,6 +764,9 @@ export function AdminUserDetailPage() {
         userId={targetUser.id}
         currentTrialEndsAt={targetUser.trial_ends_at}
       />
+
+      {/* Credits & ledger (US-892) — inspect ledger, manual adjust, pack refund. */}
+      <CreditLedgerCard userId={targetUser.id} />
 
       {/* Rate-limit administration (US-890) — counters + temporary overrides. */}
       <UserRateLimitsCard userId={targetUser.id} />

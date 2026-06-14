@@ -964,6 +964,10 @@ async function handleChargeRefunded(event: Stripe.Event) {
     p_credits: credits,
     p_stripe_payment_intent: paymentIntentId,
     p_notes: `Refund reversal for charge ${charge.id}`,
+    // US-892: share the per-charge idempotency key with the admin-initiated
+    // pack-refund flow so the wallet is clawed back EXACTLY ONCE no matter
+    // which path runs first (the other no-ops).
+    p_idempotency_key: `pack-refund:${charge.id}`,
   });
 
   // US-397: a dropped refund reversal leaves clawed-back credits in the wallet —
