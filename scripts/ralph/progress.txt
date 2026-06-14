@@ -2506,3 +2506,20 @@ Branch: ralph/gradethread-build
 - Notes: Blog posts are dynamic edge-SSR (functions/), NOT prerendered, so the AC's "howToLd in src/lib/seo/json-ld.ts" is realized in the edge mirror functions/_shared/blog-render.ts (json-ld.ts howToLd serves only the static how-it-works page). linkGlossaryTerms walks tag-by-tag (skips <a>/headings/code), links the FIRST prose mention per term, requires a trailing "condition" for the common-adjective tiers (Excellent/Very Good/Good/Fair/Poor) so a bare "good" is never linked, and resolves overlap (Very Good condition vs Good condition) longest-first via a single ordered alternation. about=DefinedTerm nodes -> /grading/<slug> spokes + /condition-grading term set. HowTo derives ordered steps from the first <ol> (else the H2 outline) and is skipped (<2 steps or non-procedural title). Speakable only when key_takeaways exist. All omitted when there's no real source (no fake markup). speakable+about are added only to the built-in Article, leaving a model-supplied post.jsonld untouched. head-builder mirror N/A (blog not prerendered). No migrations. Verified: web+functions tsc clean, eslint clean, vitest 772/772, deno prompts 7/7 + lint/check clean, build:locked 41 pages.
 - Timestamp: 2026-06-14
 ---
+
+## US-879: Closed loop — GSC search data feeds topic selection + refresh priority
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00204_content_search_signals.sql (NEW: ALTER TYPE content_topic_source ADD VALUE 'gsc_opportunity' + comment; documents that gsc_performance/00056 IS the per-query/page store, no redundant table)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00203 -> 00204)
+  - services/edge-functions/src/lib/content-search-signals.ts (NEW pure selectors: aggregateQuerySignals/aggregatePageSignals, positionFit/strikingScore, isQueryCovered/findContentGaps, findTitleMetaOpportunities, toTitleCase, SearchOpportunities shape)
+  - services/edge-functions/src/lib/content-search-signals-loaders.ts (NEW impure IO: loadQuerySignals, loadStrikingDistanceBySlug, loadCoveredKeywords, queueGscGapTopics, loadSearchOpportunities)
+  - services/edge-functions/src/lib/content-freshness.ts (rankStalePosts optional strikingByPath param + strikingBoost()/STRIKING_BOOST_MAX)
+  - services/edge-functions/src/lib/content-summary.ts (SummaryInput.searchOpportunities -> opportunities output + 3 digest suggestions)
+  - services/edge-functions/src/routes/content-scheduler.ts (ensureBankAtLeast queues GSC gaps before research; /summary loads + passes opportunities)
+  - services/edge-functions/src/routes/jobs-content-refresh.ts (loads striking distance, passes to rankStalePosts)
+  - services/edge-functions/src/tests/content-search-signals_test.ts (NEW), content-freshness_test.ts (+striking), content-summary_test.ts (+opportunities)
+  - services/edge-functions/deno.lock (synced @anthropic-ai/sdk deps committed by the concurrent grading agent into ai-config/ai-grading; regenerated on deno test, included so frozen-lockfile CI stays green)
+- Notes: AC's "suggested 00151" table already exists as gsc_performance (US-308) populated by the gsc-sync cron — reused it instead of duplicating ingestion; the only new schema is the source enum value. Split pure selectors (testable without supabase client) from impure loaders, mirroring the content-freshness(pure)/content-history(impure) convention. Striking distance = positionFit in a 5-20 band peaking 8-12, GATED on rising impressions (recent half > older half) and a 20-impression volume floor. Content gaps queue blog-surface only, double-deduped. Digest uses a 28d GSC window regardless of the digest's own ?days. All GSC reads best-effort -> empty (graceful degrade). Migration number 00204 chosen after re-checking the frontier (concurrent grading agent committed US-1027..1033 but no migration). Verified: deno check+lint clean, full edge deno suite 1321 passed/0 failed/48 ignored, verify:db applies 00204 from zero (29.7s). Edge-only — web build/vitest unaffected.
+- Timestamp: 2026-06-14
+---

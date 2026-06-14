@@ -16,6 +16,8 @@ import {
   materialChangeRatio,
   pickStalePost,
   rankStalePosts,
+  strikingBoost,
+  STRIKING_BOOST_MAX,
 } from "../lib/content-freshness.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -170,4 +172,40 @@ Deno.test("heavy rewrite is material via changed words", () => {
   const r = materialChangeRatio(a, b);
   assert(r.changedRatio >= 0.1);
   assertEquals(r.material, true);
+});
+
+// ── US-879: striking-distance boost ──────────────────────────────
+
+Deno.test("strikingBoost is 1 at score 0 and STRIKING_BOOST_MAX at score 1, clamped", () => {
+  assertEquals(strikingBoost(0), 1);
+  assertEquals(strikingBoost(1), STRIKING_BOOST_MAX);
+  assertEquals(strikingBoost(-5), 1); // clamped low
+  assertEquals(strikingBoost(5), STRIKING_BOOST_MAX); // clamped high
+  // halfway
+  assertEquals(strikingBoost(0.5), 1 + (STRIKING_BOOST_MAX - 1) * 0.5);
+});
+
+Deno.test("rankStalePosts lifts a striking-distance post above an equally-stale peer", () => {
+  const now = Date.UTC(2026, 5, 1);
+  const old = new Date(now - 60 * 24 * 60 * 60 * 1000).toISOString();
+  const posts: FreshnessPost[] = [
+    { id: "a", slug: "alpha", published_at: old, last_refreshed_at: null, reading_time_min: 5 },
+    { id: "b", slug: "bravo", published_at: old, last_refreshed_at: null, reading_time_min: 5 },
+  ];
+  // No GSC traffic for either → identical base importance, identical age.
+  const noStriking = rankStalePosts(posts, new Map(), now, { cooldownDays: 14, minStaleDays: 7 });
+  assertEquals(noStriking[0].score, noStriking[1].score); // tie without striking
+
+  // bravo is in striking distance → it should now outrank alpha.
+  const striking = new Map<string, number>([["bravo", 1]]);
+  const ranked = rankStalePosts(
+    posts,
+    new Map(),
+    now,
+    { cooldownDays: 14, minStaleDays: 7 },
+    striking,
+  );
+  assertEquals(ranked[0].slug, "bravo");
+  assert(ranked[0].score > ranked[1].score);
+  assertEquals(pickStalePost(ranked)?.slug, "bravo");
 });

@@ -145,3 +145,36 @@ Deno.test("US-875: suggests checking the cron when posts published but none refr
   });
   assert(s.suggestions.some((x) => x.includes("No posts were refreshed")));
 });
+
+// ── US-879: GSC opportunities ────────────────────────────────────
+
+Deno.test("opportunities default to empty and add no suggestions when absent", () => {
+  const s = buildContentSummary({ ...BASE });
+  assertEquals(s.opportunities.striking_pages, []);
+  assertEquals(s.opportunities.content_gaps, []);
+  assertEquals(s.opportunities.title_meta, []);
+});
+
+Deno.test("opportunities are passed through and produce digest suggestions", () => {
+  const s = buildContentSummary({
+    ...BASE,
+    searchOpportunities: {
+      striking_pages: [
+        { page: "/blog/wool-coat", slug: "wool-coat", position: 11, impressions: 200, clicks: 4 },
+      ],
+      content_gaps: [
+        { query: "leather boot care", impressions: 500, position: 18 },
+        { query: "consign denim", impressions: 300, position: 22 },
+      ],
+      title_meta: [
+        { query: "thrift flipping", impressions: 1000, clicks: 5, ctr: 0.005, position: 6 },
+      ],
+    },
+  });
+  assertEquals(s.opportunities.content_gaps.length, 2);
+  assertEquals(s.opportunities.striking_pages[0].slug, "wool-coat");
+  // one suggestion per non-empty opportunity bucket
+  assert(s.suggestions.some((x) => x.includes("no dedicated post")));
+  assert(s.suggestions.some((x) => x.includes("rewrite the title")));
+  assert(s.suggestions.some((x) => x.includes("striking distance")));
+});

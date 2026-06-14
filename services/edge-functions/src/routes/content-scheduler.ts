@@ -22,6 +22,10 @@ import { writeSystemAuditLog } from "../lib/audit-log.ts";
 import { buildContentSummary } from "../lib/content-summary.ts";
 import { reviewContentSafety } from "../lib/content-safety.ts";
 import { ensureHeroImage } from "../lib/openai-images.ts";
+import {
+  loadSearchOpportunities,
+  queueGscGapTopics,
+} from "../lib/content-search-signals-loaders.ts";
 
 // Autonomous scheduler endpoint. Make.com hits this on a cron; the
 // /tick handler decides what (if anything) to publish next.
@@ -394,13 +398,39 @@ async function ensureBankAtLeast(
   const have = count ?? 0;
   if (have >= minimum) return 0;
 
+  const deficit = Math.max(refillBatch, minimum - have);
+
+  // US-879 closed loop: fill the bank first from REAL search demand — GSC
+  // content gaps (high-impression queries with no dedicated post), tagged
+  // source='gsc_opportunity'. Best-effort: degrades to 0 when GSC is absent, so
+  // the AI brainstorm below always covers the remainder. Blog only (search-gap
+  // detection is meaningless for the social surface).
+  let queued = 0;
+  if (surface === "blog") {
+    const gapResult = await queueGscGapTopics({
+      surface,
+      productFocus: product,
+      limit: deficit,
+    });
+    queued += gapResult.queued;
+    if (gapResult.queued > 0) {
+      console.log(
+        `[scheduler] queued ${gapResult.queued} GSC content-gap topic(s) for ` +
+          `blog/${product}: ${gapResult.gaps.join(", ")}`,
+      );
+    }
+  }
+
+  const remaining = deficit - queued;
+  if (remaining <= 0) return queued;
+
   try {
     const result = await researchTopics({
       surface,
       productFocus: product,
-      count: Math.max(refillBatch, minimum - have),
+      count: remaining,
     });
-    if (result.candidates.length === 0) return 0;
+    if (result.candidates.length === 0) return queued;
     const { data } = await supabaseAdmin
       .from("content_topics")
       .insert(
@@ -418,10 +448,10 @@ async function ensureBankAtLeast(
         })),
       )
       .select("id");
-    return data?.length ?? 0;
+    return queued + (data?.length ?? 0);
   } catch (e) {
     console.error("[scheduler] bank refill failed:", e);
-    return 0;
+    return queued;
   }
 }
 
@@ -1074,6 +1104,15 @@ contentSchedulerRoutes.get("/summary", async (c) => {
       .gte("ran_at", since),
   ]);
 
+  // US-879: GSC opportunities (striking-distance pages, content gaps, title/meta
+  // rewrites) for the digest. Best-effort — empty when GSC has no data. Uses a
+  // 28-day window regardless of `days` so trends aren't lost on a 7-day digest.
+  const searchOpportunities = await loadSearchOpportunities({
+    days: 28,
+    surface: "blog",
+    productFocus: "both",
+  });
+
   // Aggregate current queued topics into per-(surface,product) bank levels.
   const bankMap = new Map<string, { surface: string; product_focus: string; queued: number }>();
   for (const row of queuedTopics.data ?? []) {
@@ -1099,6 +1138,7 @@ contentSchedulerRoutes.get("/summary", async (c) => {
     webhookLog: (webhookRows.data ?? []) as Array<{ succeeded: boolean }>,
     minTopicsInBank: minTopics,
     refreshedPosts: refreshRuns.count ?? 0,
+    searchOpportunities,
   });
 
   return c.json(summary);

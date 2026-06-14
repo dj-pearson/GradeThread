@@ -69,18 +69,34 @@ export function gscImportance(rawScore: number, maxScore: number): number {
   return 1 + 2 * (rawScore / maxScore); // 1 .. 3
 }
 
+// US-879 striking-distance boost: a post ranking ~5-20 with rising impressions
+// is "almost there" — a refresh has outsized upside, so bump its importance
+// (and thus its refresh priority) by up to +60%. `score01` is the 0..1 striking
+// score from content-search-signals.ts (0 = not striking distance → no boost).
+export const STRIKING_BOOST_MAX = 1.6;
+export function strikingBoost(score01: number): number {
+  const s = Math.max(0, Math.min(1, score01));
+  return 1 + (STRIKING_BOOST_MAX - 1) * s;
+}
+
 /**
  * Rank published posts by staleness weighted by importance, oldest/most-
  * important first. `gscScoreByPath` maps a post slug → raw GSC score (impressions
  * + clicks) over the lookback window; pass an empty map to use the reading-time
  * fallback for every post (graceful GSC-absent degradation). `nowMs` is injected
  * so the ranking is deterministic in tests.
+ *
+ * US-879: `strikingByPath` optionally maps a slug → striking-distance score
+ * (0..1); a post in striking distance gets its importance multiplied by
+ * strikingBoost() so "almost ranking" posts are refreshed first. Omit it (or
+ * pass an empty map) for the original behavior.
  */
 export function rankStalePosts(
   posts: FreshnessPost[],
   gscScoreByPath: Map<string, number>,
   nowMs: number,
   opts: FreshnessOptions,
+  strikingByPath?: Map<string, number>,
 ): RankedPost[] {
   const maxGsc = posts.reduce(
     (m, p) => Math.max(m, gscScoreByPath.get(p.slug) ?? 0),
@@ -94,9 +110,14 @@ export function rankStalePosts(
     const ageDays = (nowMs - anchor) / DAY_MS;
 
     const raw = gscScoreByPath.get(post.slug) ?? 0;
-    const importance = raw > 0
+    const baseImportance = raw > 0
       ? gscImportance(raw, maxGsc)
       : fallbackImportance(post.reading_time_min);
+    // Striking-distance posts get prioritized for a refresh (US-879).
+    const boost = strikingByPath
+      ? strikingBoost(strikingByPath.get(post.slug) ?? 0)
+      : 1;
+    const importance = baseImportance * boost;
 
     // Thrash guard: a refresh within the cooldown window blocks re-selection.
     const refMs = post.last_refreshed_at

@@ -31,6 +31,34 @@ export interface SummaryInput {
    * Optional — defaults to 0 so older callers/fixtures stay valid.
    */
   refreshedPosts?: number;
+  /**
+   * US-879: GSC closed-loop opportunities. Optional — defaults to all-empty so
+   * older callers/fixtures stay valid and the digest degrades gracefully when
+   * Search Console data is absent. Structurally mirrors content-search-signals
+   * .ts `SearchOpportunities` (kept inline so this pure module pulls no IO deps).
+   */
+  searchOpportunities?: SearchOpportunities;
+}
+
+export interface SearchOpportunities {
+  /** Posts ranking ~5-20 with rising impressions — refresh-priority targets. */
+  striking_pages: Array<{
+    page: string;
+    slug: string | null;
+    position: number;
+    impressions: number;
+    clicks: number;
+  }>;
+  /** High-impression queries with no dedicated post. */
+  content_gaps: Array<{ query: string; impressions: number; position: number }>;
+  /** High-impression / low-CTR queries — title + meta rewrite candidates. */
+  title_meta: Array<{
+    query: string;
+    impressions: number;
+    clicks: number;
+    ctr: number;
+    position: number;
+  }>;
 }
 
 export interface ContentSummary {
@@ -68,8 +96,16 @@ export interface ContentSummary {
   refreshes: {
     posts_refreshed: number;
   };
+  /** US-879: GSC closed-loop opportunities surfaced for the owner. */
+  opportunities: SearchOpportunities;
   suggestions: string[];
 }
+
+const EMPTY_OPPORTUNITIES: SearchOpportunities = {
+  striking_pages: [],
+  content_gaps: [],
+  title_meta: [],
+};
 
 function countByProduct(
   rows: Array<{ product_focus: string }>,
@@ -152,6 +188,32 @@ export function buildContentSummary(input: SummaryInput): ContentSummary {
     );
   }
 
+  // US-879: turn the GSC opportunities into plain-language nudges.
+  const opportunities = input.searchOpportunities ?? EMPTY_OPPORTUNITIES;
+  if (opportunities.content_gaps.length > 0) {
+    const top = opportunities.content_gaps[0];
+    suggestions.push(
+      `${opportunities.content_gaps.length} high-demand search ${
+        opportunities.content_gaps.length === 1 ? "query has" : "queries have"
+      } no dedicated post (e.g. "${top.query}" at ${top.impressions} impressions) — these are auto-queued as gsc_opportunity topics.`,
+    );
+  }
+  if (opportunities.title_meta.length > 0) {
+    const top = opportunities.title_meta[0];
+    suggestions.push(
+      `${opportunities.title_meta.length} page-1-ish ${
+        opportunities.title_meta.length === 1 ? "query gets" : "queries get"
+      } impressions but few clicks (e.g. "${top.query}" at ${
+        Math.round(top.ctr * 100)
+      }% CTR) — rewrite the title + meta description to win the click.`,
+    );
+  }
+  if (opportunities.striking_pages.length > 0) {
+    suggestions.push(
+      `${opportunities.striking_pages.length} post(s) are in striking distance (ranking ~5-20 with rising impressions) — the freshness loop is prioritizing them for a refresh.`,
+    );
+  }
+
   return {
     window_days: input.windowDays,
     generated_at: input.generatedAt,
@@ -176,6 +238,7 @@ export function buildContentSummary(input: SummaryInput): ContentSummary {
     refreshes: {
       posts_refreshed: refreshedPosts,
     },
+    opportunities,
     suggestions,
   };
 }

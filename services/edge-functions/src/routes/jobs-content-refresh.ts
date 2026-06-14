@@ -29,6 +29,7 @@ import {
   pickStalePost,
   rankStalePosts,
 } from "../lib/content-freshness.ts";
+import { loadStrikingDistanceBySlug } from "../lib/content-search-signals-loaders.ts";
 import {
   buildBlogPurgeFiles,
   purgeCloudflareCache,
@@ -183,7 +184,13 @@ export async function handleContentRefreshCron(c: Context): Promise<Response> {
       return c.json({ ok: true, skipped: true, reason: "no published posts" });
     }
 
-    const gsc = await loadGscScores();
+    // GSC importance (impressions+clicks) and the US-879 striking-distance boost
+    // are both best-effort optional inputs — empty maps degrade to the
+    // reading-time fallback / no-boost ranking.
+    const [gsc, striking] = await Promise.all([
+      loadGscScores(),
+      loadStrikingDistanceBySlug(GSC_LOOKBACK_DAYS),
+    ]);
     const candidates: FreshnessPost[] = posts.map((p) => ({
       id: p.id,
       slug: p.slug,
@@ -194,7 +201,7 @@ export async function handleContentRefreshCron(c: Context): Promise<Response> {
     const ranked = rankStalePosts(candidates, gsc, Date.now(), {
       cooldownDays: settings.content_refresh_cooldown_days,
       minStaleDays: settings.content_refresh_min_stale_days,
-    });
+    }, striking);
     const top = pickStalePost(ranked);
     if (!top) {
       await recordRun("skip", null, "no eligible stale posts");
