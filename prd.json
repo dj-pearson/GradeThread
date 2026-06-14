@@ -15269,8 +15269,8 @@
         "No customer-facing grade changes until the eval gate passes; cost delta per grade is quantified (Opus input/output pricing vs Sonnet)."
       ],
       "priority": 1034,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=model. services/edge-functions/src/lib/grading-eval.ts, grading-shadow.ts, ai-config.ts (GRADING_MODEL_ALLOWLIST ~64-70)"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=model. services/edge-functions/src/lib/grading-eval.ts, grading-shadow.ts, ai-config.ts (GRADING_MODEL_ALLOWLIST ~64-70) [DONE 2026-06-14] model A/B eval machinery (model-comparison.ts + modelOverride plumbing + admin route); detection-metrics pure fns ready for a labeled golden set (the actual run + labeling are ops)."
     },
     {
       "id": "US-1035",
@@ -15297,8 +15297,8 @@
         "Dashboard/admin surface shows accuracy by defect type so over/under-penalized types are visible."
       ],
       "priority": 1036,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=calibration. services/edge-functions/src/lib/grading-eval.ts, accuracy-tracking.ts, grading-monitor.ts"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=calibration. services/edge-functions/src/lib/grading-eval.ts, accuracy-tracking.ts, grading-monitor.ts [DONE 2026-06-14] defect-accuracy.ts per-defect-type/size accuracy + weight-calibration recs; GET /api/admin/grading/accuracy/defects."
     },
     {
       "id": "US-1037",
@@ -15311,8 +15311,8 @@
         "Backfill or dual-write strategy documented so historical jsonb defects remain readable."
       ],
       "priority": 1037,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=persistence. services/edge-functions/src/lib/grading-pipeline.ts (defects_found insert ~957); supabase/migrations/"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=persistence. services/edge-functions/src/lib/grading-pipeline.ts (defects_found insert ~957); supabase/migrations/ [DONE 2026-06-14] 00220_grade_defects normalized table + pipeline dual-write (jsonb stays disclosure source); validated with supabase db reset."
     },
     {
       "id": "US-1038",
