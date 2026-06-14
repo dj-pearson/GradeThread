@@ -164,6 +164,20 @@ interface InlineUploadInput {
   post_id: string;
   filename: string; // e.g. "diagram.png"
   surface?: "blog" | "social";
+  // US-876: optional image-SEO metadata persisted onto blog_posts.inline_images
+  // so the blog SSR can emit a real alt + <figcaption> for this in-body image.
+  alt?: string;
+  caption?: string;
+  width?: number;
+  height?: number;
+}
+
+interface InlineImageMetaRow {
+  src: string;
+  alt: string;
+  caption: string;
+  width: number | null;
+  height: number | null;
 }
 
 contentImagesRoutes.post("/inline", async (c) => {
@@ -172,6 +186,7 @@ contentImagesRoutes.post("/inline", async (c) => {
     return c.json({ error: "post_id and filename are required" }, 400);
   }
   const surface = body.surface ?? "blog";
+  // US-876: descriptive, slug-ish inline filename (sanitized) for image SEO.
   const safeName = body.filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
   const path = `${surface}/${body.post_id}/inline_${Date.now()}_${safeName}`;
 
@@ -184,6 +199,18 @@ contentImagesRoutes.post("/inline", async (c) => {
     .from("content-images")
     .getPublicUrl(path);
 
+  // US-876: persist any supplied alt/caption/dimensions keyed by the public URL.
+  // Only blog posts carry inline_images; social cards don't have a body to embed.
+  if (surface === "blog" && (body.alt || body.caption || body.width || body.height)) {
+    await upsertInlineImageMeta(body.post_id, {
+      src: pub.publicUrl,
+      alt: (body.alt ?? "").trim(),
+      caption: (body.caption ?? "").trim(),
+      width: typeof body.width === "number" && body.width > 0 ? body.width : null,
+      height: typeof body.height === "number" && body.height > 0 ? body.height : null,
+    });
+  }
+
   return c.json({
     upload_url: data.signedUrl,
     token: data.token,
@@ -191,3 +218,34 @@ contentImagesRoutes.post("/inline", async (c) => {
     public_url: pub.publicUrl,
   });
 });
+
+// US-876: read-modify-write blog_posts.inline_images, upserting one entry by src
+// (the public URL). Best-effort — a metadata failure must never fail the upload.
+async function upsertInlineImageMeta(
+  postId: string,
+  meta: InlineImageMetaRow,
+): Promise<void> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("blog_posts")
+      .select("inline_images")
+      .eq("id", postId)
+      .maybeSingle();
+    if (error || !data) return;
+    const existing = Array.isArray((data as { inline_images?: unknown }).inline_images)
+      ? ((data as { inline_images: InlineImageMetaRow[] }).inline_images)
+      : [];
+    const next = existing.filter((m) => m && m.src !== meta.src);
+    next.push(meta);
+    await supabaseAdmin
+      .from("blog_posts")
+      .update({ inline_images: next })
+      .eq("id", postId);
+  } catch (e) {
+    console.warn(
+      `[content-images] inline_images upsert failed: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+}

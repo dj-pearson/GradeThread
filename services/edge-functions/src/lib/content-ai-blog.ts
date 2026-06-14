@@ -147,6 +147,11 @@ function validateAndNormalize(parsed: unknown): BlogArticleOutput {
         ? Math.round(p.reading_time_min)
         : estimateReadingTime(bodyHtml),
     hero_prompt: String(p.hero_prompt ?? "").trim(),
+    // US-876: store concise hero alt/caption produced in the same call (cheap;
+    // no extra round-trip). Capped so a verbose model can't blow past sane SEO
+    // lengths; empty caption is fine (the SSR omits the <figcaption>).
+    hero_image_alt: String(p.hero_image_alt ?? "").trim().slice(0, 160),
+    hero_image_caption: String(p.hero_image_caption ?? "").trim().slice(0, 200),
     summary_one_line: String(p.summary_one_line ?? p.excerpt ?? "")
       .trim()
       .slice(0, 160),

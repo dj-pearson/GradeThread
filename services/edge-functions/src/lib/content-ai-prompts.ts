@@ -225,6 +225,8 @@ export function buildBlogArticleUserPrompt(topic: BlogTopicInput): string {
     '  "tags": ["<3–6 high-level topic tags suitable for /blog/tag/[tag] pages>"],',
     '  "reading_time_min": <integer>,',
     '  "hero_prompt": "<a 1–2 sentence image prompt for a hero photo that matches this article — no text in the image, photographic realism preferred>",',
+    '  "hero_image_alt": "<concise descriptive alt text for that hero image, ≤125 chars, naturally includes the primary keyword, describes what is depicted — no \\"image of\\"/\\"photo of\\" prefix>",',
+    '  "hero_image_caption": "<optional ≤120 char human caption for the hero (empty string if none)>",',
     '  "summary_one_line": "<single sentence, ≤140 chars, for the history index>"',
     "}",
   ]
@@ -517,6 +519,9 @@ export interface BlogArticleOutput {
   tags: string[];
   reading_time_min: number;
   hero_prompt: string;
+  // US-876: AI-authored hero image SEO metadata (stored, not per-render).
+  hero_image_alt: string;
+  hero_image_caption: string;
   summary_one_line: string;
 }
 

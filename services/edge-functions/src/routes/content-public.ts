@@ -56,7 +56,10 @@ const POST_COLUMNS =
   // Blog GEO / E-E-A-T fields (US-304); author entity FK (US-874).
   "author, author_id, key_takeaways, faqs, " +
   // Topic-cluster pillar (US-873).
-  "pillar";
+  "pillar, " +
+  // Image SEO: hero alt/caption/credit/dimensions + inline-image metadata (US-876).
+  "hero_image_alt, hero_image_caption, hero_image_credit, " +
+  "hero_image_width, hero_image_height, inline_images";
 const LIST_COLUMNS =
   "id, slug, title, excerpt, product_focus, hero_image_url, primary_keyword, " +
   "reading_time_min, published_at, updated_at";
@@ -97,6 +100,13 @@ interface BlogFullRow extends BlogListRow {
   key_takeaways: unknown;
   faqs: unknown;
   pillar: string | null;
+  // Image SEO (US-876).
+  hero_image_alt: string | null;
+  hero_image_caption: string | null;
+  hero_image_credit: string | null;
+  hero_image_width: number | null;
+  hero_image_height: number | null;
+  inline_images: unknown;
 }
 interface AuthorRow {
   id: string;
@@ -178,6 +188,36 @@ function normalizeFaqs(raw: unknown): Array<{ q: string; a: string }> {
         out.push({ q: q.trim(), a: a.trim() });
       }
     }
+  }
+  return out;
+}
+
+/**
+ * Normalize the jsonb `inline_images` column (US-876) into a clean array of
+ * per-image SEO metadata. Defensive: it's admin/editor-written but feeds the
+ * public SSR (alt text + figcaption + ImageObject dims), so drop anything
+ * malformed rather than emit broken markup. Every entry must at least carry a
+ * `src`; alt/caption default to "" and dimensions to null.
+ */
+function normalizeInlineImages(
+  raw: unknown,
+): Array<{ src: string; alt: string; caption: string; width: number | null; height: number | null }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ src: string; alt: string; caption: string; width: number | null; height: number | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const src = typeof r.src === "string" ? r.src.trim() : "";
+    if (!src) continue;
+    const width = typeof r.width === "number" && Number.isFinite(r.width) ? r.width : null;
+    const height = typeof r.height === "number" && Number.isFinite(r.height) ? r.height : null;
+    out.push({
+      src,
+      alt: typeof r.alt === "string" ? r.alt.trim() : "",
+      caption: typeof r.caption === "string" ? r.caption.trim() : "",
+      width,
+      height,
+    });
   }
   return out;
 }
@@ -331,6 +371,7 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
       ...row,
       tags,
       faqs: normalizeFaqs(row.faqs),
+      inline_images: normalizeInlineImages(row.inline_images),
       related,
       pillar,
       pillar_url: pillarUrl,

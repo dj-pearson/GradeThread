@@ -110,6 +110,17 @@ export interface PublicAuthor {
   same_as?: string[];
 }
 
+// US-876: per-body-image SEO metadata, keyed by image src. Applied when
+// rewriting in-body <img> tags (stored alt overrides the filename guess; a
+// caption wraps the image in <figure><figcaption>).
+export interface InlineImageMeta {
+  src: string;
+  alt?: string;
+  caption?: string;
+  width?: number | null;
+  height?: number | null;
+}
+
 export interface PublicPost extends PublicPostListItem {
   body_html: string;
   seo_title: string | null;
@@ -117,6 +128,15 @@ export interface PublicPost extends PublicPostListItem {
   secondary_keywords: string[];
   jsonld: Record<string, unknown> | null;
   tags: string[];
+  // Image SEO (US-876): hero alt/caption/credit + dimensions for the hero
+  // ImageObject, and per-inline-image metadata. Optional → legacy posts render
+  // fine (alt falls back to the title; ImageObject omits unknown dimensions).
+  hero_image_alt?: string | null;
+  hero_image_caption?: string | null;
+  hero_image_credit?: string | null;
+  hero_image_width?: number | null;
+  hero_image_height?: number | null;
+  inline_images?: InlineImageMeta[];
   // Blog GEO / E-E-A-T fields (US-304). Optional → legacy posts render fine.
   author?: string | null;
   // US-874: the linked author entity. Present when the post has an author_id;
@@ -316,6 +336,9 @@ const BASE_STYLES = `
   pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
   pre { background: #f3f4f6; padding: 12px; border-radius: 6px; overflow-x: auto; }
   img { max-width: 100%; height: auto; border-radius: 8px; }
+  figure { margin: 0 0 24px; }
+  figure.content-figure { margin: 16px 0 24px; }
+  figcaption { margin-top: 8px; font-size: 0.85rem; color: var(--muted); text-align: center; }
   table { width: 100%; border-collapse: collapse; margin: 16px 0; }
   th, td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: left; }
   th { background: #f9fafb; font-weight: 600; }
@@ -802,14 +825,51 @@ export function renderHeroImage(
   src: string | null | undefined,
   alt: string,
   resize = false,
+  caption?: string | null,
 ): string {
   if (!src) return "";
   const srcset = resize ? buildSrcSet(src, BLOG_IMG_WIDTHS) : "";
-  return (
+  // US-876: never ship an empty hero alt. The caller passes a fallback (the post
+  // title), but guard here too so a future caller can't regress accessibility.
+  const safeAlt = (alt ?? "").trim() || "GradeThread blog hero illustration";
+  const img =
     `<img class="hero" src="${escape(src)}"` +
     (srcset ? ` srcset="${escape(srcset)}" sizes="${BLOG_IMG_SIZES}"` : "") +
-    ` alt="${escape(alt)}" loading="eager" fetchpriority="high" decoding="async">`
-  );
+    ` alt="${escape(safeAlt)}" loading="eager" fetchpriority="high" decoding="async">`;
+  // US-876: wrap in <figure>/<figcaption> only when a caption exists.
+  const cap = (caption ?? "").trim();
+  if (!cap) return img;
+  return `<figure class="hero-figure">${img}<figcaption>${escape(cap)}</figcaption></figure>`;
+}
+
+/**
+ * ImageObject JSON-LD for the hero/primary image (US-876). Referenced from the
+ * Article `image` field so Google + AI engines get structured contentUrl /
+ * dimensions / caption instead of a bare URL string. Returns null when there is
+ * no hero (the caller falls back to the logo URL).
+ */
+export function heroImageObjectLd(input: {
+  url: string | null | undefined;
+  alt?: string | null;
+  caption?: string | null;
+  width?: number | null;
+  height?: number | null;
+}): Record<string, unknown> | null {
+  const url = (input.url ?? "").trim();
+  if (!url) return null;
+  const obj: Record<string, unknown> = {
+    "@type": "ImageObject",
+    url,
+    contentUrl: url,
+  };
+  const alt = (input.alt ?? "").trim();
+  const caption = (input.caption ?? "").trim();
+  // `caption` is the schema.org field; mirror alt into it when no human caption.
+  if (caption || alt) obj.caption = caption || alt;
+  if (alt) obj.description = alt;
+  if (typeof input.width === "number" && input.width > 0) obj.width = input.width;
+  if (typeof input.height === "number" && input.height > 0) obj.height = input.height;
+  return obj;
 }
 
 /**
@@ -847,12 +907,18 @@ export function deriveAltFromSrc(src: string): string {
 export function rewriteContentImages(
   html: string,
   resize = false,
-  opts: { fallbackAlt?: string } = {},
+  opts: { fallbackAlt?: string; imageMeta?: InlineImageMeta[] } = {},
 ): string {
   const fallbackAlt = (opts.fallbackAlt ?? "").trim();
+  // US-876: index stored per-image metadata by src for O(1) lookup.
+  const metaBySrc = new Map<string, InlineImageMeta>();
+  for (const m of opts.imageMeta ?? []) {
+    if (m && typeof m.src === "string" && m.src.trim()) metaBySrc.set(m.src.trim(), m);
+  }
   return html.replace(/<img\b([^>]*?)\s*\/?>/gi, (full, attrs: string) => {
     const src = attrs.match(/\bsrc="([^"]+)"/i)?.[1];
     if (!src || src.startsWith("data:")) return full;
+    const meta = metaBySrc.get(src);
     const alreadyResponsive =
       /\bsrcset=/i.test(attrs) || /\/cdn-cgi\/image\//i.test(attrs);
     let extra = "";
@@ -863,8 +929,11 @@ export function rewriteContentImages(
     if (!/\bloading=/i.test(attrs)) extra += ` loading="lazy"`;
     if (!/\bdecoding=/i.test(attrs)) extra += ` decoding="async"`;
     // Backfill a missing alt (an explicit alt="" decorative marker is respected).
+    // US-876: prefer the stored alt for this src, else the filename guess, else
+    // the post-title fallback — so no in-body img ever ships with empty alt.
     if (!/\balt=/i.test(attrs)) {
-      const alt = deriveAltFromSrc(src) || fallbackAlt;
+      const storedAlt = (meta?.alt ?? "").trim();
+      const alt = storedAlt || deriveAltFromSrc(src) || fallbackAlt;
       extra += ` alt="${escape(alt)}"`;
     }
     // Reserve layout: explicit width+height already lets the browser compute the
@@ -873,10 +942,13 @@ export function rewriteContentImages(
     if (!hasDims && !/\bstyle=/i.test(attrs)) {
       extra += ` style="aspect-ratio:auto 16/9"`;
     }
-    if (!extra) return full;
     // Re-emit without the trailing void-slash the upstream sanitizer adds, so
     // appended attributes don't land after a stray `/`.
-    return `<img${attrs.replace(/\s+$/, "")}${extra}>`;
+    const img = extra ? `<img${attrs.replace(/\s+$/, "")}${extra}>` : full;
+    // US-876: wrap in <figure>/<figcaption> when a stored caption exists.
+    const caption = (meta?.caption ?? "").trim();
+    if (caption) return `<figure class="content-figure">${img}<figcaption>${escape(caption)}</figcaption></figure>`;
+    return img;
   });
 }
 

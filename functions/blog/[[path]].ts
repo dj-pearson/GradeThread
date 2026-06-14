@@ -29,6 +29,7 @@ import {
   buildPinImageUrl,
   renderPinterestSave,
   renderHeroImage,
+  heroImageObjectLd,
   rewriteContentImages,
   imageResizingEnabled,
   postAuthorLd,
@@ -187,7 +188,15 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   // Responsive hero image (US-306): srcset via Cloudflare Image Resizing, only
   // when the zone has Transformations enabled (else plain original).
   const resizeImages = imageResizingEnabled(env);
-  const heroHtml = renderHeroImage(post.hero_image_url, post.title, resizeImages);
+  // US-876: stored, keyword-aware hero alt (falls back to the title so the alt is
+  // never empty) + an optional caption rendered as <figcaption>.
+  const heroAlt = post.hero_image_alt?.trim() || post.title;
+  const heroHtml = renderHeroImage(
+    post.hero_image_url,
+    heroAlt,
+    resizeImages,
+    post.hero_image_caption,
+  );
 
   // CTA tailored to the post's product focus.
   const ctaText =
@@ -220,6 +229,8 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   // guaranteed aspect-ratio so the layout doesn't shift as images load (US-434).
   const articleHtml = rewriteContentImages(bodyWithAnchors, resizeImages, {
     fallbackAlt: post.title,
+    // US-876: apply stored per-image alt/caption to in-body images.
+    imageMeta: post.inline_images,
   });
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
@@ -269,13 +280,25 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   ${renderRelatedPosts(post.related)}
 </main>`;
 
+  // US-876: a full ImageObject for the hero (contentUrl, width, height, caption)
+  // so search + AI engines get structured image data, not a bare URL string.
+  // Falls back to the static logo URL when the post has no hero yet.
+  const heroImageLd =
+    heroImageObjectLd({
+      url: post.hero_image_url,
+      alt: heroAlt,
+      caption: post.hero_image_caption,
+      width: post.hero_image_width,
+      height: post.hero_image_height,
+    }) ?? `${siteUrl(env)}/logo_icon_512.png`;
+
   // Article schema — prefer model-supplied jsonld if present, else build one.
   const articleLd = post.jsonld ?? {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: post.title,
     description,
-    image: post.hero_image_url ?? `${siteUrl(env)}/logo_icon_512.png`,
+    image: heroImageLd,
     datePublished: post.published_at,
     dateModified: post.updated_at,
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
@@ -355,8 +378,9 @@ async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
 
   const heroHtml = renderHeroImage(
     post.hero_image_url,
-    post.title,
+    post.hero_image_alt?.trim() || post.title,
     imageResizingEnabled(env),
+    post.hero_image_caption,
   );
   const banner = `<div style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;padding:12px 16px;border-radius:6px;margin-bottom:24px;font-size:0.9rem">
     <strong>Preview mode</strong> &middot; This is an unpublished draft.

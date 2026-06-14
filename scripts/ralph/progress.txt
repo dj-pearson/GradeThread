@@ -2460,3 +2460,24 @@ Branch: ralph/gradethread-build
 - Notes: Suggested migration 00149 was stale (repo at 00201) -> used 00202. content_scheduler_runs.outcome/surface are free text (no CHECK), so refresh runs reuse the table with surface='refresh' (doubles as a liveness heartbeat; daily cadence can't mask the hourly main-tick watchdog). Material gate uses a multiset word diff (changed-words OR net-growth threshold) so formatting/typo edits are skipped; trivial diffs still advance last_refreshed_at so the next run moves to the next stale post. GSC is optional input (US-879 not yet built) - degrades to reading-time fallback when gsc_performance is empty. Had to cast posts query through `as unknown as PostRow[]` (Supabase deno typing infers GenericStringError on jsonb/array columns). Verified: deno check (all edge src) + lint clean, deno test 34/34 (freshness+summary+schema-version) + plan-gate 24/24 + rls-guard, web tsc --noEmit clean, vitest 731/731, verify:db applies 00202 from zero (29s).
 - Timestamp: 2026-06-13
 ---
+
+## US-876: Image SEO: AI alt-text, ImageObject schema, descriptive filenames/captions
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00203_content_image_seo.sql (NEW: blog_posts hero_image_alt/caption/credit/width/height + inline_images jsonb '[]')
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00202 -> 00203)
+  - services/edge-functions/src/lib/content-image-alt.ts (NEW: normalizeAltText, buildHeroAltFallback, generateHeroAltText (best-effort 1-call Anthropic), parseImageDimensions)
+  - services/edge-functions/src/lib/content-ai-prompts.ts (blog article schema + BlogArticleOutput: hero_image_alt + hero_image_caption)
+  - services/edge-functions/src/lib/content-ai-blog.ts (validateAndNormalize stores capped hero_image_alt/caption)
+  - services/edge-functions/src/lib/openai-images.ts (heroFilenameStem slug-based filename; ensureHeroImage loads slug/keyword/alt, stores dims + fallback AI alt)
+  - services/edge-functions/src/routes/content-blog.ts (generate route persists article hero_image_alt/caption before hero gen)
+  - services/edge-functions/src/routes/content-public.ts (POST_COLUMNS + BlogFullRow + normalizeInlineImages in /posts/:slug response)
+  - services/edge-functions/src/routes/content-images.ts (/inline persists alt/caption/dims into inline_images via upsertInlineImageMeta)
+  - functions/_shared/blog-render.ts (PublicPost+InlineImageMeta fields; renderHeroImage caption/figcaption + non-empty alt guard; heroImageObjectLd; rewriteContentImages imageMeta; figure/figcaption CSS)
+  - functions/blog/[[path]].ts (hero alt+caption; Article image = heroImageObjectLd; inline_images -> rewriteContentImages; preview hero alt)
+  - src/types/database.ts (BlogInlineImage + BlogPostRow image-SEO columns)
+  - src/test/blog-geo.test.ts (renderHeroImage / heroImageObjectLd / rewriteContentImages no-empty-alt suites)
+  - services/edge-functions/src/tests/content-image-alt_test.ts (NEW: pure helper tests)
+- Notes: Suggested migration 00150 was stale (repo at 00202) -> used 00203. Alt text is STORED not per-render: the article generator returns it free in the same JSON call and content-blog.ts stores it before kicking off the hero pipeline, so ensureHeroImage's fallback AI alt-call (content-image-alt.ts) rarely fires; deterministic buildHeroAltFallback guarantees a non-empty alt even with no AI/key. Hero dims parsed from the gpt-image size token feed ImageObject width/height. Inline images: rewriteContentImages prefers stored alt > filename-derived > post-title fallback, so no in-body img ships empty alt; a stored caption wraps the img in figure/figcaption. Article image upgraded from a bare URL string to a full ImageObject (contentUrl/width/height/caption). Descriptive slug-based hero filenames ({slug}-hero_<ts>.<ext>). Verified: web tsc + functions tsc clean, deno check+lint clean, vitest 741/741 (+10), deno 1291/1291 (incl schema-version 00203 sync), build:locked (41 pages), verify:db applies 00203 from zero (30s).
+- Timestamp: 2026-06-13
+---

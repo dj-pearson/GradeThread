@@ -7,6 +7,9 @@ import {
   renderFaqSection,
   faqPageJsonLd,
   renderRelatedPosts,
+  renderHeroImage,
+  heroImageObjectLd,
+  rewriteContentImages,
   articleAuthorLd,
   authorPersonLd,
   postAuthorLd,
@@ -265,5 +268,101 @@ describe("wasUpdatedAfterPublish", () => {
     ).toBe(false);
     expect(wasUpdatedAfterPublish(null, "2026-05-09")).toBe(false);
     expect(wasUpdatedAfterPublish("2026-05-09", null)).toBe(false);
+  });
+});
+
+// US-876: image SEO — hero alt/caption, ImageObject JSON-LD, inline-image meta.
+describe("renderHeroImage (US-876)", () => {
+  it("renders the hero img with alt + eager/high-priority hints", () => {
+    const html = renderHeroImage("https://x/h.jpg", "Vintage denim jacket flat-lay", false);
+    expect(html).toContain('src="https://x/h.jpg"');
+    expect(html).toContain('alt="Vintage denim jacket flat-lay"');
+    expect(html).toContain('loading="eager"');
+    expect(html).toContain('fetchpriority="high"');
+    expect(html).not.toContain("<figure");
+  });
+
+  it("never ships an empty alt even when given a blank one", () => {
+    const html = renderHeroImage("https://x/h.jpg", "   ", false);
+    expect(html).not.toContain('alt=""');
+    expect(html).toMatch(/alt="[^"]+"/);
+  });
+
+  it("wraps in <figure>/<figcaption> when a caption is supplied", () => {
+    const html = renderHeroImage("https://x/h.jpg", "Alt text", false, "Photo: studio");
+    expect(html).toContain('<figure class="hero-figure">');
+    expect(html).toContain("<figcaption>Photo: studio</figcaption>");
+  });
+
+  it("emits a responsive srcset only when resize is enabled", () => {
+    expect(renderHeroImage("https://x/h.jpg", "a", true)).toContain("srcset=");
+    expect(renderHeroImage("https://x/h.jpg", "a", false)).not.toContain("srcset=");
+  });
+
+  it("returns empty string when there is no hero src", () => {
+    expect(renderHeroImage(null, "a", true)).toBe("");
+    expect(renderHeroImage(undefined, "a", false)).toBe("");
+  });
+});
+
+describe("heroImageObjectLd (US-876)", () => {
+  it("builds an ImageObject with contentUrl, dimensions, and caption", () => {
+    const ld = heroImageObjectLd({
+      url: "https://x/h.jpg",
+      alt: "Vintage jacket",
+      caption: "On a mannequin",
+      width: 1536,
+      height: 1024,
+    });
+    expect(ld).toMatchObject({
+      "@type": "ImageObject",
+      url: "https://x/h.jpg",
+      contentUrl: "https://x/h.jpg",
+      caption: "On a mannequin",
+      description: "Vintage jacket",
+      width: 1536,
+      height: 1024,
+    });
+  });
+
+  it("falls back to alt for caption and omits unknown dimensions", () => {
+    const ld = heroImageObjectLd({ url: "https://x/h.jpg", alt: "Only alt" }) as Record<string, unknown>;
+    expect(ld.caption).toBe("Only alt");
+    expect(ld.width).toBeUndefined();
+    expect(ld.height).toBeUndefined();
+  });
+
+  it("returns null when there is no url", () => {
+    expect(heroImageObjectLd({ url: null })).toBeNull();
+    expect(heroImageObjectLd({ url: "   " })).toBeNull();
+  });
+});
+
+describe("rewriteContentImages alt coverage (US-876)", () => {
+  it("backfills alt from stored metadata, then filename, then fallback — never empty", () => {
+    const html =
+      '<img src="https://x/stored.jpg">' +
+      '<img src="https://x/vintage-levis-jacket.jpg">' +
+      '<img src="https://x/9f8a7b6c5d4e3f2a1b.jpg">';
+    const out = rewriteContentImages(html, false, {
+      fallbackAlt: "Post Title",
+      imageMeta: [{ src: "https://x/stored.jpg", alt: "Stored alt text" }],
+    });
+    expect(out).toContain('alt="Stored alt text"');
+    expect(out).toContain('alt="vintage levis jacket"');
+    expect(out).toContain('alt="Post Title"'); // hash filename → title fallback
+    // Critical: no <img> in the rendered article ships without an alt attribute.
+    for (const tag of out.match(/<img\b[^>]*>/gi) ?? []) {
+      expect(tag).toMatch(/\salt="[^"]*"/);
+      expect(tag).not.toMatch(/\salt=""/);
+    }
+  });
+
+  it("wraps an image in <figure> when stored metadata carries a caption", () => {
+    const out = rewriteContentImages('<img src="https://x/a.jpg">', false, {
+      imageMeta: [{ src: "https://x/a.jpg", alt: "Alt", caption: "A caption" }],
+    });
+    expect(out).toContain('<figure class="content-figure">');
+    expect(out).toContain("<figcaption>A caption</figcaption>");
   });
 });

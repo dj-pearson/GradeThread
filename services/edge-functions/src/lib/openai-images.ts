@@ -2,6 +2,10 @@ import { supabaseAdmin } from "./supabase.ts";
 import { getDefaultImageModel } from "./ai-config.ts";
 import { validateImageUpload } from "./upload-validation.ts";
 import { stripImageMetadata } from "./image-metadata.ts";
+import {
+  generateHeroAltText,
+  parseImageDimensions,
+} from "./content-image-alt.ts";
 
 // OpenAI gpt-image-1 wrapper for hero image generation.
 // Returns the raw image bytes; the route handler uploads to the
@@ -90,6 +94,9 @@ export interface UploadHeroInput {
   contentType?: string; // default image/png
   ext?: string; // file extension without dot; derived from contentType if omitted
   surface?: "blog" | "social";
+  // US-876: descriptive, slug-based filename for image SEO. Falls back to the
+  // generic "hero" stem when no usable slug is available.
+  slug?: string | null;
 }
 
 export interface UploadHeroResult {
@@ -97,15 +104,29 @@ export interface UploadHeroResult {
   path: string;
 }
 
-// Uploads bytes to content-images/<surface>/<postId>/hero_<ts>.<ext> and
-// returns the public URL. Service-role client bypasses RLS.
+// US-876: a filesystem/URL-safe filename stem from the post slug. Empty when the
+// slug yields nothing usable, so the caller falls back to "hero".
+export function heroFilenameStem(slug: string | null | undefined): string {
+  const base = (slug ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return base ? `${base}-hero` : "hero";
+}
+
+// Uploads bytes to content-images/<surface>/<postId>/<slug>-hero_<ts>.<ext> and
+// returns the public URL. Service-role client bypasses RLS. A descriptive,
+// slug-based filename (US-876) gives Google Images a keyword signal; the
+// timestamp keeps it unique so upsert:false never collides on regenerate.
 export async function uploadHeroImage(
   input: UploadHeroInput,
 ): Promise<UploadHeroResult> {
   const surface = input.surface ?? "blog";
   const contentType = input.contentType ?? "image/png";
   const ext = input.ext ?? (contentType.includes("jpeg") ? "jpg" : "png");
-  const path = `${surface}/${input.postId}/hero_${Date.now()}.${ext}`;
+  const stem = heroFilenameStem(input.slug);
+  const path = `${surface}/${input.postId}/${stem}_${Date.now()}.${ext}`;
 
   const { error: upErr } = await supabaseAdmin.storage
     .from("content-images")
@@ -183,7 +204,7 @@ export async function ensureHeroImage(
       .from(table)
       .select(
         surface === "blog"
-          ? "hero_image_url, hero_prompt, title"
+          ? "hero_image_url, hero_prompt, title, slug, primary_keyword, hero_image_alt"
           : "asset_image_url",
       )
       .eq("id", input.postId)
@@ -196,6 +217,9 @@ export async function ensureHeroImage(
       asset_image_url?: string | null;
       hero_prompt?: string | null;
       title?: string | null;
+      slug?: string | null;
+      primary_keyword?: string | null;
+      hero_image_alt?: string | null;
     };
 
     // Idempotent: don't regenerate if a hero already exists (unless forced).
@@ -239,13 +263,30 @@ export async function ensureHeroImage(
       contentType,
       ext,
       surface,
+      slug: surface === "blog" ? row.slug : null,
     });
 
-    const updateCols: Record<string, string> = {
+    const updateCols: Record<string, string | number> = {
       [urlCol]: uploaded.url,
       [pathCol]: uploaded.path,
     };
-    if (surface === "blog") updateCols.hero_prompt = prompt;
+    if (surface === "blog") {
+      updateCols.hero_prompt = prompt;
+      // US-876: record the generated pixel dimensions for the hero ImageObject.
+      const { width, height } = parseImageDimensions(gen.meta.size);
+      if (width) updateCols.hero_image_width = width;
+      if (height) updateCols.hero_image_height = height;
+      // US-876: ensure a non-empty, descriptive alt is stored. The article
+      // generator usually supplies it (free, same call); only when it's missing
+      // do we spend one cheap AI call (best-effort, deterministic fallback).
+      if (!row.hero_image_alt?.trim()) {
+        updateCols.hero_image_alt = await generateHeroAltText({
+          title: row.title,
+          primaryKeyword: row.primary_keyword,
+          heroPrompt: prompt,
+        });
+      }
+    }
     await supabaseAdmin.from(table).update(updateCols).eq("id", input.postId);
 
     return {

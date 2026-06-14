@@ -12921,8 +12921,8 @@
         "A test asserts SSR blog HTML has no img without alt; npm run verify passes"
       ],
       "priority": 876,
-      "passes": false,
-      "notes": "[EPIC: Content Authority Depth 2026-06-11] Builds on US-853 (hero pipeline). Hooks content-images.ts + blog-render.ts. Keep alt text stored (not per-render) to stay cheap. Complements US-871 social cards."
+      "passes": true,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Builds on US-853 (hero pipeline). Hooks content-images.ts + blog-render.ts. Keep alt text stored (not per-render) to stay cheap. Complements US-871 social cards. [DONE 2026-06-13] Migration 00203 (hero_image_alt/caption/credit/width/height + inline_images jsonb), schema version bumped to 00203. AI alt/caption returned by the blog article generator in the same JSON call (free) and stored before hero gen; ensureHeroImage falls back to one cheap Anthropic alt call (content-image-alt.ts generateHeroAltText) + deterministic buildHeroAltFallback when alt is missing, and stores pixel dims parsed from the gpt-image size. Slug-based hero filenames ({slug}-hero_<ts>.<ext>). Blog SSR: renderHeroImage guards non-empty alt + wraps figure/figcaption on caption; rewriteContentImages applies stored inline_images alt/caption (stored>filename>title fallback); Article image now a full ImageObject (heroImageObjectLd: contentUrl/width/height/caption). /inline endpoint persists alt/caption/dims to inline_images. Tests: blog-geo.test.ts (renderHeroImage/heroImageObjectLd/rewriteContentImages no-empty-alt) + content-image-alt_test.ts. Verified web+functions tsc, deno check+lint, vitest 741, deno 1291, build:locked 41 pages, verify:db 00203 from zero."
     },
     {
       "id": "US-877",

@@ -2489,6 +2489,14 @@ export interface BlogFaq {
   q: string;
   a: string;
 }
+// Per-body-image SEO metadata (US-876) stored on blog_posts.inline_images.
+export interface BlogInlineImage {
+  src: string;
+  alt: string;
+  caption: string;
+  width: number | null;
+  height: number | null;
+}
 
 export interface BlogPostRow {
   id: string;
@@ -2502,6 +2510,14 @@ export interface BlogPostRow {
   hero_image_url: string | null;
   hero_image_path: string | null;
   hero_prompt: string | null;
+  // Image SEO (US-876): stored hero alt/caption/credit + pixel dimensions, and
+  // per-inline-image metadata. Nullable/defaulted → legacy posts unaffected.
+  hero_image_alt: string | null;
+  hero_image_caption: string | null;
+  hero_image_credit: string | null;
+  hero_image_width: number | null;
+  hero_image_height: number | null;
+  inline_images: BlogInlineImage[];
   seo_title: string | null;
   seo_description: string | null;
   primary_keyword: string | null;

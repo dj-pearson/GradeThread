@@ -536,6 +536,11 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
         primary_keyword: article.primary_keyword,
         secondary_keywords: article.secondary_keywords,
         hero_prompt: article.hero_prompt,
+        // US-876: store the AI-authored hero alt/caption now so the hero
+        // pipeline (kicked off below) sees an alt already set and skips the
+        // extra fallback alt-generation call.
+        hero_image_alt: article.hero_image_alt || null,
+        hero_image_caption: article.hero_image_caption || null,
         reading_time_min: article.reading_time_min,
         generated_by: "ai" as const,
         model_used: meta.model_used,
