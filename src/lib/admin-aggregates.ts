@@ -57,6 +57,41 @@ export interface AdminAuditFilterOptions {
   admins: Array<{ id: string; label: string }>;
 }
 
+// ── admin_audit_log_search (US-905) ────────────────────────────────────────
+// Server-side full-text search (action/target/details) + actor/action/target/
+// date filters, paginated with a window total_count. The console calls this
+// instead of a direct table query so the jsonb `details` is searchable.
+
+export interface AdminAuditSearchParams {
+  search?: string | null;
+  admin?: string | null;
+  action?: string | null;
+  targetType?: string | null;
+  from?: string | null;
+  to?: string | null;
+  limit: number;
+  offset: number;
+}
+
+export interface AdminAuditSearchRow {
+  id: string;
+  admin_user_id: string | null;
+  actor_role: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  details: Record<string, unknown> | null;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+  total_count: number;
+}
+
+export interface AdminAuditSearchResult {
+  rows: AdminAuditSearchRow[];
+  totalCount: number;
+}
+
 // ── admin_revenue_metrics (US-583) ─────────────────────────────────────────
 // Authoritative subscription revenue + AI token spend. MRR is computed
 // client-side from `byPlanInterval` × FLIPDESK_PLANS pricing so prices live in
@@ -101,7 +136,20 @@ type RpcClient = {
     ((
       fn: "admin_revenue_metrics",
       args?: Record<string, never>,
-    ) => Promise<{ data: AdminRevenueMetrics | null; error: { message: string } | null }>);
+    ) => Promise<{ data: AdminRevenueMetrics | null; error: { message: string } | null }>) &
+    ((
+      fn: "admin_audit_log_search",
+      args: {
+        p_search: string | null;
+        p_admin: string | null;
+        p_action: string | null;
+        p_target_type: string | null;
+        p_from: string | null;
+        p_to: string | null;
+        p_limit: number;
+        p_offset: number;
+      },
+    ) => Promise<{ data: AdminAuditSearchRow[] | null; error: { message: string } | null }>);
 };
 
 export async function fetchAdminSystemMetrics(): Promise<AdminSystemMetrics> {
@@ -122,6 +170,26 @@ export async function fetchAdminUserListStats(
   });
   if (error) throw new Error(error.message);
   return data ?? {};
+}
+
+export async function fetchAdminAuditSearch(
+  params: AdminAuditSearchParams,
+): Promise<AdminAuditSearchResult> {
+  const client = supabase as unknown as RpcClient;
+  const { data, error } = await client.rpc("admin_audit_log_search", {
+    p_search: params.search?.trim() || null,
+    p_admin: params.admin && params.admin !== "all" ? params.admin : null,
+    p_action: params.action && params.action !== "all" ? params.action : null,
+    p_target_type:
+      params.targetType && params.targetType !== "all" ? params.targetType : null,
+    p_from: params.from || null,
+    p_to: params.to || null,
+    p_limit: params.limit,
+    p_offset: params.offset,
+  });
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  return { rows, totalCount: rows[0]?.total_count ?? 0 };
 }
 
 export async function fetchAdminAuditFilterOptions(): Promise<AdminAuditFilterOptions> {

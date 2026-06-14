@@ -1398,6 +1398,62 @@ export async function sendSupportAbuseAlertEmail(
   });
 }
 
+// ─── Audit-log anomaly alert (internal/admin alert) ────────────────
+
+interface AuditAnomalyAlertData {
+  detector: string;
+  severity: string;
+  eventCount: number;
+  window: string;
+  actorLabel: string | null;
+  summary: string;
+}
+
+/**
+ * US-905: alert the platform admin that the scheduled audit-log scan flagged a
+ * suspicious pattern (role-change burst, mass refunds, off-hours destructive
+ * actions). Categorized so a transient SMTP failure is retried from the outbox
+ * (US-801).
+ */
+export async function sendAuditAnomalyAlertEmail(
+  to: string,
+  data: AuditAnomalyAlertData,
+): Promise<boolean> {
+  const banner = data.severity === "critical" ? BRAND_RED : "#eab308";
+  const content = `
+    <div style="background:${banner};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      Audit anomaly — ${escapeHtml(data.severity.toUpperCase())}
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${escapeHtml(data.summary)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      The scheduled audit-log scan flagged
+      <strong>${data.eventCount}</strong> qualifying action${data.eventCount === 1 ? "" : "s"}
+      in the <strong>${escapeHtml(data.window)}</strong> window. Review the audit
+      log and confirm the activity is expected.
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 8px;">
+      <tr>
+        <td style="padding: 12px; background:${BRAND_GRAY}; border-radius: 8px; font-size: 14px; color:#333;">
+          <span style="color:#666;font-size:12px;">Detector</span><br>
+          ${escapeHtml(data.detector)}
+          <br><br>
+          <span style="color:#666;font-size:12px;">Acting admin</span><br>
+          ${data.actorLabel ? escapeHtml(data.actorLabel) : "Multiple / platform-wide"}
+        </td>
+      </tr>
+    </table>
+    ${ctaButton("Open audit log", `${SITE_URL}/admin/audit-log`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `${data.severity === "critical" ? "🔴" : "🟡"} GradeThread audit anomaly — ${data.detector}`,
+    html: emailLayout(content),
+    category: "audit_anomaly_alert", // US-801: durable retry on transient failure
+  });
+}
+
 // ─── Support-assistant human escalation (internal/admin alert) ──────
 
 interface SupportEscalationData {

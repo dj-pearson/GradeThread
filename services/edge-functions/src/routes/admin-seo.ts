@@ -17,6 +17,7 @@ import {
   querySearchAnalytics,
 } from "../lib/gsc-client.ts";
 import { submitUrls } from "../lib/indexnow.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
 
 export const adminSeoRoutes = new Hono<{
   Variables: {
@@ -125,6 +126,13 @@ adminSeoRoutes.post("/indexnow", async (c) => {
     return c.json({ error: "urls must be a non-empty array" }, 400);
   }
   const submitted = await submitUrls(urls);
+  // US-905: this is an operator-triggered external submission — audit it.
+  await writeAuditLog(c, {
+    action: "seo.indexnow_submit",
+    targetType: "seo",
+    targetId: null,
+    details: { url_count: urls.length, submitted },
+  });
   return c.json({ ok: true, submitted });
 });
 
@@ -139,6 +147,13 @@ adminSeoRoutes.post("/gsc/sync", async (c) => {
   const startDate = typeof body.startDate === "string" ? body.startDate : undefined;
   const endDate = typeof body.endDate === "string" ? body.endDate : undefined;
   const result = await runGscSync({ startDate, endDate });
+  // US-905: operator-triggered manual GSC sync — audit it.
+  await writeAuditLog(c, {
+    action: "seo.gsc_sync_manual",
+    targetType: "seo",
+    targetId: null,
+    details: { startDate, endDate, ok: result.ok },
+  });
   return c.json(result, result.ok ? 200 : (result.configured ? 502 : 503));
 });
 

@@ -1,8 +1,14 @@
 import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import type { AdminAuditLogRow, UserRow } from "@/types/database";
-import { fetchAdminAuditFilterOptions } from "@/lib/admin-aggregates";
+import type { UserRow } from "@/types/database";
+import {
+  type AdminAuditSearchRow,
+  fetchAdminAuditFilterOptions,
+  fetchAdminAuditSearch,
+} from "@/lib/admin-aggregates";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Card,
@@ -30,11 +36,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
+  Download,
   Lock,
   ScrollText,
+  Search,
   Shield,
 } from "lucide-react";
 
@@ -43,10 +52,26 @@ const PAGE_SIZE = 25;
 type AuditAdmin = Pick<UserRow, "id" | "full_name" | "email" | "role">;
 
 interface AuditData {
-  logs: AdminAuditLogRow[];
+  logs: AdminAuditSearchRow[];
   usersById: Map<string, AuditAdmin>;
   totalCount: number;
 }
+
+interface AnomalyItem {
+  id: string;
+  detector: string;
+  severity: string;
+  event_count: number;
+  last_seen_at: string;
+  actor_label: string | null;
+  evidence: Record<string, unknown> | null;
+}
+
+const DETECTOR_LABELS: Record<string, string> = {
+  role_change_burst: "Burst of admin role changes",
+  mass_refund: "Mass refund / credit activity",
+  off_hours_destructive: "Off-hours destructive actions",
+};
 
 function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
@@ -74,8 +99,13 @@ export function AdminAuditLogPage() {
   const [targetTypeFilter, setTargetTypeFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  // Free-text box (debounced into `search` on submit) — searched server-side
+  // across action / target / the jsonb details. (US-905)
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   // US-415: filter dropdown options come from a DISTINCT grouped query
   // (admin_audit_log_filter_options) instead of scanning every row client-side.
@@ -90,9 +120,12 @@ export function AdminAuditLogPage() {
   const actionOptions = filterOptions?.actions ?? [];
   const targetTypeOptions = filterOptions?.targetTypes ?? [];
 
-  // US-415: the log paginates server-side (`.range()` + exact count). Filters
-  // and the date range are pushed into the query, and only the acting users on
-  // the current page are fetched (by id) rather than the whole users table.
+  // US-905: the log paginates + free-text searches server-side via the
+  // admin_audit_log_search RPC (which casts target_id/details to text so the
+  // jsonb details column is searchable). Filters + date range + search term are
+  // pushed into the RPC, and only the acting users on the current page are
+  // fetched (by id) rather than the whole users table.
+  const toIso = toDate ? `${toDate}T23:59:59.999Z` : null;
   const { data, isLoading } = useQuery({
     queryKey: [
       "admin-audit-log",
@@ -102,34 +135,24 @@ export function AdminAuditLogPage() {
       targetTypeFilter,
       fromDate,
       toDate,
+      search,
     ],
     enabled: isSuperAdmin,
     queryFn: async (): Promise<AuditData> => {
-      let query = supabase
-        .from("admin_audit_log")
-        .select("*", { count: "exact" })
-        .order("created_at", { ascending: false });
-
-      if (adminFilter !== "all") query = query.eq("admin_user_id", adminFilter);
-      if (actionFilter !== "all") query = query.eq("action", actionFilter);
-      if (targetTypeFilter !== "all") {
-        query = query.eq("target_type", targetTypeFilter);
-      }
-      if (fromDate) query = query.gte("created_at", fromDate);
-      if (toDate) query = query.lte("created_at", `${toDate}T23:59:59.999Z`);
-
-      query = query.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-
-      const { data: logs, error, count } = await query;
-      if (error) throw error;
-
-      const logRows = (logs ?? []) as AdminAuditLogRow[];
+      const { rows, totalCount } = await fetchAdminAuditSearch({
+        search,
+        admin: adminFilter,
+        action: actionFilter,
+        targetType: targetTypeFilter,
+        from: fromDate || null,
+        to: toIso,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      });
 
       const adminIds = [
         ...new Set(
-          logRows
-            .map((l) => l.admin_user_id)
-            .filter((id): id is string => !!id),
+          rows.map((l) => l.admin_user_id).filter((id): id is string => !!id),
         ),
       ];
 
@@ -145,15 +168,65 @@ export function AdminAuditLogPage() {
         }
       }
 
-      return { logs: logRows, usersById, totalCount: count ?? 0 };
+      return { logs: rows, usersById, totalCount };
     },
     staleTime: 30 * 1000,
   });
 
+  // US-905: anomaly findings raised by the scheduled scan (read via the edge
+  // endpoint — admin_audit_anomalies is service-role-only).
+  const { data: anomalies } = useQuery({
+    queryKey: ["admin-audit-anomalies"],
+    enabled: isSuperAdmin,
+    queryFn: async (): Promise<AnomalyItem[]> => {
+      const res = await edgeFetch("/api/admin/audit/anomalies?status=open");
+      if (!res.ok) return [];
+      const json = (await res.json()) as { anomalies?: AnomalyItem[] };
+      return json.anomalies ?? [];
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // US-905: CSV/JSON export of the filtered set (super-admin; itself audited).
+  async function exportLog(format: "csv" | "json") {
+    setIsExporting(true);
+    try {
+      const params = new URLSearchParams({ format });
+      if (search.trim()) params.set("search", search.trim());
+      if (adminFilter !== "all") params.set("admin", adminFilter);
+      if (actionFilter !== "all") params.set("action", actionFilter);
+      if (targetTypeFilter !== "all") params.set("targetType", targetTypeFilter);
+      if (fromDate) params.set("from", fromDate);
+      if (toIso) params.set("to", toIso);
+
+      const res = await edgeFetch(`/api/admin/audit/export?${params.toString()}`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(
+          (j as { error?: string }).error ?? `Export failed (${res.status})`,
+        );
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audit-log.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Audit log exported (${format.toUpperCase()})`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   // An entry is super-admin-only if the acting role was super_admin. Prefer the
   // role stamped on the row at action time (actor_role); fall back to the
   // actor's current role for older rows written before that column existed.
-  function isSuperAdminEntry(log: AdminAuditLogRow): boolean {
+  function isSuperAdminEntry(log: AdminAuditSearchRow): boolean {
     if (log.actor_role) return log.actor_role === "super_admin";
     return (
       !!log.admin_user_id &&
@@ -172,6 +245,13 @@ export function AdminAuditLogPage() {
     setTargetTypeFilter("all");
     setFromDate("");
     setToDate("");
+    setSearchInput("");
+    setSearch("");
+    setPage(0);
+  }
+
+  function submitSearch() {
+    setSearch(searchInput);
     setPage(0);
   }
 
@@ -209,6 +289,88 @@ export function AdminAuditLogPage() {
           </p>
         </div>
       </div>
+
+      {/* US-905: anomaly findings raised by the scheduled scan */}
+      {anomalies && anomalies.length > 0 && (
+        <Card className="border-brand-red/40 bg-brand-red/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base text-brand-red-text">
+              <AlertTriangle className="h-4 w-4" />
+              {anomalies.length} open anomal
+              {anomalies.length === 1 ? "y" : "ies"} flagged
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {anomalies.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2 text-sm"
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={
+                      a.severity === "critical"
+                        ? "rounded bg-brand-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-red-text"
+                        : "rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600"
+                    }
+                  >
+                    {a.severity}
+                  </span>
+                  <span className="font-medium">
+                    {DETECTOR_LABELS[a.detector] ?? a.detector}
+                  </span>
+                  <span className="text-muted-foreground">
+                    — {a.event_count} action{a.event_count === 1 ? "" : "s"}
+                    {a.actor_label ? ` by ${a.actor_label}` : " (platform-wide)"}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {formatTimestamp(a.last_seen_at)}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Search + export */}
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Search action, target or details…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitSearch();
+              }}
+            />
+          </div>
+          <Button variant="secondary" onClick={submitSearch}>
+            Search
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={isExporting}
+              onClick={() => exportLog("csv")}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              CSV
+            </Button>
+            <Button
+              variant="outline"
+              disabled={isExporting}
+              onClick={() => exportLog("json")}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              JSON
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Filters */}
       <Card>

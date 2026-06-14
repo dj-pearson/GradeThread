@@ -115,6 +115,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // client; the SPA never reads it. Keyed by subject_user_id (not user_id) so it
   // is an operator surface, not user-owned tenant data.
   "billing_reconciliation_flags",
+  // US-905 audit-log anomaly findings: RLS enabled with an explicit
+  // `revoke all from anon, authenticated` and zero policies by design
+  // (migration 00227). Written by the scheduled audit-anomaly scan and
+  // read/triaged ONLY by the admin audit endpoints via the service-role client;
+  // the SPA never reads it directly. Keyed by actor_user_id (the implicated
+  // admin), not a tenant key — an operator surface, not user-owned data.
+  "admin_audit_anomalies",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

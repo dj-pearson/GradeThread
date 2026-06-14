@@ -179,6 +179,7 @@ the handler returns 401.
 | content-refresh         | `30 4 * * *` (daily)  | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/content-refresh`                       |
 | content-digest          | `0 14 * * 1` (Mon 14:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $CONTENT_INTERNAL_JOB_SECRET" http://localhost:8787/api/content/scheduler/digest`                |
 | ai-budget-guardrails    | `*/15 * * * *` (15min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ai-budget-guardrails`                  |
+| audit-anomaly-scan      | `5 * * * *` (hourly)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/audit-anomaly-scan`                    |
 
 > **Cadence notes (US-496):**
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h
@@ -211,6 +212,17 @@ the handler returns 401.
 >   **`CONTENT_DIGEST_EMAIL`** (falling back to `CONTENT_ALERT_EMAIL` /
 >   `SMTP_ADMIN_EMAIL`); an undelivered digest is captured in Sentry, never
 >   silent. Admins can also fire it on demand from `/admin/content/analytics`.
+> - `audit-anomaly-scan` (US-905) hourly scans the last hour of `admin_audit_log`
+>   for suspicious patterns — a single admin making more than
+>   `audit_anomaly_role_changes_per_hour` role changes, more than
+>   `audit_anomaly_refunds_per_hour` refunds/credits platform-wide, or any
+>   destructive action outside `audit_anomaly_business_hours_start..end` (UTC) —
+>   all tunable from the settings registry (`/admin/ops/settings`, category
+>   `security`; master switch `audit_anomaly_enabled`). A fresh finding writes an
+>   `admin_audit_anomalies` row (surfaced on `/admin/audit-log`) and pages via
+>   **`AUDIT_ALERT_EMAIL`**/**`AUDIT_ALERT_WEBHOOK`** (falling back to
+>   `MONITOR_ALERT_*`/`SMTP_ADMIN_EMAIL`). Idempotent per hour bucket, so it never
+>   re-alerts the same window.
 > - `automation-rules` (US-150) applies user-defined price-drop / promo / end
 >   rules hourly (offset to :30 so it never races reprice-scan for the eBay
 >   rate budget). Per-rule cooldowns stop hourly re-fires; overlap-locked.

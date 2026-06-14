@@ -81,6 +81,8 @@ import { adminMarketplaceConnectionsRoutes } from "./routes/admin-marketplace-co
 import { adminMarketplaceOpsRoutes } from "./routes/admin-marketplace-ops.ts";
 import { adminMarketplacePipelineRoutes } from "./routes/admin-marketplace-pipeline.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
+import { adminAuditRoutes } from "./routes/admin-audit.ts";
+import { handleAuditAnomalyCron } from "./routes/jobs-audit-anomaly.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
@@ -824,6 +826,8 @@ app.route("/api/admin/marketplace/pipeline", adminMarketplacePipelineRoutes);
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.
 app.route("/api/admin/condition-index", adminConditionIndexRoutes);
+// US-905: audit-log export (super-admin, audited) + anomaly triage.
+app.route("/api/admin/audit", adminAuditRoutes);
 // US-326 public transparency report. Lives at /api/grading/public (NOT
 // /api/grade/*, which is JWT-gated) so the unauthenticated /transparency page
 // can read platform-wide aggregate accuracy stats. Returns no per-tenant data.
@@ -874,6 +878,10 @@ app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
 // cross-account phash photo-reuse + submission-velocity signals. Idempotent
 // (dedupe_key); the handler enforces X-Internal-Job-Secret itself.
 app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
+// US-905 scheduled audit-log anomaly scan (role-change bursts, mass refunds,
+// off-hours destructive actions). Thresholds in the settings registry; raises
+// an ops alert + admin_audit_anomalies finding. Enforces the job secret itself.
+app.post("/api/jobs/audit-anomaly-scan", (c) => handleAuditAnomalyCron(c));
 // US-547 AutoLister listing-prompt A/B auto-promotion. Compares the in-trial
 // challenger against the champion on seller keep-rate + sell-through and
 // promotes (eval-gated) / ends the trial. Handler enforces the job secret.

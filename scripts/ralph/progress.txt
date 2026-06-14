@@ -2913,3 +2913,31 @@ Branch: ralph/gradethread-build
 - Notes: legal_documents is now the operator-managed source of truth for current/required ToS+Privacy versions (replacing the hardcoded TOS_VERSION/PRIVACY_VERSION constants in legal.ts). lib/legal-versions.ts: deriveLegalVersionState (current = latest published per kind; requiredSince = latest requires_reacceptance=true doc) + needsReacceptance, both pure + unit-tested; loadLegalVersionState reads the DB with a 2026-04-01 baseline fallback so existing acceptances stay consistent. Version strings are effective-date YYYY-MM-DD so lexical >= comparison = chronological. /api/admin/compliance/legal: GET (versions + coverage %), POST publish (super_admin + requireStepUp + writeAuditLog). The legal gate is now server-driven (/api/legal/status), so publishing forces re-acceptance with no frontend deploy. Frontend route /admin/legal (not /admin/compliance/legal — would collide with the :id detail route). Gotcha: a pure-logic Deno test still triggers supabase.ts's env throw at import — set dummy SUPABASE_URL/KEY then dynamic-import (schema-version_test.ts pattern). Verified: tsc --noEmit, build:locked, npm test (776), full edge deno test (1519), verify:db.
 - Timestamp: 2026-06-14
 ---
+
+## US-905: Audit log search, export & anomaly alerting
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00227_audit_log_search_export.sql (NEW: admin_audit_log_search RPC, admin_audit_anomalies table, 5 settings-registry thresholds)
+  - services/edge-functions/src/lib/audit-anomaly.ts (NEW: pure detectors)
+  - services/edge-functions/src/routes/jobs-audit-anomaly.ts (NEW: hourly scan cron)
+  - services/edge-functions/src/routes/admin-audit.ts (NEW: super-admin export + anomaly triage)
+  - services/edge-functions/src/lib/email.ts (sendAuditAnomalyAlertEmail)
+  - services/edge-functions/src/routes/admin-seo.ts (AC2 gap: audit indexnow + gsc-sync triggers)
+  - services/edge-functions/src/main.ts (mount /api/admin/audit + /api/jobs/audit-anomaly-scan)
+  - services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION -> 00227)
+  - services/edge-functions/src/tests/{audit-anomaly_test.ts,audit-append-only_test.ts} (NEW)
+  - services/edge-functions/src/tests/rls-guard_test.ts (classify admin_audit_anomalies)
+  - services/edge-functions/COOLIFY.md (audit-anomaly-scan cron + cadence note)
+  - src/lib/admin-aggregates.ts (fetchAdminAuditSearch + types)
+  - src/pages/admin/audit-log.tsx (search box, CSV/JSON export, anomaly banner)
+  - src/types/database.ts (AdminAuditAnomalyRow + table entry)
+- Notes: Unified search+export onto one SECURITY DEFINER RPC because the jsonb `details`
+  column can't be ILIKE'd via PostgREST (operator does not exist: jsonb ~~ text) — the RPC
+  casts target_id/details to text. RPC guard accepts service_role (export) OR is_admin (console),
+  mirroring the 00207 system-health pattern. Anomaly findings are idempotent per UTC hour bucket
+  so the hourly cron never re-alerts. admin_audit_log stays append-only (no UPDATE/DELETE policy);
+  re-asserted by audit-append-only_test.ts.
+- Verify: tsc --noEmit; build:locked (41 pages); eslint 0 errors; vitest 776; deno check+lint;
+  new edge tests + rls-guard + schema-version green; verify:db applies 00227 from zero.
+- Timestamp: 2026-06-14
+---

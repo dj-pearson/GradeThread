@@ -1631,6 +1631,25 @@ export interface AdminAuditLogRow {
   created_at: string;
 }
 
+// US-905: anomaly findings raised by the scheduled audit-log scan. Operator
+// surface (service-role only); the SPA reads it via /api/admin/audit/anomalies.
+export interface AdminAuditAnomalyRow {
+  id: string;
+  detector: string;
+  severity: string;
+  dedupe_key: string;
+  actor_user_id: string | null;
+  event_count: number;
+  evidence: Record<string, unknown>;
+  alerted: boolean;
+  status: string;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  created_at: string;
+}
+
 export interface HumanReviewRow {
   id: string;
   grade_report_id: string;
@@ -2798,6 +2817,14 @@ export interface Database {
         Row: AdminAuditLogRow;
         Insert: AdminAuditLogInsert;
         Update: Partial<Omit<AdminAuditLogRow, "id" | "created_at">>;
+      };
+      admin_audit_anomalies: {
+        Row: AdminAuditAnomalyRow;
+        Insert: Partial<AdminAuditAnomalyRow> & {
+          detector: string;
+          dedupe_key: string;
+        };
+        Update: Partial<Omit<AdminAuditAnomalyRow, "id" | "created_at">>;
       };
       human_reviews: {
         Row: HumanReviewRow;
