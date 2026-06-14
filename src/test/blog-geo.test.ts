@@ -10,6 +10,12 @@ import {
   renderHeroImage,
   heroImageObjectLd,
   rewriteContentImages,
+  linkGlossaryTerms,
+  glossaryAboutLd,
+  isHowToPost,
+  deriveHowToSteps,
+  buildPostHowToLd,
+  speakableSpec,
   articleAuthorLd,
   authorPersonLd,
   postAuthorLd,
@@ -364,5 +370,143 @@ describe("rewriteContentImages alt coverage (US-876)", () => {
     });
     expect(out).toContain('<figure class="content-figure">');
     expect(out).toContain("<figcaption>A caption</figcaption>");
+  });
+});
+
+// ─── US-878: GEO depth (entity consistency, HowTo, Speakable) ───────────────
+
+describe("linkGlossaryTerms (US-878)", () => {
+  it("links the first mention of an unambiguous term to its glossary spoke", () => {
+    const { html, terms } = linkGlossaryTerms(
+      "<p>An NWT shirt and another NWT item.</p>",
+    );
+    expect(html).toContain('<a href="/grading/nwt">NWT</a>');
+    // First occurrence only — the second NWT stays plain text.
+    expect(html.match(/<a href="\/grading\/nwt">/g)?.length).toBe(1);
+    expect(terms).toEqual([{ term: "NWT", path: "/grading/nwt" }]);
+  });
+
+  it("requires 'condition' for common-adjective tiers and prefers the longest", () => {
+    const { html } = linkGlossaryTerms(
+      "<p>It is in Very Good condition, not just Good condition.</p>",
+    );
+    expect(html).toContain('<a href="/grading/very-good">Very Good condition</a>');
+    expect(html).toContain('<a href="/grading/good">Good condition</a>');
+    // No nested anchors from the "Good condition" inside "Very Good condition".
+    expect(html).not.toMatch(/<a[^>]*><a/);
+  });
+
+  it("does not link a bare adjective with no 'condition'", () => {
+    const { html, terms } = linkGlossaryTerms("<p>This is a good day for fair weather.</p>");
+    expect(html).not.toContain("/grading/");
+    expect(terms).toHaveLength(0);
+  });
+
+  it("never links inside an existing anchor, heading, or code block", () => {
+    const { html } = linkGlossaryTerms(
+      '<h2>NWT explained</h2><p><a href="/x">NWT</a> and <code>NWT</code></p><p>An NWT tag.</p>',
+    );
+    // Only the plain-prose NWT gets linked.
+    expect(html).toContain("<h2>NWT explained</h2>");
+    expect(html).toContain('<a href="/x">NWT</a>');
+    expect(html).toContain("<code>NWT</code>");
+    expect(html).toContain('<a href="/grading/nwt">NWT</a>');
+    expect(html.match(/\/grading\/nwt/g)?.length).toBe(1);
+  });
+
+  it("links a multi-word factor and decodes the &amp; factor", () => {
+    const { html, terms } = linkGlossaryTerms(
+      "<p>We weight Fabric Condition and Odor &amp; Cleanliness.</p>",
+    );
+    expect(html).toContain('<a href="/grading/fabric-condition">Fabric Condition</a>');
+    expect(html).toContain('<a href="/grading/odor-cleanliness">Odor &amp; Cleanliness</a>');
+    expect(terms.map((t) => t.path)).toContain("/grading/odor-cleanliness");
+  });
+});
+
+describe("glossaryAboutLd (US-878)", () => {
+  it("builds DefinedTerm nodes pointing at spokes + the hub term set", () => {
+    const nodes = glossaryAboutLd(
+      [{ term: "NWT", path: "/grading/nwt" }],
+      "https://gradethread.com",
+    );
+    expect(nodes).toEqual([
+      {
+        "@type": "DefinedTerm",
+        name: "NWT",
+        url: "https://gradethread.com/grading/nwt",
+        inDefinedTermSet: "https://gradethread.com/condition-grading",
+      },
+    ]);
+  });
+});
+
+describe("isHowToPost / deriveHowToSteps / buildPostHowToLd (US-878)", () => {
+  it("detects procedural posts from the title/keyword", () => {
+    expect(isHowToPost({ title: "How to grade a jacket" })).toBe(true);
+    expect(isHowToPost({ title: "A step-by-step guide" })).toBe(true);
+    expect(isHowToPost({ title: "What NWOT means", primary_keyword: "nwot meaning" })).toBe(false);
+  });
+
+  it("derives ordered steps from the first <ol>", () => {
+    const steps = deriveHowToSteps(
+      "<p>intro</p><ol><li>Photograph the front: get good light.</li><li>Check the seams.</li></ol>",
+    );
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.name).toBe("Photograph the front");
+    expect(steps[0]!.text).toContain("get good light");
+  });
+
+  it("falls back to the H2 outline with anchor urls", () => {
+    const steps = deriveHowToSteps(
+      "<h2>Inspect the fabric</h2><p>Look for pilling.</p><h2>Test the zipper</h2><p>Run it fully.</p>",
+      "https://gradethread.com/blog/x",
+    );
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.name).toBe("Inspect the fabric");
+    expect(steps[0]!.url).toBe("https://gradethread.com/blog/x#inspect-the-fabric");
+  });
+
+  it("returns [] when fewer than two steps can be derived", () => {
+    expect(deriveHowToSteps("<p>no steps here</p>")).toEqual([]);
+    expect(deriveHowToSteps("<ol><li>only one</li></ol>")).toEqual([]);
+  });
+
+  it("builds a HowTo node only for procedural posts with derivable steps", () => {
+    const base = {
+      title: "How to grade a jacket",
+      excerpt: "A quick guide.",
+      body_html: "<ol><li>Step one done.</li><li>Step two done.</li></ol>",
+    };
+    const ld = buildPostHowToLd(base, "https://gradethread.com/blog/x") as Record<
+      string,
+      unknown
+    >;
+    expect(ld).not.toBeNull();
+    expect(ld["@type"]).toBe("HowTo");
+    expect((ld.step as unknown[]).length).toBe(2);
+    expect(ld.description).toBe("A quick guide.");
+
+    // Non-procedural title → null even when an <ol> exists.
+    expect(
+      buildPostHowToLd(
+        { title: "NWOT explained", body_html: base.body_html },
+        "https://gradethread.com/blog/y",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("speakableSpec (US-878)", () => {
+  it("emits a SpeakableSpecification when key takeaways exist", () => {
+    const spec = speakableSpec({ key_takeaways: ["A point."] }) as Record<string, unknown>;
+    expect(spec["@type"]).toBe("SpeakableSpecification");
+    expect(spec.cssSelector).toEqual([".key-takeaways", "h1"]);
+  });
+
+  it("returns null when there are no key takeaways", () => {
+    expect(speakableSpec({ key_takeaways: [] })).toBeNull();
+    expect(speakableSpec({ key_takeaways: ["  "] })).toBeNull();
+    expect(speakableSpec({})).toBeNull();
   });
 });

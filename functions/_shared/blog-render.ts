@@ -298,6 +298,9 @@ interface LayoutInput {
   // US-255: when set, inject GA4 gtag.js (Consent Mode v2, all-denied default —
   // mirrors index.html). Pass ga4MeasurementId(env) from the Pages Function.
   gaMeasurementId?: string | null;
+  // US-877: extra <link rel="alternate"> tags (e.g. the clean-Markdown view of a
+  // post for AI answer engines). Emitted verbatim into the head.
+  alternates?: Array<{ type: string; href: string; title?: string }>;
 }
 
 // GA4 snippet for the SSR <head>. Mirrors index.html exactly: Consent Mode v2
@@ -426,6 +429,14 @@ export function renderLayout(input: LayoutInput): string {
 <link rel="canonical" href="${escape(input.canonicalUrl)}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate" type="application/rss+xml" title="GradeThread Blog" href="/rss.xml">
+${(input.alternates ?? [])
+  .map(
+    (alt) =>
+      `<link rel="alternate" type="${escape(alt.type)}" href="${escape(alt.href)}"${
+        alt.title ? ` title="${escape(alt.title)}"` : ""
+      }>`,
+  )
+  .join("\n")}
 <meta property="og:type" content="${escape(ogType)}">
 <meta property="og:title" content="${escape(input.title)}">
 <meta property="og:description" content="${escape(input.description)}">
@@ -689,6 +700,272 @@ export function renderPillarLink(
   return `<p class="pillar-link">Part of our <a href="${escape(href)}">${escape(
     text,
   )}</a> guide.</p>`;
+}
+
+// ─── GEO depth: entity consistency, HowTo, Speakable (US-878) ──────────────
+// Three machine-readability upgrades layered onto the US-304 FAQ/key-takeaways:
+//   1. Glossary entity linking — the FIRST prose mention of a canonical grading
+//      term (NWT, the tier names, the five weighted factors) is linked to its
+//      definitive /grading/<slug> spoke, and those terms are surfaced as
+//      DefinedTerm `about` nodes on the Article so AI engines tie the post to our
+//      canonical vocabulary (knowsAbout consistency).
+//   2. HowTo JSON-LD for procedural ("how to …") posts, with ordered steps
+//      derived from the post's first ordered list (else its H2 outline).
+//   3. SpeakableSpecification marking the answer-first key-takeaways block + H1.
+// All pure + escaped so they're unit-testable from Vitest (src/test/blog-geo).
+
+// Decode the handful of HTML entities the publish-time sanitizer emits, so
+// JSON-LD text (HowTo steps) reads as plain prose, not "Odor &amp; Cleanliness".
+function decodeBasicEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
+export interface GlossaryTermMatch {
+  /** Canonical display term, e.g. "NWT" or "Fabric Condition". */
+  term: string;
+  /** Definitive spoke path, e.g. "/grading/nwt". */
+  path: string;
+}
+
+// Canonical grading vocabulary → its /grading/<slug> spoke. MIRRORS GRADE_TIERS
+// + GRADE_FACTORS and the slug derivation in src/lib/seo/glossary.ts (the edge
+// runtime can't import the Vite-side constants — same mirror pattern as
+// condition-index-render.ts). `pattern` is the prose form: the common-adjective
+// tiers (Excellent / Very Good / Good / Fair / Poor) require a trailing
+// "condition" so we never link the bare English word. Ordered longest-first so a
+// single alternation pass links "Very Good condition" instead of "Good".
+interface GlossarySpoke extends GlossaryTermMatch {
+  /** Regex source matching the linkable mention (no flags, no anchors). */
+  source: string;
+}
+
+const GLOSSARY_SPOKES: GlossarySpoke[] = [
+  { term: "NWOT", path: "/grading/nwot", source: "\\bNWOT\\b" },
+  { term: "NWT", path: "/grading/nwt", source: "\\bNWT\\b" },
+  { term: "Fabric Condition", path: "/grading/fabric-condition", source: "\\bFabric Condition\\b" },
+  { term: "Structural Integrity", path: "/grading/structural-integrity", source: "\\bStructural Integrity\\b" },
+  { term: "Cosmetic Appearance", path: "/grading/cosmetic-appearance", source: "\\bCosmetic Appearance\\b" },
+  { term: "Functional Elements", path: "/grading/functional-elements", source: "\\bFunctional Elements\\b" },
+  { term: "Odor & Cleanliness", path: "/grading/odor-cleanliness", source: "\\bOdor (?:&amp;|&|and) Cleanliness\\b" },
+  { term: "Very Good", path: "/grading/very-good", source: "\\bVery Good condition\\b" },
+  { term: "Excellent", path: "/grading/excellent", source: "\\bExcellent condition\\b" },
+  { term: "Good", path: "/grading/good", source: "\\bGood condition\\b" },
+  { term: "Fair", path: "/grading/fair", source: "\\bFair condition\\b" },
+  { term: "Poor", path: "/grading/poor", source: "\\bPoor condition\\b" },
+];
+
+// Tags whose text content must NOT be auto-linked (existing links, headings,
+// code) — re-linking inside an <a> would nest anchors; headings/code shouldn't
+// carry inline links.
+const NO_LINK_TAGS = new Set(["a", "h1", "h2", "h3", "h4", "h5", "h6", "code", "pre"]);
+
+/**
+ * Link the first prose mention of each canonical grading term to its glossary
+ * spoke, and report which terms appeared. Walks the HTML tag-by-tag so it never
+ * links inside an existing <a>, a heading, or a code/pre block, and a single
+ * left-to-right alternation per text node means overlapping terms ("Very Good
+ * condition" vs "Good condition") resolve to the longest. Idempotent: a term
+ * already wrapped in an <a> on a second pass is skipped (it's inside an anchor).
+ * Body HTML is allowlist-sanitized upstream, so this only adds <a> tags.
+ */
+export function linkGlossaryTerms(
+  html: string,
+): { html: string; terms: GlossaryTermMatch[] } {
+  if (!html) return { html: "", terms: [] };
+  const linked = new Set<string>();
+  const found: GlossaryTermMatch[] = [];
+  const combined = new RegExp(GLOSSARY_SPOKES.map((s) => s.source).join("|"), "gi");
+  const matchers = GLOSSARY_SPOKES.map((s) => ({
+    spoke: s,
+    full: new RegExp(`^(?:${s.source})$`, "i"),
+  }));
+
+  // Stack of currently-open tag names so we know when we're inside a no-link region.
+  const openTags: string[] = [];
+  const inNoLinkRegion = () => openTags.some((t) => NO_LINK_TAGS.has(t));
+
+  const parts = html.split(/(<[^>]+>)/);
+  const out = parts.map((part) => {
+    if (!part) return part;
+    if (part[0] === "<") {
+      const m = part.match(/^<\s*(\/?)\s*([a-z0-9]+)/i);
+      if (m) {
+        const closing = m[1] === "/";
+        const name = (m[2] ?? "").toLowerCase();
+        const selfClosing = /\/\s*>$/.test(part) || name === "br" || name === "img" || name === "hr";
+        if (closing) {
+          // Pop the nearest matching open tag.
+          for (let i = openTags.length - 1; i >= 0; i--) {
+            if (openTags[i] === name) {
+              openTags.splice(i, 1);
+              break;
+            }
+          }
+        } else if (!selfClosing) {
+          openTags.push(name);
+        }
+      }
+      return part;
+    }
+    // Text node.
+    if (inNoLinkRegion()) return part;
+    return part.replace(combined, (match) => {
+      const hit = matchers.find((x) => x.full.test(match));
+      if (!hit) return match;
+      if (linked.has(hit.spoke.term)) return match;
+      linked.add(hit.spoke.term);
+      found.push({ term: hit.spoke.term, path: hit.spoke.path });
+      return `<a href="${hit.spoke.path}">${match}</a>`;
+    });
+  });
+
+  return { html: out.join(""), terms: found };
+}
+
+/**
+ * DefinedTerm `about` nodes for the canonical grading terms a post mentions, so
+ * AI engines bind the article to our glossary vocabulary. Each points to its
+ * /grading/<slug> spoke and the /condition-grading hub as the term set. Empty
+ * array → caller omits the `about` field. `siteUrl` is the origin (no trailing /).
+ */
+export function glossaryAboutLd(
+  terms: GlossaryTermMatch[],
+  siteUrl: string,
+): Array<Record<string, unknown>> {
+  return terms.map((t) => ({
+    "@type": "DefinedTerm",
+    name: t.term,
+    url: `${siteUrl}${t.path}`,
+    inDefinedTermSet: `${siteUrl}/condition-grading`,
+  }));
+}
+
+/** True when the post reads as a procedural how-to (title/keyword signal). */
+export function isHowToPost(post: {
+  title?: string | null;
+  primary_keyword?: string | null;
+  seo_title?: string | null;
+}): boolean {
+  const hay = `${post.title ?? ""} ${post.primary_keyword ?? ""} ${post.seo_title ?? ""}`;
+  return /\bhow[\s-]?to\b/i.test(hay) || /\bstep[\s-]?by[\s-]?step\b/i.test(hay);
+}
+
+export interface HowToStep {
+  name: string;
+  text: string;
+  url?: string;
+}
+
+/** Plain text from an HTML fragment: strip tags, decode entities, collapse ws. */
+function htmlToText(fragment: string): string {
+  return decodeBasicEntities(fragment.replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** A short step name from a step's full text (leading clause, ≤ ~70 chars). */
+function stepName(text: string, index: number): string {
+  const clause = text.split(/(?:[.:!?]|\s[—–-]\s)/)[0]?.trim() ?? "";
+  const name = clause && clause.length <= 80 ? clause : text;
+  const capped = name.length > 70 ? `${name.slice(0, 67).trimEnd()}…` : name;
+  return capped || `Step ${index + 1}`;
+}
+
+/**
+ * Ordered HowTo steps derived from the post body: the first <ol> (each <li> is a
+ * step), else the H2 outline (heading = step name, following prose = step text).
+ * Returns [] when fewer than two steps can be derived — the caller then skips
+ * HowTo entirely (no empty/fake structured data). Steps are capped at 15.
+ */
+export function deriveHowToSteps(html: string, canonical?: string): HowToStep[] {
+  if (!html) return [];
+  // 1. First ordered list.
+  const ol = html.match(/<ol\b[^>]*>([\s\S]*?)<\/ol>/i);
+  if (ol?.[1]) {
+    const items = [...ol[1].matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)]
+      .map((m) => htmlToText(m[1] ?? ""))
+      .filter(Boolean);
+    if (items.length >= 2) {
+      return items.slice(0, 15).map((text, i) => ({ name: stepName(text, i), text }));
+    }
+  }
+  // 2. H2 outline fallback (heading + the prose that follows it).
+  const steps: HowToStep[] = [];
+  const headingRe = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi;
+  const matches = [...html.matchAll(headingRe)];
+  for (let i = 0; i < matches.length; i++) {
+    const name = htmlToText(matches[i]![1] ?? "");
+    if (!name) continue;
+    const start = matches[i]!.index! + matches[i]![0].length;
+    const end = i + 1 < matches.length ? matches[i + 1]!.index! : html.length;
+    const body = htmlToText(html.slice(start, end));
+    const text = body.length > 320 ? `${body.slice(0, 317).trimEnd()}…` : body;
+    steps.push({
+      name,
+      text: text || name,
+      ...(canonical ? { url: `${canonical}#${slugifyHeading(name)}` } : {}),
+    });
+    if (steps.length >= 15) break;
+  }
+  return steps.length >= 2 ? steps : [];
+}
+
+/**
+ * HowTo JSON-LD for a procedural post, or null when the post isn't a how-to or
+ * has too few derivable steps (so non-procedural posts skip it). `name` is the
+ * post title; `description` the excerpt/SEO description.
+ */
+export function buildPostHowToLd(
+  post: {
+    title: string;
+    primary_keyword?: string | null;
+    seo_title?: string | null;
+    excerpt?: string | null;
+    seo_description?: string | null;
+    body_html: string;
+  },
+  canonical: string,
+): Record<string, unknown> | null {
+  if (!isHowToPost(post)) return null;
+  const steps = deriveHowToSteps(post.body_html, canonical);
+  if (steps.length < 2) return null;
+  const description = (post.seo_description ?? post.excerpt ?? "").trim();
+  return {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name: post.title,
+    ...(description ? { description } : {}),
+    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
+    step: steps.map((s, i) => ({
+      "@type": "HowToStep",
+      position: i + 1,
+      name: s.name,
+      text: s.text,
+      ...(s.url ? { url: s.url } : {}),
+    })),
+  };
+}
+
+/**
+ * SpeakableSpecification for the answer-first blocks (key-takeaways + H1), or
+ * null when the post has no key-takeaways block (nothing distinct to speak).
+ * Merged into the Article node so voice assistants read the answer, not boilerplate.
+ */
+export function speakableSpec(post: {
+  key_takeaways?: string[] | null;
+}): Record<string, unknown> | null {
+  const has = (post.key_takeaways ?? []).some((s) => s?.trim());
+  if (!has) return null;
+  return {
+    "@type": "SpeakableSpecification",
+    cssSelector: [".key-takeaways", "h1"],
+  };
 }
 
 // ─── Pinterest rich pins + vertical pin pipeline (US-872) ──────────────────

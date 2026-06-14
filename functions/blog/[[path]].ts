@@ -31,6 +31,10 @@ import {
   renderHeroImage,
   heroImageObjectLd,
   rewriteContentImages,
+  linkGlossaryTerms,
+  glossaryAboutLd,
+  buildPostHowToLd,
+  speakableSpec,
   imageResizingEnabled,
   postAuthorLd,
   wasUpdatedAfterPublish,
@@ -41,6 +45,7 @@ import {
   type PublicPost,
   type PublicPostListItem,
 } from "../_shared/blog-render";
+import { buildPostMarkdown } from "../_shared/html-to-markdown";
 
 interface IndexResponse {
   posts: PublicPostListItem[];
@@ -79,9 +84,43 @@ async function routeBlog(context: Ctx): Promise<Response> {
     return renderPreview(env, segments[1] ?? "");
   }
   if (segments.length === 1) {
-    return renderPost(env, segments[0] ?? "");
+    const seg = segments[0] ?? "";
+    // US-877: clean-Markdown view of a post for AI answer engines.
+    if (seg.endsWith(".md")) {
+      return renderPostMarkdown(env, seg.slice(0, -3));
+    }
+    return renderPost(env, seg);
   }
   return notFoundResponse(env);
+}
+
+// US-877: serve a published post as clean text/markdown at /blog/:slug.md. The
+// upstream public endpoint returns only published posts (no drafts/previews),
+// and withEdgeCache makes repeat hits a real edge HIT.
+async function renderPostMarkdown(env: PagesEnv, slug: string): Promise<Response> {
+  if (!slug) return notFoundResponse(env);
+  const data = await fetchJson<PostResponse>(
+    env,
+    `/api/content/public/posts/${encodeURIComponent(slug)}`,
+  );
+  if (!data?.post) {
+    return new Response(`# Not found\n\nNo published post at /blog/${slug}.\n`, {
+      status: 404,
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Cache-Control": "public, max-age=60",
+      },
+    });
+  }
+  const markdown = buildPostMarkdown(data.post, siteUrl(env));
+  return new Response(markdown, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Cache-Control": SSR_CACHE_CONTROL,
+      "X-Robots-Tag": "all",
+    },
+  });
 }
 
 async function renderIndex(env: PagesEnv): Promise<Response> {
@@ -227,11 +266,15 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   // Add responsive srcset + lazy loading to in-body content images (US-306),
   // backfill a sensible alt fallback for any image missing one, and reserve a
   // guaranteed aspect-ratio so the layout doesn't shift as images load (US-434).
-  const articleHtml = rewriteContentImages(bodyWithAnchors, resizeImages, {
+  const imagedHtml = rewriteContentImages(bodyWithAnchors, resizeImages, {
     fallbackAlt: post.title,
     // US-876: apply stored per-image alt/caption to in-body images.
     imageMeta: post.inline_images,
   });
+  // US-878: link the first prose mention of each canonical grading term to its
+  // /grading/<slug> glossary spoke (entity consistency) and collect the terms
+  // present so they can be surfaced as DefinedTerm `about` nodes on the Article.
+  const { html: articleHtml, terms: glossaryTerms } = linkGlossaryTerms(imagedHtml);
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
   const breadcrumbItems = [
@@ -292,6 +335,13 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       height: post.hero_image_height,
     }) ?? `${siteUrl(env)}/logo_icon_512.png`;
 
+  // US-878 GEO depth: Speakable marks the answer-first blocks for voice/AI
+  // surfaces; `about` binds the post to the canonical grading terms it mentions
+  // (DefinedTerm → /grading/<slug>), reinforcing entity consistency with our
+  // glossary + Organization.knowsAbout. Both omitted when there's nothing real.
+  const speakable = speakableSpec(post);
+  const aboutTerms = glossaryAboutLd(glossaryTerms, siteUrl(env));
+
   // Article schema — prefer model-supplied jsonld if present, else build one.
   const articleLd = post.jsonld ?? {
     "@context": "https://schema.org",
@@ -310,6 +360,8 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       [post.primary_keyword, ...(post.secondary_keywords ?? [])]
         .filter(Boolean)
         .join(", ") || undefined,
+    ...(speakable ? { speakable } : {}),
+    ...(aboutTerms.length ? { about: aboutTerms } : {}),
   };
 
   // Breadcrumb: GradeThread › Blog › <post> (US-299) — same trail as the
@@ -319,6 +371,11 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   // FAQPage node (US-304) — emitted in addition to the Article so AI answer
   // engines can extract the Q&A even though Google dropped FAQ rich results.
   const faqLd = faqPageJsonLd(post.faqs);
+
+  // US-878: HowTo node for procedural ("how to …") posts, with ordered steps
+  // derived from the body's first <ol> (else its H2 outline). null — and thus
+  // skipped — for non-procedural posts or when too few steps can be derived.
+  const howToLd = buildPostHowToLd(post, canonical);
 
   return new Response(
     renderLayout({
@@ -339,7 +396,20 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       },
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
-      jsonLd: [articleLd, breadcrumbLd, ...(faqLd ? [faqLd] : [])],
+      // US-877: advertise the clean-Markdown view to AI answer engines.
+      alternates: [
+        {
+          type: "text/markdown",
+          href: `${canonical}.md`,
+          title: `${post.title} (Markdown)`,
+        },
+      ],
+      jsonLd: [
+        articleLd,
+        breadcrumbLd,
+        ...(faqLd ? [faqLd] : []),
+        ...(howToLd ? [howToLd] : []),
+      ],
       bodyHtml,
     }),
     {

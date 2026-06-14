@@ -15,8 +15,8 @@ import {
   SOCIAL_POST_PROMPT_VERSION,
 } from "../lib/content-ai-prompts.ts";
 
-Deno.test("US-254: article prompt requests 3-style title_suggestions (v2)", () => {
-  assertEquals(BLOG_ARTICLE_PROMPT_VERSION, "blog_article_v2");
+Deno.test("US-254: article prompt requests 3-style title_suggestions (v3)", () => {
+  assertEquals(BLOG_ARTICLE_PROMPT_VERSION, "blog_article_v3");
   const p = buildBlogArticleUserPrompt({
     title: "T",
     angle: null,
@@ -29,6 +29,21 @@ Deno.test("US-254: article prompt requests 3-style title_suggestions (v2)", () =
   assert(p.includes("question"));
   assert(p.includes("listicle"));
   assert(p.includes("contrarian"));
+});
+
+Deno.test("US-878: article prompt nudges answer-first + HowTo steps + canonical vocab", () => {
+  const p = buildBlogArticleUserPrompt({
+    title: "How to grade a thrifted jacket",
+    angle: null,
+    primary_keyword: "how to grade clothing",
+    secondary_keywords: [],
+    search_intent: "informational",
+    product_focus: "gradethread",
+  });
+  assert(p.includes("ANSWER-FIRST"));
+  assert(p.includes("<ol><li>"));
+  assert(p.includes("NWT"));
+  assert(p.includes("Fabric Condition"));
 });
 
 Deno.test("US-254: normalizeTitleSuggestions coerces, dedups, caps, falls back", () => {

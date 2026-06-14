@@ -12937,8 +12937,8 @@
         "npm run verify passes"
       ],
       "priority": 877,
-      "passes": false,
-      "notes": "[EPIC: Content Authority Depth 2026-06-11] Extends functions/llms.txt.ts (currently certs+sellers only) and reuses content_history_index summaries + content-sanitize for HTML->MD. Pure GEO play for AI citeability."
+      "passes": true,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Extends functions/llms.txt.ts (currently certs+sellers only) and reuses content_history_index summaries + content-sanitize for HTML->MD. Pure GEO play for AI citeability. [DONE 2026-06-13] Added functions/_shared/html-to-markdown.ts (pure HTML->MD over the publish-time sanitized allowlist) + buildPostMarkdown(). /blog/:slug.md served from the blog catch-all (text/markdown, edge-cached via withEdgeCache, published-only via /api/content/public/posts/:slug). HTML post now emits <link rel=alternate type=text/markdown>. llms.txt fetches /posts?limit=25 and renders a Recent Articles section (title+excerpt+URL, each with a Markdown: <url>.md hint). robots.txt already Allow: /blog/ for all citation/training bots (verified; .md lives under /blog/ not /api/). Tests in src/test/post-markdown.test.ts."
     },
     {
       "id": "US-878",
@@ -12953,8 +12953,8 @@
         "npm run verify passes including SEO tests"
       ],
       "priority": 878,
-      "passes": false,
-      "notes": "[EPIC: Content Authority Depth 2026-06-11] Builds on US-304 FAQPage/key_takeaways + existing json-ld.ts builders (howToLd already exists). Respect the no-fake-markup gotcha in CLAUDE.md."
+      "passes": true,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Done. Blog posts are dynamic edge-SSR (functions/blog/[[path]].ts), NOT prerendered, so the HowTo/Speakable/about builders live in functions/_shared/blog-render.ts (the edge mirror), not src/lib/seo/json-ld.ts (that builder serves only the static how-it-works page). New pure helpers (all unit-tested in src/test/blog-geo.test.ts): linkGlossaryTerms() (tag-aware walk that links the FIRST prose mention of each canonical term to its /grading/<slug> spoke — common-adjective tiers require a trailing 'condition' so we never link a bare 'good'; longest-match wins; never links inside <a>/headings/code), glossaryAboutLd() (DefinedTerm `about` nodes → spokes + /condition-grading term set), isHowToPost()/deriveHowToSteps() (first <ol> else H2 outline; <2 steps => skip)/buildPostHowToLd() (null for non-procedural), speakableSpec() (SpeakableSpecification on .key-takeaways+h1, only when key_takeaways exist). renderPost() wires them: links body terms, adds speakable+about to the built Article (left untouched when model-supplied jsonld is present), appends the HowTo node. Generator nudged: content-ai-prompts.ts blog article (bumped blog_article_v3) + refresh prompts now require an answer-first opening, an explicit <ol> step list for how-to topics, and verbatim canonical vocab. No fake markup (HowTo/Speakable/about all omitted when there's no real source). head-builder mirror N/A (blog isn't a prerendered route). Verified: web+functions tsc clean, eslint clean, vitest 772/772 (+22), deno content-ai-prompts 7/7, deno lint/check clean, build:locked 41 pages."
     },
     {
       "id": "US-879",
@@ -15156,6 +15156,177 @@
       "priority": 1026,
       "passes": false,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ux. ios/GradeThread/Grading/GradesListView.swift; Analytics/AnalyticsView.swift; Consignment/ConsignorsView.swift"
+    },
+    {
+      "id": "US-1027",
+      "title": "Grading: structured per-defect taxonomy (type + repairability), not free-text",
+      "description": "As the grading engine, I want every detected flaw classified into a normalized defect_type with a repairability flag, so defects can be weighted by what they ARE and analyzed/calibrated by type. Today DetectedIssue.issue and composite defects_found are free text with only a 3-bucket severity (minor/moderate/major) — there is no machine-readable type, so type-based weighting and per-type accuracy are impossible.",
+      "acceptanceCriteria": [
+        "DetectedIssue and DefectFound gain a defect_type enum covering at least: stain, hole_puncture, rip_tear, seam_failure_unthreading, pilling, abrasion_thinning, fading, discoloration, snag_pull, broken_zipper, broken_button, missing_hardware, stretched_misshapen, odor_indicator, wrinkle_crease, other.",
+        "Each defect carries repairability: reversible (lint/steam/wash), repairable (re-stitch/replace hardware), or permanent.",
+        "The per-image and composite prompts instruct the model to set defect_type + repairability for every genuine defect; normalizers default unknown types to 'other' and never crash on a missing field.",
+        "is_intentional design features are still excluded from defects_found (unchanged).",
+        "PER_IMAGE_PROMPT_VERSION/COMPOSITE_PROMPT_VERSION bumped; seeded ai_prompt_versions rows updated; deno check + grading tests green; EXPECTED_SCHEMA_VERSION bumped if a migration is added."
+      ],
+      "priority": 1027,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=taxonomy. services/edge-functions/src/lib/ai-grading.ts (DetectedIssue ~69-83, DefectFound ~121-126, prompts ~450-510, ~858-903)"
+    },
+    {
+      "id": "US-1028",
+      "title": "Grading: capture defect SIZE and extent (mm/in bucket + % of area)",
+      "description": "As the grading engine, I want each defect's physical size and relative extent captured so a tiny mm-scale hole is graded very differently from a 1/2-inch hole. Today there is NO size signal — bbox exists but is used only for annotation. Add a size estimate per defect.",
+      "acceptanceCriteria": [
+        "Each defect gains size_bucket (pinhole <3mm, small 3-13mm, medium 13-50mm, large >50mm, extensive) AND area_pct (estimated % of the affected panel/garment), with a confidence the model can lower when scale is ambiguous.",
+        "The model derives scale from available cues (garment proportions, measurement-shot tape references, bbox area relative to the garment) and is told to bucket conservatively when unsure rather than guess a precise number.",
+        "bbox area is recorded alongside the model's size estimate so the two can be cross-checked (a defect claimed 'large' with a tiny bbox lowers confidence).",
+        "Normalizers default missing size to 'unknown' (treated as the lower-impact end, not the higher) so absent data can't inflate a penalty.",
+        "Prompt versions bumped; grading tests cover size parsing + the bbox-vs-size cross-check."
+      ],
+      "priority": 1028,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=sizing. services/edge-functions/src/lib/ai-grading.ts (DetectedIssue.bbox ~78-83, normalizeBbox ~520-535, prompts ~501-510)"
+    },
+    {
+      "id": "US-1029",
+      "title": "Grading: deterministic, calibrated defect→factor penalty engine (type × severity × size × location)",
+      "description": "As the grading engine, I want a pure, versioned, unit-tested function that converts the structured defects (type × severity × size × location × garment_type) into factor-score deductions, so weighting is consistent, explainable, and tunable WITHOUT re-prompting. Today factor scores are pure model freehand with no auditable mapping — 'bigger weights based on what they are and percentage' is impossible to guarantee or tune.",
+      "acceptanceCriteria": [
+        "A new lib (e.g. defect-weighting.ts) maps each structured defect to factor deductions: routes each type to the right factor(s) (broken_zipper/button/missing_hardware→functional; seam_failure_unthreading/stretched→structural; stain/odor→odor_cleanliness+cosmetic; pilling/abrasion_thinning/hole/fading→fabric; discoloration→cosmetic), scaled by severity AND size_bucket/area_pct.",
+        "Penalty magnitude is monotonic in size (pinhole « small « medium « large) and type-weighted (structural/functional failure and large fabric loss weigh more than a small surface mark); a high-visibility location (front/chest) weighs more than a hidden one.",
+        "Weights live in one versioned table/constant so they can be tuned and the version recorded on the grade; the engine is pure and unit-tested with table-driven cases.",
+        "The engine blends with the model's holistic read (model base score is cross-checked against penalty-derived score; large divergence lowers confidence / routes to review) rather than silently overriding it.",
+        "overall_score recompute (compositeGrade ~1204-1213) consumes the engine's factor scores; deno check + new defect-weighting tests green."
+      ],
+      "priority": 1029,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=scoring-core. services/edge-functions/src/lib/ai-grading.ts (FACTOR_WEIGHTS ~782-788, compositeGrade ~1204-1213); new defect-weighting.ts"
+    },
+    {
+      "id": "US-1030",
+      "title": "Grading: explicit wrinkle/crease handling — minor, recoverable, never major",
+      "description": "As a seller, I don't want ordinary wrinkles to tank a grade. Per product direction wrinkles are acceptable and carry only minor overall weight. Today wrinkles aren't modeled at all, so the model may over- or under-penalize them inconsistently.",
+      "acceptanceCriteria": [
+        "wrinkle_crease is a recognized defect_type marked repairability=reversible (steam/press).",
+        "The penalty engine caps wrinkle impact to a small cosmetic deduction and never lets wrinkles alone drop a garment below a configurable floor (e.g. Very Good).",
+        "The prompt distinguishes ordinary removable wrinkles (minor) from permanent set-in creasing or fabric memory/bagging (which may count more).",
+        "Tests assert a garment whose only flaw is wrinkles grades high; prompt versions bumped."
+      ],
+      "priority": 1030,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=rubric. services/edge-functions/src/lib/ai-grading.ts (prompts); new defect-weighting.ts"
+    },
+    {
+      "id": "US-1031",
+      "title": "Grading: rubric anchors for severity-by-type-and-size in the prompts + tier definitions",
+      "description": "As the grading engine, I want the per-image and composite prompts to instruct severity calibrated to defect TYPE and SIZE with concrete anchors, so the model's structured output is consistent before the deterministic engine weights it.",
+      "acceptanceCriteria": [
+        "SYSTEM_PROMPT/COMPOSITE_SYSTEM_PROMPT gain explicit anchors, e.g.: a sub-3mm pinhole = minor fabric defect; a 1/2-inch (≈13mm) hole in a visible area = major; a broken zipper/blown seam = major structural/functional regardless of size; light surface pilling = minor; a large stain covering >10% of a panel = major.",
+        "Anchors cover the priority defect families: stains, rips/tears, holes, unthreading/seam failure, pilling, abrasion/thinning, discoloration/fading.",
+        "GRADE_TIER_DEFINITIONS reference defect type+size (not just 'minor/major flaws') so the model's tier choice aligns with the deterministic engine.",
+        "Design-vs-defect principle (as-manufactured) is preserved; prompt versions bumped and seeded rows updated."
+      ],
+      "priority": 1031,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=rubric. services/edge-functions/src/lib/ai-grading.ts (SYSTEM_PROMPT ~322-344, GRADE_TIER_DEFINITIONS ~790-798, COMPOSITE_SYSTEM_PROMPT ~800-819)"
+    },
+    {
+      "id": "US-1032",
+      "title": "Grading: adopt structured outputs (output_config.format / strict tool use) for the JSON",
+      "description": "As the grading engine, I want the model's JSON guaranteed schema-valid instead of free-form text that we strip code-fences from and JSON.parse with a try/catch — today a parse failure THROWS and fails (and refunds) a paid grade, and the looser the per-defect schema gets the more fragile this is. Sonnet 4.6, Opus 4.8, and Haiku 4.5 all support structured outputs.",
+      "acceptanceCriteria": [
+        "Both analyzeImage and compositeGrade use output_config.format with a json_schema (or strict tool use) describing the per-image / composite shape including the new defect_type/size/repairability fields.",
+        "The code-fence stripping + JSON.parse + 'AI returned invalid JSON' throw path is removed or kept only as a fallback for non-supporting models.",
+        "Parse-failure-induced grade failures (and the associated refunds) drop to ~zero in the grading-reliability tests; a malformed response is impossible by construction on supporting models.",
+        "max_tokens headroom re-verified against the larger schema; deno check + grading tests green."
+      ],
+      "priority": 1032,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=reliability. services/edge-functions/src/lib/ai-grading.ts (analyzeImage parse ~691-709, compositeGrade parse ~1154-1174)"
+    },
+    {
+      "id": "US-1033",
+      "title": "Grading: make the AI call model-family-aware so Opus-tier vision can be used",
+      "description": "As the grading engine, I want the request to drop parameters that newer models reject, so we can move grading to a stronger vision model. Today every grading call sends temperature (getGradingTemperature), which returns a 400 on Opus 4.7/4.8/Fable 5 — so grading is effectively pinned to Sonnet/older even though the allowlist already includes claude-opus-4-8.",
+      "acceptanceCriteria": [
+        "For Opus 4.7/4.8/Fable-class models the call omits temperature/top_p/top_k and instead uses output_config.effort (e.g. low/medium for reproducible grading); for Sonnet/Haiku the existing low-temperature path is preserved.",
+        "Reproducibility is maintained (a re-grade of the same images yields the same grade within tolerance) — verified by the grading-durability/reliability tests on whichever model is configured.",
+        "getGradingTemperature usage is gated by model family in one place; an Opus model no longer 400s.",
+        "deno check + grading tests green; behavior unchanged on the current Sonnet default."
+      ],
+      "priority": 1033,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=model. services/edge-functions/src/lib/ai-grading.ts (temperature ~628-629,656,1096-1097,1128); services/edge-functions/src/lib/ai-config.ts (getGradingTemperature ~131-137)"
+    },
+    {
+      "id": "US-1034",
+      "title": "Grading: qualify Opus 4.8 high-res vision for small-defect detection via the eval gate",
+      "description": "As an operator, I want to know whether a stronger vision model detects small defects more accurately before switching, run through the existing shadow/eval gate rather than blind. Opus 4.7+ supports high-resolution vision (up to 2576px long edge) which materially helps tiny-defect detection vs Sonnet's lower cap.",
+      "acceptanceCriteria": [
+        "A defect-labeled eval subset (with known defect types + sizes) is scored with Sonnet 4.6 vs Opus 4.8 via the existing grading-eval / shadow harness.",
+        "Per-defect-type and per-size-bucket detection recall/precision and grade error are reported for both models.",
+        "A promotion decision is recorded; if Opus wins, GRADING_COMPOSITE_MODEL / DEFAULT_AI_MODEL change is documented (allowlist already includes claude-opus-4-8) and gated on the model-family-aware call landing first.",
+        "No customer-facing grade changes until the eval gate passes; cost delta per grade is quantified (Opus input/output pricing vs Sonnet)."
+      ],
+      "priority": 1034,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=model. services/edge-functions/src/lib/grading-eval.ts, grading-shadow.ts, ai-config.ts (GRADING_MODEL_ALLOWLIST ~64-70)"
+    },
+    {
+      "id": "US-1035",
+      "title": "Grading: preserve resolution + send region zooms so mm-scale defects aren't lost to downscale",
+      "description": "As the grading engine, I want small defects to remain detectable. Today the pipeline base64-encodes whatever resolution is stored and sends whole-garment shots; Anthropic downscales large images server-side, so a sub-3mm hole on a full front shot can fall below a pixel. For any flagged small/uncertain defect, send a cropped high-res zoom of its bbox region for a second look.",
+      "acceptanceCriteria": [
+        "Stored grading-image resolution is verified sufficient for the model's input cap (iOS PhotoCompressor + web upload caps don't over-compress below what the vision model uses); documented.",
+        "When a defect is flagged with a small/uncertain size or low size-confidence, the pipeline crops the bbox region from the original at high resolution and sends it as a focused follow-up analysis to confirm presence + size.",
+        "The zoom pass reuses the retained original where available (forensics already downloads originals) and degrades cleanly to text-only when no bbox/original exists.",
+        "A test garment with a known small hole is detected + correctly size-bucketed with the zoom pass where the whole-garment pass missed it."
+      ],
+      "priority": 1035,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=resolution. services/edge-functions/src/lib/grading-pipeline.ts (download/base64 ~493-526); services/edge-functions/src/lib/ai-grading.ts"
+    },
+    {
+      "id": "US-1036",
+      "title": "Grading: per-defect-type accuracy tracking + calibration loop for the weighting table",
+      "description": "As an operator, I want grade accuracy broken down by defect type and size bucket, and a loop that tunes the deterministic penalty weights against human-adjusted ground truth, so the type/size weighting stays calibrated. Today accuracy is attributed by model/prompt version only — not by defect type or severity.",
+      "acceptanceCriteria": [
+        "The accuracy/eval loop records detection + grade error per defect_type and size_bucket (joining human-review adjustments as ground truth).",
+        "A calibration report recommends weight adjustments for the defect-weighting table (the engine from the penalty-engine story), versioned so a change is auditable.",
+        "A golden eval set with labeled defect types + sizes exists and is used to validate weight changes before they ship (no live grade regression).",
+        "Dashboard/admin surface shows accuracy by defect type so over/under-penalized types are visible."
+      ],
+      "priority": 1036,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=calibration. services/edge-functions/src/lib/grading-eval.ts, accuracy-tracking.ts, grading-monitor.ts"
+    },
+    {
+      "id": "US-1037",
+      "title": "Grading: persist defects in a normalized, queryable form (type/size/area/factor-impact)",
+      "description": "As an operator, I want detected defects stored queryably so calibration, analytics, and disclosure can filter by type/size. Today defects_found is opaque jsonb on grade_reports — you can't query 'all grades with a major seam failure' or compute per-type accuracy without scanning JSON.",
+      "acceptanceCriteria": [
+        "Detected genuine defects are persisted with structured columns/rows: defect_type, severity, size_bucket, area_pct, location, repairability, routed factor(s), factor_impact, bbox (a grade_defects child table keyed to grade_reports, or typed columns).",
+        "The Auto-Disclosure Engine + certificate read from the structured form (no behavior regression on the buyer-facing disclosure).",
+        "A migration adds the table/columns with RLS consistent with grade_reports; EXPECTED_SCHEMA_VERSION bumped; supabase db reset applies cleanly.",
+        "Backfill or dual-write strategy documented so historical jsonb defects remain readable."
+      ],
+      "priority": 1037,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=persistence. services/edge-functions/src/lib/grading-pipeline.ts (defects_found insert ~957); supabase/migrations/"
+    },
+    {
+      "id": "US-1038",
+      "title": "Grading: stop the 7.0 neutral-default from biasing the weighted composite",
+      "description": "As the grading engine, I want 'not assessable from this image' to NOT inject a neutral 7.0 into the weighted average. Today factors unassessable from an image are scored 7.0 (per-image prompt rule + the clamp default), and odor_cleanliness in particular is visual-only and effectively pinned near 7.0 everywhere — diluting genuine signals from the images that CAN see a factor.",
+      "acceptanceCriteria": [
+        "Per-image analysis can mark a factor 'not_assessable' (sentinel) rather than emitting 7.0, and the composite aggregates only assessable signals per factor (re-normalizing weights over the factors actually observed).",
+        "A factor with no assessable signal across all images is handled explicitly (e.g. neutral with lowered confidence) rather than silently averaged as 7.0.",
+        "odor_cleanliness no longer sits at a constant ~7.0 when a visible stain/soil signal exists elsewhere; tests cover the re-normalization.",
+        "Overall scores for clean cases are unchanged within tolerance (no grade inflation/deflation regression on the eval set); prompt versions bumped."
+      ],
+      "priority": 1038,
+      "passes": false,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=low area=scoring-core. services/edge-functions/src/lib/ai-grading.ts (per-image neutral default rule ~507, clamp default 7.0 ~744, sanitizeFactorScores ~1001-1014, FACTOR_WEIGHTS ~782-788)"
     }
   ]
 }

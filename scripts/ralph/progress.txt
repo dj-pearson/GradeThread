@@ -2481,3 +2481,28 @@ Branch: ralph/gradethread-build
 - Notes: Suggested migration 00150 was stale (repo at 00202) -> used 00203. Alt text is STORED not per-render: the article generator returns it free in the same JSON call and content-blog.ts stores it before kicking off the hero pipeline, so ensureHeroImage's fallback AI alt-call (content-image-alt.ts) rarely fires; deterministic buildHeroAltFallback guarantees a non-empty alt even with no AI/key. Hero dims parsed from the gpt-image size token feed ImageObject width/height. Inline images: rewriteContentImages prefers stored alt > filename-derived > post-title fallback, so no in-body img ships empty alt; a stored caption wraps the img in figure/figcaption. Article image upgraded from a bare URL string to a full ImageObject (contentUrl/width/height/caption). Descriptive slug-based hero filenames ({slug}-hero_<ts>.<ext>). Verified: web tsc + functions tsc clean, deno check+lint clean, vitest 741/741 (+10), deno 1291/1291 (incl schema-version 00203 sync), build:locked (41 pages), verify:db applies 00203 from zero (30s).
 - Timestamp: 2026-06-13
 ---
+## US-877: GEO — blog posts in llms.txt + clean per-post Markdown endpoint for AI engines
+- Status: COMPLETE
+- Files changed:
+  - functions/_shared/html-to-markdown.ts (NEW: pure HTML->Markdown over the publish-time sanitized allowlist + buildPostMarkdown())
+  - functions/blog/[[path]].ts (route /blog/:slug.md -> renderPostMarkdown; <link rel=alternate type=text/markdown> on the HTML post)
+  - functions/_shared/blog-render.ts (LayoutInput.alternates -> <link rel=alternate> tags in <head>)
+  - functions/_shared/seo-config.ts (buildLlmsSections articleUrls -> "Recent Articles" section with per-post "Markdown: <url>.md" hint)
+  - functions/llms.txt.ts (fetch /api/content/public/posts?limit=25 -> articleUrls)
+  - src/test/post-markdown.test.ts (NEW: 24 cases — decodeEntities, htmlToMarkdown, buildPostMarkdown, llms Recent Articles)
+- Notes: Chose /blog/:slug.md (NOT /api/...md) because robots.txt Disallows /api/ but Allows /blog/ for every citation+training bot, so the .md stays crawlable. Endpoint is edge-cached via the existing withEdgeCache wrapper and published-only because the upstream /api/content/public/posts/:slug serves status='published' rows only (previews are a separate token route). No HTML5 parser needed — body_html is already allowlist-sanitized at publish time (content-sanitize.ts), so a small tokenizer + tree walk covers the known tag set (h*/p/ul/ol/li/blockquote/pre/hr/table/figure/a/em/strong/code/img/iframe). One-line summaries come from the post excerpt. robots.txt unchanged (already correct; verified, not edited).
+- Verified: npx tsc --noEmit clean, npx tsc -p tsconfig.functions.json --noEmit clean, eslint clean on changed files, vitest 759/759 (+24), build:locked OK.
+- Timestamp: 2026-06-13
+---
+
+## US-878: GEO — deepen per-post structured answers (Speakable, HowTo, entity consistency)
+- Status: COMPLETE
+- Files changed:
+  - functions/_shared/blog-render.ts (NEW helpers: linkGlossaryTerms, glossaryAboutLd, isHowToPost, deriveHowToSteps, buildPostHowToLd, speakableSpec + GLOSSARY_SPOKES mirror)
+  - functions/blog/[[path]].ts (renderPost: glossary-link body, add speakable+about to Article, append HowTo node to jsonLd)
+  - services/edge-functions/src/lib/content-ai-prompts.ts (blog article prompt -> v3: answer-first + <ol> step list + canonical vocab; refresh prompt nudges too)
+  - services/edge-functions/src/tests/content-ai-prompts_test.ts (v3 assertion + US-878 nudge test)
+  - src/test/blog-geo.test.ts (+22 cases: glossary linking, about LD, HowTo derivation, speakable)
+- Notes: Blog posts are dynamic edge-SSR (functions/), NOT prerendered, so the AC's "howToLd in src/lib/seo/json-ld.ts" is realized in the edge mirror functions/_shared/blog-render.ts (json-ld.ts howToLd serves only the static how-it-works page). linkGlossaryTerms walks tag-by-tag (skips <a>/headings/code), links the FIRST prose mention per term, requires a trailing "condition" for the common-adjective tiers (Excellent/Very Good/Good/Fair/Poor) so a bare "good" is never linked, and resolves overlap (Very Good condition vs Good condition) longest-first via a single ordered alternation. about=DefinedTerm nodes -> /grading/<slug> spokes + /condition-grading term set. HowTo derives ordered steps from the first <ol> (else the H2 outline) and is skipped (<2 steps or non-procedural title). Speakable only when key_takeaways exist. All omitted when there's no real source (no fake markup). speakable+about are added only to the built-in Article, leaving a model-supplied post.jsonld untouched. head-builder mirror N/A (blog not prerendered). No migrations. Verified: web+functions tsc clean, eslint clean, vitest 772/772, deno prompts 7/7 + lint/check clean, build:locked 41 pages.
+- Timestamp: 2026-06-14
+---

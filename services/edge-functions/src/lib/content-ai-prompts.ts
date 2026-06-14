@@ -179,7 +179,7 @@ export function buildSectionRegenStreamUserPrompt(input: {
 // BLOG ARTICLE GENERATION (v1)
 // ──────────────────────────────────────────────────────────
 
-export const BLOG_ARTICLE_PROMPT_VERSION = "blog_article_v2";
+export const BLOG_ARTICLE_PROMPT_VERSION = "blog_article_v3";
 
 export interface BlogTopicInput {
   title: string;
@@ -205,7 +205,10 @@ export function buildBlogArticleUserPrompt(topic: BlogTopicInput): string {
     "",
     "Length: 1500–2200 words. One H1 (= final title). 4–7 H2 sections, use H3 sparingly.",
     "Include at least one numbered list OR comparison table.",
-    "Open with a specific scenario (no 'in this article we will explore'). Close with a clear, low-pressure CTA.",
+    "Open ANSWER-FIRST: the opening paragraph must directly answer the core question / state the takeaway in 1–2 sentences before any context, so AI assistants can quote it (no 'in this article we will explore').",
+    "If this is a how-to / step-by-step topic, include the procedure as an explicit ordered list (<ol><li>…</li></ol>) where each <li> is one concrete action step in order — this is the source for HowTo structured data.",
+    "Use the CANONICAL GradeThread grading vocabulary verbatim where relevant so it matches our glossary: the tiers NWT, NWOT, Excellent, Very Good, Good, Fair, Poor, and the five factors Fabric Condition, Structural Integrity, Cosmetic Appearance, Functional Elements, Odor & Cleanliness. Do not invent synonyms for these terms.",
+    "Close with a clear, low-pressure CTA.",
     "",
     "Return JSON matching exactly this schema:",
     "{",
@@ -288,6 +291,8 @@ export function buildBlogRefreshUserPrompt(input: BlogRefreshInput): string {
     "- Correct anything dated, and add current best-practice detail where the topic has moved on.",
     "- Keep the strongest existing sentences; this is an edit, not a teardown.",
     "- Do NOT add an H1 (the page renders the title separately). Start body at <h2>.",
+    "- For how-to / step-by-step topics, ensure the procedure is an explicit ordered list (<ol><li>…</li></ol>), one action per step, so HowTo structured data has real source content.",
+    "- Use the canonical grading vocabulary verbatim (tiers NWT/NWOT/Excellent/Very Good/Good/Fair/Poor; factors Fabric Condition, Structural Integrity, Cosmetic Appearance, Functional Elements, Odor & Cleanliness) so terms stay consistent with the glossary.",
     "- Refresh the answer-first key takeaways and the FAQ Q&A so they reflect the updated body.",
     "- No <script>, no inline style, no on* handlers.",
     "",
