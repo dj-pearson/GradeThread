@@ -280,6 +280,11 @@ app.use("/api/flipdesk/ebay/marketing/*", authMiddleware);
 app.use("/api/flipdesk/ebay/negotiation/*", authMiddleware);
 app.use("/api/flipdesk/ebay/messages", authMiddleware);
 app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
+// Sync-run history (Reconciliation page) + order shipping/tracking upload
+// (US-1039) are user-initiated; they were missing from this whitelist so
+// userId was unset → handlers queried user_id="undefined" → 22P02 / 500.
+app.use("/api/flipdesk/ebay/sync-runs", authMiddleware);
+app.use("/api/flipdesk/ebay/orders/*", authMiddleware);
 // Shopify (US-599): everything authed EXCEPT /oauth/callback (Shopify
 // redirects the browser there unauthenticated; the `state` row identifies the
 // user and the request is HMAC-verified with our app secret).
@@ -377,6 +382,8 @@ app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/negotiation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/messages", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/messages/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/sync-runs", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/orders/*", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/shopify/listings/*", workspaceMiddleware);
