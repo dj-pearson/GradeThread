@@ -40,6 +40,7 @@ import {
   type HealthMetrics,
   PROCESS_STARTED_AT_MS,
 } from "../lib/ops-health.ts";
+import { pipelineBacklog, STUCK_BATCH_MS, STUCK_LISTING_MS } from "../lib/pipeline-oversight.ts";
 import { releaseSha } from "../lib/observability.ts";
 import { edgeEnv } from "../lib/env.ts";
 import {
@@ -193,6 +194,34 @@ adminOpsRoutes.post("/jobs/:key/run", async (c) => {
 // + a Supabase reachability probe, and turns it all into green/amber/red status
 // tiles via the pure ops-health lib (thresholds read from system_settings so
 // they're tunable without a deploy). Inherits the /api/admin/* admin gate.
+// US-899: cross-tenant listing-pipeline backlog for the health tile. Mirrors the
+// /api/admin/marketplace/pipeline/counts query set; summed via the shared pure
+// helper so the tile and the Pipeline tab can't disagree.
+async function loadPipelineBacklog(): Promise<number> {
+  const now = Date.now();
+  const batchCutoff = new Date(now - STUCK_BATCH_MS).toISOString();
+  const listingCutoff = new Date(now - STUCK_LISTING_MS).toISOString();
+  const head = { count: "exact" as const, head: true };
+  const [fgb, sgb, fgj, fpb, spb, fl, sl] = await Promise.all([
+    supabaseAdmin.from("listing_generation_batches").select("id", head).in("status", ["failed", "partial"]),
+    supabaseAdmin.from("listing_generation_batches").select("id", head).in("status", ["running", "pending"]).lt("updated_at", batchCutoff),
+    supabaseAdmin.from("listing_generation_jobs").select("id", head).eq("status", "failed"),
+    supabaseAdmin.from("listing_publish_batches").select("id", head).in("status", ["failed", "partial"]),
+    supabaseAdmin.from("listing_publish_batches").select("id", head).in("status", ["running", "pending"]).lt("updated_at", batchCutoff),
+    supabaseAdmin.from("listings").select("id", head).eq("listing_status", "draft").is("synced_to_ebay_at", null).not("publish_error", "is", null),
+    supabaseAdmin.from("listings").select("id", head).eq("listing_status", "draft").is("synced_to_ebay_at", null).is("publish_error", null).lt("publish_claimed_at", listingCutoff),
+  ]);
+  return pipelineBacklog({
+    failedGenerationBatches: fgb.count ?? 0,
+    stuckGenerationBatches: sgb.count ?? 0,
+    failedGenerationJobs: fgj.count ?? 0,
+    failedPublishBatches: fpb.count ?? 0,
+    stuckPublishBatches: spb.count ?? 0,
+    failedListings: fl.count ?? 0,
+    stuckListings: sl.count ?? 0,
+  });
+}
+
 adminOpsRoutes.get("/health", async (c) => {
   // Reachability probe — cheapest "can we reach Postgres?" query, separate from
   // the RPC so a reachable-DB-but-failing-RPC is still reported as reachable.
@@ -227,6 +256,18 @@ adminOpsRoutes.get("/health", async (c) => {
     }
   } catch (err) {
     captureException(err, { tags: { area: "ops-health" } });
+  }
+
+  // US-899: fold the cross-tenant listing-pipeline backlog into the report so a
+  // failed/stuck generation/publish backlog surfaces on the system-wide health
+  // dashboard (not just the Marketplace > Pipeline tab). Best-effort: a failure
+  // here leaves the rest of the report intact.
+  if (metrics) {
+    try {
+      metrics.pipeline = { backlog: await loadPipelineBacklog() };
+    } catch (err) {
+      captureException(err, { tags: { area: "ops-health:pipeline" } });
+    }
   }
 
   // DB unreachable or RPC failed → a minimal red report (don't 500: the

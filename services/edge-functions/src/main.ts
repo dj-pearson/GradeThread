@@ -75,6 +75,7 @@ import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
 import { adminMarketplaceConnectionsRoutes } from "./routes/admin-marketplace-connections.ts";
 import { adminMarketplaceOpsRoutes } from "./routes/admin-marketplace-ops.ts";
+import { adminMarketplacePipelineRoutes } from "./routes/admin-marketplace-pipeline.ts";
 import { adminConditionIndexRoutes } from "./routes/admin-condition-index.ts";
 import { recordCronRun } from "./lib/cron-runs.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -785,6 +786,13 @@ app.route("/api/admin/marketplace-connections", adminMarketplaceConnectionsRoute
 // Reads are admin + AAL2; the three mutations are super_admin + MFA step-up +
 // audited, and each resolves the owning tenant from the row before writing.
 app.route("/api/admin/marketplace", adminMarketplaceOpsRoutes);
+// US-899 cross-tenant listing/AutoLister pipeline oversight — failed/stuck
+// generation & publish batches, failed generation jobs, and listings stuck
+// "sending"/failed, with retry/cancel reusing the US-559 durable batch helpers.
+// Reads are admin + AAL2; the four mutations are super_admin + MFA step-up +
+// audited. Mounted under /marketplace/pipeline (collision-free with the ops
+// routes above).
+app.route("/api/admin/marketplace/pipeline", adminMarketplacePipelineRoutes);
 // US-846 Condition Index catalog curation — list/create/edit/disable
 // condition_index_seeds + on-demand comp refresh. Admin JWT + AAL2 via the
 // /api/admin/* group; every mutation audited.

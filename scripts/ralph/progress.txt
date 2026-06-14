@@ -2839,3 +2839,17 @@ Branch: ralph/gradethread-build
 - Notes: Reused triggerEbaySyncForUser for re-run and extracted the conflict-resolution flow into a shared lib so the admin console and the user Reconciliation page use identical logic. Orphan-match loads BOTH the orphan and target item scoped to the orphan's owner, so it can never attach a sale to another tenant's item (CI-runnable isolation test added). Stuck threshold is config-driven via the settings registry (AC3). supabaseAdmin is untyped so multi-column selects needed `as unknown as` casts. All gates green incl. verify:db (00222 applies from zero).
 - Timestamp: 2026-06-14
 ---
+
+## US-899: Cross-tenant listing pipeline oversight
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/pipeline-oversight.ts (NEW — pure logic)
+  - services/edge-functions/src/routes/admin-marketplace-pipeline.ts (NEW — route, mounted /api/admin/marketplace/pipeline)
+  - services/edge-functions/src/tests/pipeline-oversight_test.ts (NEW — 6 tests)
+  - services/edge-functions/src/main.ts (mount adminMarketplacePipelineRoutes)
+  - services/edge-functions/src/lib/ops-health.ts (Listing-pipeline tile + pipelineBacklog threshold band)
+  - services/edge-functions/src/routes/admin-ops.ts (GET /health computes + attaches metrics.pipeline.backlog)
+  - src/pages/admin/marketplace-ops.tsx (new "Pipeline" tab: gen batches / gen jobs / publish batches / listings + retry/cancel)
+- Notes: Reused the US-559 durable batch helpers (adminRetry/CancelGeneration/PublishBatch) for all mutations — they resolve the owning tenant from the batch row and re-dispatch through the bounded publish worker (PUBLISH_CONCURRENCY=3 + per-item claim + eBay adopt-not-duplicate), so retries are idempotent and within eBay fan-out bounds (AC5). "Listings stuck in 'sending'" maps to drafts not-yet-synced with a stale publish_claimed_at (US-528 claim); "failed" = publish_error set. The listing_status enum has no 'sending' value, so it's derived. No migration (reused existing columns/tables) → no EXPECTED_SCHEMA_VERSION bump. supabaseAdmin is untyped so multi-column selects needed `as unknown as` casts (consistent with the US-898 sibling route). AC3 wired the backlog into the existing ops-health system_health report via an edge-side count (no system_health() RPC change). Mounted /pipeline UNDER /marketplace (collision-free with US-898's /sync-runs etc.). Gates: deno check + lint, edge suite 1503/0, tsc --noEmit, vitest 772, build:locked 41 pages, eslint — all green.
+- Timestamp: 2026-06-14
+---

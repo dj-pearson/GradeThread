@@ -25,6 +25,7 @@ export interface HealthThresholds {
   storagePct: ThresholdBand;
   storageBytesCapGb: number;
   slowestJobMs: ThresholdBand;
+  pipelineBacklog: ThresholdBand;
 }
 
 // Sensible defaults applied when the system_settings row is missing or partial,
@@ -39,6 +40,7 @@ export const DEFAULT_HEALTH_THRESHOLDS: HealthThresholds = {
   storagePct: { amber: 70, red: 90 },
   storageBytesCapGb: 50,
   slowestJobMs: { amber: 30_000, red: 120_000 },
+  pipelineBacklog: { amber: 5, red: 25 },
 };
 
 const GB = 1024 * 1024 * 1024;
@@ -77,6 +79,10 @@ export interface HealthMetrics {
     emailDlqOpen: number;
   };
   jobs: { failuresLast24h: number; maxDurationMs: number; slowest: SlowestJob[] };
+  // US-899: cross-tenant listing/AutoLister pipeline backlog. Optional — the
+  // system_health() RPC doesn't return it; the /health route computes it and
+  // attaches it before building the report, so older payloads degrade to 0.
+  pipeline?: { backlog: number };
   trends: {
     jobFailuresByDay: DayPoint[];
     submissionErrorsByDay: Array<{ day: string; total: number; failed: number }>;
@@ -144,6 +150,7 @@ export function mergeThresholds(raw: Partial<Record<string, unknown>> | null | u
     storageBytesCapGb:
       Number.isFinite(capGb) && capGb > 0 ? capGb : DEFAULT_HEALTH_THRESHOLDS.storageBytesCapGb,
     slowestJobMs: band(r.slowestJobMs, DEFAULT_HEALTH_THRESHOLDS.slowestJobMs),
+    pipelineBacklog: band(r.pipelineBacklog, DEFAULT_HEALTH_THRESHOLDS.pipelineBacklog),
   };
 }
 
@@ -184,6 +191,7 @@ export function buildHealthReport(metrics: HealthMetrics, runtime: EdgeRuntime):
   const jobs = metrics.jobs ?? { failuresLast24h: 0, maxDurationMs: 0, slowest: [] };
   const storage = metrics.storage ?? { buckets: [], totalObjects: 0, totalBytes: 0 };
   const failuresTrend = (metrics.trends?.jobFailuresByDay ?? []).map((d) => d.count);
+  const pipelineBacklog = metrics.pipeline?.backlog ?? 0;
 
   const pct = storagePct(storage.totalBytes, t.storageBytesCapGb);
 
@@ -244,6 +252,13 @@ export function buildHealthReport(metrics: HealthMetrics, runtime: EdgeRuntime):
       status: classify(pct, t.storagePct),
       value: `${pct.toFixed(1)}%`,
       detail: `${formatBytes(storage.totalBytes)} of ${t.storageBytesCapGb} GB · ${storage.totalObjects} objects`,
+    },
+    {
+      key: "listingPipeline",
+      label: "Listing pipeline",
+      status: classify(pipelineBacklog, t.pipelineBacklog),
+      value: `${pipelineBacklog}`,
+      detail: "failed / stuck generation & publish backlog (US-899)",
     },
   ];
 

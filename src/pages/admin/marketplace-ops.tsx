@@ -32,10 +32,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
+  Ban,
   GitMerge,
   Link2,
   RefreshCw,
   Unplug,
+  Workflow,
 } from "lucide-react";
 
 interface PageMeta {
@@ -112,7 +114,84 @@ interface OrphansResponse {
   page: PageMeta;
 }
 
+// ── US-899: pipeline oversight ──
+interface PipelineBatchRow {
+  kind: "generation" | "publish";
+  id: string;
+  user_id: string;
+  owner_email: string | null;
+  status: string;
+  item_count: number;
+  succeeded_count: number;
+  failed_count: number;
+  error: string | null;
+  updated_at: string | null;
+  age_ms: number | null;
+  stuck: boolean;
+  can_retry: boolean;
+  can_cancel: boolean;
+}
+
+interface PipelineBatchesResponse {
+  batches: PipelineBatchRow[];
+  page: PageMeta;
+}
+
+interface PipelineJobRow {
+  id: string;
+  batch_id: string;
+  batch_status: string | null;
+  inventory_item_id: string;
+  item_title: string | null;
+  user_id: string | null;
+  owner_email: string | null;
+  error: string | null;
+  attempts: number;
+  age_ms: number | null;
+}
+
+interface PipelineJobsResponse {
+  jobs: PipelineJobRow[];
+  page: PageMeta;
+}
+
+interface PipelineListingRow {
+  id: string;
+  user_id: string;
+  owner_email: string | null;
+  listing_title: string | null;
+  inventory_item_id: string | null;
+  state: "failed" | "sending";
+  publish_error: string | null;
+  age_ms: number | null;
+}
+
+interface PipelineListingsResponse {
+  listings: PipelineListingRow[];
+  page: PageMeta;
+}
+
+interface PipelineCounts {
+  failedGenerationBatches: number;
+  stuckGenerationBatches: number;
+  failedGenerationJobs: number;
+  failedPublishBatches: number;
+  stuckPublishBatches: number;
+  failedListings: number;
+  stuckListings: number;
+  total: number;
+}
+
 const LIMIT = 25;
+
+function fmtAge(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -170,10 +249,19 @@ export function AdminMarketplaceOpsPage() {
   const isSuperAdmin = profile?.role === "super_admin";
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<"sync-runs" | "conflicts" | "orphan-sales">("sync-runs");
+  const [tab, setTab] = useState<"sync-runs" | "conflicts" | "orphan-sales" | "pipeline">(
+    "sync-runs",
+  );
   const [runPage, setRunPage] = useState(1);
   const [conflictPage, setConflictPage] = useState(1);
   const [orphanPage, setOrphanPage] = useState(1);
+  const [pipelineView, setPipelineView] = useState<
+    "generation-batches" | "generation-jobs" | "publish-batches" | "listings"
+  >("generation-batches");
+  const [genBatchPage, setGenBatchPage] = useState(1);
+  const [genJobPage, setGenJobPage] = useState(1);
+  const [pubBatchPage, setPubBatchPage] = useState(1);
+  const [listingPage, setListingPage] = useState(1);
 
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [workingId, setWorkingId] = useState<string | null>(null);
@@ -221,11 +309,84 @@ export function AdminMarketplaceOpsPage() {
     staleTime: 30_000,
   });
 
+  const pipelineCountsQuery = useQuery({
+    queryKey: ["admin-pipeline-counts"],
+    queryFn: async (): Promise<PipelineCounts> => {
+      const res = await edgeFetch("/api/admin/marketplace/pipeline/counts");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load pipeline counts.");
+      return json;
+    },
+    enabled: tab === "pipeline",
+    staleTime: 30_000,
+  });
+
+  const genBatchesQuery = useQuery({
+    queryKey: ["admin-pipeline-generation-batches", genBatchPage],
+    queryFn: async (): Promise<PipelineBatchesResponse> => {
+      const res = await edgeFetch(
+        `/api/admin/marketplace/pipeline/generation-batches?page=${genBatchPage}&limit=${LIMIT}`,
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load batches.");
+      return json;
+    },
+    enabled: tab === "pipeline" && pipelineView === "generation-batches",
+    staleTime: 30_000,
+  });
+
+  const genJobsQuery = useQuery({
+    queryKey: ["admin-pipeline-generation-jobs", genJobPage],
+    queryFn: async (): Promise<PipelineJobsResponse> => {
+      const res = await edgeFetch(
+        `/api/admin/marketplace/pipeline/generation-jobs?page=${genJobPage}&limit=${LIMIT}`,
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load jobs.");
+      return json;
+    },
+    enabled: tab === "pipeline" && pipelineView === "generation-jobs",
+    staleTime: 30_000,
+  });
+
+  const pubBatchesQuery = useQuery({
+    queryKey: ["admin-pipeline-publish-batches", pubBatchPage],
+    queryFn: async (): Promise<PipelineBatchesResponse> => {
+      const res = await edgeFetch(
+        `/api/admin/marketplace/pipeline/publish-batches?page=${pubBatchPage}&limit=${LIMIT}`,
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load batches.");
+      return json;
+    },
+    enabled: tab === "pipeline" && pipelineView === "publish-batches",
+    staleTime: 30_000,
+  });
+
+  const listingsQuery = useQuery({
+    queryKey: ["admin-pipeline-listings", listingPage],
+    queryFn: async (): Promise<PipelineListingsResponse> => {
+      const res = await edgeFetch(
+        `/api/admin/marketplace/pipeline/listings?page=${listingPage}&limit=${LIMIT}`,
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load listings.");
+      return json;
+    },
+    enabled: tab === "pipeline" && pipelineView === "listings",
+    staleTime: 30_000,
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["admin-marketplace-sync-runs"] });
     qc.invalidateQueries({ queryKey: ["admin-marketplace-conflicts"] });
     qc.invalidateQueries({ queryKey: ["admin-marketplace-orphans"] });
     qc.invalidateQueries({ queryKey: ["admin-marketplace-ops-counts"] });
+    qc.invalidateQueries({ queryKey: ["admin-pipeline-counts"] });
+    qc.invalidateQueries({ queryKey: ["admin-pipeline-generation-batches"] });
+    qc.invalidateQueries({ queryKey: ["admin-pipeline-generation-jobs"] });
+    qc.invalidateQueries({ queryKey: ["admin-pipeline-publish-batches"] });
+    qc.invalidateQueries({ queryKey: ["admin-pipeline-listings"] });
   };
 
   // Step-up-aware mutation runner (mirrors the connections console).
@@ -305,7 +466,58 @@ export function AdminMarketplaceOpsPage() {
     );
   };
 
+  const retryBatch = (row: PipelineBatchRow) =>
+    run(
+      row.id,
+      () =>
+        edgeFetch(`/api/admin/marketplace/pipeline/${row.kind}-batches/${row.id}/retry`, {
+          method: "POST",
+          silentGate: true,
+        }),
+      () => {
+        toast.success("Re-running the batch's incomplete jobs");
+        invalidateAll();
+      },
+    );
+
+  const cancelBatch = (row: PipelineBatchRow) => {
+    const reason = window
+      .prompt("Cancel this batch — fail its open jobs. Reason (optional):")
+      ?.trim();
+    if (reason === undefined) return; // prompt cancelled
+    run(
+      row.id,
+      () =>
+        edgeFetch(`/api/admin/marketplace/pipeline/${row.kind}-batches/${row.id}/cancel`, {
+          method: "POST",
+          json: { reason },
+          silentGate: true,
+        }),
+      () => {
+        toast.success("Batch cancelled");
+        invalidateAll();
+      },
+    );
+  };
+
+  // A failed generation job's recovery is to re-run its parent batch (the US-559
+  // helper re-runs only the failed/incomplete jobs in the batch).
+  const retryJobBatch = (row: PipelineJobRow) =>
+    run(
+      row.id,
+      () =>
+        edgeFetch(`/api/admin/marketplace/pipeline/generation-batches/${row.batch_id}/retry`, {
+          method: "POST",
+          silentGate: true,
+        }),
+      () => {
+        toast.success("Re-running the parent batch's failed jobs");
+        invalidateAll();
+      },
+    );
+
   const summary = runsQuery.data?.summary;
+  const pc = pipelineCountsQuery.data;
 
   return (
     <div className="space-y-6">
@@ -322,6 +534,7 @@ export function AdminMarketplaceOpsPage() {
           <TabsTrigger value="sync-runs">Sync runs</TabsTrigger>
           <TabsTrigger value="conflicts">Conflicts</TabsTrigger>
           <TabsTrigger value="orphan-sales">Orphan sales</TabsTrigger>
+          <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
         </TabsList>
 
         {/* ── Sync runs ── */}
@@ -626,6 +839,330 @@ export function AdminMarketplaceOpsPage() {
                 onPrev={() => setOrphanPage((p) => Math.max(1, p - 1))}
                 onNext={() => setOrphanPage((p) => p + 1)}
               />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* ── Pipeline (US-899) ── */}
+        <TabsContent value="pipeline" className="space-y-4">
+          {pc && (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {(
+                [
+                  { label: "Failed gen batches", value: pc.failedGenerationBatches },
+                  { label: "Failed gen jobs", value: pc.failedGenerationJobs },
+                  { label: "Failed publish batches", value: pc.failedPublishBatches },
+                  { label: "Stuck / failed listings", value: pc.failedListings + pc.stuckListings },
+                ] as const
+              ).map((s) => (
+                <Card key={s.label}>
+                  <CardContent className="p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {s.label}
+                    </div>
+                    <div className="mt-1 text-2xl font-bold">{s.value}</div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Workflow className="h-5 w-5" />
+                Listing pipeline
+              </CardTitle>
+              <CardDescription>
+                Failed or stuck AI-generation and bulk-publish work across every tenant. Re-run a
+                batch's incomplete jobs or cancel a stuck batch — actions are idempotent and run
+                through the same bounded publish worker.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs
+                value={pipelineView}
+                onValueChange={(v) => setPipelineView(v as typeof pipelineView)}
+                className="space-y-4"
+              >
+                <TabsList>
+                  <TabsTrigger value="generation-batches">Gen batches</TabsTrigger>
+                  <TabsTrigger value="generation-jobs">Gen jobs</TabsTrigger>
+                  <TabsTrigger value="publish-batches">Publish batches</TabsTrigger>
+                  <TabsTrigger value="listings">Listings</TabsTrigger>
+                </TabsList>
+
+                {/* Generation + publish batches share a layout. */}
+                {(
+                  [
+                    {
+                      key: "generation-batches" as const,
+                      query: genBatchesQuery,
+                      page: genBatchPage,
+                      setPage: setGenBatchPage,
+                    },
+                    {
+                      key: "publish-batches" as const,
+                      query: pubBatchesQuery,
+                      page: pubBatchPage,
+                      setPage: setPubBatchPage,
+                    },
+                  ]
+                ).map(({ key, query, page, setPage }) => (
+                  <TabsContent key={key} value={key}>
+                    {query.isError ? (
+                      <div className="py-8 text-center text-sm text-destructive">
+                        Failed to load.
+                      </div>
+                    ) : query.isLoading ? (
+                      <div className="space-y-2">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Skeleton key={i} className="h-12 w-full" />
+                        ))}
+                      </div>
+                    ) : (query.data?.batches.length ?? 0) === 0 ? (
+                      <div className="py-8 text-center text-sm text-muted-foreground">
+                        No failed or stuck batches.
+                      </div>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Owner</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Progress</TableHead>
+                            <TableHead>Age</TableHead>
+                            <TableHead>Error</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {query.data!.batches.map((row) => {
+                            const busy = workingId === row.id;
+                            return (
+                              <TableRow key={row.id}>
+                                <TableCell className="max-w-[12rem]">
+                                  {ownerCell(row.owner_email, row.user_id)}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    <Badge
+                                      variant="outline"
+                                      className={
+                                        row.status === "failed"
+                                          ? "border-red-200 bg-red-100 text-red-800"
+                                          : row.status === "partial"
+                                            ? "border-amber-200 bg-amber-100 text-amber-800"
+                                            : "border-blue-200 bg-blue-100 text-blue-800"
+                                      }
+                                    >
+                                      {row.status}
+                                    </Badge>
+                                    {row.stuck && (
+                                      <Badge
+                                        variant="outline"
+                                        className="gap-1 border-red-200 bg-red-100 text-red-800"
+                                      >
+                                        <AlertTriangle className="h-3 w-3" />
+                                        stuck
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  {row.succeeded_count}/{row.item_count}
+                                  {row.failed_count > 0 && (
+                                    <span className="text-destructive"> · {row.failed_count} failed</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>{fmtAge(row.age_ms)}</TableCell>
+                                <TableCell className="max-w-[14rem] truncate" title={row.error ?? ""}>
+                                  {row.error ?? "—"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!isSuperAdmin || busy || !row.can_retry}
+                                      title={
+                                        !isSuperAdmin
+                                          ? "Super admin required"
+                                          : !row.can_retry
+                                            ? "Nothing incomplete to re-run"
+                                            : "Re-run incomplete jobs"
+                                      }
+                                      onClick={() => retryBatch(row)}
+                                    >
+                                      <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
+                                      <span className="ml-1 hidden sm:inline">Retry</span>
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!isSuperAdmin || busy || !row.can_cancel}
+                                      title={
+                                        !isSuperAdmin
+                                          ? "Super admin required"
+                                          : !row.can_cancel
+                                            ? "Batch is not open"
+                                            : "Cancel — fail open jobs"
+                                      }
+                                      onClick={() => cancelBatch(row)}
+                                    >
+                                      <Ban className="h-3.5 w-3.5" />
+                                      <span className="ml-1 hidden sm:inline">Cancel</span>
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                    <Pagination
+                      page={page}
+                      total={query.data?.page.total ?? 0}
+                      onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                      onNext={() => setPage((p) => p + 1)}
+                    />
+                  </TabsContent>
+                ))}
+
+                {/* Generation jobs */}
+                <TabsContent value="generation-jobs">
+                  {genJobsQuery.isError ? (
+                    <div className="py-8 text-center text-sm text-destructive">Failed to load.</div>
+                  ) : genJobsQuery.isLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Skeleton key={i} className="h-12 w-full" />
+                      ))}
+                    </div>
+                  ) : (genJobsQuery.data?.jobs.length ?? 0) === 0 ? (
+                    <div className="py-8 text-center text-sm text-muted-foreground">
+                      No failed generation jobs.
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Owner</TableHead>
+                          <TableHead>Item</TableHead>
+                          <TableHead>Attempts</TableHead>
+                          <TableHead>Age</TableHead>
+                          <TableHead>Error</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {genJobsQuery.data!.jobs.map((row) => {
+                          const busy = workingId === row.id;
+                          return (
+                            <TableRow key={row.id}>
+                              <TableCell className="max-w-[12rem]">
+                                {ownerCell(row.owner_email, row.user_id ?? "")}
+                              </TableCell>
+                              <TableCell className="max-w-[12rem] truncate" title={row.item_title ?? ""}>
+                                {row.item_title ?? "—"}
+                              </TableCell>
+                              <TableCell>{row.attempts}</TableCell>
+                              <TableCell>{fmtAge(row.age_ms)}</TableCell>
+                              <TableCell className="max-w-[14rem] truncate" title={row.error ?? ""}>
+                                {row.error ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!isSuperAdmin || busy}
+                                  title={
+                                    isSuperAdmin
+                                      ? "Re-run this job's parent batch"
+                                      : "Super admin required"
+                                  }
+                                  onClick={() => retryJobBatch(row)}
+                                >
+                                  <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
+                                  <span className="ml-1 hidden sm:inline">Retry batch</span>
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  )}
+                  <Pagination
+                    page={genJobPage}
+                    total={genJobsQuery.data?.page.total ?? 0}
+                    onPrev={() => setGenJobPage((p) => Math.max(1, p - 1))}
+                    onNext={() => setGenJobPage((p) => p + 1)}
+                  />
+                </TabsContent>
+
+                {/* Listings stuck sending / failed */}
+                <TabsContent value="listings">
+                  {listingsQuery.isError ? (
+                    <div className="py-8 text-center text-sm text-destructive">Failed to load.</div>
+                  ) : listingsQuery.isLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Skeleton key={i} className="h-12 w-full" />
+                      ))}
+                    </div>
+                  ) : (listingsQuery.data?.listings.length ?? 0) === 0 ? (
+                    <div className="py-8 text-center text-sm text-muted-foreground">
+                      No stuck or failed listings.
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Owner</TableHead>
+                          <TableHead>Listing</TableHead>
+                          <TableHead>State</TableHead>
+                          <TableHead>Age</TableHead>
+                          <TableHead>Error</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {listingsQuery.data!.listings.map((row) => (
+                          <TableRow key={row.id}>
+                            <TableCell className="max-w-[12rem]">
+                              {ownerCell(row.owner_email, row.user_id)}
+                            </TableCell>
+                            <TableCell className="max-w-[14rem] truncate" title={row.listing_title ?? ""}>
+                              {row.listing_title ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  row.state === "failed"
+                                    ? "border-red-200 bg-red-100 text-red-800"
+                                    : "border-amber-200 bg-amber-100 text-amber-800"
+                                }
+                              >
+                                {row.state === "failed" ? "failed" : "stuck sending"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{fmtAge(row.age_ms)}</TableCell>
+                            <TableCell className="max-w-[16rem] truncate" title={row.publish_error ?? ""}>
+                              {row.publish_error ?? "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                  <Pagination
+                    page={listingPage}
+                    total={listingsQuery.data?.page.total ?? 0}
+                    onPrev={() => setListingPage((p) => Math.max(1, p - 1))}
+                    onNext={() => setListingPage((p) => p + 1)}
+                  />
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         </TabsContent>
