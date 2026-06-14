@@ -15169,8 +15169,8 @@
         "PER_IMAGE_PROMPT_VERSION/COMPOSITE_PROMPT_VERSION bumped; seeded ai_prompt_versions rows updated; deno check + grading tests green; EXPECTED_SCHEMA_VERSION bumped if a migration is added."
       ],
       "priority": 1027,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=taxonomy. services/edge-functions/src/lib/ai-grading.ts (DetectedIssue ~69-83, DefectFound ~121-126, prompts ~450-510, ~858-903)"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=taxonomy. services/edge-functions/src/lib/ai-grading.ts (DetectedIssue ~69-83, DefectFound ~121-126, prompts ~450-510, ~858-903) [DONE 2026-06-14] Implemented in defect-weighting.ts + ai-grading.ts/ai-config.ts (commit grading taxonomy/size/weighting). deno check+lint+tests green."
     },
     {
       "id": "US-1028",
@@ -15184,8 +15184,8 @@
         "Prompt versions bumped; grading tests cover size parsing + the bbox-vs-size cross-check."
       ],
       "priority": 1028,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=sizing. services/edge-functions/src/lib/ai-grading.ts (DetectedIssue.bbox ~78-83, normalizeBbox ~520-535, prompts ~501-510)"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=sizing. services/edge-functions/src/lib/ai-grading.ts (DetectedIssue.bbox ~78-83, normalizeBbox ~520-535, prompts ~501-510) [DONE 2026-06-14] Implemented in defect-weighting.ts + ai-grading.ts/ai-config.ts (commit grading taxonomy/size/weighting). deno check+lint+tests green."
     },
     {
       "id": "US-1029",
@@ -15199,8 +15199,8 @@
         "overall_score recompute (compositeGrade ~1204-1213) consumes the engine's factor scores; deno check + new defect-weighting tests green."
       ],
       "priority": 1029,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=scoring-core. services/edge-functions/src/lib/ai-grading.ts (FACTOR_WEIGHTS ~782-788, compositeGrade ~1204-1213); new defect-weighting.ts"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=scoring-core. services/edge-functions/src/lib/ai-grading.ts (FACTOR_WEIGHTS ~782-788, compositeGrade ~1204-1213); new defect-weighting.ts [DONE 2026-06-14] Implemented in defect-weighting.ts + ai-grading.ts/ai-config.ts (commit grading taxonomy/size/weighting). deno check+lint+tests green."
     },
     {
       "id": "US-1030",
@@ -15213,8 +15213,8 @@
         "Tests assert a garment whose only flaw is wrinkles grades high; prompt versions bumped."
       ],
       "priority": 1030,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=rubric. services/edge-functions/src/lib/ai-grading.ts (prompts); new defect-weighting.ts"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=rubric. services/edge-functions/src/lib/ai-grading.ts (prompts); new defect-weighting.ts [DONE 2026-06-14] Implemented in defect-weighting.ts + ai-grading.ts/ai-config.ts (commit grading taxonomy/size/weighting). deno check+lint+tests green."
     },
     {
       "id": "US-1031",
@@ -15227,8 +15227,8 @@
         "Design-vs-defect principle (as-manufactured) is preserved; prompt versions bumped and seeded rows updated."
       ],
       "priority": 1031,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=rubric. services/edge-functions/src/lib/ai-grading.ts (SYSTEM_PROMPT ~322-344, GRADE_TIER_DEFINITIONS ~790-798, COMPOSITE_SYSTEM_PROMPT ~800-819)"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=medium area=rubric. services/edge-functions/src/lib/ai-grading.ts (SYSTEM_PROMPT ~322-344, GRADE_TIER_DEFINITIONS ~790-798, COMPOSITE_SYSTEM_PROMPT ~800-819) [DONE 2026-06-14] Implemented in defect-weighting.ts + ai-grading.ts/ai-config.ts (commit grading taxonomy/size/weighting). deno check+lint+tests green."
     },
     {
       "id": "US-1032",
@@ -15255,8 +15255,8 @@
         "deno check + grading tests green; behavior unchanged on the current Sonnet default."
       ],
       "priority": 1033,
-      "passes": false,
-      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=model. services/edge-functions/src/lib/ai-grading.ts (temperature ~628-629,656,1096-1097,1128); services/edge-functions/src/lib/ai-config.ts (getGradingTemperature ~131-137)"
+      "passes": true,
+      "notes": "[Grading model deep-dive 2026-06-13] severity=high area=model. services/edge-functions/src/lib/ai-grading.ts (temperature ~628-629,656,1096-1097,1128); services/edge-functions/src/lib/ai-config.ts (getGradingTemperature ~131-137) [DONE 2026-06-14] Implemented in defect-weighting.ts + ai-grading.ts/ai-config.ts (commit grading taxonomy/size/weighting). deno check+lint+tests green."
     },
     {
       "id": "US-1034",
