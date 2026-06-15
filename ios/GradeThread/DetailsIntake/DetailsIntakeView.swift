@@ -49,6 +49,16 @@ struct DetailsIntakeView: View {
     @State private var notesAnchorBeforeDictation: String = ""
     @State private var showingBarcodeScanner = false
 
+    // Duplicate-SKU "combine into existing" (web parity, intake variant): when
+    // the entered SKU already belongs to an item we pre-check BEFORE inserting
+    // and offer to combine the new details into that item instead of creating a
+    // duplicate (which would trip idx_inventory_items_user_sku).
+    @State private var skuMergeExisting: ExistingSkuItem?
+    @State private var skuMergeConflicts: [ItemMergeConflict] = []
+    @State private var isMergingSku = false
+    @State private var skuMergeError: String?
+    @State private var pendingMergeOutcome: SaveOutcome = .dismiss
+
     /// Bottom toast — surfaced both for online success and the offline
     /// fallback. Auto-clears after a beat so the screen returns to a
     /// neutral state for the next "Add another" iteration.
@@ -125,6 +135,28 @@ struct DetailsIntakeView: View {
             BarcodeScanView { code in
                 form.sku = code
             }
+        }
+        // Duplicate-SKU combine-into-existing (intake variant of the merge).
+        .sheet(item: $skuMergeExisting) { existing in
+            let sku = form.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+            MergeSkuSheet(
+                headerTitle: "SKU already in use",
+                explanation: "An item with SKU “\(sku)” already exists. Combine your new details into it instead of creating a duplicate? Pick which value to keep where they differ — your new entry is selected by default. Nothing is duplicated; the existing item is updated.",
+                currentHeading: "Your entry",
+                existingHeading: "Existing item",
+                confirmLabel: "Combine",
+                conflicts: skuMergeConflicts,
+                merging: isMergingSku,
+                errorMessage: skuMergeError,
+                onConfirm: { chosen in
+                    Task { await confirmIntakeMerge(existing: existing, keepExisting: chosen) }
+                },
+                onCancel: {
+                    guard !isMergingSku else { return }
+                    skuMergeExisting = nil
+                    skuMergeError = nil
+                }
+            )
         }
         .onDisappear {
             // Don't leave the audio engine running if the user swipes the
@@ -416,6 +448,24 @@ struct DetailsIntakeView: View {
         // can insert under the owner's user_id; RLS enforces the role). Falls
         // back to self in the personal workspace.
         let ownerId = WorkspaceScope.tenantOwnerId(selfId: userId)
+
+        // Pre-check for a duplicate SKU BEFORE inserting: if this SKU already
+        // belongs to an item, offer to combine the new details into it (web
+        // parity) instead of letting the insert dead-end on
+        // idx_inventory_items_user_sku. Status is excluded from the merge — a
+        // re-catalog must never silently regress a listed/sold item's status.
+        let sku = form.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !sku.isEmpty, let existing = await fetchExistingSkuOwner(sku, ownerId: ownerId) {
+            skuMergeConflicts = ItemMergePlan
+                .conflicts(current: intakeFormDraft(), existing: existing, formatter: currencyFormatter)
+                .filter { $0.field != .status }
+            pendingMergeOutcome = outcome
+            skuMergeError = nil
+            skuMergeExisting = existing  // presents the combine sheet
+            HapticFeedback.warning()
+            return
+        }
+
         let payload = buildInsertPayload(userId: ownerId)
         do {
             try await SupabaseShared.client
@@ -437,6 +487,158 @@ struct DetailsIntakeView: View {
                     text: "Couldn't save: \(error.localizedDescription)"
                 )
             }
+        }
+    }
+
+    /// Looks up the item that already owns `sku` in this workspace (US-268
+    /// tenant scope), pulling the columns the combine flow reconciles or
+    /// gap-fills. Returns nil when none exists or the query fails (the caller
+    /// then proceeds with a normal insert).
+    private func fetchExistingSkuOwner(_ sku: String, ownerId: String) async -> ExistingSkuItem? {
+        do {
+            let rows: [ExistingSkuItem] = try await SupabaseShared.client
+                .from("inventory_items")
+                .select(
+                    "id,title,brand,size,color,material,condition_notes,status,item_category,target_price,acquired_price,location_bin,style,container,sourced_by,description,acquired_date,source_id"
+                )
+                .eq("user_id", value: ownerId)
+                .eq("sku", value: sku)
+                .limit(1)
+                .execute()
+                .value
+            return rows.first
+        } catch {
+            return nil
+        }
+    }
+
+    /// Maps the intake form into the shared `ItemDraft` shape so the merge sheet
+    /// and `ItemMergePlan` can reconcile it against the existing item. Only the
+    /// fields the merge UI covers are populated; notes live in `description`
+    /// (not `condition_notes`) and intake captures purchase, not target, price.
+    private func intakeFormDraft() -> ItemDraft {
+        ItemDraft(
+            title: form.title.trimmingCharacters(in: .whitespacesAndNewlines),
+            brand: form.brand,
+            sku: form.sku,
+            size: form.size,
+            color: form.color,
+            material: form.material,
+            conditionNotes: "",
+            status: form.status.rawValue,
+            category: form.category,
+            targetPriceText: "",
+            acquiredPriceText: form.purchasePriceText,
+            locationBin: "",
+            consignorId: nil,
+            consignmentSplitText: ""
+        )
+    }
+
+    /// Confirmed "combine into existing": UPDATE the existing item with the
+    /// reconciled shared fields (never nulling a populated column) and gap-fill
+    /// the extra intake-only fields where the existing record is blank. No row
+    /// is inserted, so there are no children to re-point — a plain update is
+    /// enough (no RPC). Status and SKU are intentionally left untouched.
+    private func confirmIntakeMerge(existing: ExistingSkuItem, keepExisting: Set<ItemMergeField>) async {
+        guard let userId = currentUserId() else {
+            skuMergeError = "Sign in expired. Sign in again to save."
+            return
+        }
+        let sku = form.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sku.isEmpty else { return }
+        isMergingSku = true
+        skuMergeError = nil
+
+        var resolved = intakeFormDraft()
+        ItemMergePlan.apply(keepExisting, from: existing, to: &resolved, formatter: currencyFormatter)
+
+        // Gap-fill helper: take the form's value only where the existing column
+        // is empty, so combining never overwrites data already on the item.
+        func gapFill(_ formValue: String, into existingValue: String?) -> String? {
+            (existingValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? formValue.nonEmpty : nil
+        }
+
+        // Custom encode so nil fields are OMITTED (not sent as JSON null). A
+        // PATCH that included nulls would WIPE the existing item's columns —
+        // the opposite of "combine". Only the keys we actually set are written.
+        struct CombineUpdate: Encodable, Sendable {
+            let title: String?
+            let brand: String?
+            let size: String?
+            let color: String?
+            let material: String?
+            let item_category: String?
+            let acquired_price: Double?
+            let style: String?
+            let container: String?
+            let sourced_by: String?
+            let description: String?
+            let source_id: String?
+
+            enum CodingKeys: String, CodingKey {
+                case title, brand, size, color, material, item_category
+                case acquired_price, style, container, sourced_by, description, source_id
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encodeIfPresent(title, forKey: .title)
+                try c.encodeIfPresent(brand, forKey: .brand)
+                try c.encodeIfPresent(size, forKey: .size)
+                try c.encodeIfPresent(color, forKey: .color)
+                try c.encodeIfPresent(material, forKey: .material)
+                try c.encodeIfPresent(item_category, forKey: .item_category)
+                try c.encodeIfPresent(acquired_price, forKey: .acquired_price)
+                try c.encodeIfPresent(style, forKey: .style)
+                try c.encodeIfPresent(container, forKey: .container)
+                try c.encodeIfPresent(sourced_by, forKey: .sourced_by)
+                try c.encodeIfPresent(description, forKey: .description)
+                try c.encodeIfPresent(source_id, forKey: .source_id)
+            }
+        }
+        let update = CombineUpdate(
+            title: resolved.title.nonEmpty,
+            brand: resolved.brand.nonEmpty,
+            size: resolved.size.nonEmpty,
+            color: resolved.color.nonEmpty,
+            material: resolved.material.nonEmpty,
+            item_category: resolved.category?.rawValue,
+            acquired_price: currencyFormatter.parse(resolved.acquiredPriceText),
+            style: gapFill(form.style, into: existing.style),
+            container: gapFill(form.container, into: existing.container),
+            sourced_by: gapFill(form.sourcedBy, into: existing.sourced_by),
+            description: gapFill(form.notes, into: existing.description),
+            source_id: (existing.source_id ?? "").isEmpty ? form.sourceId : nil
+        )
+
+        do {
+            try await SupabaseShared.client
+                .from("inventory_items")
+                .update(update)
+                .eq("id", value: existing.id)
+                .eq("user_id", value: WorkspaceScope.tenantOwnerId(selfId: userId))
+                .execute()
+        } catch {
+            isMergingSku = false
+            skuMergeError = error.localizedDescription
+            HapticFeedback.error()
+            return
+        }
+
+        IntakeDraftStore.clear()
+        isMergingSku = false
+        skuMergeExisting = nil
+        HapticFeedback.success()
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        bannerMessage = BannerMessage(kind: .success, text: "Combined into the existing item.")
+        switch pendingMergeOutcome {
+        case .dismiss:
+            dismiss()
+        case .addAnother:
+            form.resetForBatchAddAnother()
+            AppRouter.haptic()
         }
     }
 

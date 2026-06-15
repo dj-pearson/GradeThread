@@ -50,6 +50,14 @@ struct ItemCanvasView: View {
     @State private var showingCameraCapture = false
     @State private var isAddingPhotos = false
     @State private var actionToast: String?
+    // Duplicate-SKU merge: when a save trips idx_inventory_items_user_sku we
+    // fetch the record that owns the SKU and offer to merge instead of
+    // dead-ending on the raw Postgres error (web parity — MergeSkuDialog).
+    @State private var mergeExisting: ExistingSkuItem?
+    @State private var mergeConflicts: [ItemMergeConflict] = []
+    @State private var isMerging = false
+    @State private var mergeError: String?
+    @State private var dismissAfterMerge = true
     private let currencyFormatter = CurrencyFormatter()
 
     /// Statuses where "Publish to eBay" makes sense — anything pre-list
@@ -346,6 +354,26 @@ struct ItemCanvasView: View {
                 Task { await ingestCapturedImage(image) }
             }
             .ignoresSafeArea()
+        }
+        // Duplicate-SKU merge resolution (web parity).
+        .sheet(item: $mergeExisting) { existing in
+            let sku = (state?.draft.sku ?? item.sku ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            MergeSkuSheet(
+                explanation: "Another inventory record already uses SKU “\(sku)”. Merging combines both into this item — photos, listings, sales and grading history are kept from both, then the other record is removed. Pick which value to keep where they differ; this item’s values are selected by default.",
+                conflicts: mergeConflicts,
+                merging: isMerging,
+                errorMessage: mergeError,
+                onConfirm: { chosen in
+                    Task { await confirmMerge(existing: existing, keepExisting: chosen) }
+                },
+                onCancel: {
+                    guard !isMerging else { return }
+                    mergeExisting = nil
+                    mergeError = nil
+                    state?.savePhase = .idle
+                }
+            )
         }
         .alert(
             "Delete item?",
@@ -1106,9 +1134,145 @@ struct ItemCanvasView: View {
             if dismissAfter { dismiss() }
             return true
         } catch {
+            // Duplicate SKU (partial unique index on user_id, sku) → offer to
+            // merge the two records instead of dead-ending on the raw Postgres
+            // error (web parity — see item-canvas.tsx `save()`).
+            let sku = state.draft.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+            if ItemMergePlan.isDuplicateSkuError(error), !sku.isEmpty,
+               let existing = await fetchExistingSkuOwner(sku) {
+                mergeConflicts = ItemMergePlan.conflicts(
+                    current: state.draft, existing: existing, formatter: currencyFormatter
+                )
+                dismissAfterMerge = dismissAfter
+                mergeError = nil
+                state.savePhase = .idle  // the merge sheet takes over; not a hard fail
+                mergeExisting = existing  // presents the sheet
+                HapticFeedback.warning()
+                return false
+            }
             HapticFeedback.error()
             state.failSaving(error.localizedDescription)
             return false
+        }
+    }
+
+    /// Looks up the record that already owns `sku` for this workspace so the
+    /// merge sheet can show the field-level conflicts. Tenant-scoped to the
+    /// item's owner (US-268). Returns nil on a query failure — the caller then
+    /// surfaces the original save error unchanged.
+    private func fetchExistingSkuOwner(_ sku: String) async -> ExistingSkuItem? {
+        do {
+            let rows: [ExistingSkuItem] = try await SupabaseShared.client
+                .from("inventory_items")
+                .select(
+                    "id,title,brand,size,color,material,condition_notes,status,item_category,target_price,acquired_price,location_bin"
+                )
+                .eq("user_id", value: item.userId)
+                .eq("sku", value: sku)
+                .neq("id", value: item.id)
+                .limit(1)
+                .execute()
+                .value
+            return rows.first
+        } catch {
+            return nil
+        }
+    }
+
+    /// Confirmed duplicate-SKU merge. The RPC atomically re-points photos,
+    /// listings, sales and grading history from the existing record onto this
+    /// item, coalesces non-UI columns, deletes the existing record, and claims
+    /// the SKU — then the user's field choices are saved through the normal
+    /// update path (which now succeeds because the SKU is free).
+    private func confirmMerge(existing: ExistingSkuItem, keepExisting: Set<ItemMergeField>) async {
+        guard let state else { return }
+        let sku = state.draft.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sku.isEmpty else { return }
+        isMerging = true
+        mergeError = nil
+
+        // Phase 1 — the merge RPC. It's atomic: on failure NOTHING committed, so
+        // we keep the sheet open and let the user retry the Merge button.
+        do {
+            struct MergeParams: Encodable, Sendable {
+                let p_survivor_id: String
+                let p_duplicate_id: String
+                let p_sku: String
+            }
+            try await SupabaseShared.client
+                .rpc("merge_inventory_items", params: MergeParams(
+                    p_survivor_id: item.id,
+                    p_duplicate_id: existing.id,
+                    p_sku: sku
+                ))
+                .execute()
+        } catch {
+            isMerging = false
+            mergeError = error.localizedDescription
+            HapticFeedback.error()
+            return
+        }
+
+        // The merge has committed: the duplicate is gone and this item owns the
+        // SKU. From here it's irreversible, so a field-save failure must NOT
+        // re-run the RPC (it would fail — the duplicate no longer exists). Close
+        // the sheet and pull to reconcile the re-pointed photos/listings/sales.
+        isMerging = false
+        mergeExisting = nil
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+
+        // Phase 2 — persist the user's field choices. We write only the
+        // user-reconciled fields and deliberately OMIT consignor_id /
+        // consignment_split_pct: the RPC just coalesced those from the absorbed
+        // row onto the survivor, and the normal payload would null them back out
+        // when this item had none (web parity — its post-merge save doesn't
+        // touch coalesced columns). The SKU is free now, so this won't 23505.
+        ItemMergePlan.apply(keepExisting, from: existing, to: &state.draft, formatter: currencyFormatter)
+        let (mTarget, mCost) = state.parsedPrices()
+        struct MergeSurvivorUpdate: Encodable, Sendable {
+            let title: String
+            let brand: String?
+            let sku: String?
+            let size: String?
+            let color: String?
+            let material: String?
+            let condition_notes: String?
+            let status: String
+            let target_price: Double?
+            let acquired_price: Double?
+            let item_category: String?
+            let location_bin: String?
+        }
+        let payload = MergeSurvivorUpdate(
+            title: state.draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+            brand: state.draft.brand.nonEmpty,
+            sku: state.draft.sku.nonEmpty,
+            size: state.draft.size.nonEmpty,
+            color: state.draft.color.nonEmpty,
+            material: state.draft.material.nonEmpty,
+            condition_notes: state.draft.conditionNotes.nonEmpty,
+            status: state.draft.status,
+            target_price: mTarget,
+            acquired_price: mCost,
+            item_category: state.draft.category?.rawValue,
+            location_bin: state.draft.locationBin.nonEmpty
+        )
+        do {
+            try await SupabaseShared.client
+                .from("inventory_items")
+                .update(payload)
+                .eq("id", value: item.id)
+                .execute()
+            applyToLocalItem(state: state)
+            state.acceptDraftAsOriginal()
+            try? modelContext.save()
+            HapticFeedback.success()
+            if dismissAfterMerge { dismiss() }
+        } catch {
+            // The merge itself committed; only the field choices failed to save
+            // (web parity). Leave the user on the canvas to review and re-save.
+            HapticFeedback.error()
+            actionToast = "Records merged, but saving your changes failed — review the item and save again."
         }
     }
 

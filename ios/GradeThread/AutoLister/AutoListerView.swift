@@ -170,6 +170,16 @@ struct AutoListerView: View {
             }
         }
         Button {
+            Task { await model.rotate(photo.id, clockwise: true) }
+        } label: {
+            Label("Rotate right", systemImage: "rotate.right")
+        }
+        Button {
+            Task { await model.rotate(photo.id, clockwise: false) }
+        } label: {
+            Label("Rotate left", systemImage: "rotate.left")
+        }
+        Button {
             model.movePhoto(photo.id, from: group.id, to: nil)
         } label: {
             Label("Split to new group", systemImage: "rectangle.split.2x1")

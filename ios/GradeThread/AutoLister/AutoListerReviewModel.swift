@@ -135,6 +135,29 @@ final class AutoListerReviewModel: ObservableObject {
         }
     }
 
+    // MARK: - Rotate
+
+    /// Rotates an imported photo 90° in place, BEFORE it's uploaded. Re-encodes
+    /// the JPEG + thumbnail off-main and swaps the capture back under the same
+    /// id, so grouping and cover selection are untouched — the rotated bytes are
+    /// simply what Phase C uploads. We bake rotation into the pixels (not EXIF)
+    /// because eBay's image pipeline ignores orientation tags (same rationale as
+    /// `PhotoRotateService` for already-uploaded photos). No-op if the capture is
+    /// missing or its data can't be decoded.
+    func rotate(_ photoId: UUID, clockwise: Bool) async {
+        guard let capture = photosById[photoId],
+              let image = UIImage(data: capture.imageData) else { return }
+        let rotated = PhotoRotateService.rotated(image, clockwise: clockwise)
+        guard let output = await PhotoCompressor.compressOffMain(rotated) else { return }
+        photosById[photoId] = PhotoCapture(
+            id: capture.id,
+            imageData: output.imageData,
+            thumbnail: output.thumbnail,
+            capturedAt: capture.capturedAt,
+            source: capture.source
+        )
+    }
+
     // MARK: - Handoff
 
     /// Snapshot for the generate pipeline: each group's photos ordered cover-first.

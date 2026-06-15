@@ -96,4 +96,47 @@ final class AutoListerReviewModelTests: XCTestCase {
         XCTAssertEqual(prepared[0].photos.first?.id, c.id)
         XCTAssertEqual(prepared[0].photos.count, 3)
     }
+
+    // MARK: - Rotate
+
+    /// A real (non-square) capture so rotation actually has pixels to transform —
+    /// the synthetic `cap()` helper has empty image data, which `rotate` no-ops.
+    private func landscapeCap() -> PhotoCapture {
+        let size = CGSize(width: 40, height: 20) // landscape
+        let image = UIGraphicsImageRenderer(size: size).image { ctx in
+            UIColor.systemTeal.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+        }
+        return PhotoCapture(
+            imageData: image.jpegData(compressionQuality: 0.8) ?? Data(),
+            thumbnail: image,
+            capturedAt: base,
+            source: .library
+        )
+    }
+
+    func test_rotate_keepsIdAndGroupingAndFlipsAspect() async {
+        let m = AutoListerReviewModel()
+        let p = landscapeCap()
+        m.ingest([p])
+        let before = m.photos(in: m.groups[0]).first!
+        XCTAssertGreaterThan(before.thumbnail.size.width, before.thumbnail.size.height) // landscape
+
+        await m.rotate(p.id, clockwise: true)
+
+        // Same id + still grouped — only the pixels changed.
+        XCTAssertEqual(m.totalPhotos, 1)
+        XCTAssertTrue(m.groups[0].photoIds.contains(p.id))
+        let after = m.photos(in: m.groups[0]).first!
+        XCTAssertEqual(after.id, p.id)
+        XCTAssertGreaterThan(after.thumbnail.size.height, after.thumbnail.size.width) // now portrait
+        XCTAssertNotEqual(after.imageData, before.imageData) // re-encoded rotated bytes
+    }
+
+    func test_rotate_missingPhoto_isNoOp() async {
+        let m = AutoListerReviewModel()
+        m.ingest([landscapeCap()])
+        await m.rotate(UUID(), clockwise: true) // unknown id
+        XCTAssertEqual(m.totalPhotos, 1)
+    }
 }
