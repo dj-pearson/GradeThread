@@ -357,7 +357,7 @@ struct ItemCanvasView: View {
         }
         // Duplicate-SKU merge resolution (web parity).
         .sheet(item: $mergeExisting) { existing in
-            let sku = (state?.draft.sku ?? item.sku ?? "")
+            let sku = (state.draft.sku.isEmpty ? (item.sku ?? "") : state.draft.sku)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             MergeSkuSheet(
                 explanation: "Another inventory record already uses SKU “\(sku)”. Merging combines both into this item — photos, listings, sales and grading history are kept from both, then the other record is removed. Pick which value to keep where they differ; this item’s values are selected by default.",
@@ -371,7 +371,7 @@ struct ItemCanvasView: View {
                     guard !isMerging else { return }
                     mergeExisting = nil
                     mergeError = nil
-                    state?.savePhase = .idle
+                    state.savePhase = .idle
                 }
             )
         }
