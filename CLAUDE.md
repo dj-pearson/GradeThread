@@ -1,26 +1,25 @@
-# GradeThread - AI-Powered Clothing Condition Grading
+# GradeThread — AI-Powered Clothing Condition Grading
 
 > **⚠️ TEMPORARY WORKFLOW OVERRIDE (pre-production sprint) — added 2026-06-04**
 > Until production launch, work directly on `main`. Do NOT create feature branches or open PRs for changes. Commit straight to `main` and push to `origin/main` when work is complete. `main` is intentionally not branch-protected during this period. **Delete this block to restore the normal branch-and-PR workflow.**
 
-## Project Overview
+SaaS for standardized, AI-powered condition grading of pre-owned clothing: sellers upload garment photos → numerical grade (1.0–10.0) + condition report + shareable certificate. Built by Pearson Media LLC. **FlipDesk** is the reseller-management surface inside it (full eBay lifecycle).
 
-GradeThread is a SaaS platform that provides standardized, AI-powered condition grading for pre-owned clothing. Sellers upload garment photos and receive a numerical condition grade (1.0–10.0), a detailed condition report, and a shareable certificate. Built by Pearson Media LLC.
+**Domain:** gradethread.com · **Repo:** github.com/dj-pearson/GradeThread
 
-**Domain:** gradethread.com
-**Supabase:** Self-hosted at api.gradethread.com
-**Edge service:** Deno/Hono on Coolify at functions.gradethread.com (separate container from Supabase — `/api/*` paths on `api.gradethread.com` are Supabase Kong and will 404 anything outside Supabase's routes; all Hono routes including `/api/grade/*`, `/api/payments/*`, `/api/webhooks/*`, `/api/flipdesk/*` are served from `functions.*`)
-**Repo:** github.com/dj-pearson/GradeThread
+### ⚠️ DNS / routing (mixing these up = silent 404s)
+- **Supabase (self-hosted):** `api.gradethread.com` — Kong; ONLY Supabase routes exist here.
+- **Edge service (Deno/Hono on Coolify):** `functions.gradethread.com` — ALL Hono routes (`/api/grade/*`, `/api/payments/*`, `/api/webhooks/*`, `/api/flipdesk/*`). Hitting `/api/*` on `api.*` 404s.
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | React 19, TypeScript (strict), Vite 7 |
-| Styling | Tailwind CSS v4, shadcn/ui (New York style, Slate base) |
+| Styling | Tailwind CSS v4, shadcn/ui (New York, Slate base) |
 | State | Zustand (auth), TanStack Query (server state) |
 | Routing | React Router v7 (createBrowserRouter) |
-| Auth/DB/Storage | Supabase (self-hosted, PKCE flow) |
+| Auth/DB/Storage | Supabase (self-hosted, PKCE) |
 | Edge Functions | Deno + Hono (`services/edge-functions/`) |
 | AI | Claude Vision API (Anthropic) |
 | Payments | Stripe (client + server) |
@@ -30,312 +29,96 @@ GradeThread is a SaaS platform that provides standardized, AI-powered condition 
 ## Commands
 
 ```bash
-npm run dev        # Start dev server (localhost:5173)
-npm run build      # TypeScript check + Vite production build
+npm run dev        # Dev server (localhost:5173)
+npm run build      # tsc check + Vite production build
 npm run lint       # ESLint
-npm run preview    # Preview production build locally
-npx tsc --noEmit   # Type check only (no emit)
+npx tsc --noEmit   # Type check only
+# Edge:
+cd services/edge-functions && deno run --allow-net --allow-env --allow-read src/main.ts
 ```
 
-### Edge Functions (services/edge-functions/)
-```bash
-cd services/edge-functions
-docker-compose up          # Start with Docker
-deno run --allow-net --allow-env --allow-read src/main.ts  # Direct run
-```
+## Local Verification (CI parity — run before committing)
 
-## Local Verification (CI parity before you push)
+`npm run verify` mirrors GitHub Actions (`scripts/verify.mjs`, prints ✓/✗):
+`verify:web` (eslint, tsc -b, vitest+coverage, build, npm audit) · `verify:edge` (deno lint/check/test, frozen lockfile) · `verify:db` (supabase db start+reset, needs Docker) · `verify:security` (npm audit + edge image + trivy, needs Docker) · `node scripts/verify.mjs --e2e|--all`.
 
-`npm run verify` is the local mirror of GitHub Actions — run it before committing
-so broken code never ships. It runs the same commands the CI jobs run, in the
-same order, and prints a ✓/✗ summary (`scripts/verify.mjs`).
+- **Docker** needed for `db`/`security` lanes; if down they're skipped with a warning (turn it on before pushing migration / edge-Dockerfile changes). **gitleaks + trivy** via `scoop install gitleaks trivy`.
+- **Self-hosted Supabase caveat:** the `db` lane boots a THROWAWAY local stack only to prove migrations apply on a fresh schema. It NEVER touches prod (`api.gradethread.com`). Don't `supabase link`/`db push` expecting prod — prod migrations apply via the self-hosted deploy process. `config.toml` configures only the local stack.
+- **Git hooks** (auto via `prepare` → `core.hooksPath .githooks`): `pre-commit` = gitleaks; `pre-push` = `npm run verify` (bypass with `git push --no-verify`).
+- **iOS:** can't build/test on Windows (Swift/xcodebuild is macOS-only); `iOS CI` on macOS runners is the safety net. Only `python3 ios/Scripts/no-ungated-print.py` runs locally.
+- Hook/shell scripts pinned to LF via `.gitattributes` (a CRLF shebang breaks Git-for-Windows `sh`). Don't remove that rule.
 
-```bash
-npm run verify            # default: web + edge + db lanes
-npm run verify:web        # ci.yml build job:   eslint, tsc -b, vitest+coverage, build, npm audit
-npm run verify:edge       # security.yml deno:  deno lint, deno check, deno test, frozen lockfile
-npm run verify:db         # db-migrations.yml:  supabase db start + db reset (needs Docker)
-npm run verify:security   # security.yml trivy: npm audit + build edge image + trivy scan (needs Docker)
-node scripts/verify.mjs --e2e   # add the Playwright e2e suite
-node scripts/verify.mjs --all   # everything
-```
+## Key Paths
 
-**Prerequisites** (all installed locally except where noted):
-- Node + npm, Deno 2.x — the web + edge lanes work with no extra setup.
-- **Docker Desktop running** — required for the `db` and `security` lanes. If the
-  daemon is down those lanes are *skipped with a warning* (not failed), so a quick
-  `npm run verify` still works; turn Docker on before pushing migration or edge
-  Dockerfile changes. (Running `supabase db reset` locally would have caught both
-  the `config.toml` schema break and the duplicate-migration-number collision.)
-- **gitleaks** + **trivy** via `scoop install gitleaks trivy`.
+- `src/lib/{supabase,auth,stripe,constants,utils}.ts` · `src/stores/auth-store.ts` · `src/hooks/use-auth.ts` · `src/types/database.ts` · `src/routes/index.tsx`
+- `src/pages/` = one file per route · `src/components/ui/` = shadcn (DO NOT hand-edit)
+- Edge: `services/edge-functions/src/{main.ts, routes/, lib/}` — `lib/supabase.ts` = service-role client (bypasses RLS)
+- DB: `supabase/migrations/NNNNN_*.sql` · `supabase/config.toml`
 
-**Self-hosted Supabase caveat:** the `db` lane's `supabase db start` / `db reset`
-boot a **local, throwaway** Supabase stack in Docker on localhost — it exists
-ONLY to prove migrations apply cleanly on a fresh schema (exactly what
-`db-migrations.yml` does). It is **completely separate from the self-hosted
-production instance** at `api.gradethread.com` and never connects to or mutates
-it. Do NOT `supabase link` / `supabase db push` from here expecting to reach prod
-(those target Supabase Cloud projects); production migrations are applied by the
-self-hosted deploy process, not the CLI. `config.toml` (`project_id`, the
-`env()`-interpolated Google OAuth creds, ports) configures only this local stack.
+(Navigate with Glob/Grep — this list is a map, not an inventory.)
 
-**Git hooks** (auto-enabled by the `prepare` script on `npm install`, which sets
-`core.hooksPath .githooks`):
-- `pre-commit` → gitleaks secret scan on staged changes (install gitleaks to
-  activate it; otherwise it warns and lets the commit through).
-- `pre-push` → `npm run verify`. Bypass a slow/WIP push with `git push --no-verify`,
-  or trim the command in `.githooks/pre-push`.
+## Architecture
 
-**iOS is the one gap:** Swift / `xcodebuild` is macOS-only, so on Windows the iOS
-app can't be built/tested locally (you only get `python3 ios/Scripts/no-ungated-print.py`).
-`iOS CI` (ci runs on macOS runners) is the safety net there.
-
-> Hook/shell scripts are pinned to LF via `.gitattributes` — a CRLF shebang
-> breaks Git-for-Windows' `sh` ("bad interpreter: …^M"). Don't remove that rule.
-
-## Project Structure
-
-```
-src/
-├── main.tsx                    # App entry: StrictMode, QueryClient, Router, Sentry, PostHog
-├── index.css                   # Tailwind v4 + brand theme CSS variables
-├── vite-env.d.ts
-├── routes/
-│   └── index.tsx               # All route definitions (createBrowserRouter)
-├── layouts/
-│   ├── root-layout.tsx         # Outlet + Toaster (sonner)
-│   ├── auth-layout.tsx         # Centered card, redirects if authenticated
-│   └── dashboard-layout.tsx    # Sidebar + header + scrollable main
-├── pages/                      # One file per route
-│   ├── landing.tsx             # Public landing page
-│   ├── login.tsx               # Email/password + Google OAuth
-│   ├── signup.tsx              # With email confirmation flow
-│   ├── auth-callback.tsx       # OAuth redirect handler
-│   ├── reset-password.tsx      # Request + update password forms
-│   ├── dashboard.tsx           # Overview with stats cards
-│   ├── submissions.tsx         # Submissions list
-│   ├── submission-detail.tsx   # Grade report display
-│   ├── settings.tsx            # Profile management
-│   ├── billing.tsx             # Plan management
-│   ├── api-keys.tsx            # API key management
-│   ├── certificate.tsx         # Public grade certificate
-│   └── not-found.tsx           # 404
-├── components/
-│   ├── ui/                     # shadcn/ui components (DO NOT manually edit)
-│   ├── auth/
-│   │   └── protected-route.tsx # Route guard: redirects to /login if unauthenticated
-│   └── dashboard/
-│       ├── sidebar.tsx         # Nav links with active state (brand navy bg)
-│       └── header.tsx          # Plan badge + avatar dropdown
-├── lib/
-│   ├── supabase.ts             # Typed Supabase client (Database generic)
-│   ├── auth.ts                 # Auth functions: signUp, signIn, signInWithGoogle, signOut, resetPassword
-│   ├── stripe.ts               # loadStripe with publishable key
-│   ├── constants.ts            # All enums, plans, grade factors, pricing
-│   └── utils.ts                # cn() utility (clsx + tailwind-merge)
-├── types/
-│   └── database.ts             # Full DB types: 7 enums, 6 tables, Row/Insert/Update variants, Database interface
-├── stores/
-│   └── auth-store.ts           # Zustand: user, session, profile, isLoading
-└── hooks/
-    └── use-auth.ts             # Session listener + profile fetch
-
-services/edge-functions/
-├── deno.json                   # Deno config with import map
-├── Dockerfile                  # Deno 1.42 container
-├── docker-compose.yml
-├── .env.example
-└── src/
-    ├── main.ts                 # Hono app with CORS, logger, routes
-    ├── routes/
-    │   ├── health.ts           # GET /health
-    │   ├── grade.ts            # POST /submit, GET /status/:id
-    │   └── webhooks.ts         # POST /stripe
-    └── lib/
-        └── supabase.ts         # Service-role client (bypasses RLS)
-
-supabase/
-├── config.toml                 # Auth, OAuth, site URL config
-└── migrations/
-    └── 00001_initial_schema.sql  # Enums, tables, indexes, triggers, RLS, storage
-
-public/
-├── logo_primary.png            # Dark text wordmark (1806×376) — canonical for in-app
-├── logo_white.png              # White text wordmark (1806×376) — for dark backgrounds
-├── logo_icon.png               # GT square icon (512×512)
-├── logo_icon_{192,256,384,512,1024}.png  # Sized PWA icons; eBay app icon uses 512
-├── logo_icon_maskable_512.png  # PWA maskable variant (no rounded corners, safe-zone)
-├── logo_primary.svg            # Source SVG of dark wordmark — kept as source asset, NOT referenced
-├── logo_white.svg              # Source SVG of white wordmark — kept as source asset, NOT referenced
-├── logo_icon.svg               # Source SVG of icon — kept as source asset, NOT referenced
-├── favicon.svg                 # Favicon (still SVG — modern best practice; no PNG fallback)
-├── manifest.webmanifest        # PWA manifest — references PNG icons only
-├── _redirects                  # SPA routing for Cloudflare Pages
-└── _headers                    # Security headers + asset caching
-```
-
-## Architecture Decisions
-
-### Auth Flow
-- Supabase Auth with PKCE flow (secure for SPAs)
-- `onAuthStateChange` listener in `useAuth()` hook syncs session globally via Zustand
-- `handle_new_user()` Postgres trigger auto-creates user profile on signup
-- Protected routes via `<ProtectedRoute>` component wrapping `<Outlet>`
-- Guest-only routes (login/signup) via `<AuthLayout>` which redirects authenticated users
-
-### Data Fetching
-- TanStack Query for all server state (5-minute stale time, 1 retry)
-- Supabase client used directly in components/hooks (no API layer needed for reads)
-- Edge functions for writes requiring server-side logic (grading, payments, webhooks)
-
-### Styling
-- Tailwind v4 with `@tailwindcss/vite` plugin (no config file needed)
-- Brand colors defined as CSS custom properties in `src/index.css` `:root` and `.dark`
-- Available as Tailwind utilities: `bg-brand-navy`, `text-brand-red`, `bg-brand-night`, `bg-brand-gray`
-- shadcn/ui semantic tokens: `--primary` = navy, `--accent` = red, `--destructive` = red
-- `cn()` utility for conditional class merging
-
-### Database
-- Row Level Security (RLS) enabled on all tables
-- Users can only access their own data
-- Grade reports with `certificate_id` are publicly viewable
-- Storage bucket `submission-images` with per-user folder RLS
-- All `updated_at` columns auto-managed by trigger
+- **Auth:** Supabase PKCE; `onAuthStateChange` in `useAuth()` → Zustand; `handle_new_user()` trigger (SECURITY DEFINER, bypasses RLS) auto-creates profile on signup; `<ProtectedRoute>` guards, `<AuthLayout>` redirects authed users.
+- **Data:** TanStack Query for server state (5-min stale, 1 retry); Supabase client direct for reads; edge functions for writes needing server logic (grading, payments, webhooks).
+- **Styling:** Tailwind v4 (`@tailwindcss/vite`, no config file); brand colors as CSS vars in `src/index.css`; utilities `bg-brand-{navy,red,night,gray}`; shadcn tokens `--primary`=navy, `--accent`/`--destructive`=red; `cn()` to merge.
+- **DB:** RLS on all tables (users see only own data); grade reports with `certificate_id` are public; storage `submission-images` per-user-folder RLS; `updated_at` via trigger.
 
 ## Brand
 
-| Color | Hex | Usage |
-|---|---|---|
-| Deep Navy | `#0F3460` | Primary, headers, sidebar, trust indicators |
-| Vibrant Red | `#E94560` | Accent, CTAs, destructive, highlights |
-| Dark Night | `#1A1A2E` | Dark mode bg, light mode foreground |
-| Soft Gray | `#F5F5F5` | Light mode bg |
-
-**Font:** Inter (400 regular, 500 medium, 700 bold)
+Navy `#0F3460` (primary/headers/sidebar) · Red `#E94560` (accent/CTA/destructive) · Night `#1A1A2E` (dark bg / light fg) · Soft Gray `#F5F5F5` (light bg). Font: Inter (400/500/700).
 
 ## Grading System
 
-- **Scale:** 1.0–10.0 in half-point increments
-- **Tiers:** NWT (10), NWOT (9), Excellent (8), Very Good (7), Good (6), Fair (5), Poor (3-4)
-- **5 Factors:** Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), Odor & Cleanliness (10%)
-- **Confidence:** 0.0–1.0 score; below 0.75 triggers human review
-- **Required photos:** front, back, label, 1+ detail; optional: detail 2, up to 3 defect shots
-
-## Environment Variables
-
-### Frontend (.env)
-```
-VITE_SUPABASE_URL=https://api.gradethread.com
-VITE_SUPABASE_ANON_KEY=
-VITE_STRIPE_PUBLISHABLE_KEY=
-VITE_SENTRY_DSN=
-VITE_POSTHOG_KEY=
-VITE_POSTHOG_HOST=https://us.i.posthog.com
-```
-
-### Edge Functions (services/edge-functions/.env)
-```
-SUPABASE_URL=https://api.gradethread.com
-SUPABASE_SERVICE_ROLE_KEY=
-ANTHROPIC_API_KEY=
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-PORT=8787
-```
+- Scale 1.0–10.0, half-points. Tiers: NWT 10, NWOT 9, Excellent 8, Very Good 7, Good 6, Fair 5, Poor 3–4.
+- 5 factors: Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor/Cleanliness 10%.
+- Confidence 0–1; **< 0.75 → human review**. Photos: front/back/label/1+ detail required; +detail2 and ≤3 defects optional.
 
 ## Conventions
 
-### File Naming
-- Components: `kebab-case.tsx` (e.g., `protected-route.tsx`)
-- Pages: `kebab-case.tsx` matching route segment (e.g., `submission-detail.tsx`)
-- Hooks: `use-kebab-case.ts` (e.g., `use-auth.ts`)
-- Stores: `kebab-case-store.ts` (e.g., `auth-store.ts`)
-- Types: `kebab-case.ts` in `src/types/`
-- Migrations: `NNNNN_description.sql` (e.g., `00001_initial_schema.sql`)
+- **Files:** components/pages `kebab-case.tsx`; hooks `use-*.ts`; stores `*-store.ts`; types `kebab-case.ts`; migrations `NNNNN_description.sql`.
+- **Components:** named exports (`export function X()`); `@/` import alias; icons from `lucide-react` only; toasts via `sonner` (not shadcn toast); controlled inputs (no form libs); spinner = `animate-spin rounded-full border-4 border-primary border-t-transparent`.
+- **DB:** UUID PKs (`gen_random_uuid()`); `created_at`/`updated_at` everywhere; enums for fixed sets; service-role client in edge for admin ops.
+- **Errors:** auth fns throw → caller toasts; check `{ data, error }`; edge returns `{ error }` + HTTP status; frontend toasts user-facing errors.
 
-### Component Patterns
-- Export named functions (not default exports): `export function MyComponent()`
-- Use `@/` import alias for all project imports
-- Icons from `lucide-react` only
-- Toasts via `sonner` (not shadcn toast - deprecated in v4)
-- Forms use controlled inputs with local state, not form libraries
-- Loading states: spinner div with `animate-spin rounded-full border-4 border-primary border-t-transparent`
+### 🔒 SECURITY — tenant isolation (US-268) — MANDATORY
 
-### Database Patterns
-- UUIDs for all primary keys (`gen_random_uuid()`)
-- `created_at` and `updated_at` timestamps on all tables
-- RLS on every table - users access only their own data
-- Service-role client in edge functions for admin operations
-- Enum types for all fixed value sets
-- **SECURITY (US-268): the edge service uses the service-role client, which BYPASSES RLS.** Every query against a multi-tenant table (submissions, grade_reports, inventory_items, listings, sales, item_photos, marketplace_connections, api_keys, etc.) MUST be tenant-scoped — either `.eq("user_id", c.get("workspaceOwnerId") ?? c.get("userId"))` directly, or via a parent row whose ownership was already verified (see `loadListingOwned` / `assemblePublishContext` in flipdesk-ebay.ts). NEVER `update`/`delete`/`select`-by-`id` on these tables using an id from the request body without first confirming the caller owns it. Cross-tenant regression tests live in `services/edge-functions/src/tests/tenant-isolation_test.ts`.
-  - **Per-request RLS-client — decision (US-268):** we evaluated forwarding the caller's JWT to a per-request RLS-respecting client as defense-in-depth, and deliberately kept the service-role client. Rationale: (1) many flows have no user JWT to forward — Stripe/eBay webhooks resolve the user from a verified provider payload, scheduled jobs (token refresh, repricing scans) and the in-process FlipDesk→grading bridge run unattended; (2) workspace features legitimately read/write across the *owner's* tenant on behalf of members, which RLS keyed to `auth.uid()` would block; (3) it would require threading the raw JWT through every lib helper, leaving the no-JWT paths unprotected anyway. Defense is therefore enforced by the mandatory explicit-scoping rule above **plus** the cross-tenant regression suite — not by RLS at the edge. A per-request RLS client MAY be layered onto purely user-initiated read endpoints later as additional defense-in-depth; it is not a substitute for explicit scoping.
+The edge service uses the **service-role client, which BYPASSES RLS.** Every query on a multi-tenant table (submissions, grade_reports, inventory_items, listings, sales, item_photos, marketplace_connections, api_keys, …) MUST be tenant-scoped — either `.eq("user_id", c.get("workspaceOwnerId") ?? c.get("userId"))`, or via a parent row whose ownership was already verified (see `loadListingOwned` / `assemblePublishContext` in `flipdesk-ebay.ts`). NEVER `update`/`delete`/`select`-by-`id` using an id from the request body without first confirming ownership. Regression suite: `services/edge-functions/src/tests/tenant-isolation_test.ts`.
 
-### Error Handling
-- Auth functions throw on error, callers catch and show toast
-- Supabase queries check `{ data, error }` response pattern
-- Edge functions return `{ error: string }` with appropriate HTTP status
-- Frontend shows toast notifications for user-facing errors
+> Per-request RLS was evaluated and deliberately rejected: many flows have no JWT to forward (Stripe/eBay webhooks, scheduled jobs, the in-process FlipDesk→grading bridge) and workspace features legitimately cross the *owner's* tenant on behalf of members. Defense = the explicit-scoping rule above **+** the regression suite, NOT edge RLS.
 
-## FlipDesk Module
+## FlipDesk
 
-FlipDesk is the reseller-management surface inside GradeThread. It's a section under `/dashboard/flipdesk/*` that handles the full eBay lifecycle: source → catalog → measure → photograph → grade → comp → draft → list → sell → ship → reconcile. Source-of-truth PRD: `FlipDesk_PRD_v1.docx`.
+Reseller surface under `/dashboard/flipdesk/*`: source → catalog → measure → photograph → grade → comp → draft → list → sell → ship → reconcile. PRD: `FlipDesk_PRD_v1.docx`.
 
-### Database
-- Migration `00008_flipdesk_schema.sql` extends `inventory_items`, `listings`, `sales` and adds `sources`, `item_photos`, `marketplace_connections`, `payout_imports`, `flipdesk_grading_submissions`.
-- Pipeline statuses added to `item_status`: `sourced, cataloged, measured, photographed, comped, drafted, archived`.
+- **DB:** `00008_flipdesk_schema.sql` extends inventory_items/listings/sales + adds sources, item_photos, marketplace_connections, payout_imports, flipdesk_grading_submissions. New `item_status`: sourced, cataloged, measured, photographed, comped, drafted, archived.
+- **Frontend:** `src/pages/flipdesk/{pipeline,sources,marketplaces,reconciliation}.tsx`; sidebar group in `sidebar.tsx`; constants `FLIPDESK_PIPELINE`, `FLIPDESK_SOURCE_TYPES`, `LISTING_STATUSES`, `MARKETPLACE_LABELS`.
+- **Edge:** single Deno/Hono container hosts both apps; flipdesk routes `src/routes/flipdesk-*.ts` at `/api/flipdesk/*`. **eBay module (`flipdesk-ebay.ts`) is fully wired** (OAuth+refresh AES-GCM, Inventory create/offer/publish, Taxonomy cached, Browse comps, business policies). Some other flipdesk-* handlers still 501 — wire incrementally. Deploy: `services/edge-functions/COOLIFY.md` + `docker-compose.coolify.yml`.
 
-### Frontend
-- Pages: `src/pages/flipdesk/{pipeline,sources,marketplaces,reconciliation}.tsx`.
-- Sidebar group: "FlipDesk" in `src/components/dashboard/sidebar.tsx`.
-- Constants: `FLIPDESK_PIPELINE`, `FLIPDESK_SOURCE_TYPES`, `LISTING_STATUSES`, `MARKETPLACE_LABELS` in `src/lib/constants.ts`.
+## Storage & upload hardening (US-276)
 
-### Edge service (consolidated; deploys to Coolify)
-- Single Deno/Hono container at `services/edge-functions/` hosting BOTH GradeThread and FlipDesk endpoints.
-- Coolify compose: `services/edge-functions/docker-compose.coolify.yml` with Traefik labels, healthcheck, restart policy.
-- FlipDesk route modules under `services/edge-functions/src/routes/flipdesk-*.ts` mounted at `/api/flipdesk/*`.
-- The **eBay module (`flipdesk-ebay.ts`) is fully wired**: OAuth + token refresh (AES-GCM), Inventory API create/offer/publish, Taxonomy category+aspects (cached), Browse comps, business policies, `assemblePublishContext`/`loadListingOwned`. Some other flipdesk-* handlers still return 501 — wire up incrementally (PRD section 15.2).
-- **AutoLister** (bulk photos → AI eBay listings → publish) is being built as US-310..US-325; new edge module `flipdesk-autolister.ts`, prompt in `ai-listing.ts`, migrations 00052/00053.
-- See `services/edge-functions/COOLIFY.md` for deploy instructions.
+Server uploads MUST go: `validateImageUpload()` (magic-byte sniff, not client MIME; rejects SVG/non-images; size+dimension caps) → `stripImageMetadata()` (drops EXIF/GPS) → `storage.upload()`. See `lib/upload-validation.ts` + `lib/image-metadata.ts` (wired in `grade.ts`, `api-v1.ts`).
 
-## Deployment & Launch
-
-- **`DEPLOY.md`** — canonical deploy order (DB migrations → edge → frontend), the
-  Cloudflare Pages / Coolify auto-deploy triggers, and per-layer rollback.
-- **`LAUNCH_CHECKLIST.md`** — pre-launch gate: every env var (where set + how to
-  verify), the 16 Coolify scheduled tasks, the backup restore drill, and the
-  post-deploy smoke steps.
-
-## PRD & Roadmap
-
-The full product roadmap is in `prd.json` (Ralph AI format). 100 user stories across 11 phases:
-- **US-001 → US-021:** Foundation (complete)
-- **US-022 → US-025:** DB extensions for inventory + admin
-- **US-026 → US-029:** Backend infrastructure
-- **US-030 → US-037:** AI grading engine + submission flow
-- **US-038 → US-046:** Submissions, payments, certificates, analytics
-- **US-047:** Settings
-- **US-048 → US-061:** Inventory management + financial tracking + reporting
-- **US-062 → US-066:** Disputes + public API
-- **US-067 → US-075:** Admin platform + AI refinement
-- **US-076 → US-082:** Notifications + UX polish
-- **US-083 → US-100:** Advanced features + final integration
-
-## Gotchas
-
-- shadcn v4 requires `@import "tailwindcss"` in CSS file before `npx shadcn init` will work
-- shadcn v4 requires `paths` alias in root `tsconfig.json`, not just `tsconfig.app.json`
-- `toast` component is deprecated in shadcn v4 — use `sonner` instead
-- `eslint-plugin-react-hooks` v5 required for eslint 9 compatibility (v7+ needs eslint 10)
-- Supabase client throws if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` env vars are missing
-- Storage paths use format `{userId}/{submissionId}/{imageType}_{timestamp}.{ext}`
-- **Storage & upload hardening (US-276):** server uploads MUST go through `validateImageUpload()` (magic-byte sniff, not the client MIME/extension; SVG/non-images rejected; size + dimension caps) then `stripImageMetadata()` (drops EXIF/GPS) before `storage.upload()` — see `lib/upload-validation.ts` + `lib/image-metadata.ts`, wired in `grade.ts` and `api-v1.ts`. `submission-images` is PRIVATE: read it only via `createSignedUrl` with a TTL ≤ 15 min (900s) — NEVER `getPublicUrl`. `item-photos` is the only public bucket and holds only seller-intended listing imagery (front/back/tag/detail/defect/flatlay) — never private grading `label`s (those go to `submission-images`), receipts, or PII docs. Per-user-folder RLS (`(storage.foldername(name))[1] = auth.uid()::text`) is verified on both buckets against the `{userId}/...` path convention.
-- The `handle_new_user()` trigger runs as `SECURITY DEFINER` to bypass RLS when creating profiles
+- `submission-images` = **PRIVATE**: read only via `createSignedUrl` TTL ≤ 900s — NEVER `getPublicUrl`.
+- `item-photos` = the only public bucket; seller listing imagery only (front/back/tag/detail/defect/flatlay) — never grading `label`s, receipts, or PII.
+- Per-user-folder RLS `(storage.foldername(name))[1] = auth.uid()::text` on both, against `{userId}/...` paths. Path format: `{userId}/{submissionId}/{imageType}_{timestamp}.{ext}`.
 
 ## SEO / GEO (US-291..US-309)
 
-- **Indexable routes are registered** in `src/lib/seo/public-routes.ts` (`PUBLIC_ROUTES`). Adding a public static page means adding it there AND to `src/prerender/entry-server.tsx` — a CI guard test (`src/lib/seo/__tests__/public-routes.test.ts`) and the prerender sync-guard both fail the build otherwise. `dist/seo-manifest.json` is emitted from this registry by a Vite plugin.
-- **Static public pages are prerendered at build time** by `scripts/prerender.mjs` (runs in `npm run build`). It SSR-renders each page (`entry-server.tsx`), builds the `<head>` from `head-builder.ts`, and writes `dist/<route>/index.html`. No headless browser — none is available in CI/Cloudflare builds. Same HTML to humans and bots (no cloaking); the SPA mounts over it with `createRoot`.
-- **GOTCHA: `react-helmet-async` v3 renders NO head server-side and injects NO `<script>` client-side** (verified). So: (1) the `<SEO>` component injects JSON-LD via `useEffect` for the live SPA; (2) the prerender builds the crawlable `<head>` deterministically from the registry + `src/lib/seo/json-ld.ts`, and strips the inline Helmet tags the fork leaks into the SSR body. Add structured data via `<SEO jsonLd=...>`, and mirror it in `head-builder.ts` `jsonLdForRoute()` so it appears in prerendered HTML.
-- **Don't mark up data that doesn't exist** (Google policy): no `SearchAction` until a real site-search endpoint exists, no `aggregateRating` placeholder until real ratings exist.
-- `index.html` has `prerender:head:start`/`prerender:head:end` markers and a `<!--prerender:body-->` marker — don't remove them.
-- Dynamic public surfaces (blog, certificates) are NOT prerendered; they're edge-SSR'd by Cloudflare Pages Functions in `functions/` (blog done; cert SSR = US-294). robots.txt/llms.txt/sitemap.xml/rss.xml are dynamic Pages Functions, not static files.
+- Indexable routes registered in `src/lib/seo/public-routes.ts` (`PUBLIC_ROUTES`). New public static page → add there AND to `src/prerender/entry-server.tsx` (a CI guard test + the prerender sync-guard fail otherwise). `dist/seo-manifest.json` is emitted from this registry by a Vite plugin.
+- Static public pages prerendered at build by `scripts/prerender.mjs` (in `npm run build`) — SSR render + `<head>` from `head-builder.ts`, no headless browser. Same HTML to humans & bots; SPA mounts over via `createRoot`.
+- **GOTCHA:** `react-helmet-async` v3 renders NO server-side head and injects NO client-side `<script>`. So `<SEO>` injects JSON-LD via `useEffect` (live SPA) AND the prerender builds the crawlable `<head>` from the registry + `src/lib/seo/json-ld.ts` (and strips Helmet tags leaked into the SSR body). Add structured data via `<SEO jsonLd=…>` AND mirror it in `head-builder.ts` `jsonLdForRoute()`.
+- No markup for data that doesn't exist (no `SearchAction`/`aggregateRating` placeholders). Keep `index.html` prerender markers (`prerender:head:start/end`, `<!--prerender:body-->`).
+- Dynamic surfaces (blog, certificates) are edge-SSR'd by Cloudflare Pages Functions in `functions/` (cert SSR = US-294). robots.txt/llms.txt/sitemap.xml/rss.xml are dynamic Pages Functions, not static files.
+
+## Gotchas
+
+- shadcn v4: needs `@import "tailwindcss"` in CSS before init; needs `paths` alias in ROOT `tsconfig.json` (not just `tsconfig.app.json`); `toast` deprecated → use `sonner`.
+- `eslint-plugin-react-hooks` v5 for eslint 9 (v7+ needs eslint 10).
+- Supabase client throws if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` missing.
+
+## Env vars, deploy & roadmap (read on demand — not loaded here)
+
+- **Env vars:** `ENVIRONMENT.md` + `.env.example` (frontend) / `services/edge-functions/.env.example` (edge). Critical edge: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PORT=8787`.
+- **Deploy/launch:** `DEPLOY.md` (order DB→edge→frontend + rollback) · `LAUNCH_CHECKLIST.md` (env gate, Coolify scheduled tasks, backup drill, smoke). Also `BACKUPS.md`, `ROLLBACK.md`, `INCIDENT_RESPONSE.md`, `SECURITY.md`, `MIGRATIONS.md`, `SCALING.md`, `KEY_ROTATION.md` in repo root.
+- **Roadmap:** `prd.json` (Ralph format) is **~1.8 MB / 1000+ stories — NEVER read whole** (it will blow up context). Query with targeted `node -e` scripts (count, filter by id/`passes`). US-001→021 = foundation (done).
