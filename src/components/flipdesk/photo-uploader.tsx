@@ -7,11 +7,8 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
-import {
-  REQUIRED_PHOTO_TYPES,
-  OPTIONAL_PHOTO_TYPES,
-  PHOTO_TYPE_LABELS,
-} from "@/lib/constants";
+import { PHOTO_TYPE_LABELS } from "@/lib/constants";
+import { usePhotoProfile } from "@/lib/photo-profiles";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
@@ -20,6 +17,7 @@ import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
   FlipdeskPhotoType,
+  ItemCategory,
   ItemStatus,
 } from "@/types/database";
 
@@ -38,15 +36,31 @@ function extForBlobType(mimeType: string, fallback: string): string {
 export function PhotoUploader({
   itemId,
   currentStatus,
+  category,
 }: {
   itemId: string;
   currentStatus?: ItemStatus;
+  /**
+   * item_category — drives which photo slots/labels are shown via the photo
+   * profile. Defaults to the clothing profile when null/undefined so existing
+   * clothing flows are unchanged.
+   */
+  category?: ItemCategory | null;
 }) {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId } = useWorkspace();
   const qc = useQueryClient();
   const [uploading, setUploading] = useState<FlipdeskPhotoType | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
+
+  // Category-driven photo slots. Required roles gate the "photographed" status;
+  // optional roles are extra coverage. Both come from the (cached) profile.
+  const profile = usePhotoProfile(category ?? null);
+  const requiredRoles = profile.roles.filter((r) => r.required);
+  const optionalRoles = profile.roles.filter((r) => !r.required);
+  const requiredTypes = requiredRoles.map((r) => r.type);
+  const labelFor = (t: FlipdeskPhotoType): string =>
+    profile.roles.find((r) => r.type === t)?.label ?? PHOTO_TYPE_LABELS[t];
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ["item_photos", itemId],
@@ -179,7 +193,7 @@ export function PhotoUploader({
       const typesAfter = new Set(
         photos.map((p) => p.photo_type).concat(photoType),
       );
-      const requiredNowComplete = REQUIRED_PHOTO_TYPES.every((t) =>
+      const requiredNowComplete = requiredTypes.every((t) =>
         typesAfter.has(t),
       );
       if (requiredNowComplete && currentStatus) {
@@ -197,9 +211,7 @@ export function PhotoUploader({
         body.size < originalSize && originalSize > 100 * 1024
           ? ` (−${savedPct}%, ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(body.size / 1024 / 1024).toFixed(1)}MB)`
           : "";
-      toast.success(
-        `${PHOTO_TYPE_LABELS[photoType]} photo uploaded${sizeNote}.`,
-      );
+      toast.success(`${labelFor(photoType)} photo uploaded${sizeNote}.`);
     } catch (err) {
       toast.error(
         `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -230,9 +242,7 @@ export function PhotoUploader({
     }
   }
 
-  const requiredFilled = REQUIRED_PHOTO_TYPES.every(
-    (t) => byType(t).length > 0,
-  );
+  const requiredFilled = requiredTypes.every((t) => byType(t).length > 0);
 
   async function saveEdit(blob: Blob) {
     if (!editingPhoto) return;
@@ -267,6 +277,7 @@ export function PhotoUploader({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-xs">
+        <span className="font-medium text-muted-foreground">{profile.label}</span>
         {requiredFilled ? (
           <Badge variant="default" className="gap-1">
             <Check className="h-3 w-3" />
@@ -274,8 +285,8 @@ export function PhotoUploader({
           </Badge>
         ) : (
           <Badge variant="secondary">
-            {REQUIRED_PHOTO_TYPES.filter((t) => byType(t).length > 0).length}/
-            {REQUIRED_PHOTO_TYPES.length} required photos
+            {requiredTypes.filter((t) => byType(t).length > 0).length}/
+            {requiredTypes.length} required photos
           </Badge>
         )}
       </div>
@@ -285,13 +296,14 @@ export function PhotoUploader({
           Required
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {REQUIRED_PHOTO_TYPES.map((t) => (
+          {requiredRoles.map((r) => (
             <PhotoSlot
-              key={t}
-              photoType={t}
-              photos={byType(t)}
-              uploading={uploading === t}
-              onUpload={(f) => upload(f, t)}
+              key={r.type}
+              label={r.label}
+              hint={r.hint}
+              photos={byType(r.type)}
+              uploading={uploading === r.type}
+              onUpload={(f) => upload(f, r.type)}
               onRemove={remove}
               onEdit={setEditingPhoto}
               required
@@ -305,13 +317,14 @@ export function PhotoUploader({
           Optional
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {OPTIONAL_PHOTO_TYPES.map((t) => (
+          {optionalRoles.map((r) => (
             <PhotoSlot
-              key={t}
-              photoType={t}
-              photos={byType(t)}
-              uploading={uploading === t}
-              onUpload={(f) => upload(f, t)}
+              key={r.type}
+              label={r.label}
+              hint={r.hint}
+              photos={byType(r.type)}
+              uploading={uploading === r.type}
+              onUpload={(f) => upload(f, r.type)}
               onRemove={remove}
               onEdit={setEditingPhoto}
             />
@@ -330,7 +343,8 @@ export function PhotoUploader({
 }
 
 function PhotoSlot({
-  photoType,
+  label,
+  hint,
   photos,
   uploading,
   onUpload,
@@ -338,7 +352,8 @@ function PhotoSlot({
   onEdit,
   required = false,
 }: {
-  photoType: FlipdeskPhotoType;
+  label: string;
+  hint: string;
   photos: ItemPhotoRow[];
   uploading: boolean;
   onUpload: (file: File) => void;
@@ -352,6 +367,7 @@ function PhotoSlot({
 
   return (
     <div
+      title={hint}
       className={cn(
         "relative overflow-hidden rounded-md border",
         required && !filled && "border-dashed border-amber-400/60",
@@ -377,7 +393,7 @@ function PhotoSlot({
           <div className="group relative h-full w-full">
             <img
               src={itemPhotoThumb(first)}
-              alt={PHOTO_TYPE_LABELS[photoType]}
+              alt={label}
               loading="lazy"
               className="h-full w-full object-cover"
             />
@@ -409,7 +425,7 @@ function PhotoSlot({
       </div>
       <div className="flex items-center justify-between gap-1 px-1.5 py-1">
         <span className="truncate text-[10px] font-medium">
-          {PHOTO_TYPE_LABELS[photoType]}
+          {label}
           {photos.length > 1 && (
             <span className="ml-1 text-muted-foreground">
               ×{photos.length}

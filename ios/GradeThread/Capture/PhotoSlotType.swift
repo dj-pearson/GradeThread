@@ -27,6 +27,16 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
     case interior
     case flatlay
     case onModel = "on_model"
+    // Universal roles (migration 00230) used by non-clothing photo profiles.
+    // Raw values equal the server photo_type strings so they round-trip.
+    case angle
+    case sole
+    case marking
+    case serial
+    case accessory
+    case certificate
+    case corner
+    case surface
     case measurementChest = "measurement_chest"
     case measurementWaist = "measurement_waist"
     case measurementLength = "measurement_length"
@@ -51,6 +61,14 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         case .interior: return "Interior"
         case .flatlay:  return "Flat lay"
         case .onModel:  return "On model"
+        case .angle:       return "Angle / Profile"
+        case .sole:        return "Sole"
+        case .marking:     return "Markings"
+        case .serial:      return "Serial / Model"
+        case .accessory:   return "Accessories"
+        case .certificate: return "Certificate"
+        case .corner:      return "Corners"
+        case .surface:     return "Surface"
         case .measurementChest:  return "Chest / Bust"
         case .measurementWaist:  return "Waist"
         case .measurementLength: return "Length"
@@ -78,6 +96,22 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
             return "Styled flat lay for the listing gallery"
         case .onModel:
             return "Worn on a model or mannequin"
+        case .angle:
+            return "Angled 3/4 view showing the silhouette"
+        case .sole:
+            return "Outsole / tread — show wear honestly"
+        case .marking:
+            return "Hallmark, maker's mark, or brand stamp"
+        case .serial:
+            return "Serial, model, or reference number"
+        case .accessory:
+            return "Included extras — box, papers, dust bag, cables"
+        case .certificate:
+            return "Grading label / certificate of authenticity"
+        case .corner:
+            return "Close-up of the corners"
+        case .surface:
+            return "Surface & centering under raking light"
         case .measurementChest:
             return "Tape across the chest, garment flat, pit to pit"
         case .measurementWaist:
@@ -102,6 +136,14 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         case .interior: return "square.dashed.inset.filled"
         case .flatlay:  return "rectangle.3.group"
         case .onModel:  return "person.fill"
+        case .angle:       return "cube"
+        case .sole:        return "shoe"
+        case .marking:     return "signature"
+        case .serial:      return "number"
+        case .accessory:   return "shippingbox"
+        case .certificate: return "checkmark.seal"
+        case .corner:      return "viewfinder"
+        case .surface:     return "rays"
         case .measurementChest, .measurementWaist, .measurementLength,
              .measurementSleeve, .measurementInseam:
             return "ruler"
@@ -146,6 +188,19 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         default: return rawValue
         }
     }
+
+    /// Maps a server `item_photos.photo_type` string back to a capture slot.
+    /// The single `defect` server type maps to the first defect slot; every
+    /// other slot's raw value IS its server type. Returns nil for unknown
+    /// strings so callers can skip rather than crash. Used by photo profiles
+    /// to resolve their role list into capture slots.
+    public init?(serverType: String) {
+        if serverType == "defect" {
+            self = .defect1
+            return
+        }
+        self.init(rawValue: serverType)
+    }
 }
 
 /// The server-side `item_photos.photo_type` vocabulary — a mirror of the web's
@@ -159,6 +214,8 @@ public enum FlipdeskPhotoType {
         "front", "back", "tag", "tag_2",
         "detail", "detail_2", "detail_3", "detail_4",
         "interior", "defect", "flatlay", "on_model",
+        "angle", "sole", "marking", "serial", "accessory",
+        "certificate", "corner", "surface",
         "measurement_chest", "measurement_waist", "measurement_length",
         "measurement_sleeve", "measurement_inseam",
     ]
@@ -180,6 +237,14 @@ public enum FlipdeskPhotoType {
         case "defect":   return "Defect"
         case "flatlay":  return "Flat lay"
         case "on_model": return "On model"
+        case "angle":       return "Angle / Profile"
+        case "sole":        return "Sole"
+        case "marking":     return "Markings / Hallmark"
+        case "serial":      return "Serial / Model"
+        case "accessory":   return "Accessories / Box"
+        case "certificate": return "Certificate / Label"
+        case "corner":      return "Corners"
+        case "surface":     return "Surface / Centering"
         case "measurement_chest":  return "Measure: Chest / Bust"
         case "measurement_waist":  return "Measure: Waist"
         case "measurement_length": return "Measure: Length"

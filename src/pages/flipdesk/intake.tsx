@@ -54,6 +54,7 @@ import { BarcodeScannerDialog } from "@/components/flipdesk/barcode-scanner-dial
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import {
   ITEM_CATEGORIES,
+  ITEM_CATEGORY_LABELS,
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
 } from "@/lib/constants";
@@ -599,7 +600,7 @@ export function FlipdeskIntakePage() {
                   <SelectItem value="__none">— None —</SelectItem>
                   {ITEM_CATEGORIES.map((c) => (
                     <SelectItem key={c} value={c}>
-                      {c}
+                      {ITEM_CATEGORY_LABELS[c]}
                     </SelectItem>
                   ))}
                 </SelectContent>
