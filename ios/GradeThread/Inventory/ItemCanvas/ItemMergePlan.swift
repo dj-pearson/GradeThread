@@ -252,7 +252,3 @@ enum ItemMergePlan {
         for field in chosen { field.apply(item, to: &draft, formatter) }
     }
 }
-
-private extension String {
-    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
-}
