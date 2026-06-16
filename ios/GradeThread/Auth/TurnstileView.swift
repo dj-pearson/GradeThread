@@ -152,8 +152,13 @@ private struct TurnstileWebView: UIViewRepresentable {
 
         let config = WKWebViewConfiguration()
         config.userContentController = controller
+        // The interactive Turnstile checkbox can escalate to a managed challenge
+        // that opens a secondary frame; without these the new frame is dropped
+        // and the tap appears to do nothing.
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
 
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.uiDelegate = context.coordinator
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = false
@@ -168,12 +173,27 @@ private struct TurnstileWebView: UIViewRepresentable {
             .removeScriptMessageHandler(forName: Captcha.messageHandlerName)
     }
 
-    final class Coordinator: NSObject, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate {
         private let onResult: (Result<String, Captcha.Error>) -> Void
         private var didResolve = false
 
         init(onResult: @escaping (Result<String, Captcha.Error>) -> Void) {
             self.onResult = onResult
+        }
+
+        /// Turnstile's managed challenge may request a popup frame
+        /// (`targetFrame == nil`). WKWebView won't create one on its own — load
+        /// it inline so the challenge can complete instead of stalling.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if navigationAction.targetFrame?.isMainFrame != true {
+                webView.load(navigationAction.request)
+            }
+            return nil
         }
 
         func userContentController(

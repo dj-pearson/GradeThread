@@ -119,7 +119,11 @@ struct LoginView: View {
             }
             TextField("Email", text: $email)
                 .keyboardType(.emailAddress)
-                .textContentType(.emailAddress)
+                // `.username` (not `.emailAddress`) is the login-identity content
+                // type AutoFill pairs with `.password` to surface a saved
+                // gradethread.com credential. `.emailAddress` drives contact-email
+                // autofill, which competes with the saved-password key.
+                .textContentType(.username)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
