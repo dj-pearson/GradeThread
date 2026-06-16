@@ -15814,6 +15814,167 @@
       "priority": 1075,
       "passes": false,
       "notes": "[Backlog expansion 2026-06-15] Epic: Platform cohesion. Grading (submissions/grade_reports) and FlipDesk (inventory_items/listings) are linked by the in-process grading bridge but not cross-promoted in the UI. Low-risk, growth-oriented glue. severity=low."
+    },
+    {
+      "id": "US-1076",
+      "title": "Field-ownership registry: single source of precedence truth for sync",
+      "description": "As a developer wiring sync, I want one shared definition of which listing fields are eBay-owned vs always-GradeThread-owned vs linking-source-fillable, so every sync path (eBay pull/push, CSV import, Sheets, UI field-locking) reads the same precedence rules instead of redefining them ad hoc.",
+      "acceptanceCriteria": [
+        "A shared module enumerates EBAY_OWNED_FIELDS (title, listing_price, quantity, listing_description, listing_status, item specifics/aspects, condition, business policies) and GRADETHREAD_OWNED_FIELDS (grade, condition report, measurements, acquired price/date/source, sku) for listings + inventory_items.",
+        "Module exposes helpers: isEbayOwned(field), isGradeThreadOwned(field), and a shared isBlank(value) (null/empty-string only; 0/empty-array/placeholder count as set).",
+        "Existing eBay merge (ebay-catalog-merge.ts) and the new sync paths consume this module rather than hardcoded field lists; no duplicate field lists remain.",
+        "tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1076,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Foundation story - land first. severity=medium."
+    },
+    {
+      "id": "US-1077",
+      "title": "listing_origin marker: stamp + backfill listing provenance",
+      "description": "As the sync engine, I need to know whether each listing was born in GradeThread or on eBay, because authority direction and the UI editing badge both key off provenance.",
+      "acceptanceCriteria": [
+        "Migration adds listing_origin enum ('gradethread','ebay') to listings (nullable then backfilled, or NOT NULL with default after backfill).",
+        "Backfill: GT-originated = created via the FlipDesk publish path (has batch_id, or synced_to_ebay_at set by our publish, or platform_offer_id we created); eBay-originated = matched/imported via flipdesk_ebay_listings.",
+        "All listing-creation paths stamp listing_origin at insert time: AutoLister/publish -> 'gradethread'; eBay import/match -> 'ebay'.",
+        "database.ts types updated; ambiguous rows (no clear signal) default to a documented safe choice and are logged for review.",
+        "tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1077,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Foundation story - depends on US-1076 only loosely; can land in parallel. severity=medium."
+    },
+    {
+      "id": "US-1078",
+      "title": "Provenance-aware inbound eBay sync (retire the source_of_truth pin)",
+      "description": "As a seller, I want an inbound eBay sync to overwrite my eBay-originated listings (eBay is truth) but NOT clobber the editable fields of listings I published from GradeThread (GradeThread is truth there), so my GradeThread edits are never silently lost.",
+      "acceptanceCriteria": [
+        "In doListingsPull/ebay-catalog-merge: for listing_origin='ebay', overwrite all eBay-owned fields from eBay (full mirror).",
+        "For listing_origin='gradethread', do NOT overwrite eBay-owned editable fields (title, price, quantity, description, specifics); update only read-only signals (views, watchers, listing_status when sold/ended, orders/sales, fees).",
+        "GradeThread-owned fields (grade, condition report, measurements, cost/source, sku) are never written by the pull for either class.",
+        "The eBay source_of_truth per-field pin (pinnedAgainstEbay / US-148) is removed from the pull path; verify sheet-sync.ts does not depend on listings.source_of_truth before deprecating the column (keep column, stop writing/reading it from eBay pull; mark deprecated in a comment).",
+        "Regression: a GT-originated listing whose price was changed on eBay is NOT altered locally by the pull; an eBay-originated listing IS updated. tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1078,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Core behavior change. Depends on US-1076 + US-1077. Removes US-148 pin. severity=high."
+    },
+    {
+      "id": "US-1079",
+      "title": "GradeThread-originated outbound: edits push up + passive re-assert",
+      "description": "As a seller editing a GradeThread-published listing, I want my changes to eBay-owned fields to push up to eBay, and if eBay has drifted from GradeThread's values, GradeThread re-asserts its own on the next push - because GradeThread is the source of truth for these listings.",
+      "acceptanceCriteria": [
+        "Editing eBay-owned fields (title, price, quantity, description) on a GT-originated listing in GradeThread pushes the change to eBay via the existing revise paths (offer price/qty, title/description revise) - full field coverage, not just price.",
+        "A push from GradeThread sends GradeThread's current values for the edited fields, re-asserting them over any eBay-side drift (no merge with eBay's drifted value).",
+        "Push failures surface to the user (reuse publish_error/publish_failed_at pattern) with a retry affordance.",
+        "tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1079,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1078 (sync model) + US-1076. Extends existing revise endpoints in flipdesk-ebay.ts. severity=medium."
+    },
+    {
+      "id": "US-1080",
+      "title": "eBay-originated listings = read-only mirror in the GradeThread editor",
+      "description": "As a seller, when a listing originated on eBay I want GradeThread to lock its eBay-owned fields and send me to eBay to edit them, so I am not tricked into editing a value GradeThread will just overwrite on the next sync.",
+      "acceptanceCriteria": [
+        "In the listing editor/composer, for listing_origin='ebay', eBay-owned fields are read-only (visibly locked, not silently ignored).",
+        "An 'Edit on eBay' badge with a deep-link to the live eBay listing is shown.",
+        "GradeThread-owned fields (grade, notes, measurements, cost/source) remain editable for these listings.",
+        "Attempting an API write to a locked eBay-owned field on an eBay-originated listing is rejected server-side (defense in depth), not just disabled in the UI.",
+        "tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1080,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1077 (origin) + US-1076 (field registry). UI + server guard. severity=medium."
+    },
+    {
+      "id": "US-1081",
+      "title": "GradeThread-originated listings: 'Edit in GradeThread' badge + drift indicator",
+      "description": "As a seller, for listings I published from GradeThread I want a clear 'Edit in GradeThread' badge and a warning not to edit on eBay, plus a signal if eBay has drifted - so I know which surface is authoritative and can re-assert if needed.",
+      "acceptanceCriteria": [
+        "For listing_origin='gradethread', the editor shows an 'Edit in GradeThread' badge and a hint that eBay-side edits will be overwritten.",
+        "If an inbound sync detects eBay-owned values on eBay differ from GradeThread's (for a GT-originated listing), a non-blocking 'eBay differs' indicator is shown with a 'Re-push to eBay' action that re-asserts GradeThread's values (US-1079 path).",
+        "Indicator is informational only; it never auto-pulls eBay's drifted value into GradeThread.",
+        "tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1081,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1078 + US-1079. Drift detection is read-only; re-assert reuses outbound push. severity=low."
+    },
+    {
+      "id": "US-1082",
+      "title": "CSV import: fill blank cells on existing rows (fill-only)",
+      "description": "As a seller re-importing a CSV, I want it to fill in blank fields on rows that already exist (matched by SKU) without overwriting anything already populated - so imports are a 'never leave it blank' backstop, the lowest authority source.",
+      "acceptanceCriteria": [
+        "CSV import matches existing rows by SKU; new SKUs are inserted as today.",
+        "For an existing row, the importer fills only fields that are currently blank (null/empty-string per the shared isBlank); it never overwrites a populated field (Title, Price, SKU, Brand, etc.).",
+        "Replaces the current INSERT-only 'skip existing SKU entirely' behavior in import.tsx so existing rows can be enriched.",
+        "Import is the lowest authority: it never pushes to eBay; an eBay-owned blank it fills can still be overwritten by a later eBay sync per US-1078.",
+        "tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1082,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1076 (isBlank). Changes import.tsx skip-existing logic to fill-blank. severity=medium."
+    },
+    {
+      "id": "US-1083",
+      "title": "Google Sheets bidirectional exemption: document + guardrails + tests",
+      "description": "As the team, we keep the existing bidirectional Google Sheets sync (it can overwrite populated DB fields by design), but it must NOT overwrite eBay-owned fields on eBay-originated (locked) listings, and those cells must be surfaced to the user as skipped items rather than silently dropped.",
+      "acceptanceCriteria": [
+        "Sheet sync behavior is left bidirectional (3-way merge, DB-wins conflicts) for everything EXCEPT eBay-owned fields on eBay-originated (listing_origin='ebay') listings - no other functional downgrade.",
+        "During a Sheets pull, a sheet edit to an eBay-OWNED field on an eBay-originated (locked) listing is NOT applied to the DB (eBay remains source of truth; the next eBay sync would overwrite it anyway).",
+        "Each such non-applied cell is recorded as a 'skipped item' in the sync result/summary (count + per-row/field detail), reusing the existing skipped-reporting surface so the user sees what was not synced and why ('locked - edit on eBay').",
+        "GradeThread-owned fields and unowned fields on the same locked listing still sync normally; the skip is field-scoped, not row-scoped.",
+        "The exemption + skip rule is documented in SYNC_SOURCE_OF_TRUTH.md and in code comments at the sheet-sync entry points; confirm sheet-sync does not rely on listings.source_of_truth (deprecated by US-1078).",
+        "tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1083,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Sheets stays bidirectional EXCEPT eBay-owned fields on eBay-originated locked listings are skipped (not overwritten) and reported as skipped items. Depends on US-1077 (origin) + US-1076 (field registry). severity=low."
+    },
+    {
+      "id": "US-1084",
+      "title": "Sync source-of-truth contract: living documentation",
+      "description": "As a contributor, I want the source-of-truth contract and field-ownership registry documented in-repo so future sync work conforms to one model instead of re-deriving precedence.",
+      "acceptanceCriteria": [
+        "SYNC_SOURCE_OF_TRUTH.md is kept current with the provenance model, field ownership, linking-source rules, and the retired US-148 pin.",
+        "CLAUDE.md FlipDesk section links to SYNC_SOURCE_OF_TRUTH.md as the canonical sync reference.",
+        "The field-ownership registry (US-1076) is referenced from the doc so code and docs cannot drift silently."
+      ],
+      "priority": 1084,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Documentation story. Low risk. severity=low."
+    },
+    {
+      "id": "US-1085",
+      "title": "Sync precedence regression test suite",
+      "description": "As the team, I want automated tests that lock in the provenance source-of-truth contract so a future change cannot silently reintroduce data loss (eBay clobbering GradeThread edits, CSV overwriting populated fields, etc.).",
+      "acceptanceCriteria": [
+        "Edge tests: inbound pull overwrites eBay-owned fields for listing_origin='ebay' and leaves them untouched for 'gradethread' (only read-only signals update).",
+        "Tests: GradeThread-owned fields (grade/condition/measurements/cost/sku) are never written by an eBay pull for either origin.",
+        "Tests: CSV import fills only blank fields on existing SKU rows and never overwrites populated ones.",
+        "Tests: server rejects writes to locked eBay-owned fields on eBay-originated listings (US-1080 guard).",
+        "Suite runs in deno test alongside tenant-isolation_test.ts. tsc/lint/build green; deno lint/check/test green for edge changes."
+      ],
+      "priority": 1085,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1078/1080/1082. Mirrors the tenant-isolation regression-suite pattern. severity=medium."
+    },
+    {
+      "id": "US-1086",
+      "title": "iOS: enforce the same provenance source-of-truth rules",
+      "description": "As an iOS user, I want the app to honor the exact same provenance model as web - eBay-originated listings are read-only mirrors I edit on eBay, GradeThread-originated listings I edit in the app and push up - so behavior and data integrity are identical across surfaces.",
+      "acceptanceCriteria": [
+        "iOS reads listing_origin and, for 'ebay', locks eBay-owned fields in the listing editor with an 'Edit on eBay' badge + deep-link (Safari/eBay app).",
+        "For listing_origin='gradethread', iOS shows 'Edit in GradeThread', allows editing eBay-owned fields, and pushes changes up via the same edge endpoints (no separate client-side merge logic).",
+        "iOS never writes GradeThread-owned fields to eBay and never sends writes to locked eBay-owned fields on eBay-originated listings (server still rejects per US-1080; client mirrors the rule).",
+        "CSV/Sheets handling stays server-side; iOS surfaces the same outcomes (no iOS-specific overwrite path).",
+        "Parity with web verified; iOS CI (macOS) lint/build/test green."
+      ],
+      "priority": 1086,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. iOS parity per user request 2026-06-16. Depends on US-1078/1079/1080. Reuses edge endpoints; no client-side precedence logic. severity=medium."
     }
   ]
 }
