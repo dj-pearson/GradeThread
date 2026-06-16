@@ -3598,10 +3598,15 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
           description: finalDesc,
           aspects: item.ebay_aspects ?? undefined,
           imageUrls,
+          // Mirror the publish path (US: error 25002 <BrandMPN>): eBay requires a
+          // Brand+MPN product identifier on every inventory_item PUT, so the
+          // revise re-PUT must send the SAME defaults publish does — otherwise a
+          // title/description/photo edit drops the MPN and eBay 400s the revision.
           brand:
             typeof item.brand === "string" && item.brand.trim()
               ? item.brand.trim()
-              : undefined,
+              : "Unbranded",
+          mpn: "Does Not Apply",
         },
         condition: mapEbayCondition(item.grade_value, item.grade_label),
         conditionDescription: item.condition_notes?.trim() || undefined,
@@ -3609,13 +3614,17 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       });
     } catch (err) {
       console.error("[flipdesk-ebay] revise inventory_item failed:", err);
+      // 422 (not 502): an eBay business-rule rejection is a data problem, not a
+      // gateway failure. A 5xx gets intercepted by the Traefik/Coolify error page
+      // (which strips CORS headers — see main.ts), so the browser sees a bare
+      // "CORS blocked" instead of this detail. 422 passes through with the body.
       return c.json(
         {
           error: "eBay rejected the revision.",
           detail:
             err instanceof Error ? err.message.slice(0, 500) : String(err),
         },
-        502
+        422
       );
     }
   }
@@ -3630,13 +3639,15 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       });
     } catch (err) {
       console.error("[flipdesk-ebay] revise offer failed:", err);
+      // 422 (not 502): see the inventory_item branch above — an eBay rejection is
+      // a data problem; a 5xx loses its CORS headers to the proxy error page.
       return c.json(
         {
           error: "eBay rejected the offer revision.",
           detail:
             err instanceof Error ? err.message.slice(0, 500) : String(err),
         },
-        502
+        422
       );
     }
   }
