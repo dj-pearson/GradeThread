@@ -33,6 +33,13 @@
     <meta name="twitter:image" content="https://gradethread.com/og-image.png" />
     <!-- prerender:head:end -->
 
+    <!-- Speed up the Turnstile handshake on auth pages (US-368): warm the TLS
+         connection to Cloudflare's challenge edge so api.js + the challenge
+         iframe don't pay a cold connect. Cheap (one socket) and harmless on
+         pages that never render the widget. -->
+    <link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin />
+    <link rel="dns-prefetch" href="https://challenges.cloudflare.com" />
+
     <!-- Self-hosted fonts (US-412): Inter + Outfit woff2 served from /fonts/*,
          @font-face declared in src/index.css with font-display:swap. No Google
          Fonts round-trip and no JS-driven font injection on the LCP path.

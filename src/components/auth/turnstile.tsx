@@ -23,13 +23,24 @@ interface TurnstileApi {
       sitekey: string;
       callback: (token: string) => void;
       "expired-callback"?: () => void;
-      "error-callback"?: () => void;
+      // Returning `true` tells Turnstile we're handling the retry ourselves.
+      "error-callback"?: (code?: string) => boolean | void;
       theme?: "light" | "dark" | "auto";
+      // 300xxx errors are transient/retryable (network, extensions); let the
+      // widget self-heal instead of dying on the first hiccup.
+      retry?: "auto" | "never";
+      "retry-interval"?: number;
+      "refresh-expired"?: "auto" | "manual" | "never";
+      "refresh-timeout"?: "auto" | "manual" | "never";
     },
   ) => string;
   reset: (id?: string) => void;
   remove: (id?: string) => void;
 }
+
+// Cap our own fallback resets so a persistently-broken environment (extension
+// blocking the iframe, no connectivity) can't spin in an infinite reset loop.
+const MAX_ERROR_RESETS = 3;
 
 declare global {
   interface Window {
@@ -73,6 +84,8 @@ interface TurnstileWidgetProps {
 export function TurnstileWidget({ onVerify, onExpire, resetSignal }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const errorResetsRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Keep the latest callbacks in refs so the render effect runs exactly once.
   const onVerifyRef = useRef(onVerify);
   const onExpireRef = useRef(onExpire);
@@ -88,9 +101,43 @@ export function TurnstileWidget({ onVerify, onExpire, resetSignal }: TurnstileWi
         widgetIdRef.current = window.turnstile.render(containerRef.current, {
           sitekey: SITE_KEY,
           theme: "auto",
-          callback: (token) => onVerifyRef.current(token),
+          // Let Turnstile auto-retry transient (300xxx) failures and refresh
+          // expired/timed-out challenges without user action.
+          retry: "auto",
+          "retry-interval": 8000,
+          "refresh-expired": "auto",
+          "refresh-timeout": "auto",
+          callback: (token) => {
+            errorResetsRef.current = 0; // success — clear the fallback budget
+            onVerifyRef.current(token);
+          },
           "expired-callback": () => onExpireRef.current?.(),
-          "error-callback": () => onExpireRef.current?.(),
+          "error-callback": () => {
+            // Token (if any) is now invalid.
+            onExpireRef.current?.();
+            // Belt-and-suspenders beyond Turnstile's own retry: if the widget
+            // hangs (the reported 300030 case), force a bounded fresh challenge
+            // after a short backoff so the user isn't stuck on a dead widget.
+            if (
+              !cancelled &&
+              errorResetsRef.current < MAX_ERROR_RESETS &&
+              retryTimerRef.current === null
+            ) {
+              errorResetsRef.current += 1;
+              retryTimerRef.current = setTimeout(() => {
+                retryTimerRef.current = null;
+                if (cancelled || !widgetIdRef.current || !window.turnstile) return;
+                try {
+                  window.turnstile.reset(widgetIdRef.current);
+                } catch {
+                  // widget gone — nothing to reset
+                }
+              }, 2000);
+            }
+            // Returning true → we own the retry; suppress Turnstile's terminal
+            // error UI so the user sees a recovering widget, not a dead one.
+            return true;
+          },
         });
       })
       .catch(() => {
@@ -99,6 +146,10 @@ export function TurnstileWidget({ onVerify, onExpire, resetSignal }: TurnstileWi
       });
     return () => {
       cancelled = true;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       if (widgetIdRef.current && window.turnstile) {
         try {
           window.turnstile.remove(widgetIdRef.current);
@@ -113,6 +164,7 @@ export function TurnstileWidget({ onVerify, onExpire, resetSignal }: TurnstileWi
   // Reset to a fresh challenge when the parent bumps resetSignal.
   useEffect(() => {
     if (resetSignal === undefined) return;
+    errorResetsRef.current = 0; // user-initiated retry — refresh the budget
     if (widgetIdRef.current && window.turnstile) {
       try {
         window.turnstile.reset(widgetIdRef.current);
