@@ -154,6 +154,20 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_ENTITLEMENTS: GradeThread/GradeThread.entitlements
+      configs:
+        # Manual App Store signing for archive/TestFlight so the archive actually
+        # signs as Distribution and BAKES CODE_SIGN_ENTITLEMENTS into the binary.
+        # (Automatic archive signing was resolving to Development and dropping
+        # applesignin/associated-domains/app-groups → SIWA AuthorizationError
+        # 1000.) Scoped to Release + this target only, so the Swift Package deps
+        # and Debug/CI test builds are untouched. The matching App Store profile
+        # is installed by the release workflow; the specifier name must match it.
+        Release:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+          PROVISIONING_PROFILE_SPECIFIER: "GradeThread App Store"
     scheme:
       testTargets:
         - GradeThreadTests
@@ -213,6 +227,14 @@ targets:
         # Extension UIs are size-constrained — explicit so XcodeGen
         # doesn't auto-add device-family quirks.
         TARGETED_DEVICE_FAMILY: "1,2"
+      configs:
+        # See GradeThread target — manual App Store signing for Release only.
+        Release:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+          PROVISIONING_PROFILE_SPECIFIER: "GradeThread ShareExtension AppStore"
 
   # Widget extension (US-190). Home-screen widget showing today's
   # selling snapshot + pending payout. Reads the rollup the main app
@@ -249,6 +271,14 @@ targets:
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_ENTITLEMENTS: GradeThreadWidget/GradeThreadWidget.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
+      configs:
+        # See GradeThread target — manual App Store signing for Release only.
+        Release:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+          PROVISIONING_PROFILE_SPECIFIER: "GradeThread Widget AppStore"
 
   # UI-test target for App Store screenshot capture via fastlane snapshot
   # (US-197). Deliberately NOT in the GradeThread scheme's test action so

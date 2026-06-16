@@ -200,18 +200,31 @@ jobs:
           # Save for later steps.
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
-      - name: Install provisioning profile
+      - name: Install provisioning profiles
+        # Manual App Store signing needs one distribution profile per bundle:
+        # the app, the Share Extension, and the Widget. Each is a base64 of the
+        # .mobileprovision downloaded from the Apple portal (App Store type).
+        # We print each profile's Name so a mismatch with the
+        # PROVISIONING_PROFILE_SPECIFIER values in project.yml is obvious.
         run: |
           set -euo pipefail
-          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
-          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_PATH"
-
+          : "${PROVISIONING_PROFILE_APP_BASE64:?missing from env (check Infisical prod /)}"
+          : "${PROVISIONING_PROFILE_SHARE_BASE64:?missing from env (check Infisical prod /)}"
+          : "${PROVISIONING_PROFILE_WIDGET_BASE64:?missing from env (check Infisical prod /)}"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          # Xcode looks up profiles by UUID; copy with a stable name and let
-          # Xcode rediscover from there.
-          UUID=$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)
-          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-          echo "Installed profile $UUID"
+          install_profile() {
+            local tmp
+            tmp="$(mktemp "$RUNNER_TEMP/profile.XXXXXX")"
+            printf '%s' "$1" | tr -d '\r\n' | base64 --decode -o "$tmp"
+            local uuid name
+            uuid=$(security cms -D -i "$tmp" | plutil -extract UUID raw -)
+            name=$(security cms -D -i "$tmp" | plutil -extract Name raw -)
+            cp "$tmp" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            echo "Installed '$name' ($uuid)"
+          }
+          install_profile "$PROVISIONING_PROFILE_APP_BASE64"
+          install_profile "$PROVISIONING_PROFILE_SHARE_BASE64"
+          install_profile "$PROVISIONING_PROFILE_WIDGET_BASE64"
 
       - name: Install App Store Connect API key
         # altool reads the key from this exact directory by Key ID.
@@ -313,13 +326,14 @@ jobs:
         working-directory: ios
         run: |
           set -o pipefail
-          # Automatic signing + -allowProvisioningUpdates lets Xcode use the
-          # App Store Connect API key to create/download App Store distribution
-          # profiles for ALL THREE bundles (app, share-extension, widget) and
-          # embed them. Manual signing here only ever embedded (at most) one
-          # profile, so the export was missing embedded.mobileprovision.
-          # CODE_SIGNING_ALLOWED/REQUIRED=YES override the per-target NO in
-          # project.yml (which exists so unsigned CI test builds stay fast).
+          # Manual App Store signing — all signing settings (style, identity,
+          # team, per-target PROVISIONING_PROFILE_SPECIFIER) live in project.yml's
+          # Release config, scoped to the 3 app targets only. We deliberately do
+          # NOT pass CODE_SIGN_* or -allowProvisioningUpdates on the CLI: those
+          # apply to EVERY target including the Swift Package deps (auto-signed
+          # for development) and blow up with "conflicting provisioning settings".
+          # The 3 distribution profiles are installed in the step above; xcodebuild
+          # matches them by the specifier names.
           #
           # Only override MARKETING_VERSION when one was resolved; otherwise
           # leave it unset so the archive uses project.yml's default.
@@ -336,7 +350,6 @@ jobs:
             -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" \
             -allowProvisioningUpdates \
-            CODE_SIGN_STYLE=Automatic \
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
@@ -400,7 +413,18 @@ jobs:
               <key>teamID</key>
               <string>$APPLE_TEAM_ID</string>
               <key>signingStyle</key>
-              <string>automatic</string>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.gradethread.app</key>
+                  <string>GradeThread App Store</string>
+                  <key>com.gradethread.app.share-extension</key>
+                  <string>GradeThread ShareExtension AppStore</string>
+                  <key>com.gradethread.app.widget</key>
+                  <string>GradeThread Widget AppStore</string>
+              </dict>
               <key>uploadSymbols</key>
               <true/>
               <key>destination</key>
@@ -409,18 +433,15 @@ jobs:
           </plist>
           EOF
 
-          # Pass the API key here too so export can mint/refresh the App Store
-          # profiles it embeds into each bundle (matches the archive step).
+          # Manual export — re-signs each bundle with the matching App Store
+          # profile from ExportOptions. No -allowProvisioningUpdates (that's the
+          # automatic path) and no API key needed here; altool uploads later.
           set -o pipefail
           xcodebuild \
             -exportArchive \
             -archivePath "$RUNNER_TEMP/GradeThread.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8" \
-            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
-            -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" \
-            -allowProvisioningUpdates | xcbeautify --renderer github-actions
+            -exportPath "$RUNNER_TEMP/export" | xcbeautify --renderer github-actions
 
       - name: Verify Sign in with Apple entitlement
         # We can't run codesign on a dev Mac, so verify here: does the SIGNED
