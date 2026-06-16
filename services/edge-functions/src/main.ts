@@ -17,6 +17,7 @@ import {
   handleEbayPendingWebhooksCron,
 } from "./routes/flipdesk-webhooks.ts";
 import { flipdeskGradingRoutes } from "./routes/flipdesk-grading.ts";
+import { flipdeskPhotoProfilesRoutes } from "./routes/flipdesk-photo-profiles.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskListingsRoutes } from "./routes/flipdesk-listings.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
@@ -699,6 +700,7 @@ app.route("/api/flipdesk/shopify", flipdeskShopifyRoutes);
 app.route("/api/flipdesk/depop", flipdeskDepopRoutes);
 app.route("/api/flipdesk/webhooks", flipdeskWebhookRoutes);
 app.route("/api/flipdesk/grading", flipdeskGradingRoutes);
+app.route("/api/flipdesk/photo-profiles", flipdeskPhotoProfilesRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/listings", flipdeskListingsRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);

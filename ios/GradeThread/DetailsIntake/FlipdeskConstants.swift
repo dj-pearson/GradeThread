@@ -13,6 +13,9 @@ public enum FlipdeskCategory: String, CaseIterable, Identifiable {
     case collectibles
     case electronics
     case books
+    case jewelry
+    case bags
+    case accessories
     case other
 
     public var id: String { rawValue }
@@ -26,6 +29,10 @@ public enum FlipdeskCategory: String, CaseIterable, Identifiable {
         case .collectibles: return "Collectibles"
         case .electronics:  return "Electronics"
         case .books:        return "Books"
+        case .jewelry:      return "Jewelry"
+        case .bags:         return "Bags"
+        // Non-garment accessories sold standalone (hats, belts, sunglasses).
+        case .accessories:  return "Accessories"
         case .other:        return "Other"
         }
     }

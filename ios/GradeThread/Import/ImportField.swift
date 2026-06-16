@@ -107,6 +107,13 @@ enum ImportValue {
             "collectibles": .collectibles, "collectible": .collectibles,
             "electronics": .electronics,
             "books": .books, "book": .books,
+            "jewelry": .jewelry, "jewellery": .jewelry, "ring": .jewelry,
+            "necklace": .jewelry, "earrings": .jewelry, "bracelet": .jewelry,
+            "bags": .bags, "bag": .bags, "handbag": .bags, "purse": .bags,
+            "backpack": .bags, "tote": .bags,
+            "accessories": .accessories, "accessory": .accessories,
+            "hat": .accessories, "cap": .accessories, "belt": .accessories,
+            "scarf": .accessories, "sunglasses": .accessories,
             "other": .other,
         ]
         return table[key]?.rawValue

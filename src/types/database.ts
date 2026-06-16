@@ -151,10 +151,13 @@ export type ItemCategory =
   | "clothing"
   | "shoes"
   | "watches"
+  | "jewelry"
   | "sports_cards"
   | "collectibles"
   | "electronics"
   | "books"
+  | "bags"
+  | "accessories"
   | "other";
 export type FlipdeskPhotoType =
   | "front"
@@ -173,7 +176,16 @@ export type FlipdeskPhotoType =
   | "measurement_waist"
   | "measurement_length"
   | "measurement_sleeve"
-  | "measurement_inseam";
+  | "measurement_inseam"
+  // Universal roles added in migration 00230 for non-clothing categories.
+  | "angle"
+  | "sole"
+  | "marking"
+  | "serial"
+  | "accessory"
+  | "certificate"
+  | "corner"
+  | "surface";
 export type ListingStatus = "draft" | "active" | "ended" | "sold" | "relisted";
 export type GradingSubmissionTier = "standard" | "premium" | "express";
 export type PayoutImportMethod = "csv_upload" | "api_sync";

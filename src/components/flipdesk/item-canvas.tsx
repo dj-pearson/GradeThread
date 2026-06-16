@@ -56,6 +56,7 @@ import {
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
   ITEM_CATEGORIES,
+  ITEM_CATEGORY_LABELS,
 } from "@/lib/constants";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
@@ -917,7 +918,7 @@ export function ItemCanvas({
                 <SelectItem value="__none">— None —</SelectItem>
                 {ITEM_CATEGORIES.map((c) => (
                   <SelectItem key={c} value={c}>
-                    {c}
+                    {ITEM_CATEGORY_LABELS[c]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -983,7 +984,11 @@ export function ItemCanvas({
             Upload the required set (front, back, tag, detail) before sending
             the item to GradeThread or listing it.
           </p>
-          <PhotoUploader itemId={item.id} currentStatus={item.status} />
+          <PhotoUploader
+            itemId={item.id}
+            currentStatus={item.status}
+            category={item.category as ItemCategory | null}
+          />
           <div className="pt-2">
             <p className="text-xs font-medium text-muted-foreground">
               Reorder &amp; retag

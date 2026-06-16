@@ -35,7 +35,7 @@ import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { rankOf, resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
-import type { ItemFullRow, ItemComp } from "@/types/database";
+import type { ItemFullRow, ItemComp, ItemCategory } from "@/types/database";
 
 const DRAFTED_RANK = rankOf("drafted");
 
@@ -262,7 +262,11 @@ export function FlipdeskPrepPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <PhotoUploader itemId={current.id} currentStatus={current.status} />
+          <PhotoUploader
+            itemId={current.id}
+            currentStatus={current.status}
+            category={current.category as ItemCategory | null}
+          />
         </CardContent>
       </Card>
 

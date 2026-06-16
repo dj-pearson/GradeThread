@@ -29,13 +29,21 @@ const PRICING: Array<{ match: RegExp; in: number; out: number }> = [
 ];
 const FALLBACK_PRICING = { in: 1.0, out: 5.0 };
 
+// Keep in sync with the item_category enum (supabase migrations 00008 + 00230),
+// src/lib/constants.ts ITEM_CATEGORIES, and the photo-profile table
+// (lib/photo-profiles.ts). The classifier picks one of these from the photos so
+// the client can load the matching photo profile.
 export const ITEM_CATEGORIES = [
   "clothing",
   "shoes",
   "watches",
+  "jewelry",
   "sports_cards",
   "collectibles",
   "electronics",
+  "books",
+  "bags",
+  "accessories",
   "other",
 ] as const;
 
@@ -162,7 +170,7 @@ You are given a free-text description and/or photos of a single second-hand item
 
 Hard rules:
 - Never guess. If the input does not support a field, omit it entirely.
-- item_category MUST be one of: ${ITEM_CATEGORIES.join(", ")}. Never invent a category.
+- item_category MUST be one of: ${ITEM_CATEGORIES.join(", ")}. Never invent a category. Classify from the FRONT photo first (what KIND of product is this?) — the client uses this to pick which photo slots to ask the seller for, so prefer the most specific fit: a handbag/purse is 'bags', a hat/belt/sunglasses sold on its own is 'accessories', a ring/necklace is 'jewelry', a graded or raw trading card is 'sports_cards'. Use 'other' only when nothing else fits.
 - size: normalize to a common token (XS, S, M, L, XL, XXL, a numeric size, or a shoe size) only when unambiguous; otherwise omit it.
 - title: produce a clean, listing-ready title (brand + key descriptors), not a copy of the raw text.
 - color: a single primary color word. material: the primary fabric/material.

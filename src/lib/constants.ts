@@ -729,12 +729,35 @@ export const ITEM_CATEGORIES = [
   "clothing",
   "shoes",
   "watches",
+  "jewelry",
   "sports_cards",
   "collectibles",
   "electronics",
   "books",
+  "bags",
+  "accessories",
   "other",
 ] as const;
+
+// Human labels for the item_category picker. `accessories` here = non-garment
+// accessories sold standalone (hats, belts, sunglasses), distinct from the
+// clothing garment_type "accessories".
+export const ITEM_CATEGORY_LABELS: Record<
+  (typeof ITEM_CATEGORIES)[number],
+  string
+> = {
+  clothing: "Clothing",
+  shoes: "Shoes",
+  watches: "Watches",
+  jewelry: "Jewelry",
+  sports_cards: "Sports cards",
+  collectibles: "Collectibles",
+  electronics: "Electronics",
+  books: "Books",
+  bags: "Bags",
+  accessories: "Accessories",
+  other: "Other",
+};
 
 export const FLIPDESK_PHOTO_TYPES = [
   "front",
@@ -749,10 +772,22 @@ export const FLIPDESK_PHOTO_TYPES = [
   "defect",
   "flatlay",
   "on_model",
+  // Universal roles (migration 00230) reused across non-clothing categories.
+  "angle",
+  "sole",
+  "marking",
+  "serial",
+  "accessory",
+  "certificate",
+  "corner",
+  "surface",
   ...MEASUREMENT_PHOTO_TYPES,
 ] as const;
 
-// Photos a clothing item should have before it can advance to "photographed".
+// Photos a CLOTHING item should have before it can advance to "photographed".
+// Non-clothing categories define their own required set via photo profiles
+// (src/lib/photo-profiles.ts → usePhotoProfile); this remains the default/
+// fallback for clothing and for any consumer that hasn't loaded a profile.
 export const REQUIRED_PHOTO_TYPES = ["front", "back", "tag", "detail"] as const;
 export const OPTIONAL_PHOTO_TYPES = [
   "tag_2",
@@ -782,6 +817,14 @@ export const PHOTO_TYPE_LABELS: Record<
   defect: "Defect",
   flatlay: "Flat lay",
   on_model: "On model",
+  angle: "Angle / Profile",
+  sole: "Sole",
+  marking: "Markings / Hallmark",
+  serial: "Serial / Model",
+  accessory: "Accessories / Box",
+  certificate: "Certificate / Label",
+  corner: "Corners",
+  surface: "Surface / Centering",
   measurement_chest: "Measure: Chest / Bust",
   measurement_waist: "Measure: Waist",
   measurement_length: "Measure: Length",
