@@ -1,7 +1,8 @@
 import AuthenticationServices
 import SwiftUI
 
-/// Email/password + Sign in with Apple + Continue with Google. A single
+/// Email/password + Sign in with Apple (Continue with Google is gated off
+/// via `AppConfig.googleSignInEnabled` until its flow is fixed). A single
 /// view handles both sign-in and sign-up via the `mode` toggle; the
 /// surrounding chrome is identical, only the call site changes.
 struct LoginView: View {
@@ -23,7 +24,10 @@ struct LoginView: View {
     @State private var infoMessage: String?
     @State private var captchaRequest: CaptchaRequest?
 
-    private let appleCoordinator = SignInWithAppleCoordinator()
+    /// Raw nonce generated in the Apple button's `onRequest` and consumed in
+    /// `onCompletion` to prove the identity token wasn't replayed during the
+    /// Supabase exchange. The request carries only the SHA-256 hash.
+    @State private var appleNonce: String?
 
     /// In-flight native Turnstile challenge (US-368). Carries the continuation
     /// the presented ``TurnstileSheet`` resumes once a token is solved or the
@@ -174,38 +178,40 @@ struct LoginView: View {
 
     private var socialButtons: some View {
         VStack(spacing: 10) {
-            SignInWithAppleButton { request in
-                // The actual nonce + request shaping happens inside the
-                // coordinator. Returning unmodified here is fine — the
-                // coordinator path is the one we drive on tap.
-                _ = request
-            } onCompletion: { _ in }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 48)
-                .allowsHitTesting(false)
-                .overlay(
-                    // We intentionally intercept the system button's tap
-                    // because the SwiftUI variant doesn't expose the nonce
-                    // handshake we need for Supabase.
-                    Color.clear.contentShape(Rectangle())
-                        .onTapGesture {
-                            Task { await startAppleFlow() }
-                        }
-                )
+            // Drive the nonce handshake through the button's own request /
+            // completion closures so SwiftUI owns the presentation. (The older
+            // approach — a hit-testing-disabled button with a clear tap overlay
+            // firing a hand-rolled ASAuthorizationController — could resolve a
+            // detached presentation anchor and fail with AuthorizationError
+            // 1000 / .unknown.)
+            SignInWithAppleButton(.signIn) { request in
+                let nonce = SignInWithAppleCoordinator.randomNonce()
+                appleNonce = nonce
+                request.requestedScopes = [.fullName, .email]
+                request.nonce = SignInWithAppleCoordinator.hashedNonce(nonce)
+            } onCompletion: { result in
+                handleAppleCompletion(result)
+            }
+            .signInWithAppleButtonStyle(.black)
+            .frame(height: 48)
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
 
-            Button {
-                Task { await authStore.continueWithGoogle() }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "globe")
-                    Text("Continue with Google")
-                        .font(.brandHeadline)
+            // Hidden until the native Google OAuth flow is fixed (AppConfig).
+            if AppConfig.googleSignInEnabled {
+                Button {
+                    Task { await authStore.continueWithGoogle() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "globe")
+                        Text("Continue with Google")
+                            .font(.brandHeadline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .foregroundStyle(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .foregroundStyle(.primary)
-                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
         }
     }
@@ -294,19 +300,31 @@ struct LoginView: View {
         authStore.lastError = error
     }
 
-    private func startAppleFlow() async {
-        do {
-            let credential = try await appleCoordinator.start()
-            await authStore.signInWithApple(
-                idToken: credential.idToken,
-                nonce: credential.unhashedNonce,
-                fullName: credential.fullName
-            )
-        } catch {
-            // ASAuthorizationError.canceled is fine to swallow silently;
-            // anything else routes through the visible error region.
-            if let asError = error as? ASAuthorizationError,
-               asError.code == .canceled {
+    /// Handles the result of the native Sign in with Apple button. On success,
+    /// pulls the identity token + the raw nonce we stashed in `onRequest` and
+    /// hands them to Supabase. A user cancel is swallowed silently; anything
+    /// else routes through the visible error region.
+    private func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            guard
+                let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                let tokenData = credential.identityToken,
+                let idToken = String(data: tokenData, encoding: .utf8),
+                let nonce = appleNonce
+            else {
+                appleNonce = nil
+                authStore.lastError = SignInWithAppleError.missingIdentityToken
+                return
+            }
+            let fullName = credential.fullName
+            Task {
+                await authStore.signInWithApple(idToken: idToken, nonce: nonce, fullName: fullName)
+                appleNonce = nil
+            }
+        case .failure(let error):
+            appleNonce = nil
+            if let asError = error as? ASAuthorizationError, asError.code == .canceled {
                 return
             }
             authStore.lastError = error

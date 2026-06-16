@@ -66,6 +66,12 @@ enum AppConfig {
         nonEmptyString(forInfoKey: "TURNSTILE_SITE_KEY")
     }
 
+    /// Whether "Continue with Google" is offered on the login screen.
+    /// Temporarily OFF: the native Google OAuth handshake isn't reliable on
+    /// device yet, so we ship Apple + email/password only and re-enable this
+    /// once the flow is fixed. Flip back to `true` to restore the button.
+    static let googleSignInEnabled = false
+
     // MARK: - Internals
 
     private static func string(forInfoKey key: String) -> String? {
