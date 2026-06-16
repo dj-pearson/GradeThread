@@ -348,6 +348,28 @@ jobs:
             "${VERSION_ARGS[@]}" \
             archive | xcbeautify --renderer github-actions
 
+      - name: Verify entitlements in archive
+        # Isolates WHERE custom entitlements (applesignin, associated-domains,
+        # app-groups, aps-environment) are lost: the .app inside the .xcarchive
+        # is what archive produced, before export re-signs. If they're present
+        # here but absent in the exported IPA → export strips them. If absent
+        # here too → archive never applied GradeThread.entitlements (likely the
+        # command-line CODE_SIGN_STYLE=Automatic override shadowing the
+        # per-target CODE_SIGN_ENTITLEMENTS). Non-fatal diagnostic.
+        run: |
+          set -uo pipefail
+          APP="$RUNNER_TEMP/GradeThread.xcarchive/Products/Applications/GradeThread.app"
+          echo "Inspecting archived app: $APP"
+          echo "----- Archived binary entitlements -----"
+          codesign -d --entitlements :- "$APP" 2>/dev/null || true
+          echo ""
+          if codesign -d --entitlements :- "$APP" 2>/dev/null | grep -q 'com.apple.developer.applesignin'; then
+            echo "✅ Archive HAS applesignin → loss happens at EXPORT"
+          else
+            echo "::warning::Archive is MISSING applesignin → loss happens at ARCHIVE (CODE_SIGN_ENTITLEMENTS not applied during archive)."
+          fi
+          exit 0
+
       - name: Upload dSYMs to Sentry
         # US-787: upload debug symbols so production crashes symbolicate. Runs
         # only when a Sentry auth token is configured (Infisical prod), and is
