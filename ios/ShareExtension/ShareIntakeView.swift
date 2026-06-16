@@ -42,12 +42,15 @@ struct ShareIntakeView: View {
 
     /// Mirror of PhotoSlotType ordering — first four required, then up to
     /// three defects, then the extended optional taxonomy (tag 2, extra
-    /// details, interior, flat lay, on-model, measurements).
+    /// details, interior, flat lay, on-model), the universal roles
+    /// (migration 00230) for non-clothing profiles, then measurements.
     static let allSlots: [String] = [
         "front", "back", "tag", "detail",
         "defect1", "defect2", "defect3",
         "tag_2", "detail_2", "detail_3", "detail_4",
         "interior", "flatlay", "on_model",
+        "angle", "sole", "marking", "serial", "accessory",
+        "certificate", "corner", "surface",
         "measurement_chest", "measurement_waist", "measurement_length",
         "measurement_sleeve", "measurement_inseam",
     ]
@@ -68,6 +71,14 @@ struct ShareIntakeView: View {
         case "interior": return "Interior"
         case "flatlay":  return "Flat lay"
         case "on_model": return "On model"
+        case "angle":       return "Angle / Profile"
+        case "sole":        return "Sole"
+        case "marking":     return "Markings"
+        case "serial":      return "Serial / Model"
+        case "accessory":   return "Accessories"
+        case "certificate": return "Certificate"
+        case "corner":      return "Corners"
+        case "surface":     return "Surface"
         case "measurement_chest":  return "Measure: Chest / Bust"
         case "measurement_waist":  return "Measure: Waist"
         case "measurement_length": return "Measure: Length"
