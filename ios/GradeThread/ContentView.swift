@@ -77,6 +77,12 @@ struct ContentView: View {
                     // does a clean full backfill instead of inheriting this
                     // user's watermark.
                     SyncWatermark().resetAll()
+                    // Wipe the local SwiftData mirror + offline mutation queue so
+                    // the next account can't SEE (dashboard / Money tab) or
+                    // FLUSH the previous user's inventory, sales, and listings.
+                    // Without this the prior user's numbers persist until a sync
+                    // overwrites them — a data-isolation leak.
+                    clearAllLocalDataOnSignOut()
                     // US-659: wipe the App Group intake inbox + the persisted
                     // APNs token so the next user can't inherit staged photos
                     // or this device's push registration.
@@ -217,6 +223,27 @@ struct ContentView: View {
             try ctx.save()
         } catch {
             // Best-effort — the scoped pull still corrects the view on success.
+        }
+    }
+
+    /// Full local wipe on sign-out: every synced tenant model PLUS the offline
+    /// mutation queue, so the next account can neither see nor accidentally
+    /// flush the previous user's data. (Workspace switches use
+    /// ``clearLocalTenantCache`` instead, which deliberately keeps the queue
+    /// since it's the same owner across their own workspaces.)
+    private func clearAllLocalDataOnSignOut() {
+        let ctx = modelContext
+        do {
+            try ctx.delete(model: LocalInventoryItem.self)
+            try ctx.delete(model: LocalItemPhoto.self)
+            try ctx.delete(model: LocalListing.self)
+            try ctx.delete(model: LocalSale.self)
+            try ctx.delete(model: LocalSource.self)
+            try ctx.delete(model: LocalPendingMutation.self)
+            try ctx.save()
+        } catch {
+            // Best-effort — watermarks are reset too, so the next sign-in
+            // re-pulls a clean, correctly-scoped backfill regardless.
         }
     }
 
