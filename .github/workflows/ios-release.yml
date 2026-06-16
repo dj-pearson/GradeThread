@@ -400,6 +400,50 @@ jobs:
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" \
             -allowProvisioningUpdates | xcbeautify --renderer github-actions
 
+      - name: Verify Sign in with Apple entitlement
+        # We can't run codesign on a dev Mac, so verify here: does the SIGNED
+        # app — and the provisioning profile embedded in it — actually carry
+        # com.apple.developer.applesignin? A bare ASAuthorizationError 1000 on
+        # device (no sheet, no network) is the signature of this entitlement
+        # being absent from the signed build even though GradeThread.entitlements
+        # requests it (App ID capability not authorized into the profile, or a
+        # stale profile). Non-fatal: prints PASS/FAIL so the build still uploads
+        # and we can read the result.
+        run: |
+          set -uo pipefail
+          IPA=$(ls "$RUNNER_TEMP/export"/*.ipa | head -n1)
+          WORK="$RUNNER_TEMP/ipa-inspect"
+          rm -rf "$WORK"; mkdir -p "$WORK"
+          unzip -q -o "$IPA" -d "$WORK"
+          APP=$(ls -d "$WORK"/Payload/*.app | head -n1)
+          echo "Inspecting: $APP"
+
+          echo "----- Signed binary entitlements -----"
+          BIN_ENT=$(codesign -d --entitlements :- "$APP" 2>/dev/null || true)
+          printf '%s\n' "$BIN_ENT"
+
+          echo "----- Capabilities in embedded provisioning profile -----"
+          PROFILE=$(security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null || true)
+          printf '%s\n' "$PROFILE" | grep -o 'com\.apple\.developer\.[a-zA-Z.-]*' | sort -u || true
+
+          MISSING=0
+          if printf '%s' "$BIN_ENT" | grep -q 'com.apple.developer.applesignin'; then
+            echo "✅ Signed binary carries com.apple.developer.applesignin"
+          else
+            echo "::error::Signed binary is MISSING com.apple.developer.applesignin — this is the root cause of AuthorizationError 1000 on device."
+            MISSING=1
+          fi
+          if printf '%s' "$PROFILE" | grep -q 'com.apple.developer.applesignin'; then
+            echo "✅ Embedded provisioning profile authorizes Sign in with Apple"
+          else
+            echo "::error::Embedded provisioning profile does NOT authorize Sign in with Apple — regenerate the App Store distribution profile AFTER enabling the capability on App ID com.gradethread.app, then update PROVISIONING_PROFILE_BASE64 in Infisical."
+            MISSING=1
+          fi
+          if [ "$MISSING" = 1 ]; then
+            echo "::warning::Sign in with Apple entitlement gap detected — see errors above. Build still uploaded so other flows remain testable."
+          fi
+          exit 0
+
       - name: Upload to TestFlight
         run: |
           IPA=$(ls "$RUNNER_TEMP/export"/*.ipa | head -n1)
