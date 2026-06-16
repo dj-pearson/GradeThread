@@ -15476,6 +15476,344 @@
       "priority": 1049,
       "passes": false,
       "notes": "[eBay scope audit 2026-06-14] severity=medium. Surfaced from granted scope sell.payment.dispute. eBay Payment Disputes API is under /sell/fulfillment/v1/payment_dispute. No payment-dispute handling exists today (only an internal Stripe flag_reason=payment_disputed in webhooks.ts/admin-fraud.ts, unrelated). Sibling to US-1043 returns/cancellations."
+    },
+    {
+      "id": "US-1050",
+      "title": "Global full-text search UI (web) over items, listings & sales",
+      "description": "As a reseller with a large inventory, I want a single search box that searches across item titles, brands, SKUs, descriptions, condition notes, listing titles, and sales (buyer/notes) so I can find anything fast. The weighted tsvector FTS already exists in the DB but no UI calls it.",
+      "acceptanceCriteria": [
+        "A global search surface (command-palette or dedicated page) calls the existing flipdesk_search() RPC (scope all/items/listings/sales) and renders ranked, <mark>-highlighted snippets with deep links.",
+        "Supports websearch syntax (quoted phrases, -exclusion, AND/OR) and result-type tabs; debounced; respects tenant scope.",
+        "tsc/lint/build green; covered by a vitest for query building + result mapping."
+      ],
+      "priority": 1050,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. flipdesk_search() RPC + weighted tsvector exists in supabase/migrations/00016_full_text_search.sql (scopes all/items/listings/sales, websearch_to_tsquery, snippet ranking) but is NOT exposed in any UI today. New surface; reuse src/lib/item-filter.ts patterns. severity=high (existing capability dark)."
+    },
+    {
+      "id": "US-1051",
+      "title": "Web: expand faceted filters (color, location, marketplace, date ranges, photo state, SKU) + saved views on pipeline",
+      "description": "As a reseller, I want richer filters on web to match what the data and iOS already support: color, location_bin, listing platform/marketplace, purchase/created/sale date ranges, photo state (has/missing required photos), and SKU/item_number — plus saved views available on the pipeline (kanban), not just the listings table.",
+      "acceptanceCriteria": [
+        "filter-builder.tsx / item-filter.ts gain fields: color, location_bin, marketplace/listing_platform, date ranges (purchase_date, created_at, sale_date), photo state, SKU; operators snap to field type.",
+        "Pipeline.tsx exposes the advanced filter + saved views (parity with listings.tsx); a 'select all matching filter' action enables bulk operations on the filtered set.",
+        "URL-serializable + shareable; tsc/lint/build green with filter-eval tests."
+      ],
+      "priority": 1051,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. Web filter-builder.tsx + src/lib/item-filter.ts currently expose only 9 fields (brand, category, size, source, cost, target_price, status, grade, days_in_status). Pipeline.tsx (lines ~399-448) has only category/brand/source/search and no saved views. iOS already filters color/location/date/photo-state. Columns exist on ItemFullRow (src/types/database.ts ~1349-1409)."
+    },
+    {
+      "id": "US-1052",
+      "title": "iOS: full-text search + advanced AND/OR filter parity",
+      "description": "As an iOS user, I want the same power as web: full-text search across title/brand/SKU/description/notes and an advanced multi-rule filter with AND/OR combinators, plus the facets web is missing (source, item_category, SKU, date ranges). Today iOS only does substring search and all-ANDed facet pickers.",
+      "acceptanceCriteria": [
+        "iOS adds an FTS-backed search (calls flipdesk_search() via edge) and an advanced rule builder supporting AND/OR; existing saved filters interoperate.",
+        "Adds missing facets: source, item_category, purchase/sale date ranges; ActiveFilterBar reflects them.",
+        "Builds via iOS CI (macOS runner) — not buildable on the Windows dev host."
+      ],
+      "priority": 1052,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. iOS files: ios/GradeThread/Inventory/{InventoryListView,InventoryFilterSheet,InventoryFilterCriteria,InventoryFacets,InventoryFilter,ActiveFilterBar}.swift. Today substring-only search + all-ANDed facets; no FTS, no OR. NOTE: per ralph-pending-frontier, iOS/Swift isn't verifiable on the Windows host — gate on iOS CI."
+    },
+    {
+      "id": "US-1053",
+      "title": "Fuzzy / typo-tolerant search + recent-search suggestions",
+      "description": "As a reseller, I want search to tolerate typos and minor spelling variants (e.g. 'Adiddas' -> 'Adidas') and suggest my recent searches, so I'm not blocked by exact-match tsvector behavior.",
+      "acceptanceCriteria": [
+        "pg_trgm similarity layered onto/alongside the FTS path for fuzzy brand/title matching with a tunable threshold; falls back gracefully when trgm finds nothing.",
+        "Recent searches stored per user and offered as suggestions in the search UI (web + iOS).",
+        "Migration is idempotent; tsc/lint/build/deno green."
+      ],
+      "priority": 1053,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. FTS today is exact tsvector (00016) — no pg_trgm fuzzy match, no search history table. Add CREATE EXTENSION pg_trgm + trigram indexes; new search_history table (per-user, RLS). severity=medium."
+    },
+    {
+      "id": "US-1054",
+      "title": "Notification backbone: fire sale / listing-live / payout / status-change events (in-app + push)",
+      "description": "As a seller, I want to be notified the moment something important happens — an item sells, a listing goes live, a payout lands, an item changes status. The notification types and even the push helpers already exist but are never called.",
+      "acceptanceCriteria": [
+        "sale_recorded, listing_live, payout_imported, item_status_change notifications fire from their real event sources (sale ingest, publish success, payout import, status transitions) via notifyUser(); existing pushSaleCreated()/pushPayoutCleared() are actually invoked.",
+        "Each respects users.notification_preferences per channel; idempotent (no duplicate on webhook retry); tenant-scoped.",
+        "deno check/lint/test green; covered by a regression test that the event paths call notify."
+      ],
+      "priority": 1054,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. notify.ts already declares item_status_change/listing_live/sale_recorded/payout_imported but NOTHING fires them. transactional-push.ts pushSaleCreated()/pushPayoutCleared() are defined but NEVER CALLED. Wire from sales ingest, flipdesk publish path, ebay-payout-dedup.ts, status transitions. Tables: notifications (00007), prefs (00021), push_device_tokens (000375). severity=high."
+    },
+    {
+      "id": "US-1055",
+      "title": "Offer & return/dispute notifications across all channels",
+      "description": "As a seller, I want to be notified when I receive an offer, when an offer is accepted/declined/countered, and when a return or payment dispute is opened — these are time-sensitive and currently silent.",
+      "acceptanceCriteria": [
+        "New notification types (offer_received, offer_responded, return_opened, dispute_opened) with email templates + in-app + push; deadlines surfaced where eBay provides them.",
+        "Wired to the eBay webhook/poll sources for offers, returns (Post-Order) and payment disputes; idempotent + tenant-scoped.",
+        "deno/tsc/lint green with tests for dedup + preference gating."
+      ],
+      "priority": 1055,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. No offer/return/dispute notification types today. Relates to US-1043 (returns mgmt) and US-1049 (payment disputes). Email infra ready (email.ts category-based retry outbox, 00095). Add templates + notify types + push categories."
+    },
+    {
+      "id": "US-1056",
+      "title": "Grading-lifecycle & inventory notifications (failed/incomplete, review-needed, low-stock)",
+      "description": "As a user, I want notifications when a grade fails or times out (not just when it's ready), when an item is flagged for human review, and when inventory is running low / a SKU is out of stock.",
+      "acceptanceCriteria": [
+        "grading_failed/grading_incomplete and review_needed notifications fire from the grading pipeline (today only grade_complete exists); pushReviewNeeded() invoked where appropriate.",
+        "Low-stock/stockout monitoring with a configurable threshold emits a notification.",
+        "deno/tsc/lint green; tests for failure-path emission."
+      ],
+      "priority": 1056,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. grading-pipeline.ts only emits grade_complete; no failure/incomplete path. pushReviewNeeded() exists in transactional-push.ts. No inventory threshold monitor exists. Threshold via system_settings (lib/system-settings.ts)."
+    },
+    {
+      "id": "US-1057",
+      "title": "Adopt Amazon SES + deliverability (bounce/complaint suppression)",
+      "description": "As the operator, I want transactional + notification email to run on Amazon SES with proper deliverability handling — automatic suppression of hard bounces and complaints — so we protect sender reputation as volume grows.",
+      "acceptanceCriteria": [
+        "Document SES SMTP credentials/region config (no code change needed — email.ts is SMTP-generic) and switch the env; verify DKIM/SPF/DMARC alignment.",
+        "An SES bounce/complaint feedback path (SNS webhook or equivalent) writes to a suppression list that email.ts checks before send; hard bounces auto-suppress.",
+        "deno/tsc/lint green; suppression check covered by a test."
+      ],
+      "priority": 1057,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. email.ts is SMTP-generic (denomailer) — SES works via SMTP creds, NO code change to switch providers (env vars SMTP_HOST/USER/PASS). Gap: no bounce/complaint suppression list (today hard bounces dequeued manually). Add suppression table + SNS feedback route. severity=medium."
+    },
+    {
+      "id": "US-1058",
+      "title": "Per-event notification preferences UI + admin event catalog",
+      "description": "As a user, I want granular control over which events notify me and on which channel (in-app / email / push); as the operator, I want a catalog of all notifiable events. Today preferences are coarse JSONB with no UI for the new event types.",
+      "acceptanceCriteria": [
+        "A settings page lets users toggle each event x channel (selling activity, offers, returns, payouts, grading, billing, product updates); writes users.notification_preferences.",
+        "Admin event-catalog view lists all notification types, their channels, and volume; honors the same preference gate end-to-end.",
+        "tsc/lint/build/deno green."
+      ],
+      "priority": 1058,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. users.notification_preferences JSONB exists (00021) but no per-event UI for the newly-wired selling-activity events. notification-center.tsx already renders the feed. Builds on the notify.ts type enum."
+    },
+    {
+      "id": "US-1059",
+      "title": "Smarter comp query builder (relevance sort, brand-in-query, stopword/size trimming)",
+      "description": "As a reseller, I want comps to actually return comparable items. Today the search uses the raw title verbatim, applies brand/size only as aspect filters, and sorts by newlyListed — so over-specific queries return nothing useful.",
+      "acceptanceCriteria": [
+        "searchBrowseComps builds keywords intelligently: include brand in the keyword query (not only aspect filter), strip stopwords and noisy size/color tokens, normalize casing; default sort to relevance/bestMatch instead of newlyListed.",
+        "Honors GTIN/barcode exact-match when present; price/condition filters preserved; query construction is pure-unit-testable.",
+        "deno check/lint/test green with cases for keyword extraction."
+      ],
+      "priority": 1059,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Comps. services/edge-functions/src/lib/ebay-client.ts searchBrowseComps() ~lines 2774-2865: q used verbatim (only .trim()), brand/size are aspect_filter only, sort hardcoded 'newlyListed'. Route flipdesk-ebay.ts ~4966-4995; UI src/components/flipdesk/ebay-comps-panel.tsx, src/hooks/use-ebay.ts ~472-502. severity=high (user: 'most of the time it does not return results')."
+    },
+    {
+      "id": "US-1060",
+      "title": "Zero-result fallback ladder for comps (progressive broadening) + sold comps",
+      "description": "As a reseller, I want comps to broaden automatically when a narrow search returns nothing — fewer keywords, brand+category only, then category alone — and to include sold comps so pricing reflects what actually sells.",
+      "acceptanceCriteria": [
+        "When a comp search returns < N results, retry on a defined ladder (drop trailing/optional tokens -> brand+category -> category) and label how broad the returned set is; min-results threshold configurable.",
+        "Sold comps (Marketplace Insights, US-1048) merged in and clearly labeled 'sold' when the grant is enabled; graceful no-op otherwise.",
+        "deno check/lint/test green with ladder tests."
+      ],
+      "priority": 1060,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Comps. No fallback/broadening logic today (ebay-client.ts ~2812-2817 returns empty on 0). Pairs with US-1048 (sold comps gated by isMarketplaceInsightsEnabled). Threshold via system_settings. severity=high."
+    },
+    {
+      "id": "US-1061",
+      "title": "Dismissable 'manage this item in FlipDesk' disclaimer on first successful eBay publish",
+      "description": "As a new FlipDesk seller, I want a one-time, dismissable disclaimer the first time I successfully publish to eBay, explaining that all ongoing management of that item (images, price, details, end/relist) must happen in FlipDesk — because of how the eBay API syncs, editing on eBay directly can desync or be overwritten.",
+      "acceptanceCriteria": [
+        "On the first successful publish per user, a clear dismissable notice explains FlipDesk-is-source-of-truth and what eBay-side edits can break; persists dismissed state (per user) so it shows only once.",
+        "Honest, specific copy about the API sync behavior; links to a help doc; shown on web and iOS publish-success surfaces.",
+        "tsc/lint/build green; dismissed flag stored server-side (survives device change)."
+      ],
+      "priority": 1061,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: eBay UX. Publish path in services/edge-functions/src/routes/flipdesk-ebay.ts (publish/offer) + web publish flow in src/pages/flipdesk + iOS publish action. Store a per-user 'ebay_publish_disclaimer_dismissed' flag (users table or a ui_dismissals table). severity=medium (user-reported clarity gap)."
+    },
+    {
+      "id": "US-1062",
+      "title": "Enrich 'send offers to interested buyers' with title, image, price & condition",
+      "description": "As a reseller, I want the send-offers screen to show each eligible listing's real title, thumbnail, current price and condition instead of a bare eBay listing id like 327175130089, so I can decide which to send offers on.",
+      "acceptanceCriteria": [
+        "The /negotiation/eligible edge route joins eBay's eligible listingIds to local listings (platform_listing_id) + item_photos to return title, price, currency, image_url, condition; falls back to a Browse lookup if no local row.",
+        "EbayEligibleItem type + offers.tsx render a thumbnail, title and price; listing id shown only when nothing else resolves.",
+        "deno/tsc/lint/build green; tenant-scoped join (US-268 rule); test for the enrichment mapping."
+      ],
+      "priority": 1062,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Offers. eBay find_eligible_items returns only listingId+title (ebay-client.ts findEligibleNegotiationItems ~3048-3061). Route flipdesk-ebay.ts ~5072-5084 returns as-is. offers.tsx ~295-308 shows title||listingId. Join via listings.platform_listing_id -> inventory_items -> item_photos. severity=high (user-reported)."
+    },
+    {
+      "id": "US-1063",
+      "title": "Deepen community insights: price realization, time-to-sell, seasonality, brand/category deep-dives",
+      "description": "As a reseller, I want richer market intelligence than the current sell-through snapshot — median sale-price realization vs list, time-to-sell distributions, seasonality/trend lines, and brand/category deep-dives — so the insights feel like a real edge, not a stub.",
+      "acceptanceCriteria": [
+        "community_benchmarks() (or new RPCs) add: price-realization (sale vs list), time-to-sell percentiles, 30/90/365-day trend series, and brand+category drill-downs — all under the existing k-anonymity (>=5 sellers) guard.",
+        "Cohort threshold (MIN_COHORT_SELLERS) moved from hardcoded to system_settings; caller's own numbers always shown.",
+        "Migration idempotent; tsc/lint/build/deno green; SECURITY DEFINER aggregation leaks no individual data."
+      ],
+      "priority": 1063,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Community Insights. Existing community_benchmarks() RPC (00173) is real (sell-through vs peer median, top brands, trending categories, k-anon>=5) — user perceives it as stubbed because it's shallow. Page src/pages/flipdesk/community-insights.tsx, lib src/lib/community-benchmarks.ts. MIN_COHORT_SELLERS hardcoded 5. Expand metrics; honor k-anon."
+    },
+    {
+      "id": "US-1064",
+      "title": "Actionable insights: sourcing & pricing recommendations + dashboard/iOS surfaces",
+      "description": "As a reseller, I want the community data turned into recommendations — what to source (high sell-through, underserved categories), how to price relative to peers — surfaced where I work (a dashboard widget and on iOS), not only on one page.",
+      "acceptanceCriteria": [
+        "A recommendations module derives 'source more of / price near X' suggestions from the benchmarks, with confidence and the cohort size behind each.",
+        "A dashboard insights widget (web) + an insights surface on iOS show the top recommendations; deep-link to filtered inventory/comps.",
+        "tsc/lint/build green; iOS via CI."
+      ],
+      "priority": 1064,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Community Insights. Today insights live only at src/pages/flipdesk/community-insights.tsx with no recommendations layer and no iOS/dashboard surface. Builds on the deepened benchmarks story."
+    },
+    {
+      "id": "US-1065",
+      "title": "Full AI model evaluation & per-feature profitability report",
+      "description": "As the operator, I want a rigorous evaluation of every AI use case (grading, autolister, extract, authenticity, photo-qa/roles, reconcile, content, support) — model choice, tokens/call, $/transaction vs revenue — and a projection of profitability against internal usage and typical eBay-seller behavior, with concrete model-routing recommendations.",
+      "acceptanceCriteria": [
+        "A report (and a repeatable admin RPC/dashboard) breaks down cost-per-action and gross margin per feature using ai_usage_events, and projects monthly AI spend vs revenue under modeled usage scenarios.",
+        "Recommends per-feature model tiers (opus/sonnet/haiku) with expected quality impact, plus break-even volumes; flags any feature where cost approaches revenue.",
+        "Numbers sourced from real ledger data; tsc/lint/build/deno green."
+      ],
+      "priority": 1065,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: AI cost. ai-config.ts (defaults sonnet-4-6 vision / haiku-4-5 text), per-call ledger ai_usage_events (00163) + ai_spend() (00218) + budgets (00219) already exist; admin_revenue_metrics() gives per-grade avg cost. Research finding: per-grade AI cost ~$0.01-0.03 vs $2.99+ (99%+ margin) — bottleneck is volume/churn, not model. This story = the formal eval + projection deliverable. Relates to [[system-settings-registry]] ai_model_prices."
+    },
+    {
+      "id": "US-1066",
+      "title": "Confidence-gated model routing / cheaper-model cascade for grading & extraction",
+      "description": "As the operator, I want low-risk work routed to cheaper models and only escalate to a stronger model when confidence is low, to cut AI spend without hurting grade quality.",
+      "acceptanceCriteria": [
+        "Grading/extraction can run a cheaper first pass (e.g. haiku) and escalate to sonnet/opus only when confidence < threshold or the item is high-value; routing is config-driven via system_settings (no deploy).",
+        "Escalation decisions logged to the ledger (feature + model) so the savings are measurable; quality gated by the existing grading-eval golden set (MAE/agreement thresholds must still pass).",
+        "deno/tsc/lint/test green."
+      ],
+      "priority": 1066,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: AI cost. No model cascade today — grading uses one model for all per-image calls (ai-grading.ts, getDefaultModel/getGradingCompositeModel in ai-config.ts). Eval gate exists (grading-eval.ts EVAL_MAX_MAE/EVAL_MIN_AGREEMENT). Route via system_settings. Must not regress eval."
+    },
+    {
+      "id": "US-1067",
+      "title": "Self-improvement: few-shot exemplar cache from human-corrected grades",
+      "description": "As the operator, I want the model to get cheaper and more accurate over time by mining human-corrected grades into a curated few-shot exemplar set (especially intentional-misread cases), so prompts can lean on real precedents instead of larger reasoning budgets.",
+      "acceptanceCriteria": [
+        "A pipeline selects high-value corrected exemplars (e.g. human_intentional_misread, large factor corrections) per garment_category and assembles them into a versioned, cached few-shot block usable by the grading prompt.",
+        "Exemplar set is curated/capped, prompt-cached for token savings, and gated through grading-eval before activation; impact (MAE + tokens) reported.",
+        "deno/tsc/lint/test green; no PII leaves the tenant boundary in exemplars."
+      ],
+      "priority": 1067,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: AI self-improvement. accuracy-tracking.ts already captures TrainingDataEntry (AI vs human-adjusted scores, human_intentional_misread flag) — but it's NOT fed back as few-shot examples. Caching enabled in ai-config.ts. Gate via grading-eval.ts golden set. Cuts tokens + improves distressed/denim misreads. severity=medium."
+    },
+    {
+      "id": "US-1068",
+      "title": "Grading training-dataset export + golden-set growth from corrections",
+      "description": "As the operator, I want to continuously grow the eval golden set and export a clean training/reference dataset from accumulated graded history + human corrections, so future model/prompt work (or fine-tuning) has ground truth and we can prove accuracy over time.",
+      "acceptanceCriteria": [
+        "An export produces a structured dataset (images refs + AI output + human-corrected ground truth + category/prompt/model version) with consent/PII controls.",
+        "High-signal corrected cases can be promoted into grading_eval_cases (the golden set) so coverage grows automatically; dedup + review step before promotion.",
+        "deno/tsc/lint/test green."
+      ],
+      "priority": 1068,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: AI self-improvement. grading_eval_cases golden set + grading-eval.ts exist; accuracy-tracking.ts has the correction data. No export/promotion pipeline today. Ties to retention of submission-images (private bucket)."
+    },
+    {
+      "id": "US-1069",
+      "title": "Admin-configurable referral & promo incentives (credits, free months, % off)",
+      "description": "As the operator, I want full control over referral and special-offer economics without a deploy — referrer/referred reward size, free months, % off, qualification window, and per-user caps — surfaced in one admin place.",
+      "acceptanceCriteria": [
+        "Referral reward values (currently hardcoded REFERRER_REWARD_CREDITS=5 / REFERRED_REWARD_CREDITS=3) move into system_settings and are read at grant time; admin can edit credits, free-months, %-off and a qualification window + per-user cap.",
+        "A dedicated admin 'Incentives' surface ties referral config + coupons/promo + pricing together; changes are audit-logged and MFA-gated; existing referral grant logic stays idempotent/race-safe.",
+        "Migration idempotent; tsc/lint/build/deno green; referral-rewards_test.ts updated."
+      ],
+      "priority": 1069,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Referral/Growth. Rewards hardcoded in services/edge-functions/src/lib/referral-rewards.ts (5/3 credits); no system_settings home, no cap, no window. Admin coupons exist (src/pages/admin/coupons.tsx + admin-billing.ts, Stripe), pricing config (00209), settings registry (00208). Consolidate into an Incentives surface. severity=high (user explicit)."
+    },
+    {
+      "id": "US-1070",
+      "title": "Referral-triggered signup incentive (free month / bonus) when ?ref= present",
+      "description": "As a referred new user, I want a tangible welcome incentive (e.g. a free month or bonus credits) applied automatically when I sign up via a referral link, so the share is actually compelling.",
+      "acceptanceCriteria": [
+        "When signup carries a valid ?ref= code, the configured referred-user incentive (free month via Stripe coupon and/or bonus credits) is applied automatically and reflected at checkout/onboarding.",
+        "Incentive amount/type is the admin-configurable value (from the incentives config); idempotent; abuse-guarded (one per new user).",
+        "tsc/lint/build/deno green; covered by a redemption test."
+      ],
+      "priority": 1070,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Referral/Growth. Today referred users get a flat 3 credits at first paid action (referral-rewards.ts), no free-month/signup-time incentive. Redeem flow: services/edge-functions/src/routes/referrals.ts (POST /redeem). Free month = Stripe coupon (admin-billing.ts coupon create supports duration months). Depends on the incentives-config story."
+    },
+    {
+      "id": "US-1071",
+      "title": "Referral virality analytics + stronger viral mechanics (milestones, campaign codes)",
+      "description": "As the operator, I want to see whether referrals are actually going viral — share rate, click->signup->qualify conversion, K-factor, referred-user LTV and payback — and I want mechanics that drive sharing: milestone/tiered rewards, campaign-specific codes, and better share UX.",
+      "acceptanceCriteria": [
+        "An admin analytics view shows the referral funnel over time (clicks, signups, qualified, granted), conversion %, K-factor, and referred-cohort retention/LTV vs direct.",
+        "Tiered/milestone rewards (e.g. bonus at 5/10 referrals) and named campaign codes are supported; the user-facing referral page gets clearer share CTAs + prefilled social share.",
+        "tsc/lint/build/deno green."
+      ],
+      "priority": 1071,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Referral/Growth. Admin today only shows funnel counts + grant queue (src/pages/admin/growth/referrals.tsx); no conversion %, K-factor, or LTV. affiliate_clicks (00174) tracks earned-link clicks; referral_events (00102) has qualified/granted timestamps for funnel math. No milestone tiers or campaign codes. User goal: go viral for cheap users."
+    },
+    {
+      "id": "US-1072",
+      "title": "Keyword research ingestion (Google Keyword Planner / Ads API) -> keyword library",
+      "description": "As the operator/marketer, I want to pull keyword ideas, search volume and competition from Google's Keyword Planner / Ads API into a keyword library, so ad copy, SEO and ASO are driven by real demand data instead of guesses.",
+      "acceptanceCriteria": [
+        "An ingestion job (Google Ads API Keyword Plan ideas) stores keywords with metrics (volume, competition, CPC) into a keyword_library table; refreshable on a schedule; credentials documented in ENVIRONMENT.md.",
+        "An admin view lets the operator browse/filter/group keywords by theme (grading, reselling, eBay, thrift, etc.).",
+        "Migration idempotent; tsc/lint/build/deno green."
+      ],
+      "priority": 1072,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Acquisition/Ads. No keyword/ads research infra today. New keyword_library table + edge ingestion (Google Ads API) + admin surface. Feeds the content engine (content_knowledge / SEO pillars) and ad-copy generation. severity=medium (growth lever)."
+    },
+    {
+      "id": "US-1073",
+      "title": "AI ad-copy generation & refinement from the keyword library (Google Ads + Apple Search Ads)",
+      "description": "As the marketer, I want AI-drafted and -refined ad creatives (Google Ads responsive search ad headlines/descriptions, Apple Search Ads keyword sets and copy) grounded in the keyword library and our brand voice, so I can launch and iterate campaigns faster.",
+      "acceptanceCriteria": [
+        "An admin tool generates RSA headlines/descriptions and ASA keyword/creative variants from selected keyword-library themes, using the existing AI stack + brand voice, with character-limit/policy guardrails.",
+        "Generations are saved, exportable (CSV/Ads Editor format), and tagged with the source keywords for performance attribution later.",
+        "Cost recorded to ai_usage_events (feature='ads'); tsc/lint/build/deno green."
+      ],
+      "priority": 1073,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Acquisition/Ads. Reuse AI stack (ai-config.ts, content-ai-* patterns, ai-feature-context.ts feature tagging). Depends on keyword_library. Brand voice + SEO pillars in content_knowledge. No ad tooling exists today."
+    },
+    {
+      "id": "US-1074",
+      "title": "Unified command palette tying grading, FlipDesk & admin together",
+      "description": "As a power user, I want a keyboard-driven command palette (Cmd/Ctrl-K) to jump to any item/listing/submission, run searches, and trigger common actions (grade, list, price, send offer) from anywhere — tying the whole platform into one fast surface.",
+      "acceptanceCriteria": [
+        "A global Cmd/Ctrl-K palette offers navigation, FTS-backed entity search (reuses flipdesk_search()), and quick actions scoped to permissions; available across dashboard + FlipDesk.",
+        "Keyboard-first, accessible, debounced; results deep-link correctly; admin-only actions hidden for non-admins.",
+        "tsc/lint/build green."
+      ],
+      "priority": 1074,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Platform cohesion. Depends on the global FTS story (flipdesk_search()). No command palette today. A 'tie it all together' surface the user asked for ('excel beyond the competition')."
+    },
+    {
+      "id": "US-1075",
+      "title": "Cross-surface activation: surface grading inside FlipDesk and FlipDesk inside grading",
+      "description": "As a user who entered through one surface, I want the platform to guide me to the adjacent value — graders nudged toward listing/FlipDesk, resellers nudged toward grading certificates that lift sale price — so the two halves reinforce each other.",
+      "acceptanceCriteria": [
+        "Contextual, dismissable prompts connect the flows (e.g. after a grade: 'list this in FlipDesk'; in FlipDesk on an ungraded high-value item: 'grade this to boost buyer trust / price'), gated to avoid nagging.",
+        "Prompts are measurable (event-tracked) so activation lift can be evaluated; respect notification/marketing preferences.",
+        "tsc/lint/build green."
+      ],
+      "priority": 1075,
+      "passes": false,
+      "notes": "[Backlog expansion 2026-06-15] Epic: Platform cohesion. Grading (submissions/grade_reports) and FlipDesk (inventory_items/listings) are linked by the in-process grading bridge but not cross-promoted in the UI. Low-risk, growth-oriented glue. severity=low."
     }
   ]
 }
