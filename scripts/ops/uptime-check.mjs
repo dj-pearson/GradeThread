@@ -28,12 +28,32 @@ const ANON_KEY = process.env.SUPABASE_ANON_KEY?.trim() || "";
 const TIMEOUT_MS = 10_000;
 const CONFIRM_DELAY_MS = Number(process.env.UPTIME_CONFIRM_DELAY_MS ?? 30_000);
 
+// The SPA shell carries the app root div; the hard-404 page (public/404.html,
+// US-422) carries a noindex marker + "Page Not Found" title. We use these to
+// tell "deep link served the app" from "deep link soft/hard-404'd".
+const SPA_SHELL_MARKER = /<div id="root">/i;
+const NOT_FOUND_MARKER = /Page Not Found|name="robots" content="noindex/i;
+
 const TARGETS = [
   {
     id: "spa",
     name: "Web app (SPA)",
     url: `${SITE_URL}/`,
     ok: (status) => status === 200,
+  },
+  {
+    // US-422 SPA-fallback regression guard. `/` is a prerendered STATIC file, so
+    // it stays 200 even when the _redirects SPA rewrites are broken — it can't
+    // catch a routing regression. A deep authenticated route has NO static file:
+    // it only resolves if `/dashboard/* → /index.html 200` is live. When that
+    // rule is missing/overridden the route 404s (or 308s away), which is exactly
+    // the incident this check exists to detect. We require 200 AND the real SPA
+    // shell body (not the 404 page served with a 200) so a soft-404 can't pass.
+    id: "spa_deep_route",
+    name: "SPA deep-link routing (/dashboard/*)",
+    url: `${SITE_URL}/dashboard/flipdesk/marketplaces`,
+    ok: (status) => status === 200,
+    bodyOk: (text) => SPA_SHELL_MARKER.test(text) && !NOT_FOUND_MARKER.test(text),
   },
   {
     id: "edge",
@@ -74,14 +94,19 @@ async function probe(target) {
       headers: { "User-Agent": "GradeThread-Uptime/1.0", ...(target.headers ?? {}) },
     });
     const latency = Date.now() - started;
-    // Drain so the runner doesn't hold sockets open.
-    await res.arrayBuffer().catch(() => {});
+    // Read the body only when a target asserts on it (e.g. the SPA-shell check);
+    // otherwise just drain so the runner doesn't hold sockets open.
+    const needsBody = typeof target.bodyOk === "function";
+    const bodyText = needsBody ? await res.text() : (await res.arrayBuffer().catch(() => {}), null);
+    const statusOk = target.ok(res.status);
+    const bodyOk = needsBody ? target.bodyOk(bodyText ?? "") : true;
     return {
       ...target,
-      up: target.ok(res.status),
+      up: statusOk && bodyOk,
       httpStatus: res.status,
       latency,
-      error: null,
+      // Distinguish a clean status failure from a 200-with-wrong-body (soft 404).
+      error: statusOk && !bodyOk ? "HTTP 200 but body is not the SPA shell (soft-404 / broken routing)" : null,
     };
   } catch (err) {
     return {
