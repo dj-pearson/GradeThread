@@ -21,8 +21,18 @@ struct LoginView: View {
     @State private var isSubmitting = false
     @State private var showingPasswordReset = false
     @State private var infoMessage: String?
+    @State private var captchaRequest: CaptchaRequest?
 
     private let appleCoordinator = SignInWithAppleCoordinator()
+
+    /// In-flight native Turnstile challenge (US-368). Carries the continuation
+    /// the presented ``TurnstileSheet`` resumes once a token is solved or the
+    /// user cancels.
+    private struct CaptchaRequest: Identifiable {
+        let id = UUID()
+        let siteKey: String
+        let continuation: CheckedContinuation<String, Error>
+    }
 
     var body: some View {
         ScrollView {
@@ -63,6 +73,17 @@ struct LoginView: View {
         .sheet(isPresented: $showingPasswordReset) {
             if let url = URL(string: "https://gradethread.com/auth/reset-password") {
                 SafariView(url: url).ignoresSafeArea()
+            }
+        }
+        .sheet(item: $captchaRequest) { request in
+            TurnstileSheet(siteKey: request.siteKey) { result in
+                captchaRequest = nil
+                switch result {
+                case .success(let token):
+                    request.continuation.resume(returning: token)
+                case .failure(let error):
+                    request.continuation.resume(throwing: error)
+                }
             }
         }
         .disabled(isSubmitting)
@@ -203,14 +224,26 @@ struct LoginView: View {
 
         infoMessage = nil
         let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
+
+        // US-368: prod GoTrue captcha-gates signup + email/password sign-in.
+        // Resolve a Turnstile token first; bail silently if the user cancels.
+        let captchaToken: String?
+        do {
+            captchaToken = try await resolveCaptcha()
+        } catch {
+            handleCaptchaFailure(error)
+            return
+        }
+
         switch mode {
         case .signIn:
-            await authStore.signIn(email: trimmedEmail, password: password)
+            await authStore.signIn(email: trimmedEmail, password: password, captchaToken: captchaToken)
         case .signUp:
             await authStore.signUp(
                 email: trimmedEmail,
                 password: password,
-                fullName: fullName.isEmpty ? nil : fullName
+                fullName: fullName.isEmpty ? nil : fullName,
+                captchaToken: captchaToken
             )
             // If we got no error, Supabase has either signed the user in or
             // sent a confirmation email. Surface a one-liner — the auth-state
@@ -227,13 +260,38 @@ struct LoginView: View {
             infoMessage = "Enter your email above first, then tap Forgot password."
             return
         }
-        await authStore.resetPassword(email: trimmed)
+        let captchaToken: String?
+        do {
+            captchaToken = try await resolveCaptcha()
+        } catch {
+            handleCaptchaFailure(error)
+            return
+        }
+        await authStore.resetPassword(email: trimmed, captchaToken: captchaToken)
         if authStore.lastError == nil {
             // Open the web reset page in case the user prefers to handle it
             // there. The deep link in the email also lands here.
             showingPasswordReset = true
             infoMessage = "We sent you a reset link."
         }
+    }
+
+    /// Presents the native Turnstile challenge and returns its token. Returns
+    /// `nil` when no site key is configured (local/CI builds, where prod-style
+    /// captcha enforcement is off too), so the auth call proceeds untokenised.
+    /// Throws ``Captcha/Error`` — `.cancelled` when the user backs out.
+    private func resolveCaptcha() async throws -> String? {
+        guard let siteKey = AppConfig.turnstileSiteKey else { return nil }
+        return try await withCheckedThrowingContinuation { continuation in
+            captchaRequest = CaptchaRequest(siteKey: siteKey, continuation: continuation)
+        }
+    }
+
+    /// A cancelled challenge is swallowed silently (matching Apple-cancel);
+    /// a real widget failure routes through the visible error region.
+    private func handleCaptchaFailure(_ error: Error) {
+        if case Captcha.Error.cancelled = error { return }
+        authStore.lastError = error
     }
 
     private func startAppleFlow() async {

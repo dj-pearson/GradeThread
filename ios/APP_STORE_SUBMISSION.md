@@ -19,6 +19,62 @@ Companion docs: `ios/fastlane/metadata/` (deliver-managed copy) and
 
 ---
 
+## 0. ⚠️ Guideline 2.1(a) resubmission fix — v1.0(41), rejected 2026-06-16
+
+Apple rejected build 1.0(41) (Submission `cd47ea72-c42c-4392-b896-90984d542f09`,
+iPad Air 11" M3 / iPadOS 26.5) for two auth bugs. **Both are server-side
+configuration on the self-hosted GoTrue** — the iOS code change (native Turnstile
++ captcha-token plumbing, this branch) is necessary but NOT sufficient. Do **all**
+of the following before resubmitting, then verify.
+
+### Bug A — "Sign in with Apple" errored
+
+**Root cause:** the Apple provider was never enabled on prod GoTrue
+(`/auth/v1/settings` showed `"apple": false` as of 2026-06-11). The app's native
+flow (`AuthStore.signInWithApple` → `signInWithIdToken(provider: .apple)`) posts
+the Apple identity token to GoTrue, which rejects it because the provider is off.
+
+**Fix (operator — Coolify env on the GoTrue/auth service, then redeploy):**
+```
+GOTRUE_EXTERNAL_APPLE_ENABLED=true
+GOTRUE_EXTERNAL_APPLE_CLIENT_ID=com.gradethread.app   # the BUNDLE ID — GoTrue validates the token's `aud` against it
+GOTRUE_EXTERNAL_APPLE_SECRET=<ES256 client-secret JWT generated from the Sign in with Apple .p8 key (Team ID + Key ID)>
+```
+- `CLIENT_ID` must be (or contain, comma-separated) the **bundle ID** `com.gradethread.app`, because iOS uses the native id_token flow — not a Services ID.
+- The `.p8`-derived secret JWT is only exercised by the web code-exchange flow, but the auth image refuses to start the provider without it. See `ENVIRONMENT.md` → "OAuth providers".
+- The id_token grant is **not** captcha-gated, so once the provider is on, Apple sign-in works with no captcha involvement.
+
+### Bug B — "Create an account" errored
+
+**Root cause:** prod GoTrue enforces Cloudflare Turnstile captcha (US-368) on
+signup / email-password sign-in / password-reset — a call without a valid
+`gotrue_meta_security.captcha_token` returns HTTP 400 `captcha protection:
+request disallowed`. The web app sends a Turnstile token; iOS sent none.
+
+**Fix (two parts, both required):**
+1. **iOS (done on this branch):** the app now renders a native Turnstile widget
+   (`Auth/TurnstileView.swift`) and forwards the token on signup / sign-in /
+   reset. Gated on `TURNSTILE_SITE_KEY` (blank → no-op, for local/CI).
+2. **Operator:** add `TURNSTILE_SITE_KEY` to **Infisical (prod env)** so the
+   release workflow injects it at archive time. It must be the **site** key for
+   the **same** Turnstile widget whose **secret** is configured as
+   `GOTRUE_SECURITY_CAPTCHA_SECRET` on prod GoTrue, and that widget's allowed
+   hostnames must include `gradethread.com` (the iOS web view renders the widget
+   with that origin). This is the same key as the web build's `VITE_TURNSTILE_SITE_KEY`.
+   - `ios-release.yml` now **fails the archive** if `TURNSTILE_SITE_KEY` is empty
+     (override with `ALLOW_NO_CAPTCHA=1` only if captcha is disabled server-side).
+
+### Verify before resubmitting
+- `curl -s https://api.gradethread.com/auth/v1/settings` → JSON shows
+  `"external": { … "apple": true … }` and a non-null captcha config.
+- On a TestFlight build of the new archive (real prod backend): **Sign in with
+  Apple** completes to a signed-in session, and **Create account** succeeds
+  (Turnstile sheet appears, then "Check your email to confirm your account").
+- Confirm the archive log shows the "Require captcha site key" step passing
+  (i.e. `TURNSTILE_SITE_KEY` was injected).
+
+---
+
 ## 1. Store listing copy
 
 All of this lives in `ios/fastlane/metadata/en-US/` and is pushed by `deliver`.

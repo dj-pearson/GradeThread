@@ -7,6 +7,13 @@ SUPABASE_URL = https:/$()/api.gradethread.com
 SUPABASE_ANON_KEY = REPLACE_ME_WITH_REAL_SUPABASE_ANON_KEY
 EDGE_API_URL = https:/$()/functions.gradethread.com
 
+// US-368: Cloudflare Turnstile site key. Blank here — ios-release.yml injects
+// the real value as a build setting from Infisical (prod) at archive time, the
+// same way SUPABASE_ANON_KEY is. Must match the prod GoTrue captcha secret's
+// site key (same widget the web app uses, VITE_TURNSTILE_SITE_KEY). Blank →
+// the native captcha step is a no-op.
+TURNSTILE_SITE_KEY =
+
 // US-191 telemetry. Intentionally blank here — ios-release.yml injects the real
 // values as build settings from Infisical (prod) at archive time (US-787), the
 // same way SUPABASE_ANON_KEY is handled. Don't hardcode secrets in this file.

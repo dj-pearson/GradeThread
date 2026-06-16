@@ -296,6 +296,19 @@ jobs:
             echo "::warning::POSTHOG_API_KEY is empty — product analytics will be disabled in this build."
           fi
 
+      - name: Require captcha site key
+        # US-368: prod GoTrue rejects signup / email-password sign-in / reset
+        # that lack a Turnstile token. A release build with no TURNSTILE_SITE_KEY
+        # renders no widget → no token → those flows 400 (the App Store 2.1(a)
+        # rejection on v1.0(41)). Fail loudly so we never ship that again.
+        # Set ALLOW_NO_CAPTCHA=1 only if captcha has been disabled server-side.
+        run: |
+          set -euo pipefail
+          if [ -z "${TURNSTILE_SITE_KEY:-}" ] && [ "${ALLOW_NO_CAPTCHA:-}" != "1" ]; then
+            echo "::error::TURNSTILE_SITE_KEY is empty — native signup/sign-in/reset will be rejected by GoTrue's captcha gate. Add TURNSTILE_SITE_KEY to Infisical (prod env), or set ALLOW_NO_CAPTCHA=1 if captcha is disabled server-side." >&2
+            exit 1
+          fi
+
       - name: Archive
         working-directory: ios
         run: |
@@ -327,6 +340,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            TURNSTILE_SITE_KEY="${TURNSTILE_SITE_KEY:-}" \
             SENTRY_DSN="${SENTRY_DSN:-}" \
             POSTHOG_API_KEY="${POSTHOG_API_KEY:-}" \
             POSTHOG_HOST="${POSTHOG_HOST:-https://us.i.posthog.com}" \

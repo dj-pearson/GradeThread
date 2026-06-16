@@ -229,6 +229,31 @@ shows `"google": true` and `"apple": true` · the `state` JWT on
 carries `site_url`/`referrer` = `https://gradethread.com...` (decode the
 `state` param's middle segment from the 302 Location header).
 
+### Turnstile (captcha) setup — where each key goes
+
+One Cloudflare Turnstile **widget** issues a **site key** (public) and a **secret
+key** (private). Create it in the Cloudflare dashboard → Turnstile, mode
+**Managed**, with **allowed hostnames** `gradethread.com` (covers the web app
+**and** the iOS web view, which renders the widget with `https://gradethread.com`
+as its base URL) + `localhost`/`127.0.0.1` for local web dev.
+
+| Key | Destination | Var | Notes |
+|---|---|---|---|
+| **Secret** (private) | prod GoTrue (Coolify auth svc) | `GOTRUE_SECURITY_CAPTCHA_SECRET` | + `GOTRUE_SECURITY_CAPTCHA_ENABLED=true`, `GOTRUE_SECURITY_CAPTCHA_PROVIDER=turnstile`. Validates every incoming token. |
+| **Secret** (private) | local dev / CI | `SUPABASE_AUTH_CAPTCHA_SECRET` | Read by `config.toml` `[auth.captcha]`; configures only the throwaway local stack. |
+| **Site** (public) | web build | `VITE_TURNSTILE_SITE_KEY` (`.env`) | Ships in the bundle; renders the widget. |
+| **Site** (public) | iOS release | `TURNSTILE_SITE_KEY` (Infisical prod) | Injected at archive time by `ios-release.yml`, which **fails the build if it's empty** (override `ALLOW_NO_CAPTCHA=1`). |
+
+**The secret never leaves the server** — it's not in any client bundle. **Flip
+server + every client together:** once `GOTRUE_SECURITY_CAPTCHA_ENABLED=true`,
+GoTrue rejects any signup/email-password-login/reset lacking a token, so each
+client must carry the matching site key or that client's auth breaks (this was
+the iOS App Store 2.1(a) rejection). With a client's site key unset the captcha
+step no-ops — only safe when the server has captcha disabled too. Apple sign-in
+(id_token grant) is **not** captcha-gated. Test wiring with Cloudflare's dummy
+always-pass pair: site `1x00000000000000000000AA`, secret
+`1x0000000000000000000000000000000AA`.
+
 ## Admin MFA + step-up — US-270
 
 Admin and super-admin accounts must use TOTP two-factor auth, enforced
