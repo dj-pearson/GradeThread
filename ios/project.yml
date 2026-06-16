@@ -149,23 +149,11 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        # Automatic signing is declared HERE (not only on the xcodebuild CLI) so
-        # xcodegen writes ProvisioningStyle=Automatic into the target attributes.
-        # A CLI-only `CODE_SIGN_STYLE=Automatic` leaves ProvisioningStyle unset,
-        # which makes the archive silently DROP CODE_SIGN_ENTITLEMENTS — Sign in
-        # with Apple / associated-domains / app-groups never reach the signed
-        # binary, so SIWA fails on device with ASAuthorizationError 1000.
-        # Signing stays OFF by default (fast unsigned CI test builds); the
-        # Release config below turns it on for archive + TestFlight.
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_ENTITLEMENTS: GradeThread/GradeThread.entitlements
-      configs:
-        Release:
-          CODE_SIGNING_REQUIRED: YES
-          CODE_SIGNING_ALLOWED: YES
     scheme:
       testTargets:
         - GradeThreadTests
@@ -217,22 +205,14 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.share-extension
         GENERATE_INFOPLIST_FILE: NO
-        # See GradeThread target: automatic signing must be declared here so
-        # ProvisioningStyle=Automatic is written and the entitlements file is
-        # honored at archive (the App Group entitlement that links the extension
-        # to the main app's inbox would otherwise be dropped too).
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
         # Extension UIs are size-constrained — explicit so XcodeGen
         # doesn't auto-add device-family quirks.
         TARGETED_DEVICE_FAMILY: "1,2"
-      configs:
-        Release:
-          CODE_SIGNING_REQUIRED: YES
-          CODE_SIGNING_ALLOWED: YES
 
   # Widget extension (US-190). Home-screen widget showing today's
   # selling snapshot + pending payout. Reads the rollup the main app
@@ -263,18 +243,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.widget
         GENERATE_INFOPLIST_FILE: NO
-        # See GradeThread target: automatic signing declared here so
-        # ProvisioningStyle=Automatic is written and entitlements are honored.
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_ENTITLEMENTS: GradeThreadWidget/GradeThreadWidget.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
-      configs:
-        Release:
-          CODE_SIGNING_REQUIRED: YES
-          CODE_SIGNING_ALLOWED: YES
 
   # UI-test target for App Store screenshot capture via fastlane snapshot
   # (US-197). Deliberately NOT in the GradeThread scheme's test action so
