@@ -327,8 +327,37 @@ struct LoginView: View {
             if let asError = error as? ASAuthorizationError, asError.code == .canceled {
                 return
             }
-            authStore.lastError = error
+            // ASAuthorizationError.unknown (1000) is a generic wrapper — the
+            // actionable cause almost always lives in NSUnderlyingErrorKey
+            // (e.g. an AKAuthenticationError from AuthKit). Capture the whole
+            // chain to Sentry AND surface it on-screen so a TestFlight tester
+            // can read WHY instead of a bare "error 1000".
+            let detail = Self.describeAuthError(error)
+            Telemetry.breadcrumb("Sign in with Apple failed: \(detail)", category: "auth")
+            Telemetry.event("apple_signin_failed", props: ["detail": detail])
+            authStore.lastError = AppleSignInFailure(detail: detail)
         }
+    }
+
+    /// Flattens an NSError chain (each level's domain/code/description, following
+    /// `NSUnderlyingErrorKey`) into one readable line. Bounded so a cyclic or
+    /// deep chain can't spin.
+    private static func describeAuthError(_ error: Error) -> String {
+        var parts: [String] = []
+        var current: NSError? = error as NSError
+        var depth = 0
+        while let err = current, depth < 5 {
+            parts.append("\(err.domain) \(err.code): \(err.localizedDescription)")
+            current = err.userInfo[NSUnderlyingErrorKey] as? NSError
+            depth += 1
+        }
+        return parts.joined(separator: " ← ")
+    }
+
+    /// Carries the unwrapped underlying reason into the on-screen error region.
+    private struct AppleSignInFailure: LocalizedError {
+        let detail: String
+        var errorDescription: String? { "Sign in with Apple failed.\n\(detail)" }
     }
 }
 
