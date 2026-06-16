@@ -116,6 +116,10 @@ targets:
         SUPABASE_URL: "$(SUPABASE_URL)"
         SUPABASE_ANON_KEY: "$(SUPABASE_ANON_KEY)"
         EDGE_API_URL: "$(EDGE_API_URL)"
+        # US-368: Cloudflare Turnstile site key. Empty in xcconfig; the release
+        # workflow injects the real key from Infisical at archive time (like
+        # SUPABASE_ANON_KEY). Empty → captcha is a no-op (local/CI).
+        TURNSTILE_SITE_KEY: "$(TURNSTILE_SITE_KEY)"
         SENTRY_DSN: "$(SENTRY_DSN)"
         POSTHOG_API_KEY: "$(POSTHOG_API_KEY)"
         POSTHOG_HOST: "$(POSTHOG_HOST)"

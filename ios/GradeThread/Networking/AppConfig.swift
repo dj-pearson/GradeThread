@@ -55,6 +55,17 @@ enum AppConfig {
             ?? URL(string: "https://us.i.posthog.com")!
     }
 
+    /// Cloudflare Turnstile **site** key (US-368). Production GoTrue enforces
+    /// captcha on signup / email-password sign-in / password-reset, rejecting
+    /// any such call that lacks a `gotrue_meta_security.captcha_token`. When
+    /// this key is present the app renders the Turnstile widget and forwards
+    /// the resulting token; when it's empty (local dev / CI) the captcha step
+    /// is a silent no-op — mirroring the web app's `VITE_TURNSTILE_SITE_KEY`
+    /// gating. The matching secret lives only on the server.
+    static var turnstileSiteKey: String? {
+        nonEmptyString(forInfoKey: "TURNSTILE_SITE_KEY")
+    }
+
     // MARK: - Internals
 
     private static func string(forInfoKey key: String) -> String? {

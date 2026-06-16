@@ -13,6 +13,11 @@ EDGE_API_URL = https:/$()/functions.gradethread.com
 // real backend, override this in an untracked local xcconfig.
 SUPABASE_ANON_KEY = ci-debug-anon-key-placeholder
 
+// US-368: blank for local sim / CI — captcha enforcement is off on the local
+// throwaway stack, so the native Turnstile step no-ops. For local runs against
+// the real captcha-enforcing backend, override this in an untracked xcconfig.
+TURNSTILE_SITE_KEY =
+
 // US-191 telemetry. Empty values disable the corresponding SDK
 // silently — analytics + crash reporting are opt-in best-effort.
 SENTRY_DSN =

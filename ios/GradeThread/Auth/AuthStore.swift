@@ -47,16 +47,21 @@ public final class AuthStore {
 
     // MARK: - Actions
 
-    public func signIn(email: String, password: String) async {
+    /// `captchaToken` (US-368): production GoTrue rejects these calls without a
+    /// valid Turnstile token. Supplied by ``LoginView`` from the native
+    /// challenge; nil on local/CI builds where no Turnstile site key is set, in
+    /// which case the server has captcha disabled too.
+    public func signIn(email: String, password: String, captchaToken: String? = nil) async {
         await run {
             _ = try await SupabaseShared.client.auth.signIn(
                 email: email,
-                password: password
+                password: password,
+                captchaToken: captchaToken
             )
         }
     }
 
-    public func signUp(email: String, password: String, fullName: String?) async {
+    public func signUp(email: String, password: String, fullName: String?, captchaToken: String? = nil) async {
         await run {
             var data: [String: AnyJSON] = [:]
             if let fullName, !fullName.isEmpty {
@@ -65,16 +70,18 @@ public final class AuthStore {
             _ = try await SupabaseShared.client.auth.signUp(
                 email: email,
                 password: password,
-                data: data.isEmpty ? nil : data
+                data: data.isEmpty ? nil : data,
+                captchaToken: captchaToken
             )
         }
     }
 
-    public func resetPassword(email: String) async {
+    public func resetPassword(email: String, captchaToken: String? = nil) async {
         await run {
             try await SupabaseShared.client.auth.resetPasswordForEmail(
                 email,
-                redirectTo: SupabaseShared.redirectURL
+                redirectTo: SupabaseShared.redirectURL,
+                captchaToken: captchaToken
             )
         }
     }
