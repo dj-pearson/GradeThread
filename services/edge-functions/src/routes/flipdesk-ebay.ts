@@ -3530,7 +3530,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
-        "id, user_id, title, brand, sku, description, condition_notes, grade_value, grade_label, ebay_aspects"
+        "id, user_id, title, brand, size, sku, description, condition_notes, grade_value, grade_label, ebay_aspects"
       )
       .eq("id", itemId)
       .maybeSingle();
@@ -3542,6 +3542,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       user_id: string;
       title: string | null;
       brand: string | null;
+      size: string | null;
       sku: string | null;
       description: string | null;
       condition_notes: string | null;
@@ -3549,6 +3550,15 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       grade_label: string | null;
       ebay_aspects: Record<string, string[]> | null;
     };
+
+    // US-1088: keep the eBay "Size" item specific in sync with the item's size
+    // field. The Size field is the source of truth, so mirror it into the aspect
+    // on every revise — eBay shows size from item specifics, not the title — so
+    // a Size AI fill (or any size edit) reaches buyers when pushed.
+    const aspects: Record<string, string[]> = { ...(item.ebay_aspects ?? {}) };
+    if (item.size && item.size.trim()) {
+      aspects.Size = [item.size.trim()];
+    }
     const sku =
       item.sku && item.sku.trim()
         ? item.sku.trim()
@@ -3596,7 +3606,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         product: {
           title: finalTitle,
           description: finalDesc,
-          aspects: item.ebay_aspects ?? undefined,
+          aspects: Object.keys(aspects).length > 0 ? aspects : undefined,
           imageUrls,
           // Mirror the publish path (US: error 25002 <BrandMPN>): eBay requires a
           // Brand+MPN product identifier on every inventory_item PUT, so the

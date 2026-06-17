@@ -627,6 +627,7 @@ export function ItemCanvas({
     // inventory re-PUT (which carries brand, item specifics, condition, photos).
     const structuralChanged =
       state.brand.trim() !== (item.brand ?? "").trim() ||
+      state.size.trim() !== (item.size ?? "").trim() ||
       state.item_category !== ((item.category as string | null) ?? "") ||
       state.condition_notes.trim() !== (item.notes ?? "").trim();
     if (

@@ -1202,7 +1202,8 @@ struct ItemCanvasView: View {
             let d = state.draft
             let titleChanged = d.title != o.title
             let structuralChanged =
-                d.brand != o.brand || d.category != o.category
+                d.brand != o.brand || d.size != o.size
+                    || d.category != o.category
                     || d.conditionNotes != o.conditionNotes
             let newPrice = Double(
                 d.targetPriceText.replacingOccurrences(of: ",", with: ""))
