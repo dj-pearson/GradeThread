@@ -104,6 +104,25 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
 
+  # --- Story selection (done HERE, not by the LLM) ------------------------
+  # The agent used to read the entire prd.json (~300 KB / ~80K tokens) every
+  # iteration just to pick the next story, then rewrite the whole file to flip
+  # one boolean. We do both with jq instead: select the highest-priority
+  # passes:false story and write ONLY that object to current-story.json (~1.5
+  # KB), which the agent reads. The piped prompt (CLAUDE.md) stays byte-
+  # identical across iterations, so its prefix hits the prompt cache.
+  STORY_JSON=$(jq -c '[.userStories[] | select(.passes==false)] | sort_by(.priority) | reverse | .[0] // empty' "$PRD_FILE")
+  if [ -z "$STORY_JSON" ]; then
+    echo ""
+    echo "All stories pass — nothing left to do."
+    echo "<promise>COMPLETE</promise>"
+    exit 0
+  fi
+  STORY_ID=$(echo "$STORY_JSON" | jq -r '.id')
+  STORY_TITLE=$(echo "$STORY_JSON" | jq -r '.title')
+  echo "$STORY_JSON" | jq '.' > "$SCRIPT_DIR/current-story.json"
+  echo "  Selected story: $STORY_ID — $STORY_TITLE"
+
   # Per-iteration timeout (seconds). A single iteration that exceeds this is
   # treated as hung and killed so the LOOP survives instead of stalling forever.
   # The 2026-06-12 hang (prerender.mjs never exiting -> foreground `npm run build`
@@ -139,14 +158,43 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$SCRIPT_DIR/kill-stray-builds.ps1")" 2>/dev/null || true
   fi
 
-  # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
-    echo ""
-    echo "Ralph completed all tasks!"
-    echo "Completed at iteration $i of $MAX_ITERATIONS"
-    exit 0
+  # --- Mark story complete (done HERE, not by the LLM) --------------------
+  # The agent signals a verified+committed story with <promise>STORY_DONE</promise>
+  # and no longer touches prd.json. The harness flips passes:true via jq,
+  # records progress, and commits — so the agent never reads/rewrites the big
+  # prd.json. A timed-out (RC=124) or failed iteration leaves passes:false, so
+  # the same story is simply re-selected and retried next iteration.
+  if [ "$RC" -eq 0 ] && echo "$OUTPUT" | grep -q "<promise>STORY_DONE</promise>"; then
+    echo "  $STORY_ID verified by agent — marking passes:true."
+    TMP_PRD="$(mktemp)"
+    if jq --arg id "$STORY_ID" '(.userStories[] | select(.id==$id) | .passes) |= true' "$PRD_FILE" > "$TMP_PRD"; then
+      mv "$TMP_PRD" "$PRD_FILE"
+    else
+      rm -f "$TMP_PRD"
+      echo "  ⚠️  Failed to update prd.json for $STORY_ID; leaving passes:false for retry."
+    fi
+    {
+      echo "## $STORY_ID: $STORY_TITLE"
+      echo "- Status: COMPLETE"
+      echo "- Timestamp: $(date)"
+      echo "---"
+    } >> "$PROGRESS_FILE"
+    git -C "$REPO_ROOT" add "$PRD_FILE" "$PROGRESS_FILE" >/dev/null 2>&1 || true
+    git -C "$REPO_ROOT" commit -m "chore($STORY_ID): mark story complete" >/dev/null 2>&1 || true
+
+    # All done?
+    REMAINING=$(jq '[.userStories[] | select(.passes==false)] | length' "$PRD_FILE" 2>/dev/null || echo "1")
+    if [ "$REMAINING" -eq 0 ]; then
+      echo ""
+      echo "Ralph completed all tasks!"
+      echo "Completed at iteration $i of $MAX_ITERATIONS"
+      echo "<promise>COMPLETE</promise>"
+      exit 0
+    fi
+  else
+    echo "  $STORY_ID not marked done this iteration (rc=$RC) — will retry."
   fi
-  
+
   echo "Iteration $i complete. Continuing..."
   sleep 2
 done

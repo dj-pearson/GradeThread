@@ -96,3 +96,6 @@ ratio
 .claude/settings.local.json
 services/edge-functions/deno.lock
 .claude/settings.local.json
+
+# Ralph per-iteration transient state (regenerated each loop)
+scripts/ralph/current-story.json
