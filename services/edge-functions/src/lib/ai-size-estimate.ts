@@ -14,6 +14,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
+import {
+  findSizingCharts,
+  formatSizingChartsForPrompt,
+} from "./sizing-charts.ts";
 
 export interface SizePhoto {
   url: string;
@@ -168,6 +172,21 @@ export async function estimateSize(input: {
     });
     content.push({ type: "image", source: { type: "url", url: photo.url } });
   });
+  // Inject the relevant brand/category size chart as an authoritative reference
+  // (US-1088 knowledge layer) so the model maps measurements → the brand's own
+  // label instead of relying on memory. Empty when we have no matching chart.
+  const chartText = formatSizingChartsForPrompt(
+    findSizingCharts(input.brand, input.category),
+  );
+  if (chartText) {
+    content.push({
+      type: "text",
+      text:
+        "REFERENCE SIZE CHART(S) — approximate; map the measurements you read to " +
+        "the closest size, and prefer a brand-specific chart over a generic one:\n" +
+        chartText,
+    });
+  }
   content.push({
     type: "text",
     text: userInstructions(input.brand, input.category),

@@ -36,6 +36,9 @@ struct ItemCanvasView: View {
     // inventory-based listings on its own site). This holds a soft warning when
     // the local save succeeded but the eBay push failed (never blocks the save).
     @State private var ebaySyncError: String?
+    // US-1088: Size AI — estimate a missing/cut-off size from the item's photos.
+    @State private var sizeAiRunning = false
+    @State private var sizeAiMessage: String?
     @State private var compsStore = CompsStore()
     /// US-676: consignors for the consignment picker.
     @State private var consignorStore = ConsignorStore()
@@ -357,6 +360,17 @@ struct ItemCanvasView: View {
         } message: {
             Text(ebaySyncError ?? "")
         }
+        .alert(
+            "Size AI",
+            isPresented: Binding(
+                get: { sizeAiMessage != nil },
+                set: { if !$0 { sizeAiMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { sizeAiMessage = nil }
+        } message: {
+            Text(sizeAiMessage ?? "")
+        }
         // US-650/US-687: add photos straight into THIS item (not a new intake).
         // selectionLimit 0 = unlimited, so users can add extra/detail shots
         // beyond the standard slots.
@@ -629,6 +643,27 @@ struct ItemCanvasView: View {
             TextField("Size", text: $state.draft.size)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+            // US-1088: Size AI — only while Size is blank (e.g. a cut-off
+            // Lululemon label); fills the field on success, then hides.
+            if state.draft.size.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    AppRouter.haptic()
+                    Task { await runSizeAi(state: state) }
+                } label: {
+                    HStack(spacing: 6) {
+                        if sizeAiRunning {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "sparkles")
+                        }
+                        Text(sizeAiRunning
+                            ? "Analyzing photos…"
+                            : "Size AI — estimate from photos")
+                            .font(.subheadline)
+                    }
+                }
+                .disabled(sizeAiRunning)
+            }
             TextField("Color", text: $state.draft.color)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -641,6 +676,38 @@ struct ItemCanvasView: View {
                     Text(cat.label).tag(Optional(cat))
                 }
             }
+        }
+    }
+
+    /// US-1088: run Size AI for this item — fills the Size field with the best
+    /// guess and surfaces the rationale/confidence (or the failure) in an alert.
+    /// Gender rides on the eBay category (resolved elsewhere), so it's only
+    /// shown for context here, not written to a separate field.
+    private func runSizeAi(state: ItemCanvasState) async {
+        sizeAiRunning = true
+        defer { sizeAiRunning = false }
+        do {
+            let r = try await SizeAIService().estimate(itemId: item.id)
+            guard !r.size.isEmpty else {
+                sizeAiMessage =
+                    "Size AI couldn't read a size — add a measurement or flat-lay photo and try again."
+                return
+            }
+            state.draft.size = r.size
+            HapticFeedback.success()
+            let genderNote = r.gender.map { " · \($0)" } ?? ""
+            let head = r.lowConfidence
+                ? "Best guess: \(r.size)\(genderNote)"
+                : "Size AI: \(r.size)\(genderNote)"
+            let detail = r.rationale.isEmpty
+                ? (r.lowConfidence
+                    ? "Low confidence — double-check before listing."
+                    : "")
+                : r.rationale
+            sizeAiMessage = detail.isEmpty ? head : "\(head)\n\n\(detail)"
+        } catch {
+            HapticFeedback.error()
+            sizeAiMessage = "Size AI failed: \(error.localizedDescription)"
         }
     }
 
