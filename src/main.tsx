@@ -3,9 +3,9 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
-import * as Sentry from "@sentry/react";
 import { router } from "@/routes";
 import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
+import { initSentry } from "@/lib/sentry";
 import "@/index.css";
 
 // Stale-chunk guard. After a deploy, an already-open tab (or a stale PWA
@@ -22,18 +22,11 @@ window.addEventListener("vite:preloadError", () => {
   window.location.reload();
 });
 
-// Initialize Sentry (conditional). Error monitoring is not gated by the cookie
-// banner — it runs under legitimate interest with no advertising signals.
-const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
-if (sentryDsn) {
-  Sentry.init({
-    dsn: sentryDsn,
-    integrations: [Sentry.browserTracingIntegration()],
-    tracesSampleRate: 0.1,
-    sendDefaultPii: true,
-    release: import.meta.env.VITE_RELEASE_SHA,
-  });
-}
+// Initialize Sentry (conditional, lazy). Error monitoring is not gated by the
+// cookie banner — it runs under legitimate interest with no advertising signals.
+// Loaded via dynamic import (see lib/sentry.ts) so @sentry/react stays out of
+// the eager/cold-load chunk graph (US-417 bundle budget).
+initSentry();
 
 // Analytics (Google Analytics + PostHog) are consent-gated. Returning visitors
 // who already opted in get analytics restored here; first-time visitors see the

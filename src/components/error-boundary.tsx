@@ -1,6 +1,6 @@
 import { Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import * as Sentry from "@sentry/react";
+import { captureException } from "@/lib/sentry";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,11 +31,11 @@ export class ErrorBoundary extends Component<Props, State> {
     if (import.meta.env.DEV) {
       console.error("ErrorBoundary caught:", error, errorInfo);
     }
-    if (import.meta.env.VITE_SENTRY_DSN) {
-      Sentry.captureException(error, {
-        extra: { componentStack: errorInfo.componentStack },
-      });
-    }
+    // Lazy-loads @sentry/react on first capture (no-op without a DSN) so the
+    // eager graph stays slim — see lib/sentry.ts.
+    captureException(error, {
+      extra: { componentStack: errorInfo.componentStack },
+    });
   }
 
   handleReset = () => {
