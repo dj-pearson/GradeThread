@@ -23,6 +23,12 @@ final class LocalInventoryItem {
     var material: String?
     var status: String
 
+    /// `inventory_items.item_category` enum value (e.g. "clothing", "shoes",
+    /// "watches", "sports_cards"). Drives the per-category photo profile
+    /// (PhotoProfileStore) for retag/capture. User-owned on sync (editable in
+    /// the details form / canvas), same conflict policy as the other metadata.
+    var itemCategory: String?
+
     /// `sources.id` this item was acquired from, when known. Powers the
     /// per-source ROI rollup (US-677). Optional — legacy/manual rows may have
     /// no source. Treated as a user-owned field on sync.

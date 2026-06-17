@@ -208,6 +208,7 @@ actor SyncEngine {
         let color: String?
         let material: String?
         let status: String
+        let item_category: String?
         let source_id: String?
         let location_bin: String?
         let consignor_id: String?
@@ -224,6 +225,7 @@ actor SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case id, user_id, title, brand, sku, size, color, material, status
+            case item_category
             case source_id
             case location_bin, consignor_id, consignment_split_pct
             case target_price, acquired_price, grade_value, grade_label
@@ -241,6 +243,7 @@ actor SyncEngine {
             color = try c.decodeIfPresent(String.self, forKey: .color)
             material = try c.decodeIfPresent(String.self, forKey: .material)
             status = try c.decode(String.self, forKey: .status)
+            item_category = try c.decodeIfPresent(String.self, forKey: .item_category)
             source_id = try c.decodeIfPresent(String.self, forKey: .source_id)
             location_bin = try c.decodeIfPresent(String.self, forKey: .location_bin)
             consignor_id = try c.decodeIfPresent(String.self, forKey: .consignor_id)
@@ -479,7 +482,7 @@ actor SyncEngine {
     }
 
     private static let itemColumns =
-        "id,user_id,title,brand,sku,size,color,material,status,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
+        "id,user_id,title,brand,sku,size,color,material,status,item_category,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"

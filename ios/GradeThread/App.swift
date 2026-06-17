@@ -35,16 +35,25 @@ struct GradeThreadApp: App {
         }
     }()
 
+    /// Per-category photo-profile table (server-authoritative, cached). Created
+    /// once and shared so the capture + retag surfaces resolve a category's
+    /// photo slots without each refetching. See PhotoProfileStore.
+    @State private var photoProfileStore = PhotoProfileStore()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .modelContainer(container)
                 .environment(appDelegate.photoUploadStore)
+                .environment(photoProfileStore)
                 .environment(\.photoUploadService, appDelegate.photoUploadService)
                 // Hand the background-refresh service the live container so
                 // its new-sale / new-grade detection can read the cache.
                 .task {
                     appDelegate.backgroundRefresh.attachModelContainer(container)
+                    // Warm the photo-profile cache so retag/capture have the
+                    // category-specific slots ready (falls back to bundled).
+                    await photoProfileStore.loadIfNeeded()
                     // Drain StoreKit transaction updates (renewals/refunds/
                     // deferred buys): report + finish each. Detached, lives on.
                     _ = StoreKitService.startTransactionListener()

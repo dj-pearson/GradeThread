@@ -18,6 +18,7 @@ struct PhotoManagerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(PhotoProfileStore.self) private var photoProfileStore
 
     @State private var working: [LocalItemPhoto] = []
     @State private var isSaving = false
@@ -31,6 +32,11 @@ struct PhotoManagerView: View {
                 Section {
                     ForEach(working) { photo in
                         let isCover = working.first?.id == photo.id
+                        // Retag options ordered by this item's category profile:
+                        // the category's own roles first (with category labels),
+                        // then every other type.
+                        let profile = photoProfileStore.profile(for: item.itemCategory)
+                        let suggestedTypes = Set(profile.roles.map(\.type))
                         PhotoManagerRow(photo: photo, isCover: isCover)
                             .contextMenu {
                                 if !isCover {
@@ -51,17 +57,33 @@ struct PhotoManagerView: View {
                                     Label("Rotate left", systemImage: "rotate.left")
                                 }
                                 Menu {
-                                    ForEach(FlipdeskPhotoType.all, id: \.self) { type in
-                                        Button {
-                                            retag(photo, to: type)
-                                        } label: {
-                                            if type == photo.photoType {
-                                                Label(FlipdeskPhotoType.label(for: type), systemImage: "checkmark")
-                                            } else {
-                                                Text(FlipdeskPhotoType.label(for: type))
+                                    Section("Suggested · \(profile.label)") {
+                                        ForEach(profile.roles, id: \.type) { role in
+                                            Button {
+                                                retag(photo, to: role.type)
+                                            } label: {
+                                                if role.type == photo.photoType {
+                                                    Label(role.label, systemImage: "checkmark")
+                                                } else {
+                                                    Text(role.label)
+                                                }
                                             }
+                                            .disabled(role.type == photo.photoType)
                                         }
-                                        .disabled(type == photo.photoType)
+                                    }
+                                    Section("All types") {
+                                        ForEach(FlipdeskPhotoType.all.filter { !suggestedTypes.contains($0) }, id: \.self) { type in
+                                            Button {
+                                                retag(photo, to: type)
+                                            } label: {
+                                                if type == photo.photoType {
+                                                    Label(FlipdeskPhotoType.label(for: type), systemImage: "checkmark")
+                                                } else {
+                                                    Text(FlipdeskPhotoType.label(for: type))
+                                                }
+                                            }
+                                            .disabled(type == photo.photoType)
+                                        }
                                     }
                                 } label: {
                                     Label("Change type", systemImage: "tag")
