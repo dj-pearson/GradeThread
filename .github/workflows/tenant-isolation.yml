@@ -67,9 +67,15 @@ jobs:
 
       # Seed the two-tenant fixture. Emits TEST_* KEY=VALUE lines on stdout for
       # $GITHUB_ENV; any failure (incl. schema drift) exits non-zero → job fails.
+      # pipefail is REQUIRED: without it the `| tee` pipeline reports tee's exit
+      # code (0), silently masking a seed crash — the job then runs the suite with
+      # no TEST_* env, so the real failure shows up as the confusing downstream
+      # "fixture is configured — must not SKIP" guard instead of the seed error.
       - name: Seed two-tenant fixture
         working-directory: services/edge-functions
+        shell: bash
         run: |
+          set -euo pipefail
           deno run --allow-net --allow-env scripts/seed-tenant-isolation-fixture.ts \
             | tee fixture.env
           cat fixture.env >> "$GITHUB_ENV"

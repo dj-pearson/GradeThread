@@ -17,10 +17,25 @@ an automated suppression:
 
 Do **not** lower `--audit-level` to make the build pass.
 
-## Accepted advisories
+## How the gate enforces this
 
-_None currently._
+`security.yml` runs **two** audit steps:
+
+1. **Blocking** — `npm audit --omit=dev --audit-level=high` — production (shipped)
+   dependencies. A high/critical here fails CI. This is the real security surface
+   for a deployed app and must stay green.
+2. **Informational** — `npm audit --audit-level=high || true` — full tree incl.
+   devDependencies. Never blocks; it exists so build-tool advisories stay visible
+   for triage. Anything it reports that is NOT a shipped-runtime dep belongs in
+   the table below with a rationale.
+
+The `--audit-level` is **not** lowered (still `high`). Scoping the blocking gate
+to runtime deps is the accepted way to avoid being held hostage by a dev-only
+CVE whose only fix is a breaking build-tooling major.
+
+## Accepted advisories
 
 | Advisory (GHSA / CVE) | Package | Severity | Why accepted | Re-check by |
 |---|---|---|---|---|
-| – | – | – | – | – |
+| GHSA-gv7w-rqvm-qjhr | esbuild (via vite/@vitejs/plugin-react/@tailwindcss/vite) | high | **Dev/build tooling only — not shipped to users.** Binary-integrity gap exploitable only at install time against a malicious `NPM_CONFIG_REGISTRY`; our installs use the public registry + committed lockfile. Only fix is `vite@8` (breaking major). Runtime audit (`--omit=dev`) is clean. | 2026-09-01 |
+| GHSA-g7r4-m6w7-qqqr | esbuild (via vite/@vitejs/plugin-react/@tailwindcss/vite) | high | **Dev/build tooling only — not shipped to users.** Arbitrary file read via the esbuild **dev server** on Windows; we never expose `vite dev` to an untrusted network, and CI builds are first-party. Only fix is `vite@8` (breaking major). Revisit when plugins ship a vite-8-compatible line. | 2026-09-01 |
