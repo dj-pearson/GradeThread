@@ -31,9 +31,11 @@ struct ItemCanvasView: View {
     @State private var showingDiscardConfirmation = false
     @State private var showingPublishDialog = false
     @State private var showingPhotoManager = false
-    // US-310: edit a live listing in place (eBay blocks editing inventory-based
-    // listings on its own site, so revisions must come from here).
-    @State private var showingReviseSheet = false
+    // US-310: editing a GradeThread-published live listing is folded into Save —
+    // "Save & sync to eBay" pushes the change in place (eBay blocks editing
+    // inventory-based listings on its own site). This holds a soft warning when
+    // the local save succeeded but the eBay push failed (never blocks the save).
+    @State private var ebaySyncError: String?
     @State private var compsStore = CompsStore()
     /// US-676: consignors for the consignment picker.
     @State private var consignorStore = ConsignorStore()
@@ -78,6 +80,14 @@ struct ItemCanvasView: View {
             $0.platform == "ebay"
                 && ($0.listingStatus == "active" || $0.listingStatus == "relisted")
         }
+    }
+
+    /// A GradeThread-PUBLISHED live listing (one with a Sell API offer id) is
+    /// the only kind revisable in place — so Save also syncs to eBay. eBay-native
+    /// listings (no offer) are edited on eBay, never pushed from here.
+    private var gtLiveListing: LocalListing? {
+        guard let l = activeEbayListing, l.platformOfferId != nil else { return nil }
+        return l
     }
 
     /// True when the item's edited target price differs from what's published on
@@ -209,7 +219,9 @@ struct ItemCanvasView: View {
                 if state?.savePhase == .saving {
                     ProgressView()
                 } else {
-                    Text("Save").font(.subheadline.weight(.semibold))
+                    // A live GradeThread listing is revised in place on save.
+                    Text(gtLiveListing != nil ? "Save & Sync" : "Save")
+                        .font(.subheadline.weight(.semibold))
                 }
             }
             .disabled(!(state?.isDirty ?? false) || !(state?.isSavable ?? false) || state?.savePhase == .saving)
@@ -334,10 +346,16 @@ struct ItemCanvasView: View {
         .sheet(isPresented: $showingAIReview) {
             AIFillReviewSheet(item: item)
         }
-        .sheet(isPresented: $showingReviseSheet) {
-            if let listing = activeEbayListing {
-                ReviseListingSheet(item: item, listing: listing)
-            }
+        .alert(
+            "eBay sync failed",
+            isPresented: Binding(
+                get: { ebaySyncError != nil },
+                set: { if !$0 { ebaySyncError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { ebaySyncError = nil }
+        } message: {
+            Text(ebaySyncError ?? "")
         }
         // US-650/US-687: add photos straight into THIS item (not a new intake).
         // selectionLimit 0 = unlimited, so users can add extra/detail shots
@@ -439,22 +457,12 @@ struct ItemCanvasView: View {
 
             if let active = activeEbayListing {
                 if active.platformOfferId != nil {
-                    // GradeThread-PUBLISHED (has a Sell offer): revise in place.
-                    if listingPriceUnsynced {
-                        Text("You changed the price — tap “Edit live listing” to push it to eBay.")
-                            .font(.caption)
-                            .foregroundStyle(Color.brandAmber)
-                    }
-                    Button {
-                        AppRouter.haptic()
-                        showingReviseSheet = true
-                    } label: {
-                        Label(
-                            listingPriceUnsynced ? "Update eBay listing" : "Edit live listing",
-                            systemImage: "square.and.pencil"
-                        )
-                        .fontWeight(.semibold)
-                    }
+                    // GradeThread-PUBLISHED (has a Sell offer): editing is folded
+                    // into Save — the toolbar button is "Save & Sync" and pushes
+                    // changed fields in place. No separate revise sheet.
+                    Text("Edits here sync to eBay when you tap “Save & Sync”.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else if let raw = active.externalURL, let url = URL(string: raw) {
                     // eBay-NATIVE (no Sell offer): GradeThread can't revise it in
                     // place, but eBay allows editing it on its own site. Relist
@@ -1117,6 +1125,36 @@ struct ItemCanvasView: View {
         }
         state.beginSaving()
 
+        // Unified Save & sync (web parity): capture the eBay-relevant change
+        // BEFORE the draft is accepted as the new original. Only a
+        // GradeThread-published listing (with a Sell offer) is revisable in
+        // place; if only internal fields changed there's no eBay round-trip.
+        let ebayPlan: (listingId: String, title: String?, price: Double?)? = {
+            guard let live = gtLiveListing else { return nil }
+            let o = state.original
+            let d = state.draft
+            let titleChanged = d.title != o.title
+            let structuralChanged =
+                d.brand != o.brand || d.category != o.category
+                    || d.conditionNotes != o.conditionNotes
+            let newPrice = Double(
+                d.targetPriceText.replacingOccurrences(of: ",", with: ""))
+            let oldPrice = Double(
+                o.targetPriceText.replacingOccurrences(of: ",", with: ""))
+            let priceChanged = newPrice != nil && newPrice! > 0
+                && newPrice != oldPrice
+            guard titleChanged || structuralChanged || priceChanged else {
+                return nil
+            }
+            return (
+                listingId: live.id,
+                title: titleChanged
+                    ? d.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : nil,
+                price: priceChanged ? newPrice : nil
+            )
+        }()
+
         let payload = buildUpdatePayload(state: state)
         do {
             try await SupabaseShared.client
@@ -1142,8 +1180,32 @@ struct ItemCanvasView: View {
                     category: "inventory"
                 )
             }
+            // Push to the live GradeThread listing. A failed eBay push never
+            // blocks the local save — surface the reason and keep the user here.
+            var syncFailed = false
+            if let plan = ebayPlan {
+                let outcome = await EbayPublishService().revise(
+                    listingId: plan.listingId,
+                    title: plan.title,
+                    description: nil,
+                    price: plan.price,
+                    syncPhotos: true
+                )
+                switch outcome {
+                case .revised:
+                    break
+                case .noOfferId:
+                    ebaySyncError =
+                        "Saved on your device, but this listing has no eBay offer to update."
+                    syncFailed = true
+                case .failed(let message):
+                    ebaySyncError =
+                        "Saved on your device, but the eBay update failed: \(message)"
+                    syncFailed = true
+                }
+            }
             HapticFeedback.success()
-            if dismissAfter { dismiss() }
+            if dismissAfter && !syncFailed { dismiss() }
             return true
         } catch {
             // Duplicate SKU (partial unique index on user_id, sku) → offer to
