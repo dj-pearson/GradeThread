@@ -690,6 +690,14 @@ export interface PublicGradeReportRow {
   // different account ("Original photos verified" badge). Positive-only — the
   // raw reuse-scan counts stay server-side.
   original_photos_verified: boolean;
+  // Non-clothing grading (migration 00231): generic { factor_key: score } map +
+  // the rubric that produced it (e.g. "sports_cards"). Absent/null on clothing &
+  // legacy certificates — the cert renders the typed factor columns instead. The
+  // public view exposes these only once the grading pipeline writes them
+  // (activation phase), so today they're always absent and the typed-column
+  // fallback runs.
+  factor_scores?: Record<string, number> | null;
+  rubric_key?: string | null;
 }
 
 export interface DisputeRow {

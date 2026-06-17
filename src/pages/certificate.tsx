@@ -26,12 +26,12 @@ import { certificateLd, breadcrumbLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { cn } from "@/lib/utils";
 import {
-  GRADE_FACTORS,
   getScoreColor,
   getScoreBorderColor,
   getTierBadgeClasses,
   getProgressColor,
 } from "@/lib/constants";
+import { rubricForKey } from "@/lib/rubrics";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
@@ -371,28 +371,28 @@ export function CertificatePage() {
     );
   }
 
-  const factorScores = [
-    {
-      key: "fabric_condition" as const,
-      score: gradeReport.fabric_condition_score,
-    },
-    {
-      key: "structural_integrity" as const,
-      score: gradeReport.structural_integrity_score,
-    },
-    {
-      key: "cosmetic_appearance" as const,
-      score: gradeReport.cosmetic_appearance_score,
-    },
-    {
-      key: "functional_elements" as const,
-      score: gradeReport.functional_elements_score,
-    },
-    {
-      key: "odor_cleanliness" as const,
-      score: gradeReport.odor_cleanliness_score,
-    },
-  ];
+  // Factor breakdown is category-aware: a non-clothing report carries a generic
+  // factor_scores map + rubric_key (migration 00231); clothing/legacy reports
+  // use the 5 typed columns. Both render through the rubric's factor defs, so
+  // clothing certificates are unchanged.
+  const clothingColumnScore: Record<string, number> = {
+    fabric_condition: gradeReport.fabric_condition_score,
+    structural_integrity: gradeReport.structural_integrity_score,
+    cosmetic_appearance: gradeReport.cosmetic_appearance_score,
+    functional_elements: gradeReport.functional_elements_score,
+    odor_cleanliness: gradeReport.odor_cleanliness_score,
+  };
+  const activeRubric = rubricForKey(
+    gradeReport.factor_scores && gradeReport.rubric_key
+      ? gradeReport.rubric_key
+      : "clothing",
+  );
+  const factorScores = activeRubric.factors.map((f) => ({
+    key: f.key,
+    label: f.label,
+    weight: f.weight,
+    score: gradeReport.factor_scores?.[f.key] ?? clothingColumnScore[f.key] ?? 0,
+  }));
 
   // US-328: genuine defects, worst-first. Empty for clean items / historical
   // grades that never persisted structured defects.
@@ -647,15 +647,14 @@ export function CertificatePage() {
             <CardTitle className="text-base">Factor Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {factorScores.map(({ key, score }) => {
-              const factor = GRADE_FACTORS[key];
+            {factorScores.map(({ key, label, weight, score }) => {
               return (
                 <div key={key} className="space-y-1.5">
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium">
-                      {factor.label}{" "}
+                      {label}{" "}
                       <span className="text-muted-foreground">
-                        ({(factor.weight * 100).toFixed(0)}%)
+                        ({(weight * 100).toFixed(0)}%)
                       </span>
                     </span>
                     <span
