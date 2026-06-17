@@ -119,10 +119,16 @@ const ENRICHABLE_FIELDS = [
   "color",
   "material",
   "item_category",
+  // Clothing grading inputs — the AI suggests these from photos (only for
+  // clothing); applying them clears the grading-readiness blockers.
+  "garment_type",
+  "garment_category",
 ] as const;
 
 const AI_FIELD_LABELS: Record<string, string> = {
   item_category: "Category",
+  garment_type: "Garment Type",
+  garment_category: "Garment Category",
   condition_notes: "Internal notes",
   description: "Description",
 };
@@ -1408,6 +1414,8 @@ export function ItemCanvas({
           color: state.color,
           material: state.material,
           item_category: state.item_category,
+          garment_type: state.garment_type,
+          garment_category: state.garment_category,
           condition_notes: state.condition_notes,
           description: state.description,
         }}

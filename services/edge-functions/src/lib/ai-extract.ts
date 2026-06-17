@@ -47,6 +47,25 @@ export const ITEM_CATEGORIES = [
   "other",
 ] as const;
 
+// Clothing-specific grading taxonomy — mirrors GARMENT_TYPES/GARMENT_CATEGORIES
+// in src/lib/constants.ts (and the inline copies in routes/grade.ts). The edge
+// is a separate Deno project and can't import frontend code. Only meaningful
+// when item_category === "clothing"; the grading readiness gate requires both.
+export const GARMENT_TYPES = [
+  "tops",
+  "bottoms",
+  "outerwear",
+  "dresses",
+  "footwear",
+  "accessories",
+] as const;
+export const GARMENT_CATEGORIES = [
+  "t-shirt", "shirt", "blouse", "sweater", "hoodie",
+  "jacket", "coat", "jeans", "pants", "shorts",
+  "skirt", "dress", "sneakers", "boots", "sandals",
+  "hat", "bag", "belt", "scarf", "other",
+] as const;
+
 const EXTRACT_FIELDS = [
   "title",
   "brand",
@@ -55,6 +74,8 @@ const EXTRACT_FIELDS = [
   "color",
   "material",
   "item_category",
+  "garment_type",
+  "garment_category",
   "condition_notes",
   "description",
 ] as const;
@@ -171,6 +192,7 @@ You are given a free-text description and/or photos of a single second-hand item
 Hard rules:
 - Never guess. If the input does not support a field, omit it entirely.
 - item_category MUST be one of: ${ITEM_CATEGORIES.join(", ")}. Never invent a category. Classify from the FRONT photo first (what KIND of product is this?) — the client uses this to pick which photo slots to ask the seller for, so prefer the most specific fit: a handbag/purse is 'bags', a hat/belt/sunglasses sold on its own is 'accessories', a ring/necklace is 'jewelry', a graded or raw trading card is 'sports_cards'. Use 'other' only when nothing else fits.
+- garment_type and garment_category: fill these ONLY when item_category is 'clothing' (apparel that is graded on the clothing rubric). Omit both entirely for any other item_category. garment_type MUST be one of: ${GARMENT_TYPES.join(", ")}. garment_category MUST be one of: ${GARMENT_CATEGORIES.join(", ")} and must be consistent with garment_type (e.g. tops→t-shirt/shirt/blouse/sweater/hoodie; bottoms→jeans/pants/shorts/skirt; outerwear→jacket/coat; dresses→dress; footwear→sneakers/boots/sandals; accessories→hat/bag/belt/scarf/other). Classify from the front/flatlay photo. These power grading readiness, so prefer a confident best-fit over omission when the item is clearly clothing.
 - size: normalize to a common token (XS, S, M, L, XL, XXL, a numeric size, or a shoe size) only when unambiguous; otherwise omit it.
 - title: produce a clean, listing-ready title (brand + key descriptors), not a copy of the raw text.
 - color: a single primary color word. material: the primary fabric/material.
@@ -290,6 +312,28 @@ const EXTRACT_TOOL: Anthropic.Tool = {
         description: "Item category",
         properties: {
           value: { type: "string", enum: [...ITEM_CATEGORIES] },
+          confidence: { type: "number" },
+          source: { type: "string" },
+        },
+        required: ["value", "confidence"],
+      },
+      garment_type: {
+        type: "object",
+        description:
+          "Clothing garment type — ONLY when item_category is 'clothing'. Omit for every non-clothing item.",
+        properties: {
+          value: { type: "string", enum: [...GARMENT_TYPES] },
+          confidence: { type: "number" },
+          source: { type: "string" },
+        },
+        required: ["value", "confidence"],
+      },
+      garment_category: {
+        type: "object",
+        description:
+          "Specific clothing garment category — ONLY when item_category is 'clothing'. Must be consistent with garment_type. Omit for every non-clothing item.",
+        properties: {
+          value: { type: "string", enum: [...GARMENT_CATEGORIES] },
           confidence: { type: "number" },
           source: { type: "string" },
         },
