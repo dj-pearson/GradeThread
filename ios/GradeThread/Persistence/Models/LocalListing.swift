@@ -11,6 +11,11 @@ final class LocalListing {
 
     var platform: String              // "ebay" | "poshmark" | …
     var platformListingId: String?
+    /// Sell Inventory API offer id. Non-nil ONLY for listings GradeThread
+    /// published itself — that's what makes a listing revisable in place via the
+    /// Sell API. eBay-native (pulled) listings have no offer, so they're edited
+    /// on eBay instead. Drives the "Edit live listing" vs "Edit on eBay" branch.
+    var platformOfferId: String?
     var externalURL: String?
 
     var listingPrice: Double

@@ -166,6 +166,46 @@ actor SyncMergeActor {
         try? modelContext.save()
     }
 
+    /// Upserts the local mirror of `listings` so the item canvas can resolve a
+    /// live eBay listing and decide between in-place revise (Sell offer present)
+    /// and an Edit-on-eBay link. Server is authoritative for marketplace fields
+    /// (status, price, offer id). Not pruned: the listings fetch is bounded per
+    /// pass, so deleting locals absent from one page could wrongly drop rows.
+    func mergeListings(_ remoteListings: [SyncEngine.RemoteListing]) {
+        guard !remoteListings.isEmpty else { return }
+        let existing = (try? modelContext.fetch(FetchDescriptor<LocalListing>())) ?? []
+        var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+        for remote in remoteListings {
+            let local: LocalListing
+            if let existing = existingById[remote.id] {
+                local = existing
+            } else {
+                local = LocalListing(
+                    id: remote.id,
+                    inventoryItemId: remote.inventory_item_id,
+                    platform: remote.platform ?? "ebay",
+                    listingPrice: remote.listing_price ?? 0,
+                    listingStatus: remote.listing_status ?? "active",
+                    createdAt: remote.created_at.map(SyncEngine.parseDate) ?? .now
+                )
+                modelContext.insert(local)
+                existingById[remote.id] = local
+            }
+            // Server-authoritative marketplace fields (refresh every sync).
+            local.platform = remote.platform ?? local.platform
+            local.platformListingId = remote.platform_listing_id
+            local.platformOfferId = remote.platform_offer_id
+            local.externalURL = remote.listing_url
+            if let price = remote.listing_price { local.listingPrice = price }
+            local.listingStatus = remote.listing_status ?? local.listingStatus
+            local.listedAt = remote.listed_at.map(SyncEngine.parseDate)
+            local.endedAt = remote.ended_at.map(SyncEngine.parseDate)
+            local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
+        }
+        try? modelContext.save()
+    }
+
     // MARK: - Realtime single-row apply (US-198, reuses this shared context)
 
     func mergeSingleInventory(_ remote: SyncEngine.RemoteInventoryItem) {

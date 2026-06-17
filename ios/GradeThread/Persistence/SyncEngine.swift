@@ -129,6 +129,7 @@ actor SyncEngine {
             )
             await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
             await mergeActor.mergeSales(payload.sales)
+            await mergeActor.mergeListings(payload.listings)
 
             // Advance watermarks ONLY after a successful merge (US-633) so a
             // dropped pass re-fetches the missed rows next time.
@@ -179,6 +180,9 @@ actor SyncEngine {
         /// market-value "inventory value" stays current. Empty if the listings
         /// fetch failed (best-effort — never blocks the item merge).
         let listingPrices: [String: Double]
+        /// Full listing rows, mirrored into LocalListing so the item canvas can
+        /// offer in-place revise (Sell offer present) or an Edit-on-eBay link.
+        let listings: [RemoteListing]
 
         /// Map of inventoryItemId → first photo (sort_order ascending). In
         /// delta mode this only covers items whose photos changed this pass.
@@ -410,10 +414,10 @@ actor SyncEngine {
             // scopes it through the parent inventory_items row.
             let listingRows = (try? await paginatedFetch(
                 table: "listings",
-                columns: Self.listingPriceColumns,
+                columns: Self.listingColumns,
                 cursor: "created_at",
                 watermark: nil,
-                decode: Self.decodeListingPricesResiliently
+                decode: Self.decodeListingsResiliently
             )) ?? []
             var listingPrices: [String: Double] = [:]
             var listingPriceAt: [String: Date] = [:]
@@ -429,7 +433,8 @@ actor SyncEngine {
                 items: items, photos: photos, sales: sales,
                 isFullPhotoSync: isFullPhotoSync,
                 isFullItemSync: isFullItemSync,
-                listingPrices: listingPrices
+                listingPrices: listingPrices,
+                listings: listingRows
             ))
         } catch {
             return .failure(error)
@@ -482,22 +487,32 @@ actor SyncEngine {
     private static let saleColumns =
         "id,inventory_item_id,sale_price,platform_fees,payment_processing_fees,shipping_collected,shipping_cost,grading_cost,other_costs,tax,net_profit,status,sale_date,buyer_username,created_at"
 
-    /// Minimal listings projection used to refresh each item's cached market
-    /// (listing) price so the Home/Money "inventory value" reflects what the
-    /// item is listed for — matching eBay — rather than its cost basis.
-    private static let listingPriceColumns =
-        "id,inventory_item_id,listing_price,listed_at,created_at"
+    /// Full listings projection. Drives BOTH the cached market (listing) price
+    /// per item AND the local LocalListing mirror that the item canvas reads to
+    /// decide whether to show "Edit live listing" (revisable Sell API offer) vs
+    /// "Edit on eBay" (eBay-native, no offer). Pulled every pass (not
+    /// watermarked) so status/price/offer changes from eBay land promptly.
+    private static let listingColumns =
+        "id,inventory_item_id,platform,platform_listing_id,platform_offer_id,listing_url,listing_price,listing_status,listed_at,ended_at,created_at,updated_at"
 
-    struct RemoteListingPrice: Decodable, Sendable {
+    struct RemoteListing: Decodable, Sendable {
+        let id: String
         let inventory_item_id: String
+        let platform: String?
+        let platform_listing_id: String?
+        let platform_offer_id: String?
+        let listing_url: String?
         let listing_price: Double?
+        let listing_status: String?
         let listed_at: String?
+        let ended_at: String?
         let created_at: String?
+        let updated_at: String?
     }
 
-    static func decodeListingPricesResiliently(_ data: Data) -> [RemoteListingPrice] {
+    static func decodeListingsResiliently(_ data: Data) -> [RemoteListing] {
         guard let rows = try? JSONDecoder().decode(
-            [Failable<RemoteListingPrice>].self, from: data
+            [Failable<RemoteListing>].self, from: data
         ) else { return [] }
         return rows.compactMap(\.value)
     }

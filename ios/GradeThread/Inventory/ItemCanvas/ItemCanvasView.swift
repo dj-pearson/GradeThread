@@ -437,21 +437,33 @@ struct ItemCanvasView: View {
                 .padding(.vertical, 2)
             }
 
-            if activeEbayListing != nil {
-                if listingPriceUnsynced {
-                    Text("You changed the price — tap “Edit live listing” to push it to eBay.")
-                        .font(.caption)
-                        .foregroundStyle(Color.brandAmber)
-                }
-                Button {
-                    AppRouter.haptic()
-                    showingReviseSheet = true
-                } label: {
-                    Label(
-                        listingPriceUnsynced ? "Update eBay listing" : "Edit live listing",
-                        systemImage: "square.and.pencil"
-                    )
-                    .fontWeight(.semibold)
+            if let active = activeEbayListing {
+                if active.platformOfferId != nil {
+                    // GradeThread-PUBLISHED (has a Sell offer): revise in place.
+                    if listingPriceUnsynced {
+                        Text("You changed the price — tap “Edit live listing” to push it to eBay.")
+                            .font(.caption)
+                            .foregroundStyle(Color.brandAmber)
+                    }
+                    Button {
+                        AppRouter.haptic()
+                        showingReviseSheet = true
+                    } label: {
+                        Label(
+                            listingPriceUnsynced ? "Update eBay listing" : "Edit live listing",
+                            systemImage: "square.and.pencil"
+                        )
+                        .fontWeight(.semibold)
+                    }
+                } else if let raw = active.externalURL, let url = URL(string: raw) {
+                    // eBay-NATIVE (no Sell offer): GradeThread can't revise it in
+                    // place, but eBay allows editing it on its own site. Relist
+                    // (below) republishes it through GradeThread to unlock in-app
+                    // editing.
+                    Link(destination: url) {
+                        Label("Edit on eBay", systemImage: "square.and.pencil")
+                            .fontWeight(.semibold)
+                    }
                 }
                 // Relist as a NEW listing: ends the current live listing and
                 // publishes a fresh one (new eBay item #). The publish sheet
