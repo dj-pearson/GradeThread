@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1089,
+  "nextId": 1107,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2773,6 +2773,271 @@
       "priority": 1088,
       "passes": false,
       "notes": "[Backlog 2026-06-17] User request. Lululemon labels often cut off. Leverage measurement photos (flipdesk_photo_type measurement/measurements) + brand sizing charts (needs a sizing-chart reference source). New edge endpoint (e.g. /api/flipdesk/ai/size) + Claude Vision. Epic: AI listing assist. severity=medium."
+    },
+    {
+      "id": "US-1089",
+      "title": "Garment Passport: core data model (garments, owner_nodes, append-only garment_events ledger)",
+      "description": "As the platform, I want a persistent item identity with an append-only event ledger so that a single physical garment can accumulate condition + ownership history across multiple grades and sales — the foundation of the CARFAX-for-clothing 'Garment Passport'.",
+      "acceptanceCriteria": [
+        "New migration (next sequential supabase/migrations/0023N_garment_passport_core.sql) adds: garments (id uuid PK, public_passport_slug text unique, sku_class jsonb for brand/model/size/colorway, current_owner_node_id uuid, status enum, created_by uuid, created_at/updated_at), owner_nodes (id uuid PK, pseudonymous_label text, kind enum 'seller'|'buyer'|'system', linked_user_id uuid NULL for later opt-in, created_at), and garment_events (id uuid PK, garment_id uuid FK, event_type enum 'graded'|'listed'|'sold'|'ownership_transfer'|'fingerprinted', actor_node_id uuid, payload jsonb, confidence enum 'deterministic'|'probable'|'unknown', source text, created_at) — append-only (no UPDATE/DELETE policy for non-admin)",
+        "owner_nodes are PSEUDONYMOUS by default: no PII columns; linked_user_id is nullable and unset until a future opt-in story",
+        "RLS on all three tables: owners see their own garments/events via created_by or owning node; the public passport view is read-only and exposes NO PII (US-268 tenant-scoping respected; service-role writes only in edge)",
+        "updated_at trigger wired per repo convention; UUID PKs via gen_random_uuid(); enums used for fixed sets",
+        "Migration applies cleanly on a fresh schema (db verify lane / supabase db reset) and is documented inline"
+      ],
+      "priority": 700,
+      "passes": false,
+      "notes": "[P1][Passport][Foundation] EPIC ANCHOR for the Garment Passport (CARFAX-for-clothing). Pseudonymous nodes only; opt-in identity is deferred to [[US-1105]]. Blocks the rest of the epic. Follow MIGRATIONS.md numbering (next after 00231)."
+    },
+    {
+      "id": "US-1090",
+      "title": "Garment Passport: pseudonymity, retention & tenant-scoping privacy model",
+      "description": "As a privacy-conscious platform, I want the passport built pseudonymous-by-default with explicit retention and tenant-scoping rules so that we capture the resale chain WITHOUT holding buyer/seller PII, keeping us defensible and compliant.",
+      "acceptanceCriteria": [
+        "Documented data-classification note (docs or migration comment) confirming owner_nodes hold no PII and that any future identity link is opt-in only (forward ref to [[US-1105]])",
+        "Public passport surfaces expose only pseudonymous labels (e.g. 'Seller A', 'Owner 2'), never user ids, emails, addresses, or handles",
+        "All edge reads/writes on garments/owner_nodes/garment_events are tenant-scoped per US-268 (workspaceOwnerId ?? userId), and a case is added to services/edge-functions/src/tests/tenant-isolation_test.ts covering the new tables",
+        "Retention policy defined for any raw linkage inputs (e.g. transient marketplace order data) — minimized/hashed, not stored as PII; documented",
+        "deno lint/check/test + tenant-isolation suite pass"
+      ],
+      "priority": 701,
+      "passes": false,
+      "notes": "[P1][Passport][Privacy] Establishes the limited-PII posture the user asked for. Depends on [[US-1089]]. Pairs with the US-268 isolation rule and US-276 upload hardening."
+    },
+    {
+      "id": "US-1091",
+      "title": "Garment Passport: backfill existing certificates into single-hop passports",
+      "description": "As an existing user, I want my past grade certificates to automatically become single-hop passports so that the chain isn't empty at launch and every certificate gains a persistent garment identity.",
+      "acceptanceCriteria": [
+        "Backfill migration/job creates one garment + a pseudonymous origin owner_node + a 'graded' garment_event (confidence='deterministic') for each existing grade_report that has a certificate_id",
+        "grade_reports gains a nullable garment_id FK linking the report to its garment; new grades populate it going forward (wire in services/edge-functions/src/routes/grade.ts)",
+        "public_grade_reports view (or a sibling public view) can resolve a certificate to its passport slug without exposing PII",
+        "Backfill is idempotent (re-running does not duplicate garments/events) and chunked for the existing volume",
+        "db verify lane passes; existing certificate.tsx still renders unchanged"
+      ],
+      "priority": 702,
+      "passes": false,
+      "notes": "[P1][Passport] Seeds the ledger so the flywheel starts non-empty. Depends on [[US-1089]]. Touches grade.ts (US grading write path) and the public_grade_reports view (00194/00138 lineage)."
+    },
+    {
+      "id": "US-1092",
+      "title": "Garment Passport: edge API to read the chain and append events",
+      "description": "As a developer/consumer, I want edge endpoints to read a garment's full passport chain and to append events so that frontend, FlipDesk, and partners can build on the ledger — all tenant-scoped.",
+      "acceptanceCriteria": [
+        "New edge route module (services/edge-functions/src/routes/passport.ts) mounted in main.ts under /api/passport/*",
+        "GET /api/passport/:slug returns the public, PII-free chain (ordered events with type, confidence, pseudonymous actor, timestamps, grade snapshots)",
+        "Authenticated POST endpoints to append 'ownership_transfer' / 'listed' events are tenant-scoped (US-268) and verify ownership before writing — never trust an id from the body",
+        "Append operations are validated and append-only (no mutation of prior events); errors return { error } + HTTP status per repo convention",
+        "Unit/integration tests added; deno lint/check/test pass; a tenant-isolation case covers the new endpoints"
+      ],
+      "priority": 703,
+      "passes": false,
+      "notes": "[P1][Passport] Depends on [[US-1089]], [[US-1090]]. Mirror the ownership-verification pattern from flipdesk-ebay.ts (loadListingOwned/assemblePublishContext)."
+    },
+    {
+      "id": "US-1093",
+      "title": "Garment Passport: public timeline page (confidence-scored, pseudonymous)",
+      "description": "As a buyer, I want a public passport page showing the garment's grade + ownership history as a confidence-scored timeline so that I can trust an item's provenance before buying.",
+      "acceptanceCriteria": [
+        "New public route /passport/:slug (src/pages/passport.tsx) registered in src/routes/index.tsx, and added to src/lib/seo/public-routes.ts + src/prerender/entry-server.tsx per the SEO registry rule",
+        "Renders a vertical timeline of garment_events: graded (with CG score/tier), listed, sold, ownership transfer — each labeled with a confidence badge (deterministic / probable / unknown)",
+        "Shows ONLY pseudonymous actors and no PII; links back to the original certificate(s)",
+        "Mobile-friendly, brand-styled (navy/red), uses lucide-react icons + existing UI primitives; build + tsc + eslint clean",
+        "JSON-LD/structured data for the passport added via <SEO> and mirrored in head-builder.ts jsonLdForRoute() per the SEO gotcha"
+      ],
+      "priority": 704,
+      "passes": false,
+      "notes": "[P1][Passport] The marquee buyer-facing surface. Depends on [[US-1091]], [[US-1092]]. Follow the prerender/SEO registry rules in CLAUDE.md (public-routes.ts + entry-server.tsx + head-builder.ts)."
+    },
+    {
+      "id": "US-1094",
+      "title": "Garment Passport: ownership handoff / claim flow (Layer 1 — title transfer)",
+      "description": "As a buyer who received a graded item, I want to claim its passport via a link/QR so that ownership transfers to a new pseudonymous node and the chain continues deterministically — the strongest, design-driven tracking layer.",
+      "acceptanceCriteria": [
+        "A claimable passport link/token can be generated for a sold item; claiming it appends an 'ownership_transfer' event (confidence='deterministic') and creates/links a new pseudonymous buyer node",
+        "Claim flow works for anonymous claimers (no account required) and optionally associates to an account if signed in — but stores no PII on the node",
+        "Claim tokens are single-use / time-bounded and validated server-side; replay/abuse guarded",
+        "After claim, current_owner_node_id updates; the public timeline reflects the new (pseudonymous) owner",
+        "Tests cover happy path + invalid/expired/replayed token; build + deno checks pass"
+      ],
+      "priority": 705,
+      "passes": false,
+      "notes": "[P2][Passport][Layer1] The 'title transfer' that makes tracking work without magic. Depends on [[US-1092]], [[US-1093]]. Incentive design (guarantee transfers) handled in [[US-1100]]."
+    },
+    {
+      "id": "US-1095",
+      "title": "Garment Passport: carry-forward on relist (FlipDesk + certificate embed)",
+      "description": "As a reseller relisting an item I bought with a passport, I want the relist to continue the existing chain so that the garment's history is preserved across platforms instead of starting over.",
+      "acceptanceCriteria": [
+        "When a FlipDesk item / listing is created from a claimed passport, the new listing references the same garment_id and appends a 'listed' event",
+        "The certificate/embed (embed-grade.tsx, certificate.tsx) carried into a marketplace listing links to the passport slug so the next buyer can claim and continue the chain",
+        "AutoLister-generated listings include the passport link when a garment_id is present (wire into the flipdesk autolister path)",
+        "No duplicate garments are created on relist; the chain shows continuity; tenant-scoped per US-268",
+        "build + tsc + eslint + deno checks pass"
+      ],
+      "priority": 706,
+      "passes": false,
+      "notes": "[P2][Passport][Layer1] Closes the loop so resale-through-ecosystem extends the chain. Depends on [[US-1094]]. Touches FlipDesk autolister + embed-grade.tsx (US-596) + certificate.tsx."
+    },
+    {
+      "id": "US-1096",
+      "title": "Garment Passport: physical tag (QR/short-code) generation + scan-to-claim (Layer 2)",
+      "description": "As a seller of a higher-value item, I want to attach a scannable tag tied to the passport so that physical scanning gives deterministic identity continuity across owners.",
+      "acceptanceCriteria": [
+        "Generate a printable QR + human-readable short code bound to a garment's passport slug (downloadable/printable from the item view)",
+        "Scanning the QR opens the public passport page; a 'claim' action from the scan triggers the Layer-1 handoff ([[US-1094]])",
+        "Tag tokens are validated server-side and rate-limited; a tag can be (re)issued if lost, with prior tags revocable",
+        "Tagging is opt-in and positioned for the Verified tier (ties to existing Verified Capture/verified-seller surfaces)",
+        "build + deno checks pass; QR generation has a unit test"
+      ],
+      "priority": 707,
+      "passes": false,
+      "notes": "[P2][Passport][Layer2] Deterministic certainty upgrade for items worth tagging (Entrupy/Vestiaire-style). Depends on [[US-1093]], [[US-1094]]. Ties to verified-seller.tsx / Verified Capture (00138)."
+    },
+    {
+      "id": "US-1097",
+      "title": "Garment Passport: visual fingerprint embedding per grade (Layer 3 foundation)",
+      "description": "As the platform, I want to compute and store a per-grade visual fingerprint (defect map + measurements + perceptual hash) so that we can later probabilistically recognize the same physical garment across listings — the AI moat.",
+      "acceptanceCriteria": [
+        "On each grade, derive a fingerprint from existing signals (grade_defects/00220 defect map + locations, measurements, label-condition, perceptual/image hashes of the structured photos) and store it linked to the garment_event",
+        "New migration adds a garment_fingerprints table (garment_id, grade_report_id, embedding/hash payload jsonb, wear_score numeric, created_at) with RLS",
+        "Fingerprint computation reuses the hardened image pipeline (US-276 validateImageUpload/stripImageMetadata) and signed URLs (no getPublicUrl on submission-images)",
+        "Backfill fingerprints for recent grades where photos are still available (best-effort, chunked)",
+        "deno lint/check/test + db verify pass"
+      ],
+      "priority": 708,
+      "passes": false,
+      "notes": "[P2][Passport][Layer3] Stores the instance-level signal; matching is [[US-1097]]. Depends on [[US-1089]], [[US-1091]]. Reuse grade_defects (00220) + US-276 pipeline; never expose submission-images publicly."
+    },
+    {
+      "id": "US-1098",
+      "title": "Garment Passport: candidate-match service with wear-monotonicity gate (Layer 3)",
+      "description": "As the platform, I want a service that proposes probable 'same item' matches with a confidence score and a wear-monotonicity sanity check so that we can extend chains without serials — honestly scored, never asserted as certain.",
+      "acceptanceCriteria": [
+        "Given a new fingerprint, return ranked candidate garments with a similarity score, restricted to plausible SKU-class matches",
+        "Apply a wear-monotonicity gate: a candidate whose condition plausibly DEGRADED over time scores higher; a 'match' that improved is flagged as suspicious/low-confidence",
+        "Matches are surfaced as suggestions only (confidence='probable'), requiring human/relister confirmation before an 'ownership_transfer'/link event is written — never auto-merged",
+        "Service is tenant-aware and rate-limited; thresholds are configurable via feature flags/settings",
+        "Unit tests cover ranking, the monotonicity gate, and the 'improved condition = suspicious' case; deno checks pass"
+      ],
+      "priority": 709,
+      "passes": false,
+      "notes": "[P2][Passport][Layer3] The honest probabilistic layer — scored, not binary. Depends on [[US-1096]]. Feeds fraud signals [[US-1103]]."
+    },
+    {
+      "id": "US-1099",
+      "title": "Garment Passport: relist detection via listing-image hash match",
+      "description": "As the platform, I want to detect when a buyer relists an item using the original/similar photos so that we can suggest continuing the existing chain — a strong real-world reseller signal.",
+      "acceptanceCriteria": [
+        "Compute perceptual hashes of listing images and match against prior listings/garment fingerprints to flag likely relists (confidence='probable')",
+        "A detected relist surfaces a 'link to existing passport?' suggestion in the relevant FlipDesk/listing flow rather than auto-linking",
+        "Matching is tenant-scoped and respects the image hardening pipeline (US-276); no public exposure of private grading images",
+        "False-positive guardrails (threshold + SKU-class agreement) documented and tested",
+        "deno checks + build pass"
+      ],
+      "priority": 710,
+      "passes": false,
+      "notes": "[P3][Passport][Layer3] Catches reused-photo relists (very common). Depends on [[US-1097]]. Suggestion-only, confirmed via [[US-1094]] handoff."
+    },
+    {
+      "id": "US-1100",
+      "title": "Garment Passport: eBay sale → pseudonymous sold-to node + claim offer (Layer 4)",
+      "description": "As the platform, I want each eBay sale to record a pseudonymous sold-to node and offer the buyer a passport claim so that we capture 'who it sold to' and 'did they resell it' WITHOUT storing buyer PII.",
+      "acceptanceCriteria": [
+        "On an eBay order/sale event (flipdesk-ebay.ts / flipdesk-webhooks.ts), append a 'sold' garment_event and create a pseudonymous buyer node — derived from a salted hash of the buyer identifier, NOT raw PII",
+        "The same hashed identifier reappearing later (e.g. buyer becomes a seller) links nodes to detect resale, while storing no name/email/address",
+        "A passport claim offer is generated for the buyer (link includes the Layer-1 handoff token from [[US-1094]])",
+        "All writes tenant-scoped (US-268) with a tenant-isolation test case; webhook signatures verified as today",
+        "deno lint/check/test pass"
+      ],
+      "priority": 711,
+      "passes": false,
+      "notes": "[P2][Passport][Layer4] Answers the user's 'who bought it / did they resell it' via salted-hash pseudonymous nodes — limited-PII by construction. Depends on [[US-1090]], [[US-1092]], [[US-1094]]. Touches flipdesk-ebay.ts / flipdesk-webhooks.ts."
+    },
+    {
+      "id": "US-1101",
+      "title": "Garment Passport: attach Buyer Guarantee + Verified Seller to the chain",
+      "description": "As a buyer, I want the buyer guarantee and verified-seller trust to travel with the passport so that a passported item is demonstrably safer to buy — the incentive that makes buyers claim and resellers carry the chain forward.",
+      "acceptanceCriteria": [
+        "Buyer guarantee (buyer-guarantee-claim.tsx / admin-claims.ts) references the garment/passport so a claim is tied to the chain, not just a one-off certificate",
+        "Verified-seller status (verified-seller.tsx / verified-directory.tsx) is reflected on the passport timeline for the relevant ownership hop",
+        "The public passport page communicates 'guarantee transfers on claim' to incentivize the Layer-1 handoff",
+        "No PII leaks onto the public surface; tenant-scoped reads/writes; build + deno checks pass"
+      ],
+      "priority": 712,
+      "passes": false,
+      "notes": "[P2][Passport][Trust] Makes the passport more valuable per transaction (the flywheel incentive). Depends on [[US-1093]], [[US-1094]]. Ties existing US-867 guarantee + verified-seller surfaces."
+    },
+    {
+      "id": "US-1102",
+      "title": "Garment Passport: confidence model + UI badges across chain links",
+      "description": "As a buyer/seller, I want every link in the chain to show how it was established (deterministic / probable / unknown) so that the passport is honest and legally safe — proven vs. inferred is always visible.",
+      "acceptanceCriteria": [
+        "A single confidence taxonomy (deterministic = tag/claim/order-lineage; probable = fingerprint/relist; unknown = origin/unverified) is defined and applied consistently to garment_events",
+        "Public passport page + certificate render a clear confidence badge per link with a tooltip explaining the basis",
+        "Aggregate 'chain strength' indicator summarizes the passport (e.g. how many hops are deterministic)",
+        "Copy avoids over-claiming on probable/unknown links (legal safety); reviewed against marketing tone",
+        "build + tsc + eslint clean"
+      ],
+      "priority": 713,
+      "passes": false,
+      "notes": "[P2][Passport][Trust] The honesty layer that differentiates us and limits liability. Depends on [[US-1093]]. Consumes confidence from [[US-1094]],[[US-1097]],[[US-1099]],[[US-1100]]."
+    },
+    {
+      "id": "US-1103",
+      "title": "Garment Passport: admin integrity & fraud signals",
+      "description": "As an admin, I want passport-integrity signals (impossible chains, wear-reversal, duplicate fingerprints, claim abuse) so that we can catch fraud and keep the ledger trustworthy.",
+      "acceptanceCriteria": [
+        "Admin surface (under src/pages/admin/, alongside admin-fraud/admin-safety) lists integrity anomalies: condition that improved across a 'same item' link, duplicate fingerprints across active owners, rapid re-claims, token-replay attempts",
+        "Each anomaly links to the garment/passport and supports admin action (flag, sever a probable link, annotate)",
+        "Signals reuse existing abuse/velocity infrastructure where possible; admin actions are audit-logged",
+        "Edge endpoints tenant/role-scoped (AAL2 admin); deno checks + build pass"
+      ],
+      "priority": 714,
+      "passes": false,
+      "notes": "[P3][Passport][Safety] Keeps the ledger credible. Depends on [[US-1097]], [[US-1094]]. Extends admin-fraud.ts/admin-safety.ts patterns."
+    },
+    {
+      "id": "US-1104",
+      "title": "Garment Passport: longitudinal resale-value & depreciation forecast (Scout)",
+      "description": "As a reseller, I want a price + sell-through + 12-month depreciation forecast derived from the passport ledger so that I get valuation intelligence no competitor can match — the payoff of the longitudinal dataset.",
+      "acceptanceCriteria": [
+        "A forecasting service consumes garment_events history (grades over time, sale prices, sell-through) to estimate list price, expected days-to-sell, and projected resale value at 12 months, with a confidence interval",
+        "Forecast surfaces in FlipDesk Scout and/or AutoLister pricing where a garment_id/SKU-class has enough data; degrades gracefully (clear 'insufficient data') when sparse",
+        "Methodology documented; outputs labeled as estimates; no PII used",
+        "Tenant-scoped; gated behind a feature flag / plan tier; deno checks + build pass"
+      ],
+      "priority": 715,
+      "passes": false,
+      "notes": "[P3][Passport][Valuation] Turns grading into valuation — the monetizable moat. Depends on [[US-1091]] (seeded history) and benefits from [[US-1099]] sale data. Surface in FlipDesk Scout."
+    },
+    {
+      "id": "US-1105",
+      "title": "Garment Passport: opt-in identity reveal (deferred)",
+      "description": "As a user who wants public credit, I want to optionally link my real account/profile to my pseudonymous passport node with explicit consent so that verified sellers can build reputation — strictly opt-in, off by default.",
+      "acceptanceCriteria": [
+        "A consent-gated setting links owner_nodes.linked_user_id to an account and optionally reveals the verified-seller handle on chosen passport hops",
+        "Default remains fully pseudonymous; revealing is reversible and scoped to the hops the user chooses",
+        "Consent + any revealed data honored across export/delete (data_requests / 00225) and documented in the privacy model ([[US-1090]])",
+        "No PII is revealed without explicit per-user opt-in; build + deno checks pass"
+      ],
+      "priority": 716,
+      "passes": false,
+      "notes": "[P3][Passport][Privacy] The deferred opt-in the user described ('later maybe have an opt in'). Depends on [[US-1090]], [[US-1093]]. Off by default; reversible."
+    },
+    {
+      "id": "US-1106",
+      "title": "Garment Passport: buyer-facing 'scan before you buy' public entry",
+      "description": "As a prospective buyer browsing a marketplace, I want a simple public way to look up an item's passport (scan/enter code) so that demand-side discovery pulls more sellers into the ecosystem.",
+      "acceptanceCriteria": [
+        "A public, no-auth entry point (e.g. /verify or scan affordance) resolves a passport slug/short-code or QR to the public timeline",
+        "Mobile-first, fast, brand-styled; registered in the SEO public-routes registry + prerender entry per CLAUDE.md",
+        "Clear CTA for sellers ('grade your item to get a passport') to drive supply-side growth",
+        "No PII exposed; build + tsc + eslint clean"
+      ],
+      "priority": 717,
+      "passes": false,
+      "notes": "[P3][Passport][Growth] Demand-side wedge that grows coverage. Depends on [[US-1093]], [[US-1095]]. Follow SEO registry rules (public-routes.ts + entry-server.tsx + head-builder.ts)."
     }
   ]
 }
