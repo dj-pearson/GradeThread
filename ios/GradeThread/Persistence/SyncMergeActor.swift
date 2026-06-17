@@ -200,7 +200,7 @@ actor SyncMergeActor {
             if let price = remote.listing_price { local.listingPrice = price }
             local.listingStatus = remote.listing_status ?? local.listingStatus
             local.listedAt = remote.listed_at.map(SyncEngine.parseDate)
-            local.endedAt = remote.ended_at.map(SyncEngine.parseDate)
+            // listings has no ended_at column; LocalListing.endedAt stays nil.
             local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
         }
         try? modelContext.save()

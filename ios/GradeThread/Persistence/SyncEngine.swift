@@ -492,8 +492,12 @@ actor SyncEngine {
     /// decide whether to show "Edit live listing" (revisable Sell API offer) vs
     /// "Edit on eBay" (eBay-native, no offer). Pulled every pass (not
     /// watermarked) so status/price/offer changes from eBay land promptly.
+    // NOTE: the listings table has NO `ended_at` column — selecting it 400s the
+    // WHOLE query (PostgREST), which silently zeroes the listings sync (no
+    // LocalListing rows → the item canvas never shows "Edit live listing"). Only
+    // list columns proven to exist on `listings` (00002 + flipdesk migrations).
     private static let listingColumns =
-        "id,inventory_item_id,platform,platform_listing_id,platform_offer_id,listing_url,listing_price,listing_status,listed_at,ended_at,created_at,updated_at"
+        "id,inventory_item_id,platform,platform_listing_id,platform_offer_id,listing_url,listing_price,listing_status,listed_at,created_at,updated_at"
 
     struct RemoteListing: Decodable, Sendable {
         let id: String
@@ -505,7 +509,6 @@ actor SyncEngine {
         let listing_price: Double?
         let listing_status: String?
         let listed_at: String?
-        let ended_at: String?
         let created_at: String?
         let updated_at: String?
     }
