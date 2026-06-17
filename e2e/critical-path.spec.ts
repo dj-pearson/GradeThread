@@ -165,24 +165,41 @@ async function login(page: Page) {
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
 }
 
-// First-run overlays (cookie consent + the "Welcome to GradeThread" tour) render
-// as modals that intercept pointer events — dismiss them before driving the form.
+// First-run overlays (cookie consent + the onboarding flow) render as modals
+// that intercept pointer events — dismiss them before driving the form.
 async function dismissOverlays(page: Page) {
-  // Cookie consent first (its overlay sits above the page, blocking the tour's
-  // Skip button).
+  // Cookie consent first (its overlay sits above the page, blocking the modal
+  // beneath it).
   const accept = page.getByRole("button", { name: /^accept$/i });
   if (await accept.isVisible().catch(() => false)) {
     await accept.click();
     await expect(accept).toBeHidden();
   }
-  // The "Welcome to GradeThread" tour appears on first run, sometimes a beat
-  // after mount — auto-wait for its Skip button, then confirm it's gone. Tolerate
-  // absence (e.g. if onboarding is ever disabled) so the test doesn't hang.
-  const skipTour = page.getByRole("button", { name: /^skip$/i });
-  await skipTour.click({ timeout: 10_000 }).catch(() => {});
-  await expect(page.getByRole("dialog", { name: /welcome to gradethread/i }))
-    .toBeHidden()
-    .catch(() => {});
+
+  // First-run onboarding (OnboardingFlow) is a GATED, non-dismissible modal:
+  // step 0 is a "Welcome to GradeThread" screen (→ Next); step 1 requires
+  // picking a use case BEFORE the "Skip tour" button appears (Escape /
+  // outside-click are blocked until then). Drive that exact sequence so the
+  // dialog stops intercepting the garment form beneath it. Tolerate absence so
+  // the test doesn't hang if onboarding is ever disabled.
+  const welcome = page.getByRole("dialog", { name: /welcome to gradethread/i });
+  if (await welcome.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: /^next$/i }).click(); // welcome → use case
+    await page.getByRole("button", { name: /reselling/i }).click(); // required pick
+    const skipTour = page.getByRole("button", { name: /skip tour/i });
+    await expect(skipTour).toBeVisible();
+    await skipTour.click();
+  }
+
+  // Belt-and-suspenders: close any other first-run modal (e.g. the FlipDesk
+  // onboarding checklist) still intercepting pointer events. Those ARE
+  // Escape-dismissible. Bounded so a sticky dialog can't hang the test.
+  for (let i = 0; i < 3; i++) {
+    const anyDialog = page.getByRole("dialog").first();
+    if (!(await anyDialog.isVisible().catch(() => false))) break;
+    await page.keyboard.press("Escape");
+    await expect(anyDialog).toBeHidden({ timeout: 2_000 }).catch(() => {});
+  }
 }
 
 async function fillGarmentInfo(page: Page) {
