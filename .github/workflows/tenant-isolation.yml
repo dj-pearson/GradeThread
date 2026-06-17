@@ -69,7 +69,23 @@ jobs:
             echo "SUPABASE_URL=$(val API_URL)"
             echo "SUPABASE_SERVICE_ROLE_KEY=$(val SERVICE_ROLE_KEY)"
             echo "SUPABASE_ANON_KEY=$(val ANON_KEY)"
+            echo "SUPABASE_DB_URL=$(val DB_URL)"
           } >> "$GITHUB_ENV"
+
+      # The seed writes fixture rows through PostgREST as the service_role
+      # Postgres role. On this throwaway local stack the standard Supabase
+      # default-privilege grants don't reach the migration-created tables, so the
+      # service_role insert 400s with "permission denied for table …". Grant the
+      # API roles on the whole public schema (LOCAL stack ONLY — never prod) so
+      # the fixture can be built. One grant unblocks every seed insert.
+      - name: Grant API roles on the local stack (fixture setup)
+        run: |
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
+          SQL
 
       # Seed the two-tenant fixture. Emits TEST_* KEY=VALUE lines on stdout for
       # $GITHUB_ENV; any failure (incl. schema drift) exits non-zero → job fails.
