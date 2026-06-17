@@ -147,6 +147,25 @@ export function useListingCopy() {
   });
 }
 
+// US-1088: Size AI — infer a missing/cut-off size (and gender/department) from
+// the item's photos vs the brand's sizing. low_confidence flags a "best guess"
+// the UI should surface rather than apply silently.
+export interface SizeEstimateResponse {
+  size: string;
+  gender: string | null;
+  confidence: number; // 0..1
+  rationale: string;
+  low_confidence: boolean;
+}
+
+export function useAiSizeEstimate() {
+  return useMutation<SizeEstimateResponse, ApiError, { item_id: string }>({
+    mutationFn: (input) =>
+      postJson<SizeEstimateResponse>("/api/flipdesk/ai/size", input),
+    onError: aiErrorToast,
+  });
+}
+
 // US-552: one-click inline rewrites of the composer's title/description. The
 // server returns an AiExtractResponse-shaped payload so the result flows
 // straight into AiFillPanel (accept-all, confidence, acceptance logging).

@@ -15,6 +15,10 @@ import {
   type ExtractionResult,
   type ExtractPhoto,
 } from "../lib/ai-extract.ts";
+import {
+  estimateSize,
+  SIZE_ESTIMATE_LOW_CONFIDENCE,
+} from "../lib/ai-size-estimate.ts";
 import { getCategoryAspects, suggestCategories } from "../lib/ebay-client.ts";
 import {
   classifyPhotoTypes,
@@ -922,6 +926,108 @@ async function loadItemPhotos(itemId: string): Promise<ExtractPhoto[]> {
     })
   );
 }
+
+// US-1088: Size AI — best-guess a missing/cut-off size (and gender/department)
+// from the item's photos, prioritizing measurement / flat-lay shots, compared
+// against the brand's sizing. One AI action; tenant-scoped to the item owner.
+flipdeskAiRoutes.post("/size", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : null;
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+
+  // Ownership + context (tenant-scoped — US-268: service-role bypasses RLS).
+  const { data: itemRow, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, brand, item_category")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (itemErr) {
+    console.error("[flipdesk-ai] size item lookup failed:", itemErr.message);
+    return c.json({ error: "Lookup failed" }, 500);
+  }
+  if (!itemRow) return c.json({ error: "Item not found" }, 404);
+  const item = itemRow as {
+    id: string;
+    brand: string | null;
+    item_category: string | null;
+  };
+
+  const photos = (await loadItemPhotos(itemId)).slice(0, MAX_PHOTOS);
+  if (photos.length === 0) {
+    return c.json(
+      {
+        error:
+          "Add at least one photo (a measurement or flat-lay shot works best) before estimating size.",
+      },
+      400,
+    );
+  }
+
+  // Enablement + monthly cap, then reserve atomically before the billable call.
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+  const { limit } = quota;
+  if (!(await reserveAiAction(userId, limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
+  const start = Date.now();
+  let estimate;
+  try {
+    estimate = await estimateSize({
+      photos,
+      brand: item.brand,
+      category: item.item_category,
+    });
+  } catch (err) {
+    await refundAiAction(userId);
+    console.error(
+      "[flipdesk-ai] size estimate failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json(
+      { error: "Size AI is temporarily unavailable. Please try again in a moment." },
+      502,
+    );
+  }
+  const latencyMs = Date.now() - start;
+
+  const costUsd = estimateCost(estimate.model, estimate.tokensIn, estimate.tokensOut);
+  const { error: logErr } = await supabaseAdmin.from("ai_enrichment_log").insert({
+    user_id: userId,
+    inventory_item_id: itemId,
+    model: estimate.model,
+    input_kind: "photo",
+    tokens_in: estimate.tokensIn,
+    tokens_out: estimate.tokensOut,
+    cost_usd: costUsd,
+    latency_ms: latencyMs,
+    suggested_fields: {
+      size: estimate.size,
+      gender: estimate.gender,
+      confidence: estimate.confidence,
+    },
+  });
+  if (logErr) {
+    console.error("[flipdesk-ai] size log write failed:", logErr.message);
+  }
+
+  return c.json({
+    size: estimate.size,
+    gender: estimate.gender,
+    confidence: estimate.confidence,
+    rationale: estimate.rationale,
+    low_confidence: estimate.confidence < SIZE_ESTIMATE_LOW_CONFIDENCE,
+  });
+});
 
 const ENRICHABLE_COLUMNS = [
   "brand",

@@ -86,6 +86,7 @@ import {
 } from "@/components/flipdesk/ai-fill-panel";
 import {
   useAiExtract,
+  useAiSizeEstimate,
   useListingCopy,
   type AiExtractResponse,
 } from "@/hooks/use-ai-extract";
@@ -319,6 +320,37 @@ export function ItemCanvas({
 
   // AI listing-copy generation
   const listingCopy = useListingCopy();
+  const sizeAi = useAiSizeEstimate();
+
+  // US-1088: Size AI — estimate a missing/cut-off size from the item's photos
+  // (esp. measurement / flat-lay shots) vs the brand's sizing. Fills the Size
+  // field; the button is only shown while Size is blank, so it disappears once
+  // applied. Gender is surfaced in the toast (no dedicated gender field yet).
+  async function runSizeAi() {
+    try {
+      const r = await sizeAi.mutateAsync({ item_id: item.id });
+      if (!r.size) {
+        toast.info(
+          "Size AI couldn't read a size — add a measurement or flat-lay photo and retry.",
+        );
+        return;
+      }
+      patch("size", r.size);
+      const genderNote = r.gender ? ` · ${r.gender}` : "";
+      if (r.low_confidence) {
+        toast.info(`Best guess: ${r.size}${genderNote}`, {
+          description:
+            r.rationale || "Low confidence — double-check before listing.",
+        });
+      } else {
+        toast.success(`Size AI: ${r.size}${genderNote}`, {
+          description: r.rationale || undefined,
+        });
+      }
+    } catch {
+      // useAiSizeEstimate's onError already surfaces the failure toast.
+    }
+  }
   const [copy, setCopy] = useState<{ title: string; description: string } | null>(
     null,
   );
@@ -976,12 +1008,35 @@ export function ItemCanvas({
             onChange={(v) => patch("style", v)}
             aiMarked={aiFields.has("style")}
           />
-          <FieldText
-            label="Size"
-            value={state.size}
-            onChange={(v) => patch("size", v)}
-            aiMarked={aiFields.has("size")}
-          />
+          <div className="space-y-1.5">
+            <FieldText
+              label="Size"
+              value={state.size}
+              onChange={(v) => patch("size", v)}
+              aiMarked={aiFields.has("size")}
+            />
+            {/* US-1088: Size AI — only while Size is blank (e.g. a cut-off
+                Lululemon label); fills the field on success, then hides. */}
+            {state.size.trim() === "" && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={runSizeAi}
+                disabled={sizeAi.isPending}
+              >
+                {sizeAi.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {sizeAi.isPending
+                  ? "Analyzing photos…"
+                  : "Size AI — estimate from photos"}
+              </Button>
+            )}
+          </div>
           <FieldText
             label="Color"
             value={state.color}
