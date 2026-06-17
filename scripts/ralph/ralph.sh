@@ -123,6 +123,31 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "$STORY_JSON" | jq '.' > "$SCRIPT_DIR/current-story.json"
   echo "  Selected story: $STORY_ID — $STORY_TITLE"
 
+  # --- Model tiering (#6) -------------------------------------------------
+  # Run the loop on a cheaper model by default and escalate to Opus only for
+  # stories the author flagged hard. A story may set its own model two ways:
+  #   "model": "opus"   -> exact model/alias passed to `claude --model`
+  #   "hard": true      -> escalate to $HARD_MODEL
+  # Otherwise use $DEFAULT_MODEL. RALPH_FORCE_MODEL overrides everything (handy
+  # for a one-off all-Opus or all-Sonnet sweep). Aliases (sonnet/opus) are used
+  # rather than pinned ids so this keeps working as model versions roll forward.
+  DEFAULT_MODEL="${RALPH_DEFAULT_MODEL:-sonnet}"
+  HARD_MODEL="${RALPH_HARD_MODEL:-opus}"
+  STORY_MODEL=$(echo "$STORY_JSON" | jq -r --arg d "$DEFAULT_MODEL" --arg h "$HARD_MODEL" \
+    'if (.model // "") != "" then .model elif (.hard == true) then $h else $d end')
+  if [ -n "$RALPH_FORCE_MODEL" ]; then STORY_MODEL="$RALPH_FORCE_MODEL"; fi
+  echo "  Model: $STORY_MODEL"
+
+  # --- Relevant-paths hint (#5) -------------------------------------------
+  # current-story.json already carries the full story object, so an optional
+  # `relevantPaths` array (path globs) rides along to the agent automatically;
+  # the prompt tells it to start there instead of sweeping the tree. Just log
+  # whether a hint was present this iteration.
+  HINT_COUNT=$(echo "$STORY_JSON" | jq -r '(.relevantPaths // []) | length')
+  if [ "$HINT_COUNT" -gt 0 ]; then
+    echo "  relevantPaths hint: $HINT_COUNT path(s)"
+  fi
+
   # Per-iteration timeout (seconds). A single iteration that exceeds this is
   # treated as hung and killed so the LOOP survives instead of stalling forever.
   # The 2026-06-12 hang (prerender.mjs never exiting -> foreground `npm run build`
@@ -138,8 +163,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   if [[ "$TOOL" == "amp" ]]; then
     timeout "${TIMEOUT_SECS}s" amp --dangerously-allow-all < "$SCRIPT_DIR/prompt.md" 2>&1 | tee "$TMP_OUT"
   else
-    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print for output
-    timeout "${TIMEOUT_SECS}s" claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee "$TMP_OUT"
+    # Claude Code: --dangerously-skip-permissions for autonomous operation, --print
+    # for output, --model for per-story tiering (#6: Sonnet default, Opus for hard).
+    timeout "${TIMEOUT_SECS}s" claude --model "$STORY_MODEL" --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee "$TMP_OUT"
   fi
   RC=${PIPESTATUS[0]}
   set -e

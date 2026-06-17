@@ -45,8 +45,11 @@ Key facts:
 
 ### Before coding
 - Read `scripts/ralph/LEARNINGS.md` and the project root `CLAUDE.md`.
-- Read ONLY the existing source files relevant to this story. Don't sweep the
-  tree — use Grep/Glob to jump straight to the relevant code.
+- If `current-story.json` has a `relevantPaths` array, **start from those files
+  /globs** — they are a curated hint of where this story's code lives. Read them
+  first; only widen your search if they turn out to be insufficient.
+- Otherwise read ONLY the existing source files relevant to this story. Don't
+  sweep the tree — use Grep/Glob to jump straight to the relevant code.
 - Read the story's `description` and every `acceptanceCriteria` entry.
 
 ### While coding
