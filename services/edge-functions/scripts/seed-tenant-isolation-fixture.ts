@@ -106,9 +106,17 @@ async function mintJwt(email: string): Promise<string> {
   const anon = createClient(SUPABASE_URL!, ANON_KEY!, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+  // config.toml enables [auth.captcha] (turnstile), so the local GoTrue rejects
+  // any sign-in WITHOUT a captcha token. Send one — it's harmless when captcha is
+  // off (GoTrue ignores it), and validated by the Turnstile ALWAYS-PASSES test
+  // secret the CI job sets (SUPABASE_AUTH_CAPTCHA_SECRET=1x000…AA), under which
+  // any non-empty token passes. Override via SEED_CAPTCHA_TOKEN if needed.
+  const captchaToken =
+    Deno.env.get("SEED_CAPTCHA_TOKEN") ?? "ci-seed-dummy-captcha-token";
   const { data, error } = await anon.auth.signInWithPassword({
     email,
     password: PASSWORD,
+    options: { captchaToken },
   });
   if (error || !data.session?.access_token) {
     die(`signIn(${email}) failed: ${error?.message ?? "no session"}`);

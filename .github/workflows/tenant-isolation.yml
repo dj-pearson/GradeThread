@@ -37,6 +37,12 @@ jobs:
     env:
       SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ci-dummy-client-id.apps.googleusercontent.com
       SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET: ci-dummy-secret
+      # config.toml enables [auth.captcha] (turnstile). Feed Cloudflare's
+      # ALWAYS-PASSES Turnstile TEST secret so the local GoTrue accepts the
+      # seed's sign-in captcha token (the seed sends a dummy token). This is a
+      # public Cloudflare test key, not a real secret. Without it the seed fails
+      # with "captcha protection: request disallowed".
+      SUPABASE_AUTH_CAPTCHA_SECRET: 1x0000000000000000000000000000000AA
     steps:
       - uses: actions/checkout@v4
 

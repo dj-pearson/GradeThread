@@ -138,6 +138,27 @@ async function mockBackend(page: Page): Promise<{ submitCount: () => number }> {
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ submissionId: SUB_ID, status: "completed" }) });
   });
 
+  // Profile (override the catch-all). useAuth does users.select().single(); the
+  // catch-all's `[]` body resolves to a TRUTHY empty value with onboarded_at
+  // undefined, which trips OnboardingFlow's first-run gate — a non-dismissible
+  // modal that then intercepts the garment form. Return a real object WITH
+  // onboarded_at set so onboarding never shows. `.single()` wants a bare object.
+  await page.route("**/rest/v1/users**", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: USER_ID,
+        email: "e2e@example.com",
+        full_name: "E2E Tester",
+        onboarded_at: new Date(0).toISOString(),
+        use_case: "seller",
+        flipdesk_plan: null,
+        created_at: new Date(0).toISOString(),
+        updated_at: new Date(0).toISOString(),
+      }),
+    }));
+
   // Detail + certificate data (override the catch-all). `.single()` returns the
   // bare object.
   await page.route("**/rest/v1/submissions**", (r) =>
