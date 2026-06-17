@@ -15975,6 +15975,37 @@
       "priority": 1086,
       "passes": false,
       "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. iOS parity per user request 2026-06-16. Depends on US-1078/1079/1080. Reuses edge endpoints; no client-side precedence logic. severity=medium."
+    },
+    {
+      "id": "US-1087",
+      "title": "Edge: handle eBay payment_dispute_summary 404 without a 502",
+      "description": "As a FlipDesk seller, I want the Post-Sale payment-disputes panel to load cleanly when eBay returns 404 for payment_dispute_summary (accounts with no dispute data / feature unavailable), so I do not see a spurious error or 502.",
+      "acceptanceCriteria": [
+        "GET /api/flipdesk/ebay/payment-disputes maps eBay 404 on /sell/fulfillment/v1/payment_dispute_summary to a clean empty result (200 with empty list), not a 502.",
+        "Genuine failures (auth, 5xx, rate limit) still surface as errors and are not swallowed.",
+        "Removes the [ebay.disputes.list] Error log spam for the benign 404 (log at debug/info instead).",
+        "Frontend Post-Sale panel shows an empty state rather than an error when there are no disputes.",
+        "Edge unit test covers the 404->empty mapping."
+      ],
+      "priority": 1087,
+      "passes": false,
+      "notes": "[Backlog 2026-06-17] Observed in prod: eBay returns 404 for payment_dispute_summary on accounts without dispute data; current handler surfaces 502. Make it a clean empty result. severity=low."
+    },
+    {
+      "id": "US-1088",
+      "title": "Listing builder: Size AI - infer Size/Gender from photos vs sizing charts",
+      "description": "As a reseller listing items whose size labels are cut off or missing (Lululemon is notorious), I want a Size AI action in the listing builder that analyzes the item photos - especially the measurement photos - against brand/category sizing charts and fills a best-guess Size (and Gender), so I can list accurately without a legible tag.",
+      "acceptanceCriteria": [
+        "A Size AI affordance sits beside (or inside) the Size field; surfaced prominently when Size is blank.",
+        "On press it sends the item photos (prioritizing measurement-type photos) + brand + category to an edge AI endpoint that compares measurements to sizing charts and returns best-guess size, gender, and a confidence score.",
+        "The result populates the Size field (and Gender where applicable); the button then disappears (or collapses to an undo/redo-able chip).",
+        "Low-confidence results are labeled as a best guess rather than applied silently; the user can accept or dismiss.",
+        "Parity on web (item canvas / composer) and iOS.",
+        "Uses the central ai-config model (no client-side API keys); respects plan/AI-action limits."
+      ],
+      "priority": 1088,
+      "passes": false,
+      "notes": "[Backlog 2026-06-17] User request. Lululemon labels often cut off. Leverage measurement photos (flipdesk_photo_type measurement/measurements) + brand sizing charts (needs a sizing-chart reference source). New edge endpoint (e.g. /api/flipdesk/ai/size) + Claude Vision. Epic: AI listing assist. severity=medium."
     }
   ]
 }
