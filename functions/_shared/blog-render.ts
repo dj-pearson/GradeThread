@@ -4,6 +4,12 @@
 // edge service, so we can drop it into the template as-is.
 
 export interface PagesEnv {
+  // Static-asset binding (present at runtime in Pages Functions; optional in the
+  // type so test fixtures can build a PagesEnv without it). Structural fetch
+  // signature — not the workers-types `Fetcher` — so this file also type-checks
+  // under the FRONTEND tsconfig (sitemap.test.ts imports PagesEnv). Used to
+  // serve the SPA shell for client-rendered app routes — see _shared/spa-shell.ts.
+  ASSETS?: { fetch(input: string | URL | Request): Promise<Response> };
   // Edge API base, e.g. https://functions.gradethread.com
   EDGE_API_URL?: string;
   // Public site URL used in canonical links + OG metadata

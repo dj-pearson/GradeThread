@@ -1,6 +1,14 @@
 {
   "version": 1,
   "include": [
+    "/dashboard",
+    "/dashboard/*",
+    "/admin",
+    "/admin/*",
+    "/auth/*",
+    "/login",
+    "/signup",
+    "/accept-invite",
     "/cert/*",
     "/verified/*",
     "/blog/*",
