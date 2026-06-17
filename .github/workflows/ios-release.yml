@@ -125,9 +125,14 @@ jobs:
         # commits between the previous ios-v* tag and HEAD. Manual
         # override via the workflow_dispatch input wins when non-empty.
         # Tag pushes use the tag annotation directly.
+        #
+        # MANUAL_NOTES via env (not `${{ }}` in-script): a manual note with a
+        # quote (e.g. "Levi's") would otherwise break the shell quoting.
+        env:
+          MANUAL_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
-          MANUAL='${{ inputs.release_notes }}'
+          MANUAL="$MANUAL_NOTES"
           if [ -n "$MANUAL" ]; then
             NOTES="$MANUAL"
           elif [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then
@@ -507,12 +512,21 @@ jobs:
         # build's "What to test" field once it lands in App Store Connect.
         # When you're ready to fully automate this, switch the upload
         # step above to `fastlane pilot upload --changelog ...`.
+        #
+        # NOTES/BUILD_NUMBER are passed via env (NOT `${{ }}` interpolated into
+        # the script): GitHub sets env values verbatim, so a commit subject
+        # containing double quotes — e.g. `Save ("Save & Sync")` — can't break
+        # the shell quoting and abort the job (exit 127). `printf` then emits
+        # the multi-line value safely.
+        env:
+          NOTES: ${{ steps.release_notes.outputs.notes }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
         run: |
           {
-            echo "## TestFlight release notes for build #${{ steps.build_number.outputs.value }}"
+            echo "## TestFlight release notes for build #${BUILD_NUMBER}"
             echo ""
             echo '```'
-            echo "${{ steps.release_notes.outputs.notes }}"
+            printf '%s\n' "$NOTES"
             echo '```'
             echo ""
             echo "Paste these into the build's 'What to test' field in App Store Connect."
