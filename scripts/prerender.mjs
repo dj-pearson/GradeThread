@@ -4,7 +4,8 @@
 //   2. builds the per-route <head> from the registry (src/prerender/head-builder)
 //   3. injects both into the built dist/index.html template (between the
 //      prerender:head markers and the #root prerender:body marker)
-//   4. writes dist/<route>/index.html
+//   4. writes dist/<route>.html (flat file — NOT a directory index; see the
+//      outPath note below for why directory-form output deadlocks redirects)
 //
 // No headless browser is needed (none is available in CI/Cloudflare builds, and
 // a Chromium download would be fragile). react-helmet-async v3 renders no head
@@ -157,11 +158,18 @@ try {
     // <body> (both hurt indexing). Fail the build (CI) on any violation.
     validateHeadIntegrity(html, body, route.path);
 
-    // "/" → dist/index.html; "/privacy" → dist/privacy/index.html
+    // "/" → dist/index.html; "/privacy" → dist/privacy.html (FLAT file, not a
+    // directory index). This is load-bearing: a directory-form dist/privacy/
+    // index.html makes Cloudflare Pages 308-redirect /privacy → /privacy/, which
+    // then collides with the US-426 trailing-slash 301 (/privacy/ → /privacy)
+    // generated below — an infinite redirect loop (ERR_TOO_MANY_REDIRECTS). A
+    // flat privacy.html is served at /privacy with a clean 200 (no slash added),
+    // so the no-slash canonical and the 301 agree. Nested routes still nest
+    // (/a/b → dist/a/b.html); mkdirSync handles the parent dir.
     const outPath =
       route.path === "/"
         ? join(distDir, "index.html")
-        : join(distDir, route.path.replace(/^\//, ""), "index.html");
+        : join(distDir, route.path.replace(/^\//, "") + ".html");
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, html);
     console.log(
