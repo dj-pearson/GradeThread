@@ -29,6 +29,7 @@ import {
   useSubmitForGrading,
   useValidateGrading,
   GRADING_TIER_COSTS,
+  GRADING_TIER_CREDIT_COST,
   GRADING_TIER_LABELS,
   type GradingTier,
   type ValidationItem,
@@ -71,6 +72,11 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
   const [tier, setTier] = useState<GradingTier>("standard");
   const [validation, setValidation] = useState<ValidationItem | null>(null);
   const [planRemaining, setPlanRemaining] = useState<number | null>(null);
+  // Precedence inputs from validate — drive the real effective cost label.
+  const [includedRemaining, setIncludedRemaining] = useState<number | null>(
+    null,
+  );
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
 
   const latest = submissions[0] ?? null;
   const inflight =
@@ -89,12 +95,17 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
             ? res.user.grades_remaining
             : null,
         );
+        setIncludedRemaining(res.user.included_remaining ?? null);
+        setCreditBalance(res.user.credit_balance ?? null);
       })
       .catch(() => {
         /* surfaced by hook's onError */
       });
+    // item.updated_at: re-validate after an edit+save (e.g. setting the
+    // garment_type/garment_category that the readiness gate requires) — the
+    // save bumps updated_at and invalidates items_full, refreshing this prop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, item.id, item.grade_value, inflight, submissions.length]);
+  }, [tier, item.id, item.updated_at, item.grade_value, inflight, submissions.length]);
 
   async function doSubmit() {
     try {
@@ -104,8 +115,14 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
       });
       const ok = res.results.find((r) => r.ok && r.inventory_item_id === item.id);
       if (ok && ok.ok) {
+        const costText =
+          payMethod === "included"
+            ? "free with your plan"
+            : payMethod === "credits"
+              ? `${creditCost} credit${creditCost === 1 ? "" : "s"}`
+              : fmtMoney(ok.cost);
         toast.success(
-          `Submitted for grading — ${tier} tier, charge ${fmtMoney(ok.cost)}.`,
+          `Submitted for grading — ${tier} tier (${costText}).`,
         );
       } else {
         const failed = res.results.find((r) => !r.ok);
@@ -201,6 +218,26 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
   const blockers = validation?.blockers ?? [];
   const lastFailed = latest && latest.status === "failed" ? latest : null;
 
+  // Effective cost, mirroring the server precedence (grade-billing.ts):
+  // Standard draws from the monthly included bundle first, then credits, then a
+  // one-time charge; Premium/Express skip the included bundle (credits/charge).
+  const creditCost = GRADING_TIER_CREDIT_COST[tier];
+  const coveredByIncluded =
+    tier === "standard" && (includedRemaining ?? 0) > 0;
+  const coveredByCredits =
+    !coveredByIncluded && (creditBalance ?? 0) >= creditCost;
+  const payMethod: "included" | "credits" | "charge" = coveredByIncluded
+    ? "included"
+    : coveredByCredits
+      ? "credits"
+      : "charge";
+  const submitLabel =
+    payMethod === "included"
+      ? "Submit — free"
+      : payMethod === "credits"
+        ? `Submit — ${creditCost} credit${creditCost === 1 ? "" : "s"}`
+        : `Submit for ${fmtMoney(GRADING_TIER_COSTS[tier])}`;
+
   return (
     <Card>
       <CardHeader>
@@ -284,7 +321,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
             ) : (
               <Award className="mr-2 h-4 w-4" />
             )}
-            Submit for {fmtMoney(GRADING_TIER_COSTS[tier])}
+            {submitLabel}
           </Button>
         </div>
       </CardContent>

@@ -57,6 +57,8 @@ import {
   ITEM_STATUS_LABELS,
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
+  GARMENT_TYPES,
+  GARMENT_CATEGORIES,
 } from "@/lib/constants";
 import { useEbayReviseListing, type ReviseListingPatch } from "@/hooks/use-ebay";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
@@ -95,9 +97,19 @@ import type {
   ItemFullRow,
   ItemStatus,
   ItemCategory,
+  GarmentType,
+  GarmentCategory,
   AiFieldSource,
   InventoryItemRow,
 } from "@/types/database";
+
+// Helper to render a human label from a kebab/snake enum value.
+function enumLabel(value: string): string {
+  return value
+    .split(/[-_]/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 // Fields the "Complete with AI" action targets.
 const ENRICHABLE_FIELDS = [
@@ -140,6 +152,11 @@ type EditState = {
   description: string;
   condition_notes: string;
   item_category: ItemCategory | "";
+  // Clothing-specific grading inputs (required by the grading readiness gate
+  // in flipdesk-grading.ts and by /api/grade/submit). Not on the items_full
+  // view, so lazy-loaded from inventory_items alongside color/material.
+  garment_type: GarmentType | "";
+  garment_category: GarmentCategory | "";
   sourced_by: string;
   status: ItemStatus;
   acquired_date: string;
@@ -163,6 +180,9 @@ function toState(item: ItemFullRow): EditState {
     description: item.item_description ?? "",
     condition_notes: item.notes ?? "",
     item_category: (item.category as ItemCategory | null) ?? "",
+    // garment_type/garment_category aren't on the items_full view — lazy-loaded.
+    garment_type: "",
+    garment_category: "",
     sourced_by: item.sourced_by ?? "",
     status: item.status,
     acquired_date: item.purchase_date?.slice(0, 10) ?? "",
@@ -374,7 +394,7 @@ export function ItemCanvas({
     let cancelled = false;
     void supabase
       .from("inventory_items")
-      .select("color, material, ai_field_sources")
+      .select("color, material, garment_type, garment_category, ai_field_sources")
       .eq("id", item.id)
       .single()
       .then(({ data }) => {
@@ -382,12 +402,16 @@ export function ItemCanvas({
         const row = data as {
           color: string | null;
           material: string | null;
+          garment_type: GarmentType | null;
+          garment_category: GarmentCategory | null;
           ai_field_sources: ItemFullRow["ai_field_sources"];
         };
         setState((s) => ({
           ...s,
           color: row.color ?? "",
           material: row.material ?? "",
+          garment_type: row.garment_type ?? "",
+          garment_category: row.garment_category ?? "",
         }));
         setHeavy((h) => ({
           ...h,
@@ -575,6 +599,8 @@ export function ItemCanvas({
       description: trimOrNull(s.description),
       condition_notes: trimOrNull(s.condition_notes),
       item_category: s.item_category === "" ? null : s.item_category,
+      garment_type: s.garment_type === "" ? null : s.garment_type,
+      garment_category: s.garment_category === "" ? null : s.garment_category,
       sourced_by: trimOrNull(s.sourced_by),
       status: resolvedStatus,
       acquired_date: s.acquired_date || null,
@@ -1081,6 +1107,71 @@ export function ItemCanvas({
               </SelectContent>
             </Select>
           </div>
+          {/* Clothing garment_type/garment_category — required by the grading
+              gate (flipdesk-grading.ts) and /api/grade/submit. Only relevant for
+              Clothing; non-clothing categories grade on item_category alone. */}
+          {state.item_category === "clothing" && (
+            <>
+              <div className="space-y-1">
+                <Label>
+                  Garment Type
+                  <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+                    (required to grade)
+                  </span>
+                </Label>
+                <Select
+                  value={state.garment_type || "__none"}
+                  onValueChange={(v) =>
+                    patch(
+                      "garment_type",
+                      v === "__none" ? "" : (v as GarmentType),
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select garment type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">— None —</SelectItem>
+                    {GARMENT_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {enumLabel(t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>
+                  Garment Category
+                  <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+                    (required to grade)
+                  </span>
+                </Label>
+                <Select
+                  value={state.garment_category || "__none"}
+                  onValueChange={(v) =>
+                    patch(
+                      "garment_category",
+                      v === "__none" ? "" : (v as GarmentCategory),
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select garment category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">— None —</SelectItem>
+                    {GARMENT_CATEGORIES.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {enumLabel(cat)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
           <div className="space-y-1">
             <Label>Status</Label>
             <Select

@@ -23,6 +23,16 @@ export const GRADING_TIER_LABELS: Record<GradingTier, string> = {
   express: "Express (~4h)",
 };
 
+// Credits a single grade of each tier consumes — mirrors the backend
+// TIER_CREDIT_COST (grade-pricing.ts) / GRADETHREAD_TIERS.creditCost. The
+// monthly included bundle only covers Standard grades; Premium/Express always
+// draw credits (or a one-time charge).
+export const GRADING_TIER_CREDIT_COST: Record<GradingTier, number> = {
+  standard: 1,
+  premium: 3,
+  express: 5,
+};
+
 export interface ValidationItem {
   inventory_item_id: string;
   tier: GradingTier;
@@ -41,6 +51,11 @@ export interface ValidationResult {
     grades_used_this_month: number;
     plan_limit: number;
     grades_remaining: number;
+    // Precedence inputs (returned by the edge): the monthly included grades
+    // still available and the standing credit balance. Used to show the real
+    // effective cost (free / credits / charge) rather than the gross price.
+    included_remaining?: number;
+    credit_balance?: number;
   };
   items: ValidationItem[];
   total_cost: number;
