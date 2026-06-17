@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   FileText,
@@ -58,6 +58,7 @@ import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
 } from "@/lib/constants";
+import { useEbayReviseListing, type ReviseListingPatch } from "@/hooks/use-ebay";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { PhotoManager } from "@/components/flipdesk/photo-manager";
@@ -252,6 +253,43 @@ export function ItemCanvas({
   const { workspaceOwnerId } = useWorkspace();
   const [state, setState] = useState<EditState>(() => toState(item));
   const [saving, setSaving] = useState(false);
+
+  // Live-listing state drives the unified "Save & sync to eBay" behavior: a
+  // GradeThread-published listing (one with a Sell API offer id) is revised in
+  // place on save; an eBay-NATIVE listing (active but no offer) can only be
+  // edited on eBay, so we never push to it (the parent shows that notice).
+  const revise = useEbayReviseListing();
+  const { data: liveListing } = useQuery({
+    queryKey: ["item_ebay_sync", item.id],
+    queryFn: async (): Promise<{
+      id: string;
+      platform_offer_id: string | null;
+      listing_title: string | null;
+      listing_description: string | null;
+      listing_price: number | null;
+    } | null> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select(
+          "id, platform_offer_id, listing_title, listing_description, listing_price",
+        )
+        .eq("inventory_item_id", item.id)
+        .eq("listing_status", "active")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as {
+        id: string;
+        platform_offer_id: string | null;
+        listing_title: string | null;
+        listing_description: string | null;
+        listing_price: number | null;
+      } | null;
+    },
+  });
+  // Only GradeThread-published listings (with a Sell offer) are revisable here.
+  const isGtLive = !!liveListing?.platform_offer_id;
 
   // US-404: the inventory LIST now omits these heavy/derived columns from its
   // bulk load (the per-row photo subqueries + the ai_field_sources jsonb) to
@@ -469,7 +507,11 @@ export function ItemCanvas({
 
   // Writes one EditState to the database. Throws on failure so callers can
   // inspect the error (save() turns a duplicate-SKU 23505 into a merge offer).
-  async function persist(s: EditState, successMessage = "Saved.") {
+  async function persist(
+    s: EditState,
+    successMessage = "Saved.",
+    opts?: { silent?: boolean },
+  ) {
     const targetPrice = priceOrNull(s.target_price);
     const resolvedStatus = resolveStatus(item.status, s.status, {
       hasMeasurements: Object.keys(s.measurements).length > 0,
@@ -525,14 +567,73 @@ export function ItemCanvas({
     if (error) throw error;
 
     await qc.invalidateQueries({ queryKey: ["items_full"] });
-    toast.success(successMessage);
+    if (!opts?.silent) toast.success(successMessage);
     onAfterSave?.();
+  }
+
+  // Builds the revise patch for the live GradeThread listing, or null when
+  // nothing eBay-relevant changed — so a save that only touched internal fields
+  // (cost, bin, notes) never pays the ~5–8s eBay round-trip ("only sync when an
+  // eBay field changed").
+  function buildEbayPatch(): ReviseListingPatch | null {
+    if (!liveListing) return null;
+    const patch: ReviseListingPatch = {};
+    const title = state.title.trim();
+    const desc = state.description.trim();
+    const price = priceOrNull(state.target_price);
+    if (title && title !== (liveListing.listing_title ?? "").trim()) {
+      patch.title = title;
+    }
+    if (desc !== (liveListing.listing_description ?? "").trim()) {
+      patch.description = desc;
+    }
+    if (price != null && price > 0 && price !== liveListing.listing_price) {
+      patch.listing_price = price;
+    }
+    // Brand / category / condition aren't in the published listing snapshot;
+    // detect via dirty-vs-loaded-item so changing them still triggers the
+    // inventory re-PUT (which carries brand, item specifics, condition, photos).
+    const structuralChanged =
+      state.brand.trim() !== (item.brand ?? "").trim() ||
+      state.item_category !== ((item.category as string | null) ?? "") ||
+      state.condition_notes.trim() !== (item.notes ?? "").trim();
+    if (
+      patch.title === undefined &&
+      patch.description === undefined &&
+      patch.listing_price === undefined &&
+      !structuralChanged
+    ) {
+      return null;
+    }
+    // photos:true forces the inventory_item re-PUT so brand/specifics/condition
+    // + the current photo set reach eBay alongside any changed text/price.
+    patch.photos = true;
+    return patch;
   }
 
   async function save() {
     setSaving(true);
     try {
-      await persist(state);
+      // Unified Save & sync: persist locally, then push to the live GradeThread
+      // listing when an eBay-relevant field changed. A failed eBay push never
+      // blocks the local save — we surface the reason and leave the row saved.
+      const ebayPatch = isGtLive ? buildEbayPatch() : null;
+      await persist(state, "Saved.", { silent: !!ebayPatch });
+      if (ebayPatch && liveListing) {
+        try {
+          await revise.mutateAsync({
+            listingId: liveListing.id,
+            patch: ebayPatch,
+          });
+          await qc.invalidateQueries({ queryKey: ["item_ebay_sync", item.id] });
+          toast.success("Saved & synced to eBay.");
+        } catch (e) {
+          const err = e as Error & { status?: number };
+          toast.error(`Saved locally, but eBay sync failed: ${err.message}`, {
+            duration: 12_000,
+          });
+        }
+      }
     } catch (err) {
       // Duplicate SKU (partial unique index on user_id, sku) → offer to merge
       // the two records instead of dead-ending on the raw Postgres error.
@@ -1138,7 +1239,11 @@ export function ItemCanvas({
               Cancel
             </Button>
             <Button onClick={save} disabled={saving}>
-              {saving ? "Saving…" : "Save changes"}
+              {saving
+                ? "Saving…"
+                : isGtLive
+                  ? "Save & sync to eBay"
+                  : "Save changes"}
             </Button>
           </div>
         </div>

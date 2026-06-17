@@ -77,7 +77,6 @@ import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
-import { ReviseListingDialog } from "@/components/flipdesk/revise-listing-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
@@ -405,7 +404,6 @@ export function FlipdeskListingsPage() {
     null,
   );
   const [publishItem, setPublishItem] = useState<ItemFullRow | null>(null);
-  const [reviseItem, setReviseItem] = useState<ItemFullRow | null>(null);
   const [shipItem, setShipItem] = useState<ItemFullRow | null>(null);
   const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(
     null,
@@ -2002,18 +2000,6 @@ export function FlipdeskListingsPage() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="flex items-center justify-end gap-1">
-                                {ebayConnection && it.listing_id && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                    onClick={() => setReviseItem(it)}
-                                    aria-label="Edit listing on eBay"
-                                    title="Edit title/description/price on eBay"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
                                 {ebayConnection && (
                                   <Button
                                     variant="ghost"
@@ -2330,10 +2316,6 @@ export function FlipdeskListingsPage() {
         />
       )}
 
-      <ReviseListingDialog
-        item={reviseItem}
-        onClose={() => setReviseItem(null)}
-      />
       <RecordSaleDialog
         item={recordSaleItem}
         onClose={() => setRecordSaleItem(null)}
