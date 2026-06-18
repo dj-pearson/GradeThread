@@ -2306,7 +2306,7 @@
         "deno check/lint/test green; covered by a regression test that the event paths call notify."
       ],
       "priority": 1054,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. notify.ts already declares item_status_change/listing_live/sale_recorded/payout_imported but NOTHING fires them. transactional-push.ts pushSaleCreated()/pushPayoutCleared() are defined but NEVER CALLED. Wire from sales ingest, flipdesk publish path, ebay-payout-dedup.ts, status transitions. Tables: notifications (00007), prefs (00021), push_device_tokens (000375). severity=high."
     },
     {
