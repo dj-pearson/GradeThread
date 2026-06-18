@@ -476,41 +476,41 @@ struct ItemCanvasView: View {
                 // US-1086: provenance badge + editing affordance based on listing_origin.
                 // Prefer `listingOrigin` from DB; fall back to `platformOfferId` heuristic
                 // for rows synced before the column was backfilled.
-                let isEbayOriginated = active.listingOrigin == “ebay” ||
+                let isEbayOriginated = active.listingOrigin == "ebay" ||
                     (active.listingOrigin == nil && active.platformOfferId == nil)
 
                 if isEbayOriginated {
                     // eBay-originated mirror: user must edit on eBay; GradeThread locks
                     // eBay-owned fields and never overwrites them on sync.
                     HStack(spacing: 5) {
-                        Image(systemName: “lock.fill”)
+                        Image(systemName: "lock.fill")
                             .font(.caption2)
-                        Text(“Edit on eBay”)
+                        Text("Edit on eBay")
                             .font(.caption.weight(.semibold))
                     }
                     .foregroundStyle(Color.brandAmber)
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(Color.brandAmber.opacity(0.12), in: Capsule())
-                    .accessibilityLabel(“eBay-originated listing — edit on eBay”)
+                    .accessibilityLabel("eBay-originated listing — edit on eBay")
                     if let raw = active.externalURL, let url = URL(string: raw) {
                         Link(destination: url) {
-                            Label(“Open on eBay to edit”, systemImage: “square.and.pencil”)
+                            Label("Open on eBay to edit", systemImage: "square.and.pencil")
                                 .fontWeight(.semibold)
                         }
                     }
                 } else {
                     // GradeThread-originated: editing folded into Save & Sync.
                     HStack(spacing: 5) {
-                        Image(systemName: “pencil”)
+                        Image(systemName: "pencil")
                             .font(.caption2)
-                        Text(“Edit in GradeThread”)
+                        Text("Edit in GradeThread")
                             .font(.caption.weight(.semibold))
                     }
                     .foregroundStyle(Color.brandNavy)
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(Color.brandNavy.opacity(0.10), in: Capsule())
-                    .accessibilityLabel(“GradeThread-originated listing — edits sync via Save & Sync”)
-                    Text(“Edits here sync to eBay when you tap \u{201C}Save & Sync\u{201D}.”)
+                    .accessibilityLabel("GradeThread-originated listing — edits sync via Save & Sync")
+                    Text("Edits here sync to eBay when you tap \u{201C}Save & Sync\u{201D}.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -522,13 +522,13 @@ struct ItemCanvasView: View {
                     AppRouter.haptic()
                     showingPublishDialog = true
                 } label: {
-                    Label(“Relist as new listing”, systemImage: “arrow.triangle.2.circlepath”)
+                    Label("Relist as new listing", systemImage: "arrow.triangle.2.circlepath")
                 }
             }
         } header: {
-            Text(itemListings.count == 1 ? “Listing” : “Listings”)
+            Text(itemListings.count == 1 ? "Listing" : "Listings")
         } footer: {
-            Text(“Where this item is listed. Tap the arrow to open the live listing. GradeThread-originated listings sync edits via Save & Sync; eBay-originated listings are read-only mirrors (edit on eBay).”)
+            Text("Where this item is listed. Tap the arrow to open the live listing. GradeThread-originated listings sync edits via Save & Sync; eBay-originated listings are read-only mirrors (edit on eBay).")
                 .font(.caption)
         }
     }
