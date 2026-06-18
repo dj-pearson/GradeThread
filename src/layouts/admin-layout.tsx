@@ -67,6 +67,7 @@ const adminNavItems = [
   { to: "/admin/support/monitoring", icon: Activity, label: "Assistant Monitoring", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
   { to: "/admin/ai-spend", icon: Coins, label: "AI Spend", end: false, superAdminOnly: false },
+  { to: "/admin/ai-profitability", icon: Scale, label: "AI Profitability", end: false, superAdminOnly: false },
   { to: "/admin/reliability", icon: BarChart3, label: "Reliability", end: false, superAdminOnly: false },
   { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
   { to: "/admin/ads", icon: Megaphone, label: "Ad Copy Studio", end: false, superAdminOnly: false },

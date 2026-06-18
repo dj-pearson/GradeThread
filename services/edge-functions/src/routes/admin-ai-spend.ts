@@ -47,3 +47,27 @@ adminAiSpendRoutes.get("/spend", async (c) => {
 
   return c.json({ summary: data });
 });
+
+// GET /api/admin/ai/profitability?period=today|7d|30d|90d
+// US-1065: per-feature profitability + modeled scenario projection. Aggregation
+// is done by the `ai_profitability` RPC (migration 00240): it re-prices the same
+// ledger as ai_spend into cost-per-action / gross margin per feature and projects
+// monthly spend vs revenue under the config-driven usage scenarios. Read-only.
+adminAiSpendRoutes.get("/profitability", async (c) => {
+  const period = c.req.query("period") ?? "30d";
+
+  if (!PERIODS.has(period)) {
+    return c.json({ error: `Invalid period "${period}"` }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin.rpc("ai_profitability", {
+    p_period: period,
+  });
+
+  if (error) {
+    console.error("[admin-ai-spend] ai_profitability failed:", error);
+    return c.json({ error: "Failed to load AI profitability" }, 500);
+  }
+
+  return c.json({ report: data });
+});
