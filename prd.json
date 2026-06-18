@@ -2371,7 +2371,7 @@
         "deno check/lint/test green with cases for keyword extraction."
       ],
       "priority": 1059,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Comps. services/edge-functions/src/lib/ebay-client.ts searchBrowseComps() ~lines 2774-2865: q used verbatim (only .trim()), brand/size are aspect_filter only, sort hardcoded 'newlyListed'. Route flipdesk-ebay.ts ~4966-4995; UI src/components/flipdesk/ebay-comps-panel.tsx, src/hooks/use-ebay.ts ~472-502. severity=high (user: 'most of the time it does not return results')."
     },
     {

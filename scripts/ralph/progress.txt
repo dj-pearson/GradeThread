@@ -3086,3 +3086,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  2:37:28 PM
 ---
+## US-1059: Smarter comp query builder (relevance sort, brand-in-query, stopword/size trimming)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  2:41:31 PM
+---
