@@ -2514,7 +2514,7 @@
         "tsc/lint/build/deno green; covered by a redemption test."
       ],
       "priority": 1070,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Referral/Growth. Today referred users get a flat 3 credits at first paid action (referral-rewards.ts), no free-month/signup-time incentive. Redeem flow: services/edge-functions/src/routes/referrals.ts (POST /redeem). Free month = Stripe coupon (admin-billing.ts coupon create supports duration months). Depends on the incentives-config story."
     },
     {

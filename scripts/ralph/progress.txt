@@ -3042,3 +3042,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:57:36 AM
 ---
+## US-1070: Referral-triggered signup incentive (free month / bonus) when ?ref= present
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 11:11:18 AM
+---
