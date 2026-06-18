@@ -2436,7 +2436,7 @@
         "tsc/lint/build green; iOS via CI."
       ],
       "priority": 1064,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Community Insights. Today insights live only at src/pages/flipdesk/community-insights.tsx with no recommendations layer and no iOS/dashboard surface. Builds on the deepened benchmarks story."
     },
     {

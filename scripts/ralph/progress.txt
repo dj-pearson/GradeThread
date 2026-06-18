@@ -3066,3 +3066,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  1:22:23 PM
 ---
+## US-1064: Actionable insights: sourcing & pricing recommendations + dashboard/iOS surfaces
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  1:38:38 PM
+---
