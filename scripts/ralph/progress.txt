@@ -3002,3 +3002,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:51:33 AM
 ---
+## US-1080: eBay-originated listings = read-only mirror in the GradeThread editor
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:05:52 AM
+---
