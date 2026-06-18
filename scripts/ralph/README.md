@@ -19,10 +19,35 @@ Git Bash equivalents: `bash scripts/ralph/stop-ralph.sh`, `bash scripts/ralph/ki
 ## Start
 
 - **`npm run ralph -- 200`** — run up to 200 iterations. `run.mjs` finds Git Bash
-  and execs `ralph.sh`. Each iteration runs the agent against `CLAUDE.md`, which
-  picks the highest-priority `passes:false` story, implements it, verifies
-  (`tsc`, `build:locked`, `npm test`, and `verify:db` for migrations), commits,
-  and flips `passes` to `true`.
+  and execs `ralph.sh`. Each iteration:
+  1. **`ralph.sh` selects the story** (highest-priority `passes:false`) with `jq`
+     and writes just that one object to `current-story.json` (~1.5 KB).
+  2. The agent runs against the static `CLAUDE.md` prompt, reads
+     `current-story.json` (NOT the 300 KB `prd.json`), implements + verifies
+     (`tsc`, `build:locked`, `npm test`, `verify:db` for migrations), commits the
+     code, and signals `<promise>STORY_DONE</promise>`.
+  3. **`ralph.sh` flips `passes:true`** for that story with `jq`, appends to
+     `progress.txt`, and commits — the agent never reads or rewrites `prd.json`.
+
+  This split exists to cut token usage: selecting + flipping in the harness keeps
+  ~80K tokens of `prd.json` out of every iteration, and the unchanged prompt
+  prefix stays prompt-cache friendly. See `LEARNINGS.md` for the persistent
+  cross-iteration gotchas playbook.
+
+### Per-story tuning (optional fields on a `prd.json` story)
+
+| Field | Effect |
+|---|---|
+| `"hard": true` | Run this story's iteration on Opus instead of the default model. |
+| `"model": "opus"\|"sonnet"\|"haiku"` | Exact model for this story (overrides `hard`). |
+| `"relevantPaths": ["src/…", "…"]` | File/glob hints the agent reads first instead of sweeping the tree. |
+
+Model tiering (default **Sonnet**, escalate to **Opus** only for `hard` stories)
+keeps the loop cheap while still giving hard stories the strong model. Env
+overrides: `RALPH_DEFAULT_MODEL`, `RALPH_HARD_MODEL`, and `RALPH_FORCE_MODEL`
+(forces one model for every story — handy for a one-off all-Opus sweep).
+`relevantPaths` can be hand-written or auto-generated — see
+[`../../docs/GRAPHIFY_PILOT.md`](../../docs/GRAPHIFY_PILOT.md).
 - **`scripts\ralph\start-loop.bat 200`** — same, but launches in a detached
   window pinned to logical cores 0–11 at below-normal priority with a 3 GB heap
   cap, so it can share the host with another agent loop without starving it. See
@@ -62,7 +87,9 @@ interactive Claude session or VS Code.
 |---|---|
 | `run.mjs` | Cross-platform launcher (`npm run ralph` → finds Git Bash → `ralph.sh`). |
 | `ralph.sh` | The loop: per-iteration timeout, graceful-stop check, stray-build sweep. |
-| `CLAUDE.md` | The agent prompt (how Ralph picks + implements + verifies a story). |
+| `CLAUDE.md` | The agent prompt (static; reads `current-story.json`, implements + verifies). |
+| `current-story.json` | The one story the harness selected this iteration (git-ignored, regenerated each loop). |
+| `LEARNINGS.md` | Small curated gotchas playbook read every iteration (cheap persistent memory). |
 | `start-loop.bat` | Boxed launcher (CPU affinity + priority + heap cap). |
 | `stop-ralph.ps1` / `.sh` | Graceful stop — finish current iteration, then exit. |
 | `kill-ralph.ps1` / `.sh` | Force kill — stop every Ralph process immediately. |
