@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -28,8 +29,8 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  ListChecks,
 } from "lucide-react";
-import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Card,
@@ -75,6 +76,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
+import { FilterBuilder } from "@/components/flipdesk/filter-builder";
+import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
+import { useSavedViews } from "@/hooks/use-saved-views";
+import {
+  EMPTY_QUERY,
+  evalQuery,
+  encodeQuery,
+  decodeQuery,
+  describeRule,
+  type FilterQuery,
+} from "@/lib/item-filter";
 import type { ItemFullRow, ItemStatus, ItemCategory } from "@/types/database";
 
 const COLUMN_CAP = 50;
@@ -126,6 +138,7 @@ const STATUS_ACCENT: Partial<Record<ItemStatus, string>> = {
 export function FlipdeskPipelinePage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const wipLimits = useFlipdeskSettings((s) => s.wipLimits);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ItemCategory | "all">(
@@ -139,6 +152,43 @@ export function FlipdeskPipelinePage() {
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Advanced filter (US-1051) — parity with the listings table. Composes on
+  // top of the category/brand/source/search facets above. Initialised from the
+  // URL so saved-view links round-trip cleanly between teammates.
+  const { data: savedViews = [] } = useSavedViews();
+  const [filterQuery, setFilterQuery] = useState<FilterQuery>(() => {
+    const f = searchParams.get("filter");
+    return (f && decodeQuery(f)) || EMPTY_QUERY;
+  });
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+
+  // Load a saved view when ?view=<id> resolves — applies the saved filter and
+  // strips the param so a reload doesn't re-apply it.
+  useEffect(() => {
+    const viewId = searchParams.get("view");
+    if (!viewId || savedViews.length === 0) return;
+    const v = savedViews.find((sv) => sv.id === viewId);
+    if (v) {
+      const q = v.query_json as unknown as FilterQuery;
+      setFilterQuery(q && Array.isArray(q.rules) ? q : EMPTY_QUERY);
+      const next = new URLSearchParams(searchParams);
+      next.delete("view");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedViews, searchParams]);
+
+  // Keep ?filter= synced with the builder so the link survives copy-paste.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (filterQuery.rules.length === 0) next.delete("filter");
+    else next.set("filter", encodeQuery(filterQuery));
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterQuery]);
 
   // dnd-kit sensors — pointer with small activation distance so a click
   // (open detail) doesn't accidentally become a drag.
@@ -192,10 +242,24 @@ export function FlipdeskPipelinePage() {
           .toLowerCase();
         if (!hay.includes(q)) continue;
       }
+      // Advanced filter — composes on top of the quick facets + search.
+      if (filterQuery.rules.length > 0 && !evalQuery(it, filterQuery)) continue;
       col.push(it);
     }
     return map;
-  }, [items, search, categoryFilter, brandFilter, sourceFilter]);
+  }, [items, search, categoryFilter, brandFilter, sourceFilter, filterQuery]);
+
+  // Every item currently visible across the kanban columns (i.e. the whole
+  // filtered set), flattened — backs the matching count + "select all" action.
+  const matchingItems = useMemo(() => {
+    const out: ItemFullRow[] = [];
+    for (const arr of groups.values()) out.push(...arr);
+    return out;
+  }, [groups]);
+
+  function selectAllMatching() {
+    setSelectedIds(new Set(matchingItems.map((it) => it.id)));
+  }
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -446,7 +510,87 @@ export function FlipdeskPipelinePage() {
             ))}
           </SelectContent>
         </Select>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <FilterBuilder query={filterQuery} onChange={setFilterQuery} />
+          {savedViews.length > 0 && (
+            <Select
+              value=""
+              onValueChange={(id) => {
+                const v = savedViews.find((sv) => sv.id === id);
+                if (v) {
+                  const q = v.query_json as unknown as FilterQuery;
+                  setFilterQuery(q && Array.isArray(q.rules) ? q : EMPTY_QUERY);
+                }
+              }}
+            >
+              <SelectTrigger className="h-9 w-44 text-xs">
+                <SelectValue placeholder="Saved views" />
+              </SelectTrigger>
+              <SelectContent>
+                {savedViews.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.emoji ? `${v.emoji} ` : ""}
+                    {v.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {filterQuery.rules.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSaveViewOpen(true)}
+            >
+              Save view
+            </Button>
+          )}
+          {matchingItems.length > 0 && (
+            <Button variant="outline" size="sm" onClick={selectAllMatching}>
+              <ListChecks className="mr-1.5 h-3.5 w-3.5" />
+              Select all matching ({matchingItems.length.toLocaleString()})
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Active advanced-filter chips — so the user can see (and clear) what
+          the rule builder is narrowing by. */}
+      {filterQuery.rules.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {filterQuery.combinator === "and" ? "All of:" : "Any of:"}
+          </span>
+          {filterQuery.rules.map((rule) => (
+            <span
+              key={rule.id}
+              className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs"
+            >
+              {describeRule(rule)}
+              <button
+                type="button"
+                onClick={() =>
+                  setFilterQuery({
+                    ...filterQuery,
+                    rules: filterQuery.rules.filter((r) => r.id !== rule.id),
+                  })
+                }
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Remove filter"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => setFilterQuery(EMPTY_QUERY)}
+            className="text-xs text-brand-red-text hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       {isError ? (
         <Card>
@@ -574,6 +718,11 @@ export function FlipdeskPipelinePage() {
       )}
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+      <SaveViewDialog
+        open={saveViewOpen}
+        onOpenChange={setSaveViewOpen}
+        query={filterQuery}
+      />
       <PipelineLimitsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

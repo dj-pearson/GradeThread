@@ -71,6 +71,8 @@ function makeItem(overrides: Partial<ItemFullRow> = {}): ItemFullRow {
     ai_enriched_at: null,
     sale_status: null,
     sale_cancelled_at: null,
+    color: null,
+    listing_platform: null,
     ...overrides,
   };
 }

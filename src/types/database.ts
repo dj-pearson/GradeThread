@@ -1449,6 +1449,11 @@ export interface ItemFullRow {
   // item has no sale. Only 'completed' counts toward sold/revenue/profit.
   sale_status: "completed" | "cancelled" | "refunded" | "pending" | null;
   sale_cancelled_at: string | null;
+  // Trailing columns added in migration 00249 — color (from inventory_items)
+  // and the most-recent listing's marketplace, both used by the web advanced
+  // filter (US-1051).
+  color: string | null;
+  listing_platform: ListingPlatform | null;
 }
 
 // ── Admin task / project management (00047) ──────────────────────────────

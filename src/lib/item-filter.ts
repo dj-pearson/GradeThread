@@ -1,15 +1,24 @@
-import type { ItemFullRow } from "@/types/database";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
+import type { ItemFullRow, ListingPlatform } from "@/types/database";
 
 export type FilterField =
   | "brand"
   | "category"
   | "size"
   | "source"
+  | "color"
+  | "location_bin"
+  | "sku"
+  | "marketplace"
+  | "status"
   | "cost"
   | "target_price"
-  | "status"
   | "grade"
-  | "days_in_status";
+  | "days_in_status"
+  | "purchase_date"
+  | "created_at"
+  | "sale_date"
+  | "photo_state";
 
 export type FilterOp =
   | "eq"
@@ -45,11 +54,19 @@ export const FIELD_LABELS: Record<FilterField, string> = {
   category: "Category",
   size: "Size",
   source: "Source",
+  color: "Color",
+  location_bin: "Location / bin",
+  sku: "SKU",
+  marketplace: "Marketplace",
+  status: "Status",
   cost: "Cost",
   target_price: "Target price",
-  status: "Status",
   grade: "Grade",
   days_in_status: "Days in status",
+  purchase_date: "Purchase date",
+  created_at: "Date added",
+  sale_date: "Sale date",
+  photo_state: "Photo state",
 };
 
 // Which field is numeric — drives the operator set the UI offers.
@@ -59,6 +76,32 @@ export const NUMERIC_FIELDS: ReadonlySet<FilterField> = new Set<FilterField>([
   "grade",
   "days_in_status",
 ]);
+
+// Date fields take an absolute YYYY-MM-DD value and compare on calendar days.
+export const DATE_FIELDS: ReadonlySet<FilterField> = new Set<FilterField>([
+  "purchase_date",
+  "created_at",
+  "sale_date",
+]);
+
+// Fields with a fixed value set — rendered as a dropdown instead of a free
+// text box (see ENUM_FIELD_OPTIONS).
+export const ENUM_FIELDS: ReadonlySet<FilterField> = new Set<FilterField>([
+  "marketplace",
+  "photo_state",
+]);
+
+export const ENUM_FIELD_OPTIONS: Partial<
+  Record<FilterField, ReadonlyArray<{ value: string; label: string }>>
+> = {
+  marketplace: (Object.keys(MARKETPLACE_LABELS) as ListingPlatform[]).map(
+    (k) => ({ value: k, label: MARKETPLACE_LABELS[k] }),
+  ),
+  photo_state: [
+    { value: "complete", label: "Has required photos" },
+    { value: "incomplete", label: "Missing required photos" },
+  ],
+};
 
 export const OP_LABELS: Record<FilterOp, string> = {
   eq: "is",
@@ -72,6 +115,16 @@ export const OP_LABELS: Record<FilterOp, string> = {
   contains: "contains",
   isnull: "is empty",
   notnull: "is not empty",
+};
+
+// Date fields reuse the comparison operators but read more naturally with
+// date-specific verbs.
+const DATE_OP_LABELS: Partial<Record<FilterOp, string>> = {
+  lt: "before",
+  lte: "on or before",
+  gt: "after",
+  gte: "on or after",
+  eq: "on",
 };
 
 export const TEXT_OPS: FilterOp[] = [
@@ -93,6 +146,33 @@ export const NUMERIC_OPS: FilterOp[] = [
   "isnull",
   "notnull",
 ];
+export const DATE_OPS: FilterOp[] = [
+  "lt",
+  "lte",
+  "gt",
+  "gte",
+  "eq",
+  "isnull",
+  "notnull",
+];
+// Enum fields snap to a single chosen value, so only equality + emptiness.
+export const ENUM_OPS: FilterOp[] = ["eq", "neq", "isnull", "notnull"];
+
+// The valid operator list for a field, by its type. The UI uses this to render
+// the operator dropdown and to snap a stale operator to a valid one when the
+// field type changes.
+export function opsForField(field: FilterField): FilterOp[] {
+  if (NUMERIC_FIELDS.has(field)) return NUMERIC_OPS;
+  if (DATE_FIELDS.has(field)) return DATE_OPS;
+  if (ENUM_FIELDS.has(field)) return ENUM_OPS;
+  return TEXT_OPS;
+}
+
+// Operator label, field-type aware (dates read as "before"/"after"/etc.).
+export function opLabel(field: FilterField, op: FilterOp): string {
+  if (DATE_FIELDS.has(field) && DATE_OP_LABELS[op]) return DATE_OP_LABELS[op]!;
+  return OP_LABELS[op];
+}
 
 function fieldValue(it: ItemFullRow, field: FilterField): string | number | null {
   switch (field) {
@@ -104,14 +184,30 @@ function fieldValue(it: ItemFullRow, field: FilterField): string | number | null
       return it.size;
     case "source":
       return it.source_name;
+    case "color":
+      return it.color;
+    case "location_bin":
+      return it.location_bin;
+    case "sku":
+      return it.item_number;
+    case "marketplace":
+      return it.listing_platform;
+    case "status":
+      return it.status;
     case "cost":
       return it.purchase_price;
     case "target_price":
       return it.target_price;
-    case "status":
-      return it.status;
     case "grade":
       return it.grade_value;
+    case "purchase_date":
+      return it.purchase_date;
+    case "created_at":
+      return it.created_at;
+    case "sale_date":
+      return it.sale_date;
+    case "photo_state":
+      return it.has_required_photos ? "complete" : "incomplete";
     case "days_in_status": {
       if (!it.updated_at) return null;
       const t = new Date(it.updated_at).getTime();
@@ -121,8 +217,50 @@ function fieldValue(it: ItemFullRow, field: FilterField): string | number | null
   }
 }
 
+// Start-of-day (UTC) for a YYYY-MM-DD string (date <input> value). We anchor on
+// UTC so the comparison is deterministic regardless of the viewer's timezone
+// AND lines up with date-only DB columns (e.g. purchase_date "2026-06-18"),
+// which also parse as UTC midnight — the two would otherwise drift by the TZ
+// offset and a same-day `eq` could miss.
+function dayStartMs(raw: string): number {
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw;
+  return new Date(iso).getTime();
+}
+
+function evalDateRule(value: string | number | null, rule: FilterRule): boolean {
+  if (rule.op === "isnull") return value == null || value === "";
+  if (rule.op === "notnull") return value != null && value !== "";
+  if (value == null || value === "") return false;
+  const vt = new Date(String(value)).getTime();
+  if (isNaN(vt)) return false;
+  const start = dayStartMs(rule.value.trim());
+  if (isNaN(start)) return false;
+  const end = start + DAY_MS;
+  switch (rule.op) {
+    case "eq":
+      return vt >= start && vt < end;
+    case "neq":
+      return !(vt >= start && vt < end);
+    case "lt":
+      return vt < start; // before that day
+    case "lte":
+      return vt < end; // on or before that day
+    case "gt":
+      return vt >= end; // after that day
+    case "gte":
+      return vt >= start; // on or after that day
+    default:
+      return false;
+  }
+}
+
 function evalRule(it: ItemFullRow, rule: FilterRule): boolean {
   const v = fieldValue(it, rule.field);
+
+  if (DATE_FIELDS.has(rule.field)) {
+    return evalDateRule(v, rule);
+  }
+
   const raw = rule.value.trim();
 
   switch (rule.op) {
@@ -200,9 +338,13 @@ export function decodeQuery(s: string): FilterQuery | null {
 
 export function describeRule(rule: FilterRule): string {
   const field = FIELD_LABELS[rule.field];
-  const op = OP_LABELS[rule.op];
+  const op = opLabel(rule.field, rule.op);
   if (rule.op === "isnull" || rule.op === "notnull") {
     return `${field} ${op}`;
   }
-  return `${field} ${op} ${rule.value}`;
+  // For enum fields show the human label, not the stored value.
+  const opts = ENUM_FIELD_OPTIONS[rule.field];
+  const valueLabel =
+    opts?.find((o) => o.value === rule.value)?.label ?? rule.value;
+  return `${field} ${op} ${valueLabel}`;
 }

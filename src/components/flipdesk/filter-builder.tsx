@@ -16,10 +16,11 @@ import {
 import { cn } from "@/lib/utils";
 import {
   FIELD_LABELS,
-  OP_LABELS,
-  NUMERIC_FIELDS,
-  NUMERIC_OPS,
-  TEXT_OPS,
+  DATE_FIELDS,
+  ENUM_FIELDS,
+  ENUM_FIELD_OPTIONS,
+  opsForField,
+  opLabel,
   type FilterField,
   type FilterOp,
   type FilterQuery,
@@ -35,16 +36,26 @@ function newRule(): FilterRule {
   };
 }
 
+// Grouped so the dropdown reads in a sensible order: text facets, then the
+// marketplace/photo enums, then numeric, then date facets.
 const ALL_FIELDS: FilterField[] = [
   "brand",
   "category",
   "size",
   "source",
+  "color",
+  "location_bin",
+  "sku",
+  "status",
+  "marketplace",
+  "photo_state",
   "cost",
   "target_price",
-  "status",
   "grade",
   "days_in_status",
+  "purchase_date",
+  "created_at",
+  "sale_date",
 ];
 
 export function FilterBuilder({
@@ -62,10 +73,15 @@ export function FilterBuilder({
       rules: query.rules.map((r) => {
         if (r.id !== id) return r;
         const next = { ...r, ...patch };
-        // If the field type changed, snap the operator to a valid one.
+        // If the field type changed, snap the operator to a valid one and
+        // clear a value that no longer makes sense for the new field type.
         if (patch.field) {
-          const ops = NUMERIC_FIELDS.has(patch.field) ? NUMERIC_OPS : TEXT_OPS;
+          const ops = opsForField(patch.field);
           if (!ops.includes(next.op)) next.op = ops[0]!;
+          // Switching to/from an enum field invalidates a free-text value.
+          if (ENUM_FIELDS.has(patch.field) || ENUM_FIELDS.has(r.field)) {
+            next.value = "";
+          }
         }
         return next;
       }),
@@ -93,7 +109,7 @@ export function FilterBuilder({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[420px] p-3" align="start">
+      <PopoverContent className="w-[460px] p-3" align="start">
         <div className="mb-2 flex items-center gap-2 text-xs">
           <span className="text-muted-foreground">Match</span>
           <div className="flex overflow-hidden rounded-md border">
@@ -123,10 +139,11 @@ export function FilterBuilder({
             </div>
           )}
           {query.rules.map((rule) => {
-            const ops = NUMERIC_FIELDS.has(rule.field)
-              ? NUMERIC_OPS
-              : TEXT_OPS;
+            const ops = opsForField(rule.field);
             const needsValue = rule.op !== "isnull" && rule.op !== "notnull";
+            const isEnum = ENUM_FIELDS.has(rule.field);
+            const isDate = DATE_FIELDS.has(rule.field);
+            const enumOptions = ENUM_FIELD_OPTIONS[rule.field];
             return (
               <div key={rule.id} className="flex items-center gap-1.5">
                 <Select
@@ -152,18 +169,45 @@ export function FilterBuilder({
                     patchRule(rule.id, { op: v as FilterOp })
                   }
                 >
-                  <SelectTrigger className="h-8 w-24 text-xs">
+                  <SelectTrigger className="h-8 w-28 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {ops.map((o) => (
                       <SelectItem key={o} value={o}>
-                        {OP_LABELS[o]}
+                        {opLabel(rule.field, o)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {needsValue ? (
+                {!needsValue ? (
+                  <div className="flex-1" />
+                ) : isEnum && enumOptions ? (
+                  <Select
+                    value={rule.value}
+                    onValueChange={(v) => patchRule(rule.id, { value: v })}
+                  >
+                    <SelectTrigger className="h-8 flex-1 text-xs">
+                      <SelectValue placeholder="Select…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {enumOptions.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : isDate ? (
+                  <Input
+                    type="date"
+                    value={rule.value}
+                    onChange={(e) =>
+                      patchRule(rule.id, { value: e.target.value })
+                    }
+                    className="h-8 flex-1 text-xs"
+                  />
+                ) : (
                   <Input
                     value={rule.value}
                     onChange={(e) =>
@@ -176,8 +220,6 @@ export function FilterBuilder({
                     }
                     className="h-8 flex-1 text-xs"
                   />
-                ) : (
-                  <div className="flex-1" />
                 )}
                 <Button
                   variant="ghost"

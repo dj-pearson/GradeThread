@@ -277,6 +277,9 @@ const LISTINGS_COLUMNS = [
   "certificate_url",
   "measurements",
   "location_bin",
+  // US-1051: color + marketplace drive the advanced filter's new facets.
+  "color",
+  "listing_platform",
   "created_at",
   "updated_at",
   "buyer_id",

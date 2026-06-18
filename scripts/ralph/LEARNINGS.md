@@ -75,6 +75,17 @@ memory — not a progress log (the harness records progress separately).
   `try?` so one decode failure silently wipes ALL saved views.
 
 ## Frontend conventions
+- Adding a non-optional field to `ItemFullRow` (src/types/database.ts) breaks two
+  full-literal test factories that `tsc -b` enforces: `src/lib/__tests__/
+  flipdesk-lifecycle.test.ts` and `src/lib/item-filter.test.ts` (grep
+  `sale_cancelled_at:` to find every literal). Update them or the build fails.
+  Also mirror the new column into `LISTINGS_COLUMNS` in `listings.tsx` (explicit
+  projection) — `useItemsFull` uses `select("*")` so the kanban gets it free, but
+  the listings table won't.
+- Date-filter comparisons must anchor on UTC: date-only DB columns
+  (`purchase_date`, date `<input>` values) parse as UTC midnight, so parsing the
+  bound as LOCAL midnight drifts by the TZ offset and same-day `eq` misses. See
+  `dayStartMs` in `item-filter.ts`.
 - shadcn: don't hand-edit `src/components/ui/*`. Toasts via `sonner`, not shadcn
   toast. Icons from `lucide-react` only. Named exports + `@/` imports.
 - New public static page → register in `src/lib/seo/public-routes.ts` AND
