@@ -2358,7 +2358,7 @@
         "tsc/lint/build/deno green."
       ],
       "priority": 1058,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. users.notification_preferences JSONB exists (00021) but no per-event UI for the newly-wired selling-activity events. notification-center.tsx already renders the feed. Builds on the notify.ts type enum."
     },
     {
