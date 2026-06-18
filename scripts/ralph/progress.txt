@@ -3154,3 +3154,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  5:55:14 PM
 ---
+## US-1025: iOS: map raw errors to friendly copy on auth and intake screens
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  6:00:55 PM
+---

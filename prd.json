@@ -2147,7 +2147,7 @@
         "Raw technical strings no longer appear in the auth UI; the raw detail is logged to Sentry."
       ],
       "priority": 1025,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ux. ios/GradeThread/Auth/LoginView.swift (~52); DetailsIntake/DetailsIntakeView.swift (~437); Capture/PhotoIntakeView.swift (~508,553)"
     },
     {
