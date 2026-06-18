@@ -6,12 +6,21 @@ export type NotificationType =
   | "grade_complete"
   | "grading_submitted"
   | "grading_ready"
+  // US-1056: grading-lifecycle failure paths (not just the grade_complete happy
+  // path). grading_failed = the run threw / a required angle failed; the charge
+  // was reversed. grading_incomplete = the pre-grade quality gate abstained
+  // (needs_photos) so no grade was produced.
+  | "grading_failed"
+  | "grading_incomplete"
   | "dispute_update"
   | "billing"
   | "system"
   | "item_status_change"
   | "listing_live"
   | "sale_recorded"
+  // US-1056: a listing's available quantity crossed down into low-stock /
+  // stockout territory.
+  | "low_stock"
   | "payout_imported"
   | "offer_received"
   | "return_requested";
@@ -25,12 +34,17 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   grade_complete: "grade_complete",
   grading_submitted: "grade_complete",
   grading_ready: "grade_complete",
+  // US-1056: grading-lifecycle failure paths share the grading pref category.
+  grading_failed: "grade_complete",
+  grading_incomplete: "grade_complete",
   dispute_update: "dispute_updates",
   billing: "billing_alerts",
   system: null,
   item_status_change: "selling_activity",
   listing_live: "selling_activity",
   sale_recorded: "selling_activity",
+  // US-1056: low-stock alerts are selling-activity for the seller.
+  low_stock: "selling_activity",
   payout_imported: "payouts",
   offer_received: "offers",
   return_requested: "returns",

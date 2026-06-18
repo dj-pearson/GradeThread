@@ -33,7 +33,11 @@ import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { withImageBufferSlot } from "./grading-capacity.ts";
 import { captureServer } from "./posthog.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
-import { pushReviewNeeded } from "./transactional-push.ts";
+import {
+  notifyGradingFailed,
+  notifyGradingIncomplete,
+  notifyReviewNeeded,
+} from "./grading-lifecycle-notify.ts";
 import { recordAiUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
 
@@ -890,6 +894,14 @@ export async function processSubmission(submissionId: string) {
       // taken at submit (included grade returned / credits re-granted; a
       // Stripe per-grade payment is flagged for manual refund).
       await reverseChargeForUngradedSubmission(submissionId, "quality abstention");
+      // US-1056: tell the seller the grade was withheld for clearer photos
+      // (not silently stuck). Best-effort — never blocks the abstention.
+      void notifyGradingIncomplete(
+        submission.user_id,
+        submission.title,
+        qualityGate.summary,
+        `/dashboard/submissions/${submissionId}`,
+      );
       return null;
     }
 
@@ -1399,10 +1411,16 @@ export async function processSubmission(submissionId: string) {
       ],
     });
 
-    // US-626: nudge the seller (iOS) when their grade was flagged for a human
-    // check. Best-effort — never blocks the pipeline.
+    // US-626 + US-1056: nudge the seller when their grade was flagged for a
+    // human check — both an in-app notice and the iOS push. Best-effort, never
+    // blocks the pipeline. The grade-ready notification (step 10) still fires
+    // separately; this is the additional "we're double-checking it" signal.
     if (compositeResult.needs_human_review) {
-      void pushReviewNeeded(submission.user_id, submission.title);
+      void notifyReviewNeeded(
+        submission.user_id,
+        submission.title,
+        `/dashboard/submissions/${submissionId}`,
+      );
     }
 
     // The certificate is public the moment the report exists (its
@@ -1560,6 +1578,27 @@ export async function processSubmission(submissionId: string) {
       console.error(
         `[Pipeline] FlipDesk failure-sync error for submission ${submissionId}:`,
         fdErr instanceof Error ? fdErr.message : String(fdErr)
+      );
+    }
+
+    // US-1056: tell the seller the grade failed (the charge was reversed above)
+    // instead of leaving the submission silently 'failed'. `submission` may not
+    // be in scope here (the failure could predate its fetch), so resolve the
+    // owner + title cheaply. Best-effort — never masks the original error.
+    try {
+      const { data: owner } = await supabaseAdmin
+        .from("submissions")
+        .select("user_id, title")
+        .eq("id", submissionId)
+        .maybeSingle();
+      const ownerRow = owner as { user_id?: string; title?: string | null } | null;
+      if (ownerRow?.user_id) {
+        void notifyGradingFailed(ownerRow.user_id, ownerRow.title ?? null);
+      }
+    } catch (notifyErr) {
+      console.error(
+        `[Pipeline] failure-notify error for submission ${submissionId}:`,
+        notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
       );
     }
 

@@ -16,6 +16,9 @@ import {
   Banknote,
   Handshake,
   Undo2,
+  XCircle,
+  Camera,
+  PackageMinus,
 } from "lucide-react";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { Button } from "@/components/ui/button";
@@ -38,6 +41,12 @@ function getNotificationIcon(type: NotificationType) {
       return Award;
     case "grading_submitted":
       return Hourglass;
+    case "grading_failed":
+      return XCircle;
+    case "grading_incomplete":
+      return Camera;
+    case "low_stock":
+      return PackageMinus;
     case "dispute_update":
       return AlertTriangle;
     case "billing":
@@ -70,6 +79,11 @@ function getNotificationIconColor(type: NotificationType): string {
       return "text-emerald-600 dark:text-emerald-400";
     case "grading_submitted":
       return "text-violet-600 dark:text-violet-400";
+    case "grading_failed":
+      return "text-red-600 dark:text-red-400";
+    case "grading_incomplete":
+    case "low_stock":
+      return "text-amber-600 dark:text-amber-400";
     case "dispute_update":
       return "text-yellow-600 dark:text-yellow-400";
     case "billing":

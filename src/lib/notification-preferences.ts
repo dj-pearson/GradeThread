@@ -142,6 +142,18 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     prefKey: "grade_complete",
   },
   {
+    type: "grading_failed",
+    label: "Grading failed",
+    description: "A grade couldn't finish — the charge was reversed.",
+    prefKey: "grade_complete",
+  },
+  {
+    type: "grading_incomplete",
+    label: "Grading incomplete",
+    description: "A grade was withheld because clearer photos are needed.",
+    prefKey: "grade_complete",
+  },
+  {
     type: "item_status_change",
     label: "Item status changed",
     description: "An inventory item moved to a new pipeline stage.",
@@ -157,6 +169,12 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     type: "sale_recorded",
     label: "Sale recorded",
     description: "An item sold.",
+    prefKey: "selling_activity",
+  },
+  {
+    type: "low_stock",
+    label: "Low stock",
+    description: "A listing is running low or out of stock.",
     prefKey: "selling_activity",
   },
   {

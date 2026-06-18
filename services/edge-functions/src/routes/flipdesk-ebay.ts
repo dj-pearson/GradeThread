@@ -164,6 +164,11 @@ import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
 import { notifyUser } from "../lib/notify.ts";
 import {
+  getLowStockThreshold,
+  notifyStockLevel,
+  type StockEvent,
+} from "../lib/inventory-monitor.ts";
+import {
   attachPromotionAtPublish,
   clampMarkdownPct,
   createAdForListing,
@@ -1443,6 +1448,13 @@ async function doListingsPull(
   // platform_fields, so these writes aren't clobbered.
   const driftFieldWrites = new Map<string, Record<string, unknown>>();
 
+  // US-1056: low-stock / stockout events observed this pull, keyed by listing id
+  // (last write wins) so a listing touched by both the modern + legacy passes
+  // only notifies once. Collected only for eBay-source-of-truth listings (eBay
+  // owns the quantity there) and flushed AFTER the listings upsert commits, so a
+  // failed write never produces a phantom alert.
+  const lowStockEvents = new Map<string, StockEvent>();
+
   // US-1078: provenance-aware inbound merge, shared by the modern-offers and
   // legacy (Trading API) passes. Authority follows listing provenance now —
   // this RETIRES the US-148 per-field source_of_truth pin (`pinnedAgainstEbay`),
@@ -1631,6 +1643,20 @@ async function doListingsPull(
           price: priceNum,
           description: o.listingDescription,
         });
+        // US-1056: on an eBay-source-of-truth listing, eBay's reported available
+        // quantity is authoritative — record a low-stock crossing as units sell.
+        // (GT-origin listings keep their own quantity, so eBay's number there is
+        // drift, not real stock; skip them.)
+        if (existing && origin === "ebay" && o.availableQuantity != null) {
+          lowStockEvents.set(existing.id, {
+            userId,
+            listingId: existing.id,
+            itemId,
+            title: existing.listing_title,
+            prevQty: existing.quantity,
+            newQty: o.availableQuantity,
+          });
+        }
         // US-405: accumulate the write — flushed as one bulk upsert after both
         // listing passes. ensurePendingListing seeds a full row from the
         // pre-loaded snapshot (or a fresh client-id'd row), then the patch is
@@ -1790,6 +1816,21 @@ async function doListingsPull(
             price: l.currentPrice ?? null,
             description: null,
           });
+          // US-1056: low-stock crossing on an eBay-source-of-truth listing (see
+          // the modern pass for the GT-origin caveat). Re-resolve the eBay
+          // quantity here (the earlier `legacyQty` is scoped to the if-existing
+          // block above).
+          const newQty = l.quantityAvailable ?? l.quantity;
+          if (existing && origin === "ebay" && newQty != null) {
+            lowStockEvents.set(existing.id, {
+              userId,
+              listingId: existing.id,
+              itemId,
+              title: existing.listing_title,
+              prevQty: existing.quantity,
+              newQty,
+            });
+          }
           // US-405: accumulate the write (merging onto any row the modern pass
           // already seeded for this item) and the silent status flip.
           applyListingPatch(ensurePendingListing(itemId), patch);
@@ -1879,6 +1920,16 @@ async function doListingsPull(
       .from("listings")
       .upsert(Array.from(pendingListing.values()), { onConflict: "id" });
     if (error) errors.push(`listings upsert: ${error.message.slice(0, 160)}`);
+  }
+  // US-1056: now that the new quantities are committed, fire low-stock /
+  // stockout notifications for any listing that crossed down this pull. Read the
+  // threshold once and reuse it. Best-effort: notifyStockLevel self-filters
+  // (only a downward crossing alerts) and never throws.
+  if (lowStockEvents.size > 0) {
+    const threshold = await getLowStockThreshold();
+    for (const ev of lowStockEvents.values()) {
+      void notifyStockLevel(ev, threshold);
+    }
   }
   // US-1081: write the drift markers for GradeThread-originated listings. These
   // touch only `platform_fields` (which the bulk upsert above never carries, so
