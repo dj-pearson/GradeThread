@@ -12,9 +12,28 @@ need to run and control it. Commands below are run from the **repo root**.
 | **Start** (boxed: own CPU cores + below-normal priority) | `scripts\ralph\start-loop.bat 200` |
 | **Stop gracefully** (finish current story, then exit) | `powershell -ExecutionPolicy Bypass -File scripts\ralph\stop-ralph.ps1` |
 | **Stop NOW** (force, mid-iteration) | `powershell -ExecutionPolicy Bypass -File scripts\ralph\kill-ralph.ps1` |
+| **Rescue a STALLED iteration** (force-kill + stash partial work) | `powershell -ExecutionPolicy Bypass -File scripts\ralph\rescue-ralph.ps1` |
 | **Cancel a pending graceful stop** | `Remove-Item scripts\ralph\STOP` |
 
-Git Bash equivalents: `bash scripts/ralph/stop-ralph.sh`, `bash scripts/ralph/kill-ralph.sh`.
+Git Bash equivalents: `bash scripts/ralph/stop-ralph.sh`, `bash scripts/ralph/kill-ralph.sh`, `bash scripts/ralph/rescue-ralph.sh`.
+
+### Stalled / hung iteration?
+
+Use **`rescue-ralph`**. It force-kills the loop (via `kill-ralph`) **and** stashes
+whatever uncommitted work the dead iteration left behind, leaving a clean tree.
+Because story selection is stateless — `ralph.sh` always re-picks the
+highest-priority `passes:false` story, and a killed iteration never flips
+`passes:true` — the next `npm run ralph` simply **retries the same story**. You
+don't need to bump priority or edit the story to "keep your place."
+
+The partial work is in `git stash` (labeled with the story id + timestamp).
+Recover it with `git stash pop` **before** restarting (or `git stash drop` to
+discard once the agent has redone the story). Don't `pop` while a fresh iteration
+is editing the same files — you'll get conflicts.
+
+`stop-ralph` is the wrong tool for a hang: its STOP flag is only checked
+*between* iterations, so it waits for the stuck one (which `ralph.sh` will itself
+auto-kill at `RALPH_ITER_TIMEOUT`, default 40 min, then retry).
 
 ## Start
 
