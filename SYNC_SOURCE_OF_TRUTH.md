@@ -17,8 +17,15 @@ Authority is **per-listing, decided by provenance** — not global. Each listing
 
 ## Field ownership (applies to both classes)
 
-- **eBay-owned listing fields:** title, listing price, quantity, listing description, listing status, item specifics/aspects, condition, business policies — anything that lives on the eBay offer/listing.
-- **Always GradeThread-owned (eBay never touches):** grade, condition report, measurements, cost/source (acquired price/date/source), SKU. These are GradeThread-owned regardless of listing provenance.
+> **Registry:** `services/edge-functions/src/lib/sync-precedence.ts` (US-1076) is the **canonical code registry** for field ownership. The prose below summarises it; if they ever diverge, the code wins.
+
+| Registry export | Fields | Rule |
+|---|---|---|
+| `EBAY_OWNED_LISTING_FIELDS` | `listing_title`, `listing_price`, `listing_description`, `listing_status`, `is_active`, `quantity`, `listed_at`, `platform_category_id`, `platform_listing_id`, `platform_offer_id`, `listing_url` | For `listing_origin='ebay'` these are overwritten on every inbound pull (full mirror). For `listing_origin='gradethread'` these are **locked** — inbound pull must not write them; GradeThread re-asserts on the next push. |
+| `LISTING_READONLY_SIGNALS` | `is_active`, `listing_status` | Subset of `EBAY_OWNED_LISTING_FIELDS`. These flow in regardless of `listing_origin`: GradeThread must know when eBay ends or marks a listing sold. |
+| `GRADETHREAD_OWNED_ITEM_FIELDS` | `grade_value`, `condition_notes`, `acquired_price`, `acquired_date`, `sku`, `source_id` | Always owned by GradeThread — no eBay pull (for any `listing_origin`) and no CSV import may write these. |
+
+The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these boundaries; no client-side precedence logic exists.
 
 ## Linking sources (lowest authority)
 
