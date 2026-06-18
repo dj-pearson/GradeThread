@@ -161,8 +161,13 @@ import {
   searchPaymentDisputes,
 } from "../lib/ebay-disputes.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
-import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
-import { notifyUser } from "../lib/notify.ts";
+import { pushTokenExpiring } from "../lib/transactional-push.ts";
+import {
+  notifyListingEnded,
+  notifyListingLive,
+  notifyPayoutImported,
+  notifySaleRecorded,
+} from "../lib/selling-activity-notify.ts";
 import {
   claimMarketplaceEvent,
   notifyOfferResponded,
@@ -1975,13 +1980,8 @@ async function doListingsPull(
       id: string;
       title: string | null;
     }>) {
-      // US-737: item went live on a marketplace.
-      void notifyUser(userId, {
-        type: "listing_live",
-        title: "Listing is live",
-        message: `${r.title ?? "Your item"} is now listed on eBay.`,
-        link: `/dashboard/flipdesk/items/${r.id}`,
-      });
+      // US-737 / US-1054: item went live on a marketplace (in-app).
+      void notifyListingLive(userId, { itemTitle: r.title, itemId: r.id });
     }
   }
   if (listedSilentItemIds.size > 0) {
@@ -2230,15 +2230,13 @@ async function doListingsPull(
             // US-626: a brand-new sale → celebrate it on iOS (best-effort).
             // Only for genuine completed sales, never a cancelled/refunded one.
             if (saleStatus === "completed") {
-              void pushSaleCreated(userId);
-              // US-737: in-app "sold" notification. This branch only runs for a
-              // genuinely NEW completed sale (the `existing` dedup guard above),
-              // so it fires once per sale, not on every re-sync.
-              void notifyUser(userId, {
-                type: "sale_recorded",
-                title: "Item sold",
-                message: `${li.title ?? "An item"} sold for $${itemCost.toFixed(2)}.`,
-                link: `/dashboard/flipdesk/items/${itemId}`,
+              // US-737 / US-1054: a genuinely NEW completed sale (the `existing`
+              // dedup guard above) → in-app + push, fired once per sale (never on
+              // re-sync), push preference-gated. Best-effort.
+              void notifySaleRecorded(userId, {
+                itemTitle: li.title,
+                price: itemCost,
+                itemId,
               });
             }
           }
@@ -2479,12 +2477,9 @@ async function doListingsPull(
         | undefined;
       if (row) {
         endedToDraft += 1;
-        void notifyUser(userId, {
-          type: "item_status_change",
-          title: "Listing ended",
-          message: `${row.title ?? "Your item"} ended on eBay without selling — it's back in Drafts to edit and relist.`,
-          link: `/dashboard/flipdesk/items/${itemId}`,
-        });
+        // US-737 / US-1054: real status transition (listed → drafted), fires once
+        // (the .select() above returns the row only when the update applied).
+        void notifyListingEnded(userId, { itemTitle: row.title, itemId });
       }
     } catch (err) {
       errors.push(
@@ -5303,6 +5298,12 @@ flipdeskEbayRoutes.post("/payouts/import-csv", async (c) => {
       payouts,
       "csv_upload",
     );
+    // US-1054: a manual CSV import is still a payout-arrival event — notify the
+    // user (in-app + push, preference-gated) so it reconciles like the webhook
+    // path. Dedup in ingest means this only fires for genuinely new rows.
+    if (inserted > 0) {
+      void notifyPayoutImported(userId, { count: inserted });
+    }
     return c.json({ imported: inserted, skipped, duplicates });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

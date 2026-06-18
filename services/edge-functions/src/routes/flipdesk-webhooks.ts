@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
-import { notifyUser } from "../lib/notify.ts";
+import { notifyPayoutImported } from "../lib/selling-activity-notify.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
@@ -767,14 +767,14 @@ async function ingestPayoutForUser(
     console.log(
       `[flipdesk-webhooks] payout ${payoutRow.payoutId} processed: inserted=${inserted} duplicates=${duplicates}`,
     );
-    // US-737: a genuinely new payout arrived from eBay (async, not a manual
-    // CSV upload) → notify so the user knows money landed and can reconcile.
+    // US-737 / US-1054: a genuinely new payout arrived from eBay (async, not a
+    // manual CSV upload) → notify so the user knows money landed and can
+    // reconcile. In-app + push, preference-gated; idempotent via the ingest dedup.
     if (inserted > 0) {
-      void notifyUser(userId, {
-        type: "payout_imported",
-        title: "Payout received",
-        message: `A ${currency ?? "USD"} ${amountValue} payout was imported from eBay.`,
-        link: "/dashboard/flipdesk/reconciliation",
+      void notifyPayoutImported(userId, {
+        count: inserted,
+        currency,
+        amount: amountValue,
       });
     }
   } catch (err) {

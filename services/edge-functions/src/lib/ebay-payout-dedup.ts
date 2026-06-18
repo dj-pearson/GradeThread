@@ -5,7 +5,6 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import type { ParsedPayoutRow } from "./ebay-payouts-csv.ts";
-import { pushPayoutCleared } from "./transactional-push.ts";
 
 export type PayoutImportMethod = "csv_upload" | "api_sync";
 
@@ -74,8 +73,10 @@ export async function ingestPayoutsForUser(
     throw new Error(`payout_imports insert failed: ${error.message}`);
   }
 
-  // US-626: let the user know (iOS) money arrived. Best-effort, fire-and-forget.
-  void pushPayoutCleared(userId, toInsert.length);
+  // US-1054: notification (in-app + push) is fired by the caller via
+  // notifyPayoutImported() on its `inserted` count, so both the webhook and CSV
+  // ingestion paths deliver one preference-gated notification per new payout
+  // batch (and never on a deduped re-delivery).
 
   return { inserted: toInsert.length, duplicates };
 }
