@@ -2095,7 +2095,7 @@
         "Success path unchanged."
       ],
       "priority": 1021,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=accessibility/ux. ios/GradeThread/Inventory/InventoryListView.swift (~235-251)"
     },
     {

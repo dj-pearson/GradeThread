@@ -3170,3 +3170,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  6:05:59 PM
 ---
+## US-1021: iOS: pull-to-refresh failure banner — add retry + VoiceOver announcement
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  6:08:15 PM
+---
