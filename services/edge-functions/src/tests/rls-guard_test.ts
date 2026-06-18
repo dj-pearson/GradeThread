@@ -146,6 +146,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // user-owned tenant data.
   "keyword_research_terms",
   "keyword_research_runs",
+  // US-1067 few-shot exemplar sets: curated, versioned, PII-free exemplar blocks
+  // mined from human-corrected grades. RLS enabled with an explicit
+  // `revoke all from anon, authenticated` and zero policies by design
+  // (migration 00238). Read/written ONLY via the role-gated /api/admin/grading
+  // endpoints + the grade-time active-block read on the service-role client; the
+  // SPA never reads it directly. Operator-curated reference data (created_by is
+  // the authoring admin, not a tenant key), not user-owned tenant data.
+  "grading_exemplar_sets",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

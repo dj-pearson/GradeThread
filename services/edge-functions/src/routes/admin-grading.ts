@@ -16,6 +16,12 @@ import {
   runEval,
   runPromptDryRun,
 } from "../lib/grading-eval.ts";
+import {
+  activateExemplarSet,
+  assembleExemplarSet,
+  deactivateExemplarSet,
+  evalExemplarSet,
+} from "../lib/few-shot-exemplars.ts";
 import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
@@ -1093,6 +1099,111 @@ adminGradingRoutes.get("/eval/runs", async (c) => {
     .limit(50);
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ runs: data ?? [] });
+});
+
+// ── US-1067: few-shot exemplar sets (self-improving prompt) ───────────
+//
+// Mine human-corrected grades (intentional-design misreads, large corrections)
+// into a curated, versioned, PII-free few-shot block the composite grading
+// prompt leans on. A set is INERT until it passes the SAME golden-set eval gate
+// the prompt gate uses and is explicitly activated; the active block is appended
+// to the composite system prompt (prompt-cached) so the model gets the hard
+// cases right WITHOUT a larger reasoning budget.
+
+// GET /exemplars — list exemplar sets (newest first).
+adminGradingRoutes.get("/exemplars", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("grading_exemplar_sets")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ sets: data ?? [] });
+});
+
+// POST /exemplars/assemble — mine recent corrections into a CANDIDATE set
+// (inactive, un-evaluated). Body: { version_name, garment_category?, min_delta?,
+// per_category_cap?, total_cap?, since_days?, notes? }.
+adminGradingRoutes.post("/exemplars/assemble", async (c) => {
+  const userId = c.get("userId");
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const versionName = String(body.version_name ?? "").trim();
+  if (!versionName) return c.json({ error: "version_name is required" }, 400);
+
+  try {
+    const set = await assembleExemplarSet({
+      versionName,
+      garmentCategory: body.garment_category ? String(body.garment_category) : null,
+      minDelta: body.min_delta !== undefined ? Number(body.min_delta) : undefined,
+      perCategoryCap:
+        body.per_category_cap !== undefined ? Number(body.per_category_cap) : undefined,
+      totalCap: body.total_cap !== undefined ? Number(body.total_cap) : undefined,
+      sinceDays: body.since_days !== undefined ? Number(body.since_days) : undefined,
+      notes: body.notes ? String(body.notes) : null,
+      createdBy: userId,
+    });
+    await auditLog(c, "assemble_exemplar_set", "grading_exemplar_set", set.id, {
+      version_name: versionName,
+      garment_category: set.garment_category,
+      exemplar_count: set.exemplar_count,
+      source_review_count: set.source_review_count,
+    });
+    return c.json({ set }, 201);
+  } catch (err) {
+    return c.json(
+      { error: "Failed to assemble exemplar set", detail: err instanceof Error ? err.message : String(err) },
+      400,
+    );
+  }
+});
+
+// POST /exemplars/:id/eval — run the golden-set eval gate with the candidate
+// block injected; records the impact (MAE + agreement + token cost) on the set.
+adminGradingRoutes.post("/exemplars/:id/eval", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  try {
+    const result = await evalExemplarSet(id, userId);
+    await auditLog(c, "run_exemplar_eval", "grading_exemplar_set", id, {
+      passed: result.passed,
+      mae: result.mean_absolute_error,
+      agreement_rate: result.agreement_rate,
+      cases_total: result.cases_total,
+      block_tokens: result.block_tokens,
+    });
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: "Exemplar eval failed", detail: err instanceof Error ? err.message : String(err) },
+      400,
+    );
+  }
+});
+
+// POST /exemplars/:id/activate — promote to active (gated: requires a passing
+// eval). Step-up + audited: it changes live grading.
+adminGradingRoutes.post("/exemplars/:id/activate", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const id = c.req.param("id");
+  const result = await activateExemplarSet(id);
+  if (!result.ok) return c.json({ error: result.reason }, 422);
+  await auditLog(c, "activate_exemplar_set", "grading_exemplar_set", id, {});
+  return c.json({ ok: true });
+});
+
+// POST /exemplars/:id/deactivate — turn off an active set (reverts grading to no
+// exemplar block).
+adminGradingRoutes.post("/exemplars/:id/deactivate", async (c) => {
+  const id = c.req.param("id");
+  await deactivateExemplarSet(id);
+  await auditLog(c, "deactivate_exemplar_set", "grading_exemplar_set", id, {});
+  return c.json({ ok: true });
 });
 
 // ── Regression monitor (US-327) ──────────────────────────────────────

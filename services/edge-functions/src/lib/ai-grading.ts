@@ -19,6 +19,7 @@ import {
   type SlotResolution,
 } from "./canary-rollout.ts";
 import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
+import { getActiveExemplarBlock } from "./few-shot-exemplars.ts";
 import {
   applyDefectWeighting,
   coerceAreaPct,
@@ -1247,7 +1248,7 @@ const GRADE_TIER_DEFINITIONS = `Grade Tiers (score ranges):
 
 When choosing a tier, weigh defects by TYPE and SIZE, not just count: a single >50mm hole, a blown seam, or a broken/missing closure is a major flaw that caps the grade in the Poor band regardless of how clean the rest of the garment is; a sub-3mm pinhole or light surface pilling is a minor flaw that should not drop a garment more than ~half a tier. Ordinary (steam-removable) wrinkles are not a meaningful condition flaw.`;
 
-const COMPOSITE_SYSTEM_PROMPT = `You are an expert clothing condition grading specialist for GradeThread, a professional garment grading service. You produce final composite grades by synthesizing per-image analysis results into a single, authoritative condition assessment.
+export const COMPOSITE_SYSTEM_PROMPT = `You are an expert clothing condition grading specialist for GradeThread, a professional garment grading service. You produce final composite grades by synthesizing per-image analysis results into a single, authoritative condition assessment.
 
 ${GRADE_TIER_DEFINITIONS}
 
@@ -1586,14 +1587,30 @@ export async function compositeGrade(
     ));
   const promptVersion = prompt.versionName;
 
-  // Cache the static composite system prompt (tier definitions + weights).
+  // US-1067: when grading a real submission (no explicit override), append the
+  // ACTIVE, eval-gated few-shot exemplar block for this category to the composite
+  // system prompt. It sharpens design-vs-damage / misread calls from real
+  // corrected precedents. Empty string when no set is active → grading unchanged.
+  // An override path (eval / dry-run / shadow) measures the prompt itself, so the
+  // block is never auto-appended there.
+  let systemText = prompt.text;
+  if (!promptOverride) {
+    const exemplarBlock = await getActiveExemplarBlock(
+      garmentInfo.garment_category || null,
+    );
+    if (exemplarBlock) systemText = `${systemText}\n\n${exemplarBlock}`;
+  }
+
+  // Cache the static composite system prompt (tier definitions + weights + the
+  // active exemplar block). Prompt-caching amortizes the block's token cost
+  // across grades inside the 5-min window (US-1067 token savings).
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
     ? {
         type: "text",
-        text: prompt.text,
+        text: systemText,
         cache_control: { type: "ephemeral" },
       }
-    : { type: "text", text: prompt.text };
+    : { type: "text", text: systemText };
 
   try {
     // US-414: bounded by the global limiter via getAnthropicClient().
