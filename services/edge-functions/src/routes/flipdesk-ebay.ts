@@ -164,6 +164,11 @@ import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
 import { notifyUser } from "../lib/notify.ts";
 import {
+  claimMarketplaceEvent,
+  notifyOfferResponded,
+  type OfferAction,
+} from "../lib/marketplace-event-notify.ts";
+import {
   getLowStockThreshold,
   notifyStockLevel,
   type StockEvent,
@@ -5417,6 +5422,22 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
         : undefined,
       sellerMessage: typeof body.message === "string" ? body.message : undefined,
     });
+    // US-1055: notify the owner that this offer was accepted/declined/countered.
+    // Useful for workspace teams (a member may have responded) and for an audit
+    // trail across devices. Deduped per (offer, action) so a retry can't double-
+    // notify; tenant-scoped to the workspace owner. Best-effort — fire-and-forget.
+    const responded: OfferAction =
+      action === "Accept" ? "accepted" : action === "Decline" ? "declined" : "countered";
+    void (async () => {
+      const fresh = await claimMarketplaceEvent(
+        userId,
+        "offer",
+        bestOfferId,
+        `responded:${responded}`,
+        "offer_responded",
+      );
+      if (fresh) await notifyOfferResponded(userId, null, responded);
+    })();
     return c.json({ ok: true, best_offer_id: bestOfferId, action });
   } catch (err) {
     console.error("[flipdesk-ebay] respondToBestOffer failed:", err);

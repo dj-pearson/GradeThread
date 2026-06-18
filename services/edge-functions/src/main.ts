@@ -108,6 +108,7 @@ import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
 import { handleKeywordResearchCron } from "./routes/jobs-keyword-research.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
+import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { adminAdsRoutes } from "./routes/admin-ads.ts";
@@ -938,6 +939,11 @@ app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
 // off-hours destructive actions). Thresholds in the settings registry; raises
 // an ops alert + admin_audit_anomalies finding. Enforces the job secret itself.
 app.post("/api/jobs/audit-anomaly-scan", (c) => handleAuditAnomalyCron(c));
+// US-1055 marketplace-event notifications. Sweeps active eBay connections and
+// notifies sellers of newly-opened offers, returns, and payment disputes across
+// in-app + email + push. Idempotent (marketplace_event_notifications dedup);
+// the handler enforces X-Internal-Job-Secret itself.
+app.post("/api/jobs/marketplace-events", (c) => handleMarketplaceEventsCron(c));
 // US-547 AutoLister listing-prompt A/B auto-promotion. Compares the in-trial
 // challenger against the champion on seller keep-rate + sell-through and
 // promotes (eval-gated) / ends the trial. Handler enforces the job secret.

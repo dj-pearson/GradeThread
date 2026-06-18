@@ -58,3 +58,52 @@ export function pushPayoutCleared(userId: string, count: number): Promise<void> 
     data: { kind: "payout_cleared" },
   });
 }
+
+// US-1055: marketplace offer / return / dispute pushes. Same fire-and-forget
+// contract as the helpers above.
+
+/** A buyer sent an offer on one of the seller's listings. */
+export function pushOfferReceived(userId: string, itemTitle?: string | null): Promise<void> {
+  return safePush(userId, {
+    title: "New offer",
+    body: itemTitle ? `A buyer sent an offer on "${itemTitle}".` : "You received a new offer.",
+    category: "offer.received",
+    data: { kind: "offer_received" },
+  });
+}
+
+/** A buyer offer was accepted / declined / countered. */
+export function pushOfferResponded(
+  userId: string,
+  action: "accepted" | "declined" | "countered",
+  itemTitle?: string | null,
+): Promise<void> {
+  return safePush(userId, {
+    title: `Offer ${action}`,
+    body: itemTitle ? `The offer on "${itemTitle}" was ${action}.` : `An offer was ${action}.`,
+    category: "offer.responded",
+    data: { kind: "offer_responded", action },
+  });
+}
+
+/** A buyer opened a return. */
+export function pushReturnOpened(userId: string, itemLabel?: string | null): Promise<void> {
+  return safePush(userId, {
+    title: "Return opened",
+    body: itemLabel ? `A buyer opened a return on ${itemLabel}.` : "A buyer opened a return.",
+    category: "return.opened",
+    data: { kind: "return_opened" },
+  });
+}
+
+/** A payment dispute / chargeback was opened — deadline-bearing. */
+export function pushDisputeOpened(userId: string, orderLabel?: string | null): Promise<void> {
+  return safePush(userId, {
+    title: "Payment dispute opened",
+    body: orderLabel
+      ? `A payment dispute was opened on ${orderLabel} — respond before the deadline.`
+      : "A payment dispute was opened — respond before the deadline.",
+    category: "dispute.opened",
+    data: { kind: "dispute_opened" },
+  });
+}

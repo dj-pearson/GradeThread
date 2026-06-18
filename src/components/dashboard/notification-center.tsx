@@ -19,6 +19,7 @@ import {
   XCircle,
   Camera,
   PackageMinus,
+  Gavel,
 } from "lucide-react";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { Button } from "@/components/ui/button";
@@ -62,9 +63,13 @@ function getNotificationIcon(type: NotificationType) {
     case "payout_imported":
       return Banknote;
     case "offer_received":
+    case "offer_responded":
       return Handshake;
     case "return_requested":
+    case "return_opened":
       return Undo2;
+    case "dispute_opened":
+      return Gavel;
     default:
       return CheckCircle2;
   }
@@ -92,9 +97,13 @@ function getNotificationIconColor(type: NotificationType): string {
     case "item_status_change":
       return "text-sky-600 dark:text-sky-400";
     case "offer_received":
+    case "offer_responded":
       return "text-amber-600 dark:text-amber-400";
     case "return_requested":
+    case "return_opened":
       return "text-rose-600 dark:text-rose-400";
+    case "dispute_opened":
+      return "text-red-600 dark:text-red-400";
     case "system":
       return "text-muted-foreground";
     default:

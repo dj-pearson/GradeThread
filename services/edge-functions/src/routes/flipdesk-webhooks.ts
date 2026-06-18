@@ -9,6 +9,7 @@ import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
 import { classifyEbayTopic } from "../lib/ebay-webhook-topics.ts";
+import { pollMarketplaceEventsForUser } from "../lib/marketplace-event-poll.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import {
@@ -677,6 +678,17 @@ async function processEbayWebhookEvent(
     console.log(
       `[flipdesk-webhooks] eBay ${bucket} event topic=${topic} → sync ${result} for user=${userId}`,
     );
+    // US-1055: a return/refund-bucket event means a post-sale issue may have just
+    // opened — poll this seller's open returns/disputes so the notification fires
+    // promptly (not only on the next scheduled sweep). Deduped + best-effort.
+    if (bucket === "return") {
+      void pollMarketplaceEventsForUser(userId).catch((err) => {
+        console.error(
+          "[flipdesk-webhooks] marketplace-event poll failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+    }
     return;
   }
 

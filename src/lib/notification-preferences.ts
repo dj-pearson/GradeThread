@@ -78,8 +78,9 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
   },
   {
     key: "returns",
-    label: "Returns",
-    description: "When a buyer opens a return or a return changes status.",
+    label: "Returns & disputes",
+    description:
+      "When a buyer opens a return, a return changes status, or a payment dispute is opened.",
     channels: ["email", "in_app", "push"],
   },
   {
@@ -184,9 +185,27 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     prefKey: "offers",
   },
   {
+    type: "offer_responded",
+    label: "Offer responded",
+    description: "An offer was accepted, declined, or countered.",
+    prefKey: "offers",
+  },
+  {
     type: "return_requested",
     label: "Return requested",
     description: "A buyer opened a return or refund request.",
+    prefKey: "returns",
+  },
+  {
+    type: "return_opened",
+    label: "Return opened",
+    description: "A buyer opened a return (eBay Post-Order).",
+    prefKey: "returns",
+  },
+  {
+    type: "dispute_opened",
+    label: "Payment dispute opened",
+    description: "A buyer opened a payment dispute or chargeback.",
     prefKey: "returns",
   },
   {

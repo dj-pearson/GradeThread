@@ -23,7 +23,14 @@ export type NotificationType =
   | "low_stock"
   | "payout_imported"
   | "offer_received"
-  | "return_requested";
+  | "return_requested"
+  // US-1055: offer responses + return/dispute openings across all channels.
+  // offer_responded = a buyer offer was accepted/declined/countered;
+  // return_opened = a buyer opened a return (Post-Order);
+  // dispute_opened = a payment dispute/chargeback was opened (deadline-bearing).
+  | "offer_responded"
+  | "return_opened"
+  | "dispute_opened";
 
 // Which notification_preferences category gates each type's in-app delivery.
 // `null` types are always delivered (e.g. system messages the user can't mute).
@@ -48,6 +55,11 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   payout_imported: "payouts",
   offer_received: "offers",
   return_requested: "returns",
+  // US-1055: offer responses share the offers gate; return/dispute openings
+  // share the returns gate (its label/description now covers disputes too).
+  offer_responded: "offers",
+  return_opened: "returns",
+  dispute_opened: "returns",
 };
 
 export interface NotifyInput {

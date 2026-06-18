@@ -133,7 +133,11 @@ export type NotificationType =
   | "low_stock"
   | "payout_imported"
   | "offer_received"
-  | "return_requested";
+  | "return_requested"
+  // US-1055: offer responses + return/dispute openings.
+  | "offer_responded"
+  | "return_opened"
+  | "dispute_opened";
 
 // ─── FlipDesk enums ────────────────────────────────────────────────
 export type FlipdeskSourceType =

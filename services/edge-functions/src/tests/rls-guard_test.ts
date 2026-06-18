@@ -154,6 +154,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // SPA never reads it directly. Operator-curated reference data (created_by is
   // the authoring admin, not a tenant key), not user-owned tenant data.
   "grading_exemplar_sets",
+  // US-1055: idempotency ledger for marketplace-event notifications (offer/
+  // return/dispute). RLS enabled with an explicit `revoke all from anon,
+  // authenticated` and zero policies by design (migration 00247). Written + read
+  // ONLY by the edge marketplace-event poll/notify path via the service-role
+  // client; the SPA never touches it. user_id is the tenant owner being notified.
+  "marketplace_event_notifications",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

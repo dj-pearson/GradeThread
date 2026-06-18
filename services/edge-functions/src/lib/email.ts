@@ -1213,6 +1213,151 @@ export async function sendOpsAlertEmail(
   });
 }
 
+// ─── Marketplace offer / return / dispute emails (US-1055) ──────────
+//
+// Time-sensitive seller events that were previously silent. Each is durable
+// (category) so a transient SMTP failure is retried from the outbox (US-498),
+// and surfaces the eBay-provided deadline where one exists (dispute respond-by).
+
+interface OfferReceivedData {
+  userName: string;
+  itemTitle: string;
+  amountLabel: string | null; // e.g. "$42.00", null when eBay omits a price
+  buyerLabel: string | null; // buyer username, when present
+  expiresAt: string | null; // offer expiry, when eBay provides it
+}
+
+export async function sendOfferReceivedEmail(
+  to: string,
+  data: OfferReceivedData,
+): Promise<boolean> {
+  const who = data.buyerLabel ? escapeHtml(data.buyerLabel) : "A buyer";
+  const amount = data.amountLabel ? ` of <strong>${escapeHtml(data.amountLabel)}</strong>` : "";
+  const expiry = data.expiresAt
+    ? `<p style="margin: 0 0 16px; color: ${BRAND_RED}; font-size: 14px;">Respond before <strong>${formatDate(data.expiresAt)}</strong> — offers expire.</p>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      You have a new offer
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, ${who} sent an offer${amount} on
+      <strong>"${escapeHtml(data.itemTitle)}"</strong>.
+    </p>
+    ${expiry}
+    ${ctaButton("Review the offer", `${SITE_URL}/dashboard/flipdesk/offers`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `New offer on "${data.itemTitle}"`,
+    html: emailLayout(content),
+    category: "offer_received",
+  });
+}
+
+interface OfferRespondedData {
+  userName: string;
+  itemTitle: string;
+  action: "accepted" | "declined" | "countered";
+}
+
+export async function sendOfferRespondedEmail(
+  to: string,
+  data: OfferRespondedData,
+): Promise<boolean> {
+  const verb = data.action;
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Offer ${verb}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, the offer on
+      <strong>"${escapeHtml(data.itemTitle)}"</strong> was <strong>${verb}</strong>.
+    </p>
+    ${ctaButton("View offers", `${SITE_URL}/dashboard/flipdesk/offers`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Offer ${verb}: "${data.itemTitle}"`,
+    html: emailLayout(content),
+    category: "offer_responded",
+  });
+}
+
+interface ReturnOpenedData {
+  userName: string;
+  itemLabel: string; // item title or order id
+  reason: string | null;
+}
+
+export async function sendReturnOpenedEmail(
+  to: string,
+  data: ReturnOpenedData,
+): Promise<boolean> {
+  const reason = data.reason
+    ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">Reason: <strong>${escapeHtml(data.reason)}</strong></p>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      A buyer opened a return
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, a return was opened on
+      <strong>${escapeHtml(data.itemLabel)}</strong>. Review and respond promptly —
+      eBay holds you to a response window.
+    </p>
+    ${reason}
+    ${ctaButton("Manage the return", `${SITE_URL}/dashboard/flipdesk/post-sale`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Return opened: ${data.itemLabel}`,
+    html: emailLayout(content),
+    category: "return_opened",
+  });
+}
+
+interface DisputeOpenedData {
+  userName: string;
+  orderLabel: string; // order id or item
+  reason: string | null;
+  amountLabel: string | null; // e.g. "$80.00"
+  respondByDate: string | null; // the deadline that matters
+}
+
+export async function sendDisputeOpenedEmail(
+  to: string,
+  data: DisputeOpenedData,
+): Promise<boolean> {
+  const amount = data.amountLabel ? ` for <strong>${escapeHtml(data.amountLabel)}</strong>` : "";
+  const reason = data.reason
+    ? `<p style="margin: 0 0 8px; color: #666; font-size: 14px;">Reason: <strong>${escapeHtml(data.reason)}</strong></p>`
+    : "";
+  const deadline = data.respondByDate
+    ? `<div style="background:${BRAND_RED};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin:0 0 16px;">
+        Respond by ${formatDate(data.respondByDate)} or eBay decides against you
+      </div>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      A payment dispute was opened
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, a buyer opened a payment dispute${amount} on
+      order <strong>${escapeHtml(data.orderLabel)}</strong>.
+    </p>
+    ${reason}
+    ${deadline}
+    ${ctaButton("Respond to the dispute", `${SITE_URL}/dashboard/flipdesk/post-sale`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Action needed — payment dispute on ${data.orderLabel}`,
+    html: emailLayout(content),
+    category: "dispute_opened",
+  });
+}
+
 // ─── AI cost budget guardrail breach (internal/owner alert) ─────────
 
 interface AiBudgetAlertData {

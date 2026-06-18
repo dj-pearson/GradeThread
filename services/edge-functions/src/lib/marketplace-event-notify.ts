@@ -1,0 +1,348 @@
+// Marketplace offer / return / dispute notifications across all channels (US-1055).
+//
+// These four events are time-sensitive and were previously silent:
+//   • offer_received   — a buyer sent a best offer on a listing.
+//   • offer_responded  — that offer was accepted / declined / countered.
+//   • return_opened    — a buyer opened a return (Post-Order API).
+//   • dispute_opened   — a payment dispute / chargeback was opened (the seller
+//                        must respond before eBay's respondByDate).
+//
+// Two concerns live here:
+//   1. claimMarketplaceEvent — the idempotency primitive. The poll re-fetches the
+//      same open offers/returns/disputes every tick, so we claim a row in
+//      marketplace_event_notifications BEFORE delivering; a unique-violation means
+//      "already notified" → skip. Fail-CLOSED on any other DB error (skip rather
+//      than risk re-notifying the same event on every poll).
+//   2. deliverMarketplaceNotification — fans one event out to in-app + email +
+//      push, honoring the user's per-category channel preferences. Best-effort:
+//      a channel failure never throws.
+//
+// Delivery deps are injectable so the cross-channel fan-out + preference gating
+// is unit-testable without a DB, SMTP, or APNs (mirrors plan-change-notify.ts).
+
+import { supabaseAdmin } from "./supabase.ts";
+import { notifyUser, type NotifyInput, PREF_KEY } from "./notify.ts";
+import {
+  sendDisputeOpenedEmail,
+  sendOfferReceivedEmail,
+  sendOfferRespondedEmail,
+  sendReturnOpenedEmail,
+} from "./email.ts";
+import {
+  pushDisputeOpened,
+  pushOfferReceived,
+  pushOfferResponded,
+  pushReturnOpened,
+} from "./transactional-push.ts";
+
+export type MarketplaceEventKind = "offer" | "return" | "dispute";
+
+// ── Idempotency ─────────────────────────────────────────────────────
+
+/**
+ * Claim a (user, kind, externalId, status) marketplace event. Returns true when
+ * this is the FIRST time we've seen it (insert succeeded) → the caller should
+ * deliver. Returns false on a duplicate (23505) or any other error (fail-closed:
+ * a transient failure must not let the next poll re-notify).
+ */
+export async function claimMarketplaceEvent(
+  userId: string,
+  kind: MarketplaceEventKind,
+  externalId: string,
+  status: string,
+  notificationType: string,
+): Promise<boolean> {
+  if (!userId || !externalId) return false;
+  try {
+    const { error } = await supabaseAdmin
+      .from("marketplace_event_notifications")
+      .insert({
+        user_id: userId,
+        source_kind: kind,
+        external_id: externalId,
+        status,
+        notification_type: notificationType,
+      });
+    if (!error) return true;
+    if (error.code === "23505") return false; // already notified — expected
+    console.error(
+      `[marketplace-notify] claim failed for ${userId} ${kind}:${externalId} (${status}): ${error.message}`,
+    );
+    return false;
+  } catch (err) {
+    console.error(
+      `[marketplace-notify] claim threw for ${userId} ${kind}:${externalId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
+// ── Cross-channel delivery ──────────────────────────────────────────
+
+interface UserContact {
+  email: string | null;
+  fullName: string | null;
+  prefs: Record<string, { email?: boolean; push?: boolean }> | null;
+}
+
+export interface MarketplaceNotifyDeps {
+  loadContact: (userId: string) => Promise<UserContact | null>;
+  notify: (userId: string, input: NotifyInput) => Promise<void>;
+  // Optional test interceptors: when set, called (still preference-gated)
+  // INSTEAD of the plan's real email/push sender, so a unit test can assert
+  // which channels fired without touching SMTP/APNs.
+  onEmail?: (userId: string) => void | Promise<void>;
+  onPush?: (userId: string) => void | Promise<void>;
+}
+
+/**
+ * Whether email/push should be delivered for a category, given the user's prefs.
+ * Default ON — only an explicit `false` suppresses a channel. Pure; exported for
+ * preference-gating tests.
+ */
+export function channelAllows(
+  prefs: Record<string, { email?: boolean; push?: boolean }> | null | undefined,
+  prefKey: string | null,
+): { email: boolean; push: boolean } {
+  const cat = prefKey ? prefs?.[prefKey] : undefined;
+  return { email: cat?.email !== false, push: cat?.push !== false };
+}
+
+const defaultLoadContact = async (userId: string): Promise<UserContact | null> => {
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select("email, full_name, notification_preferences")
+    .eq("id", userId)
+    .maybeSingle();
+  const row = data as
+    | {
+        email: string | null;
+        full_name: string | null;
+        notification_preferences:
+          | Record<string, { email?: boolean; push?: boolean }>
+          | null;
+      }
+    | null;
+  if (!row) return null;
+  return { email: row.email, fullName: row.full_name, prefs: row.notification_preferences };
+};
+
+const defaultDeps: MarketplaceNotifyDeps = {
+  loadContact: defaultLoadContact,
+  notify: notifyUser,
+};
+
+// One delivery plan: the in-app payload plus per-channel senders. email/push are
+// only invoked when the user's category preference allows that channel.
+interface ChannelPlan {
+  inApp: NotifyInput;
+  email: (to: string, userName: string) => Promise<unknown>;
+  push: (userId: string) => Promise<unknown>;
+}
+
+// Fan a plan out to in-app + email + push, gating email/push by the user's
+// per-category preference (default ON). The in-app leg is gated inside
+// notifyUser by PREF_KEY. Best-effort across the board — never throws.
+async function deliver(
+  userId: string,
+  plan: ChannelPlan,
+  deps: MarketplaceNotifyDeps,
+): Promise<void> {
+  const prefKey = PREF_KEY[plan.inApp.type];
+  try {
+    await deps.notify(userId, plan.inApp);
+  } catch (err) {
+    console.error("[marketplace-notify] in-app failed:", err instanceof Error ? err.message : err);
+  }
+
+  let contact: UserContact | null = null;
+  try {
+    contact = await deps.loadContact(userId);
+  } catch (err) {
+    console.error("[marketplace-notify] loadContact failed:", err instanceof Error ? err.message : err);
+  }
+  const allow = channelAllows(contact?.prefs, prefKey);
+
+  if (contact?.email && allow.email) {
+    try {
+      if (deps.onEmail) await deps.onEmail(userId);
+      else await plan.email(contact.email, contact.fullName ?? "there");
+    } catch (err) {
+      console.error("[marketplace-notify] email failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  if (allow.push) {
+    try {
+      if (deps.onPush) await deps.onPush(userId);
+      else await plan.push(userId);
+    } catch (err) {
+      console.error("[marketplace-notify] push failed:", err instanceof Error ? err.message : err);
+    }
+  }
+}
+
+// ── Formatting + content builders (pure) ────────────────────────────
+
+export function formatMoney(value: number | null, currency: string | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const cur = currency ?? "USD";
+  const symbol = cur === "USD" ? "$" : `${cur} `;
+  return `${symbol}${value.toFixed(2)}`;
+}
+
+const OFFERS_LINK = "/dashboard/flipdesk/offers";
+const POST_SALE_LINK = "/dashboard/flipdesk/post-sale";
+
+export interface OfferReceivedEvent {
+  userId: string;
+  bestOfferId: string;
+  itemTitle: string | null;
+  price: number | null;
+  currency: string | null;
+  buyerUsername: string | null;
+  expiresAt: string | null;
+}
+
+/** Build the in-app payload for an offer-received event (pure; exported for tests). */
+export function buildOfferReceived(ev: OfferReceivedEvent): NotifyInput {
+  const title = ev.itemTitle?.trim() || "your listing";
+  const amount = formatMoney(ev.price, ev.currency);
+  const who = ev.buyerUsername?.trim() || "A buyer";
+  const amountPhrase = amount ? ` of ${amount}` : "";
+  return {
+    type: "offer_received",
+    title: "New offer",
+    message: `${who} sent an offer${amountPhrase} on ${title}.`,
+    link: OFFERS_LINK,
+  };
+}
+
+export type OfferAction = "accepted" | "declined" | "countered";
+
+export function buildOfferResponded(itemTitle: string | null, action: OfferAction): NotifyInput {
+  const title = itemTitle?.trim() || "your listing";
+  return {
+    type: "offer_responded",
+    title: `Offer ${action}`,
+    message: `The offer on ${title} was ${action}.`,
+    link: OFFERS_LINK,
+  };
+}
+
+export interface ReturnOpenedEvent {
+  userId: string;
+  returnId: string;
+  itemLabel: string | null;
+  reason: string | null;
+}
+
+export function buildReturnOpened(ev: ReturnOpenedEvent): NotifyInput {
+  const label = ev.itemLabel?.trim() || "an order";
+  const reason = ev.reason?.trim();
+  return {
+    type: "return_opened",
+    title: "Return opened",
+    message: reason
+      ? `A buyer opened a return on ${label} (${reason}). Respond before eBay's deadline.`
+      : `A buyer opened a return on ${label}. Respond before eBay's deadline.`,
+    link: POST_SALE_LINK,
+  };
+}
+
+export interface DisputeOpenedEvent {
+  userId: string;
+  disputeId: string;
+  orderLabel: string | null;
+  reason: string | null;
+  amount: number | null;
+  currency: string | null;
+  respondByDate: string | null;
+}
+
+export function buildDisputeOpened(ev: DisputeOpenedEvent): NotifyInput {
+  const order = ev.orderLabel?.trim() || "an order";
+  const amount = formatMoney(ev.amount, ev.currency);
+  const amountPhrase = amount ? ` for ${amount}` : "";
+  const deadline = ev.respondByDate
+    ? ` Respond by ${ev.respondByDate.slice(0, 10)} or eBay decides against you.`
+    : "";
+  return {
+    type: "dispute_opened",
+    title: "Payment dispute opened",
+    message: `A buyer opened a payment dispute${amountPhrase} on ${order}.${deadline}`,
+    link: POST_SALE_LINK,
+  };
+}
+
+// ── Public emitters (deliver across channels) ───────────────────────
+
+export function notifyOfferReceived(
+  ev: OfferReceivedEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(ev.userId, {
+    inApp: buildOfferReceived(ev),
+    email: (to, userName) =>
+      sendOfferReceivedEmail(to, {
+        userName,
+        itemTitle: ev.itemTitle?.trim() || "your listing",
+        amountLabel: formatMoney(ev.price, ev.currency),
+        buyerLabel: ev.buyerUsername?.trim() || null,
+        expiresAt: ev.expiresAt,
+      }),
+    push: (userId) => pushOfferReceived(userId, ev.itemTitle),
+  }, deps);
+}
+
+export function notifyOfferResponded(
+  userId: string,
+  itemTitle: string | null,
+  action: OfferAction,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(userId, {
+    inApp: buildOfferResponded(itemTitle, action),
+    email: (to, userName) =>
+      sendOfferRespondedEmail(to, {
+        userName,
+        itemTitle: itemTitle?.trim() || "your listing",
+        action,
+      }),
+    push: (uid) => pushOfferResponded(uid, action, itemTitle),
+  }, deps);
+}
+
+export function notifyReturnOpened(
+  ev: ReturnOpenedEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(ev.userId, {
+    inApp: buildReturnOpened(ev),
+    email: (to, userName) =>
+      sendReturnOpenedEmail(to, {
+        userName,
+        itemLabel: ev.itemLabel?.trim() || "an order",
+        reason: ev.reason,
+      }),
+    push: (userId) => pushReturnOpened(userId, ev.itemLabel),
+  }, deps);
+}
+
+export function notifyDisputeOpened(
+  ev: DisputeOpenedEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(ev.userId, {
+    inApp: buildDisputeOpened(ev),
+    email: (to, userName) =>
+      sendDisputeOpenedEmail(to, {
+        userName,
+        orderLabel: ev.orderLabel?.trim() || "an order",
+        reason: ev.reason,
+        amountLabel: formatMoney(ev.amount, ev.currency),
+        respondByDate: ev.respondByDate,
+      }),
+    push: (userId) => pushDisputeOpened(userId, ev.orderLabel),
+  }, deps);
+}
