@@ -15,6 +15,7 @@ import {
   Circle,
   Puzzle,
   Clock,
+  Megaphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,6 +39,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { MARKETPLACE_LABELS, MARKETPLACE_TIER } from "@/lib/constants";
@@ -51,6 +60,8 @@ import {
   useStartEbayOauth,
   useSyncEbayListings,
   useSyncEbayPolicies,
+  useEbayPromotedOverview,
+  useEbaySyncPromoted,
   type EbayConnection,
 } from "@/hooks/use-ebay";
 import {
@@ -800,6 +811,161 @@ function ShopifySetup() {
   );
 }
 
+// ── Promoted listings overview (US-1044) ─────────────────────────────────
+// A roll-up of the workspace's eBay Promoted Listings: live ad status, bid %,
+// and the Cost-Per-Sale ad fee (charged only on an attributed sale). Per-listing
+// opt in/out + rate changes live on each item page; this is the read + refresh
+// surface. eBay's click/impression breakdown comes from its async ad report, so
+// it's intentionally not faked here.
+function formatUsd(n: number): string {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function PromoStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function PromotedListingsSection() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useEbayPromotedOverview(true);
+  const sync = useEbaySyncPromoted();
+
+  const refresh = async () => {
+    try {
+      const r = await sync.mutateAsync();
+      await qc.invalidateQueries({ queryKey: ["ebay_promoted_overview"] });
+      toast.success(
+        `Refreshed ${r.updated} of ${r.scanned} promoted listing${r.scanned === 1 ? "" : "s"}.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't refresh promoted listings.");
+    }
+  };
+
+  const listings = data?.listings ?? [];
+  const summary = data?.summary;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2">
+            <Megaphone className="h-5 w-5" />
+            Promoted listings
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refresh}
+            disabled={sync.isPending}
+          >
+            {sync.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Refresh from eBay
+          </Button>
+        </div>
+        <CardDescription>
+          Promoted Listings is a Cost-Per-Sale ad — eBay charges the ad rate only
+          when the item sells through the ad, never up front. Set each listing&apos;s
+          rate or opt out from its item page.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading promoted listings…
+          </div>
+        ) : listings.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No promoted listings yet. An ad is attached automatically when you
+            publish (unless you opt out), or promote a live listing from its item
+            page.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <PromoStat label="Promoted" value={String(summary?.total ?? listings.length)} />
+              <PromoStat label="Active" value={String(summary?.active ?? 0)} />
+              <PromoStat
+                label="Attributed sales"
+                value={String(summary?.attributed_sales ?? 0)}
+              />
+              <PromoStat
+                label="Ad fees"
+                value={formatUsd((summary?.ad_fees_cents ?? 0) / 100)}
+              />
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Listing</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ad rate</TableHead>
+                    <TableHead className="text-right">Ad fees</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {listings.map((l) => (
+                    <TableRow key={l.id}>
+                      <TableCell className="max-w-[18rem]">
+                        {l.listing_url ? (
+                          <a
+                            href={l.listing_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block truncate font-medium text-brand-navy hover:underline dark:text-foreground"
+                            title={l.listing_title ?? undefined}
+                          >
+                            {l.listing_title ?? "Untitled listing"}
+                          </a>
+                        ) : (
+                          <span className="block truncate font-medium" title={l.listing_title ?? undefined}>
+                            {l.listing_title ?? "Untitled listing"}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-normal capitalize">
+                          {(l.promo_status ?? "unknown").toLowerCase()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {l.promo_rate_pct != null ? `${l.promo_rate_pct}%` : "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatUsd((l.promo_ad_fees_cents ?? 0) / 100)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Ad fees accrue only on sales attributed to the ad — “Attributed
+              sales” counts listings that have been charged a Cost-Per-Sale fee.
+              eBay&apos;s full click/impression breakdown lives in its Promoted
+              Listings report; FlipDesk surfaces the live status, bid %, and
+              attributed ad spend it syncs back.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function FlipdeskMarketplacesPage() {
   const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
@@ -1094,6 +1260,7 @@ export function FlipdeskMarketplacesPage() {
             oauthPending={startOauth.isPending}
           />
           <ShopifySetup />
+          {connection && <PromotedListingsSection />}
         </div>
       </section>
 

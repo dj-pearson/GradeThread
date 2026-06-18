@@ -193,9 +193,11 @@ import {
   endMarkdownSale,
   ensureAdCampaign,
   getAdForListing,
+  type PromotedListingRow,
   removeAdForListing,
   resolvePublishAdRate,
   suggestedAdRateForCategory,
+  summarizePromotedListings,
   syncPromotedListingsForOwner,
   updateMarkdownSale,
   updateAdRateForListing,
@@ -4402,6 +4404,28 @@ flipdeskEbayRoutes.post("/marketing/promoted/sync", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const result = await syncPromotedListingsForOwner(userId);
   return c.json({ ok: true, ...result });
+});
+
+// US-1044: read-only promotions overview — the seller's promoted listings plus
+// roll-up performance for the management surface. Tenant-scoped to the workspace
+// owner. Performance is what we reliably hold locally (live ad status, bid %,
+// and the Cost-Per-Sale ad fee that eBay charges only on an attributed sale);
+// click/impression metrics require eBay's async ad-report task and aren't
+// surfaced synchronously here.
+flipdeskEbayRoutes.get("/marketing/promoted/overview", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, listing_title, listing_url, listing_price, listing_status, promo_status, promo_rate_pct, promo_ad_fees_cents, promo_synced_at",
+    )
+    .eq("user_id", userId)
+    .eq("platform", "ebay")
+    .not("promo_ad_id", "is", null)
+    .order("promo_synced_at", { ascending: false, nullsFirst: false })
+    .limit(200);
+  const listings = (data ?? []) as unknown as PromotedListingRow[];
+  return c.json({ listings, summary: summarizePromotedListings(listings) });
 });
 
 // eBay allows at most 24 pictures per listing (Inventory API product.imageUrls).

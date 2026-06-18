@@ -520,6 +520,72 @@ export async function syncPromotedListingsForOwner(
   return { scanned: promoted.length, updated };
 }
 
+// ── Promotions overview (US-1044) ───────────────────────────────────
+//
+// A read-only roll-up of the seller's promoted listings for the management
+// surface. eBay's per-ad endpoint exposes ad status + bid percentage but NOT
+// click/impression metrics — those require an async ad-report task (generate →
+// poll → download CSV), which is out of scope for a synchronous overview. So we
+// surface what we reliably hold locally: each ad's live status, its bid %, and —
+// because Promoted Listings is Cost-Per-Sale — the accrued ad fee, which eBay
+// charges ONLY on a sale attributed to the ad. A listing with a non-zero ad fee
+// therefore had an attributed sale, so the attributed-sale count is derived from
+// that honestly (no fabricated click metrics).
+
+export interface PromotedListingRow {
+  id: string;
+  listing_title: string | null;
+  listing_url: string | null;
+  listing_price: number | null;
+  listing_status: string | null;
+  promo_status: string | null;
+  promo_rate_pct: number | null;
+  promo_ad_fees_cents: number | null;
+  promo_synced_at: string | null;
+}
+
+export interface PromotedOverviewSummary {
+  total: number;
+  active: number;
+  ad_fees_cents: number;
+  attributed_sales: number;
+}
+
+// Our publish path writes promo_status 'active'; the performance sync echoes
+// eBay's adStatus (RUNNING/PAUSED/ENDED…). Treat active/RUNNING as live.
+export function isPromoActive(status: string | null | undefined): boolean {
+  if (!status) return false;
+  const s = status.toUpperCase();
+  return s === "ACTIVE" || s === "RUNNING";
+}
+
+/**
+ * Aggregate a list of promoted listings into the overview totals. Pure +
+ * unit-tested. attributed_sales counts rows that accrued an ad fee, since eBay's
+ * Cost-Per-Sale model only charges the ad rate on an attributed sale.
+ */
+export function summarizePromotedListings(
+  rows: PromotedListingRow[],
+): PromotedOverviewSummary {
+  let active = 0;
+  let adFeesCents = 0;
+  let attributed = 0;
+  for (const r of rows) {
+    if (isPromoActive(r.promo_status)) active++;
+    const fee = r.promo_ad_fees_cents ?? 0;
+    if (Number.isFinite(fee) && fee > 0) {
+      adFeesCents += fee;
+      attributed++;
+    }
+  }
+  return {
+    total: rows.length,
+    active,
+    ad_fees_cents: adFeesCents,
+    attributed_sales: attributed,
+  };
+}
+
 // ── Markdown / Sale events (US-1045, Promotions Manager) ────────────
 //
 // A price-drop on eBay can be a silent Revise (no buyer signal) OR an

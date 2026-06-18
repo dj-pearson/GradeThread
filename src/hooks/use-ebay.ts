@@ -1589,6 +1589,71 @@ export function useEbayRemovePromotion() {
   });
 }
 
+// US-1044: promotions overview — the workspace's promoted listings + roll-up
+// performance. Performance is what eBay/our sync reliably expose: live ad
+// status, bid %, and the Cost-Per-Sale ad fee (charged only on an attributed
+// sale). attributed_sales counts listings that accrued an ad fee.
+export interface PromotedListing {
+  id: string;
+  listing_title: string | null;
+  listing_url: string | null;
+  listing_price: number | null;
+  listing_status: string | null;
+  promo_status: string | null;
+  promo_rate_pct: number | null;
+  promo_ad_fees_cents: number | null;
+  promo_synced_at: string | null;
+}
+
+export interface PromotedOverview {
+  listings: PromotedListing[];
+  summary: {
+    total: number;
+    active: number;
+    ad_fees_cents: number;
+    attributed_sales: number;
+  };
+}
+
+export function useEbayPromotedOverview(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_promoted_overview"],
+    enabled,
+    queryFn: async (): Promise<PromotedOverview> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/marketing/promoted/overview`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Couldn't load promoted listings.");
+      }
+      return json as PromotedOverview;
+    },
+  });
+}
+
+// Refresh live ad status + bid for the workspace's promoted listings from eBay.
+export function useEbaySyncPromoted() {
+  return useMutation<
+    { ok: true; scanned: number; updated: number },
+    Error,
+    void
+  >({
+    mutationFn: async () => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/marketing/promoted/sync`,
+        { method: "POST", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Couldn't refresh promoted listings.");
+      }
+      return json;
+    },
+  });
+}
+
 export function useEbayStartSale() {
   return useMutation<
     { ok: true; promotion_id: string | null },
