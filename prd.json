@@ -2108,7 +2108,7 @@
         "VoiceOver delete action unchanged."
       ],
       "priority": 1022,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ux. ios/GradeThread/Capture/PhotoIntakeView.swift (~315-332); Capture/PhotoPreview.swift (~147-149)"
     },
     {

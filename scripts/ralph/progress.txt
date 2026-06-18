@@ -3166,3 +3166,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  6:04:03 PM
 ---
+## US-1022: iOS: visible delete affordance for captured photo slots
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  6:05:59 PM
+---
