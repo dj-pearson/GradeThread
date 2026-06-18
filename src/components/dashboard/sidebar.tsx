@@ -32,6 +32,7 @@ import {
   Tags,
   ShieldAlert,
   Users,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,7 @@ const navGroups: NavGroup[] = [
         title: "Catalog",
         items: [
           { to: "/dashboard/flipdesk", icon: Gauge, label: "Overview", end: true },
+          { to: "/dashboard/flipdesk/search", icon: Search, label: "Search", end: false },
           // Inventory is one surface now. Its in-page tabs switch between
           // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
           { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
