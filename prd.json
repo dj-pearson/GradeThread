@@ -2384,7 +2384,7 @@
         "deno check/lint/test green with ladder tests."
       ],
       "priority": 1060,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Comps. No fallback/broadening logic today (ebay-client.ts ~2812-2817 returns empty on 0). Pairs with US-1048 (sold comps gated by isMarketplaceInsightsEnabled). Threshold via system_settings. severity=high."
     },
     {

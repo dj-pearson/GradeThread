@@ -3082,3 +3082,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  2:23:48 PM
 ---
+## US-1060: Zero-result fallback ladder for comps (progressive broadening) + sold comps
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  2:37:28 PM
+---
