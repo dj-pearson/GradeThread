@@ -3118,3 +3118,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  4:03:16 PM
 ---
+## US-1051: Web: expand faceted filters (color, location, marketplace, date ranges, photo state, SKU) + saved views on pipeline
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  4:29:04 PM
+---

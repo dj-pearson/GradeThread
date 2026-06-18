@@ -2267,7 +2267,7 @@
         "URL-serializable + shareable; tsc/lint/build green with filter-eval tests."
       ],
       "priority": 1051,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. Web filter-builder.tsx + src/lib/item-filter.ts currently expose only 9 fields (brand, category, size, source, cost, target_price, status, grade, days_in_status). Pipeline.tsx (lines ~399-448) has only category/brand/source/search and no saved views. iOS already filters color/location/date/photo-state. Columns exist on ItemFullRow (src/types/database.ts ~1349-1409)."
     },
     {
