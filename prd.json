@@ -2134,7 +2134,7 @@
         "Tap still drives the nonce handshake; SignInWithAppleTests pass."
       ],
       "priority": 1024,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ui/accessibility. ios/GradeThread/Auth/LoginView.swift (~163-184)"
     },
     {

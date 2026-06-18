@@ -3158,3 +3158,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  6:00:55 PM
 ---
+## US-1024: iOS: align login social buttons and fix the Apple button accessibility
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  6:02:35 PM
+---
