@@ -2978,3 +2978,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Wed, Jun 17, 2026 10:10:42 PM
 ---
+## US-1086: iOS: enforce the same provenance source-of-truth rules
+- Status: COMPLETE
+- Timestamp: Wed, Jun 17, 2026 10:26:19 PM
+---

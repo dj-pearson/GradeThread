@@ -2759,7 +2759,7 @@
         "Parity with web verified; iOS CI (macOS) lint/build/test green."
       ],
       "priority": 1086,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. iOS parity per user request 2026-06-16. Depends on US-1078/1079/1080. Reuses edge endpoints; no client-side precedence logic. severity=medium.",
       "relevantPaths": [
         "ios/GradeThread/Persistence/ConflictPolicy.swift",
