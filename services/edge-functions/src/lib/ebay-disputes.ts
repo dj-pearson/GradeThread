@@ -23,6 +23,16 @@ interface DisputeError extends Error {
   ebayErrorIds?: number[];
 }
 
+// eBay returns 404 on payment_dispute_summary for accounts that have never had
+// a dispute or don't have the feature enabled — it's not a real failure.
+export function isBenignDisputeNotFound(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "status" in err &&
+    (err as DisputeError).status === 404
+  );
+}
+
 async function disputeFetch<T>(
   userId: string,
   path: string,
@@ -119,11 +129,21 @@ export async function searchPaymentDisputes(
     offset: String(offset),
   });
   if (opts.status) params.set("payment_dispute_status", opts.status);
-  const data = await disputeFetch<{ paymentDisputeSummaries?: RawDispute[] }>(
-    userId,
-    `/sell/fulfillment/v1/payment_dispute_summary?${params.toString()}`,
-  );
-  return (data.paymentDisputeSummaries ?? []).map(normalizePaymentDispute);
+  try {
+    const data = await disputeFetch<{ paymentDisputeSummaries?: RawDispute[] }>(
+      userId,
+      `/sell/fulfillment/v1/payment_dispute_summary?${params.toString()}`,
+    );
+    return (data.paymentDisputeSummaries ?? []).map(normalizePaymentDispute);
+  } catch (err) {
+    if (isBenignDisputeNotFound(err)) {
+      // eBay returns 404 for accounts with no dispute history or when the
+      // payment disputes feature is not yet active on the account.
+      console.info("[ebay.disputes.list] 404 from eBay (no disputes on this account) — returning empty list");
+      return [];
+    }
+    throw err;
+  }
 }
 
 export async function getPaymentDispute(

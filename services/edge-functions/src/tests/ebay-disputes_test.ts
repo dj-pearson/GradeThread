@@ -1,8 +1,18 @@
+// ebay-disputes.ts imports ebay-client.ts which imports supabase.ts at load;
+// set env vars before the dynamic import to avoid "SUPABASE_URL is not set".
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
 import { assertEquals } from "@std/assert";
-import {
+
+const {
   disputeOutcomeToSaleStatus,
+  isBenignDisputeNotFound,
   normalizePaymentDispute,
-} from "../lib/ebay-disputes.ts";
+} = await import("../lib/ebay-disputes.ts");
 
 Deno.test("normalizePaymentDispute flattens the dispute shape", () => {
   const d = normalizePaymentDispute({
@@ -36,4 +46,28 @@ Deno.test("normalizePaymentDispute tolerates missing fields", () => {
 Deno.test("disputeOutcomeToSaleStatus: accept refunds, contest is pending", () => {
   assertEquals(disputeOutcomeToSaleStatus("accepted"), "refunded");
   assertEquals(disputeOutcomeToSaleStatus("contested"), null);
+});
+
+// ── 404 → empty mapping (US-1087) ───────────────────────────────────
+
+Deno.test("isBenignDisputeNotFound: 404 DisputeError is benign", () => {
+  const err = Object.assign(new Error("eBay 404"), { status: 404 });
+  assertEquals(isBenignDisputeNotFound(err), true);
+});
+
+Deno.test("isBenignDisputeNotFound: non-404 statuses are not benign", () => {
+  for (const status of [400, 401, 403, 429, 500, 502, 503]) {
+    const err = Object.assign(new Error(`eBay ${status}`), { status });
+    assertEquals(isBenignDisputeNotFound(err), false, `status ${status} should not be benign`);
+  }
+});
+
+Deno.test("isBenignDisputeNotFound: plain Error (no status) is not benign", () => {
+  assertEquals(isBenignDisputeNotFound(new Error("timeout")), false);
+});
+
+Deno.test("isBenignDisputeNotFound: non-Error values are not benign", () => {
+  assertEquals(isBenignDisputeNotFound(null), false);
+  assertEquals(isBenignDisputeNotFound(undefined), false);
+  assertEquals(isBenignDisputeNotFound({ status: 404 }), false);
 });
