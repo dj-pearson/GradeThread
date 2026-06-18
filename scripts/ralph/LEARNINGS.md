@@ -27,6 +27,11 @@ memory — not a progress log (the harness records progress separately).
   otherwise only fail in CI after you've committed.
 - Verify quietly: pipe build/test to a log and only read the tail on failure;
   don't ingest passing logs into context.
+- An edge unit test that imports any lib which pulls in `lib/supabase.ts`
+  (`supabaseAdmin`) crashes at import: `SUPABASE_URL is not set`. Fix like
+  `ops-jobs_test.ts`: `Deno.env.set("SUPABASE_URL", …)` + `SUPABASE_SERVICE_ROLE_KEY`
+  FIRST, then `const { fn } = await import("../lib/x.ts")` (dynamic, after the env
+  set) — a static top-of-file import still runs before the env lines.
 
 ## Architecture / routing
 - Two hosts, easy to confuse: Supabase/Kong = `api.gradethread.com` (Supabase

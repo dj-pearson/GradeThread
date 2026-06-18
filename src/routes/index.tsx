@@ -169,6 +169,7 @@ const AdminMarketplaceConnectionsPage = lazy(() => import("@/pages/admin/marketp
 const AdminMarketplaceOpsPage = lazy(() => import("@/pages/admin/marketplace-ops").then(m => ({ default: m.AdminMarketplaceOpsPage })));
 const AdminSeoPage = lazy(() => import("@/pages/admin/seo").then(m => ({ default: m.AdminSeoPage })));
 const AdminAdsPage = lazy(() => import("@/pages/admin/ads").then(m => ({ default: m.AdminAdsPage })));
+const AdminKeywordResearchPage = lazy(() => import("@/pages/admin/keyword-research").then(m => ({ default: m.AdminKeywordResearchPage })));
 const AdminConditionIndexPage = lazy(() => import("@/pages/admin/condition-index").then(m => ({ default: m.AdminConditionIndexPage })));
 const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail").then(m => ({ default: m.AdminUserDetailPage })));
 const AdminDisputesPage = lazy(() => import("@/pages/admin/disputes").then(m => ({ default: m.AdminDisputesPage })));
@@ -463,6 +464,7 @@ export const router = createBrowserRouter([
               { path: "/admin/marketplace-ops", element: <SuspenseWrapper><AdminMarketplaceOpsPage /></SuspenseWrapper> },
               { path: "/admin/seo", element: <SuspenseWrapper><AdminSeoPage /></SuspenseWrapper> },
               { path: "/admin/ads", element: <SuspenseWrapper><AdminAdsPage /></SuspenseWrapper> },
+              { path: "/admin/keyword-research", element: <SuspenseWrapper><AdminKeywordResearchPage /></SuspenseWrapper> },
               { path: "/admin/condition-index", element: <SuspenseWrapper><AdminConditionIndexPage /></SuspenseWrapper> },
               { path: "/admin/revenue", element: <SuspenseWrapper><AdminRevenuePage /></SuspenseWrapper> },
               { path: "/admin/analytics", element: <SuspenseWrapper><AdminAnalyticsPage /></SuspenseWrapper> },

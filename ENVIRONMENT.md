@@ -162,6 +162,26 @@ when that feature lands.
 | `CLOUDFLARE_ZONE_ID` | With `CLOUDFLARE_API_TOKEN` | The zone whose cache to purge | Cloudflare dashboard → your domain → Overview (Zone ID) |
 | `INDEXNOW_KEY` | ⬜ Optional (recommended) | Instant-indexing key for Bing/Yandex/Naver/Seznam (US-296). Submissions cleanly no-op when unset. The matching key file **must** be hosted at `https://gradethread.com/<INDEXNOW_KEY>.txt` — commit it as `public/<key>.txt` (already done for the current key). | Generate with `openssl rand -hex 16` |
 
+### 2j. Google Ads — keyword research ingestion (US-1072)
+
+Feeds the keyword library (search volume, competition, CPC) from the Google Ads
+API Keyword Plan idea service. Powers `/admin/keyword-research` and the
+`/api/jobs/keyword-research` cron. **All optional** — when unset, a refresh
+cleanly records a `skipped` run and ingests nothing (the rest of the app is
+unaffected). Uses the installed/web-app OAuth refresh-token flow.
+
+| Variable | Required | Purpose | Where to get it |
+|---|---|---|---|
+| `GOOGLE_ADS_DEVELOPER_TOKEN` | When using keyword research | Approved Google Ads API developer token | Google Ads → API Center (manager account) |
+| `GOOGLE_ADS_CLIENT_ID` | With the above | OAuth 2.0 client id | Google Cloud Console → Credentials |
+| `GOOGLE_ADS_CLIENT_SECRET` | With the above | OAuth 2.0 client secret | Google Cloud Console → Credentials |
+| `GOOGLE_ADS_REFRESH_TOKEN` | With the above | Long-lived refresh token for the account | OAuth consent flow (offline access) |
+| `GOOGLE_ADS_CUSTOMER_ID` | With the above | Customer id the ideas are generated for (digits only, no dashes) | Google Ads account id |
+| `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | ⬜ Optional | Manager (MCC) id sent as `login-customer-id` when accessing via a manager account | Google Ads manager account id |
+
+Schedule the cron on Coolify (weekly is plenty — planner volumes update ~monthly),
+e.g. `0 6 * * 1`, presenting `FLIPDESK_INTERNAL_JOB_SECRET` (§2g).
+
 ---
 
 ## Minimum set to run today

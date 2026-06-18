@@ -137,6 +137,15 @@ const SERVICE_ROLE_ONLY = new Set([
   // Operator-curated reference / output, not user-owned tenant data.
   "keyword_library",
   "ad_creatives",
+  // US-1072 keyword-research ingestion: keyword_research_terms (ingested keyword
+  // ideas + demand metrics) and keyword_research_runs (ingestion audit trail).
+  // RLS enabled with an explicit `revoke all from anon, authenticated` and zero
+  // policies by design (migration 00234). Read/written ONLY via the role-gated
+  // /api/admin/ads endpoints + the keyword-research cron on the service-role
+  // client; the SPA never reads them directly. Operator reference data, not
+  // user-owned tenant data.
+  "keyword_research_terms",
+  "keyword_research_runs",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

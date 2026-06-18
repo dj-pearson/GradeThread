@@ -104,6 +104,7 @@ import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-pro
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
 import { handleContentRefreshCron } from "./routes/jobs-content-refresh.ts";
+import { handleKeywordResearchCron } from "./routes/jobs-keyword-research.ts";
 import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconciliation.ts";
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
@@ -957,6 +958,12 @@ app.route("/api/admin/growth", adminGrowthRoutes);
 // US-1073 AI Ad Copy Studio (Google Ads RSA + Apple Search Ads). Admin JWT + MFA
 // gated by the /api/admin/* middleware group; cost tagged feature='ads'.
 app.route("/api/admin/ads", adminAdsRoutes);
+// US-1072 keyword-research ingestion cron. Refreshes the keyword library
+// (volume/competition/CPC) from the Google Ads keyword planner. OUTSIDE
+// /api/admin so the wildcard admin-JWT middleware doesn't intercept it; the
+// handler enforces X-Internal-Job-Secret itself. Schedule on Coolify cron
+// (suggested weekly, e.g. 0 6 * * 1). No-ops cleanly when Google Ads env unset.
+app.post("/api/jobs/keyword-research", (c) => handleKeywordResearchCron(c));
 // US-628 user-facing announcement reads (authed, per-user scoped).
 app.route("/api/announcements", announcementRoutes);
 // US-629 referral program (authed, per-user scoped).

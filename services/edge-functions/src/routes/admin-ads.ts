@@ -10,6 +10,10 @@ import {
   generateAdCopy,
   type KeywordTheme,
 } from "../lib/ad-copy-ai.ts";
+import {
+  ingestKeywordResearch,
+  isKeywordResearchConfigured,
+} from "../lib/keyword-research.ts";
 
 // US-1073: AI Ad Copy Studio (admin-only). Generates Google Ads RSA copy and
 // Apple Search Ads keyword/creative sets grounded in the keyword library + brand
@@ -111,6 +115,86 @@ async function loadThemes(ids: string[]): Promise<KeywordTheme[]> {
     notes: r.notes,
   }));
 }
+
+// ════════════════════════════════════════════════════════════════════
+// US-1072: KEYWORD RESEARCH — ingested keyword ideas + demand metrics.
+// The demand-data layer beneath the curated themes above. Browse/filter/group
+// by theme, plus a manual "refresh now" that runs the Google Ads ingestion.
+// ════════════════════════════════════════════════════════════════════
+
+interface KeywordTermRow {
+  id: string;
+  keyword: string;
+  theme: string | null;
+  avg_monthly_searches: number | null;
+  competition: string;
+  competition_index: number | null;
+  cpc_low: number | null;
+  cpc_high: number | null;
+  source: string;
+  seed_keyword: string | null;
+  is_active: boolean;
+  last_seen_at: string;
+}
+
+// ── KEYWORD RESEARCH: browse / filter ────────────────────────────────
+adminAdsRoutes.get("/keywords", async (c) => {
+  const theme = c.req.query("theme");
+  const competition = c.req.query("competition");
+  const q = (c.req.query("q") ?? "").trim();
+  const limit = Math.min(Number(c.req.query("limit") ?? "500") || 500, 1000);
+
+  let query = supabaseAdmin
+    .from("keyword_research_terms")
+    .select("*")
+    .eq("is_active", true)
+    .order("avg_monthly_searches", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  if (theme) query = query.eq("theme", theme);
+  if (competition) query = query.eq("competition", competition);
+  if (q) query = query.ilike("keyword", `%${q}%`);
+
+  const { data, error } = await query;
+  if (error) return c.json({ error: error.message }, 500);
+  const rows = (data ?? []) as KeywordTermRow[];
+
+  // Theme counts for the grouping UI (over the returned slice).
+  const byTheme: Record<string, number> = {};
+  for (const r of rows) {
+    const t = r.theme ?? "general";
+    byTheme[t] = (byTheme[t] ?? 0) + 1;
+  }
+
+  return c.json({ keywords: rows, themeCounts: byTheme, configured: isKeywordResearchConfigured() });
+});
+
+// ── KEYWORD RESEARCH: recent ingestion runs ──────────────────────────
+adminAdsRoutes.get("/keywords/runs", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("keyword_research_runs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ runs: data ?? [] });
+});
+
+// ── KEYWORD RESEARCH: trigger an ingestion (manual refresh) ───────────
+adminAdsRoutes.post("/keywords/ingest", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { seeds?: unknown };
+  const seeds = Array.isArray(body.seeds)
+    ? body.seeds.map((s) => String(s).trim()).filter(Boolean)
+    : undefined;
+  try {
+    const result = await ingestKeywordResearch({ trigger: "manual", seeds });
+    const code = result.status === "error" ? 502 : 200;
+    return c.json(result, code);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[admin-ads] keyword ingest failed:", msg);
+    return c.json({ error: msg }, 500);
+  }
+});
 
 // ── GENERATE (does not persist) ──────────────────────────────────────
 adminAdsRoutes.post("/generate", async (c) => {
