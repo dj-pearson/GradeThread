@@ -3018,3 +3018,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:40:28 AM
 ---
+## US-1076: Field-ownership registry: single source of precedence truth for sync
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:45:15 AM
+---
