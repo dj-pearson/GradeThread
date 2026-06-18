@@ -2697,7 +2697,7 @@
         "tsc/lint/build green; deno lint/check/test green for edge changes."
       ],
       "priority": 1083,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Sheets stays bidirectional EXCEPT eBay-owned fields on eBay-originated locked listings are skipped (not overwritten) and reported as skipped items. Depends on US-1077 (origin) + US-1076 (field registry). severity=low.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-google-sync.ts",
