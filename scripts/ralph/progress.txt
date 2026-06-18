@@ -3174,3 +3174,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  6:08:15 PM
 ---
+## US-1020: iOS: scale interactive icon glyphs with Dynamic Type
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  6:14:10 PM
+---

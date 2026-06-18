@@ -2082,7 +2082,7 @@
         "Layout doesn't break at the largest accessibility size."
       ],
       "priority": 1020,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=accessibility. ios/GradeThread/DetailsIntake/DetailsIntakeView.swift (~183,309); Capture/SlotThumbnail.swift; Inventory/InventoryRow.swift (~72)"
     },
     {
