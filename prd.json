@@ -2241,7 +2241,7 @@
         "deno check + lint + tests (pure builders/parsers) green."
       ],
       "priority": 1049,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay scope audit 2026-06-14] severity=medium. Surfaced from granted scope sell.payment.dispute. eBay Payment Disputes API is under /sell/fulfillment/v1/payment_dispute. No payment-dispute handling exists today (only an internal Stripe flag_reason=payment_disputed in webhooks.ts/admin-fraud.ts, unrelated). Sibling to US-1043 returns/cancellations."
     },
     {

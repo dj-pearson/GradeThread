@@ -3126,3 +3126,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  5:12:58 PM
 ---
+## US-1049: eBay: payment disputes - contest/accept with evidence (Fulfillment Payment Disputes API)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  5:28:20 PM
+---
