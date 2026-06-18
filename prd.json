@@ -2802,7 +2802,7 @@
         "Uses the central ai-config model (no client-side API keys); respects plan/AI-action limits."
       ],
       "priority": 1088,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog 2026-06-17] User request. Lululemon labels often cut off. Leverage measurement photos (flipdesk_photo_type measurement/measurements) + brand sizing charts (needs a sizing-chart reference source). New edge endpoint (e.g. /api/flipdesk/ai/size) + Claude Vision. Epic: AI listing assist. severity=medium.",
       "relevantPaths": [
         "services/edge-functions/src/lib/ai-size-estimate.ts",

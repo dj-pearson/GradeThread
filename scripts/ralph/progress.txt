@@ -2970,3 +2970,7 @@ Branch: ralph/gradethread-build
 - Notes: Two read-only SECURITY DEFINER RPCs (admin/service-role guarded, no new tables so rls-guard untouched). funnel_metrics(start,end): signup cohort in [start,end), each step a STRICT SUBSET of the prior (signup -> first submission -> first grade report -> ever-subscribed) so deltas are real drop-off. retention_cohorts(): last 12 Monday-aligned weekly cohorts x W0..W8, cell = count active (>=1 submission) that week, future weeks null. Edge route reuses resolveRevenueWindow (mtd/qtd/ytd/custom) for period parity with revenue dashboard. Page documents every step definition in-page (AC4) + notes it complements PostHog (AC5). "First paid grade" interpreted as a completed grade_report (AC explicitly lists grade_reports as a source). Verified: tsc --noEmit, build:locked (41 prerendered), vitest 776, eslint, deno check+lint, schema-version + rls-guard edge tests, verify:db applies 00229 from zero.
 - Timestamp: 2026-06-14
 ---
+## US-1088: Listing builder: Size AI - infer Size/Gender from photos vs sizing charts
+- Status: COMPLETE
+- Timestamp: Wed, Jun 17, 2026 10:06:17 PM
+---
