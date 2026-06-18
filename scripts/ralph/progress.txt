@@ -3014,3 +3014,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:29:02 AM
 ---
+## US-1077: listing_origin marker: stamp + backfill listing provenance
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:40:28 AM
+---
