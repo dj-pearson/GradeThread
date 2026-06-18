@@ -3146,3 +3146,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  5:47:59 PM
 ---
+## US-1043: eBay: returns & cancellations management (Post-Order API)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  5:51:28 PM
+---
