@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Check, X } from "lucide-react";
+import { FlaskConical, Check, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -40,9 +40,55 @@ async function authHeaders(): Promise<Record<string, string>> {
     : {};
 }
 
+interface BatchPromoteResult {
+  scanned: number;
+  high_signal: number;
+  promoted: number;
+  already_present: number;
+  skipped: number;
+}
+
 export function GradingEvalCandidatesPanel() {
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [growing, setGrowing] = useState(false);
+
+  async function growFromCorrections() {
+    setGrowing(true);
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(
+        `${edgeApiUrl()}/api/admin/grading/eval/cases/promote-batch`,
+        {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b?.error || `Failed (${res.status})`);
+      }
+      const r = (await res.json()) as BatchPromoteResult;
+      toast.success(
+        r.promoted > 0
+          ? `${r.promoted} new candidate${r.promoted === 1 ? "" : "s"} added`
+          : "No new high-signal corrections found",
+        {
+          description:
+            `Scanned ${r.scanned} review${r.scanned === 1 ? "" : "s"}, ` +
+            `${r.high_signal} high-signal · ${r.already_present} already present.`,
+        },
+      );
+      queryClient.invalidateQueries({ queryKey: ["admin-eval-candidates"] });
+    } catch (err) {
+      toast.error("Could not grow the golden set", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setGrowing(false);
+    }
+  }
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["admin-eval-candidates"],
@@ -97,17 +143,30 @@ export function GradingEvalCandidatesPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <FlaskConical className="h-4 w-4 text-brand-navy dark:text-foreground" />
-          Candidate eval cases
-          {candidates.length > 0 && (
-            <Badge variant="secondary">{candidates.length} pending</Badge>
-          )}
-        </CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <FlaskConical className="h-4 w-4 text-brand-navy dark:text-foreground" />
+            Candidate eval cases
+            {candidates.length > 0 && (
+              <Badge variant="secondary">{candidates.length} pending</Badge>
+            )}
+          </CardTitle>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={growing}
+            onClick={growFromCorrections}
+            className="flex-shrink-0"
+          >
+            <Sparkles className="mr-1 h-4 w-4" />
+            {growing ? "Scanning…" : "Grow from corrections"}
+          </Button>
+        </div>
         <CardDescription>
           Grades a reviewer corrected (or a dispute adjusted) are auto-promoted
           here. Approve to add them to the golden set the eval gate scores
-          against.
+          against. “Grow from corrections” sweeps recent high-signal corrections
+          for new candidates.
         </CardDescription>
       </CardHeader>
       <CardContent>

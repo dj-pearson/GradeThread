@@ -9,7 +9,13 @@ import {
   computeWeeklyAccuracySummary,
   exportTrainingDataset,
 } from "../lib/accuracy-tracking.ts";
-import { activatePromptVersion, runEval, runPromptDryRun } from "../lib/grading-eval.ts";
+import {
+  activatePromptVersion,
+  promoteGradeReportToEvalCase,
+  promoteHighSignalEvalCandidates,
+  runEval,
+  runPromptDryRun,
+} from "../lib/grading-eval.ts";
 import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
 import { compareModelEvals, type ModelEvalRun } from "../lib/model-comparison.ts";
 import { isAllowedGradingModel } from "../lib/ai-config.ts";
@@ -82,17 +88,6 @@ function auditLog(
 // listing_gen to the listing eval (golden cases), not the grading eval.
 const STAGES = ["per_image", "composite", "listing_gen"] as const;
 type Stage = (typeof STAGES)[number];
-
-// Map a 1.0–10.0 score to its grade_tier (mirrors ai-grading.scoreToGradeTier).
-function scoreToTier(score: number): string {
-  if (score >= 10.0) return "NWT";
-  if (score >= 9.0) return "NWOT";
-  if (score >= 8.0) return "Excellent";
-  if (score >= 7.0) return "Very Good";
-  if (score >= 6.0) return "Good";
-  if (score >= 5.0) return "Fair";
-  return "Poor";
-}
 
 // ── Accuracy ───────────────────────────────────────────────────────
 
@@ -213,11 +208,25 @@ adminGradingRoutes.get("/accuracy/outcomes", async (c) => {
   }
 });
 
-// GET /training-export — JSONL of human-reviewed grades for offline analysis /
-// few-shot exemplar curation. Returns text/plain so it downloads cleanly.
+// GET /training-export — JSONL of human-reviewed grades (image refs + AI output
+// + human-corrected ground truth + category/model/prompt version) for offline
+// analysis / few-shot exemplar curation / fine-tuning (US-1068). Consent + PII
+// controls: ?consent_only=false includes non-opted-in rows (a fully-internal
+// export — audited); ?include_notes=true keeps reviewer free text (default
+// redacted). Returns NDJSON so it downloads cleanly.
 adminGradingRoutes.get("/training-export", async (c) => {
   try {
-    const jsonl = await exportTrainingDataset();
+    const consentOnly = c.req.query("consent_only") !== "false";
+    const includeNotes = c.req.query("include_notes") === "true";
+    const jsonl = await exportTrainingDataset({ consentOnly, includeNotes });
+    // Exporting beyond consented data, or with raw reviewer notes, is a
+    // privacy-sensitive choice — record who did it and how.
+    if (!consentOnly || includeNotes) {
+      await auditLog(c, "export_training_dataset", "grading_training_export", null, {
+        consent_only: consentOnly,
+        include_notes: includeNotes,
+      });
+    }
     return c.body(jsonl, 200, {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Content-Disposition": `attachment; filename="grade-training-${new Date().toISOString().slice(0, 10)}.jsonl"`,
@@ -982,108 +991,53 @@ adminGradingRoutes.post("/eval/cases/promote", async (c) => {
   if (!reportId) return c.json({ error: "grade_report_id is required" }, 400);
   const source = body.source === "dispute" ? "dispute" : "human_review";
 
-  // Dedup: skip if a candidate already exists for this grade report.
-  const { data: existing } = await supabaseAdmin
-    .from("grading_eval_cases")
-    .select("id")
-    .eq("source_grade_report_id", reportId)
-    .maybeSingle();
-  if (existing) {
-    return c.json({ ok: true, already: true, case_id: (existing as { id: string }).id });
+  const result = await promoteGradeReportToEvalCase(reportId, source, userId);
+  if (!result.ok) return c.json({ error: result.error }, result.status as 400);
+  if (result.already) {
+    return c.json({ ok: true, already: true, case_id: result.case_id });
   }
 
-  const { data: report } = await supabaseAdmin
-    .from("grade_reports")
-    .select("id, overall_score, submission_id")
-    .eq("id", reportId)
-    .maybeSingle();
-  if (!report) return c.json({ error: "Grade report not found" }, 404);
-
-  // The corrected truth comes from the most recent human review (if any).
-  const { data: review } = await supabaseAdmin
-    .from("human_reviews")
-    .select("adjusted_score, intentional_misread, reviewed_at")
-    .eq("grade_report_id", reportId)
-    .order("reviewed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const r = report as { overall_score: number; submission_id: string };
-  const rv = review as { adjusted_score: number | null; intentional_misread: boolean | null } | null;
-  const expectedScore =
-    rv && typeof rv.adjusted_score === "number" ? rv.adjusted_score : r.overall_score;
-  const intentionalMisread = rv?.intentional_misread === true;
-
-  const { data: submission } = await supabaseAdmin
-    .from("submissions")
-    .select("garment_type, garment_category, brand, title, description, style_attributes")
-    .eq("id", r.submission_id)
-    .maybeSingle();
-  if (!submission) return c.json({ error: "Submission not found" }, 404);
-  const s = submission as {
-    garment_type: string;
-    garment_category: string;
-    brand: string | null;
-    title: string;
-    description: string | null;
-    style_attributes: string[] | null;
-  };
-
-  const { data: imgs } = await supabaseAdmin
-    .from("submission_images")
-    .select("image_type, storage_path")
-    .eq("submission_id", r.submission_id)
-    .order("display_order", { ascending: true });
-  const images = (imgs ?? []).map((i) => ({
-    image_type: (i as { image_type: string }).image_type,
-    storage_path: (i as { storage_path: string }).storage_path,
-  }));
-  if (images.length === 0) {
-    return c.json({ error: "Submission has no images to build a case from" }, 422);
-  }
-
-  const label = `${s.brand ? s.brand + " " : ""}${s.title}`.slice(0, 120).trim();
-  const tags = [
-    s.garment_category,
-    ...(intentionalMisread ? ["intentional_misread"] : []),
-    source,
-  ];
-  const notes =
-    `Auto-promoted from ${source} (${new Date().toISOString().slice(0, 10)}). ` +
-    `AI ${r.overall_score} → corrected ${expectedScore}.` +
-    (intentionalMisread ? " Flagged intentional-design misread." : "") +
-    " Pending approval before it counts toward the eval gate.";
-
-  const { data: inserted, error } = await supabaseAdmin
-    .from("grading_eval_cases")
-    .insert({
-      label,
-      garment_type: s.garment_type,
-      garment_category: s.garment_category,
-      brand: s.brand,
-      description: s.description,
-      style_attributes: Array.isArray(s.style_attributes) ? s.style_attributes : [],
-      images,
-      expected_score: expectedScore,
-      expected_tier: scoreToTier(expectedScore),
-      tags,
-      is_active: false,
-      notes,
-      source_grade_report_id: reportId,
-      source,
-      created_by: userId,
-    })
-    .select("id")
-    .single();
-  if (error) return c.json({ error: error.message }, 400);
-
-  await auditLog(c, "promote_eval_candidate", "grading_eval_case", inserted.id, {
+  await auditLog(c, "promote_eval_candidate", "grading_eval_case", result.case_id, {
     source,
     grade_report_id: reportId,
-    expected_score: expectedScore,
-    intentional_misread: intentionalMisread,
   });
-  return c.json({ ok: true, case_id: inserted.id }, 201);
+  return c.json({ ok: true, case_id: result.case_id }, 201);
+});
+
+// POST /eval/cases/promote-batch — sweep recent high-signal corrections (a
+// reviewer moved the score by >= min_delta points, or flagged an
+// intentional-design misread) and promote each into a CANDIDATE golden eval case
+// so coverage grows automatically (US-1068). Idempotent (dedup on source grade
+// report); candidates still need approval before counting toward the gate.
+// Body: { min_delta?, since_days?, limit? }. Safe to run on a schedule.
+adminGradingRoutes.post("/eval/cases/promote-batch", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const result = await promoteHighSignalEvalCandidates({
+      minDelta: Number(body.min_delta),
+      sinceDays: Number(body.since_days),
+      limit: Number(body.limit),
+      createdBy: userId,
+    });
+    if (result.promoted > 0) {
+      await auditLog(c, "promote_eval_candidates_batch", "grading_eval_case", null, {
+        scanned: result.scanned,
+        high_signal: result.high_signal,
+        promoted: result.promoted,
+        already_present: result.already_present,
+      });
+    }
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      {
+        error: "Batch promotion failed",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
 });
 
 // PATCH /eval/cases/:id — edit an eval case (whitelist of mutable fields).

@@ -71,6 +71,24 @@ export interface TrainingDataEntry {
   reviewed_at: string;
   model_version: string;
   prompt_version: string | null;
+  // Image references (private-bucket storage paths) — the inputs the model saw.
+  // Kept as refs, not signed URLs, so the export carries no time-limited
+  // credential; a consumer with service-role access resolves them on demand.
+  images: Array<{ image_type: string; storage_path: string }>;
+  // Whether the garment's owner opted into model-refinement use of their data
+  // (users.share_sale_outcomes). With consent_only export (the default) every
+  // row is true; it's still stamped so a non-gated internal export stays honest.
+  consent: boolean;
+}
+
+export interface TrainingExportOptions {
+  // Only emit rows whose owner opted into model-refinement use. Default true —
+  // the safe default; pass false only for a fully-internal export that never
+  // leaves GradeThread (the route audits that choice).
+  consentOnly?: boolean;
+  // Include reviewer free-text notes (can carry PII). Default false → notes are
+  // redacted to null.
+  includeNotes?: boolean;
 }
 
 // ─── Factor score extraction ────────────────────────────────────────
@@ -551,10 +569,23 @@ export async function updatePromptVersionAccuracy(
 // ─── Export training dataset ────────────────────────────────────────
 
 /**
- * Export all human-reviewed grades as JSONL training dataset.
- * Each line is a JSON object with AI analysis + human adjustments.
+ * Export human-reviewed grades as a JSONL training/reference dataset (US-1068).
+ * Each line pairs the AI output + image refs with the human-corrected ground
+ * truth and the category/model/prompt version it was graded under, so future
+ * model/prompt work (or fine-tuning) has provable ground truth.
+ *
+ * Consent + PII controls (AC1):
+ *  - consentOnly (default true): only rows whose owner opted into
+ *    model-refinement use (users.share_sale_outcomes) are emitted.
+ *  - includeNotes (default false): reviewer free text is redacted to null.
+ *  - No buyer/owner identity columns; images are storage refs, not signed URLs.
  */
-export async function exportTrainingDataset(): Promise<string> {
+export async function exportTrainingDataset(
+  options: TrainingExportOptions = {},
+): Promise<string> {
+  const consentOnly = options.consentOnly !== false;
+  const includeNotes = options.includeNotes === true;
+
   // Fetch all reviews
   const { data: reviews, error: reviewsError } = await supabaseAdmin
     .from("human_reviews")
@@ -578,11 +609,11 @@ export async function exportTrainingDataset(): Promise<string> {
     reportMap.set(report.id, report);
   }
 
-  // Fetch submissions for garment info
+  // Fetch submissions for garment info + owner (consent gate, never exported).
   const submissionIds = [...new Set((gradeReports ?? []).map((r) => r.submission_id))];
   const { data: submissions, error: subsError } = await supabaseAdmin
     .from("submissions")
-    .select("id, garment_type, garment_category")
+    .select("id, garment_type, garment_category, user_id")
     .in("id", submissionIds);
 
   if (subsError) throw new Error(`Failed to fetch submissions: ${subsError.message}`);
@@ -590,6 +621,37 @@ export async function exportTrainingDataset(): Promise<string> {
   const submissionMap = new Map<string, (typeof submissions)[number]>();
   for (const sub of submissions ?? []) {
     submissionMap.set(sub.id, sub);
+  }
+
+  // Owner consent lookup (users.share_sale_outcomes = model-refinement opt-in).
+  const ownerIds = [...new Set((submissions ?? []).map((s) => s.user_id).filter(Boolean))];
+  const consentByUser = new Map<string, boolean>();
+  if (ownerIds.length > 0) {
+    const { data: owners, error: ownersError } = await supabaseAdmin
+      .from("users")
+      .select("id, share_sale_outcomes")
+      .in("id", ownerIds);
+    if (ownersError) throw new Error(`Failed to fetch consent flags: ${ownersError.message}`);
+    for (const o of owners ?? []) {
+      consentByUser.set(o.id, (o as { share_sale_outcomes: boolean }).share_sale_outcomes === true);
+    }
+  }
+
+  // Image refs per submission (the inputs the model graded).
+  const imagesBySubmission = new Map<string, Array<{ image_type: string; storage_path: string }>>();
+  if (submissionIds.length > 0) {
+    const { data: imageRows, error: imagesError } = await supabaseAdmin
+      .from("submission_images")
+      .select("submission_id, image_type, storage_path, display_order")
+      .in("submission_id", submissionIds)
+      .order("display_order", { ascending: true });
+    if (imagesError) throw new Error(`Failed to fetch images: ${imagesError.message}`);
+    for (const row of imageRows ?? []) {
+      const r = row as { submission_id: string; image_type: string; storage_path: string };
+      const arr = imagesBySubmission.get(r.submission_id) ?? [];
+      arr.push({ image_type: r.image_type, storage_path: r.storage_path });
+      imagesBySubmission.set(r.submission_id, arr);
+    }
   }
 
   // Build JSONL output
@@ -600,6 +662,9 @@ export async function exportTrainingDataset(): Promise<string> {
     if (!report) continue;
 
     const submission = submissionMap.get(report.submission_id);
+    const ownerConsent = submission ? consentByUser.get(submission.user_id) === true : false;
+    // Consent gate: drop non-consented rows entirely when consentOnly.
+    if (consentOnly && !ownerConsent) continue;
 
     const entry: TrainingDataEntry = {
       review_id: review.id,
@@ -619,11 +684,13 @@ export async function exportTrainingDataset(): Promise<string> {
       ai_detected_style_attributes: report.detected_style_attributes ?? [],
       human_original_score: review.original_score,
       human_adjusted_score: review.adjusted_score,
-      human_review_notes: review.review_notes,
+      human_review_notes: includeNotes ? review.review_notes : null,
       human_intentional_misread: review.intentional_misread === true,
       reviewed_at: review.reviewed_at,
       model_version: report.model_version,
       prompt_version: report.prompt_version ?? null,
+      images: imagesBySubmission.get(report.submission_id) ?? [],
+      consent: ownerConsent,
     };
 
     lines.push(JSON.stringify(entry));

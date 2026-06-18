@@ -11,6 +11,7 @@ import {
 } from "./ai-grading.ts";
 import { getGradingCompositeModel, isAllowedGradingModel } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
+import { scoreToGradeTier } from "./human-review.ts";
 
 // ─── Eval harness + activation gate ─────────────────────────────────
 //
@@ -589,4 +590,245 @@ export async function activatePromptVersion(
   await invalidatePromptCache();
 
   return { ok: true };
+}
+
+// ─── US-329 / US-1068: golden-set growth from corrections ───────────
+//
+// A corrected grade (reviewer-adjusted or dispute-resolved) is the highest-value
+// kind of eval case — it's a real mistake the benchmark should defend against
+// forever. promoteGradeReportToEvalCase turns ONE such grade report into a
+// CANDIDATE eval case (is_active=false, pending admin approval). It is idempotent
+// (dedup on source_grade_report_id) so re-running never multiplies the set.
+
+export type PromoteEvalResult =
+  | { ok: true; case_id: string; already: boolean }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Promote the corrected grade behind `gradeReportId` into a candidate golden
+ * eval case. The expected (ground-truth) score is the reviewer's adjusted score
+ * when present, else the AI's own score (an approved-as-is grade is still a
+ * useful "we got this right" anchor). Extracted from the admin route so both the
+ * single-promote endpoint and the batch high-signal sweep share one code path.
+ */
+export async function promoteGradeReportToEvalCase(
+  gradeReportId: string,
+  source: "human_review" | "dispute",
+  createdBy: string | null,
+): Promise<PromoteEvalResult> {
+  // Dedup: at most one candidate per source grade report.
+  const { data: existing } = await supabaseAdmin
+    .from("grading_eval_cases")
+    .select("id")
+    .eq("source_grade_report_id", gradeReportId)
+    .maybeSingle();
+  if (existing) {
+    return { ok: true, case_id: (existing as { id: string }).id, already: true };
+  }
+
+  const { data: report } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, overall_score, submission_id")
+    .eq("id", gradeReportId)
+    .maybeSingle();
+  if (!report) return { ok: false, status: 404, error: "Grade report not found" };
+  const r = report as { overall_score: number; submission_id: string };
+
+  // The corrected truth comes from the most recent human review (if any).
+  const { data: review } = await supabaseAdmin
+    .from("human_reviews")
+    .select("adjusted_score, intentional_misread, reviewed_at")
+    .eq("grade_report_id", gradeReportId)
+    .order("reviewed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const rv = review as
+    | { adjusted_score: number | null; intentional_misread: boolean | null }
+    | null;
+  const expectedScore =
+    rv && typeof rv.adjusted_score === "number" ? rv.adjusted_score : r.overall_score;
+  const intentionalMisread = rv?.intentional_misread === true;
+
+  const { data: submission } = await supabaseAdmin
+    .from("submissions")
+    .select("garment_type, garment_category, brand, title, description, style_attributes")
+    .eq("id", r.submission_id)
+    .maybeSingle();
+  if (!submission) return { ok: false, status: 404, error: "Submission not found" };
+  const s = submission as {
+    garment_type: string;
+    garment_category: string;
+    brand: string | null;
+    title: string;
+    description: string | null;
+    style_attributes: string[] | null;
+  };
+
+  const { data: imgs } = await supabaseAdmin
+    .from("submission_images")
+    .select("image_type, storage_path")
+    .eq("submission_id", r.submission_id)
+    .order("display_order", { ascending: true });
+  const images = (imgs ?? []).map((i) => ({
+    image_type: (i as { image_type: string }).image_type,
+    storage_path: (i as { storage_path: string }).storage_path,
+  }));
+  if (images.length === 0) {
+    return { ok: false, status: 422, error: "Submission has no images to build a case from" };
+  }
+
+  const label = `${s.brand ? s.brand + " " : ""}${s.title}`.slice(0, 120).trim();
+  const tags = [
+    s.garment_category,
+    ...(intentionalMisread ? ["intentional_misread"] : []),
+    source,
+  ];
+  const notes =
+    `Auto-promoted from ${source} (${new Date().toISOString().slice(0, 10)}). ` +
+    `AI ${r.overall_score} → corrected ${expectedScore}.` +
+    (intentionalMisread ? " Flagged intentional-design misread." : "") +
+    " Pending approval before it counts toward the eval gate.";
+
+  const { data: inserted, error } = await supabaseAdmin
+    .from("grading_eval_cases")
+    .insert({
+      label,
+      garment_type: s.garment_type,
+      garment_category: s.garment_category,
+      brand: s.brand,
+      description: s.description,
+      style_attributes: Array.isArray(s.style_attributes) ? s.style_attributes : [],
+      images,
+      expected_score: expectedScore,
+      expected_tier: scoreToGradeTier(expectedScore),
+      tags,
+      is_active: false,
+      notes,
+      source_grade_report_id: gradeReportId,
+      source,
+      created_by: createdBy,
+    })
+    .select("id")
+    .single();
+  if (error) return { ok: false, status: 400, error: error.message };
+
+  return { ok: true, case_id: (inserted as { id: string }).id, already: false };
+}
+
+/** A correction worth turning into a golden case: a flagged intentional-design
+ *  misread, or a score the reviewer moved by at least `minDelta` points. An
+ *  approved-as-is review (no adjusted score, no misread flag) is NOT high-signal
+ *  — it adds no new failure mode. Pure + unit-tested. */
+export function isHighSignalCorrection(
+  review: {
+    original_score: number;
+    adjusted_score: number | null;
+    intentional_misread: boolean | null;
+  },
+  minDelta: number,
+): boolean {
+  if (review.intentional_misread === true) return true;
+  if (review.adjusted_score === null || review.adjusted_score === undefined) return false;
+  return Math.abs(review.adjusted_score - review.original_score) >= minDelta;
+}
+
+export interface HighSignalPromoteOptions {
+  /** Minimum |adjusted − original| points for a non-misread review to qualify. */
+  minDelta?: number;
+  /** Only scan reviews from the last N days. */
+  sinceDays?: number;
+  /** Cap how many candidates a single sweep promotes. */
+  limit?: number;
+  createdBy?: string | null;
+}
+
+export interface HighSignalPromoteResult {
+  scanned: number;
+  high_signal: number;
+  promoted: number;
+  already_present: number;
+  skipped: number;
+  candidates: Array<{ grade_report_id: string; case_id: string | null; status: string }>;
+}
+
+// Bound the review scan so one sweep stays a single cheap query even as the
+// review corpus grows; the newest reviews are the ones worth harvesting.
+const HIGH_SIGNAL_SCAN_CAP = 1_000;
+
+/**
+ * Batch the self-improvement loop: scan recent human reviews for high-signal
+ * corrections and promote each into a candidate golden eval case so coverage
+ * grows automatically from real mistakes. Idempotent end-to-end — dedup on the
+ * source grade report means an already-harvested correction is counted as
+ * `already_present`, never duplicated. Candidates still land inactive and must
+ * pass the human review/approve step before they count toward the eval gate.
+ */
+export async function promoteHighSignalEvalCandidates(
+  opts: HighSignalPromoteOptions = {},
+): Promise<HighSignalPromoteResult> {
+  const minDelta = Number.isFinite(opts.minDelta) && (opts.minDelta as number) > 0
+    ? (opts.minDelta as number)
+    : 1.0;
+  const sinceDays = Number.isFinite(opts.sinceDays) && (opts.sinceDays as number) > 0
+    ? (opts.sinceDays as number)
+    : 30;
+  const limit = Math.min(
+    Math.max(Number.isFinite(opts.limit) ? (opts.limit as number) : 50, 1),
+    200,
+  );
+  const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
+
+  const { data: reviews, error } = await supabaseAdmin
+    .from("human_reviews")
+    .select("grade_report_id, original_score, adjusted_score, intentional_misread, reviewed_at")
+    .gte("reviewed_at", since)
+    .order("reviewed_at", { ascending: false })
+    .limit(HIGH_SIGNAL_SCAN_CAP);
+  if (error) throw new Error(`Failed to scan reviews: ${error.message}`);
+
+  const rows = (reviews ?? []) as Array<{
+    grade_report_id: string;
+    original_score: number;
+    adjusted_score: number | null;
+    intentional_misread: boolean | null;
+  }>;
+
+  // One report can have several reviews; the query is newest-first so the first
+  // time we see a report id carries its latest correction. Dedup to that.
+  const seen = new Set<string>();
+  const highSignalIds: string[] = [];
+  for (const row of rows) {
+    if (seen.has(row.grade_report_id)) continue;
+    seen.add(row.grade_report_id);
+    if (isHighSignalCorrection(row, minDelta)) highSignalIds.push(row.grade_report_id);
+  }
+
+  const result: HighSignalPromoteResult = {
+    scanned: rows.length,
+    high_signal: highSignalIds.length,
+    promoted: 0,
+    already_present: 0,
+    skipped: 0,
+    candidates: [],
+  };
+
+  for (const reportId of highSignalIds.slice(0, limit)) {
+    const promoted = await promoteGradeReportToEvalCase(
+      reportId,
+      "human_review",
+      opts.createdBy ?? null,
+    );
+    if (promoted.ok && promoted.already) {
+      result.already_present++;
+      result.candidates.push({ grade_report_id: reportId, case_id: promoted.case_id, status: "already_present" });
+    } else if (promoted.ok) {
+      result.promoted++;
+      result.candidates.push({ grade_report_id: reportId, case_id: promoted.case_id, status: "promoted" });
+    } else {
+      result.skipped++;
+      result.candidates.push({ grade_report_id: reportId, case_id: null, status: `skipped: ${promoted.error}` });
+    }
+  }
+
+  return result;
 }
