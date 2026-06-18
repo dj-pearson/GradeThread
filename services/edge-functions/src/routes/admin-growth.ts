@@ -26,11 +26,7 @@ import {
 import type { SegmentRules } from "../lib/segments.ts";
 import { sendBroadcastEmail } from "../lib/email.ts";
 import { sendPushToUser } from "../lib/apns.ts";
-import { grantReferralReward } from "../lib/referrals.ts";
-import {
-  REFERRED_REWARD_CREDITS,
-  REFERRER_REWARD_CREDITS,
-} from "../lib/referral-rewards.ts";
+import { getReferralRewardConfig, grantReferralReward } from "../lib/referrals.ts";
 
 type AdminEnv = {
   Variables: {
@@ -859,6 +855,10 @@ adminGrowthRoutes.get("/referrals", async (c) => {
     for (const u of (users ?? []) as Array<{ id: string; email: string }>) partyEmail.set(u.id, u.email);
   }
 
+  // US-1069: surface the LIVE admin-configured economics (not the hardcoded
+  // defaults) so the dashboard reflects what grants actually pay out.
+  const rewardConfig = await getReferralRewardConfig();
+
   return c.json({
     funnel: {
       codes: codes.count ?? 0,
@@ -867,7 +867,12 @@ adminGrowthRoutes.get("/referrals", async (c) => {
       qualified: qualified.count ?? 0,
       granted: granted.count ?? 0,
     },
-    rewards: { referrer_credits: REFERRER_REWARD_CREDITS, referred_credits: REFERRED_REWARD_CREDITS },
+    rewards: {
+      referrer_credits: rewardConfig.referrer_credits,
+      referred_credits: rewardConfig.referred_credits,
+      qualification_window_days: rewardConfig.qualification_window_days,
+      per_referrer_cap: rewardConfig.per_referrer_cap,
+    },
     top_referrers: topReferrers,
     queue: queue.map((q) => ({
       id: q.id,
@@ -907,6 +912,10 @@ adminGrowthRoutes.post("/referrals/:id/grant", async (c) => {
     case "already_granted":
       return c.json({ error: "Already granted" }, 409);
     case "blocked":
+      return c.json({ error: result.reason }, 409);
+    case "capped":
+      return c.json({ error: result.reason }, 409);
+    case "expired":
       return c.json({ error: result.reason }, 409);
     case "error":
       return c.json({ error: result.reason }, 500);

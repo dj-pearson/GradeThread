@@ -13,9 +13,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   nextMilestone,
   REFERRAL_MILESTONES,
-  REFERRER_REWARD_CREDITS,
 } from "../lib/referral-rewards.ts";
-import { applyReferredSignupIncentive } from "../lib/referrals.ts";
+import { applyReferredSignupIncentive, getReferralRewardConfig } from "../lib/referrals.ts";
 
 type Env = { Variables: { userId?: string } };
 
@@ -117,6 +116,10 @@ referralRoutes.get("/me", async (c) => {
   const earnedBonus = earnedTiers.reduce((sum, m) => sum + m.bonus_credits, 0);
   const next = nextMilestone(grantedCount);
 
+  // US-1069: per-referral reward size is admin-configured in system_settings.
+  const rewardConfig = await getReferralRewardConfig();
+  const perReferral = rewardConfig.referrer_credits;
+
   return c.json({
     code,
     stats: {
@@ -128,9 +131,9 @@ referralRoutes.get("/me", async (c) => {
     // US-864: surface the referrer's reward in actual grade credits — earned
     // (already applied to their balance) vs. pending (referrals still in flight).
     credits: {
-      per_referral: REFERRER_REWARD_CREDITS,
-      earned: grantedCount * REFERRER_REWARD_CREDITS,
-      pending: inProgressCount * REFERRER_REWARD_CREDITS,
+      per_referral: perReferral,
+      earned: grantedCount * perReferral,
+      pending: inProgressCount * perReferral,
     },
     // US-1071: tiered/milestone rewards.
     milestones: {

@@ -7,9 +7,11 @@
 
 import { assertEquals } from "@std/assert";
 import {
+  DEFAULT_REFERRAL_REWARD_CONFIG,
   DEFAULT_REFERRED_SIGNUP_INCENTIVE,
   milestonesReached,
   nextMilestone,
+  normalizeReferralRewardConfig,
   normalizeReferredSignupIncentive,
   rankReferrers,
   REFERRAL_MILESTONES,
@@ -142,4 +144,62 @@ Deno.test("normalizeReferredSignupIncentive honors an explicit disable", () => {
     free_month_coupon_id: "X",
   });
   assertEquals(cfg.enabled, false);
+});
+
+// ── US-1069: admin-configurable referral reward economics ──
+
+Deno.test("DEFAULT_REFERRAL_REWARD_CONFIG preserves the historical 5/3 split, no window/cap", () => {
+  assertEquals(DEFAULT_REFERRAL_REWARD_CONFIG, {
+    referrer_credits: REFERRER_REWARD_CREDITS,
+    referred_credits: REFERRED_REWARD_CREDITS,
+    qualification_window_days: 0,
+    per_referrer_cap: 0,
+  });
+});
+
+Deno.test("normalizeReferralRewardConfig on absent/empty config returns the default", () => {
+  assertEquals(normalizeReferralRewardConfig(undefined), DEFAULT_REFERRAL_REWARD_CONFIG);
+  assertEquals(normalizeReferralRewardConfig(null), DEFAULT_REFERRAL_REWARD_CONFIG);
+  assertEquals(normalizeReferralRewardConfig({}), DEFAULT_REFERRAL_REWARD_CONFIG);
+  assertEquals(normalizeReferralRewardConfig("nope"), DEFAULT_REFERRAL_REWARD_CONFIG);
+});
+
+Deno.test("normalizeReferralRewardConfig reads a full admin config verbatim", () => {
+  assertEquals(
+    normalizeReferralRewardConfig({
+      referrer_credits: 10,
+      referred_credits: 6,
+      qualification_window_days: 30,
+      per_referrer_cap: 25,
+    }),
+    {
+      referrer_credits: 10,
+      referred_credits: 6,
+      qualification_window_days: 30,
+      per_referrer_cap: 25,
+    },
+  );
+});
+
+Deno.test("normalizeReferralRewardConfig clamps negatives/fractions and zeroes bad types", () => {
+  const cfg = normalizeReferralRewardConfig({
+    referrer_credits: -5,
+    referred_credits: 4.9,
+    qualification_window_days: "14", // wrong type → 0
+    per_referrer_cap: NaN, // → 0
+  });
+  assertEquals(cfg.referrer_credits, 0);
+  assertEquals(cfg.referred_credits, 4);
+  assertEquals(cfg.qualification_window_days, 0);
+  assertEquals(cfg.per_referrer_cap, 0);
+});
+
+Deno.test("normalizeReferralRewardConfig falls back per-field on a partial config", () => {
+  // Only referrer_credits supplied — the rest fall back to defaults (not 0).
+  assertEquals(normalizeReferralRewardConfig({ referrer_credits: 8 }), {
+    referrer_credits: 8,
+    referred_credits: REFERRED_REWARD_CREDITS,
+    qualification_window_days: 0,
+    per_referrer_cap: 0,
+  });
 });

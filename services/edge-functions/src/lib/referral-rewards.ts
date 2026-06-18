@@ -7,9 +7,79 @@
 // for the actual grant.
 
 // Credits granted to the referrer when one of their referrals is rewarded.
+// US-1069: these are now the OUT-OF-BOX DEFAULTS only — the live values are
+// admin-tunable in system_settings (see ReferralRewardConfig below) and read at
+// grant time. They remain exported as the published defaults the config falls
+// back to, and so back-compat importers keep compiling.
 export const REFERRER_REWARD_CREDITS = 5;
 // Credits granted to the referred (new) user on the same event.
 export const REFERRED_REWARD_CREDITS = 3;
+
+// US-1069: admin-configurable referral reward economics. The per-referral credit
+// sizes (formerly the hardcoded constants above), plus a qualification window and
+// a per-referrer cap, now live in `system_settings` under
+// REFERRAL_REWARD_CONFIG_SETTING_KEY so the operator tunes referral payout
+// without a deploy. Kept in this leaf module (no supabase import) so the
+// normalize/validate logic is unit-testable and shared by the grant path
+// (lib/referrals.ts), the user-facing /referrals/me endpoint, and the admin
+// Incentives surface.
+export interface ReferralRewardConfig {
+  // Grade credits granted to the referrer per granted referral.
+  referrer_credits: number;
+  // Grade credits granted to the referred (new) user per granted referral.
+  referred_credits: number;
+  // The referred user must reach their first paid action (qualify) within this
+  // many days of redeeming the ?ref= link, else the reward is forfeit. 0 = no
+  // window (qualify any time).
+  qualification_window_days: number;
+  // Max number of granted referrals a single referrer earns rewards for; once
+  // hit, further referrals qualify but pay no reward. 0 = unlimited.
+  per_referrer_cap: number;
+}
+
+export const REFERRAL_REWARD_CONFIG_SETTING_KEY = "referral.reward_config";
+
+// Out-of-box economics: the historical 5/3 split, no window, no cap.
+export const DEFAULT_REFERRAL_REWARD_CONFIG: ReferralRewardConfig = {
+  referrer_credits: REFERRER_REWARD_CREDITS,
+  referred_credits: REFERRED_REWARD_CREDITS,
+  qualification_window_days: 0,
+  per_referrer_cap: 0,
+};
+
+// Coerce one untrusted non-negative-integer field: an ABSENT field falls back to
+// the default; a PRESENT-but-invalid field (non-number/NaN/string) becomes 0;
+// negatives/fractions are clamped to a whole, non-negative count.
+function coerceNonNegInt(raw: unknown, fallback: number): number {
+  if (raw === undefined) return fallback;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
+  return 0;
+}
+
+// Coerce an untrusted stored/admin value (jsonb from system_settings, possibly
+// partial/wrongly-typed/absent) into a safe, fully-populated config. Pure —
+// unit-tested and shared by the grant path. Never throws.
+export function normalizeReferralRewardConfig(raw: unknown): ReferralRewardConfig {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    referrer_credits: coerceNonNegInt(
+      r.referrer_credits,
+      DEFAULT_REFERRAL_REWARD_CONFIG.referrer_credits,
+    ),
+    referred_credits: coerceNonNegInt(
+      r.referred_credits,
+      DEFAULT_REFERRAL_REWARD_CONFIG.referred_credits,
+    ),
+    qualification_window_days: coerceNonNegInt(
+      r.qualification_window_days,
+      DEFAULT_REFERRAL_REWARD_CONFIG.qualification_window_days,
+    ),
+    per_referrer_cap: coerceNonNegInt(
+      r.per_referrer_cap,
+      DEFAULT_REFERRAL_REWARD_CONFIG.per_referrer_cap,
+    ),
+  };
+}
 
 // US-1071: tiered/milestone rewards. A referrer earns these one-time BONUS
 // credits (on top of the per-referral reward) when their granted-referral count

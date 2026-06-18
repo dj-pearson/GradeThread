@@ -74,6 +74,7 @@ const adminNavItems = [
   { to: "/admin/condition-index", icon: LineChart, label: "Condition Index", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
   { to: "/admin/pricing", icon: DollarSign, label: "Plans & Pricing", end: false, superAdminOnly: false },
+  { to: "/admin/incentives", icon: Gift, label: "Incentives", end: false, superAdminOnly: true },
   { to: "/admin/waitlist", icon: DoorOpen, label: "Waitlist", end: false, superAdminOnly: false },
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },

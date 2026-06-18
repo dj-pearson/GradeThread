@@ -17,12 +17,14 @@ import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser } from "./notify.ts";
 import { sendReferralRewardEmail } from "./email.ts";
 import {
+  DEFAULT_REFERRAL_REWARD_CONFIG,
   DEFAULT_REFERRED_SIGNUP_INCENTIVE,
   milestonesReached,
+  normalizeReferralRewardConfig,
   normalizeReferredSignupIncentive,
-  REFERRED_REWARD_CREDITS,
+  REFERRAL_REWARD_CONFIG_SETTING_KEY,
   REFERRED_SIGNUP_INCENTIVE_SETTING_KEY,
-  REFERRER_REWARD_CREDITS,
+  type ReferralRewardConfig,
   type ReferredSignupIncentive,
 } from "./referral-rewards.ts";
 import { getSetting } from "./system-settings.ts";
@@ -37,7 +39,25 @@ export type GrantReferralResult =
   | { status: "not_found" }
   // A party is suspended (US-802) — refuse to move credits to a frozen account.
   | { status: "blocked"; reason: string }
+  // US-1069: the referrer hit the admin-configured per-referrer reward cap — the
+  // referral qualifies but pays no reward.
+  | { status: "capped"; reason: string }
+  // US-1069: the referred user qualified after the admin-configured window — the
+  // reward is forfeit.
+  | { status: "expired"; reason: string }
   | { status: "error"; reason: string };
+
+// US-1069: resolve the admin-configured referral reward economics from
+// system_settings (credit sizes, qualification window, per-referrer cap),
+// normalized + safe-defaulted. Read through the cached settings registry, so this
+// is cheap on the grant/display paths.
+export async function getReferralRewardConfig(): Promise<ReferralRewardConfig> {
+  const raw = await getSetting<unknown>(
+    REFERRAL_REWARD_CONFIG_SETTING_KEY,
+    DEFAULT_REFERRAL_REWARD_CONFIG,
+  );
+  return normalizeReferralRewardConfig(raw);
+}
 
 // Best-effort reward notification (in-app + email). Never throws — the credits
 // are already granted and the status persisted by the time we get here, so a
@@ -88,9 +108,12 @@ async function notifyReward(
 export async function grantReferralReward(
   eventId: string,
 ): Promise<GrantReferralResult> {
+  // US-1069: live, admin-tunable economics (credit sizes, window, cap).
+  const config = await getReferralRewardConfig();
+
   const { data: event } = await supabaseAdmin
     .from("referral_events")
-    .select("id, referrer_user_id, referred_user_id, reward_status")
+    .select("id, referrer_user_id, referred_user_id, reward_status, created_at, qualified_at")
     .eq("id", eventId)
     .maybeSingle();
   if (!event) return { status: "not_found" };
@@ -99,6 +122,8 @@ export async function grantReferralReward(
     referrer_user_id: string;
     referred_user_id: string;
     reward_status: string;
+    created_at: string;
+    qualified_at: string | null;
   };
   if (ev.reward_status === "granted") return { status: "already_granted" };
 
@@ -112,6 +137,38 @@ export async function grantReferralReward(
     return { status: "blocked", reason: "A party to this referral is suspended." };
   }
 
+  // US-1069: qualification window — the referred user must have qualified within
+  // N days of redeeming. Forfeit (don't grant; leave the row at qualified) if the
+  // gap exceeded the window. 0 = no window.
+  if (config.qualification_window_days > 0) {
+    const redeemedMs = Date.parse(ev.created_at);
+    const qualifiedMs = ev.qualified_at ? Date.parse(ev.qualified_at) : Date.now();
+    const windowMs = config.qualification_window_days * 86_400_000;
+    if (Number.isFinite(redeemedMs) && qualifiedMs - redeemedMs > windowMs) {
+      return {
+        status: "expired",
+        reason: `Referral qualified after the ${config.qualification_window_days}-day window.`,
+      };
+    }
+  }
+
+  // US-1069: per-referrer cap — once a referrer has this many granted referrals,
+  // further ones qualify but earn no reward. 0 = unlimited. Counted BEFORE the
+  // claim so a re-run stays idempotent (a capped referral never flips to granted).
+  if (config.per_referrer_cap > 0) {
+    const { count: grantedSoFar } = await supabaseAdmin
+      .from("referral_events")
+      .select("id", { count: "exact", head: true })
+      .eq("referrer_user_id", ev.referrer_user_id)
+      .eq("reward_status", "granted");
+    if ((grantedSoFar ?? 0) >= config.per_referrer_cap) {
+      return {
+        status: "capped",
+        reason: `Referrer has reached the per-referrer cap of ${config.per_referrer_cap}.`,
+      };
+    }
+  }
+
   // CLAIM the row: only the caller that flips it off a non-granted status wins.
   const nowIso = new Date().toISOString();
   const { data: claimed, error: claimErr } = await supabaseAdmin
@@ -119,8 +176,8 @@ export async function grantReferralReward(
     .update({
       reward_status: "granted",
       granted_at: nowIso,
-      referrer_reward_credits: REFERRER_REWARD_CREDITS,
-      referred_reward_credits: REFERRED_REWARD_CREDITS,
+      referrer_reward_credits: config.referrer_credits,
+      referred_reward_credits: config.referred_credits,
     })
     .eq("id", eventId)
     .neq("reward_status", "granted")
@@ -144,8 +201,8 @@ export async function grantReferralReward(
       p_notes: `Referral reward (event ${eventId})`,
     });
   const [{ error: e1 }, { error: e2 }] = await Promise.all([
-    grant(ev.referrer_user_id, REFERRER_REWARD_CREDITS),
-    grant(ev.referred_user_id, REFERRED_REWARD_CREDITS),
+    grant(ev.referrer_user_id, config.referrer_credits),
+    grant(ev.referred_user_id, config.referred_credits),
   ]);
   if (e1 || e2) {
     console.error("[referrals] credit grant failed:", e1?.message ?? e2?.message);
@@ -163,8 +220,8 @@ export async function grantReferralReward(
   }
 
   await Promise.all([
-    notifyReward(ev.referrer_user_id, REFERRER_REWARD_CREDITS, true),
-    notifyReward(ev.referred_user_id, REFERRED_REWARD_CREDITS, false),
+    notifyReward(ev.referrer_user_id, config.referrer_credits, true),
+    notifyReward(ev.referred_user_id, config.referred_credits, false),
   ]);
 
   // US-1071: now that this grant is committed, check whether the referrer just
@@ -174,8 +231,8 @@ export async function grantReferralReward(
 
   return {
     status: "granted",
-    referrer_credits: REFERRER_REWARD_CREDITS,
-    referred_credits: REFERRED_REWARD_CREDITS,
+    referrer_credits: config.referrer_credits,
+    referred_credits: config.referred_credits,
   };
 }
 
