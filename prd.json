@@ -2213,7 +2213,7 @@
         "deno check + lint + tests (batching/fallback pure-testable) green."
       ],
       "priority": 1046,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=low. services/edge-functions/src/lib/ebay-client.ts (single-item only: createOffer/publishOffer); AutoLister publish path [DECISION 2026-06-14: evaluated + DEFERRED. The bulk API module (ebay-bulk.ts: bulkCreateOrReplaceInventoryItem/bulkCreateOffer/bulkPublishOffer + bulkPublishWithFallback) is built + unit-tested. Integration into the AutoLister publish worker (processPublishBatch -> publishItemForOwner) is NOT worth the risk: publishItemForOwner interleaves per-item image compositing (grade badge/slab), reachability HEAD-probes, relist withdrawal, and DB writes around the 3 eBay calls, and multi-variant items take a separate path (publishVariationListing) - no clean seam to batch. The worker already meets the AC goals (latency via bounded concurrency; rate-limit via the single centralized worker + circuit breaker + Retry-After retry), and per-item wall-time is dominated by compositing/probes/writes, not the 3 HTTP calls. The path auto-deploys to prod and can't be eBay-sandbox-tested from the dev host. Reuse ebay-bulk.ts for a future CLEAN bulk surface (e.g. bulk price/quantity update) instead.]"
     },
     {

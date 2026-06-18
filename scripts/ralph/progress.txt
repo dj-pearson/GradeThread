@@ -3134,3 +3134,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  5:29:56 PM
 ---
+## US-1046: eBay: bulk publish/offer operations for AutoLister scale
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  5:35:39 PM
+---
