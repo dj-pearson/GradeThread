@@ -12,6 +12,10 @@ memory — not a progress log (the harness records progress separately).
   /dashboard) and `prerender/__tests__/prerender.test.ts` (expects
   `dist/how-it-works/index.html`, but that route isn't prerendered — fails even
   after a fresh build). Don't chase either as your regression.
+- `src/lib/concurrency.test.ts` ("slow item does not stall the other lanes") is
+  timing-flaky under full-suite load (e.g. right after a build) — it passes when
+  re-run in isolation (`npx vitest run src/lib/concurrency.test.ts`). Not a
+  regression; re-run alone to confirm before chasing.
 - `npx tsc --noEmit` is NOT enough — the build runs `tsc -b` (project refs),
   which is stricter and catches casts `--noEmit` lets slide (e.g.
   `x as Record<string,unknown>` on a typed interface needs
