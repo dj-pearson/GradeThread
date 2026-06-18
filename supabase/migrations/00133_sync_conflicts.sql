@@ -49,6 +49,14 @@ ALTER TABLE public.flipdesk_sync_conflicts ENABLE ROW LEVEL SECURITY;
 -- Per-field source-of-truth choices, e.g. {"price": "flipdesk"}. A field keyed
 -- to a source other than 'ebay' is protected from the eBay pull's default
 -- eBay-wins overwrite, and decided fields are excluded from re-flagging.
+--
+-- DEPRECATED (US-1078) for the eBay↔FlipDesk axis: authority now follows
+-- listing provenance (listing_origin), not this per-field pin. The eBay pull
+-- (doListingsPull in flipdesk-ebay.ts) no longer reads or writes this column —
+-- a GradeThread-originated listing's editable fields are protected by provenance
+-- and the Google Sheets carve-out doesn't depend on it either
+-- (see SYNC_SOURCE_OF_TRUTH.md). The column is retained (still written on manual
+-- cross-source conflict resolution) but should not be reintroduced into the pull.
 ALTER TABLE public.listings
   ADD COLUMN IF NOT EXISTS source_of_truth jsonb NOT NULL DEFAULT '{}'::jsonb;
 

@@ -1214,7 +1214,6 @@ async function doListingsPull(
     listed_at: string | null;
     listing_description: string | null;
     platform_category_id: string | null;
-    source_of_truth: Record<string, string> | null;
     // US-1081: provenance signals + drift marker. batch_id/synced_to_ebay_at
     // decide whether this listing is GradeThread-originated (GT is the source of
     // truth → inbound pull must NOT overwrite eBay-owned editable fields; it only
@@ -1278,7 +1277,7 @@ async function doListingsPull(
     const { data: rows } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, source_of_truth, batch_id, synced_to_ebay_at, platform_fields, created_at, inventory_items!inner(user_id)",
+        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, batch_id, synced_to_ebay_at, platform_fields, created_at, inventory_items!inner(user_id)",
       )
       .eq("platform", "ebay")
       .eq("inventory_items.user_id", userId)
@@ -1411,21 +1410,106 @@ async function doListingsPull(
   // Statuses where an eBay-vs-FlipDesk status diff is meaningful; sold /
   // relisted are FlipDesk-richer states eBay can't express.
   const COMPARABLE_STATUSES = new Set(["active", "ended", "draft"]);
-  // True when the user already picked a non-eBay winner for this field — the
-  // pull must not overwrite it (US-148 source-of-truth persistence).
-  const pinnedAgainstEbay = (
-    row: ExistingListingRow | null,
-    field: string,
-  ): boolean => {
-    const winner = row?.source_of_truth?.[field];
-    return !!winner && winner !== "ebay";
-  };
 
   // US-1081: per-listing platform_fields writes for drift bookkeeping on
   // GradeThread-originated listings (keyed by listing id). Flushed after the
   // loop. Separate from the bulk listing upsert — that upsert never carries
   // platform_fields, so these writes aren't clobbered.
   const driftFieldWrites = new Map<string, Record<string, unknown>>();
+
+  // US-1078: provenance-aware inbound merge, shared by the modern-offers and
+  // legacy (Trading API) passes. Authority follows listing provenance now —
+  // this RETIRES the US-148 per-field source_of_truth pin (`pinnedAgainstEbay`),
+  // which is no longer read from the pull (listings.source_of_truth is
+  // deprecated for the eBay↔FlipDesk axis; see SYNC_SOURCE_OF_TRUTH.md).
+  //
+  // • listing_origin='ebay'        — eBay is the source of truth: the patch is
+  //   left untouched (full mirror — every eBay-owned field flows through).
+  // • listing_origin='gradethread' — GradeThread is the source of truth: the
+  //   eBay-owned editable fields (title/price/description/quantity/category) are
+  //   deleted from the patch so the pull never clobbers a FlipDesk edit. The
+  //   read-only signals (listing_status/is_active) already in the patch still
+  //   flow in. Any eBay drift is recorded in platform_fields.sync_drift so the
+  //   editor can offer a non-blocking "Re-push to eBay" re-assert.
+  //
+  // Origin is derived from the same signals US-1077 backfills from, so the
+  // behavior is forward-compatible once the listing_origin column is persisted.
+  const applyProvenanceMerge = (
+    existing: ExistingListingRow | null,
+    patch: Record<string, unknown>,
+    fromEbay: {
+      title?: string | null;
+      price?: number | null;
+      description?: string | null;
+    },
+  ): "ebay" | "gradethread" => {
+    const origin = existing
+      ? deriveListingOrigin({
+          platform: "ebay",
+          platform_listing_id: existing.platform_listing_id,
+          batch_id: existing.batch_id,
+          synced_to_ebay_at: existing.synced_to_ebay_at,
+        })
+      : "ebay";
+    if (!existing || origin !== "gradethread") return origin;
+
+    const drifted: string[] = [];
+    const ebaySnapshot: Record<string, unknown> = {};
+    const title = fromEbay.title?.trim();
+    if (
+      title &&
+      existing.listing_title != null &&
+      title !== existing.listing_title.trim()
+    ) {
+      drifted.push("title");
+      ebaySnapshot.title = title;
+    }
+    if (
+      fromEbay.price != null &&
+      existing.listing_price != null &&
+      Math.abs(fromEbay.price - existing.listing_price) > 0.005
+    ) {
+      drifted.push("price");
+      ebaySnapshot.price = fromEbay.price;
+    }
+    const description = fromEbay.description?.trim();
+    if (
+      description &&
+      existing.listing_description != null &&
+      description !== existing.listing_description.trim()
+    ) {
+      drifted.push("description");
+      ebaySnapshot.description = description;
+    }
+
+    // Keep GradeThread's values — never let eBay win on a GT-originated listing.
+    delete patch.listing_title;
+    delete patch.listing_price;
+    delete patch.listing_description;
+    delete patch.quantity;
+    delete patch.platform_category_id;
+
+    // Record (or clear) the drift marker; informational only — we never pull
+    // eBay's drifted value into GradeThread. Skip the write unless the marker
+    // actually changes so a steady-state sync stays free.
+    const prevPf = (existing.platform_fields ?? {}) as Record<string, unknown>;
+    const hadDrift = !!(prevPf as { sync_drift?: unknown }).sync_drift;
+    if (drifted.length > 0) {
+      driftFieldWrites.set(existing.id, {
+        ...prevPf,
+        sync_drift: {
+          fields: drifted,
+          ebay: ebaySnapshot,
+          detected_at: new Date().toISOString(),
+        },
+      });
+    } else if (hadDrift) {
+      const nextPf = { ...prevPf };
+      delete (nextPf as { sync_drift?: unknown }).sync_drift;
+      driftFieldWrites.set(existing.id, nextPf);
+    }
+    return origin;
+  };
 
   for (const o of offers) {
     try {
@@ -1495,13 +1579,6 @@ async function doListingsPull(
           is_active: isActive,
           quantity: o.availableQuantity ?? undefined,
         };
-        // US-148: fields the user pinned to FlipDesk/Sheets keep their value.
-        if (pinnedAgainstEbay(existing, "price")) delete patch.listing_price;
-        if (pinnedAgainstEbay(existing, "quantity")) delete patch.quantity;
-        if (pinnedAgainstEbay(existing, "listing_status")) {
-          delete patch.listing_status;
-          delete patch.is_active;
-        }
         // eBay's own listing start date is authoritative — write it through so
         // the "List Date" column is populated even on sync-discovered listings
         // (we never set listed_at on insert below otherwise). Only overwrite
@@ -1519,79 +1596,15 @@ async function doListingsPull(
           patch.platform_category_id = o.categoryId;
         }
 
-        // US-1081: provenance-aware inbound merge. For GradeThread-originated
-        // listings GradeThread is the source of truth — the inbound pull must
-        // NOT overwrite eBay-owned editable fields (price/description/quantity/
-        // category). It still mirrors the read-only signals (status/is_active)
-        // already in `patch`, and records that eBay has drifted so the editor
-        // can offer a non-blocking "Re-push to eBay" re-assert. Origin is
-        // derived from the same signals US-1077 backfills from.
-        const origin = existing
-          ? deriveListingOrigin({
-              platform: "ebay",
-              platform_listing_id: existing.platform_listing_id,
-              batch_id: existing.batch_id,
-              synced_to_ebay_at: existing.synced_to_ebay_at,
-            })
-          : "ebay";
-        if (existing && origin === "gradethread") {
-          const drifted: string[] = [];
-          const ebaySnapshot: Record<string, unknown> = {};
-          if (
-            o.title &&
-            o.title.trim() &&
-            existing.listing_title != null &&
-            o.title.trim() !== existing.listing_title.trim()
-          ) {
-            drifted.push("title");
-            ebaySnapshot.title = o.title.trim();
-          }
-          if (
-            priceNum != null &&
-            existing.listing_price != null &&
-            Math.abs(priceNum - existing.listing_price) > 0.005
-          ) {
-            drifted.push("price");
-            ebaySnapshot.price = priceNum;
-          }
-          if (
-            o.listingDescription &&
-            o.listingDescription.trim() &&
-            existing.listing_description != null &&
-            o.listingDescription.trim() !== existing.listing_description.trim()
-          ) {
-            drifted.push("description");
-            ebaySnapshot.description = o.listingDescription.trim();
-          }
-          // Keep GradeThread's values — never let eBay win on a GT listing.
-          delete patch.listing_price;
-          delete patch.listing_description;
-          delete patch.quantity;
-          delete patch.platform_category_id;
-
-          // Record (or clear) the drift marker; informational only — we never
-          // pull eBay's drifted value into GradeThread. Skip the write unless the
-          // marker actually changes so a steady-state sync stays free.
-          const prevPf = (existing.platform_fields ?? {}) as Record<
-            string,
-            unknown
-          >;
-          const hadDrift = !!(prevPf as { sync_drift?: unknown }).sync_drift;
-          if (drifted.length > 0) {
-            driftFieldWrites.set(existing.id, {
-              ...prevPf,
-              sync_drift: {
-                fields: drifted,
-                ebay: ebaySnapshot,
-                detected_at: new Date().toISOString(),
-              },
-            });
-          } else if (hadDrift) {
-            const nextPf = { ...prevPf };
-            delete (nextPf as { sync_drift?: unknown }).sync_drift;
-            driftFieldWrites.set(existing.id, nextPf);
-          }
-        }
+        // US-1078: provenance-aware inbound merge (shared with the legacy pass).
+        // GT-originated → keep GradeThread's editable fields + record drift;
+        // eBay-originated → full mirror (patch untouched). Supersedes the US-148
+        // source_of_truth pin.
+        const origin = applyProvenanceMerge(existing, patch, {
+          title: o.title,
+          price: priceNum,
+          description: o.listingDescription,
+        });
         // US-405: accumulate the write — flushed as one bulk upsert after both
         // listing passes. ensurePendingListing seeds a full row from the
         // pre-loaded snapshot (or a fresh client-id'd row), then the patch is
@@ -1741,15 +1754,16 @@ async function doListingsPull(
           // listed_at so the "List Date" column reflects eBay's record.
           if (l.startTime) patch.listed_at = l.startTime;
           if (l.title && l.title.trim()) patch.listing_title = l.title;
-          // US-148: respect per-field source-of-truth picks.
-          if (pinnedAgainstEbay(existing, "price")) delete patch.listing_price;
-          if (pinnedAgainstEbay(existing, "quantity")) delete patch.quantity;
-          if (pinnedAgainstEbay(existing, "listing_status")) {
-            delete patch.listing_status;
-            delete patch.is_active;
-          }
-          if (pinnedAgainstEbay(existing, "title")) delete patch.listing_title;
           if (l.primaryCategoryId) patch.platform_category_id = l.primaryCategoryId;
+          // US-1078: provenance-aware inbound merge (shared with the modern
+          // pass). GT-originated → keep GradeThread's editable fields (title/
+          // price/quantity/category) + record drift; eBay-originated → full
+          // mirror. GetMyeBaySelling returns no body, so no description signal.
+          const origin = applyProvenanceMerge(existing, patch, {
+            title: l.title,
+            price: l.currentPrice ?? null,
+            description: null,
+          });
           // US-405: accumulate the write (merging onto any row the modern pass
           // already seeded for this item) and the silent status flip.
           applyListingPatch(ensurePendingListing(itemId), patch);
@@ -1776,7 +1790,12 @@ async function doListingsPull(
             await applyCatalogPatch(
               itemId,
               localRow,
-              buildCatalogPatch(localRow, { title: l.title, specifics }),
+              // US-1078: GradeThread owns the title on GT-originated listings —
+              // skip eBay's title overwrite (specifics still fill-if-blank).
+              buildCatalogPatch(localRow, {
+                title: origin === "gradethread" ? null : l.title,
+                specifics,
+              }),
             );
           }
           legacyMatched += 1;
