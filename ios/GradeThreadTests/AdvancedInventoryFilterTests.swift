@@ -231,6 +231,209 @@ final class AdvancedInventoryFilterTests: XCTestCase {
         XCTAssertEqual(reloaded.matchingName(for: c), "Large")
     }
 
+    // MARK: - US-1052: source / category facets
+
+    func test_matches_sourceFacet_isOR() throws {
+        let ctx = ModelContext(try makeContainer())
+        let a = makeItem(id: "a", context: ctx); a.sourceId = "src-1"
+        let b = makeItem(id: "b", context: ctx); b.sourceId = "src-2"
+        let c = makeItem(id: "c", context: ctx); c.sourceId = "src-3"
+        var crit = InventoryFilterCriteria(); crit.sources = ["src-1", "src-2"]
+        XCTAssertTrue(InventoryFilter.matches(a, crit))
+        XCTAssertTrue(InventoryFilter.matches(b, crit))
+        XCTAssertFalse(InventoryFilter.matches(c, crit))
+    }
+
+    func test_matches_categoryFacet() throws {
+        let ctx = ModelContext(try makeContainer())
+        let shoe = makeItem(id: "s", context: ctx); shoe.itemCategory = "shoes"
+        let shirt = makeItem(id: "t", context: ctx); shirt.itemCategory = "clothing"
+        var crit = InventoryFilterCriteria(); crit.categories = ["shoes"]
+        XCTAssertTrue(InventoryFilter.matches(shoe, crit))
+        XCTAssertFalse(InventoryFilter.matches(shirt, crit))
+    }
+
+    func test_facets_sourceNames_resolveAndCategoryLabel() throws {
+        let ctx = ModelContext(try makeContainer())
+        let a = makeItem(id: "a", context: ctx); a.sourceId = "src-1"; a.itemCategory = "sports_cards"
+        let b = makeItem(id: "b", context: ctx); b.sourceId = "src-1"; b.itemCategory = "sports_cards"
+        let facets = InventoryFacets.derive(from: [a, b], sourceNames: ["src-1": "Goodwill"])
+        XCTAssertEqual(facets.sources.first?.value, "src-1")     // key is the id
+        XCTAssertEqual(facets.sources.first?.label, "Goodwill")  // label is the name
+        XCTAssertEqual(facets.categories.first?.value, "sports_cards")
+        XCTAssertEqual(facets.categories.first?.label, "Sports Cards")
+    }
+
+    // MARK: - US-1052: date-range facets
+
+    func test_matches_purchaseDateBand_windowsCreatedAt() throws {
+        let ctx = ModelContext(try makeContainer())
+        let anchor = Date(timeIntervalSince1970: 1_700_000_000)
+        let inWindow = makeItem(id: "in", createdAt: anchor, context: ctx)
+        let before = makeItem(id: "be", createdAt: anchor.addingTimeInterval(-10 * 86_400), context: ctx)
+
+        var crit = InventoryFilterCriteria()
+        crit.purchaseDates = .init(from: anchor.addingTimeInterval(-86_400), to: anchor.addingTimeInterval(86_400))
+        XCTAssertTrue(InventoryFilter.matches(inWindow, crit))
+        XCTAssertFalse(InventoryFilter.matches(before, crit))
+    }
+
+    func test_matches_saleDateBand_usesResolvedSoldDates() throws {
+        let ctx = ModelContext(try makeContainer())
+        let sold = makeItem(id: "sold", context: ctx)
+        let unsold = makeItem(id: "unsold", context: ctx)
+        let soldOn = Date(timeIntervalSince1970: 1_700_000_000)
+
+        var crit = InventoryFilterCriteria()
+        crit.saleDates = .init(from: soldOn.addingTimeInterval(-86_400), to: nil)
+        let map = ["sold": soldOn]
+        XCTAssertTrue(InventoryFilter.matches(sold, crit, soldDates: map))
+        // No sale date → can't clear an active sale-date window.
+        XCTAssertFalse(InventoryFilter.matches(unsold, crit, soldDates: map))
+    }
+
+    // MARK: - US-1052: advanced AND/OR rule builder
+
+    func test_ruleQuery_emptyMatchesEverything() throws {
+        let ctx = ModelContext(try makeContainer())
+        let item = makeItem(id: "a", brand: "Nike", context: ctx)
+        XCTAssertTrue(InventoryRuleQuery.empty.matches(item, now: .now))
+    }
+
+    func test_ruleQuery_orCombinator_anyRuleHolds() throws {
+        let ctx = ModelContext(try makeContainer())
+        let nike = makeItem(id: "n", brand: "Nike", context: ctx)
+        let gap = makeItem(id: "g", brand: "Gap", context: ctx)
+        var q = InventoryRuleQuery(combinator: .or, rules: [
+            .init(field: .brand, op: .eq, value: "Nike"),
+            .init(field: .brand, op: .eq, value: "Patagonia"),
+        ])
+        XCTAssertTrue(q.matches(nike, now: .now))
+        XCTAssertFalse(q.matches(gap, now: .now))
+        q.combinator = .and
+        XCTAssertFalse(q.matches(nike, now: .now))  // can't be both brands
+    }
+
+    func test_ruleQuery_numericGteAndAnyOf() throws {
+        let ctx = ModelContext(try makeContainer())
+        let item = makeItem(id: "a", brand: "Nike", context: ctx)
+        item.targetPrice = 50
+        let pass = InventoryRuleQuery(combinator: .and, rules: [
+            .init(field: .targetPrice, op: .gte, value: "40"),
+            .init(field: .brand, op: .anyOf, value: "nike, patagonia"),
+        ])
+        XCTAssertTrue(pass.matches(item, now: .now))
+        let fail = InventoryRuleQuery(combinator: .and, rules: [
+            .init(field: .targetPrice, op: .gte, value: "60"),
+        ])
+        XCTAssertFalse(fail.matches(item, now: .now))
+    }
+
+    func test_ruleQuery_blankRuleIsNoOp() throws {
+        let ctx = ModelContext(try makeContainer())
+        let item = makeItem(id: "a", brand: "Nike", context: ctx)
+        // A rule whose value-requiring op has a blank value shouldn't empty
+        // the list — it's treated as not-yet-specified.
+        let q = InventoryRuleQuery(rules: [.init(field: .brand, op: .eq, value: "  ")])
+        XCTAssertFalse(q.isActive)
+        XCTAssertTrue(q.matches(item, now: .now))
+    }
+
+    func test_ruleQuery_isEmptyOperator() throws {
+        let ctx = ModelContext(try makeContainer())
+        let noBrand = makeItem(id: "x", brand: nil, context: ctx)
+        let withBrand = makeItem(id: "y", brand: "Nike", context: ctx)
+        let q = InventoryRuleQuery(rules: [.init(field: .brand, op: .isEmpty, value: "")])
+        XCTAssertTrue(q.isActive)  // isEmpty needs no value
+        XCTAssertTrue(q.matches(noBrand, now: .now))
+        XCTAssertFalse(q.matches(withBrand, now: .now))
+    }
+
+    func test_criteria_ruleQuery_gatesMatches() throws {
+        let ctx = ModelContext(try makeContainer())
+        let item = makeItem(id: "a", brand: "Nike", context: ctx)
+        var crit = InventoryFilterCriteria()
+        crit.ruleQuery = .init(rules: [.init(field: .brand, op: .eq, value: "Gap")])
+        XCTAssertFalse(InventoryFilter.matches(item, crit))
+        crit.ruleQuery = .init(rules: [.init(field: .brand, op: .eq, value: "Nike")])
+        XCTAssertTrue(InventoryFilter.matches(item, crit))
+    }
+
+    func test_activeCount_includesNewFacets() {
+        var c = InventoryFilterCriteria()
+        c.sources = ["s1"]
+        c.categories = ["shoes"]
+        c.purchaseDates = .init(from: .now, to: nil)
+        c.saleDates = .init(from: .now, to: nil)
+        c.ruleQuery = .init(rules: [.init(field: .brand, op: .eq, value: "Nike")])
+        XCTAssertEqual(c.activeCount, 5)
+        XCTAssertTrue(c.isActive)
+    }
+
+    // MARK: - US-1052: full-text (multi-token) search
+
+    func test_filter_fts_requiresAllTokens() throws {
+        let ctx = ModelContext(try makeContainer())
+        let a = makeItem(id: "a", title: "Wool Blazer", brand: "Nike", context: ctx)
+        let b = makeItem(id: "b", title: "Wool Coat", brand: "Gap", context: ctx)
+        // Both tokens must land somewhere across the searchable fields.
+        XCTAssertEqual(InventoryFilter.filter([a, b], search: "wool nike").map(\.id), ["a"])
+        XCTAssertEqual(InventoryFilter.filter([a, b], search: "wool").map(\.id), ["a", "b"])
+    }
+
+    func test_filter_fts_searchesNotesAndColorAndCategory() throws {
+        let ctx = ModelContext(try makeContainer())
+        let a = makeItem(id: "a", context: ctx)
+        a.conditionNotes = "small stain on cuff"
+        a.color = "Crimson"
+        a.itemCategory = "shoes"
+        XCTAssertEqual(InventoryFilter.filter([a], search: "stain").map(\.id), ["a"])
+        XCTAssertEqual(InventoryFilter.filter([a], search: "crimson").map(\.id), ["a"])
+        XCTAssertEqual(InventoryFilter.filter([a], search: "shoes").map(\.id), ["a"])
+    }
+
+    func test_filter_serverSearchIds_unionWithLocal() throws {
+        let ctx = ModelContext(try makeContainer())
+        // Local text doesn't contain "vintage", but the server FTS matched it
+        // (e.g. on the server-only description) → it should still surface.
+        let a = makeItem(id: "a", title: "Plain Tee", context: ctx)
+        XCTAssertTrue(InventoryFilter.filter([a], search: "vintage").isEmpty)
+        XCTAssertEqual(
+            InventoryFilter.filter([a], search: "vintage", serverSearchIds: ["a"]).map(\.id),
+            ["a"]
+        )
+    }
+
+    // MARK: - US-1052: saved-view interop (tolerant decode)
+
+    func test_criteria_decodesLegacyJSON_withoutNewKeys() throws {
+        // A blob shaped like a pre-US-1052 saved filter (no sources/categories/
+        // purchaseDates/saleDates/ruleQuery keys) must still decode, defaulting
+        // the new fields — otherwise SavedFilterStore drops every saved view.
+        let legacy = """
+        {"brands":["Nike"],"sizes":[],"colors":[],"locationBins":[],
+         "gradedOnly":true,"photoState":"any","dateAdded":"any"}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(InventoryFilterCriteria.self, from: legacy)
+        XCTAssertEqual(decoded.brands, ["Nike"])
+        XCTAssertTrue(decoded.gradedOnly)
+        XCTAssertTrue(decoded.sources.isEmpty)
+        XCTAssertFalse(decoded.purchaseDates.isActive)
+        XCTAssertFalse(decoded.ruleQuery.isActive)
+    }
+
+    func test_criteria_roundTripsThroughCodable() throws {
+        var c = InventoryFilterCriteria()
+        c.brands = ["Nike"]
+        c.sources = ["src-1"]
+        c.categories = ["shoes"]
+        c.purchaseDates = .init(from: Date(timeIntervalSince1970: 1000), to: nil)
+        c.ruleQuery = .init(combinator: .or, rules: [.init(field: .grade, op: .gte, value: "8")])
+        let data = try JSONEncoder().encode(c)
+        let back = try JSONDecoder().decode(InventoryFilterCriteria.self, from: data)
+        XCTAssertEqual(back, c)
+    }
+
     // MARK: - Helpers
 
     private func ephemeralDefaults() throws -> UserDefaults {

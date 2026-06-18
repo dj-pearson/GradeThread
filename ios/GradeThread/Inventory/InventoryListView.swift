@@ -16,6 +16,12 @@ struct InventoryListView: View {
     @Query(sort: \LocalInventoryItem.updatedAt, order: .reverse)
     private var allItems: [LocalInventoryItem]
 
+    /// US-1052: source rows feed the source facet's id→name resolution.
+    @Query private var sources: [LocalSource]
+    /// US-1052: sales rows feed the sale-date facet (the sold date lives on the
+    /// sale, not the item).
+    @Query private var sales: [LocalSale]
+
     @Environment(\.syncEngine) private var syncEngine
 
     @State private var selectedStage: InventoryStage = .all
@@ -44,6 +50,9 @@ struct InventoryListView: View {
     }
     @State private var showingFilterSheet = false
     @State private var savedFilters = SavedFilterStore()
+    /// US-1052: server-side full-text search (`flipdesk_search`), unioned with
+    /// the local token search so matches on server-only fields still surface.
+    @State private var searchService = InventorySearchService()
 
     // US-182 multi-select
     @State private var selection = BulkSelectionStore()
@@ -85,7 +94,7 @@ struct InventoryListView: View {
     var body: some View {
         VStack(spacing: 0) {
             tabRow
-            ActiveFilterBar(criteria: $criteria)
+            ActiveFilterBar(criteria: $criteria, sourceNames: sourceNames)
             list
         }
         .navigationTitle("Inventory")
@@ -99,7 +108,7 @@ struct InventoryListView: View {
         .sheet(isPresented: $showingFilterSheet) {
             InventoryFilterSheet(
                 criteria: $criteria,
-                facets: InventoryFacets.derive(from: allItems),
+                facets: InventoryFacets.derive(from: allItems, sourceNames: sourceNames),
                 savedFilters: savedFilters,
                 resultCount: { resultCount(for: $0) }
             )
@@ -241,6 +250,17 @@ struct InventoryListView: View {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             debouncedQuery = searchQuery
+        }
+        // US-1052: run the server-side FTS for the debounced term. Best-effort
+        // and additive — its result ids are unioned with the local search; an
+        // empty/short term clears it so we fall back to pure local matching.
+        .task(id: debouncedQuery) {
+            let trimmed = debouncedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                searchService.clear()
+            } else {
+                await searchService.search(trimmed)
+            }
         }
         // US-643: transient, non-blocking pull-to-refresh failure banner.
         .overlay(alignment: .bottom) {
@@ -557,8 +577,26 @@ struct InventoryListView: View {
             stage: selectedStage,
             search: debouncedQuery,
             sort: sortOption,
-            criteria: criteria
+            criteria: criteria,
+            soldDates: soldDates,
+            serverSearchIds: searchService.matchedItemIds
         )
+    }
+
+    /// `sources.id` → display name, for the source facet + active chips.
+    private var sourceNames: [String: String] {
+        Dictionary(sources.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// `inventory_item_id` → most-recent linked sale date, for the sale-date
+    /// facet. Keeps the latest sale when an item has more than one.
+    private var soldDates: [String: Date] {
+        var out: [String: Date] = [:]
+        for sale in sales {
+            if let existing = out[sale.inventoryItemId], existing >= sale.saleDate { continue }
+            out[sale.inventoryItemId] = sale.saleDate
+        }
+        return out
     }
 
     /// Single-pass count of items per stage (US-639). Built once per render and
@@ -582,7 +620,9 @@ struct InventoryListView: View {
             stage: selectedStage,
             search: debouncedQuery,
             sort: sortOption,
-            criteria: candidate
+            criteria: candidate,
+            soldDates: soldDates,
+            serverSearchIds: searchService.matchedItemIds
         ).count
     }
 

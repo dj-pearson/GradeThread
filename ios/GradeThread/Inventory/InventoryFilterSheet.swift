@@ -44,8 +44,10 @@ struct InventoryFilterSheet: View {
                 savedViewsSection
                 gradeSection
                 priceSection
-                attributesSection   // brand / size / color
+                attributesSection   // brand / size / color / source / category
                 photosAndDateSection
+                datesSection        // purchase / sale date ranges
+                advancedSection     // AND/OR rule builder
             }
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
@@ -170,9 +172,43 @@ struct InventoryFilterSheet: View {
             facetLink("Brand", systemImage: "tag", values: facets.brands, selection: $draft.brands)
             facetLink("Size", systemImage: "ruler", values: facets.sizes, selection: $draft.sizes)
             facetLink("Color", systemImage: "paintpalette", values: facets.colors, selection: $draft.colors)
+            if !facets.categories.isEmpty {
+                facetLink("Category", systemImage: "square.grid.2x2", values: facets.categories, selection: $draft.categories)
+            }
+            if !facets.sources.isEmpty {
+                facetLink("Source", systemImage: "bag", values: facets.sources, selection: $draft.sources)
+            }
             if !facets.locationBins.isEmpty {
                 facetLink("Location", systemImage: "shippingbox", values: facets.locationBins, selection: $draft.locationBins)
             }
+        }
+    }
+
+    /// US-1052: absolute purchase- and sale-date windows (web parity).
+    private var datesSection: some View {
+        Section {
+            DateBandEditor(title: "Purchased", systemImage: "cart", band: $draft.purchaseDates)
+            DateBandEditor(title: "Sold", systemImage: "dollarsign.circle", band: $draft.saleDates)
+        } header: {
+            Text("Date ranges")
+        } footer: {
+            Text("Purchase windows the acquisition date; sale windows the sold date.")
+        }
+    }
+
+    /// US-1052: entry point to the AND/OR advanced rule builder.
+    private var advancedSection: some View {
+        Section {
+            NavigationLink {
+                InventoryRuleBuilderView(query: $draft.ruleQuery)
+            } label: {
+                Label("Advanced rules", systemImage: "slider.horizontal.3")
+                    .badge(draft.ruleQuery.isActive
+                           ? "\(draft.ruleQuery.effectiveRules.count)"
+                           : "Off")
+            }
+        } footer: {
+            Text("Combine cross-field conditions with AND / OR logic.")
         }
     }
 
@@ -292,7 +328,7 @@ private struct FacetSelectionView: View {
                     toggle(value.value)
                 } label: {
                     HStack {
-                        Text(value.value)
+                        Text(value.label)
                             .foregroundStyle(.primary)
                         Spacer(minLength: 8)
                         Text("\(value.count)")
@@ -324,7 +360,7 @@ private struct FacetSelectionView: View {
     private var filtered: [InventoryFacets.Value] {
         let needle = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return values }
-        return values.filter { $0.value.lowercased().contains(needle) }
+        return values.filter { $0.label.lowercased().contains(needle) }
     }
 
     private func toggle(_ value: String) {
@@ -333,5 +369,49 @@ private struct FacetSelectionView: View {
         } else {
             selection.insert(value)
         }
+    }
+}
+
+/// US-1052: a from/to date-window editor for one ``InventoryFilterCriteria/
+/// DateBand``. Each bound is independently optional — a toggle enables it and
+/// reveals a compact `DatePicker`; turning it off clears that bound so the
+/// window stays open-ended.
+private struct DateBandEditor: View {
+    let title: String
+    let systemImage: String
+    @Binding var band: InventoryFilterCriteria.DateBand
+
+    var body: some View {
+        DisclosureGroup {
+            Toggle("After", isOn: enabled(\.from))
+            if band.from != nil {
+                DatePicker("From", selection: bound(\.from), displayedComponents: .date)
+                    .labelsHidden()
+            }
+            Toggle("Before", isOn: enabled(\.to))
+            if band.to != nil {
+                DatePicker("To", selection: bound(\.to), displayedComponents: .date)
+                    .labelsHidden()
+            }
+        } label: {
+            Label(title, systemImage: systemImage)
+                .badge(band.isActive ? "On" : "Any")
+        }
+    }
+
+    /// Toggle binding: on ⇒ seed the bound with "now", off ⇒ clear it.
+    private func enabled(_ key: WritableKeyPath<InventoryFilterCriteria.DateBand, Date?>) -> Binding<Bool> {
+        Binding(
+            get: { band[keyPath: key] != nil },
+            set: { on in band[keyPath: key] = on ? Date() : nil }
+        )
+    }
+
+    /// Non-optional proxy for a `DatePicker` once the bound is enabled.
+    private func bound(_ key: WritableKeyPath<InventoryFilterCriteria.DateBand, Date?>) -> Binding<Date> {
+        Binding(
+            get: { band[keyPath: key] ?? Date() },
+            set: { band[keyPath: key] = $0 }
+        )
     }
 }

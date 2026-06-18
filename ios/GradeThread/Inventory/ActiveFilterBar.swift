@@ -9,6 +9,9 @@ import SwiftUI
 struct ActiveFilterBar: View {
     @Binding var criteria: InventoryFilterCriteria
     var currencyFormatter = CurrencyFormatter()
+    /// US-1052: resolves `sources.id` → display name so source chips read
+    /// "Goodwill" rather than a raw UUID. Missing ids fall back to the id.
+    var sourceNames: [String: String] = [:]
 
     var body: some View {
         if criteria.isActive {
@@ -68,6 +71,16 @@ struct ActiveFilterBar: View {
                 criteria.colors.remove(color)
             })
         }
+        for category in criteria.categories.sorted() {
+            out.append(Chip(id: "category-\(category)", label: InventoryFacets.categoryLabel(category)) {
+                criteria.categories.remove(category)
+            })
+        }
+        for source in criteria.sources.sorted() {
+            out.append(Chip(id: "source-\(source)", label: sourceNames[source] ?? source) {
+                criteria.sources.remove(source)
+            })
+        }
 
         if let floor = criteria.minGrade {
             out.append(Chip(id: "grade", label: "Grade ≥ \(String(format: "%.1f", floor))") {
@@ -99,7 +112,38 @@ struct ActiveFilterBar: View {
             })
         }
 
+        if criteria.purchaseDates.isActive {
+            out.append(Chip(id: "purchased", label: dateBandLabel("Bought", criteria.purchaseDates)) {
+                criteria.purchaseDates = .init()
+            })
+        }
+        if criteria.saleDates.isActive {
+            out.append(Chip(id: "sold", label: dateBandLabel("Sold", criteria.saleDates)) {
+                criteria.saleDates = .init()
+            })
+        }
+
+        if criteria.ruleQuery.isActive {
+            let n = criteria.ruleQuery.effectiveRules.count
+            let combo = criteria.ruleQuery.combinator.label.lowercased()
+            out.append(Chip(id: "rules", label: "\(n) rule\(n == 1 ? "" : "s") · \(combo)") {
+                criteria.ruleQuery = .empty
+            })
+        }
+
         return out
+    }
+
+    /// Compact "Bought after Jun 1" / "Sold Jun 1–Jun 18" chip label.
+    private func dateBandLabel(_ verb: String, _ band: InventoryFilterCriteria.DateBand) -> String {
+        let from = band.from.map { $0.formatted(.dateTime.month(.abbreviated).day()) }
+        let to = band.to.map { $0.formatted(.dateTime.month(.abbreviated).day()) }
+        switch (from, to) {
+        case let (f?, t?): return "\(verb) \(f)–\(t)"
+        case let (f?, nil): return "\(verb) after \(f)"
+        case let (nil, t?): return "\(verb) before \(t)"
+        default:            return verb
+        }
     }
 
     private var priceLabel: String {

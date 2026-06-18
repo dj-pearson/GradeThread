@@ -30,17 +30,29 @@ public enum InventoryFilter {
     /// stage (cheapest) → facets → search → sort. The legacy `gradedOnly`
     /// overload above is kept for the existing call sites/tests; new code
     /// should fold `gradedOnly` into the criteria instead.
+    ///
+    /// - Parameters:
+    ///   - soldDates: maps item id → linked sale date, so the sale-date facet
+    ///     can window items the ``LocalInventoryItem`` row alone can't (the
+    ///     sale lives in `LocalSale`). Empty = no sale-date filtering possible.
+    ///   - serverSearchIds: optional set of item ids the server FTS
+    ///     (`flipdesk_search`) matched. When present, an item passes the search
+    ///     step if it matches the local token search *or* its id is in this set
+    ///     — this is how iOS catches matches on fields the local cache doesn't
+    ///     mirror (e.g. server-side `description`).
     static func apply(
         _ items: [LocalInventoryItem],
         stage: InventoryStage,
         search: String,
         sort: SortOption,
         criteria: InventoryFilterCriteria,
-        now: Date = .now
+        now: Date = .now,
+        soldDates: [String: Date] = [:],
+        serverSearchIds: Set<String>? = nil
     ) -> [LocalInventoryItem] {
         let staged = items.filter { stage.matchingStatuses.contains($0.status) }
-        let faceted = staged.filter { matches($0, criteria, now: now) }
-        let searched = filter(faceted, search: search)
+        let faceted = staged.filter { matches($0, criteria, now: now, soldDates: soldDates) }
+        let searched = filter(faceted, search: search, serverSearchIds: serverSearchIds)
         return searched.sorted(by: sort.isOrdered)
     }
 
@@ -54,10 +66,12 @@ public enum InventoryFilter {
     /// True when an item satisfies every active facet in `criteria`. An
     /// empty criteria matches everything. Multi-select facets are OR within
     /// a facet (any selected brand) and AND across facets (brand AND size).
+    /// The advanced ``InventoryRuleQuery`` (its own AND/OR) is the final gate.
     static func matches(
         _ item: LocalInventoryItem,
         _ criteria: InventoryFilterCriteria,
-        now: Date = .now
+        now: Date = .now,
+        soldDates: [String: Date] = [:]
     ) -> Bool {
         if !criteria.brands.isEmpty {
             guard let b = item.brand?.facetTrimmed, criteria.brands.contains(b) else { return false }
@@ -70,6 +84,12 @@ public enum InventoryFilter {
         }
         if !criteria.locationBins.isEmpty {
             guard let l = item.locationBin?.facetTrimmed, criteria.locationBins.contains(l) else { return false }
+        }
+        if !criteria.sources.isEmpty {
+            guard let src = item.sourceId?.facetTrimmed, criteria.sources.contains(src) else { return false }
+        }
+        if !criteria.categories.isEmpty {
+            guard let cat = item.itemCategory?.facetTrimmed, criteria.categories.contains(cat) else { return false }
         }
 
         if criteria.gradedOnly || criteria.minGrade != nil {
@@ -94,29 +114,71 @@ public enum InventoryFilter {
             if item.createdAt < cutoff { return false }
         }
 
+        // US-1052: absolute purchase-date window over the acquisition proxy.
+        if criteria.purchaseDates.isActive, !criteria.purchaseDates.contains(item.createdAt) {
+            return false
+        }
+        // US-1052: sale-date window — only items with a known linked sale date
+        // can clear an active filter (an unsold item can't be "sold last week").
+        if criteria.saleDates.isActive {
+            guard let sold = soldDates[item.id], criteria.saleDates.contains(sold) else { return false }
+        }
+
+        // US-1052: advanced AND/OR rule builder is the final gate.
+        if !criteria.ruleQuery.matches(item, now: now) { return false }
+
         return true
     }
 
-    /// Substring match against title / brand / style / SKU / container —
-    /// matches the web's `InventoryFilter.matchesText` field set.
-    static func filter(_ items: [LocalInventoryItem], search: String) -> [LocalInventoryItem] {
-        let needle = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return items }
-        return items.filter { matches(item: $0, needle: needle) }
+    /// Full-text-style search (US-1052). Tokenizes the query on whitespace /
+    /// punctuation and requires *every* token to appear somewhere in the
+    /// item's searchable text (title / brand / SKU / size / color / material /
+    /// category / notes / location) — the AND-of-terms semantics of Postgres'
+    /// `websearch_to_tsquery`, approximated locally. `serverSearchIds`, when
+    /// supplied, lets a server-FTS hit (`flipdesk_search`) pass an item even if
+    /// the local token match misses (e.g. the match was on a server-only field).
+    static func filter(
+        _ items: [LocalInventoryItem],
+        search: String,
+        serverSearchIds: Set<String>? = nil
+    ) -> [LocalInventoryItem] {
+        let tokens = searchTokens(search)
+        guard !tokens.isEmpty else { return items }
+        return items.filter { item in
+            if let ids = serverSearchIds, ids.contains(item.id) { return true }
+            let hay = searchableText(item)
+            return tokens.allSatisfy { hay.contains($0) }
+        }
     }
 
-    private static func matches(item: LocalInventoryItem, needle: String) -> Bool {
-        if contains(item.title, needle) { return true }
-        if contains(item.brand, needle) { return true }
-        // Style + container aren't on LocalInventoryItem yet (they live in
-        // items_full on the web). When the sync engine starts pulling
-        // them we'll add the comparisons here without breaking the API.
-        if contains(item.sku, needle) { return true }
-        return false
+    /// Splits a query into lowercased alphanumeric tokens (drops punctuation
+    /// and empties). Exposed `internal` so the list view can reuse identical
+    /// tokenization when deciding whether to fire the server FTS.
+    static func searchTokens(_ search: String) -> [String] {
+        search
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
     }
 
-    private static func contains(_ haystack: String?, _ needle: String) -> Bool {
-        guard let haystack else { return false }
-        return haystack.lowercased().contains(needle)
+    /// Concatenated, lowercased searchable text for one row. Mirrors the web
+    /// FTS column set (title/brand/sku + description/notes) with the fields the
+    /// local cache actually carries; server-only fields are covered by the
+    /// `flipdesk_search` union in ``filter(_:search:serverSearchIds:)``.
+    private static func searchableText(_ item: LocalInventoryItem) -> String {
+        [
+            item.title,
+            item.brand,
+            item.sku,
+            item.size,
+            item.color,
+            item.material,
+            item.itemCategory,
+            item.conditionNotes,
+            item.locationBin,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .lowercased()
     }
 }
