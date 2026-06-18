@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, TrendingUp, Award, Lock, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import {
+  Users,
+  TrendingUp,
+  Award,
+  Lock,
+  ArrowUpRight,
+  ArrowDownRight,
+  Lightbulb,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -30,6 +38,8 @@ import {
   fetchCommunityBenchmarks,
   MIN_COHORT_SELLERS,
 } from "@/lib/community-benchmarks";
+import { deriveRecommendations } from "@/lib/community-recommendations";
+import { RecommendationRow } from "@/components/flipdesk/community-insights-widget";
 
 const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
@@ -102,6 +112,33 @@ export function FlipdeskCommunityInsightsPage() {
         <TableLoadingSkeleton rows={6} />
       ) : (
         <>
+          {/* Recommendations (US-1064): actionable sourcing/pricing suggestions
+              derived from the benchmarks below, each with confidence + cohort. */}
+          {(() => {
+            const recs = deriveRecommendations(data).slice(0, 6);
+            if (recs.length === 0) return null;
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Lightbulb className="h-4 w-4" /> Recommendations for you
+                  </CardTitle>
+                  <CardDescription>
+                    What to source and how to price, ranked by signal strength.
+                    Each shows its confidence and the cohort size behind it.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {recs.map((rec) => (
+                      <RecommendationRow key={rec.id} rec={rec} />
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {/* You vs similar sellers */}
           <Card>
             <CardHeader>

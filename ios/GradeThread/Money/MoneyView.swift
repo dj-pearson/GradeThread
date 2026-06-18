@@ -34,6 +34,7 @@ struct MoneyView: View {
                 }
                 fulfillmentCard
                 repricingCard
+                insightsCard
                 reconciliationCard
                 expensesCard
                 salesCard
@@ -221,6 +222,36 @@ struct MoneyView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("Condition-aware price suggestions for your active listings")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Community insights (US-1064)
+
+    private var insightsCard: some View {
+        NavigationLink {
+            CommunityInsightsView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "lightbulb.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Community insights")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("What to source and how to price, from anonymized community data")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

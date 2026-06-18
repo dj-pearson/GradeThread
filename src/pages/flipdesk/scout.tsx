@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Search,
   Loader2,
@@ -128,8 +129,11 @@ function CandidateRow({ c }: { c: ScoutScored }) {
 }
 
 export function FlipdeskScoutPage() {
+  // US-1064: community-insights "Source more <brand>" recommendations deep-link
+  // here with ?brand=<brand> so the comps scan is prefilled.
+  const [searchParams] = useSearchParams();
   const [keyword, setKeyword] = useState("");
-  const [brand, setBrand] = useState("");
+  const [brand, setBrand] = useState(() => searchParams.get("brand") ?? "");
   const [categoryId, setCategoryId] = useState("11450"); // Clothing, Shoes & Accessories
   const [sortKey, setSortKey] = useState<SortKey>("margin");
   const [actionableOnly, setActionableOnly] = useState(false);

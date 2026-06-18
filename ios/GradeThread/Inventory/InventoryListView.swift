@@ -31,6 +31,17 @@ struct InventoryListView: View {
     /// photo / recency). The old single "graded only" toggle is folded in
     /// as `criteria.gradedOnly`.
     @State private var criteria = InventoryFilterCriteria()
+
+    /// US-1064: community-insights recommendations deep-link here pre-filtered to
+    /// a single brand. Default (`nil`) keeps the unfiltered list every other call
+    /// site expects.
+    init(initialBrand: String? = nil) {
+        if let brand = initialBrand, !brand.isEmpty {
+            var seeded = InventoryFilterCriteria()
+            seeded.brands = [brand]
+            _criteria = State(initialValue: seeded)
+        }
+    }
     @State private var showingFilterSheet = false
     @State private var savedFilters = SavedFilterStore()
 

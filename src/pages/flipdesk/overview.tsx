@@ -35,6 +35,7 @@ import {
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { NorthStarCard } from "@/components/flipdesk/north-star-card";
+import { CommunityInsightsWidget } from "@/components/flipdesk/community-insights-widget";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -373,6 +374,11 @@ export function FlipdeskOverviewPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Community recommendations (US-1064): sourcing + pricing suggestions
+          derived from anonymized community benchmarks. Self-hides when there's
+          no signal or on error. */}
+      <CommunityInsightsWidget />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Aging items */}
