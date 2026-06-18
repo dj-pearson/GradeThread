@@ -2780,7 +2780,7 @@
         "Edge unit test covers the 404->empty mapping."
       ],
       "priority": 1087,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog 2026-06-17] Observed in prod: eBay returns 404 for payment_dispute_summary on accounts without dispute data; current handler surfaces 502. Make it a clean empty result. severity=low.",
       "relevantPaths": [
         "services/edge-functions/src/lib/ebay-disputes.ts",

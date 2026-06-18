@@ -2974,3 +2974,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Wed, Jun 17, 2026 10:06:17 PM
 ---
+## US-1087: Edge: handle eBay payment_dispute_summary 404 without a 502
+- Status: COMPLETE
+- Timestamp: Wed, Jun 17, 2026 10:10:42 PM
+---
