@@ -2717,7 +2717,7 @@
         "The field-ownership registry (US-1076) is referenced from the doc so code and docs cannot drift silently."
       ],
       "priority": 1084,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Documentation story. Low risk. severity=low.",
       "relevantPaths": [
         "SYNC_SOURCE_OF_TRUTH.md",

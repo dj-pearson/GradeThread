@@ -2986,3 +2986,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Wed, Jun 17, 2026 10:44:56 PM
 ---
+## US-1084: Sync source-of-truth contract: living documentation
+- Status: COMPLETE
+- Timestamp: Wed, Jun 17, 2026 10:48:59 PM
+---
