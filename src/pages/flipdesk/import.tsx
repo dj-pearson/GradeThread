@@ -63,6 +63,7 @@ type ImportRow = {
 
 type ImportResult = {
   inserted: number;
+  updated: number;
   skipped: number;
   failed: number;
   errors: { row: number; message: string }[];
@@ -73,6 +74,32 @@ type Progress =
   | { phase: "preflight"; message: string }
   | { phase: "running"; current: number; total: number; message: string }
   | { phase: "done" };
+
+// Fill-only import (US-1082) — CSV is the lowest authority "never leave it
+// blank" backstop. Matches the shared `isBlank` semantics from the edge
+// `sync-precedence.ts` (US-1076): null / undefined / whitespace-only ⇒ blank.
+function isBlank(v: unknown): boolean {
+  return v === null || v === undefined || String(v).trim() === "";
+}
+
+// inventory_items columns a re-import may FILL on an existing row (matched by
+// SKU). Deliberately excludes GRADETHREAD_OWNED_ITEM_FIELDS — `sku` (the match
+// key), `source_id`, `condition_notes`, `acquired_price`, `acquired_date` — which
+// no CSV import may write (SYNC_SOURCE_OF_TRUTH.md). Listing/sale rows are not
+// touched on re-import either; eBay-owned fields live on `listings`, so an
+// import never fills them and never pushes to eBay.
+const FILL_ITEM_FIELDS = [
+  "title",
+  "container",
+  "description",
+  "brand",
+  "style",
+  "size",
+  "item_category",
+  "sourced_by",
+  "status",
+] as const;
+type FillItemField = (typeof FILL_ITEM_FIELDS)[number];
 
 function buildMapped(
   row: string[],
@@ -180,6 +207,7 @@ export function FlipdeskImportPage() {
     setResult(null);
     const errors: { row: number; message: string }[] = [];
     let inserted = 0;
+    let updated = 0;
     let skipped = 0;
 
     try {
@@ -227,8 +255,13 @@ export function FlipdeskImportPage() {
         ),
       );
 
-      type ExistingRow = { id: string; sku: string | null };
-      const existingMap = new Map<string, string>(); // sku → id
+      type ExistingRow = { id: string; sku: string | null } & Partial<
+        Record<FillItemField, unknown>
+      >;
+      const existingMap = new Map<string, ExistingRow>(); // sku → existing row
+      const insertedSkus = new Set<string>(); // SKUs inserted during this run
+      // Pull the fillable columns so we can compute the blank-only patch.
+      const lookupSelect = ["id", "sku", ...FILL_ITEM_FIELDS].join(", ");
       // Chunk small to stay well under PostgREST URL length even with
       // unusual chars in SKUs that need percent-encoding.
       const CHUNK = 50;
@@ -236,12 +269,12 @@ export function FlipdeskImportPage() {
         const chunk = skus.slice(i, i + CHUNK);
         const { data, error: lookupErr } = await supabase
           .from("inventory_items")
-          .select("id, sku")
+          .select(lookupSelect)
           .eq("user_id", workspaceOwnerId)
           .in("sku", chunk);
         if (lookupErr) throw lookupErr;
         for (const row of (data ?? []) as ExistingRow[]) {
-          if (row.sku) existingMap.set(row.sku, row.id);
+          if (row.sku) existingMap.set(row.sku, row);
         }
       }
 
@@ -301,10 +334,42 @@ export function FlipdeskImportPage() {
             comp_set,
           };
 
-          // Skip rows whose SKU already exists — don't even attempt INSERT.
-          if (sku && existingMap.has(sku)) {
-            skipped++;
-            continue;
+          // Existing SKU → fill-only enrich (US-1082): write each fillable
+          // column ONLY where the existing row is blank; never overwrite a
+          // populated value. Listings/sales are left untouched on re-import.
+          if (sku) {
+            const existing = existingMap.get(sku);
+            if (existing) {
+              const payloadRecord = itemPayload as unknown as Record<
+                string,
+                unknown
+              >;
+              const patch: Record<string, unknown> = {};
+              for (const field of FILL_ITEM_FIELDS) {
+                const incoming = payloadRecord[field];
+                if (isBlank(existing[field]) && !isBlank(incoming)) {
+                  patch[field] = incoming;
+                }
+              }
+              if (Object.keys(patch).length > 0) {
+                const { error: upErr } = await supabase
+                  .from("inventory_items")
+                  .update(patch as never)
+                  .eq("id", existing.id)
+                  .eq("user_id", workspaceOwnerId);
+                if (upErr) throw upErr;
+                updated++;
+              } else {
+                skipped++;
+              }
+              continue;
+            }
+            // Already inserted earlier in THIS import (duplicate SKU in the
+            // same file) — nothing to fill on a row we just created.
+            if (insertedSkus.has(sku)) {
+              skipped++;
+              continue;
+            }
           }
 
           const { data: itemRow, error: itemErr } = await supabase
@@ -319,7 +384,7 @@ export function FlipdeskImportPage() {
             // tab), treat as already existing and skip.
             const errObj = itemErr as { code?: string };
             if (errObj.code === "23505" && sku) {
-              existingMap.set(sku, "skipped"); // mark so future dupes also skip
+              insertedSkus.add(sku); // mark so future dupes also skip
               skipped++;
               continue;
             }
@@ -330,7 +395,7 @@ export function FlipdeskImportPage() {
           if (!newId) throw new Error("Insert returned no id");
           const itemId: string = newId;
           inserted++;
-          if (sku) existingMap.set(sku, itemId);
+          if (sku) insertedSkus.add(sku);
 
           // Only insert listings/sales for NEW items. Re-imports skip these.
           const listPrice = parsePrice(mapped.list_price ?? "");
@@ -391,6 +456,7 @@ export function FlipdeskImportPage() {
     setProgress({ phase: "done" });
     setResult({
       inserted,
+      updated,
       skipped,
       failed: errors.length,
       errors,
@@ -398,8 +464,8 @@ export function FlipdeskImportPage() {
     if (errors.length === 0) {
       toast.success(
         `Imported ${inserted} new${
-          skipped > 0 ? `, skipped ${skipped} existing` : ""
-        }.`,
+          updated > 0 ? `, filled ${updated} existing` : ""
+        }${skipped > 0 ? `, skipped ${skipped} unchanged` : ""}.`,
       );
     } else {
       // Surface the first error message in the toast so the user doesn't
@@ -407,7 +473,7 @@ export function FlipdeskImportPage() {
       const first = errors[0];
       const firstMsg = first?.message ?? "unknown error";
       toast.warning(
-        `Imported ${inserted}, skipped ${skipped}, failed ${errors.length}. First error: ${firstMsg}`,
+        `Imported ${inserted}, filled ${updated}, skipped ${skipped}, failed ${errors.length}. First error: ${firstMsg}`,
         { duration: 12_000 },
       );
       // Log each error to console for easy copy-paste.
@@ -713,8 +779,8 @@ A1	GT-0001	Lululemon Align Pant	..."
               Import complete
             </CardTitle>
             <CardDescription>
-              {result.inserted} new · {result.skipped} already existed ·{" "}
-              {result.failed} failed
+              {result.inserted} new · {result.updated} filled ·{" "}
+              {result.skipped} unchanged · {result.failed} failed
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

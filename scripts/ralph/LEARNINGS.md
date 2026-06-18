@@ -7,6 +7,15 @@ memory — not a progress log (the harness records progress separately).
 ## Build / verify
 - `npm run build` does NOT run vitest — it only typechecks + builds. Run
   `npm test` separately or you ship a red `main`.
+- Two web tests are red on clean `main` independent of your change (verified by
+  stashing): `seo/__tests__/not-found.test.ts` (missing SPA-shell rule for
+  /dashboard) and `prerender/__tests__/prerender.test.ts` (expects
+  `dist/how-it-works/index.html`, but that route isn't prerendered — fails even
+  after a fresh build). Don't chase either as your regression.
+- `npx tsc --noEmit` is NOT enough — the build runs `tsc -b` (project refs),
+  which is stricter and catches casts `--noEmit` lets slide (e.g.
+  `x as Record<string,unknown>` on a typed interface needs
+  `x as unknown as Record<…>`). Always confirm with `npm run build:locked`.
 - Use `npm run build:locked`, never bare `npm run build`, when another loop may
   run concurrently (shared cross-loop build lock; see `docs/AGENT_COHABITATION.md`).
 - `npm run build` does NOT apply migrations. After any SQL change run
