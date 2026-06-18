@@ -2579,7 +2579,7 @@
         "tsc/lint/build green."
       ],
       "priority": 1075,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Platform cohesion. Grading (submissions/grade_reports) and FlipDesk (inventory_items/listings) are linked by the in-process grading bridge but not cross-promoted in the UI. Low-risk, growth-oriented glue. severity=low."
     },
     {
