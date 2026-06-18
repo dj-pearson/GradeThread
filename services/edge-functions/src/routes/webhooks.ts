@@ -462,8 +462,10 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       ),
       // US-216: a fresh subscription means the user came back — clear any churn
       // reason left over from a prior cancellation.
+      // US-1070: also consume any referral free-month coupon now that it's been
+      // applied to this newly-created subscription (one-time offer).
       ...(event.type === "customer.subscription.created"
-        ? { cancellation_reason: null }
+        ? { cancellation_reason: null, pending_referral_coupon: null }
         : {}),
       ...(trialEndsAtUpdate ? { trial_ends_at: trialEndsAtUpdate } : {}),
       ...(pendingCleared

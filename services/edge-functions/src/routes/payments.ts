@@ -106,7 +106,7 @@ async function loadUser(userId: string) {
   return await supabaseAdmin
     .from("users")
     .select(
-      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id, billing_source",
+      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id, billing_source, pending_referral_coupon",
     )
     .eq("id", userId)
     .single();
@@ -394,6 +394,19 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       allow_promotion_codes: true,
       tax_id_collection: { enabled: true },
     };
+
+    // US-1070: a referred new user may carry a free-month coupon from their
+    // signup incentive. Apply it as a session discount so the welcome offer is
+    // reflected at checkout. Stripe rejects `discounts` + `allow_promotion_codes`
+    // together, so the auto-applied incentive takes precedence over a manual
+    // promo box for this first subscription. The webhook clears the pending
+    // coupon once the subscription is created, so it's a one-time offer.
+    const pendingCoupon = (user as { pending_referral_coupon?: string | null })
+      .pending_referral_coupon;
+    if (pendingCoupon) {
+      delete sessionParams.allow_promotion_codes;
+      sessionParams.discounts = [{ coupon: pendingCoupon }];
+    }
 
     // US-391: always bind the session to the user's single Stripe customer
     // (created lazily here if needed) so every session reuses one customer.

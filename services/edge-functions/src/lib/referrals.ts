@@ -17,10 +17,15 @@ import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser } from "./notify.ts";
 import { sendReferralRewardEmail } from "./email.ts";
 import {
+  DEFAULT_REFERRED_SIGNUP_INCENTIVE,
   milestonesReached,
+  normalizeReferredSignupIncentive,
   REFERRED_REWARD_CREDITS,
+  REFERRED_SIGNUP_INCENTIVE_SETTING_KEY,
   REFERRER_REWARD_CREDITS,
+  type ReferredSignupIncentive,
 } from "./referral-rewards.ts";
+import { getSetting } from "./system-settings.ts";
 
 export type GrantReferralResult =
   | {
@@ -251,6 +256,111 @@ export async function awardReferralMilestones(referrerUserId: string): Promise<v
   } catch (err) {
     console.error(
       "[referrals] milestone award threw:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+// US-1070: resolve the admin-configured referred-user SIGNUP incentive from
+// system_settings, normalized + safe-defaulted. Read through the cached settings
+// registry, so this is cheap on the redeem path.
+export async function getReferredSignupIncentive(): Promise<ReferredSignupIncentive> {
+  const raw = await getSetting<unknown>(
+    REFERRED_SIGNUP_INCENTIVE_SETTING_KEY,
+    DEFAULT_REFERRED_SIGNUP_INCENTIVE,
+  );
+  return normalizeReferredSignupIncentive(raw);
+}
+
+// US-1070: apply the referred-user welcome incentive for a freshly-redeemed
+// referral. Called once, right after the referral_event is inserted (the UNIQUE
+// referred_user_id makes a second redeem impossible, so this can run at most once
+// per new user — the abuse guard). Within that, it is ALSO idempotent + race-safe
+// against a retry of the same event: it CLAIMS the event row (sets
+// signup_incentive_applied_at only if still null) BEFORE moving credits, so two
+// concurrent callers can't double-grant. Best-effort — never throws; a failed
+// credit grant rolls the claim back so a later retry can complete it.
+//
+// Two incentive levers (either/both, admin-configured):
+//   • bonus_credits      → granted to the new user's balance immediately
+//   • free_month_coupon  → stashed on users.pending_referral_coupon and applied
+//                          at their NEXT subscription checkout (payments.ts)
+export async function applyReferredSignupIncentive(
+  eventId: string,
+  referredUserId: string,
+): Promise<void> {
+  try {
+    const incentive = await getReferredSignupIncentive();
+    if (!incentive.enabled) return;
+    if (incentive.bonus_credits <= 0 && !incentive.free_month_coupon_id) return;
+
+    // CLAIM: stamp the event row only if no incentive was applied yet. The
+    // .is("signup_incentive_applied_at", null) guard makes the claim atomic.
+    const nowIso = new Date().toISOString();
+    const { data: claimed, error: claimErr } = await supabaseAdmin
+      .from("referral_events")
+      .update({
+        signup_incentive_applied_at: nowIso,
+        signup_incentive_credits: incentive.bonus_credits,
+        signup_incentive_coupon: incentive.free_month_coupon_id,
+      })
+      .eq("id", eventId)
+      .is("signup_incentive_applied_at", null)
+      .select("id");
+    if (claimErr) {
+      console.error("[referrals] signup-incentive claim failed:", claimErr.message);
+      return;
+    }
+    if (!claimed || claimed.length === 0) {
+      // Already applied by a prior call — nothing to do.
+      return;
+    }
+
+    // Free-month coupon: stash it for the next subscription checkout to consume.
+    if (incentive.free_month_coupon_id) {
+      const { error: couponErr } = await supabaseAdmin
+        .from("users")
+        .update({ pending_referral_coupon: incentive.free_month_coupon_id })
+        .eq("id", referredUserId);
+      if (couponErr) {
+        console.error("[referrals] signup-incentive coupon stash failed:", couponErr.message);
+      }
+    }
+
+    // Bonus credits: grant immediately so onboarding reflects the balance.
+    if (incentive.bonus_credits > 0) {
+      const { error: creditErr } = await supabaseAdmin.rpc("grant_grade_credits", {
+        p_user_id: referredUserId,
+        p_credits: incentive.bonus_credits,
+        p_reason: "admin_grant",
+        p_stripe_payment_intent: null,
+        p_notes: `Referral signup incentive (event ${eventId})`,
+      });
+      if (creditErr) {
+        // Roll the claim back so a retry can pay it (and re-stash the coupon).
+        console.error("[referrals] signup-incentive credit grant failed:", creditErr.message);
+        await supabaseAdmin
+          .from("referral_events")
+          .update({
+            signup_incentive_applied_at: null,
+            signup_incentive_credits: null,
+            signup_incentive_coupon: null,
+          })
+          .eq("id", eventId);
+        return;
+      }
+
+      await notifyUser(referredUserId, {
+        type: "billing",
+        title: "Welcome bonus added",
+        message:
+          `${incentive.bonus_credits} grade credit${incentive.bonus_credits === 1 ? "" : "s"} were added to your account as a referral welcome bonus.`,
+        link: "/dashboard/billing",
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.error(
+      "[referrals] signup-incentive apply threw:",
       err instanceof Error ? err.message : err,
     );
   }

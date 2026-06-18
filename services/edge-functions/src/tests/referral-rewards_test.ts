@@ -7,8 +7,10 @@
 
 import { assertEquals } from "@std/assert";
 import {
+  DEFAULT_REFERRED_SIGNUP_INCENTIVE,
   milestonesReached,
   nextMilestone,
+  normalizeReferredSignupIncentive,
   rankReferrers,
   REFERRAL_MILESTONES,
   REFERRED_REWARD_CREDITS,
@@ -92,4 +94,52 @@ Deno.test("nextMilestone returns the next unreached tier, null once maxed out", 
   assertEquals(nextMilestone(9)?.threshold, 10);
   const last = REFERRAL_MILESTONES[REFERRAL_MILESTONES.length - 1]!;
   assertEquals(nextMilestone(last.threshold), null);
+});
+
+// ── US-1070: referred-user signup incentive config ──
+
+Deno.test("normalizeReferredSignupIncentive on absent/empty config returns the default", () => {
+  assertEquals(normalizeReferredSignupIncentive(undefined), DEFAULT_REFERRED_SIGNUP_INCENTIVE);
+  assertEquals(normalizeReferredSignupIncentive(null), DEFAULT_REFERRED_SIGNUP_INCENTIVE);
+  assertEquals(normalizeReferredSignupIncentive({}), DEFAULT_REFERRED_SIGNUP_INCENTIVE);
+  // A non-object (e.g. a stray string/number) is treated as empty.
+  assertEquals(normalizeReferredSignupIncentive("nope"), DEFAULT_REFERRED_SIGNUP_INCENTIVE);
+});
+
+Deno.test("normalizeReferredSignupIncentive reads a full admin config verbatim", () => {
+  assertEquals(
+    normalizeReferredSignupIncentive({
+      enabled: true,
+      bonus_credits: 10,
+      free_month_coupon_id: "FREEMONTH",
+    }),
+    { enabled: true, bonus_credits: 10, free_month_coupon_id: "FREEMONTH" },
+  );
+});
+
+Deno.test("normalizeReferredSignupIncentive clamps bad credit values to 0", () => {
+  assertEquals(normalizeReferredSignupIncentive({ bonus_credits: -5 }).bonus_credits, 0);
+  assertEquals(normalizeReferredSignupIncentive({ bonus_credits: NaN }).bonus_credits, 0);
+  assertEquals(normalizeReferredSignupIncentive({ bonus_credits: "8" }).bonus_credits, 0);
+  // Fractional credits floor to whole credits.
+  assertEquals(normalizeReferredSignupIncentive({ bonus_credits: 4.9 }).bonus_credits, 4);
+});
+
+Deno.test("normalizeReferredSignupIncentive normalizes blank/whitespace coupon to null", () => {
+  assertEquals(normalizeReferredSignupIncentive({ free_month_coupon_id: "" }).free_month_coupon_id, null);
+  assertEquals(normalizeReferredSignupIncentive({ free_month_coupon_id: "   " }).free_month_coupon_id, null);
+  assertEquals(normalizeReferredSignupIncentive({ free_month_coupon_id: 123 }).free_month_coupon_id, null);
+  assertEquals(
+    normalizeReferredSignupIncentive({ free_month_coupon_id: "  ABC  " }).free_month_coupon_id,
+    "ABC",
+  );
+});
+
+Deno.test("normalizeReferredSignupIncentive honors an explicit disable", () => {
+  const cfg = normalizeReferredSignupIncentive({
+    enabled: false,
+    bonus_credits: 5,
+    free_month_coupon_id: "X",
+  });
+  assertEquals(cfg.enabled, false);
 });

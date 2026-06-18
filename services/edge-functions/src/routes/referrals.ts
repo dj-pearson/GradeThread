@@ -15,6 +15,7 @@ import {
   REFERRAL_MILESTONES,
   REFERRER_REWARD_CREDITS,
 } from "../lib/referral-rewards.ts";
+import { applyReferredSignupIncentive } from "../lib/referrals.ts";
 
 type Env = { Variables: { userId?: string } };
 
@@ -371,13 +372,17 @@ referralRoutes.post("/redeem", async (c) => {
     return c.json({ error: "You can't redeem your own referral code." }, 400);
   }
 
-  const { error } = await supabaseAdmin.from("referral_events").insert({
-    referrer_user_id: owner.user_id,
-    referred_user_id: userId,
-    code,
-    reward_status: "pending",
-    attribution_source: attributionSource,
-  });
+  const { data: inserted, error } = await supabaseAdmin
+    .from("referral_events")
+    .insert({
+      referrer_user_id: owner.user_id,
+      referred_user_id: userId,
+      code,
+      reward_status: "pending",
+      attribution_source: attributionSource,
+    })
+    .select("id")
+    .maybeSingle();
   if (error) {
     // Unique violation (raced) → treat as already redeemed.
     if ((error as { code?: string }).code === "23505") {
@@ -386,6 +391,14 @@ referralRoutes.post("/redeem", async (c) => {
     console.error("[referrals] redeem insert failed:", error);
     return c.json({ error: "Couldn't redeem that code." }, 500);
   }
+
+  // US-1070: apply the configured referred-user SIGNUP incentive (welcome credits
+  // and/or a free-month coupon) right now — the share is only compelling if the
+  // new user gets something tangible at signup, not just at first paid action.
+  // Idempotent + abuse-guarded (one referral_event per user); best-effort so a
+  // hiccup here never fails the redemption itself.
+  const eventId = (inserted as { id?: string } | null)?.id;
+  if (eventId) await applyReferredSignupIncentive(eventId, userId);
 
   // US-603: best-effort close the loop on click attribution — stamp the most
   // recent un-converted click for this code with the converting user, so the
