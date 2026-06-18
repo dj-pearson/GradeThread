@@ -253,7 +253,7 @@ struct PhotoIntakeView: View {
                 }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 18, weight: .semibold))
+                    .scaledIconFont(size: 18, weight: .semibold)
                     .foregroundStyle(.white)
                     .padding(12)
                     .background(.black.opacity(0.45))
@@ -355,7 +355,7 @@ struct PhotoIntakeView: View {
             store.clearPhoto(at: slot)
         } label: {
             Image(systemName: "trash.fill")
-                .font(.system(size: 11, weight: .bold))
+                .scaledIconFont(size: 11, weight: .bold, maxSize: 20)
                 .foregroundStyle(.white)
                 .padding(6)
                 .background(Color.brandRed)
@@ -412,7 +412,7 @@ struct PhotoIntakeView: View {
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: "plus")
-                                .font(.system(size: 20, weight: .medium))
+                                .scaledIconFont(size: 20, weight: .medium, maxSize: 40)
                                 .foregroundStyle(.white)
                                 .frame(width: 64, height: 64)
                                 .background(.white.opacity(0.08))
@@ -447,7 +447,7 @@ struct PhotoIntakeView: View {
                         ProgressView().tint(.white)
                     } else {
                         Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 22, weight: .medium))
+                            .scaledIconFont(size: 22, weight: .medium, maxSize: 34)
                             .foregroundStyle(.white)
                     }
                 }

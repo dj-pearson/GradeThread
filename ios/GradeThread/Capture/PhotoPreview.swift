@@ -28,7 +28,7 @@ struct PhotoPreview: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 30))
+                            .scaledIconFont(size: 30)
                             .foregroundStyle(.white, .black.opacity(0.5))
                     }
                     .padding()

@@ -63,7 +63,7 @@ struct BarcodeScanView: View {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 18, weight: .semibold))
+                        .scaledIconFont(size: 18, weight: .semibold)
                         .foregroundStyle(.white)
                         .padding(12)
                         .background(.black.opacity(0.45))

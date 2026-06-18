@@ -212,7 +212,7 @@ struct DetailsIntakeView: View {
                     showingBarcodeScanner = true
                 } label: {
                     Image(systemName: "barcode.viewfinder")
-                        .font(.system(size: 20))
+                        .scaledIconFont(size: 20)
                         .foregroundStyle(Color.brandNavy)
                 }
                 .buttonStyle(.borderless)
@@ -338,7 +338,7 @@ struct DetailsIntakeView: View {
                         Image(systemName: dictation.isRecording
                               ? "stop.circle.fill"
                               : "mic.fill")
-                            .font(.system(size: 22))
+                            .scaledIconFont(size: 22)
                             .foregroundStyle(dictation.isRecording ? Color.brandRed : Color.brandNavy)
                             .symbolEffect(.pulse, isActive: dictation.isRecording)
                     }

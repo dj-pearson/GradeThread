@@ -107,7 +107,7 @@ struct AIFillReviewSheet: View {
                 } label: {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: keptApplied.contains(field.field) ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 22))
+                            .scaledIconFont(size: 22)
                             .foregroundStyle(keptApplied.contains(field.field) ? Color.brandNavy : .secondary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(field.displayLabel)

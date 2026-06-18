@@ -27,7 +27,7 @@ struct FieldSuggestionRow: View {
 
     private var checkbox: some View {
         Image(systemName: isAccepted ? "checkmark.circle.fill" : "circle")
-            .font(.system(size: 22))
+            .scaledIconFont(size: 22)
             .foregroundStyle(isAccepted ? Color.brandNavy : .secondary)
             .padding(.top, 2)
     }

@@ -69,7 +69,7 @@ struct InventoryRow: View {
             RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
             Image(systemName: "tshirt")
-                .font(.system(size: 22, weight: .light))
+                .scaledIconFont(size: 22, weight: .light, maxSize: 40)
                 .foregroundStyle(.secondary)
         }
     }

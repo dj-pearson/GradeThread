@@ -51,7 +51,7 @@ struct SlotThumbnail: View {
                         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 } else {
                     Image(systemName: slot.systemImage)
-                        .font(.system(size: 22, weight: .light))
+                        .scaledIconFont(size: 22, weight: .light, maxSize: 40)
                         .foregroundStyle(.white.opacity(isActive ? 0.9 : 0.6))
                 }
 
@@ -118,7 +118,7 @@ struct SlotThumbnail: View {
                 .fill(.red.opacity(0.45))
             VStack(spacing: 2) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 18, weight: .semibold))
+                    .scaledIconFont(size: 18, weight: .semibold, maxSize: 30)
                     .foregroundStyle(.white)
                 Text("Retry")
                     .font(.caption2.weight(.semibold))
