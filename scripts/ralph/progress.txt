@@ -3010,3 +3010,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:20:57 AM
 ---
+## US-1078: Provenance-aware inbound eBay sync (retire the source_of_truth pin)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:29:02 AM
+---
