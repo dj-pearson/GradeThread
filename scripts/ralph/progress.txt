@@ -2982,3 +2982,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Wed, Jun 17, 2026 10:26:19 PM
 ---
+## US-1085: Sync precedence regression test suite
+- Status: COMPLETE
+- Timestamp: Wed, Jun 17, 2026 10:44:56 PM
+---
