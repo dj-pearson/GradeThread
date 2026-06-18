@@ -2566,7 +2566,7 @@
         "tsc/lint/build green."
       ],
       "priority": 1074,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Platform cohesion. Depends on the global FTS story (flipdesk_search()). No command palette today. A 'tie it all together' surface the user asked for ('excel beyond the competition')."
     },
     {
