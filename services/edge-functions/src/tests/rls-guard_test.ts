@@ -129,6 +129,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // directly. actor_user_id (the acting admin) is not a tenant key — an operator
   // surface, not user-owned data.
   "ops_events",
+  // US-1073 Ad Copy Studio: keyword_library (curated marketing keyword themes)
+  // and ad_creatives (saved generations). RLS enabled with an explicit
+  // `revoke all from anon, authenticated` and zero policies by design
+  // (migration 00233). Read/written ONLY via the role-gated /api/admin/ads
+  // endpoints on the service-role client; the SPA never reads them directly.
+  // Operator-curated reference / output, not user-owned tenant data.
+  "keyword_library",
+  "ad_creatives",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

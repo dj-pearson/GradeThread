@@ -108,6 +108,7 @@ import { handleBillingReconciliationCron } from "./routes/jobs-billing-reconcili
 import { handleAiBudgetCron } from "./routes/jobs-ai-budget.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
+import { adminAdsRoutes } from "./routes/admin-ads.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
 import { referralRoutes } from "./routes/referrals.ts";
 import { affiliateRoutes } from "./routes/affiliate.ts";
@@ -627,6 +628,11 @@ app.use("/api/content/social/*/generate", featureGate("content_ai"));
 app.use("/api/content/topics/research", featureGate("content_ai"));
 app.use("/api/content/images/*", featureGate("content_ai"));
 
+// US-1073: Ad Copy Studio generation is an expensive Claude call on the same
+// kill-switch + per-min ceiling as the other content-AI paths.
+app.use("/api/admin/ads/generate", rateLimiter(20, 60_000, "ads-ai"));
+app.use("/api/admin/ads/generate", featureGate("content_ai"));
+
 // Coarse per-IP ceiling on the unauthenticated webhook receivers — blunts
 // floods only. Legit Stripe/eBay bursts stay well under it, and a 429 just
 // makes the provider retry (idempotency in US-277 makes that safe).
@@ -948,6 +954,9 @@ app.post("/api/jobs/gsc-sync", (c) => handleGscSyncCron(c));
 // US-625..US-631 Growth/Promote suite (segments, campaigns, announcements,
 // analytics). Admin JWT + MFA gated by the /api/admin/* middleware group.
 app.route("/api/admin/growth", adminGrowthRoutes);
+// US-1073 AI Ad Copy Studio (Google Ads RSA + Apple Search Ads). Admin JWT + MFA
+// gated by the /api/admin/* middleware group; cost tagged feature='ads'.
+app.route("/api/admin/ads", adminAdsRoutes);
 // US-628 user-facing announcement reads (authed, per-user scoped).
 app.route("/api/announcements", announcementRoutes);
 // US-629 referral program (authed, per-user scoped).

@@ -69,6 +69,7 @@ const adminNavItems = [
   { to: "/admin/ai-spend", icon: Coins, label: "AI Spend", end: false, superAdminOnly: false },
   { to: "/admin/reliability", icon: BarChart3, label: "Reliability", end: false, superAdminOnly: false },
   { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
+  { to: "/admin/ads", icon: Megaphone, label: "Ad Copy Studio", end: false, superAdminOnly: false },
   { to: "/admin/condition-index", icon: LineChart, label: "Condition Index", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
   { to: "/admin/pricing", icon: DollarSign, label: "Plans & Pricing", end: false, superAdminOnly: false },
