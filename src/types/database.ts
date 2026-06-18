@@ -244,9 +244,11 @@ export interface UserRow {
   use_case: UserUseCase | null;
   onboarded_at: string | null;
   suspended: boolean;
-  // FlipDesk user-state flags (migrations 00028, 00029)
+  // FlipDesk user-state flags (migrations 00028, 00029, 00242)
   flipdesk_onboarded: boolean;
   dismissed_flipdesk_promo: boolean;
+  // US-1061: dismissed the one-time "manage in FlipDesk" eBay publish disclaimer
+  dismissed_ebay_publish_disclaimer: boolean;
   // AI enrichment usage (US-158, US-167)
   ai_actions_used_this_month: number;
   ai_actions_reset_at: string;

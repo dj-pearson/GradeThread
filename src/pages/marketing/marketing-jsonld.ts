@@ -98,6 +98,10 @@ export const FAQ_EXTRA = [
     q: "Can buyers verify a certificate?",
     a: "Yes. Every certificate has a unique public URL and QR code. Anyone can open it to see the overall score, tier, factor breakdown, and garment photos — no account required.",
   },
+  {
+    q: "Why do I have to manage my eBay listings in FlipDesk?",
+    a: "Once you publish an item to eBay through FlipDesk, FlipDesk is the source of truth for that listing. FlipDesk syncs with eBay through the eBay API, so changes you make directly on eBay — editing photos, price, the title or item specifics, or ending and relisting — can be overwritten on the next sync or leave the two sides out of step. To avoid that, make every change in FlipDesk (Pipeline → the item) and let it push the update to eBay. Use eBay directly only for things FlipDesk doesn't manage, like answering buyer messages.",
+  },
 ];
 
 export const ALL_FAQS = [...LANDING_FAQS, ...FAQ_EXTRA];

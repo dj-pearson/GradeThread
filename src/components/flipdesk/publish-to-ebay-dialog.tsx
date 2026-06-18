@@ -26,6 +26,7 @@ import {
   useValidatePublish,
   type PublishSummary,
 } from "@/hooks/use-ebay";
+import { EbayPublishDisclaimer } from "@/components/flipdesk/ebay-publish-disclaimer";
 
 interface Props {
   open: boolean;
@@ -175,6 +176,9 @@ export function PublishToEbayDialog({
                 <ExternalLink className="ml-2 h-4 w-4" />
               </a>
             </Button>
+            {/* US-1061: first-publish "manage in FlipDesk" disclaimer.
+                Self-hides once dismissed (server-side, per user). */}
+            <EbayPublishDisclaimer />
           </div>
         )}
 

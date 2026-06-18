@@ -211,6 +211,9 @@ struct PublishDialog: View {
                         .clipShape(Capsule())
                 }
             }
+            // US-1061: first-publish "manage in FlipDesk" disclaimer. Self-hides
+            // once dismissed (server-side flag on the users row, per user).
+            EbayPublishDisclaimerCard()
         }
         .padding(20)
         .frame(maxWidth: .infinity)
@@ -660,5 +663,103 @@ private struct ComposerForm: View {
 
     private static func dollars(_ amount: Double) -> String {
         "$" + String(format: "%.2f", amount)
+    }
+}
+
+/// US-1061: one-time, dismissable "manage this item in FlipDesk" notice shown on
+/// the user's FIRST successful eBay publish. FlipDesk is the source of truth for
+/// a published listing — it syncs with eBay through the eBay API, so editing the
+/// item directly on eBay can be overwritten on the next sync or desync the two
+/// sides. The dismissed flag lives on the users row (RLS-scoped to the owner),
+/// so the notice shows only once and survives a device change.
+private struct EbayPublishDisclaimerCard: View {
+    @Environment(\.openURL) private var openURL
+    @State private var loaded = false
+    /// Default to dismissed so the card never flashes before the flag loads.
+    @State private var dismissed = true
+    @State private var saving = false
+
+    private static let helpURL = URL(string: "https://gradethread.com/faq")!
+
+    var body: some View {
+        Group {
+            if loaded && !dismissed {
+                content
+            }
+        }
+        .task { await load() }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Manage this item in FlipDesk", systemImage: "info.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.brandNavy)
+            Text("FlipDesk is now the source of truth for this listing. It syncs with eBay through the eBay API, so editing the item directly on eBay — photos, price, title, item specifics, or ending and relisting — can be overwritten on the next sync or leave the two sides out of step. Make every change here in FlipDesk and let it push the update to eBay.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button("Learn more") { openURL(Self.helpURL) }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.brandNavy)
+                Spacer()
+                Button {
+                    Task { await persistDismissal() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if saving { ProgressView().controlSize(.small) }
+                        Text("Got it")
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+                .disabled(saving)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.brandNavy.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    private struct FlagRow: Decodable {
+        let dismissed_ebay_publish_disclaimer: Bool
+    }
+
+    private func load() async {
+        // RLS scopes the SELECT to the caller, so no explicit user filter needed.
+        do {
+            let rows: [FlagRow] = try await SupabaseShared.client
+                .from("users")
+                .select("dismissed_ebay_publish_disclaimer")
+                .limit(1)
+                .execute()
+                .value
+            dismissed = rows.first?.dismissed_ebay_publish_disclaimer ?? true
+        } catch {
+            // On error, stay hidden rather than nag the user.
+            dismissed = true
+        }
+        loaded = true
+    }
+
+    private struct DismissUpdate: Encodable {
+        let dismissed_ebay_publish_disclaimer: Bool
+    }
+
+    private func persistDismissal() async {
+        saving = true
+        defer { saving = false }
+        do {
+            let userId = try await SupabaseShared.client.auth.session.user.id.uuidString
+            try await SupabaseShared.client
+                .from("users")
+                .update(DismissUpdate(dismissed_ebay_publish_disclaimer: true))
+                .eq("id", value: userId)
+                .execute()
+        } catch {
+            // Hide locally regardless; it re-surfaces on a later publish.
+        }
+        dismissed = true
     }
 }
