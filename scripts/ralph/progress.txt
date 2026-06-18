@@ -3142,3 +3142,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  5:38:40 PM
 ---
+## US-1044: eBay: Promoted Listings management UI (opt in/out, bid %, performance)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  5:47:59 PM
+---

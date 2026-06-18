@@ -2187,7 +2187,7 @@
         "Honest copy on what eBay charges (ad fee only on attributed sale); tsc/deno green."
       ],
       "priority": 1044,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/lib/ebay-marketing.ts; services/edge-functions/src/routes/flipdesk-ebay.ts /marketing/* exist; no promoted UI on web or iOS"
     },
     {
