@@ -2540,7 +2540,7 @@
         "Migration idempotent; tsc/lint/build/deno green."
       ],
       "priority": 1072,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Acquisition/Ads. No keyword/ads research infra today. New keyword_library table + edge ingestion (Google Ads API) + admin surface. Feeds the content engine (content_knowledge / SEO pillars) and ad-copy generation. severity=medium (growth lever)."
     },
     {

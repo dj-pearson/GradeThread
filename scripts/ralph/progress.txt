@@ -3034,3 +3034,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:27:48 AM
 ---
+## US-1072: Keyword research ingestion (Google Keyword Planner / Ads API) -> keyword library
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:42:02 AM
+---
