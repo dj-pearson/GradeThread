@@ -21,6 +21,8 @@ import {
   CircleCheck,
   Award,
   Hourglass,
+  Lock,
+  ExternalLink,
 } from "lucide-react";
 import {
   Dialog,
@@ -81,6 +83,7 @@ import {
   type NextActionKind,
 } from "@/lib/workflow";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { deriveListingOrigin } from "@/lib/listing-origin";
 import { cn } from "@/lib/utils";
 import {
   AiFillPanel,
@@ -291,14 +294,18 @@ export function ItemCanvas({
     queryFn: async (): Promise<{
       id: string;
       platform_offer_id: string | null;
+      platform_listing_id: string | null;
+      listing_url: string | null;
       listing_title: string | null;
       listing_description: string | null;
       listing_price: number | null;
+      batch_id: string | null;
+      synced_to_ebay_at: string | null;
     } | null> => {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, platform_offer_id, listing_title, listing_description, listing_price",
+          "id, platform_offer_id, platform_listing_id, listing_url, listing_title, listing_description, listing_price, batch_id, synced_to_ebay_at",
         )
         .eq("inventory_item_id", item.id)
         .eq("listing_status", "active")
@@ -306,17 +313,36 @@ export function ItemCanvas({
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      return (data ?? null) as {
+      return (data ?? null) as unknown as {
         id: string;
         platform_offer_id: string | null;
+        platform_listing_id: string | null;
+        listing_url: string | null;
         listing_title: string | null;
         listing_description: string | null;
         listing_price: number | null;
+        batch_id: string | null;
+        synced_to_ebay_at: string | null;
       } | null;
     },
   });
-  // Only GradeThread-published listings (with a Sell offer) are revisable here.
-  const isGtLive = !!liveListing?.platform_offer_id;
+  // US-1080: eBay-originated listings are a read-only mirror — eBay owns the
+  // title/price/description, so those fields are locked in this editor (the
+  // server rejects the write too). Provenance is derived until US-1077 persists
+  // listing_origin.
+  const ebayOrigin = liveListing
+    ? deriveListingOrigin({
+        platform: "ebay",
+        platform_listing_id: liveListing.platform_listing_id,
+        batch_id: liveListing.batch_id,
+        synced_to_ebay_at: liveListing.synced_to_ebay_at,
+      })
+    : "gradethread";
+  const lockedByEbay = ebayOrigin === "ebay";
+  const ebayListingUrl = liveListing?.listing_url ?? null;
+  // Only GradeThread-published listings (with a Sell offer) are revisable here,
+  // and never an eBay-originated mirror.
+  const isGtLive = !!liveListing?.platform_offer_id && !lockedByEbay;
 
   // US-404: the inventory LIST now omits these heavy/derived columns from its
   // bulk load (the per-row photo subqueries + the ai_field_sources jsonb) to
@@ -539,6 +565,12 @@ export function ItemCanvas({
       // description; apply it to the item's description.
       "description",
     ]);
+    // US-1080: title/description are eBay-owned on an eBay-originated listing —
+    // never let an AI accept silently overwrite a locked field.
+    if (lockedByEbay) {
+      allowed.delete("title");
+      allowed.delete("description");
+    }
     setState((s) => {
       const next = { ...s } as unknown as Record<string, unknown>;
       for (const a of accepted) {
@@ -954,6 +986,35 @@ export function ItemCanvas({
           </div>
         )}
 
+        {/* US-1080: eBay-originated listing — read-only mirror. eBay owns the
+            title/price/description/photos; those fields are locked here and the
+            server rejects edits to them. Send the seller to eBay to change them. */}
+        {lockedByEbay && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
+            <div className="flex items-start gap-2 text-amber-800 dark:text-amber-300">
+              <Lock className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>
+                This listing was created on eBay, so eBay owns its title, price,
+                description, and photos — those are locked here. Your grade,
+                notes, measurements, and cost stay editable. Edit the eBay-owned
+                fields on eBay.
+              </span>
+            </div>
+            {ebayListingUrl && (
+              <Button asChild variant="outline" size="sm" className="shrink-0">
+                <a
+                  href={ebayListingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Edit on eBay
+                </a>
+              </Button>
+            )}
+          </div>
+        )}
+
         {/* Pinned "Next action" CTA — drives the workflow forward. */}
         {action.kind !== "none" && (
           <div
@@ -1018,6 +1079,8 @@ export function ItemCanvas({
             label="Title"
             value={state.title}
             onChange={(v) => patch("title", v)}
+            disabled={lockedByEbay}
+            lockHint={lockedByEbay}
           />
           <FieldText
             label="SKU / Item #"
@@ -1218,6 +1281,8 @@ export function ItemCanvas({
             value={state.target_price}
             onChange={(v) => patch("target_price", v)}
             type="number"
+            disabled={lockedByEbay}
+            lockHint={lockedByEbay}
           />
         </div>
 
@@ -1283,11 +1348,17 @@ export function ItemCanvas({
         </div>
 
         <div className="space-y-1">
-          <Label>Description (public)</Label>
+          <Label className={cn(lockedByEbay && "text-muted-foreground")}>
+            Description (public)
+            {lockedByEbay && (
+              <Lock className="ml-1.5 inline h-3 w-3 align-[-1px] text-muted-foreground" />
+            )}
+          </Label>
           <Textarea
             value={state.description}
             onChange={(e) => patch("description", e.target.value)}
             rows={3}
+            disabled={lockedByEbay}
           />
         </div>
 
@@ -1326,7 +1397,12 @@ export function ItemCanvas({
             <Button
               variant="outline"
               onClick={handleGenerateCopy}
-              disabled={saving || listingCopy.isPending}
+              disabled={saving || listingCopy.isPending || lockedByEbay}
+              title={
+                lockedByEbay
+                  ? "Title and description are managed on eBay for this listing."
+                  : undefined
+              }
             >
               {listingCopy.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1510,27 +1586,36 @@ function FieldText({
   onChange,
   type = "text",
   aiMarked = false,
+  disabled = false,
+  lockHint = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: "text" | "date" | "number";
   aiMarked?: boolean;
+  disabled?: boolean;
+  // When true, show a small lock glyph next to the label (US-1080 eBay-owned).
+  lockHint?: boolean;
 }) {
   return (
     <div className="space-y-1">
-      <Label>
+      <Label className={cn(disabled && "text-muted-foreground")}>
         {label}
         {aiMarked && (
           <span className="ml-1.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
             AI
           </span>
         )}
+        {lockHint && (
+          <Lock className="ml-1.5 inline h-3 w-3 align-[-1px] text-muted-foreground" />
+        )}
       </Label>
       <Input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
       />
     </div>
   );

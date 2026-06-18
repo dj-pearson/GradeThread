@@ -182,27 +182,44 @@ function EbayNativeNotice({ itemId }: { itemId: string }) {
     queryKey: ["item_ebay_native_notice", itemId],
     queryFn: async (): Promise<{
       platform_offer_id: string | null;
+      platform_listing_id: string | null;
       listing_url: string | null;
+      batch_id: string | null;
+      synced_to_ebay_at: string | null;
     } | null> => {
       const { data, error } = await supabase
         .from("listings")
-        .select("platform_offer_id, listing_url")
+        .select(
+          "platform_offer_id, platform_listing_id, listing_url, batch_id, synced_to_ebay_at",
+        )
         .eq("inventory_item_id", itemId)
         .eq("listing_status", "active")
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      return (data ?? null) as {
+      return (data ?? null) as unknown as {
         platform_offer_id: string | null;
+        platform_listing_id: string | null;
         listing_url: string | null;
+        batch_id: string | null;
+        synced_to_ebay_at: string | null;
       } | null;
     },
   });
 
-  // Only for an active eBay-native listing (no Sell offer). GradeThread-published
-  // listings and drafts render nothing — the canvas handles those.
-  if (!ebayConnection || !listing || listing.platform_offer_id) return null;
+  if (!ebayConnection || !listing) return null;
+
+  // US-1080: only for eBay-ORIGINATED listings (created on eBay, imported into
+  // GradeThread). GradeThread-originated/published listings and drafts render
+  // nothing — the canvas + GradethreadListingCard handle those.
+  const origin = deriveListingOrigin({
+    platform: "ebay",
+    platform_listing_id: listing.platform_listing_id,
+    batch_id: listing.batch_id,
+    synced_to_ebay_at: listing.synced_to_ebay_at,
+  });
+  if (origin !== "ebay") return null;
 
   return (
     <Card>
@@ -213,9 +230,10 @@ function EbayNativeNotice({ itemId }: { itemId: string }) {
         </div>
         <p className="text-sm text-muted-foreground">
           This listing was created on eBay, not GradeThread, so its eBay fields
-          (title, price, description, photos) are managed on eBay. Saving here
-          updates only your internal FlipDesk fields. To change what buyers see,
-          edit it on eBay — or relist it through GradeThread to manage it here.
+          (title, price, description, photos) are owned by eBay and locked in the
+          editor below. Your internal FlipDesk fields — grade, notes,
+          measurements, and cost — stay editable. To change what buyers see, edit
+          it on eBay, or relist it through GradeThread to manage it here.
         </p>
         {listing.listing_url && (
           <Button asChild variant="outline" className="w-full sm:w-auto">

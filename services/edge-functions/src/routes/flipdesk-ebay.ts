@@ -125,7 +125,10 @@ import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog, writeSystemAuditLog } from "../lib/audit-log.ts";
 import { getSetting } from "../lib/system-settings.ts";
-import { deriveListingOrigin } from "../lib/sync-precedence.ts";
+import {
+  deriveListingOrigin,
+  validateEbayOriginEdit,
+} from "../lib/sync-precedence.ts";
 import {
   buildPriceQtyRequest,
   chunk,
@@ -3601,6 +3604,39 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
 
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
+
+  // US-1080: eBay-originated listings are a read-only mirror in GradeThread —
+  // eBay owns title/description/price/photos. Revising those here would be
+  // overwritten on the next inbound sync, so reject the write server-side
+  // (defense in depth behind the locked UI). Origin is derived from existing
+  // signals until US-1077 persists listing_origin. The request maps title →
+  // listing_title, description → listing_description, listing_price, and
+  // photos → product imagery — all EBAY_OWNED_LISTING_FIELDS.
+  const origin = deriveListingOrigin({
+    platform: "ebay",
+    platform_listing_id: row.listing.platform_listing_id,
+    batch_id: row.listing.batch_id,
+    synced_to_ebay_at: row.listing.synced_to_ebay_at,
+  });
+  if (origin === "ebay") {
+    const requested = [
+      hasTitle && "listing_title",
+      hasDesc && "listing_description",
+      hasPrice && "listing_price",
+    ].filter((f): f is string => typeof f === "string");
+    const { locked } = validateEbayOriginEdit(origin, requested);
+    if (locked.length > 0 || syncPhotos) {
+      return c.json(
+        {
+          error:
+            "This listing was created on eBay, so eBay owns its title, price, description, and photos. Edit it on eBay — changes here would be overwritten on the next sync.",
+          locked_fields: syncPhotos ? [...locked, "photos"] : locked,
+        },
+        409
+      );
+    }
+  }
+
   if (!row.listing.platform_offer_id) {
     return c.json(
       {
@@ -5331,6 +5367,10 @@ interface ListingRowForManage {
   // avoid silently reverting them to the inventory_items mirror.
   listing_title: string | null;
   listing_description: string | null;
+  // US-1080: provenance signals so callers can derive listing_origin (eBay vs
+  // GradeThread) and lock eBay-owned fields on eBay-originated listings.
+  batch_id: string | null;
+  synced_to_ebay_at: string | null;
 }
 
 type LoadListingResult =
@@ -5346,7 +5386,7 @@ async function loadListingOwned(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, inventory_items!inner(user_id)"
+      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, inventory_items!inner(user_id)"
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -5368,6 +5408,8 @@ async function loadListingOwned(
       platform_listing_id: row.platform_listing_id,
       listing_title: row.listing_title,
       listing_description: row.listing_description,
+      batch_id: row.batch_id,
+      synced_to_ebay_at: row.synced_to_ebay_at,
     },
   };
 }
