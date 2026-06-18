@@ -2410,7 +2410,7 @@
         "deno/tsc/lint/build green; tenant-scoped join (US-268 rule); test for the enrichment mapping."
       ],
       "priority": 1062,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Offers. eBay find_eligible_items returns only listingId+title (ebay-client.ts findEligibleNegotiationItems ~3048-3061). Route flipdesk-ebay.ts ~5072-5084 returns as-is. offers.tsx ~295-308 shows title||listingId. Join via listings.platform_listing_id -> inventory_items -> item_photos. severity=high (user-reported)."
     },
     {

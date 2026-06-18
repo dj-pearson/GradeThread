@@ -3074,3 +3074,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  1:53:24 PM
 ---
+## US-1062: Enrich 'send offers to interested buyers' with title, image, price & condition
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  2:07:03 PM
+---
