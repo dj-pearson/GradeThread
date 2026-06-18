@@ -53,6 +53,19 @@ final class AccessibilityAnnounceTests: XCTestCase {
         XCTAssertTrue(summary.contains("Priced below comparable condition"))
     }
 
+    // MARK: - US-1021 pull-to-refresh failure announcement
+
+    func test_refreshFailure_announcement_includesMessage() {
+        let text = InventoryListView.refreshFailureAnnouncement("eBay token expired")
+        XCTAssertTrue(text.lowercased().contains("refresh failed"))
+        XCTAssertTrue(text.contains("eBay token expired"))
+    }
+
+    func test_refreshFailure_announcement_blankMessage_stillAnnouncesFailure() {
+        let text = InventoryListView.refreshFailureAnnouncement("   ")
+        XCTAssertEqual(text, "Refresh failed.")
+    }
+
     func test_scoutCard_accessibilitySummary_marksUncertain() {
         let candidate = ScoutCandidate(
             itemId: "2", title: "Unknown jacket", imageUrl: nil, itemWebUrl: nil,

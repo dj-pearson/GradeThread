@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 /// Main inventory triage screen. Mirrors the web `listings.tsx` tabbed
 /// layout but optimized for one-handed iPhone use — TabView at the
@@ -262,22 +263,29 @@ struct InventoryListView: View {
                 await searchService.search(trimmed)
             }
         }
-        // US-643: transient, non-blocking pull-to-refresh failure banner.
+        // US-643 / US-1021: pull-to-refresh failure banner. Now offers Retry +
+        // an explicit dismiss, and persists until dismissed while VoiceOver is
+        // running (instead of auto-dismissing after 3.5s) so assistive-tech
+        // users don't lose the announcement or the actionable controls.
         .overlay(alignment: .bottom) {
             if let refreshError {
-                Text(refreshError)
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color.brandRed, in: Capsule())
-                    .padding(.bottom, 24)
-                    .shadow(radius: 6, y: 2)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .task(id: refreshError) {
-                        try? await Task.sleep(nanoseconds: 3_500_000_000)
+                RefreshErrorBanner(
+                    message: refreshError,
+                    onRetry: {
                         withAnimation { self.refreshError = nil }
-                    }
+                        Task { await refreshFromServer() }
+                    },
+                    onDismiss: { withAnimation { self.refreshError = nil } }
+                )
+                .padding(.bottom, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .task(id: refreshError) {
+                    // Auto-dismiss only when VoiceOver is OFF. With VoiceOver on
+                    // the banner stays put until the user retries or dismisses.
+                    guard !UIAccessibility.isVoiceOverRunning else { return }
+                    try? await Task.sleep(nanoseconds: 3_500_000_000)
+                    withAnimation { self.refreshError = nil }
+                }
             }
         }
     }
@@ -643,8 +651,19 @@ struct InventoryListView: View {
             await MainActor.run {
                 withAnimation { refreshError = message }
                 HapticFeedback.error()
+                // US-1021: announce the failure to VoiceOver (WCAG 4.1.3) —
+                // a silent red capsule swap was previously inaudible.
+                A11yAnnounce.announce(Self.refreshFailureAnnouncement(message))
             }
         }
+    }
+
+    /// US-1021: composed VoiceOver string for a pull-to-refresh failure. Pure +
+    /// static so it's unit-testable (the `UIAccessibility.post` side effect
+    /// no-ops without VoiceOver and isn't).
+    static func refreshFailureAnnouncement(_ message: String) -> String {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Refresh failed." : "Refresh failed. \(trimmed)"
     }
 
     // MARK: - Bulk actions (US-182)
@@ -707,6 +726,51 @@ struct InventoryListView: View {
             try? modelContext.save()
             HapticFeedback.success()
         }
+    }
+}
+
+// MARK: - US-643 / US-1021 supporting views
+
+/// Pull-to-refresh failure banner. Red capsule carrying the error plus a Retry
+/// action and an explicit dismiss — replaces the old text-only auto-dismissing
+/// capsule so the failure is actionable and (paired with `A11yAnnounce` +
+/// VoiceOver-aware persistence in the parent) accessible.
+private struct RefreshErrorBanner: View {
+    let message: String
+    var onRetry: () -> Void
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button("Retry") {
+                HapticFeedback.light()
+                onRetry()
+            }
+            .font(.footnote.weight(.bold))
+            .foregroundStyle(.white)
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.brandRed, in: Capsule())
+        .shadow(radius: 6, y: 2)
+        .padding(.horizontal, 16)
     }
 }
 
