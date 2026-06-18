@@ -3122,3 +3122,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  4:29:04 PM
 ---
+## US-1050: Global full-text search UI (web) over items, listings & sales
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  5:12:58 PM
+---

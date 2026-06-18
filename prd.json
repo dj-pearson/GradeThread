@@ -2254,7 +2254,7 @@
         "tsc/lint/build green; covered by a vitest for query building + result mapping."
       ],
       "priority": 1050,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. flipdesk_search() RPC + weighted tsvector exists in supabase/migrations/00016_full_text_search.sql (scopes all/items/listings/sales, websearch_to_tsquery, snippet ranking) but is NOT exposed in any UI today. New surface; reuse src/lib/item-filter.ts patterns. severity=high (existing capability dark)."
     },
     {
