@@ -2475,7 +2475,7 @@
         "deno/tsc/lint/test green; no PII leaves the tenant boundary in exemplars."
       ],
       "priority": 1067,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: AI self-improvement. accuracy-tracking.ts already captures TrainingDataEntry (AI vs human-adjusted scores, human_intentional_misread flag) — but it's NOT fed back as few-shot examples. Caching enabled in ai-config.ts. Gate via grading-eval.ts golden set. Cuts tokens + improves distressed/denim misreads. severity=medium."
     },
     {

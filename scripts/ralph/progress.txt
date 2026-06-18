@@ -3054,3 +3054,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 12:40:24 PM
 ---
+## US-1067: Self-improvement: few-shot exemplar cache from human-corrected grades
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 12:56:29 PM
+---
