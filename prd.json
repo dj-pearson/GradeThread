@@ -2527,7 +2527,7 @@
         "tsc/lint/build/deno green."
       ],
       "priority": 1071,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Referral/Growth. Admin today only shows funnel counts + grant queue (src/pages/admin/growth/referrals.tsx); no conversion %, K-factor, or LTV. affiliate_clicks (00174) tracks earned-link clicks; referral_events (00102) has qualified/granted timestamps for funnel math. No milestone tiers or campaign codes. User goal: go viral for cheap users."
     },
     {
