@@ -60,6 +60,10 @@ struct ConsignorsView: View {
         }
         .navigationTitle("Consignors")
         .task { await store.load() }
+        // US-1026: manual pull-to-refresh. `load()` guards against a reload
+        // that lands while one is already in flight, so the gesture can't kick
+        // off a duplicate concurrent fetch.
+        .refreshable { await store.load() }
         .sheet(item: $editing) { target in
             ConsignorEditorSheet(store: store, target: target)
         }

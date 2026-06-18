@@ -19,6 +19,10 @@ final class ConsignorStore {
     private(set) var consignors: [Consignor] = []
     /// Surfaced when a create/update/delete fails; the view shows it in an alert.
     var actionError: String?
+    /// US-1026: reentrancy guard so pull-to-refresh can't kick off a duplicate
+    /// concurrent fetch while the initial `.task` load (or another refresh) is
+    /// still in flight. Private internal bookkeeping — no view observes it.
+    private var isLoading = false
 
     init(service: ConsignorProviding = ConsignorService()) {
         self.service = service
@@ -32,6 +36,9 @@ final class ConsignorStore {
     }
 
     func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
         phase = .loading
         do {
             consignors = sorted(try await service.list())

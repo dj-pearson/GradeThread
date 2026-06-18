@@ -21,6 +21,11 @@ struct GradesListView: View {
 
     @State private var sort: GradeSort = .recent
 
+    // US-1026: pull-to-refresh fires a real sync; the engine dedupes concurrent
+    // pulls, and a transient banner surfaces failures.
+    @Environment(\.syncEngine) private var syncEngine
+    @State private var refreshError: String?
+
     enum GradeSort: String, CaseIterable, Identifiable {
         case recent, highest, lowest
         var id: String { rawValue }
@@ -64,6 +69,43 @@ struct GradesListView: View {
             if !gradedItems.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) { sortMenu }
             }
+        }
+        .refreshable { await refreshFromServer() }
+        .overlay(alignment: .bottom) { refreshErrorBanner }
+    }
+
+    /// US-1026: pull-to-refresh awaits a real ``SyncEngine.sync()`` so the
+    /// spinner reflects true completion; the engine's own `isPulling` guard
+    /// dedupes a refresh that lands while a sync is already running, and the
+    /// local `@Query` re-renders when the merge notifies SwiftData.
+    private func refreshFromServer() async {
+        guard let syncEngine else {
+            // Engine not booted yet — fall back to the notification path so the
+            // pull isn't a dead gesture.
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            return
+        }
+        if case let .failed(message) = await syncEngine.sync() {
+            await MainActor.run { withAnimation { refreshError = message } }
+        }
+    }
+
+    @ViewBuilder
+    private var refreshErrorBanner: some View {
+        if let refreshError {
+            Text(refreshError)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.brandRed, in: Capsule())
+                .padding(.bottom, 24)
+                .shadow(radius: 6, y: 2)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .task(id: refreshError) {
+                    try? await Task.sleep(nanoseconds: 3_500_000_000)
+                    withAnimation { self.refreshError = nil }
+                }
         }
     }
 
