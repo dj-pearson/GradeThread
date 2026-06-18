@@ -25,6 +25,7 @@ import {
   Keyboard,
   Shield,
   Star,
+  History,
 } from "lucide-react";
 import {
   Dialog,
@@ -79,7 +80,8 @@ type Entry =
   | { kind: "item"; id: string; item: ItemFullRow }
   | { kind: "source"; id: string; source: SourceRow }
   | { kind: "submission"; id: string; sub: SubmissionLite }
-  | { kind: "deep"; id: string; hit: SearchHit };
+  | { kind: "deep"; id: string; hit: SearchHit }
+  | { kind: "recentsearch"; id: string; term: string };
 
 interface Section {
   title: string;
@@ -121,6 +123,9 @@ export function CommandPalette() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [deepHits, setDeepHits] = useState<SearchHit[]>([]);
   const [submissionHits, setSubmissionHits] = useState<SubmissionLite[]>([]);
+  // US-1053: per-user recent searches, offered as suggestions when the field
+  // is empty. Sourced from the recent_searches RPC (RLS-scoped to the caller).
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -154,8 +159,44 @@ export function CommandPalette() {
       setActiveIdx(0);
       setDeepHits([]);
       setSubmissionHits([]);
+      // US-1053: refresh recent searches each time the palette opens.
+      (async () => {
+        try {
+          const { data } = await (
+            supabase.rpc as unknown as (
+              fn: string,
+              args: Record<string, unknown>,
+            ) => Promise<{
+              data: { query: string }[] | null;
+              error: Error | null;
+            }>
+          )("recent_searches", { p_limit: 8 });
+          setRecentSearches((data ?? []).map((r) => r.query).filter(Boolean));
+        } catch {
+          setRecentSearches([]);
+        }
+      })();
     }
   }, [open]);
+
+  // US-1053: persist a search term so it can be offered as a suggestion later.
+  // Fire-and-forget; failures are non-fatal (the user still navigated).
+  function recordSearch(term: string) {
+    const t = term.trim();
+    if (t.length < 2) return;
+    void (async () => {
+      try {
+        await (
+          supabase.rpc as unknown as (
+            fn: string,
+            args: Record<string, unknown>,
+          ) => Promise<{ error: Error | null }>
+        )("record_search", { p_query: t, p_scope: "all" });
+      } catch {
+        // ignore — recording recent searches is best-effort
+      }
+    })();
+  }
 
   // Debounced submission search (grading side of the product). The browser
   // client is RLS-scoped, so this only ever returns the user's own rows.
@@ -456,6 +497,17 @@ export function CommandPalette() {
           .map((it) => ({ kind: "item", id: it.id, item: it }) as Entry)
       : [];
 
+    // US-1053: recent search terms — only when the field is empty, so they act
+    // as a starting point rather than competing with live results.
+    const recentSearchEntries: Entry[] = !q
+      ? recentSearches
+          .slice(0, 8)
+          .map(
+            (term) =>
+              ({ kind: "recentsearch", id: term, term }) as Entry,
+          )
+      : [];
+
     // Deep matches from the FTS RPC — exclude items already in the Items
     // section so we don't show duplicates.
     const shownItemIds = new Set(
@@ -478,6 +530,8 @@ export function CommandPalette() {
     const out: Section[] = [];
     if (recentEntries.length > 0)
       out.push({ title: "Recent", entries: recentEntries });
+    if (recentSearchEntries.length > 0)
+      out.push({ title: "Recent searches", entries: recentSearchEntries });
     if (matchAction.length > 0)
       out.push({ title: "Actions", entries: matchAction });
     if (matchItems.length > 0)
@@ -489,7 +543,16 @@ export function CommandPalette() {
     if (deepEntries.length > 0)
       out.push({ title: "Full-text matches", entries: deepEntries });
     return out;
-  }, [query, availableActions, items, sources, recentIds, deepHits, submissionHits]);
+  }, [
+    query,
+    availableActions,
+    items,
+    sources,
+    recentIds,
+    deepHits,
+    submissionHits,
+    recentSearches,
+  ]);
 
   // Flat list for keyboard navigation.
   const flat = useMemo(
@@ -502,6 +565,16 @@ export function CommandPalette() {
   }, [query]);
 
   function selectEntry(entry: Entry) {
+    // US-1053: clicking a recent search re-runs it (fills the field, keeps the
+    // palette open) rather than navigating anywhere.
+    if (entry.kind === "recentsearch") {
+      setQuery(entry.term);
+      setActiveIdx(0);
+      inputRef.current?.focus();
+      return;
+    }
+    // Persist the term the user acted on so it becomes a future suggestion.
+    recordSearch(query);
     if (entry.kind === "action") {
       entry.run();
     } else if (entry.kind === "item") {
@@ -666,6 +739,12 @@ export function CommandPalette() {
                           <span className="flex-1 truncate">
                             {entry.source.name}
                           </span>
+                        </>
+                      )}
+                      {entry.kind === "recentsearch" && (
+                        <>
+                          <History className="h-4 w-4 text-muted-foreground" />
+                          <span className="flex-1 truncate">{entry.term}</span>
                         </>
                       )}
                       {entry.kind === "deep" && (

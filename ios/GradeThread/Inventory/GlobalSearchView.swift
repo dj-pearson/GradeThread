@@ -15,16 +15,22 @@ struct GlobalSearchView: View {
 
     @State private var query = ""
     @State private var debounced = ""
+    // US-1053 — recent search suggestions offered when the field is empty.
+    @State private var recentSearches = RecentSearchStore()
 
     var body: some View {
         NavigationStack {
             Group {
                 if debounced.trimmingCharacters(in: .whitespaces).isEmpty {
-                    ContentUnavailableView(
-                        "Search everything",
-                        systemImage: "magnifyingglass",
-                        description: Text("Find items, listings, sales, and sources by title, brand, SKU, buyer, or name.")
-                    )
+                    if recentSearches.terms.isEmpty {
+                        ContentUnavailableView(
+                            "Search everything",
+                            systemImage: "magnifyingglass",
+                            description: Text("Find items, listings, sales, and sources by title, brand, SKU, buyer, or name.")
+                        )
+                    } else {
+                        recentSearchesList
+                    }
                 } else if isEmptyResult {
                     ContentUnavailableView.search(text: debounced)
                 } else {
@@ -43,11 +49,38 @@ struct GlobalSearchView: View {
             }
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Items, listings, sales, sources")
+        .onSubmit(of: .search) {
+            recentSearches.record(query)
+        }
         .task(id: query) {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             debounced = query
         }
+    }
+
+    // MARK: - Recent searches
+
+    private var recentSearchesList: some View {
+        List {
+            Section("Recent searches") {
+                ForEach(recentSearches.terms, id: \.self) { term in
+                    Button {
+                        query = term
+                        debounced = term
+                    } label: {
+                        Label(term, systemImage: "clock.arrow.circlepath")
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+            Section {
+                Button("Clear recent searches", role: .destructive) {
+                    recentSearches.clear()
+                }
+            }
+        }
+        .listStyle(.plain)
     }
 
     // MARK: - Results
