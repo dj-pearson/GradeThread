@@ -3138,3 +3138,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  5:35:39 PM
 ---
+## US-1045: eBay: markdown / Sale events via Marketing API (not local-only price revise)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  5:38:40 PM
+---

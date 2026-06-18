@@ -2200,7 +2200,7 @@
         "Reconcilable + revertible (ending the sale restores the price); deno check + lint + tests green."
       ],
       "priority": 1045,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=medium. services/edge-functions/src/lib/ebay-marketing.ts; flipdesk-pricing.ts (~line 289 'no eBay Marketing API client yet')"
     },
     {
