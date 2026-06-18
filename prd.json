@@ -2449,7 +2449,7 @@
         "Numbers sourced from real ledger data; tsc/lint/build/deno green."
       ],
       "priority": 1065,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: AI cost. ai-config.ts (defaults sonnet-4-6 vision / haiku-4-5 text), per-call ledger ai_usage_events (00163) + ai_spend() (00218) + budgets (00219) already exist; admin_revenue_metrics() gives per-grade avg cost. Research finding: per-grade AI cost ~$0.01-0.03 vs $2.99+ (99%+ margin) — bottleneck is volume/churn, not model. This story = the formal eval + projection deliverable. Relates to [[system-settings-registry]] ai_model_prices."
     },
     {
