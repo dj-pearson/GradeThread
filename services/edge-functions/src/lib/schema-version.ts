@@ -20,8 +20,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00242_ebay_publish_disclaimer_dismissal.sql)
-export const EXPECTED_SCHEMA_VERSION = "00242";
+// supabase/migrations/. (00243_comp_min_results_setting.sql)
+export const EXPECTED_SCHEMA_VERSION = "00243";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

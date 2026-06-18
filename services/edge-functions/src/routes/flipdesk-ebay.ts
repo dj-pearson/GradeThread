@@ -43,7 +43,6 @@ import {
   publishItemGroupOrAdopt,
   resolveCachedDefaults,
   revokeEbayUserToken,
-  searchBrowseComps,
   setDefaultPolicies,
   suggestCategories,
   syncBusinessPolicies,
@@ -130,6 +129,11 @@ import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog, writeSystemAuditLog } from "../lib/audit-log.ts";
 import { getSetting } from "../lib/system-settings.ts";
+import {
+  COMP_MIN_RESULTS_SETTING_KEY,
+  DEFAULT_MIN_COMP_RESULTS,
+  searchCompsWithLadder,
+} from "../lib/comps-ladder.ts";
 import {
   deriveListingOrigin,
   validateEbayOriginEdit,
@@ -5251,10 +5255,12 @@ flipdeskEbayRoutes.post("/payouts/import-csv", async (c) => {
   }
 });
 
-// Live active-listing comps for the composer's pricing panel. Uses the
-// Browse API + app token (no seller OAuth needed). Sold-price comps via
-// Marketplace Insights API land in a follow-up once eBay approves the
-// app — this endpoint covers the active comps until then.
+// Live comps for the composer's pricing panel. Uses the Browse API + app token
+// (no seller OAuth needed). US-1060: a narrow search auto-broadens down a ladder
+// (drop size → drop trailing title tokens → brand+category → category) until it
+// clears a configurable minimum, and the returned set is tagged with how broad
+// it is. Sold (realized) comps via Marketplace Insights are merged in and tagged
+// when the grant is enabled (graceful no-op otherwise).
 flipdeskEbayRoutes.get("/comps", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -5271,14 +5277,21 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
   const limit = limitRaw ? Number(limitRaw) : undefined;
 
   try {
-    const result = await searchBrowseComps({
-      categoryId,
-      q,
-      brand,
-      size,
-      conditionId,
-      limit: Number.isFinite(limit) ? limit : undefined,
-    });
+    const minResults = await getSetting<number>(
+      COMP_MIN_RESULTS_SETTING_KEY,
+      DEFAULT_MIN_COMP_RESULTS,
+    );
+    const result = await searchCompsWithLadder(
+      {
+        categoryId,
+        q,
+        brand,
+        size,
+        conditionId,
+        limit: Number.isFinite(limit) ? limit : undefined,
+      },
+      { minResults },
+    );
     return c.json(result);
   } catch (err) {
     console.error("[flipdesk-ebay] comps search failed:", err);

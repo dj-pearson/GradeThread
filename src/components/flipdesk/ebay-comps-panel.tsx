@@ -38,6 +38,14 @@ interface Props {
   onTargetPriceUpdated?: (value: number) => void;
 }
 
+// US-1060: human label for how broad the comp set is after the fallback ladder.
+const BREADTH_LABEL: Record<string, string> = {
+  exact: "Exact match",
+  broadened: "Broadened search",
+  brand_category: "Brand + category",
+  category: "Category only",
+};
+
 function fmt(value: number | null, currency: string): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-US", {
@@ -79,6 +87,10 @@ export function EbayCompsPanel({
 
   const stats = query.data?.stats;
   const comps = query.data?.items ?? [];
+  // US-1060: how broad the returned set is, and whether sold comps are merged in.
+  const breadth = query.data?.breadth ?? "exact";
+  const broadened = query.data?.broadened ?? false;
+  const soldEnabled = query.data?.soldEnabled ?? false;
 
   // The "recommended price" is the median, but we display it as a band
   // (p25..p75) so the user sees the realistic range, not a single point.
@@ -188,8 +200,16 @@ export function EbayCompsPanel({
             </div>
             <PriceBand stats={stats} />
             <div className="mt-3 flex items-center justify-between gap-2">
-              <div className="text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 {stats.count} of {query.data?.total ?? stats.count} active comps
+                {broadened && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500 text-[9px] font-normal text-amber-700 dark:text-amber-400"
+                  >
+                    {BREADTH_LABEL[breadth] ?? "Broadened search"}
+                  </Badge>
+                )}
               </div>
               <Button
                 variant="outline"
@@ -258,8 +278,15 @@ export function EbayCompsPanel({
                     <ExternalLink className="absolute right-1 top-1 h-3 w-3 text-white drop-shadow opacity-0 transition-opacity group-hover:opacity-100" />
                   </div>
                   <div className="p-2">
-                    <div className="text-sm font-semibold text-brand-navy dark:text-foreground">
-                      {fmt(c.price, c.currency)}
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-sm font-semibold text-brand-navy dark:text-foreground">
+                        {fmt(c.price, c.currency)}
+                      </div>
+                      {c.source === "sold" && (
+                        <Badge className="bg-emerald-600 text-[9px] font-normal text-white hover:bg-emerald-600">
+                          Sold
+                        </Badge>
+                      )}
                     </div>
                     <div className="line-clamp-2 text-[11px] leading-tight text-muted-foreground">
                       {c.title}
@@ -280,8 +307,18 @@ export function EbayCompsPanel({
         )}
 
         <p className="text-[11px] text-muted-foreground">
-          Active comps only. Sold-price comps unlock when eBay approves the
-          Marketplace Insights API (Week 3).
+          {soldEnabled ? (
+            <>
+              Sold-price comps (tagged <strong>Sold</strong>) are merged in from
+              eBay&apos;s Marketplace Insights. Active asking prices run higher
+              than realized sales.
+            </>
+          ) : (
+            <>
+              Active comps only. Sold-price comps unlock when eBay approves the
+              Marketplace Insights API.
+            </>
+          )}
         </p>
       </CardContent>
     </Card>

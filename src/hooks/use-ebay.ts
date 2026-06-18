@@ -435,6 +435,19 @@ export function useAiExtractAspects() {
 
 // ── Comps (Browse API) ──────────────────────────────────────────────
 
+// US-1060: how broad the returned comp set is after the fallback ladder.
+export type CompBreadth = "exact" | "broadened" | "brand_category" | "category";
+
+interface CompStats {
+  count: number;
+  currency: string;
+  min: number | null;
+  p25: number | null;
+  median: number | null;
+  p75: number | null;
+  max: number | null;
+}
+
 export interface EbayComp {
   itemId: string;
   title: string;
@@ -444,20 +457,22 @@ export interface EbayComp {
   itemWebUrl: string | null;
   condition: string | null;
   buyingOptions: string[];
+  // US-1060: "active" asking-price comp vs "sold" realized comp. Optional for
+  // backward-compatibility with any cached response shape.
+  source?: "active" | "sold";
 }
 
 export interface EbayCompsResponse {
   items: EbayComp[];
   total: number;
-  stats: {
-    count: number;
-    currency: string;
-    min: number | null;
-    p25: number | null;
-    median: number | null;
-    p75: number | null;
-    max: number | null;
-  };
+  stats: CompStats;
+  // US-1060: ladder metadata. Optional so the UI degrades gracefully if absent.
+  soldStats?: CompStats | null;
+  breadth?: CompBreadth;
+  broadened?: boolean;
+  minResults?: number;
+  soldEnabled?: boolean;
+  ladder?: Array<{ breadth: CompBreadth; count: number }>;
 }
 
 export interface EbayCompsArgs {
