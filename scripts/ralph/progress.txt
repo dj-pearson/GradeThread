@@ -3114,3 +3114,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  3:48:52 PM
 ---
+## US-1052: iOS: full-text search + advanced AND/OR filter parity
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  4:03:16 PM
+---

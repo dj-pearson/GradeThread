@@ -2280,7 +2280,7 @@
         "Builds via iOS CI (macOS runner) — not buildable on the Windows dev host."
       ],
       "priority": 1052,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. iOS files: ios/GradeThread/Inventory/{InventoryListView,InventoryFilterSheet,InventoryFilterCriteria,InventoryFacets,InventoryFilter,ActiveFilterBar}.swift. Today substring-only search + all-ANDed facets; no FTS, no OR. NOTE: per ralph-pending-frontier, iOS/Swift isn't verifiable on the Windows host — gate on iOS CI."
     },
     {
