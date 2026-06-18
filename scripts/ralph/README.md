@@ -38,14 +38,15 @@ Git Bash equivalents: `bash scripts/ralph/stop-ralph.sh`, `bash scripts/ralph/ki
 
 | Field | Effect |
 |---|---|
-| `"hard": true` | Run this story's iteration on Opus instead of the default model. |
+| `"hard": true` | Force this story's iteration onto `$HARD_MODEL` (Opus) — a no-op now the default is Opus, but still meaningful if you lower the default. |
 | `"model": "opus"\|"sonnet"\|"haiku"` | Exact model for this story (overrides `hard`). |
 | `"relevantPaths": ["src/…", "…"]` | File/glob hints the agent reads first instead of sweeping the tree. |
 
-Model tiering (default **Sonnet**, escalate to **Opus** only for `hard` stories)
-keeps the loop cheap while still giving hard stories the strong model. Env
+Model tiering (default **Opus**; a story can pin a cheaper `"model"` or escalate
+via `"hard"`) gives every story the strong model unless told otherwise. Env
 overrides: `RALPH_DEFAULT_MODEL`, `RALPH_HARD_MODEL`, and `RALPH_FORCE_MODEL`
-(forces one model for every story — handy for a one-off all-Opus sweep).
+(forces one model for every story — handy for a one-off all-Opus or all-Sonnet
+sweep; e.g. `RALPH_DEFAULT_MODEL=sonnet` to drop back to a cheaper default).
 `relevantPaths` can be hand-written or auto-generated — see
 [`../../docs/GRAPHIFY_PILOT.md`](../../docs/GRAPHIFY_PILOT.md).
 - **`scripts\ralph\start-loop.bat 200`** — same, but launches in a detached

@@ -124,14 +124,16 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "  Selected story: $STORY_ID — $STORY_TITLE"
 
   # --- Model tiering (#6) -------------------------------------------------
-  # Run the loop on a cheaper model by default and escalate to Opus only for
-  # stories the author flagged hard. A story may set its own model two ways:
-  #   "model": "opus"   -> exact model/alias passed to `claude --model`
-  #   "hard": true      -> escalate to $HARD_MODEL
+  # Run the loop on Opus by default; a story can still pin its own model. A
+  # story may set its own model two ways:
+  #   "model": "sonnet" -> exact model/alias passed to `claude --model`
+  #   "hard": true      -> escalate to $HARD_MODEL (already Opus by default)
   # Otherwise use $DEFAULT_MODEL. RALPH_FORCE_MODEL overrides everything (handy
   # for a one-off all-Opus or all-Sonnet sweep). Aliases (sonnet/opus) are used
   # rather than pinned ids so this keeps working as model versions roll forward.
-  DEFAULT_MODEL="${RALPH_DEFAULT_MODEL:-sonnet}"
+  # To go back to a cheaper default without editing this file, export
+  # RALPH_DEFAULT_MODEL=sonnet.
+  DEFAULT_MODEL="${RALPH_DEFAULT_MODEL:-opus}"
   HARD_MODEL="${RALPH_HARD_MODEL:-opus}"
   STORY_MODEL=$(echo "$STORY_JSON" | jq -r --arg d "$DEFAULT_MODEL" --arg h "$HARD_MODEL" \
     'if (.model // "") != "" then .model elif (.hard == true) then $h else $d end')

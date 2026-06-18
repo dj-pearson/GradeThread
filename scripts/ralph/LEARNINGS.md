@@ -45,7 +45,8 @@ memory — not a progress log (the harness records progress separately).
 - New stories use `prd.json.nextId` then bump it (NOT `max(id)+1` — done stories
   live in `prd.archive.json`, so that would reuse ids).
 - Optional per-story fields the harness understands:
-  - `"hard": true` → iteration runs on Opus instead of the default model.
+  - `"hard": true` → iteration runs on `$HARD_MODEL` (Opus). The default model
+    is now Opus too, so this is a no-op unless `RALPH_DEFAULT_MODEL` is lowered.
   - `"model": "opus"|"sonnet"|"haiku"` → exact model for that story (overrides
     `hard`). Env `RALPH_FORCE_MODEL` overrides all stories for a one-off sweep.
   - `"relevantPaths": ["src/...", "..."]` → file/glob hints the agent reads
