@@ -2782,6 +2782,120 @@ function percentile(sorted: number[], p: number): number | null {
   return sorted[lo]! * (1 - w) + sorted[hi]! * w;
 }
 
+// ── Comp keyword builder (US-1059) ──────────────────────────────────────────
+//
+// eBay Browse matches the `q` term against listing TITLE text, so feeding it a
+// raw garment title verbatim (full of size/color tokens, marketing fluff, and
+// stopwords) is over-specific and routinely returns zero comparable items. We
+// instead derive a tight keyword query: BRAND first (the single strongest comp
+// signal for clothing — and it must be in `q`, not only the aspect filter, so
+// it actually constrains the free-text search), then the meaningful title
+// tokens, with stopwords / size tokens / color tokens stripped and casing
+// normalized. Pure + exported so it is unit-tested without any eBay I/O.
+
+// Grammatical filler + listing-label noise. NOT gender words (men's/women's are
+// meaningful comp discriminators) — only tokens that add zero matching signal.
+const COMP_STOPWORDS = new Set<string>([
+  "a", "an", "the", "and", "or", "for", "with", "in", "of", "to", "by", "on",
+  "at", "from", "your", "this", "that",
+  "size", "sz", "new", "brand", "style", "item", "nwt", "nwot",
+]);
+
+// Common color words — noise for comp matching (a red vs blue shirt are still
+// comparable for pricing) and a frequent cause of zero-result over-filtering.
+const COMP_COLOR_TOKENS = new Set<string>([
+  "black", "white", "red", "blue", "green", "yellow", "orange", "purple",
+  "pink", "brown", "gray", "grey", "navy", "beige", "tan", "gold", "silver",
+  "maroon", "teal", "olive", "cream", "ivory", "khaki", "burgundy", "charcoal",
+  "mustard", "coral", "turquoise", "lavender", "multicolor", "multicolour",
+  "multi",
+]);
+
+// Standalone size words (letter sizes + spelled-out sizes + fit qualifiers).
+const COMP_SIZE_TOKENS = new Set<string>([
+  "xs", "s", "m", "l", "xl", "xxl", "xxxl", "xxxxl",
+  "2xl", "3xl", "4xl", "5xl",
+  "xsmall", "small", "medium", "large", "xlarge", "xxlarge",
+  "petite", "plus", "tall", "reg", "regular",
+]);
+
+// Lowercase a token and strip leading/trailing punctuation (keeps inner chars
+// like the `x` in 32x34 or the `.` in a model number). Returns "" if nothing
+// alphanumeric remains.
+function normalizeCompToken(raw: string): string {
+  return raw.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+}
+
+// Generic size patterns that aren't fixed words: waist×inseam (32x34), and
+// w/l-prefixed or -suffixed waist/length (w32, 32w, l34). Bare numbers are
+// deliberately NOT treated as sizes — they're often model identifiers (Levi's
+// 501, Air Max 90) whose removal would hurt matching.
+function isCompSizeToken(tok: string): boolean {
+  if (COMP_SIZE_TOKENS.has(tok)) return true;
+  if (/^\d{1,3}x\d{1,3}$/.test(tok)) return true;
+  if (/^[wl]\d{1,3}$/.test(tok)) return true;
+  if (/^\d{1,3}[wl]$/.test(tok)) return true;
+  return false;
+}
+
+export interface CompKeywordInput {
+  q?: string;
+  brand?: string;
+  size?: string;
+}
+
+/**
+ * Build a normalized keyword query for an eBay Browse comp search. Brand tokens
+ * lead, followed by the de-noised title tokens. Stopwords, color tokens, and
+ * size tokens (including the caller's explicit `size` value) are dropped, and
+ * tokens are deduped case-insensitively. Never returns "" when the caller gave
+ * any text: if every token was stripped it falls back to the raw query (then
+ * brand), so the search still runs instead of silently degrading.
+ */
+export function buildCompKeywords(input: CompKeywordInput): string {
+  const brand = (input.brand ?? "").trim();
+  const rawQ = (input.q ?? "").trim();
+
+  // The explicit size value's own tokens are stripped from the title too
+  // (e.g. size "X-Large" removes a stray "x-large" in the title).
+  const sizeValueTokens = new Set<string>(
+    (input.size ?? "")
+      .split(/\s+/)
+      .map(normalizeCompToken)
+      .filter(Boolean),
+  );
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (tok: string) => {
+    if (!tok || seen.has(tok)) return;
+    seen.add(tok);
+    out.push(tok);
+  };
+
+  // Brand first — strongest comp signal. May be multi-word ("Calvin Klein").
+  for (const raw of brand.split(/\s+/)) {
+    const tok = normalizeCompToken(raw);
+    if (tok && !COMP_STOPWORDS.has(tok)) push(tok);
+  }
+
+  for (const raw of rawQ.split(/\s+/)) {
+    const tok = normalizeCompToken(raw);
+    if (!tok) continue;
+    if (COMP_STOPWORDS.has(tok)) continue;
+    if (COMP_COLOR_TOKENS.has(tok)) continue;
+    if (isCompSizeToken(tok)) continue;
+    if (sizeValueTokens.has(tok)) continue;
+    push(tok);
+  }
+
+  const keywords = out.join(" ");
+  if (keywords) return keywords;
+  // Everything got stripped — keep searching rather than dropping to category.
+  if (rawQ) return rawQ.toLowerCase();
+  return brand.toLowerCase();
+}
+
 export async function searchBrowseComps(
   args: BrowseCompsArgs
 ): Promise<BrowseCompsResult> {
@@ -2798,10 +2912,23 @@ export async function searchBrowseComps(
 
   const params = new URLSearchParams();
   if (args.categoryId) params.set("category_ids", args.categoryId);
-  if (args.q && args.q.trim()) params.set("q", args.q.trim());
-  // gtin pins the exact product (barcode scan) — Browse accepts it alongside or
-  // instead of q/category.
-  if (args.gtin && args.gtin.trim()) params.set("gtin", args.gtin.trim());
+  const gtin = args.gtin?.trim();
+  if (gtin) {
+    // Barcode pins the EXACT product — the strongest possible match. Let it
+    // dominate; don't also constrain by free-text keywords (would over-filter
+    // the exact-product result set down toward zero). Category/condition/price
+    // filters below still apply.
+    params.set("gtin", gtin);
+  } else {
+    // US-1059: de-noised, brand-led keyword query (see buildCompKeywords) rather
+    // than the raw title — the raw title is over-specific and returns no comps.
+    const keywords = buildCompKeywords({
+      q: args.q,
+      brand: args.brand,
+      size: args.size,
+    });
+    if (keywords) params.set("q", keywords);
+  }
   params.set("filter", filters.join(","));
   // aspect_filter requires a categoryId scope; only emit it when present.
   if (args.categoryId && aspectFilters.length > 0) {
@@ -2811,7 +2938,9 @@ export async function searchBrowseComps(
     );
   }
   params.set("limit", String(Math.min(Math.max(args.limit ?? 12, 1), 50)));
-  params.set("sort", "newlyListed");
+  // US-1059: default to eBay Best Match (relevance), which is what Browse uses
+  // when `sort` is OMITTED. The old hardcoded "newlyListed" surfaced the newest
+  // — not the most comparable — listings. Leaving sort unset = relevance.
 
   const url = `${apiHost()}/buy/browse/v1/item_summary/search?${params.toString()}`;
   const res = await ebayFetch(url, {
