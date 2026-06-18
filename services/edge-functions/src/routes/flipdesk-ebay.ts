@@ -155,11 +155,18 @@ import {
 } from "../lib/ebay-postorder.ts";
 import {
   acceptPaymentDispute,
+  addDisputeEvidence,
   contestPaymentDispute,
   disputeOutcomeToSaleStatus,
   getPaymentDispute,
+  getPaymentDisputeActivity,
+  isDisputeActionable,
+  type PaymentDisputeDetail,
   searchPaymentDisputes,
+  uploadDisputeEvidenceFile,
 } from "../lib/ebay-disputes.ts";
+import { validateImageUpload } from "../lib/upload-validation.ts";
+import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushTokenExpiring } from "../lib/transactional-push.ts";
 import {
@@ -3125,6 +3132,25 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/accept", async (c) => {
   } catch {
     body = {};
   }
+  // Idempotent: if the dispute is already resolved, don't re-POST to eBay.
+  try {
+    const detail = await getPaymentDispute(ownerId, disputeId);
+    if (!isDisputeActionable(detail.status)) {
+      await writeAuditLog(c, {
+        action: "ebay.dispute.accept",
+        targetType: "ebay_payment_dispute",
+        targetId: disputeId,
+        details: { already_resolved: true, status: detail.status },
+      });
+      return c.json({ ok: true, alreadyResolved: true });
+    }
+  } catch (err) {
+    // Couldn't read the dispute — fall through and let the action attempt.
+    console.warn(
+      "[ebay.disputes.accept] status pre-check failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
   try {
     await acceptPaymentDispute(ownerId, disputeId);
   } catch (err) {
@@ -3161,6 +3187,24 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/contest", async (c) => {
     body = {};
   }
   const note = typeof body.note === "string" ? body.note : undefined;
+  // Idempotent: skip the eBay POST if the dispute is already resolved.
+  try {
+    const detail = await getPaymentDispute(ownerId, disputeId);
+    if (!isDisputeActionable(detail.status)) {
+      await writeAuditLog(c, {
+        action: "ebay.dispute.contest",
+        targetType: "ebay_payment_dispute",
+        targetId: disputeId,
+        details: { already_resolved: true, status: detail.status },
+      });
+      return c.json({ ok: true, alreadyResolved: true });
+    }
+  } catch (err) {
+    console.warn(
+      "[ebay.disputes.contest] status pre-check failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
   try {
     await contestPaymentDispute(ownerId, disputeId, note);
   } catch (err) {
@@ -3173,6 +3217,95 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/contest", async (c) => {
     details: { order_id: body.order_id ?? null, has_note: !!note },
   });
   return c.json({ ok: true });
+});
+
+// Dispute activity timeline (read-only). Tenant-scoped via the owner's token.
+flipdeskEbayRoutes.get("/payment-disputes/:id/activity", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    return c.json({
+      activity: await getPaymentDisputeActivity(ownerId, c.req.param("id")),
+    });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't load the dispute activity.", err, "ebay.disputes.activity");
+  }
+});
+
+// Upload a supporting-evidence image and attach it to the dispute. Multipart:
+// field `file` (image) + optional `evidence_type`. The line items + default
+// evidence type are derived from the live dispute (eBay requires lineItems on
+// add_evidence). Tenant-scoped: the dispute is read/written with the owner's
+// own eBay token, so there is no cross-tenant surface.
+flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const disputeId = c.req.param("id");
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json({ error: "Invalid form data. Expected multipart/form-data." }, 400);
+  }
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return c.json({ error: "Missing evidence file." }, 400);
+  }
+
+  const rawBytes = new Uint8Array(await file.arrayBuffer());
+  // Sniff the magic bytes (don't trust the client MIME) and strip EXIF/GPS
+  // before forwarding the buyer-facing image to eBay.
+  const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png"] });
+  if (!verdict.ok) {
+    return c.json({ error: `Invalid image: ${verdict.reason}` }, 400);
+  }
+  const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
+
+  let detail: PaymentDisputeDetail;
+  try {
+    detail = await getPaymentDispute(ownerId, disputeId);
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't load the payment dispute.", err, "ebay.disputes.evidence.detail");
+  }
+  const request0 = detail.evidenceRequests[0];
+  const evidenceType = (form.get("evidence_type") as string | null)?.trim() ||
+    request0?.requestType || "PROOF_OF_DELIVERY";
+  const lineItems = request0?.lineItems.length
+    ? request0.lineItems
+    : detail.lineItems;
+  if (lineItems.length === 0) {
+    return c.json(
+      { error: "eBay has no line items on this dispute to attach evidence to." },
+      422,
+    );
+  }
+
+  try {
+    const fileId = await uploadDisputeEvidenceFile(ownerId, disputeId, {
+      bytes: cleanBytes,
+      filename: file.name || `evidence.${verdict.ext}`,
+      contentType: verdict.contentType,
+    });
+    const evidenceId = await addDisputeEvidence(ownerId, disputeId, {
+      evidenceType,
+      fileIds: [fileId],
+      lineItems,
+    });
+    await writeAuditLog(c, {
+      action: "ebay.dispute.evidence",
+      targetType: "ebay_payment_dispute",
+      targetId: disputeId,
+      details: { evidence_type: evidenceType, evidence_id: evidenceId },
+    });
+    return c.json({ ok: true, evidenceId });
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the evidence upload.", err, "ebay.disputes.evidence");
+  }
 });
 
 // ── Publish flow (Week 3) ──────────────────────────────────────────

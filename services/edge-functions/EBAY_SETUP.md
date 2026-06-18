@@ -219,9 +219,17 @@ The defaults in `ebay-client.ts:getScopes()` are:
 | `https://api.ebay.com/oauth/api_scope/sell.inventory`            | Creating inventory items, offers, and listings.    |
 | `https://api.ebay.com/oauth/api_scope/sell.marketing`            | Promoting listings (Promoted Listings — Week 3+).  |
 | `https://api.ebay.com/oauth/api_scope/sell.account`              | Reading business policies (shipping/return/payment) needed to publish an offer. |
+| `https://api.ebay.com/oauth/api_scope/sell.fulfillment`          | Orders, returns/cancellations, and **payment disputes** (accept/contest/evidence — US-1049). |
 
 Override via `EBAY_SCOPES` (space-separated) if you need to add or
 remove any. Reducing scopes means re-consenting the user.
+
+**Payment disputes (US-1049):** the Fulfillment Payment Disputes API
+(`/sell/fulfillment/v1/payment_dispute*`) is covered by the existing
+`sell.fulfillment` scope — no new scope is needed. If eBay ever returns an
+insufficient-scope error there, add
+`https://api.ebay.com/oauth/api_scope/sell.payment.dispute` to `EBAY_SCOPES`
+and have every connected seller re-consent (the OAuth grant is per-scope).
 
 ---
 

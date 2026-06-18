@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -6,6 +6,7 @@ import {
   Check,
   Loader2,
   PackageX,
+  Paperclip,
   RotateCcw,
   ShieldAlert,
   X,
@@ -18,6 +19,7 @@ import {
   useEbayCancellations,
   useEbayConnection,
   useEbayDecideCancellation,
+  useEbayAddDisputeEvidence,
   useEbayDecideReturn,
   useEbayPaymentDisputes,
   useEbayRefundReturn,
@@ -178,6 +180,7 @@ function DisputesCard() {
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">
+                  <EvidenceUploader disputeId={d.paymentDisputeId} disabled={!!busy} />
                   <Button
                     size="sm"
                     variant="outline"
@@ -211,6 +214,56 @@ function DisputesCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// Uploads a supporting-evidence image (e.g. a delivery scan) and attaches it to
+// the dispute on eBay. The seller can attach evidence and then Contest.
+function EvidenceUploader({
+  disputeId,
+  disabled,
+}: {
+  disputeId: string;
+  disabled?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const addEvidence = useEbayAddDisputeEvidence();
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    try {
+      await addEvidence.mutateAsync({ disputeId, file });
+      toast.success("Evidence uploaded to eBay.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Evidence upload failed.");
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png"
+        className="hidden"
+        onChange={onPick}
+      />
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={disabled || addEvidence.isPending}
+        onClick={() => inputRef.current?.click()}
+      >
+        {addEvidence.isPending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Paperclip className="mr-1 h-4 w-4" />
+        )}
+        Evidence
+      </Button>
+    </>
   );
 }
 

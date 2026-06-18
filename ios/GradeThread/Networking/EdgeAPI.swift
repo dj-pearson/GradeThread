@@ -71,6 +71,71 @@ public actor EdgeAPI {
         try await perform(method: "DELETE", path: path, body: Optional<Empty>.none)
     }
 
+    /// POSTs a single image part (plus optional string fields) as
+    /// `multipart/form-data`. Used for eBay payment-dispute evidence uploads
+    /// (US-1049). Not retried — uploads aren't idempotent.
+    public func postMultipartImage<Response: Decodable>(
+        _ path: String,
+        fieldName: String,
+        fileName: String,
+        mimeType: String,
+        data: Data,
+        fields: [String: String] = [:]
+    ) async throws -> Response {
+        let url = try resolve(path: path, query: [])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = await tokenProvider() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let workspaceOwner = WorkspaceScope.activeOwnerId {
+            request.setValue(workspaceOwner, forHTTPHeaderField: "X-Workspace-Owner")
+        }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+
+        var body = Data()
+        func append(_ string: String) {
+            body.append(Data(string.utf8))
+        }
+        for (key, value) in fields {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
+            append("\(value)\r\n")
+        }
+        append("--\(boundary)\r\n")
+        append(
+            "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(fileName)\"\r\n"
+        )
+        append("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(data)
+        append("\r\n")
+        append("--\(boundary)--\r\n")
+
+        let (respData, response): (Data, URLResponse)
+        do {
+            (respData, response) = try await session.upload(for: request, from: body)
+        } catch {
+            throw EdgeAPIError.network(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw EdgeAPIError.network("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw EdgeAPIError.from(statusCode: http.statusCode, body: respData)
+        }
+        do {
+            return try decoder.decode(Response.self, from: respData)
+        } catch {
+            throw EdgeAPIError.decoding(error.localizedDescription)
+        }
+    }
+
     // MARK: - Internals
 
     private struct Empty: Encodable {}

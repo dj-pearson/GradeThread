@@ -11,6 +11,7 @@ protocol PostSaleProviding {
     func decideCancellation(cancelId: String, action: String, orderId: String?) async throws
     func disputes() async throws -> [EbayPaymentDispute]
     func resolveDispute(disputeId: String, action: String, note: String?, orderId: String?) async throws
+    func addDisputeEvidence(disputeId: String, imageData: Data, fileName: String, evidenceType: String?) async throws
 }
 
 struct PostSaleService: PostSaleProviding {
@@ -63,6 +64,22 @@ struct PostSaleService: PostSaleProviding {
         let _: OKResponse = try await EdgeAPI.shared.postJSON(
             "/api/flipdesk/ebay/payment-disputes/\(disputeId)/\(action)",
             body: Body(note: note, orderId: orderId)
+        )
+    }
+
+    func addDisputeEvidence(
+        disputeId: String, imageData: Data, fileName: String, evidenceType: String?
+    ) async throws {
+        struct EvidenceResponse: Decodable { let ok: Bool?; let evidenceId: String? }
+        var fields: [String: String] = [:]
+        if let evidenceType { fields["evidence_type"] = evidenceType }
+        let _: EvidenceResponse = try await EdgeAPI.shared.postMultipartImage(
+            "/api/flipdesk/ebay/payment-disputes/\(disputeId)/evidence",
+            fieldName: "file",
+            fileName: fileName,
+            mimeType: "image/jpeg",
+            data: imageData,
+            fields: fields
         )
     }
 }

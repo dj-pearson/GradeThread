@@ -1501,6 +1501,32 @@ export function useEbayResolveDispute() {
   });
 }
 
+// Uploads a supporting-evidence image and attaches it to the dispute. Sent as
+// multipart/form-data, so we drop the JSON Content-Type and let the browser set
+// the multipart boundary.
+export function useEbayAddDisputeEvidence() {
+  return useMutation<
+    { ok: true; evidenceId: string | null },
+    Error,
+    { disputeId: string; file: File; evidenceType?: string }
+  >({
+    mutationFn: async ({ disputeId, file, evidenceType }) => {
+      const headers = await ebayHeaders();
+      delete headers["Content-Type"];
+      const form = new FormData();
+      form.append("file", file);
+      if (evidenceType) form.append("evidence_type", evidenceType);
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/payment-disputes/${encodeURIComponent(disputeId)}/evidence`,
+        { method: "POST", headers, body: form },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Evidence upload failed.");
+      return json;
+    },
+  });
+}
+
 // ── Promoted Listings + Sale events (US-1044 / US-1045) ─────────────
 
 export interface EbayPromotion {

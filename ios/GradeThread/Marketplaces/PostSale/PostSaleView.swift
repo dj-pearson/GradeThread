@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 /// eBay returns, cancellations, and payment disputes (US-1043 / US-1049). A
 /// segmented picker switches between the three; each item has its decision
@@ -7,6 +9,8 @@ struct PostSaleView: View {
     @State private var store = PostSaleStore()
     @State private var tab: Tab = .disputes
     @State private var contesting: EbayPaymentDispute?
+    @State private var evidenceTarget: EbayPaymentDispute?
+    @State private var showingEvidencePicker = false
 
     enum Tab: String, CaseIterable, Identifiable {
         case disputes = "Disputes"
@@ -35,6 +39,11 @@ struct PostSaleView: View {
         .sheet(item: $contesting) { dispute in
             ContestSheet(dispute: dispute) { note in
                 Task { await store.contestDispute(dispute, note: note) }
+            }
+        }
+        .sheet(isPresented: $showingEvidencePicker) {
+            PhotoLibraryPicker(selectionLimit: 1) { results in
+                handleEvidencePick(results)
             }
         }
         .alert("Something went wrong", isPresented: Binding(
@@ -95,6 +104,11 @@ struct PostSaleView: View {
                 Text("Order \(d.orderId ?? "—") · \(buyer)").font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 10) {
+                Button("Evidence") {
+                    evidenceTarget = d
+                    showingEvidencePicker = true
+                }
+                .buttonStyle(.bordered)
                 Button("Contest") { contesting = d }
                     .buttonStyle(.bordered)
                 Button("Accept & refund", role: .destructive) { Task { await store.acceptDispute(d) } }
@@ -183,6 +197,25 @@ struct PostSaleView: View {
             .padding(.top, 2)
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: - Evidence
+
+    /// Loads the picked photo, re-encodes as JPEG, and uploads it to eBay as
+    /// dispute evidence. The contest action is separate — evidence can be
+    /// attached first, then the dispute contested.
+    private func handleEvidencePick(_ results: [PHPickerResult]) {
+        showingEvidencePicker = false
+        guard let target = evidenceTarget, let result = results.first else { return }
+        Task {
+            guard let image = await result.loadImage(),
+                  let data = image.jpegData(compressionQuality: 0.8) else {
+                store.actionError = "Couldn't read the selected photo."
+                return
+            }
+            await store.uploadDisputeEvidence(target, imageData: data)
+            evidenceTarget = nil
+        }
     }
 
     // MARK: - Helpers

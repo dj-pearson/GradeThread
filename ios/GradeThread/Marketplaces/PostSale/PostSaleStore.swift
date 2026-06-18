@@ -120,4 +120,21 @@ final class PostSaleStore {
             actionError = error.localizedDescription
         }
     }
+
+    /// Uploads a supporting-evidence image (e.g. a delivery scan) to eBay and
+    /// attaches it to the dispute. The seller can attach evidence and then
+    /// contest.
+    func uploadDisputeEvidence(_ d: EbayPaymentDispute, imageData: Data) async {
+        do {
+            try await service.addDisputeEvidence(
+                disputeId: d.paymentDisputeId,
+                imageData: imageData,
+                fileName: "evidence.jpg",
+                evidenceType: nil
+            )
+            actionBanner = "Evidence uploaded to eBay."
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
 }

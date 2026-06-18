@@ -146,15 +146,119 @@ export async function searchPaymentDisputes(
   }
 }
 
+// ── Detail (line items + evidence requests) ─────────────────────────
+//
+// The dispute DETAIL response carries the line items and any open evidence
+// requests; add_evidence requires the lineItems, so we surface them here.
+
+export interface DisputeLineItem {
+  itemId: string;
+  lineItemId: string;
+}
+
+export interface DisputeEvidenceRequest {
+  evidenceId: string | null;
+  requestType: string | null; // e.g. PROOF_OF_DELIVERY, SHIPPING_LABEL
+  respondByDate: string | null;
+  lineItems: DisputeLineItem[];
+}
+
+export interface PaymentDisputeDetail extends PaymentDisputeSummary {
+  lineItems: DisputeLineItem[];
+  evidenceRequests: DisputeEvidenceRequest[];
+}
+
+interface RawLineItem {
+  itemId?: string;
+  lineItemId?: string;
+}
+
+interface RawEvidenceRequest {
+  evidenceId?: string;
+  requestType?: string;
+  respondByDate?: string;
+  lineItems?: RawLineItem[];
+}
+
+interface RawDisputeDetail extends RawDispute {
+  lineItems?: RawLineItem[];
+  evidenceRequests?: RawEvidenceRequest[];
+}
+
+// Keep only line items eBay can act on (both ids present). Pure.
+function normalizeLineItems(raw: RawLineItem[] | undefined): DisputeLineItem[] {
+  return (raw ?? [])
+    .filter(
+      (li): li is { itemId: string; lineItemId: string } =>
+        typeof li.itemId === "string" && typeof li.lineItemId === "string",
+    )
+    .map((li) => ({ itemId: li.itemId, lineItemId: li.lineItemId }));
+}
+
+// Flatten the dispute DETAIL shape (superset of the summary). Pure.
+export function normalizePaymentDisputeDetail(
+  raw: RawDisputeDetail,
+): PaymentDisputeDetail {
+  return {
+    ...normalizePaymentDispute(raw),
+    lineItems: normalizeLineItems(raw.lineItems),
+    evidenceRequests: (raw.evidenceRequests ?? []).map((er) => ({
+      evidenceId: er.evidenceId ?? null,
+      requestType: er.requestType ?? null,
+      respondByDate: er.respondByDate ?? null,
+      lineItems: normalizeLineItems(er.lineItems),
+    })),
+  };
+}
+
 export async function getPaymentDispute(
   userId: string,
   disputeId: string,
-): Promise<PaymentDisputeSummary> {
-  const data = await disputeFetch<RawDispute>(
+): Promise<PaymentDisputeDetail> {
+  const data = await disputeFetch<RawDisputeDetail>(
     userId,
     `/sell/fulfillment/v1/payment_dispute/${encodeURIComponent(disputeId)}`,
   );
-  return normalizePaymentDispute(data);
+  return normalizePaymentDisputeDetail(data);
+}
+
+// ── Activity (timeline) ─────────────────────────────────────────────
+
+export interface DisputeActivity {
+  type: string | null; // activityType — e.g. SELLER_RESPONSE, BUYER_OPENED
+  date: string | null;
+  by: string | null; // who triggered it (BUYER / SELLER / EBAY)
+  note: string | null;
+}
+
+interface RawActivity {
+  activityType?: string;
+  activityDate?: string;
+  by?: string;
+  note?: string;
+}
+
+// Flatten the activity response. Pure.
+export function normalizeDisputeActivity(
+  raw: { activity?: RawActivity[] },
+): DisputeActivity[] {
+  return (raw.activity ?? []).map((a) => ({
+    type: a.activityType ?? null,
+    date: a.activityDate ?? null,
+    by: a.by ?? null,
+    note: a.note ?? null,
+  }));
+}
+
+export async function getPaymentDisputeActivity(
+  userId: string,
+  disputeId: string,
+): Promise<DisputeActivity[]> {
+  const data = await disputeFetch<{ activity?: RawActivity[] }>(
+    userId,
+    `/sell/fulfillment/v1/payment_dispute/${encodeURIComponent(disputeId)}/activity`,
+  );
+  return normalizeDisputeActivity(data);
 }
 
 // ── Decisions ───────────────────────────────────────────────────────
@@ -185,6 +289,111 @@ export async function contestPaymentDispute(
     `/sell/fulfillment/v1/payment_dispute/${encodeURIComponent(disputeId)}/contest`,
     { method: "POST", body: JSON.stringify(body) },
   );
+}
+
+// ── Evidence (upload file → add evidence) ───────────────────────────
+//
+// Contesting with proof is a two-step eBay flow: upload each file (multipart →
+// returns a fileId), then add_evidence references those fileIds + the disputed
+// line items. The multipart call must NOT carry a JSON Content-Type, so it
+// bypasses disputeFetch.
+
+export async function uploadDisputeEvidenceFile(
+  userId: string,
+  disputeId: string,
+  file: { bytes: Uint8Array; filename: string; contentType: string },
+): Promise<string> {
+  const token = await getUserAccessToken(userId);
+  const form = new FormData();
+  // Cast: Deno's DOM lib types BlobPart as ArrayBuffer-backed, but a
+  // Uint8Array<ArrayBufferLike> is a valid blob part at runtime.
+  const blob = new Blob([file.bytes as BlobPart], { type: file.contentType });
+  form.append("file", blob, file.filename);
+  const res = await fetchWithTimeout(
+    `${apiHost()}/sell/fulfillment/v1/payment_dispute/${
+      encodeURIComponent(disputeId)
+    }/upload_evidence_file`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+        // NOTE: no Content-Type — fetch sets the multipart boundary itself.
+      },
+      body: form,
+    },
+    EBAY_TIMEOUT_MS,
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    const err = new Error(
+      `eBay PaymentDispute upload_evidence_file failed (${res.status}): ${
+        text.slice(0, 400)
+      }`,
+    ) as DisputeError;
+    err.status = res.status;
+    throw err;
+  }
+  const body = (await res.json().catch(() => ({}))) as { fileId?: string };
+  if (!body.fileId) {
+    throw new Error("eBay did not return a fileId for the uploaded evidence.");
+  }
+  return body.fileId;
+}
+
+export interface AddEvidencePayload {
+  evidenceType: string; // e.g. PROOF_OF_DELIVERY
+  fileIds: string[];
+  lineItems: DisputeLineItem[];
+}
+
+// Pure builder for the add_evidence request body. Exported for testing.
+export function buildAddEvidenceBody(payload: AddEvidencePayload): {
+  evidenceType: string;
+  files: Array<{ fileId: string }>;
+  lineItems: DisputeLineItem[];
+} {
+  return {
+    evidenceType: payload.evidenceType,
+    files: payload.fileIds.map((fileId) => ({ fileId })),
+    lineItems: payload.lineItems,
+  };
+}
+
+// Associates uploaded files with the dispute as a piece of evidence. Returns
+// the new evidenceId (eBay echoes it back), or null when eBay omits it.
+export async function addDisputeEvidence(
+  userId: string,
+  disputeId: string,
+  payload: AddEvidencePayload,
+): Promise<string | null> {
+  const data = await disputeFetch<{ evidenceId?: string }>(
+    userId,
+    `/sell/fulfillment/v1/payment_dispute/${
+      encodeURIComponent(disputeId)
+    }/add_evidence`,
+    { method: "POST", body: JSON.stringify(buildAddEvidenceBody(payload)) },
+  );
+  return data.evidenceId ?? null;
+}
+
+// ── Idempotency ─────────────────────────────────────────────────────
+
+// Terminal statuses where accept/contest are no longer possible. Anything else
+// (including unknown values) we let eBay decide on, so we only short-circuit
+// when the dispute is clearly already resolved. Pure.
+const RESOLVED_STATUSES = new Set([
+  "CLOSED",
+  "RESOLVED",
+  "DISPUTE_CLOSED",
+]);
+
+export function isDisputeActionable(
+  status: string | null | undefined,
+): boolean {
+  if (!status) return true;
+  return !RESOLVED_STATUSES.has(status.toUpperCase());
 }
 
 // ── Local-state mapping (pure) ──────────────────────────────────────
