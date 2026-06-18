@@ -27,6 +27,7 @@ import { maybeQualifyReferral } from "../lib/referrals.ts";
 import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
+import { applySesFeedback } from "../lib/email-suppression.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -120,6 +121,77 @@ webhookRoutes.post("/stripe", async (c) => {
   }
 
   return c.json({ received: true });
+});
+
+// ── Amazon SES bounce/complaint feedback via SNS (US-1057) ───────────
+//
+// SES publishes bounce/complaint notifications to an SNS topic that posts here.
+// A HARD bounce (bounceType=Permanent) or a complaint adds the recipient to the
+// suppression list, which email.ts checks before every send (protecting SES
+// sender reputation). The endpoint handles the SNS subscription handshake and
+// the notification envelope (Message is a JSON string carrying the SES payload).
+//
+// Optional hardening: set SES_SNS_TOPIC_ARN to the feedback topic's ARN and only
+// matching messages are honored (cheap defense against forged suppression posts;
+// full SNS signature verification can layer on later). Always returns 2xx so SNS
+// doesn't storm retries for a payload we deliberately ignore.
+webhookRoutes.post("/ses", async (c) => {
+  let envelope: Record<string, unknown>;
+  try {
+    envelope = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  // If configured, reject envelopes that don't come from the expected topic.
+  const expectedArn = Deno.env.get("SES_SNS_TOPIC_ARN")?.trim();
+  if (expectedArn && envelope.TopicArn !== expectedArn) {
+    console.warn(`[Webhook] SES/SNS message from unexpected TopicArn=${String(envelope.TopicArn ?? "?")}`);
+    return c.json({ received: true, ignored: true });
+  }
+
+  const snsType =
+    c.req.header("x-amz-sns-message-type") ?? (envelope.Type as string | undefined);
+
+  // SNS subscription handshake: confirm the subscription by fetching SubscribeURL.
+  if (snsType === "SubscriptionConfirmation") {
+    const subscribeUrl = envelope.SubscribeURL as string | undefined;
+    if (subscribeUrl) {
+      try {
+        await fetch(subscribeUrl);
+      } catch (err) {
+        captureException(err, { route: "webhook.ses.confirm" });
+      }
+    }
+    return c.json({ received: true, confirmed: !!subscribeUrl });
+  }
+
+  if (snsType === "UnsubscribeConfirmation") {
+    return c.json({ received: true });
+  }
+
+  // Notification: SES payload lives in the JSON-string `Message` field. Some
+  // setups deliver the SES notification at the top level — fall back to that.
+  let message: unknown = envelope.Message;
+  if (typeof message === "string") {
+    try {
+      message = JSON.parse(message);
+    } catch {
+      message = undefined;
+    }
+  }
+
+  let suppressed: string[] = [];
+  try {
+    suppressed = await applySesFeedback(message ?? envelope);
+  } catch (err) {
+    captureException(err, { route: "webhook.ses.feedback" });
+  }
+  if (suppressed.length > 0) {
+    recordMetric("email.sns_suppressed", suppressed.length);
+    console.log(`[Webhook] SES feedback suppressed ${suppressed.length} recipient(s)`);
+  }
+  return c.json({ received: true, suppressed: suppressed.length });
 });
 
 // The Stripe event → handler routing, extracted from the route so the unified

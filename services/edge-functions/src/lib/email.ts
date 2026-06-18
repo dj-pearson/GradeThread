@@ -13,6 +13,7 @@ import { SMTPClient } from "denomailer";
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
+import { isEmailSuppressed } from "./email-suppression.ts";
 
 const BRAND_NAVY = "#0F3460";
 const BRAND_RED = "#E94560";
@@ -85,6 +86,19 @@ async function sendEmail(options: EmailOptions): Promise<boolean> {
 // failure to the error tracker). Exported so the retry cron can re-attempt a
 // persisted message WITHOUT re-enqueuing it (the cron owns the outbox row).
 export async function deliverEmail(options: EmailOptions): Promise<boolean> {
+  // US-1057: never send to a hard-bounced or complained address — sending to
+  // known-bad recipients is the fastest way to wreck SES sender reputation. A
+  // suppressed recipient is a TERMINAL no-op, not a transient failure: return
+  // `true` so neither the live enqueue (sendEmail) nor the retry cron treats it
+  // as a failure worth retrying. (isEmailSuppressed fails OPEN on a DB error.)
+  if (await isEmailSuppressed(options.to)) {
+    console.warn(
+      `[Email] Recipient is suppressed (bounce/complaint) — skipping send (category=${options.category ?? "uncategorized"})`,
+    );
+    recordMetric("email.suppressed_skip", 1, { category: options.category ?? "uncategorized" });
+    return true;
+  }
+
   const host = Deno.env.get("SMTP_HOST");
   const port = Number(Deno.env.get("SMTP_PORT") ?? "587") || 587;
   const user = Deno.env.get("SMTP_USER");
