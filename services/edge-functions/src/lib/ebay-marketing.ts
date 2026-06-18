@@ -611,6 +611,24 @@ export async function createMarkdownSale(
   return respBody?.promotionId ?? promotionIdFromLocation(location);
 }
 
+// Update an existing markdown Sale in place (e.g. deepen the discount or change
+// the end date). eBay's PUT replaces the whole promotion, so we rebuild the body
+// from the input — the promotion id stays in the URL, so watchers keep the same
+// Sale rather than seeing it end + restart.
+export async function updateMarkdownSale(
+  userId: string,
+  promotionId: string,
+  args: MarkdownSaleInput,
+): Promise<void> {
+  await marketingFetch<unknown>(
+    userId,
+    `/sell/marketing/v1/item_price_markdown_promotion/${
+      encodeURIComponent(promotionId)
+    }`,
+    { method: "PUT", body: JSON.stringify(buildMarkdownPromotionBody(args)) },
+  );
+}
+
 // End (delete) a markdown Sale — restores the listing's original price.
 export async function endMarkdownSale(
   userId: string,

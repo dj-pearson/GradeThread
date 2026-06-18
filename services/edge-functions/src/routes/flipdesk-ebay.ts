@@ -197,6 +197,7 @@ import {
   resolvePublishAdRate,
   suggestedAdRateForCategory,
   syncPromotedListingsForOwner,
+  updateMarkdownSale,
   updateAdRateForListing,
 } from "../lib/ebay-marketing.ts";
 
@@ -3525,25 +3526,44 @@ flipdeskEbayRoutes.post("/listings/:id/sale", async (c) => {
     );
   }
 
-  let promotionId: string | null;
-  try {
-    promotionId = await createMarkdownSale(userId, {
-      ebayListingId: row.listing.platform_listing_id,
-      percentOff,
-      endDate,
-    });
-  } catch (err) {
-    return failSafe(c, 502, "eBay rejected the Sale event.", err, "ebay.markdown.create");
-  }
-
+  // If a Sale already exists on this listing, update it in place (PUT) so we
+  // don't orphan the old promotion on eBay and watchers keep the same Sale;
+  // otherwise create a fresh one.
   const { data: cur } = await supabaseAdmin
     .from("listings")
     .select("platform_fields")
     .eq("id", listingId)
     .maybeSingle();
+  const existingPf =
+    ((cur as { platform_fields?: Record<string, unknown> } | null)
+      ?.platform_fields) ?? {};
+  const existingPromotionId =
+    typeof existingPf.markdown_promotion_id === "string"
+      ? existingPf.markdown_promotion_id
+      : null;
+
+  let promotionId: string | null;
+  try {
+    if (existingPromotionId) {
+      await updateMarkdownSale(userId, existingPromotionId, {
+        ebayListingId: row.listing.platform_listing_id,
+        percentOff,
+        endDate,
+      });
+      promotionId = existingPromotionId;
+    } else {
+      promotionId = await createMarkdownSale(userId, {
+        ebayListingId: row.listing.platform_listing_id,
+        percentOff,
+        endDate,
+      });
+    }
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the Sale event.", err, "ebay.markdown.create");
+  }
+
   const pf = {
-    ...(((cur as { platform_fields?: Record<string, unknown> } | null)
-      ?.platform_fields) ?? {}),
+    ...existingPf,
     markdown_promotion_id: promotionId,
     markdown_pct: clampMarkdownPct(percentOff),
   };
@@ -3553,12 +3573,17 @@ flipdeskEbayRoutes.post("/listings/:id/sale", async (c) => {
     .eq("id", listingId);
 
   await writeAuditLog(c, {
-    action: "ebay.markdown.start",
+    action: existingPromotionId ? "ebay.markdown.update" : "ebay.markdown.start",
     targetType: "listing",
     targetId: listingId,
     details: { promotion_id: promotionId, percent_off: percentOff },
   });
-  return c.json({ ok: true, listing_id: listingId, promotion_id: promotionId });
+  return c.json({
+    ok: true,
+    listing_id: listingId,
+    promotion_id: promotionId,
+    updated: Boolean(existingPromotionId),
+  });
 });
 
 flipdeskEbayRoutes.delete("/listings/:id/sale", async (c) => {
