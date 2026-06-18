@@ -1221,6 +1221,9 @@ async function doListingsPull(
     batch_id: string | null;
     synced_to_ebay_at: string | null;
     platform_fields: Record<string, unknown> | null;
+    // US-1077: persisted provenance marker. Preserved on matched rows so a pull
+    // can't relabel a GradeThread-originated listing as eBay-originated.
+    listing_origin: string | null;
   };
   // Every column the offers/legacy passes may write to `listings`. Building a
   // FULL row for every insert AND edit (seeded from the pre-loaded snapshot,
@@ -1242,6 +1245,9 @@ async function doListingsPull(
     listing_description: string | null;
     platform_category_id: string | null;
     listing_title: string | null;
+    // US-1077: stamped on every flushed row — 'ebay' for new imports, preserved
+    // for matched rows (a GradeThread-originated listing stays 'gradethread').
+    listing_origin: "ebay" | "gradethread";
   };
   type OrphanWrite = {
     user_id: string;
@@ -1277,7 +1283,7 @@ async function doListingsPull(
     const { data: rows } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, batch_id, synced_to_ebay_at, platform_fields, created_at, inventory_items!inner(user_id)",
+        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, batch_id, synced_to_ebay_at, platform_fields, listing_origin, created_at, inventory_items!inner(user_id)",
       )
       .eq("platform", "ebay")
       .eq("inventory_items.user_id", userId)
@@ -1324,6 +1330,15 @@ async function doListingsPull(
           listing_description: ex.listing_description ?? null,
           platform_category_id: ex.platform_category_id ?? null,
           listing_title: ex.listing_title ?? null,
+          // Preserve the stored provenance (deriveListingOrigin returns the
+          // persisted marker when valid, else derives from the same signals).
+          listing_origin: deriveListingOrigin({
+            listing_origin: ex.listing_origin,
+            platform: "ebay",
+            platform_listing_id: ex.platform_listing_id,
+            batch_id: ex.batch_id,
+            synced_to_ebay_at: ex.synced_to_ebay_at,
+          }),
         }
       : {
           id: crypto.randomUUID(),
@@ -1340,6 +1355,8 @@ async function doListingsPull(
           listing_description: null,
           platform_category_id: null,
           listing_title: null,
+          // A brand-new row from the eBay pull is eBay-originated.
+          listing_origin: "ebay",
         };
     pendingListing.set(itemId, w);
     return w;
@@ -2079,6 +2096,9 @@ async function doListingsPull(
                 .insert({
                   inventory_item_id: itemId,
                   platform: "ebay",
+                  // US-1077: a sale we discovered with no local listings row —
+                  // it lived on eBay and we never published it → eBay-originated.
+                  listing_origin: "ebay",
                   platform_listing_id: li.legacyItemId,
                   listing_url: ebayListingUrl(li.legacyItemId),
                   listing_price: itemCost,
@@ -4475,6 +4495,8 @@ export async function publishItemForOwner(
     const listingPayload = {
       inventory_item_id: itemId,
       platform: "ebay" as const,
+      // US-1077: published from FlipDesk → GradeThread-originated.
+      listing_origin: "gradethread" as const,
       platform_listing_id: listingId,
       platform_offer_id: offerId,
       platform_category_id: ctx.summary.categoryId,
@@ -4772,6 +4794,8 @@ async function publishVariationListing(args: {
   const listingPayload = {
     inventory_item_id: itemId,
     platform: "ebay" as const,
+    // US-1077: published from FlipDesk → GradeThread-originated.
+    listing_origin: "gradethread" as const,
     platform_listing_id: listingId,
     platform_category_id: ctx.summary.categoryId,
     listing_url: url,

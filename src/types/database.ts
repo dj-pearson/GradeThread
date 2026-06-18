@@ -917,6 +917,13 @@ export interface ListingRow {
   // {"price": "flipdesk"} (US-148, migration 00133). A field pinned to a
   // non-eBay source is protected from the eBay pull's default overwrite.
   source_of_truth: Record<string, string>;
+  // US-1077 (migration 00232): provenance marker. 'gradethread' = published from
+  // FlipDesk (GradeThread is source of truth, eBay pull mirrors only read-only
+  // signals); 'ebay' = imported/matched from eBay (eBay is source of truth, full
+  // mirror, eBay-owned fields locked in the editor). Drives sync direction + the
+  // UI editing badge. Supersedes the deprecated source_of_truth pin (US-148).
+  // See SYNC_SOURCE_OF_TRUTH.md.
+  listing_origin: ListingOrigin;
   // Cross-listing group key (US-149, migration 00134): siblings created by a
   // multi-marketplace push share the source draft's id; the source draft
   // points at itself.
@@ -977,6 +984,9 @@ export interface AspectReviewEntry {
   values: string[];
   reason: "unknown_aspect" | "unmatched_value";
 }
+
+// US-1077: listing provenance. Mirrors the listings.listing_origin enum.
+export type ListingOrigin = "gradethread" | "ebay";
 
 // US-568: eBay offer format. Mirrors listings.listing_format.
 export type ListingFormat = "fixed_price" | "auction";
@@ -1968,6 +1978,9 @@ export interface ListingInsert {
   price_range_high_cents?: number | null;
   price_confidence?: number | null;
   price_comp_source?: string | null;
+  // US-1077: provenance marker. Omit to accept the DB default ('gradethread');
+  // the eBay import/match path stamps 'ebay' explicitly.
+  listing_origin?: ListingOrigin;
   // Cross-listing group key (US-149)
   draft_id?: string | null;
   // Promoted Listings (US-150 / US-561). promo_rate_pct = the accepted/adjusted

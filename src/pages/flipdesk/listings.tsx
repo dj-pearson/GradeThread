@@ -860,6 +860,8 @@ export function FlipdeskListingsPage() {
         const listing: ListingInsert = {
           inventory_item_id: it.id,
           platform: "ebay",
+          // US-1077: bulk-created draft is GradeThread-originated.
+          listing_origin: "gradethread",
           listing_status: "draft",
           listing_price: it.target_price ?? it.list_price ?? 0,
           listing_title: it.item_title,

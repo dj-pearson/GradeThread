@@ -36,12 +36,14 @@ memory — not a progress log (the harness records progress separately).
   `services/edge-functions/src/tests/tenant-isolation_test.ts`.
 
 ## Sync provenance epic (US-1076…1086)
-- The `listings.listing_origin` column (US-1077) is NOT persisted yet, though
-  the registry `lib/sync-precedence.ts` (US-1076) and downstream stories are
-  committed. Until US-1077 lands the column, derive provenance with
-  `deriveListingOrigin()` from existing signals (`batch_id`/`synced_to_ebay_at`
-  ⇒ gradethread; an eBay `platform_listing_id` we never published ⇒ ebay) — do
-  NOT `select("listing_origin")` (PostgREST 400s on the missing column).
+- The `listings.listing_origin` enum column is now PERSISTED (US-1077, migration
+  00232): NOT NULL, default `'gradethread'`, backfilled. You may now
+  `select("listing_origin")`. All insert paths stamp it (eBay import/pull +
+  ebay-sku-match + sold-before-sync ⇒ `'ebay'`; every GT surface ⇒
+  `'gradethread'`). `deriveListingOrigin()` still works as the canonical resolver
+  — it returns the stored marker when valid, else derives from
+  `batch_id`/`synced_to_ebay_at` (⇒ gradethread) / eBay `platform_listing_id`
+  (⇒ ebay) — so pass the column in its signals and it wins outright.
 - `listings.source_of_truth` (US-148 pin) is deprecated (US-1078); new sync code
   must not read it — provenance drives precedence now.
 - US-1081 wired the eBay→FlipDesk drift path in `doListingsPull` (flipdesk-ebay.ts):

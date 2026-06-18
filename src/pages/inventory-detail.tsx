@@ -311,6 +311,8 @@ export function InventoryDetailPage() {
       .insert({
         inventory_item_id: item.id,
         platform: listingPlatform,
+        // US-1077: recorded through GradeThread → GradeThread-originated.
+        listing_origin: "gradethread",
         listing_price: price,
         listing_url: listingUrl.trim() || null,
         platform_listing_id: platformListingId.trim() || null,

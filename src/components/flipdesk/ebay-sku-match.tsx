@@ -62,6 +62,8 @@ async function upsertEbayListingRowForItem(
   const row: Record<string, unknown> = {
     inventory_item_id: itemId,
     platform: "ebay",
+    // US-1077: matching an imported live eBay listing → eBay-originated.
+    listing_origin: "ebay",
     platform_listing_id: listing.ebay_item_id,
     listing_url: listing.listing_url,
     listing_price: listing.current_price ?? 0,
@@ -324,6 +326,8 @@ export function EbaySkuMatch() {
     const listingInsert: Record<string, unknown> = {
       inventory_item_id: itemId,
       platform: "ebay",
+      // US-1077: mirroring a live eBay listing → eBay-originated.
+      listing_origin: "ebay",
       platform_listing_id: listing.ebay_item_id,
       listing_url: listing.listing_url,
       listing_price: listing.current_price ?? 0,

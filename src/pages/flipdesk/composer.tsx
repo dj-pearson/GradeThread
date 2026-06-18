@@ -667,7 +667,8 @@ export function FlipdeskComposerPage() {
       } else {
         const { data: created, error } = await supabase
           .from("listings")
-          .insert(payload as never)
+          // US-1077: a composer-authored draft is GradeThread-originated.
+          .insert({ ...payload, listing_origin: "gradethread" } as never)
           .select("id")
           .single();
         if (error) throw error;

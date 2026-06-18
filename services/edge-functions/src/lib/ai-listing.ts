@@ -1267,6 +1267,8 @@ export async function generateListing(
       .insert({
         inventory_item_id: itemId,
         platform: "ebay",
+        // US-1077: AutoLister-created draft is GradeThread-originated.
+        listing_origin: "gradethread",
         ...draftFields,
       })
       .select("id")

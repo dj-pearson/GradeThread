@@ -300,6 +300,8 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
         .insert({
           inventory_item_id: draft.inventory_item_id,
           platform,
+          // US-1077: a FlipDesk cross-listing sibling is GradeThread-originated.
+          listing_origin: "gradethread",
           listing_status: "draft",
           is_active: false,
           listing_price: price,
@@ -470,6 +472,8 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     .insert({
       inventory_item_id: itemId,
       platform,
+      // US-1077: recording a FlipDesk cross-listing → GradeThread-originated.
+      listing_origin: "gradethread",
       listing_status: "active",
       is_active: true,
       listing_price: price,

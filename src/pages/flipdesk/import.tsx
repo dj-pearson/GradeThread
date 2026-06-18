@@ -406,6 +406,9 @@ export function FlipdeskImportPage() {
             const listingInsert: ListingInsert = {
               inventory_item_id: itemId,
               platform: "ebay",
+              // US-1077: CSV is a linking source recorded through GradeThread —
+              // origin defaults to GradeThread (keeps the row fully editable).
+              listing_origin: "gradethread",
               listing_price: listPrice ?? 0,
               listing_url: mapped.link ?? null,
               listed_at: listDate ?? undefined,

@@ -72,7 +72,8 @@ export function MarkListedDialog({
       } else {
         const { error } = await supabase
           .from("listings")
-          .insert(payload as never);
+          // US-1077: manually marked listed through GradeThread → GradeThread-originated.
+          .insert({ ...payload, listing_origin: "gradethread" } as never);
         if (error) throw error;
       }
       await advanceItemStatus(item.id, item.status, "listed");
