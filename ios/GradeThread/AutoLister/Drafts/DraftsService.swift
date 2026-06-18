@@ -1,6 +1,15 @@
 import Foundation
 import Supabase
 
+/// Thrown when a save is attempted on an eBay-originated listing. The server
+/// also rejects this (US-1080); the client mirrors the rule (US-1086).
+enum ListingProvenanceError: LocalizedError {
+    case ebayOriginatedLocked(listingId: String)
+    var errorDescription: String? {
+        "This listing is eBay-originated and must be edited on eBay."
+    }
+}
+
 /// Final edited values for one draft (US-675). Optional string fields are
 /// cleared (set NULL) when nil. Policy ids round-trip (seeded from the server,
 /// optionally overwritten by an "Apply template" bulk action) so saving never
@@ -16,6 +25,8 @@ struct DraftEdit: Equatable {
     let returnPolicyId: String?
     let shippingPolicyId: String?
     let paymentPolicyId: String?
+    /// Provenance carried through from `DraftListing.listingOrigin` (US-1086).
+    let listingOrigin: String?
 }
 
 /// Data layer for the AutoLister drafts library + bulk-edit (US-675). Reads and
@@ -35,7 +46,8 @@ struct DraftsService: DraftsProviding {
     private static let columns =
         "id, inventory_item_id, listing_title, listing_price, ebay_condition, " +
         "quantity, best_offer_enabled, platform_category_id, return_policy_id, " +
-        "shipping_policy_id, payment_policy_id, batch_id, price_is_estimated, created_at"
+        "shipping_policy_id, payment_policy_id, batch_id, price_is_estimated, " +
+        "listing_origin, created_at"
 
     func fetchDrafts() async throws -> [DraftListing] {
         // RLS scopes SELECT to the caller via the parent item. We filter to
@@ -67,6 +79,11 @@ struct DraftsService: DraftsProviding {
     }
 
     func save(_ edit: DraftEdit) async throws {
+        // Client mirrors the server's provenance guard (US-1080/US-1086):
+        // eBay-owned fields on eBay-originated listings must not be overwritten.
+        if edit.listingOrigin == "ebay" {
+            throw ListingProvenanceError.ebayOriginatedLocked(listingId: edit.id)
+        }
         // RLS scopes the UPDATE to the caller via the parent item.
         try await SupabaseShared.client
             .from("listings")

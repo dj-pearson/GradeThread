@@ -19,6 +19,9 @@ struct DraftListing: Identifiable, Decodable, Equatable {
     let batchId: String?
     let priceIsEstimated: Bool?
     let createdAt: String?
+    /// Provenance marker (US-1086): `"gradethread"` | `"ebay"`. AutoLister drafts
+    /// are always GradeThread-originated; the field is decoded for completeness.
+    let listingOrigin: String?
 
     /// Parsed `created_at` for sorting/display; distantPast on miss. Handles
     /// ISO 8601 with or without fractional seconds (PostgREST emits both).
@@ -45,6 +48,7 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         case batchId = "batch_id"
         case priceIsEstimated = "price_is_estimated"
         case createdAt = "created_at"
+        case listingOrigin = "listing_origin"
     }
 
     init(from decoder: Decoder) throws {
@@ -64,6 +68,7 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         batchId = try c.decodeIfPresent(String.self, forKey: .batchId)
         priceIsEstimated = try c.decodeIfPresent(Bool.self, forKey: .priceIsEstimated)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        listingOrigin = try c.decodeIfPresent(String.self, forKey: .listingOrigin)
     }
 
     /// Memberwise initializer for tests/previews.
@@ -81,7 +86,8 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         paymentPolicyId: String? = nil,
         batchId: String? = nil,
         priceIsEstimated: Bool? = nil,
-        createdAt: String? = nil
+        createdAt: String? = nil,
+        listingOrigin: String? = nil
     ) {
         self.id = id
         self.inventoryItemId = inventoryItemId
@@ -97,6 +103,7 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         self.batchId = batchId
         self.priceIsEstimated = priceIsEstimated
         self.createdAt = createdAt
+        self.listingOrigin = listingOrigin
     }
 
     private static func lenientDouble(

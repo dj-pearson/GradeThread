@@ -27,6 +27,12 @@ final class LocalListing {
     var viewsTotal: Int?
     var watchersCount: Int?
 
+    /// Provenance marker (US-1086): `"gradethread"` = published via FlipDesk/AutoLister
+    /// (GradeThread owns the editable fields); `"ebay"` = imported from eBay (eBay is
+    /// authoritative; editable fields are locked mirrors). Nil on older rows synced
+    /// before the column was backfilled — fall back to `platformOfferId != nil` heuristic.
+    var listingOrigin: String?
+
     var createdAt: Date
     var updatedAt: Date
 

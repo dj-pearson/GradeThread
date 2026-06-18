@@ -50,4 +50,32 @@ enum ConflictPolicy {
     ) -> T {
         serverUpdatedAt >= localUpdatedAt ? server : local
     }
+
+    // MARK: - Listing provenance (US-1086)
+
+    /// Source of truth for a listing's eBay-owned editable fields, decided by
+    /// `listing_origin`. See SYNC_SOURCE_OF_TRUTH.md for the full contract.
+    enum ListingOrigin: String {
+        case gradethread
+        case ebay
+    }
+
+    /// Resolves an eBay-owned listing field (title, price, condition, quantity,
+    /// description, policies) based on listing provenance.
+    ///
+    /// - eBay-originated: server always wins — eBay is the source of truth and
+    ///   the iOS client must not overwrite these fields.
+    /// - GradeThread-originated (or unknown): same as ``resolveUserOwned`` —
+    ///   local wins while dirty, server wins when clean.
+    static func resolveEbayOwnedListingField<T: Equatable>(
+        local: T,
+        server: T,
+        hasLocalChanges: Bool,
+        listingOrigin: String?
+    ) -> T {
+        guard ListingOrigin(rawValue: listingOrigin ?? "") != .ebay else {
+            return server
+        }
+        return resolveUserOwned(local: local, server: server, hasLocalChanges: hasLocalChanges)
+    }
 }

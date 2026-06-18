@@ -85,12 +85,15 @@ struct ItemCanvasView: View {
         }
     }
 
-    /// A GradeThread-PUBLISHED live listing (one with a Sell API offer id) is
-    /// the only kind revisable in place — so Save also syncs to eBay. eBay-native
-    /// listings (no offer) are edited on eBay, never pushed from here.
+    /// A GradeThread-originated live listing is revisable in place via Save & Sync.
+    /// eBay-originated (imported) listings are locked mirrors — user edits on eBay.
+    /// US-1086: prefer `listingOrigin` from the DB; fall back to `platformOfferId`
+    /// for rows synced before the column was backfilled.
     private var gtLiveListing: LocalListing? {
-        guard let l = activeEbayListing, l.platformOfferId != nil else { return nil }
-        return l
+        guard let l = activeEbayListing else { return nil }
+        let isGT = l.listingOrigin == "gradethread" ||
+            (l.listingOrigin == nil && l.platformOfferId != nil)
+        return isGT ? l : nil
     }
 
     /// True when the item's edited target price differs from what's published on
@@ -470,23 +473,48 @@ struct ItemCanvasView: View {
             }
 
             if let active = activeEbayListing {
-                if active.platformOfferId != nil {
-                    // GradeThread-PUBLISHED (has a Sell offer): editing is folded
-                    // into Save — the toolbar button is "Save & Sync" and pushes
-                    // changed fields in place. No separate revise sheet.
-                    Text("Edits here sync to eBay when you tap “Save & Sync”.")
+                // US-1086: provenance badge + editing affordance based on listing_origin.
+                // Prefer `listingOrigin` from DB; fall back to `platformOfferId` heuristic
+                // for rows synced before the column was backfilled.
+                let isEbayOriginated = active.listingOrigin == “ebay” ||
+                    (active.listingOrigin == nil && active.platformOfferId == nil)
+
+                if isEbayOriginated {
+                    // eBay-originated mirror: user must edit on eBay; GradeThread locks
+                    // eBay-owned fields and never overwrites them on sync.
+                    HStack(spacing: 5) {
+                        Image(systemName: “lock.fill”)
+                            .font(.caption2)
+                        Text(“Edit on eBay”)
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(Color.brandAmber)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.brandAmber.opacity(0.12), in: Capsule())
+                    .accessibilityLabel(“eBay-originated listing — edit on eBay”)
+                    if let raw = active.externalURL, let url = URL(string: raw) {
+                        Link(destination: url) {
+                            Label(“Open on eBay to edit”, systemImage: “square.and.pencil”)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                } else {
+                    // GradeThread-originated: editing folded into Save & Sync.
+                    HStack(spacing: 5) {
+                        Image(systemName: “pencil”)
+                            .font(.caption2)
+                        Text(“Edit in GradeThread”)
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(Color.brandNavy)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.brandNavy.opacity(0.10), in: Capsule())
+                    .accessibilityLabel(“GradeThread-originated listing — edits sync via Save & Sync”)
+                    Text(“Edits here sync to eBay when you tap \u{201C}Save & Sync\u{201D}.”)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else if let raw = active.externalURL, let url = URL(string: raw) {
-                    // eBay-NATIVE (no Sell offer): GradeThread can't revise it in
-                    // place, but eBay allows editing it on its own site. Relist
-                    // (below) republishes it through GradeThread to unlock in-app
-                    // editing.
-                    Link(destination: url) {
-                        Label("Edit on eBay", systemImage: "square.and.pencil")
-                            .fontWeight(.semibold)
-                    }
                 }
+
                 // Relist as a NEW listing: ends the current live listing and
                 // publishes a fresh one (new eBay item #). The publish sheet
                 // warns before it does this.
@@ -494,13 +522,13 @@ struct ItemCanvasView: View {
                     AppRouter.haptic()
                     showingPublishDialog = true
                 } label: {
-                    Label("Relist as new listing", systemImage: "arrow.triangle.2.circlepath")
+                    Label(“Relist as new listing”, systemImage: “arrow.triangle.2.circlepath”)
                 }
             }
         } header: {
-            Text(itemListings.count == 1 ? "Listing" : "Listings")
+            Text(itemListings.count == 1 ? “Listing” : “Listings”)
         } footer: {
-            Text("Where this item is listed. Tap the arrow to open the live listing. eBay won't let you edit an inventory-based listing on its site — use “Edit live listing” to push title, price, description, or photo-order changes.")
+            Text(“Where this item is listed. Tap the arrow to open the live listing. GradeThread-originated listings sync edits via Save & Sync; eBay-originated listings are read-only mirrors (edit on eBay).”)
                 .font(.caption)
         }
     }

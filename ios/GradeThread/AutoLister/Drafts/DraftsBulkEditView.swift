@@ -194,52 +194,71 @@ private struct DraftEditRowView: View {
 
     var body: some View {
         if let row {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 10) {
-                    Button {
-                        store.toggle(rowId)
-                    } label: {
-                        Image(systemName: store.selected.contains(rowId) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(store.selected.contains(rowId) ? Color.brandNavy : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(store.selected.contains(rowId) ? "Selected" : "Not selected")
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        TextField(store.titleFallback(for: row), text: stringBinding(\.title))
-                            .textFieldStyle(.roundedBorder)
+            if row.isEbayOriginated {
+                // US-1086: eBay-originated rows are locked read-only mirrors.
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Color.brandAmber)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.title.isEmpty ? store.titleFallback(for: row) : row.title)
                             .font(.subheadline)
-                        HStack(spacing: 8) {
-                            HStack(spacing: 2) {
-                                Text("$").foregroundStyle(.secondary)
-                                TextField("0.00", text: stringBinding(\.price))
-                                    .keyboardType(.decimalPad)
-                                    .frame(maxWidth: 80)
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 6)
-                            .background(Color(uiColor: .tertiarySystemFill))
-                            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
-
-                            conditionMenu(current: row.condition)
-
-                            Spacer()
-                            if !row.issues.isEmpty {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.brandAmber)
-                                    .accessibilityLabel("Issues: \(row.issues.joined(separator: ", "))")
-                            }
+                            .foregroundStyle(.secondary)
+                        Text("Edit on eBay")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.brandAmber)
+                    }
+                }
+                .padding(.vertical, 2)
+                .accessibilityLabel("eBay-originated listing — edit on eBay")
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Button {
+                            store.toggle(rowId)
+                        } label: {
+                            Image(systemName: store.selected.contains(rowId) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(store.selected.contains(rowId) ? Color.brandNavy : .secondary)
                         }
-                        HStack(spacing: 6) {
-                            Image(systemName: "square.grid.2x2").font(.caption2).foregroundStyle(.secondary)
-                            TextField("category id", text: stringBinding(\.categoryId))
-                                .keyboardType(.numberPad)
-                                .font(.caption)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(store.selected.contains(rowId) ? "Selected" : "Not selected")
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            TextField(store.titleFallback(for: row), text: stringBinding(\.title))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.subheadline)
+                            HStack(spacing: 8) {
+                                HStack(spacing: 2) {
+                                    Text("$").foregroundStyle(.secondary)
+                                    TextField("0.00", text: stringBinding(\.price))
+                                        .keyboardType(.decimalPad)
+                                        .frame(maxWidth: 80)
+                                }
+                                .padding(.horizontal, 8).padding(.vertical, 6)
+                                .background(Color(uiColor: .tertiarySystemFill))
+                                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
+
+                                conditionMenu(current: row.condition)
+
+                                Spacer()
+                                if !row.issues.isEmpty {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(Color.brandAmber)
+                                        .accessibilityLabel("Issues: \(row.issues.joined(separator: ", "))")
+                                }
+                            }
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.grid.2x2").font(.caption2).foregroundStyle(.secondary)
+                                TextField("category id", text: stringBinding(\.categoryId))
+                                    .keyboardType(.numberPad)
+                                    .font(.caption)
+                            }
                         }
                     }
                 }
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
         }
     }
 

@@ -18,6 +18,9 @@ struct DraftEditRow: Identifiable, Equatable {
     var paymentPolicyId: String?
     var priceIsEstimated: Bool
     var dirty: Bool = false
+    /// Provenance from `DraftListing.listingOrigin` (US-1086). eBay-originated
+    /// rows are read-only mirrors; their eBay-owned fields must not be saved.
+    var listingOrigin: String?
 
     init(from d: DraftListing) {
         id = d.id
@@ -32,7 +35,12 @@ struct DraftEditRow: Identifiable, Equatable {
         shippingPolicyId = d.shippingPolicyId
         paymentPolicyId = d.paymentPolicyId
         priceIsEstimated = d.priceIsEstimated ?? false
+        listingOrigin = d.listingOrigin
     }
+
+    /// True when this row's eBay-owned fields are locked because eBay is the
+    /// source of truth (US-1086).
+    var isEbayOriginated: Bool { listingOrigin == "ebay" }
 
     /// Final values to persist. Blank strings become NULL.
     func toEdit() -> DraftEdit {
@@ -46,7 +54,8 @@ struct DraftEditRow: Identifiable, Equatable {
             categoryId: Self.nilIfBlank(categoryId),
             returnPolicyId: returnPolicyId,
             shippingPolicyId: shippingPolicyId,
-            paymentPolicyId: paymentPolicyId
+            paymentPolicyId: paymentPolicyId,
+            listingOrigin: listingOrigin
         )
     }
 
@@ -209,6 +218,9 @@ final class DraftsBulkEditStore {
         defer { isSaving = false }
         var saved = 0
         for row in dirty {
+            // eBay-originated listings are locked read-only mirrors (US-1086).
+            // Silently discard the local edit; the next sync re-asserts eBay's values.
+            if row.isEbayOriginated { continue }
             do {
                 try await service.save(row.toEdit())
                 saved += 1

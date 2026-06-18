@@ -189,4 +189,40 @@ final class DraftsTests: XCTestCase {
         XCTAssertEqual(store.rows.first?.price, "10")
         XCTAssertEqual(store.dirtyCount, 0)
     }
+
+    // MARK: - Provenance (US-1086)
+
+    @MainActor
+    func test_bulk_skipsEbayOriginatedRowsOnSave() async {
+        let gtDraft = DraftListing(id: "l1", inventoryItemId: "i1", batchId: "b1")
+        let ebayDraft = DraftListing(
+            id: "l2", inventoryItemId: "i2", batchId: "b1", listingOrigin: "ebay"
+        )
+        let fake = FakeService(drafts: [gtDraft, ebayDraft])
+        let store = DraftsBulkEditStore(service: fake)
+        await store.load()
+        store.update("l1") { $0.title = "GT edit" }
+        store.update("l2") { $0.title = "eBay edit (should be discarded)" }
+        await store.save()
+        // Only the GradeThread-originated row is persisted; eBay row is silently skipped.
+        XCTAssertEqual(fake.saved.map(\.id), ["l1"])
+        XCTAssertEqual(store.lastSavedCount, 1)
+        XCTAssertNil(store.actionError)
+    }
+
+    func test_editRow_isEbayOriginated_trueFalse() {
+        let gt = DraftEditRow(from: DraftListing(id: "a", inventoryItemId: "i", listingOrigin: "gradethread"))
+        let eb = DraftEditRow(from: DraftListing(id: "b", inventoryItemId: "i", listingOrigin: "ebay"))
+        let unknown = DraftEditRow(from: DraftListing(id: "c", inventoryItemId: "i"))
+        XCTAssertFalse(gt.isEbayOriginated)
+        XCTAssertTrue(eb.isEbayOriginated)
+        XCTAssertFalse(unknown.isEbayOriginated)
+    }
+
+    func test_toEdit_carriesListingOrigin() {
+        let row = DraftEditRow(from: DraftListing(
+            id: "x", inventoryItemId: "i", listingOrigin: "gradethread"
+        ))
+        XCTAssertEqual(row.toEdit().listingOrigin, "gradethread")
+    }
 }

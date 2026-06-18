@@ -55,6 +55,44 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(result, "local-latest")
     }
 
+    // MARK: - Listing provenance (US-1086)
+
+    func test_ebayOwnedListingField_ebayOriginated_serverAlwaysWins() {
+        // eBay-originated: server wins even when the local row is dirty.
+        let result = ConflictPolicy.resolveEbayOwnedListingField(
+            local: "My Title", server: "eBay Title",
+            hasLocalChanges: true, listingOrigin: "ebay"
+        )
+        XCTAssertEqual(result, "eBay Title")
+    }
+
+    func test_ebayOwnedListingField_gtOriginated_clientWinsWhenDirty() {
+        // GradeThread-originated: local wins while dirty.
+        let result = ConflictPolicy.resolveEbayOwnedListingField(
+            local: "My Edit", server: "eBay Value",
+            hasLocalChanges: true, listingOrigin: "gradethread"
+        )
+        XCTAssertEqual(result, "My Edit")
+    }
+
+    func test_ebayOwnedListingField_gtOriginated_serverWinsWhenClean() {
+        // GradeThread-originated clean row defers to server.
+        let result = ConflictPolicy.resolveEbayOwnedListingField(
+            local: "Stale", server: "Server Updated",
+            hasLocalChanges: false, listingOrigin: "gradethread"
+        )
+        XCTAssertEqual(result, "Server Updated")
+    }
+
+    func test_ebayOwnedListingField_nilOrigin_treatedAsGradethread() {
+        // Nil origin (legacy row) falls through to userOwned rules, not locked.
+        let result = ConflictPolicy.resolveEbayOwnedListingField(
+            local: "Local Edit", server: "Server",
+            hasLocalChanges: true, listingOrigin: nil
+        )
+        XCTAssertEqual(result, "Local Edit")
+    }
+
     // MARK: - PendingMutation queue
 
     func test_pendingMutation_roundtripsThroughSwiftData() throws {
