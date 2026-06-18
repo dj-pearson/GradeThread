@@ -13,13 +13,19 @@
 //   3. CSV import fills only blank fields on existing rows; never overwrites populated.
 //   4. Server guard (US-1080): validateEbayOriginEdit rejects writes to locked
 //      eBay-owned fields for eBay-originated listings.
+//   5. Listing provenance + Google Sheets carve-out (US-1083): deriveListingOrigin
+//      classifies provenance from existing signals; isSheetEditLockedByEbay locks
+//      eBay-owned cells on eBay-originated listings (field-scoped).
 
 import { assert, assertEquals } from "@std/assert";
 import {
   buildCsvFillPatch,
   buildListingPullPatch,
+  deriveListingOrigin,
   EBAY_OWNED_LISTING_FIELDS,
   GRADETHREAD_OWNED_ITEM_FIELDS,
+  isEbayOwnedListingField,
+  isSheetEditLockedByEbay,
   LISTING_READONLY_SIGNALS,
   validateEbayOriginEdit,
 } from "../lib/sync-precedence.ts";
@@ -329,6 +335,96 @@ Deno.test("guard ebay: mixed eBay-owned and non-owned fields in one request", ()
   assertEquals(result.locked.sort(), ["listing_price", "listing_title"].sort());
   assertEquals(result.other.sort(), ["grade_value", "internal_note"].sort());
   assertEquals(result.allowed.length, 0);
+});
+
+// ── Listing provenance + Google Sheets carve-out (US-1083) ─────────────────
+
+Deno.test("isEbayOwnedListingField matches the registry, rejects others", () => {
+  for (const f of EBAY_OWNED_LISTING_FIELDS) {
+    assert(isEbayOwnedListingField(f), `${f} must be eBay-owned`);
+  }
+  for (const f of ["grade_value", "condition_notes", "platform", "watchers", "views"]) {
+    assert(!isEbayOwnedListingField(f), `${f} must NOT be eBay-owned`);
+  }
+});
+
+Deno.test("deriveListingOrigin: stored marker wins outright", () => {
+  // Even with eBay signals, an explicit stored marker is authoritative.
+  assertEquals(
+    deriveListingOrigin({ listing_origin: "ebay", batch_id: "b1" }),
+    "ebay",
+  );
+  assertEquals(
+    deriveListingOrigin({ listing_origin: "gradethread", platform: "ebay", platform_listing_id: "1" }),
+    "gradethread",
+  );
+});
+
+Deno.test("deriveListingOrigin: FlipDesk publish signals → gradethread", () => {
+  // batch_id OR synced_to_ebay_at means WE created/published it.
+  assertEquals(deriveListingOrigin({ batch_id: "batch-1" }), "gradethread");
+  assertEquals(
+    deriveListingOrigin({ synced_to_ebay_at: "2026-06-01T00:00:00Z" }),
+    "gradethread",
+  );
+  // A GT-originated listing we pushed up to eBay still has an eBay id — publish
+  // signals must take precedence over the eBay-id heuristic.
+  assertEquals(
+    deriveListingOrigin({
+      platform: "ebay",
+      platform_listing_id: "999",
+      synced_to_ebay_at: "2026-06-01T00:00:00Z",
+    }),
+    "gradethread",
+  );
+});
+
+Deno.test("deriveListingOrigin: eBay-imported (id, never published) → ebay", () => {
+  assertEquals(
+    deriveListingOrigin({ platform: "ebay", platform_listing_id: "EBY-1" }),
+    "ebay",
+  );
+  // Case-insensitive platform.
+  assertEquals(
+    deriveListingOrigin({ platform: "eBay", platform_listing_id: "EBY-2" }),
+    "ebay",
+  );
+});
+
+Deno.test("deriveListingOrigin: ambiguous → gradethread (safe default keeps bidirectional)", () => {
+  assertEquals(deriveListingOrigin({}), "gradethread");
+  // An eBay platform but no listing id yet (draft) is not eBay-originated.
+  assertEquals(deriveListingOrigin({ platform: "ebay" }), "gradethread");
+  // A non-eBay platform with an id is not eBay-originated.
+  assertEquals(
+    deriveListingOrigin({ platform: "poshmark", platform_listing_id: "P-1" }),
+    "gradethread",
+  );
+});
+
+Deno.test("isSheetEditLockedByEbay: eBay-owned field on eBay-originated listing is locked", () => {
+  // Divergent edit to a locked field → skipped.
+  assert(isSheetEditLockedByEbay("ebay", "listing_price", "55", "49.99"));
+  assert(isSheetEditLockedByEbay("ebay", "listing_title", "New Title", "Old Title"));
+  assert(isSheetEditLockedByEbay("ebay", "listing_status", "ended", "active"));
+});
+
+Deno.test("isSheetEditLockedByEbay: field-scoped — non-eBay-owned cells still sync", () => {
+  // watchers/views/platform aren't eBay-owned → not locked even on eBay origin.
+  assert(!isSheetEditLockedByEbay("ebay", "watchers", "10", "5"));
+  assert(!isSheetEditLockedByEbay("ebay", "platform", "etsy", "ebay"));
+});
+
+Deno.test("isSheetEditLockedByEbay: GradeThread-originated listings are never locked", () => {
+  assert(!isSheetEditLockedByEbay("gradethread", "listing_price", "55", "49.99"));
+  assert(!isSheetEditLockedByEbay("gradethread", "listing_title", "New", "Old"));
+});
+
+Deno.test("isSheetEditLockedByEbay: no edit (equal) or emptied cell is not a skip", () => {
+  // Equal values → nothing changed, nothing to skip.
+  assert(!isSheetEditLockedByEbay("ebay", "listing_price", "49.99", "49.99"));
+  // An emptied cell is just rewritten from the DB, not reported as a skip.
+  assert(!isSheetEditLockedByEbay("ebay", "listing_price", "", "49.99"));
 });
 
 // ── Pull patches never include GT-owned item fields (contract invariant) ────

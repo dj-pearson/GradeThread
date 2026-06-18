@@ -26,6 +26,16 @@ memory — not a progress log (the harness records progress separately).
   request-body id without confirming ownership. See
   `services/edge-functions/src/tests/tenant-isolation_test.ts`.
 
+## Sync provenance epic (US-1076…1086)
+- The `listings.listing_origin` column (US-1077) is NOT persisted yet, though
+  the registry `lib/sync-precedence.ts` (US-1076) and downstream stories are
+  committed. Until US-1077 lands the column, derive provenance with
+  `deriveListingOrigin()` from existing signals (`batch_id`/`synced_to_ebay_at`
+  ⇒ gradethread; an eBay `platform_listing_id` we never published ⇒ ebay) — do
+  NOT `select("listing_origin")` (PostgREST 400s on the missing column).
+- `listings.source_of_truth` (US-148 pin) is deprecated (US-1078); new sync code
+  must not read it — provenance drives precedence now.
+
 ## Frontend conventions
 - shadcn: don't hand-edit `src/components/ui/*`. Toasts via `sonner`, not shadcn
   toast. Icons from `lucide-react` only. Named exports + `@/` imports.

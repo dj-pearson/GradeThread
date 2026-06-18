@@ -14,8 +14,10 @@ import {
   columnLetter,
   CONFLICT_ACTION_ACCEPT_SHEET,
   CONFLICT_ACTION_KEEP,
+  CONFLICT_ACTION_LOCKED,
   CONFLICT_STATUS_APPLIED,
   CONFLICT_STATUS_OPEN,
+  CONFLICT_STATUS_SKIPPED,
   CONFLICTS_HEADERS,
   CONFLICTS_TAB,
   chunk,
@@ -34,6 +36,10 @@ import {
   recordSourceObservations,
   type SourceObservation,
 } from "../lib/sync-conflicts.ts";
+import {
+  deriveListingOrigin,
+  isSheetEditLockedByEbay,
+} from "../lib/sync-precedence.ts";
 
 // Google Sheets 2-way live sync (US-147).
 //
@@ -56,6 +62,15 @@ import {
 // TENANT SCOPING (US-268): every DB read/write here is scoped to the owning
 // user — inventory/sources by user_id, listings/sales through
 // inventory_items!inner(user_id), and pull updates carry .eq("user_id", …).
+//
+// PROVENANCE CARVE-OUT (US-1083, contract: SYNC_SOURCE_OF_TRUTH.md): the sync
+// stays bidirectional EXCEPT for eBay-owned fields (EBAY_OWNED_LISTING_FIELDS)
+// on eBay-originated listings (deriveListingOrigin === 'ebay'). A sheet edit to
+// such a locked cell is NOT applied — eBay is the source of truth and would
+// re-assert it anyway — the cell is rewritten from the DB and reported back to
+// the user as a "skipped item" ("locked — edit on eBay"). The skip is
+// field-scoped, never row-scoped. This module does NOT read the deprecated
+// listings.source_of_truth pin (retired by US-1078); provenance drives it.
 
 type GoogleEnv = {
   Variables: {
@@ -77,13 +92,28 @@ const VALUE_WRITE_CHUNK = 400; // ranges per values.batchUpdate call
 const APPEND_CHUNK = 500; // rows per values.append call
 const MAX_LOGGED_ERRORS = 20;
 
+// US-1083: a sheet edit that was deliberately NOT applied because the cell is
+// an eBay-owned field on an eBay-originated (locked) listing.
+interface SkippedItem {
+  tab: string;
+  flipdesk_id: string;
+  item: string;
+  field: string;
+  reason: string;
+}
+
 interface RunSummary {
   pushed: number;
   pulled: number;
   conflicts: number;
   errors: string[];
+  /** Per-cell edits not applied because eBay owns the field (US-1083). */
+  skippedItems: SkippedItem[];
+  /** Whole-run skip (no sheet / already-running lock). */
   skipped?: string;
 }
+
+const SKIP_REASON_EBAY_LOCKED = "locked — edit on eBay";
 
 type Row = Record<string, unknown>;
 
@@ -109,10 +139,15 @@ async function pageAll(
 const INVENTORY_SELECT =
   "id, sku, title, brand, size, item_category, status, acquired_price, " +
   "target_price, condition_notes, grade_value, location_bin, created_at, updated_at";
+// US-1083: provenance signals (batch_id / synced_to_ebay_at / platform_listing_id)
+// replace the retired listings.source_of_truth pin — they drive
+// deriveListingOrigin. The persisted listing_origin column (US-1077) is NOT
+// selected yet (it doesn't exist); origin is derived from these signals, which
+// is exactly what US-1077 will backfill from, so behavior is forward-compatible.
 const LISTINGS_SELECT =
   "id, listing_title, platform, listing_status, listing_price, watchers, " +
-  "views, listing_url, listed_at, updated_at, source_of_truth, " +
-  "inventory_items!inner(user_id)";
+  "views, listing_url, listed_at, updated_at, batch_id, " +
+  "synced_to_ebay_at, platform_listing_id, inventory_items!inner(user_id)";
 
 // Listings-tab columns that participate in cross-source conflict detection
 // (US-148), mapped to their flipdesk_sync_conflicts field name. The Listings
@@ -217,7 +252,13 @@ export async function syncUserSheet(
   userId: string,
   trigger: string,
 ): Promise<RunSummary> {
-  const summary: RunSummary = { pushed: 0, pulled: 0, conflicts: 0, errors: [] };
+  const summary: RunSummary = {
+    pushed: 0,
+    pulled: 0,
+    conflicts: 0,
+    errors: [],
+    skippedItems: [],
+  };
 
   // Per-user lease so the 5-min scheduler and a manual "Sync now" can't merge
   // the same sheet concurrently and double-apply pulls.
@@ -425,25 +466,70 @@ async function runMerge(
 
       if (!tab.writable) {
         // Read-only tab: the DB is authoritative; rewrite the row on any drift.
-        // EXCEPT (US-148): on the Listings tab a hand-edited price/status/title
-        // cell is a cross-source observation. Record it, and while the field is
-        // undecided (no listings.source_of_truth entry) HOLD the cell — don't
-        // rewrite it — so the divergent value survives until the user picks a
-        // winner on the Cross-source reconciliation tab. Decided fields and
-        // non-conflict columns rewrite as before.
+        //
+        // US-1083: on the Listings tab, eBay-owned fields on an eBay-originated
+        // (locked) listing are NEVER pulled — eBay is source of truth. Such a
+        // sheet edit is discarded (rewritten from the DB) and reported as a
+        // skipped item. The skip is field-scoped: GradeThread-owned/unowned
+        // cells on the same listing still sync.
+        //
+        // US-148: on a GradeThread-originated listing a hand-edited
+        // price/status/title cell is instead a cross-source observation —
+        // record it and HOLD the cell so the divergent value survives until the
+        // user reconciles it. (Provenance replaced the retired
+        // listings.source_of_truth pin — US-1078; this module no longer reads it.)
+        const origin = tab.title === "Listings"
+          ? deriveListingOrigin({
+            platform: record.platform as string | null,
+            platform_listing_id: record.platform_listing_id as string | null,
+            batch_id: record.batch_id as string | null,
+            synced_to_ebay_at: record.synced_to_ebay_at as string | null,
+          })
+          : "gradethread";
         const finalRow = [...dbRow];
         tab.columns.forEach((col, i) => {
           const sheetVal = normalizeCell(entry.cells[i + 1], col.kind);
+          const dbVal = dbRow[i + 1]!;
+
+          // Locked eBay-owned cell on an eBay-originated listing: do not apply.
+          if (
+            tab.title === "Listings" &&
+            isSheetEditLockedByEbay(origin, col.field, sheetVal, dbVal)
+          ) {
+            const item = String(record.listing_title ?? id);
+            summary.skippedItems.push({
+              tab: tab.title,
+              flipdesk_id: id,
+              item,
+              field: col.header,
+              reason: SKIP_REASON_EBAY_LOCKED,
+            });
+            // Surface it on the (existing) Conflicts tab so the user sees what
+            // was not synced and why. Never re-processed (status ≠ Open).
+            conflictAppends.push([
+              nowIso,
+              tab.title,
+              id,
+              item,
+              col.header,
+              dbVal,
+              sheetVal,
+              CONFLICT_ACTION_LOCKED,
+              CONFLICT_STATUS_SKIPPED,
+            ]);
+            return; // eBay wins — finalRow already carries the DB value.
+          }
+
           const field =
             tab.title === "Listings" ? LISTING_CONFLICT_FIELDS[col.field] : undefined;
-          if (sheetVal === dbRow[i + 1]) {
+          if (sheetVal === dbVal) {
             // Agreement is only worth reporting when a conflict is open —
             // it lets the conflict auto-converge.
             if (field && sheetVal !== "" && openConflictListings.has(id)) {
               sheetsObservations.push({
                 listingId: id,
                 field,
-                flipdeskValue: dbRow[i + 1]!,
+                flipdeskValue: dbVal,
                 observedValue: sheetVal,
               });
             }
@@ -454,13 +540,10 @@ async function runMerge(
           sheetsObservations.push({
             listingId: id,
             field,
-            flipdeskValue: dbRow[i + 1]!,
+            flipdeskValue: dbVal,
             observedValue: sheetVal,
           });
-          const decided = !!(
-            record.source_of_truth as Record<string, string> | null
-          )?.[field];
-          if (!decided) finalRow[i + 1] = sheetVal;
+          finalRow[i + 1] = sheetVal;
         });
         const needsWrite = tab.columns.some(
           (col, i) => normalizeCell(entry.cells[i + 1], col.kind) !== finalRow[i + 1],
@@ -591,13 +674,22 @@ async function runMerge(
   }
 
   summary.errors = summary.errors.slice(0, MAX_LOGGED_ERRORS);
+  // US-1083: note any locked eBay-owned cells we skipped in the run log so the
+  // count is visible alongside errors/conflicts (detail lives on the Conflicts
+  // tab and in the /sync/now response).
+  const logNote = [
+    summary.skippedItems.length
+      ? `${summary.skippedItems.length} skipped (${SKIP_REASON_EBAY_LOCKED})`
+      : "",
+    summary.errors.join(" | "),
+  ].filter(Boolean).join(" | ").slice(0, 2000);
   await api.appendValues(SYNC_LOG_TAB, [[
     nowIso,
     trigger,
     summary.pushed,
     summary.pulled,
     summary.conflicts,
-    summary.errors.join(" | ").slice(0, 2000),
+    logNote,
   ]]);
 }
 
@@ -640,11 +732,13 @@ async function handleSyncJob(c: Context, trigger: string): Promise<Response> {
     let synced = 0;
     let failed = 0;
     let conflicts = 0;
+    let skipped = 0;
     for (const row of (data ?? []) as { user_id: string }[]) {
       try {
         const s = await syncUserSheet(row.user_id, trigger);
         if (!s.skipped) synced++;
         conflicts += s.conflicts;
+        skipped += s.skippedItems.length;
         if (s.errors.length) failed++;
       } catch (err) {
         failed++;
@@ -655,7 +749,13 @@ async function handleSyncJob(c: Context, trigger: string): Promise<Response> {
         );
       }
     }
-    return c.json({ ok: true, users_synced: synced, users_failed: failed, conflicts });
+    return c.json({
+      ok: true,
+      users_synced: synced,
+      users_failed: failed,
+      conflicts,
+      skipped,
+    });
   } finally {
     await lock.release();
   }

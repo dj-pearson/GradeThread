@@ -171,3 +171,78 @@ export function validateEbayOriginEdit(
   }
   return { locked, allowed, other };
 }
+
+// ── Listing provenance (US-1077 marker / US-1083 Sheets guard) ──────────────
+
+const EBAY_OWNED_LISTING_FIELD_SET: ReadonlySet<string> = new Set(
+  EBAY_OWNED_LISTING_FIELDS,
+);
+
+/** Whether `field` is an eBay-owned listing column (see EBAY_OWNED_LISTING_FIELDS). */
+export function isEbayOwnedListingField(field: string): boolean {
+  return EBAY_OWNED_LISTING_FIELD_SET.has(field);
+}
+
+/**
+ * Signals used to decide a listing's provenance. Once US-1077 persists the
+ * `listing_origin` column, pass it as `listing_origin` and it wins outright;
+ * until then origin is derived from the same existing signals US-1077 backfills
+ * from, so this helper is forward-compatible (the derived value equals the
+ * future stored value).
+ */
+export interface ListingOriginSignals {
+  /** Persisted marker once US-1077 lands it ('ebay' | 'gradethread'). */
+  listing_origin?: string | null;
+  platform?: string | null;
+  /** eBay listing id — present on listings that exist on eBay. */
+  platform_listing_id?: string | null;
+  /** FlipDesk publish batch — set only when WE created the listing. */
+  batch_id?: string | null;
+  /** Set only when FlipDesk pushed the listing up to eBay. */
+  synced_to_ebay_at?: string | null;
+}
+
+/**
+ * Decide whether a listing is eBay-originated or GradeThread-originated.
+ *
+ * Provenance (SYNC_SOURCE_OF_TRUTH.md): GT-originated = published from FlipDesk
+ * (`batch_id` / `synced_to_ebay_at` set); eBay-originated = imported from eBay
+ * (lives on eBay — `platform_listing_id` set — but we never published it).
+ * The default is 'gradethread' so an ambiguous listing keeps full bidirectional
+ * Sheets behavior rather than being wrongly locked.
+ */
+export function deriveListingOrigin(
+  s: ListingOriginSignals,
+): "ebay" | "gradethread" {
+  if (s.listing_origin === "ebay" || s.listing_origin === "gradethread") {
+    return s.listing_origin;
+  }
+  if (s.batch_id || s.synced_to_ebay_at) return "gradethread";
+  if ((s.platform ?? "").toLowerCase() === "ebay" && s.platform_listing_id) {
+    return "ebay";
+  }
+  return "gradethread";
+}
+
+/**
+ * US-1083 — the Google Sheets carve-out. Sheets stays bidirectional EXCEPT a
+ * sheet edit to an eBay-OWNED field on an eBay-originated (locked) listing must
+ * NOT be applied: eBay is source of truth and re-asserts on its next sync.
+ * Field-scoped — non-eBay-owned cells on the same listing still sync.
+ *
+ * Returns true when the divergent sheet cell should be discarded (rewritten
+ * from the DB) and reported to the user as a skipped item.
+ */
+export function isSheetEditLockedByEbay(
+  origin: "ebay" | "gradethread",
+  field: string,
+  sheetValue: string,
+  dbValue: string,
+): boolean {
+  return (
+    origin === "ebay" &&
+    isEbayOwnedListingField(field) &&
+    sheetValue !== "" &&
+    sheetValue !== dbValue
+  );
+}

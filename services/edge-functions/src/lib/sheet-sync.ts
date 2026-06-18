@@ -163,6 +163,11 @@ export const CONFLICT_ACTION_KEEP = "Keep FlipDesk";
 export const CONFLICT_ACTION_ACCEPT_SHEET = "Accept Sheet";
 export const CONFLICT_STATUS_OPEN = "Open";
 export const CONFLICT_STATUS_APPLIED = "Applied";
+// US-1083: a sheet edit to an eBay-owned field on an eBay-originated (locked)
+// listing is surfaced here so the user sees what was NOT synced and why. It is
+// never re-processed (status ≠ Open), and the row carries no usable Action.
+export const CONFLICT_ACTION_LOCKED = "Locked";
+export const CONFLICT_STATUS_SKIPPED = "Skipped — edit on eBay";
 
 // ── Cell normalization ────────────────────────────────────────────────
 // Both sides of every comparison go through this so "12.50" (typed in the

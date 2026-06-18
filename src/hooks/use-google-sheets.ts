@@ -18,6 +18,16 @@ export interface GoogleConnection {
   sync_error?: string | null;
 }
 
+// US-1083: a sheet edit not applied because eBay owns the field on an
+// eBay-originated (locked) listing — surfaced so the user sees what was skipped.
+export interface SyncSkippedItem {
+  tab: string;
+  flipdesk_id: string;
+  item: string;
+  field: string;
+  reason: string;
+}
+
 export interface SyncNowResult {
   ok: true;
   skipped?: boolean;
@@ -26,6 +36,7 @@ export interface SyncNowResult {
   pulled?: number;
   conflicts?: number;
   errors?: string[];
+  skippedItems?: SyncSkippedItem[];
 }
 
 // Whether the server has Google OAuth credentials configured. Lets the UI show
@@ -138,8 +149,14 @@ export function useSyncNow() {
       const conflictNote = result.conflicts
         ? ` ${result.conflicts} conflict${result.conflicts === 1 ? "" : "s"} flagged in the Conflicts tab.`
         : "";
+      // US-1083: eBay-owned cells on eBay-originated listings are locked — tell
+      // the user what was skipped (detail is on the Conflicts tab).
+      const skippedCount = result.skippedItems?.length ?? 0;
+      const skippedNote = skippedCount
+        ? ` ${skippedCount} eBay-owned field${skippedCount === 1 ? "" : "s"} skipped (edit on eBay).`
+        : "";
       toast.success(
-        `Synced: ${result.pushed ?? 0} pushed, ${result.pulled ?? 0} pulled.${conflictNote}`,
+        `Synced: ${result.pushed ?? 0} pushed, ${result.pulled ?? 0} pulled.${conflictNote}${skippedNote}`,
       );
     },
     onError: (err) => toast.error(err.message),
