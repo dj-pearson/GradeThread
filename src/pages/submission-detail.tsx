@@ -66,6 +66,7 @@ import {
 } from "@/components/ui/select";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
+import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
@@ -1226,6 +1227,24 @@ export function SubmissionDetailPage() {
             />
           </CardContent>
         </Card>
+      )}
+
+      {/* US-1075: cross-surface activation — once a grade lands and it isn't
+          already tied to a FlipDesk item, nudge the grader to turn the verified
+          certificate into a listing. Dismissable + event-tracked; suppressed if
+          the user opted out of product messaging. */}
+      {submission.status === "completed" && gradeReport && !linkedItem && (
+        <CrossSurfaceNudge
+          nudgeId="grade-to-flipdesk"
+          icon={Tag}
+          title="Sell this with FlipDesk"
+          description="Turn this graded certificate into a listing. FlipDesk lists it on eBay and shows buyers the verified grade to lift price and trust."
+          cta={{ label: "Open FlipDesk", to: "/dashboard/flipdesk" }}
+          context={{
+            submission_id: submission.id,
+            score: gradeReport.overall_score,
+          }}
+        />
       )}
 
       {/* Dispute Status */}

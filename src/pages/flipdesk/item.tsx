@@ -37,12 +37,17 @@ import {
   driftFieldLabel,
   type SyncDriftMarker,
 } from "@/lib/listing-origin";
+import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
+
+// US-1075: dollar floor for the "grade this to boost trust" cross-surface nudge.
+// Below this, the extra grading cost is rarely worth it, so we stay quiet.
+const HIGH_VALUE_THRESHOLD = 50;
 
 // Deep-linkable item detail page. The canvas itself is shared with the
 // quick-look dialog opened from list rows.
@@ -116,6 +121,35 @@ export function FlipdeskItemPage() {
           {ITEM_STATUS_LABELS[item.status]}
         </Badge>
       </div>
+
+      {/* US-1075: cross-surface activation — nudge resellers to grade an
+          ungraded, higher-value item to lift buyer trust and price. Dismissable
+          + event-tracked; suppressed if the user opted out of product messaging.
+          Complements GradeRoiHint (which needs a sold-history sample): this one
+          fires purely on value, so high-value items still get a prompt when the
+          data-driven hint can't render. CTA scrolls to the canvas grade panel. */}
+      {item.grade_value == null &&
+        (item.target_price ?? item.list_price ?? item.purchase_price ?? 0) >=
+          HIGH_VALUE_THRESHOLD && (
+          <CrossSurfaceNudge
+            nudgeId="flipdesk-to-grade"
+            icon={BadgeCheck}
+            title="Grade this to boost buyer trust"
+            description="This is a higher-value item — an independent condition grade reassures buyers and can lift your sale price and speed."
+            cta={{
+              label: "Grade this item",
+              onAction: () => {
+                const el = document.getElementById("canvas-grading");
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              },
+            }}
+            context={{
+              item_id: item.id,
+              price_hint:
+                item.target_price ?? item.list_price ?? item.purchase_price ?? null,
+            }}
+          />
+        )}
 
       {/* US-856: proactive grade-ROI nudge from the seller's own sold history.
           CTA scrolls to the canvas grade section. Suppresses itself once the

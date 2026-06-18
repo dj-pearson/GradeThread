@@ -37,6 +37,15 @@ export function withPreferenceDefaults(
   };
 }
 
+// Cross-surface activation nudges (US-1075) are promotional product glue, so
+// they honor the same opt-out as other product messaging: when a user turns off
+// "Product updates", we suppress these in-app cross-promo prompts entirely.
+export function crossSurfacePromosEnabled(
+  prefs: Partial<NotificationPreferences> | null | undefined
+): boolean {
+  return withPreferenceDefaults(prefs).product_updates.email;
+}
+
 export interface NotificationTypeMeta {
   key: keyof NotificationPreferences;
   label: string;
