@@ -14,8 +14,19 @@ function benchmarks(
   return {
     meta: { minSellers: 5, periodStart: null, generatedAt: "2026-06-18" },
     topBrands: [],
+    categories: [],
     trendingCategories: [],
-    you: { listed: 0, sold: 0, sellThrough: null, peerComparison: null },
+    priceRealization: null,
+    timeToSell: null,
+    trends: { windows: { d30: null, d90: null, d365: null }, monthly: [] },
+    you: {
+      listed: 0,
+      sold: 0,
+      sellThrough: null,
+      medianDaysToSell: null,
+      medianRealization: null,
+      peerComparison: null,
+    },
     ...partial,
   };
 }

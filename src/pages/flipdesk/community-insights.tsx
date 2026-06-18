@@ -8,6 +8,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Lightbulb,
+  Percent,
+  Clock,
+  BarChart3,
+  Tags,
 } from "lucide-react";
 import {
   Card,
@@ -45,6 +49,20 @@ const pct = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
 const usd = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}`;
+const days = (n: number | null | undefined): string =>
+  n == null || !Number.isFinite(n)
+    ? "—"
+    : `${n % 1 === 0 ? n : n.toFixed(1)} ${n === 1 ? "day" : "days"}`;
+/** Month key "YYYY-MM" → short label e.g. "Jun". */
+const monthLabel = (key: string): string => {
+  const [, m] = key.split("-");
+  const idx = Number(m) - 1;
+  const names = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return names[idx] ?? key;
+};
 
 type Preset = "all" | "90d" | "12mo";
 
@@ -92,14 +110,20 @@ export function FlipdeskCommunityInsightsPage() {
         </Select>
       </div>
 
-      <div className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-        <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-        <p>
-          Every number here is aggregated across at least {MIN_COHORT_SELLERS} sellers — no
-          individual seller&apos;s data is ever shown. Cohorts with fewer than{" "}
-          {MIN_COHORT_SELLERS} sellers are hidden to protect privacy.
-        </p>
-      </div>
+      {(() => {
+        const minSellers = data?.meta.minSellers ?? MIN_COHORT_SELLERS;
+        return (
+          <div className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              Every number here is aggregated across at least {minSellers} sellers — no
+              individual seller&apos;s data is ever shown. Cohorts with fewer than{" "}
+              {minSellers} sellers are hidden to protect privacy. Your own numbers are
+              always shown.
+            </p>
+          </div>
+        );
+      })()}
 
       {isError ? (
         <Card>
@@ -215,6 +239,204 @@ export function FlipdeskCommunityInsightsPage() {
             </CardContent>
           </Card>
 
+          {/* Price realization + time-to-sell (community vs you) */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Percent className="h-4 w-4" /> Price realization
+                </CardTitle>
+                <CardDescription>
+                  How much of the list price sellers actually capture at sale.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {data.priceRealization == null ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    Not enough community sales with list prices yet.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        Community median (sale ÷ list)
+                      </p>
+                      <p className="text-3xl font-bold">
+                        {pct(data.priceRealization.medianRatio)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        middle 50% {pct(data.priceRealization.p25Ratio)}–
+                        {pct(data.priceRealization.p75Ratio)} · across{" "}
+                        {data.priceRealization.sellers} sellers
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 border-t pt-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Median list
+                        </p>
+                        <p className="text-lg font-semibold">
+                          {usd(data.priceRealization.medianListPrice)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Median sale
+                        </p>
+                        <p className="text-lg font-semibold">
+                          {usd(data.priceRealization.medianSalePrice)}
+                        </p>
+                      </div>
+                    </div>
+                    {data.you.medianRealization != null && (
+                      <p className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                        You capture a median of{" "}
+                        <span className="font-semibold text-foreground">
+                          {pct(data.you.medianRealization)}
+                        </span>{" "}
+                        of your list prices.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Clock className="h-4 w-4" /> Time to sell
+                </CardTitle>
+                <CardDescription>
+                  How long items sit listed before they sell, across the community.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {data.timeToSell == null ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    Not enough community sales with listing dates yet.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        Median time to sell
+                      </p>
+                      <p className="text-3xl font-bold">{days(data.timeToSell.p50)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        across {data.timeToSell.sellers} sellers
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 border-t pt-3 text-center">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Fast (p25)
+                        </p>
+                        <p className="text-lg font-semibold">{days(data.timeToSell.p25)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Slow (p75)
+                        </p>
+                        <p className="text-lg font-semibold">{days(data.timeToSell.p75)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Long tail (p90)
+                        </p>
+                        <p className="text-lg font-semibold">{days(data.timeToSell.p90)}</p>
+                      </div>
+                    </div>
+                    {data.you.medianDaysToSell != null && (
+                      <p className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                        Your median time to sell is{" "}
+                        <span className="font-semibold text-foreground">
+                          {days(data.you.medianDaysToSell)}
+                        </span>
+                        .
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Sales trend (community-wide) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BarChart3 className="h-4 w-4" /> Community sales trend
+              </CardTitle>
+              <CardDescription>
+                Items sold across the community over the last 12 months, with
+                rolling 30 / 90 / 365-day totals.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-3 gap-4">
+                {(
+                  [
+                    ["Last 30 days", data.trends.windows.d30],
+                    ["Last 90 days", data.trends.windows.d90],
+                    ["Last 365 days", data.trends.windows.d365],
+                  ] as const
+                ).map(([label, w]) => (
+                  <div key={label}>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {label}
+                    </p>
+                    <p className="text-2xl font-bold">
+                      {w ? w.sold.toLocaleString() : "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {w ? `${usd(w.gmv)} GMV · ${w.sellers} sellers` : "not enough data"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {(() => {
+                const series = data.trends.monthly;
+                const max = Math.max(1, ...series.map((m) => m.sold ?? 0));
+                if (series.every((m) => m.sold == null)) {
+                  return (
+                    <p className="py-2 text-center text-sm text-muted-foreground">
+                      Not enough monthly community sales to chart a trend yet.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="flex items-end gap-1.5" style={{ height: 120 }}>
+                    {series.map((m) => {
+                      const h = m.sold == null ? 0 : Math.round((m.sold / max) * 100);
+                      return (
+                        <div
+                          key={m.month}
+                          className="flex flex-1 flex-col items-center gap-1"
+                          title={
+                            m.sold == null
+                              ? `${monthLabel(m.month)}: hidden (below privacy threshold)`
+                              : `${monthLabel(m.month)}: ${m.sold} sold · ${usd(m.gmv)} GMV`
+                          }
+                        >
+                          <div className="flex h-[100px] w-full items-end">
+                            <div
+                              className="w-full rounded-t bg-brand-navy/80"
+                              style={{ height: `${h}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">
+                            {monthLabel(m.month)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
           {/* Top brands by sell-through */}
           <Card>
             <CardHeader>
@@ -237,6 +459,8 @@ export function FlipdeskCommunityInsightsPage() {
                       <TableHead>Brand</TableHead>
                       <TableHead className="text-right">Sell-through</TableHead>
                       <TableHead className="text-right">Avg sale</TableHead>
+                      <TableHead className="text-right">Realization</TableHead>
+                      <TableHead className="text-right">Days to sell</TableHead>
                       <TableHead className="text-right">Sellers</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -251,8 +475,63 @@ export function FlipdeskCommunityInsightsPage() {
                           </span>
                         </TableCell>
                         <TableCell className="text-right">{usd(b.avgSalePrice)}</TableCell>
+                        <TableCell className="text-right">{pct(b.medianRealization)}</TableCell>
+                        <TableCell className="text-right">{days(b.medianDaysToSell)}</TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {b.sellers}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Top categories by sell-through (deep-dive) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Tags className="h-4 w-4" /> Top categories by sell-through
+              </CardTitle>
+              <CardDescription>
+                Which garment categories move fastest and at what realization.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data.categories.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  Not enough community data yet for this window.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="text-right">Sell-through</TableHead>
+                      <TableHead className="text-right">Avg sale</TableHead>
+                      <TableHead className="text-right">Realization</TableHead>
+                      <TableHead className="text-right">Days to sell</TableHead>
+                      <TableHead className="text-right">Sellers</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.categories.map((c) => (
+                      <TableRow key={c.category}>
+                        <TableCell className="font-medium capitalize">
+                          {c.category}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="font-semibold">{pct(c.sellThrough)}</span>
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({c.sold}/{c.listed})
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{usd(c.avgSalePrice)}</TableCell>
+                        <TableCell className="text-right">{pct(c.medianRealization)}</TableCell>
+                        <TableCell className="text-right">{days(c.medianDaysToSell)}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {c.sellers}
                         </TableCell>
                       </TableRow>
                     ))}
