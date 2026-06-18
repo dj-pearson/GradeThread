@@ -278,9 +278,12 @@ function GradethreadListingCard({
     listing_title: string | null;
     listing_description: string | null;
     listing_price: number | null;
+    quantity: number | null;
     batch_id: string | null;
     synced_to_ebay_at: string | null;
     platform_fields: Record<string, unknown> | null;
+    publish_error: string | null;
+    publish_failed_at: string | null;
   };
 
   const queryKey = ["item_gt_listing", itemId];
@@ -290,7 +293,7 @@ function GradethreadListingCard({
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, platform_offer_id, platform_listing_id, listing_url, listing_status, listing_title, listing_description, listing_price, batch_id, synced_to_ebay_at, platform_fields",
+          "id, platform_offer_id, platform_listing_id, listing_url, listing_status, listing_title, listing_description, listing_price, quantity, batch_id, synced_to_ebay_at, platform_fields, publish_error, publish_failed_at",
         )
         .eq("inventory_item_id", itemId)
         .eq("platform", "ebay")
@@ -320,6 +323,9 @@ function GradethreadListingCard({
     | SyncDriftMarker
     | null;
   const driftedFields = drift?.fields?.filter(Boolean) ?? [];
+  // US-1079: a prior outbound push that eBay rejected is recorded on the listing
+  // (publish_error/publish_failed_at). Surface it with a retry that re-asserts.
+  const pushError = listing.publish_error?.trim() || null;
 
   async function rePush() {
     const lst = listing!;
@@ -330,6 +336,8 @@ function GradethreadListingCard({
           title: (lst.listing_title ?? itemTitle ?? undefined) || undefined,
           description: lst.listing_description ?? undefined,
           listing_price: lst.listing_price ?? undefined,
+          // US-1079: re-assert quantity too — full eBay-owned field coverage.
+          quantity: lst.quantity ?? undefined,
           // Force the full re-PUT so photos/specifics re-assert too even when
           // no text field changed.
           photos: true,
@@ -380,6 +388,26 @@ function GradethreadListingCard({
             >
               <RefreshCw className="mr-2 h-4 w-4" />
               {revise.isPending ? "Re-pushing…" : "Re-push to eBay"}
+            </Button>
+          </div>
+        )}
+
+        {pushError && (
+          <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm dark:border-red-900/50 dark:bg-red-950/30">
+            <div className="flex items-center gap-2 font-medium text-red-800 dark:text-red-300">
+              <AlertTriangle className="h-4 w-4" />
+              Last push to eBay failed
+            </div>
+            <p className="mt-1 text-red-700 dark:text-red-200/80">{pushError}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={rePush}
+              disabled={revise.isPending}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              {revise.isPending ? "Retrying…" : "Retry push"}
             </Button>
           </div>
         )}

@@ -3539,8 +3539,38 @@ flipdeskEbayRoutes.delete("/listings/:id/promotion", async (c) => {
   return c.json({ ok: true });
 });
 
-// Revises a live listing — title / description / price / photo order. Photos
-// and aspects flow through the inventory_item PUT (which is sourced from
+// US-1079: record a failed outbound push on the listing, reusing the publish
+// path's publish_error/publish_failed_at columns so the UI can surface
+// "last failed: X" on reload and offer a retry. Stores a short, user-facing
+// message (mapped from eBay's structured error ids when available), never the
+// raw eBay blob. Ownership of `listingId` is already verified by the caller
+// (loadListingOwned), so updating by id here is tenant-safe.
+async function persistReviseFailure(
+  listingId: string,
+  err: unknown,
+): Promise<void> {
+  try {
+    const ebayErrorIds = (err as { ebayErrorIds?: number[] }).ebayErrorIds;
+    const fix = mapEbayError(ebayErrorIds);
+    const msg =
+      fix?.message ?? (err instanceof Error ? err.message : String(err));
+    await supabaseAdmin
+      .from("listings")
+      .update({
+        publish_error: msg.slice(0, 1000),
+        publish_failed_at: new Date().toISOString(),
+      })
+      .eq("id", listingId);
+  } catch (logErr) {
+    console.error(
+      "[flipdesk-ebay] could not persist revise failure:",
+      logErr,
+    );
+  }
+}
+
+// Revises a live listing — title / description / price / quantity / photo order.
+// Photos and aspects flow through the inventory_item PUT (which is sourced from
 // current local state), so editing a photo via the photo manager and then
 // hitting revise with `photos: true` syncs the new image set + order to eBay.
 //
@@ -3559,6 +3589,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     title?: unknown;
     description?: unknown;
     listing_price?: unknown;
+    quantity?: unknown;
     photos?: unknown;
   };
   try {
@@ -3575,19 +3606,26 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     body.listing_price !== undefined && body.listing_price !== null
       ? Number(body.listing_price)
       : undefined;
+  // US-1079: full eBay-owned field coverage — quantity pushes up too, not just
+  // price. A non-negative integer (0 ends availability without withdrawing).
+  const nextQty =
+    body.quantity !== undefined && body.quantity !== null
+      ? Number(body.quantity)
+      : undefined;
 
   const hasTitle = nextTitle !== undefined;
   const hasDesc = nextDesc !== undefined;
   const hasPrice = nextPrice !== undefined;
+  const hasQty = nextQty !== undefined;
   // `photos: true` forces the inventory_item re-PUT so the current photo set
   // and sort order reach eBay even when no text field changed.
   const syncPhotos = body.photos === true;
 
-  if (!hasTitle && !hasDesc && !hasPrice && !syncPhotos) {
+  if (!hasTitle && !hasDesc && !hasPrice && !hasQty && !syncPhotos) {
     return c.json(
       {
         error:
-          "Provide at least one of: title, description, listing_price, photos",
+          "Provide at least one of: title, description, listing_price, quantity, photos",
       },
       400
     );
@@ -3600,6 +3638,15 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     (!Number.isFinite(nextPrice) || (nextPrice as number) <= 0)
   ) {
     return c.json({ error: "listing_price must be a positive number" }, 400);
+  }
+  if (
+    hasQty &&
+    (!Number.isInteger(nextQty) || (nextQty as number) < 0)
+  ) {
+    return c.json(
+      { error: "quantity must be a non-negative integer" },
+      400
+    );
   }
 
   const row = await loadListingOwned(listingId, userId);
@@ -3623,6 +3670,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       hasTitle && "listing_title",
       hasDesc && "listing_description",
       hasPrice && "listing_price",
+      hasQty && "quantity",
     ].filter((f): f is string => typeof f === "string");
     const { locked } = validateEbayOriginEdit(origin, requested);
     if (locked.length > 0 || syncPhotos) {
@@ -3656,6 +3704,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   if (hasTitle) localUpdates.listing_title = nextTitle;
   if (hasDesc) localUpdates.listing_description = nextDesc;
   if (hasPrice) localUpdates.listing_price = nextPrice;
+  if (hasQty) localUpdates.quantity = nextQty;
   // A photos-only revise has nothing to write locally — skip the no-op update
   // (an empty PATCH would error on PostgREST).
   if (Object.keys(localUpdates).length > 0) {
@@ -3763,6 +3812,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       });
     } catch (err) {
       console.error("[flipdesk-ebay] revise inventory_item failed:", err);
+      // US-1079: persist the failure on the listing (publish_error/
+      // publish_failed_at) so the UI can surface it + offer a retry on reload.
+      await persistReviseFailure(listingId, err);
       // 422 (not 502): an eBay business-rule rejection is a data problem, not a
       // gateway failure. A 5xx gets intercepted by the Traefik/Coolify error page
       // (which strips CORS headers — see main.ts), so the browser sees a bare
@@ -3778,16 +3830,21 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     }
   }
 
-  // Offer side handles price + listing description (offer.listingDescription
-  // overrides product.description on the live listing). Batched into one PUT.
-  if (hasPrice || hasDesc) {
+  // Offer side handles price + listing description + quantity
+  // (offer.listingDescription overrides product.description, availableQuantity
+  // controls the listed quantity). Batched into one PUT.
+  if (hasPrice || hasDesc || hasQty) {
     try {
       await updateOfferFields(userId, offerId, {
         price: hasPrice ? (nextPrice as number) : undefined,
         listingDescription: hasDesc ? (nextDesc as string) : undefined,
+        availableQuantity: hasQty ? (nextQty as number) : undefined,
       });
     } catch (err) {
       console.error("[flipdesk-ebay] revise offer failed:", err);
+      // US-1079: persist the failure on the listing (publish_error/
+      // publish_failed_at) so the UI can surface it + offer a retry on reload.
+      await persistReviseFailure(listingId, err);
       // 422 (not 502): see the inventory_item branch above — an eBay rejection is
       // a data problem; a 5xx loses its CORS headers to the proxy error page.
       return c.json(
@@ -3801,9 +3858,11 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     }
   }
 
-  // US-1081: a revise re-asserts GradeThread's values onto eBay, so any recorded
-  // eBay-drift marker is now resolved — clear it so the "eBay differs" indicator
-  // disappears without waiting for the next inbound sync.
+  // US-1081/US-1079: a successful push re-asserts GradeThread's values onto eBay,
+  // so any recorded eBay-drift marker is resolved — clear it so the "eBay differs"
+  // indicator disappears without waiting for the next inbound sync. Also clear any
+  // prior push failure (publish_error/publish_failed_at) so the retry banner goes
+  // away once the push succeeds.
   {
     const { data: cur } = await supabaseAdmin
       .from("listings")
@@ -3812,13 +3871,18 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       .maybeSingle();
     const pf = ((cur as { platform_fields?: Record<string, unknown> } | null)
       ?.platform_fields) ?? {};
+    const update: Record<string, unknown> = {
+      publish_error: null,
+      publish_failed_at: null,
+    };
     if ((pf as { sync_drift?: unknown }).sync_drift) {
       delete (pf as { sync_drift?: unknown }).sync_drift;
-      await supabaseAdmin
-        .from("listings")
-        .update({ platform_fields: pf } as never)
-        .eq("id", listingId);
+      update.platform_fields = pf;
     }
+    await supabaseAdmin
+      .from("listings")
+      .update(update as never)
+      .eq("id", listingId);
   }
 
   return c.json({

@@ -668,6 +668,8 @@ export interface ReviseListingPatch {
   title?: string;
   description?: string;
   listing_price?: number;
+  // US-1079: quantity pushes up too — full eBay-owned field coverage.
+  quantity?: number;
   photos?: boolean;
 }
 
@@ -680,6 +682,7 @@ export function useEbayReviseListing() {
         listing_title: string;
         listing_description: string;
         listing_price: number;
+        quantity: number;
       }>;
       photos_synced?: boolean;
     },

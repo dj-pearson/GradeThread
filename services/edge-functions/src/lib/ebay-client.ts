@@ -1974,7 +1974,14 @@ export async function updateOfferPrice(
 export async function updateOfferFields(
   userId: string,
   offerId: string,
-  patch: { price?: number; currency?: string; listingDescription?: string }
+  patch: {
+    price?: number;
+    currency?: string;
+    listingDescription?: string;
+    // US-1079: re-assert quantity on the live offer (availableQuantity is the
+    // offer field that controls the listed quantity for a single-SKU offer).
+    availableQuantity?: number;
+  }
 ): Promise<void> {
   const current = await getOffer(userId, offerId);
 
@@ -1990,6 +1997,10 @@ export async function updateOfferFields(
 
   if (patch.listingDescription !== undefined) {
     current.listingDescription = patch.listingDescription;
+  }
+
+  if (patch.availableQuantity !== undefined) {
+    current.availableQuantity = patch.availableQuantity;
   }
 
   await fetchAuthed<unknown>(
