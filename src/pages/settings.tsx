@@ -13,7 +13,11 @@ import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { downloadBlob } from "@/lib/download";
-import type { UserUpdate, NotificationPreferences } from "@/types/database";
+import type {
+  UserUpdate,
+  NotificationPreferences,
+  NotificationChannel,
+} from "@/types/database";
 import {
   NOTIFICATION_TYPES,
   withPreferenceDefaults,
@@ -58,6 +62,7 @@ function nextResetLabel(): string {
 const CHANNEL_LABELS: Record<string, string> = {
   email: "Email",
   in_app: "In-app",
+  push: "Push",
 };
 
 // US-608: settings are split into deep-linkable tabs (?tab=<value>) so a long
@@ -309,7 +314,7 @@ export function SettingsPage() {
 
   function setChannel(
     typeKey: keyof NotificationPreferences,
-    channel: "email" | "in_app",
+    channel: NotificationChannel,
     value: boolean
   ) {
     setPrefs((prev) => {
@@ -613,9 +618,9 @@ export function SettingsPage() {
                 </div>
                 <div className="flex gap-4">
                   {type.channels.map((channel) => {
-                    const checked = (
-                      prefs[type.key] as Record<string, boolean>
-                    )[channel];
+                    const checked =
+                      (prefs[type.key] as Record<string, boolean>)[channel] ??
+                      false;
                     const switchId = `${type.key}-${channel}`;
                     return (
                       <div

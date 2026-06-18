@@ -182,6 +182,7 @@ const AdminLegalPage = lazy(() => import("@/pages/admin/legal").then(m => ({ def
 const AdminKnowledgeBasePage = lazy(() => import("@/pages/admin/knowledge-base").then(m => ({ default: m.AdminKnowledgeBasePage })));
 const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring").then(m => ({ default: m.AdminMonitoringPage })));
 const AdminSystemPage = lazy(() => import("@/pages/admin/system").then(m => ({ default: m.AdminSystemPage })));
+const AdminNotificationsPage = lazy(() => import("@/pages/admin/notifications").then(m => ({ default: m.AdminNotificationsPage })));
 const AdminJobsPage = lazy(() => import("@/pages/admin/jobs").then(m => ({ default: m.AdminJobsPage })));
 const AdminOpsHealthPage = lazy(() => import("@/pages/admin/ops-health").then(m => ({ default: m.AdminOpsHealthPage })));
 const AdminOpsJobsPage = lazy(() => import("@/pages/admin/ops-jobs").then(m => ({ default: m.AdminOpsJobsPage })));
@@ -479,6 +480,8 @@ export const router = createBrowserRouter([
               { path: "/admin/ops/jobs", element: <SuspenseWrapper><AdminOpsJobsPage /></SuspenseWrapper> },
               { path: "/admin/ops/dead-letters", element: <SuspenseWrapper><AdminOpsDeadLettersPage /></SuspenseWrapper> },
               { path: "/admin/ops/settings", element: <SuspenseWrapper><AdminSettingsRegistryPage /></SuspenseWrapper> },
+              // US-1058 notification event catalog (admin + super_admin; read-only).
+              { path: "/admin/ops/notifications", element: <SuspenseWrapper><AdminNotificationsPage /></SuspenseWrapper> },
               { path: "/admin/ops/pricing", element: <SuspenseWrapper><AdminConfigPricingPage /></SuspenseWrapper> },
               { path: "/admin/ops/feature-flags", element: <SuspenseWrapper><AdminFeatureFlagsPage /></SuspenseWrapper> },
               { path: "/admin/ops/maintenance", element: <SuspenseWrapper><AdminMaintenancePage /></SuspenseWrapper> },

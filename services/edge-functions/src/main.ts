@@ -62,6 +62,7 @@ import { adminSupportTicketsRoutes } from "./routes/admin-support-tickets.ts";
 import { adminComplianceRoutes } from "./routes/admin-compliance.ts";
 import { adminLegalRoutes } from "./routes/admin-legal.ts";
 import { adminMonitoringRoutes } from "./routes/admin-monitoring.ts";
+import { adminNotificationsRoutes } from "./routes/admin-notifications.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminSearchRoutes } from "./routes/admin-search.ts";
@@ -792,6 +793,10 @@ app.route("/api/admin/compliance/legal", adminLegalRoutes);
 // policy, never client-readable) + the unlock write. Admin JWT + AAL2 MFA via
 // the /api/admin/* group. Distinct prefix avoids overlap with the inbox above.
 app.route("/api/admin/support-monitoring", adminMonitoringRoutes);
+// US-1058 notification event catalog: every notification type, the preference
+// category that gates it (from notify.ts PREF_KEY — the real send-time gate) and
+// its delivery volume. Cross-tenant read; admin JWT + AAL2 MFA via /api/admin/*.
+app.route("/api/admin/notifications", adminNotificationsRoutes);
 // US-840 support knowledge-base authoring/publishing/versioning — the single
 // control surface for the corpus the AI assistant may speak from. Service-role
 // writes (support_kb_articles has no client write policy, 00183); admin JWT +

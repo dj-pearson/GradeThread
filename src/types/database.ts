@@ -128,7 +128,9 @@ export type NotificationType =
   | "item_status_change"
   | "listing_live"
   | "sale_recorded"
-  | "payout_imported";
+  | "payout_imported"
+  | "offer_received"
+  | "return_requested";
 
 // ─── FlipDesk enums ────────────────────────────────────────────────
 export type FlipdeskSourceType =
@@ -215,14 +217,28 @@ export type ExpenseCategory =
 
 // ─── Row types (what you SELECT) ───────────────────────────────────
 
+// Per-event delivery channels. All optional so a category can advertise only
+// the channels it supports (e.g. product_updates is email-only) and partial /
+// legacy rows stay safe to read — fill via withPreferenceDefaults() (US-1058).
+export type NotificationChannel = "email" | "in_app" | "push";
+export interface NotificationChannelPrefs {
+  email?: boolean;
+  in_app?: boolean;
+  push?: boolean;
+}
+
 export interface NotificationPreferences {
-  grade_complete: { email: boolean; in_app: boolean };
-  dispute_updates: { email: boolean; in_app: boolean };
-  billing_alerts: { email: boolean };
-  product_updates: { email: boolean };
-  // Selling lifecycle: listing went live, sale recorded, payout imported,
-  // item status changed (US-737).
-  selling_activity: { email: boolean; in_app: boolean };
+  grade_complete: NotificationChannelPrefs;
+  dispute_updates: NotificationChannelPrefs;
+  billing_alerts: NotificationChannelPrefs;
+  product_updates: NotificationChannelPrefs;
+  // Selling lifecycle: listing went live, sale recorded, item status changed
+  // (US-737). Payouts split into their own category in US-1058.
+  selling_activity: NotificationChannelPrefs;
+  // US-1058: granular per-event categories with their own opt-out.
+  offers: NotificationChannelPrefs;
+  returns: NotificationChannelPrefs;
+  payouts: NotificationChannelPrefs;
 }
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";

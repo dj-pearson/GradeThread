@@ -14,6 +14,8 @@ import {
   DollarSign,
   ArrowRightLeft,
   Banknote,
+  Handshake,
+  Undo2,
 } from "lucide-react";
 import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { Button } from "@/components/ui/button";
@@ -50,6 +52,10 @@ function getNotificationIcon(type: NotificationType) {
       return DollarSign;
     case "payout_imported":
       return Banknote;
+    case "offer_received":
+      return Handshake;
+    case "return_requested":
+      return Undo2;
     default:
       return CheckCircle2;
   }
@@ -71,6 +77,10 @@ function getNotificationIconColor(type: NotificationType): string {
       return "text-blue-600 dark:text-blue-400";
     case "item_status_change":
       return "text-sky-600 dark:text-sky-400";
+    case "offer_received":
+      return "text-amber-600 dark:text-amber-400";
+    case "return_requested":
+      return "text-rose-600 dark:text-rose-400";
     case "system":
       return "text-muted-foreground";
     default:

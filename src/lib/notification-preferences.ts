@@ -1,64 +1,92 @@
-import type { NotificationPreferences } from "@/types/database";
+import type {
+  NotificationChannel,
+  NotificationPreferences,
+  NotificationType,
+} from "@/types/database";
 
-// All channels on by default — users opt out, not in.
+// All channels on by default — users opt out, not in. Each category only lists
+// the channels it actually supports; that same list drives the settings UI and
+// the admin event catalog (US-1058).
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
-  grade_complete: { email: true, in_app: true },
+  grade_complete: { email: true, in_app: true, push: true },
   dispute_updates: { email: true, in_app: true },
-  billing_alerts: { email: true },
+  billing_alerts: { email: true, in_app: true },
   product_updates: { email: true },
-  selling_activity: { email: true, in_app: true },
+  selling_activity: { email: true, in_app: true, push: true },
+  offers: { email: true, in_app: true, push: true },
+  returns: { email: true, in_app: true, push: true },
+  payouts: { email: true, in_app: true, push: true },
 };
 
-// Fills any missing keys with defaults so older/partial rows stay safe to read.
+type PrefKey = keyof NotificationPreferences;
+
+const PREF_KEYS = Object.keys(
+  DEFAULT_NOTIFICATION_PREFERENCES,
+) as PrefKey[];
+
+// Fills any missing keys/channels with defaults so older/partial rows stay safe
+// to read (e.g. rows written before offers/returns/payouts existed).
 export function withPreferenceDefaults(
-  prefs: Partial<NotificationPreferences> | null | undefined
+  prefs: Partial<NotificationPreferences> | null | undefined,
 ): NotificationPreferences {
-  return {
-    grade_complete: {
-      ...DEFAULT_NOTIFICATION_PREFERENCES.grade_complete,
-      ...prefs?.grade_complete,
-    },
-    dispute_updates: {
-      ...DEFAULT_NOTIFICATION_PREFERENCES.dispute_updates,
-      ...prefs?.dispute_updates,
-    },
-    billing_alerts: {
-      ...DEFAULT_NOTIFICATION_PREFERENCES.billing_alerts,
-      ...prefs?.billing_alerts,
-    },
-    product_updates: {
-      ...DEFAULT_NOTIFICATION_PREFERENCES.product_updates,
-      ...prefs?.product_updates,
-    },
-    selling_activity: {
-      ...DEFAULT_NOTIFICATION_PREFERENCES.selling_activity,
-      ...prefs?.selling_activity,
-    },
-  };
+  const out = {} as NotificationPreferences;
+  for (const key of PREF_KEYS) {
+    out[key] = {
+      ...DEFAULT_NOTIFICATION_PREFERENCES[key],
+      ...prefs?.[key],
+    };
+  }
+  return out;
 }
 
 // Cross-surface activation nudges (US-1075) are promotional product glue, so
 // they honor the same opt-out as other product messaging: when a user turns off
 // "Product updates", we suppress these in-app cross-promo prompts entirely.
 export function crossSurfacePromosEnabled(
-  prefs: Partial<NotificationPreferences> | null | undefined
+  prefs: Partial<NotificationPreferences> | null | undefined,
 ): boolean {
-  return withPreferenceDefaults(prefs).product_updates.email;
+  return withPreferenceDefaults(prefs).product_updates.email !== false;
 }
 
 export interface NotificationTypeMeta {
-  key: keyof NotificationPreferences;
+  key: PrefKey;
   label: string;
   description: string;
-  channels: ("email" | "in_app")[];
+  channels: NotificationChannel[];
 }
 
+// The preference categories users toggle, in display order. `channels` is the
+// authoritative set of channels each category supports.
 export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
   {
     key: "grade_complete",
-    label: "Grade complete",
-    description: "When an AI condition grade is ready to view.",
-    channels: ["email", "in_app"],
+    label: "Grading",
+    description: "When a submission is graded or an AI condition grade is ready.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "selling_activity",
+    label: "Selling activity",
+    description: "When a listing goes live, an item sells, or its status changes.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "offers",
+    label: "Offers",
+    description: "When a buyer sends an offer or counters on your listing.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "returns",
+    label: "Returns",
+    description: "When a buyer opens a return or a return changes status.",
+    channels: ["email", "in_app", "push"],
+  },
+  {
+    key: "payouts",
+    label: "Payouts",
+    description: "When a payout is imported or clears to your account.",
+    channels: ["email", "in_app", "push"],
   },
   {
     key: "dispute_updates",
@@ -68,9 +96,9 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
   },
   {
     key: "billing_alerts",
-    label: "Billing alerts",
+    label: "Billing",
     description: "Payment receipts, failed charges, and plan changes.",
-    channels: ["email"],
+    channels: ["email", "in_app"],
   },
   {
     key: "product_updates",
@@ -78,11 +106,93 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     description: "New features and occasional product announcements.",
     channels: ["email"],
   },
+];
+
+export interface NotificationEventMeta {
+  type: NotificationType;
+  label: string;
+  description: string;
+  // The preference category that gates this event's delivery, or null when the
+  // event is always delivered (e.g. system messages the user can't mute). MUST
+  // mirror PREF_KEY in services/edge-functions/src/lib/notify.ts so the admin
+  // catalog reflects the real end-to-end gate.
+  prefKey: PrefKey | null;
+}
+
+// Canonical catalog of every in-app notification TYPE the platform emits, mapped
+// to the preference category that gates it. Powers the admin event catalog
+// (US-1058) and documents the gate.
+export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
   {
-    key: "selling_activity",
-    label: "Selling activity",
-    description:
-      "When a listing goes live, an item sells, or a payout is imported.",
-    channels: ["email", "in_app"],
+    type: "grade_complete",
+    label: "Grade complete",
+    description: "An AI condition grade is ready to view.",
+    prefKey: "grade_complete",
+  },
+  {
+    type: "grading_submitted",
+    label: "Grading submitted",
+    description: "A submission was sent for grading.",
+    prefKey: "grade_complete",
+  },
+  {
+    type: "grading_ready",
+    label: "Grading ready",
+    description: "A graded submission is ready to review.",
+    prefKey: "grade_complete",
+  },
+  {
+    type: "item_status_change",
+    label: "Item status changed",
+    description: "An inventory item moved to a new pipeline stage.",
+    prefKey: "selling_activity",
+  },
+  {
+    type: "listing_live",
+    label: "Listing live",
+    description: "A listing was published to a marketplace.",
+    prefKey: "selling_activity",
+  },
+  {
+    type: "sale_recorded",
+    label: "Sale recorded",
+    description: "An item sold.",
+    prefKey: "selling_activity",
+  },
+  {
+    type: "offer_received",
+    label: "Offer received",
+    description: "A buyer sent an offer on a listing.",
+    prefKey: "offers",
+  },
+  {
+    type: "return_requested",
+    label: "Return requested",
+    description: "A buyer opened a return or refund request.",
+    prefKey: "returns",
+  },
+  {
+    type: "payout_imported",
+    label: "Payout imported",
+    description: "A marketplace payout was imported.",
+    prefKey: "payouts",
+  },
+  {
+    type: "dispute_update",
+    label: "Dispute update",
+    description: "A grade dispute changed status.",
+    prefKey: "dispute_updates",
+  },
+  {
+    type: "billing",
+    label: "Billing",
+    description: "A payment, receipt, or plan-change event.",
+    prefKey: "billing_alerts",
+  },
+  {
+    type: "system",
+    label: "System",
+    description: "Essential account messages — always delivered.",
+    prefKey: null,
   },
 ];

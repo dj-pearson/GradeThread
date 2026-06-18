@@ -12,11 +12,16 @@ export type NotificationType =
   | "item_status_change"
   | "listing_live"
   | "sale_recorded"
-  | "payout_imported";
+  | "payout_imported"
+  | "offer_received"
+  | "return_requested";
 
 // Which notification_preferences category gates each type's in-app delivery.
 // `null` types are always delivered (e.g. system messages the user can't mute).
-const PREF_KEY: Record<NotificationType, string | null> = {
+// US-1058 split payouts/offers/returns into their own opt-out categories — the
+// frontend NOTIFICATION_EVENT_CATALOG mirrors this so the admin catalog reflects
+// the real gate end-to-end. Exported so the admin catalog endpoint reuses it.
+export const PREF_KEY: Record<NotificationType, string | null> = {
   grade_complete: "grade_complete",
   grading_submitted: "grade_complete",
   grading_ready: "grade_complete",
@@ -26,7 +31,9 @@ const PREF_KEY: Record<NotificationType, string | null> = {
   item_status_change: "selling_activity",
   listing_live: "selling_activity",
   sale_recorded: "selling_activity",
-  payout_imported: "selling_activity",
+  payout_imported: "payouts",
+  offer_received: "offers",
+  return_requested: "returns",
 };
 
 export interface NotifyInput {

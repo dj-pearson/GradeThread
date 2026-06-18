@@ -135,6 +135,8 @@ const opsNavItems = [
   // US-884 settings registry. Reads are admin; the PUT mutation is super_admin +
   // MFA step-up gated server-side.
   { to: "/admin/ops/settings", icon: SlidersHorizontal, label: "Settings Registry", end: false },
+  // US-1058 notification event catalog — read-only event/channel/volume map.
+  { to: "/admin/ops/notifications", icon: Bell, label: "Notification Catalog", end: false },
   { to: "/admin/ops/pricing", icon: DollarSign, label: "Pricing & Tiers", end: false },
   // US-886 feature flags v2. List/toggle is admin; the targeting rule editor is
   // super_admin + MFA step-up gated server-side.
