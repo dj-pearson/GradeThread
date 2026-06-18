@@ -2226,7 +2226,7 @@
         "deno check + lint + tests green."
       ],
       "priority": 1047,
-      "passes": false,
+      "passes": true,
       "notes": "[eBay integration audit 2026-06-14] severity=low. services/edge-functions/src/lib/ebay-client.ts (no feedback API today)"
     },
     {
