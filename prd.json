@@ -2293,7 +2293,7 @@
         "Migration is idempotent; tsc/lint/build/deno green."
       ],
       "priority": 1053,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Advanced Search & Filters. FTS today is exact tsvector (00016) — no pg_trgm fuzzy match, no search history table. Add CREATE EXTENSION pg_trgm + trigram indexes; new search_history table (per-user, RLS). severity=medium."
     },
     {
