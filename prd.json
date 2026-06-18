@@ -2397,7 +2397,7 @@
         "tsc/lint/build green; dismissed flag stored server-side (survives device change)."
       ],
       "priority": 1061,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: eBay UX. Publish path in services/edge-functions/src/routes/flipdesk-ebay.ts (publish/offer) + web publish flow in src/pages/flipdesk + iOS publish action. Store a per-user 'ebay_publish_disclaimer_dismissed' flag (users table or a ui_dismissals table). severity=medium (user-reported clarity gap)."
     },
     {

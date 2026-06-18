@@ -3078,3 +3078,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  2:07:03 PM
 ---
+## US-1061: Dismissable 'manage this item in FlipDesk' disclaimer on first successful eBay publish
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  2:23:48 PM
+---
