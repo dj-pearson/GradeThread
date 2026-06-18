@@ -2698,7 +2698,14 @@
       ],
       "priority": 1083,
       "passes": false,
-      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Sheets stays bidirectional EXCEPT eBay-owned fields on eBay-originated locked listings are skipped (not overwritten) and reported as skipped items. Depends on US-1077 (origin) + US-1076 (field registry). severity=low."
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Sheets stays bidirectional EXCEPT eBay-owned fields on eBay-originated locked listings are skipped (not overwritten) and reported as skipped items. Depends on US-1077 (origin) + US-1076 (field registry). severity=low.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-google-sync.ts",
+        "services/edge-functions/src/routes/flipdesk-sheets.ts",
+        "services/edge-functions/src/routes/flipdesk-google.ts",
+        "services/edge-functions/src/lib/ebay-catalog-merge.ts",
+        "SYNC_SOURCE_OF_TRUTH.md"
+      ]
     },
     {
       "id": "US-1084",
@@ -2711,7 +2718,12 @@
       ],
       "priority": 1084,
       "passes": false,
-      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Documentation story. Low risk. severity=low."
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Documentation story. Low risk. severity=low.",
+      "relevantPaths": [
+        "SYNC_SOURCE_OF_TRUTH.md",
+        "services/edge-functions/src/lib/ebay-catalog-merge.ts",
+        "services/edge-functions/src/routes/flipdesk-google-sync.ts"
+      ]
     },
     {
       "id": "US-1085",
@@ -2726,7 +2738,14 @@
       ],
       "priority": 1085,
       "passes": false,
-      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1078/1080/1082. Mirrors the tenant-isolation regression-suite pattern. severity=medium."
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1078/1080/1082. Mirrors the tenant-isolation regression-suite pattern. severity=medium.",
+      "relevantPaths": [
+        "SYNC_SOURCE_OF_TRUTH.md",
+        "services/edge-functions/src/routes/flipdesk-google-sync.ts",
+        "services/edge-functions/src/lib/ebay-catalog-merge.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/tests"
+      ]
     },
     {
       "id": "US-1086",
@@ -2741,7 +2760,13 @@
       ],
       "priority": 1086,
       "passes": false,
-      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. iOS parity per user request 2026-06-16. Depends on US-1078/1079/1080. Reuses edge endpoints; no client-side precedence logic. severity=medium."
+      "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. iOS parity per user request 2026-06-16. Depends on US-1078/1079/1080. Reuses edge endpoints; no client-side precedence logic. severity=medium.",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/ConflictPolicy.swift",
+        "ios/GradeThread/Persistence/Models/LocalInventoryItem.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsService.swift",
+        "SYNC_SOURCE_OF_TRUTH.md"
+      ]
     },
     {
       "id": "US-1087",
@@ -2756,7 +2781,13 @@
       ],
       "priority": 1087,
       "passes": false,
-      "notes": "[Backlog 2026-06-17] Observed in prod: eBay returns 404 for payment_dispute_summary on accounts without dispute data; current handler surfaces 502. Make it a clean empty result. severity=low."
+      "notes": "[Backlog 2026-06-17] Observed in prod: eBay returns 404 for payment_dispute_summary on accounts without dispute data; current handler surfaces 502. Make it a clean empty result. severity=low.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ebay-disputes.ts",
+        "services/edge-functions/src/tests/ebay-disputes_test.ts",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "src/pages/flipdesk/post-sale.tsx"
+      ]
     },
     {
       "id": "US-1088",
@@ -2772,7 +2803,16 @@
       ],
       "priority": 1088,
       "passes": false,
-      "notes": "[Backlog 2026-06-17] User request. Lululemon labels often cut off. Leverage measurement photos (flipdesk_photo_type measurement/measurements) + brand sizing charts (needs a sizing-chart reference source). New edge endpoint (e.g. /api/flipdesk/ai/size) + Claude Vision. Epic: AI listing assist. severity=medium."
+      "notes": "[Backlog 2026-06-17] User request. Lululemon labels often cut off. Leverage measurement photos (flipdesk_photo_type measurement/measurements) + brand sizing charts (needs a sizing-chart reference source). New edge endpoint (e.g. /api/flipdesk/ai/size) + Claude Vision. Epic: AI listing assist. severity=medium.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/ai-size-estimate.ts",
+        "services/edge-functions/src/lib/ai-listing.ts",
+        "services/edge-functions/src/routes/flipdesk-listings.ts",
+        "src/pages/flipdesk/composer.tsx",
+        "src/hooks/use-ai-extract.ts",
+        "src/components/flipdesk/item-canvas.tsx"
+      ],
+      "hard": true
     },
     {
       "id": "US-1089",
