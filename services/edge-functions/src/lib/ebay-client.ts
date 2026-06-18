@@ -3071,6 +3071,54 @@ export async function findEligibleNegotiationItems(
     .map((it) => ({ listingId: it.listingId as string, title: it.title ?? null }));
 }
 
+// US-1062: a single eligible listing's display fields, fetched best-effort from
+// the Browse API when we have no local row for it (e.g. a listing created
+// outside GradeThread). Browse's get_item_by_legacy_id resolves a public eBay
+// listing id (the same numeric id find_eligible_items returns) to its title,
+// price, image and condition.
+export interface BrowseItemLite {
+  title: string | null;
+  price: number | null;
+  currency: string;
+  imageUrl: string | null;
+  condition: string | null;
+}
+
+export async function getBrowseItemByLegacyId(
+  legacyItemId: string,
+): Promise<BrowseItemLite | null> {
+  try {
+    const token = await getAppAccessToken();
+    const url = `${apiHost()}/buy/browse/v1/item/get_item_by_legacy_id?legacy_item_id=${
+      encodeURIComponent(legacyItemId)
+    }`;
+    const res = await ebayFetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      },
+    });
+    if (!res.ok) return null;
+    const s = (await res.json()) as {
+      title?: string;
+      price?: { value?: string; currency?: string };
+      image?: { imageUrl?: string };
+      thumbnailImages?: Array<{ imageUrl?: string }>;
+      condition?: string;
+    };
+    return {
+      title: s.title ?? null,
+      price: s.price?.value ? Number(s.price.value) : null,
+      currency: s.price?.currency ?? "USD",
+      imageUrl: s.image?.imageUrl ?? s.thumbnailImages?.[0]?.imageUrl ?? null,
+      condition: s.condition ?? null,
+    };
+  } catch (err) {
+    console.error("[ebay-client] getBrowseItemByLegacyId failed:", err);
+    return null;
+  }
+}
+
 /// Sends a percentage-or-price offer to interested buyers on the given listings.
 /// `offerType` "PERCENTAGE_DISCOUNT" expects priceOrPercent like "10" (10% off);
 /// "PRICE" expects an absolute price value.

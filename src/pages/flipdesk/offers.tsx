@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Check,
+  ImageOff,
   Loader2,
   MessageSquare,
   Reply,
@@ -292,20 +293,51 @@ function SendOfferCard() {
                   No eligible listings (need active watchers).
                 </p>
               ) : (
-                items.map((it) => (
-                  <label
-                    key={it.listingId}
-                    className="flex cursor-pointer items-center gap-2 rounded p-1.5 hover:bg-muted"
-                  >
-                    <Checkbox
-                      checked={selected.has(it.listingId)}
-                      onCheckedChange={() => toggle(it.listingId)}
-                    />
-                    <span className="truncate text-sm">
-                      {it.title || it.listingId}
-                    </span>
-                  </label>
-                ))
+                items.map((it) => {
+                  const priceLabel =
+                    typeof it.price === "number" && it.price > 0
+                      ? new Intl.NumberFormat("en-US", {
+                          style: "currency",
+                          currency: it.currency || "USD",
+                        }).format(it.price)
+                      : null;
+                  // listing id shown only when nothing else resolves.
+                  const primary = it.title || `Listing ${it.listingId}`;
+                  const secondary = [priceLabel, it.condition]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <label
+                      key={it.listingId}
+                      className="flex cursor-pointer items-center gap-2 rounded p-1.5 hover:bg-muted"
+                    >
+                      <Checkbox
+                        checked={selected.has(it.listingId)}
+                        onCheckedChange={() => toggle(it.listingId)}
+                      />
+                      {it.imageUrl ? (
+                        <img
+                          src={it.imageUrl}
+                          alt=""
+                          loading="lazy"
+                          className="h-10 w-10 shrink-0 rounded object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted">
+                          <ImageOff className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm">{primary}</p>
+                        {secondary && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {secondary}
+                          </p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })
               )}
             </div>
             <div className="flex items-center gap-2">

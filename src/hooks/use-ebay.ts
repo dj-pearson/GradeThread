@@ -1143,6 +1143,14 @@ export interface EbayBestOffer {
 export interface EbayEligibleItem {
   listingId: string;
   title?: string | null;
+  // US-1062: enriched from the seller's local listing (or an eBay Browse
+  // fallback) so the chooser shows a real thumbnail, title, price & condition
+  // instead of a bare numeric listing id.
+  price?: number | null;
+  currency?: string | null;
+  imageUrl?: string | null;
+  condition?: string | null;
+  source?: "local" | "browse" | "ebay";
 }
 
 export interface EbayBuyerMessage {

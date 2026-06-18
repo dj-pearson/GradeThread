@@ -55,6 +55,7 @@ import {
   upsertConnection,
   withdrawOffer,
   findEligibleNegotiationItems,
+  getBrowseItemByLegacyId,
   sendOfferToInterestedBuyers,
   type BestOfferTerms,
   type PricingSummary,
@@ -72,6 +73,10 @@ import {
   resolveBestOfferThresholds,
 } from "../lib/best-offer.ts";
 import { decryptToken } from "../lib/crypto-aes.ts";
+import {
+  enrichEligibleItems,
+  type EligibleEnrichment,
+} from "../lib/negotiation-enrich.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
 import { autoEndCrossListings } from "../lib/cross-listings.ts";
 import {
@@ -5362,7 +5367,87 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   try {
-    const items = await findEligibleNegotiationItems(userId);
+    const eligible = await findEligibleNegotiationItems(userId);
+    const listingIds = eligible.map((it) => it.listingId);
+
+    // Join eBay's eligible listingIds to local listings (by platform_listing_id)
+    // for this tenant only (US-268: service-role bypasses RLS, so scope on
+    // user_id) to recover the seller's real title, price and condition.
+    const localByListingId = new Map<string, EligibleEnrichment>();
+    if (listingIds.length > 0) {
+      const { data: listingRows } = await supabaseAdmin
+        .from("listings")
+        .select(
+          "inventory_item_id, platform_listing_id, listing_title, listing_price, ebay_condition",
+        )
+        .eq("user_id", userId)
+        .eq("platform", "ebay")
+        .in("platform_listing_id", listingIds);
+      const rows = (listingRows ?? []) as Array<{
+        inventory_item_id: string;
+        platform_listing_id: string | null;
+        listing_title: string | null;
+        listing_price: number | null;
+        ebay_condition: string | null;
+      }>;
+
+      // Thumbnail: first photo (by sort_order) for each matched item.
+      const itemIds = Array.from(
+        new Set(rows.map((r) => r.inventory_item_id).filter(Boolean)),
+      );
+      const imageByItemId = new Map<string, string | null>();
+      if (itemIds.length > 0) {
+        const { data: photoRows } = await supabaseAdmin
+          .from("item_photos")
+          .select("inventory_item_id, storage_path, photo_url, sort_order")
+          .in("inventory_item_id", itemIds)
+          .order("sort_order", { ascending: true });
+        for (
+          const p of (photoRows ?? []) as Array<{
+            inventory_item_id: string;
+            storage_path: string | null;
+            photo_url: string | null;
+            sort_order: number;
+          }>
+        ) {
+          // Keep only the first (lowest sort_order) photo per item.
+          if (imageByItemId.has(p.inventory_item_id)) continue;
+          let url = p.photo_url ?? null;
+          if (!url && p.storage_path) {
+            url = supabaseAdmin.storage
+              .from("item-photos")
+              .getPublicUrl(p.storage_path).data.publicUrl;
+          }
+          imageByItemId.set(p.inventory_item_id, url);
+        }
+      }
+
+      for (const r of rows) {
+        if (!r.platform_listing_id) continue;
+        localByListingId.set(r.platform_listing_id, {
+          title: r.listing_title,
+          price: r.listing_price,
+          currency: "USD",
+          imageUrl: imageByItemId.get(r.inventory_item_id) ?? null,
+          condition: r.ebay_condition,
+        });
+      }
+    }
+
+    // Fall back to a Browse lookup for any eligible listing with no local row.
+    const browseByListingId = new Map<string, EligibleEnrichment>();
+    const unresolved = listingIds.filter((id) => !localByListingId.has(id));
+    if (unresolved.length > 0) {
+      const lookups = await Promise.all(
+        unresolved.map((id) => getBrowseItemByLegacyId(id)),
+      );
+      unresolved.forEach((id, i) => {
+        const b = lookups[i];
+        if (b) browseByListingId.set(id, b);
+      });
+    }
+
+    const items = enrichEligibleItems(eligible, localByListingId, browseByListingId);
     return c.json({ items });
   } catch (err) {
     console.error("[flipdesk-ebay] findEligibleNegotiationItems failed:", err);
