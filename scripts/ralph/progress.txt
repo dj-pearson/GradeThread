@@ -2998,3 +2998,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:19:35 AM
 ---
+## US-1081: GradeThread-originated listings: 'Edit in GradeThread' badge + drift indicator
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:51:33 AM
+---
