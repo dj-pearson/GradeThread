@@ -2488,7 +2488,7 @@
         "deno/tsc/lint/test green."
       ],
       "priority": 1068,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: AI self-improvement. grading_eval_cases golden set + grading-eval.ts exist; accuracy-tracking.ts has the correction data. No export/promotion pipeline today. Ties to retention of submission-images (private bucket)."
     },
     {
