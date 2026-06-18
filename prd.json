@@ -2332,7 +2332,7 @@
         "deno/tsc/lint green; tests for failure-path emission."
       ],
       "priority": 1056,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. grading-pipeline.ts only emits grade_complete; no failure/incomplete path. pushReviewNeeded() exists in transactional-push.ts. No inventory threshold monitor exists. Threshold via system_settings (lib/system-settings.ts)."
     },
     {
