@@ -3030,3 +3030,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:09:57 AM
 ---
+## US-1073: AI ad-copy generation & refinement from the keyword library (Google Ads + Apple Search Ads)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:27:48 AM
+---

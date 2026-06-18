@@ -2553,7 +2553,7 @@
         "Cost recorded to ai_usage_events (feature='ads'); tsc/lint/build/deno green."
       ],
       "priority": 1073,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Acquisition/Ads. Reuse AI stack (ai-config.ts, content-ai-* patterns, ai-feature-context.ts feature tagging). Depends on keyword_library. Brand voice + SEO pillars in content_knowledge. No ad tooling exists today."
     },
     {
