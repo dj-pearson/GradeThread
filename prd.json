@@ -2345,7 +2345,7 @@
         "deno/tsc/lint green; suppression check covered by a test."
       ],
       "priority": 1057,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. email.ts is SMTP-generic (denomailer) — SES works via SMTP creds, NO code change to switch providers (env vars SMTP_HOST/USER/PASS). Gap: no bounce/complaint suppression list (today hard bounces dequeued manually). Add suppression table + SNS feedback route. severity=medium."
     },
     {

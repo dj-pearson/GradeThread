@@ -3094,3 +3094,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  2:53:24 PM
 ---
+## US-1057: Adopt Amazon SES + deliverability (bounce/complaint suppression)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  3:02:14 PM
+---
