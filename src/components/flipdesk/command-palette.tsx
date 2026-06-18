@@ -23,6 +23,8 @@ import {
   KeyRound,
   Gift,
   Keyboard,
+  Shield,
+  Star,
 } from "lucide-react";
 import {
   Dialog,
@@ -32,8 +34,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { useRecentStore } from "@/stores/recent-store";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
+import type { WorkspaceCapability } from "@/lib/workspace-permissions";
 import { isTypingTarget } from "@/hooks/use-keyboard-shortcuts";
 import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
 import { cn } from "@/lib/utils";
@@ -57,8 +61,21 @@ interface SubmissionLite {
   status: string;
 }
 
+type ActionEntry = {
+  kind: "action";
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  run: () => void;
+  // Optional workspace-capability gate — hidden when the active role can't
+  // perform it (US-1074). Navigation to read surfaces stays ungated.
+  requires?: WorkspaceCapability;
+  // Platform-admin-only action — hidden for non-admins (US-1074).
+  adminOnly?: boolean;
+};
+
 type Entry =
-  | { kind: "action"; id: string; label: string; icon: React.ReactNode; run: () => void }
+  | ActionEntry
   | { kind: "item"; id: string; item: ItemFullRow }
   | { kind: "source"; id: string; source: SourceRow }
   | { kind: "submission"; id: string; sub: SubmissionLite }
@@ -91,6 +108,12 @@ export function CommandPalette() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const profile = useAuthStore((s) => s.profile);
+  const { can } = useWorkspace();
+  // Platform admin (not the same as workspace 'admin' role) — gates the
+  // admin-console quick actions below.
+  const isAdmin =
+    profile?.role === "admin" || profile?.role === "super_admin";
   const recentIds = useRecentStore((s) => s.recentItemIds);
 
   const [open, setOpen] = useState(false);
@@ -200,7 +223,7 @@ export function CommandPalette() {
     navigate(to);
   };
 
-  const actions: Entry[] = useMemo(
+  const actions: ActionEntry[] = useMemo(
     () => [
       {
         kind: "action",
@@ -208,6 +231,7 @@ export function CommandPalette() {
         label: "New submission",
         icon: <Plus className="h-4 w-4" />,
         run: () => go("/dashboard/submissions/new"),
+        requires: "submit_grade",
       },
       {
         kind: "action",
@@ -215,6 +239,7 @@ export function CommandPalette() {
         label: "Add inventory item",
         icon: <Plus className="h-4 w-4" />,
         run: () => go("/dashboard/inventory/new"),
+        requires: "manage_inventory",
       },
       {
         kind: "action",
@@ -257,6 +282,7 @@ export function CommandPalette() {
         label: "Go to Billing",
         icon: <CreditCard className="h-4 w-4" />,
         run: () => go("/dashboard/billing"),
+        requires: "manage_billing",
       },
       {
         kind: "action",
@@ -264,6 +290,7 @@ export function CommandPalette() {
         label: "Go to Team",
         icon: <Users className="h-4 w-4" />,
         run: () => go("/dashboard/team"),
+        requires: "manage_members",
       },
       {
         kind: "action",
@@ -271,6 +298,7 @@ export function CommandPalette() {
         label: "Go to API keys",
         icon: <KeyRound className="h-4 w-4" />,
         run: () => go("/dashboard/api-keys"),
+        requires: "manage_api_keys",
       },
       {
         kind: "action",
@@ -295,6 +323,7 @@ export function CommandPalette() {
         label: "Intake new item",
         icon: <Plus className="h-4 w-4" />,
         run: () => go("/dashboard/flipdesk/intake"),
+        requires: "manage_inventory",
       },
       {
         kind: "action",
@@ -302,6 +331,7 @@ export function CommandPalette() {
         label: "New source",
         icon: <MapPin className="h-4 w-4" />,
         run: () => go("/dashboard/flipdesk/sources"),
+        requires: "manage_inventory",
       },
       {
         kind: "action",
@@ -338,16 +368,61 @@ export function CommandPalette() {
         icon: <Scale className="h-4 w-4" />,
         run: () => go("/dashboard/flipdesk/reconciliation"),
       },
+      // Platform-admin quick actions — filtered out for non-admins below.
+      {
+        kind: "action",
+        id: "admin-console",
+        label: "Admin: Console",
+        icon: <Shield className="h-4 w-4" />,
+        run: () => go("/admin"),
+        adminOnly: true,
+      },
+      {
+        kind: "action",
+        id: "admin-users",
+        label: "Admin: Users",
+        icon: <Users className="h-4 w-4" />,
+        run: () => go("/admin/users"),
+        adminOnly: true,
+      },
+      {
+        kind: "action",
+        id: "admin-disputes",
+        label: "Admin: Disputes",
+        icon: <Scale className="h-4 w-4" />,
+        run: () => go("/admin/disputes"),
+        adminOnly: true,
+      },
+      {
+        kind: "action",
+        id: "admin-reviews",
+        label: "Admin: Reviews",
+        icon: <Star className="h-4 w-4" />,
+        run: () => go("/admin/reviews"),
+        adminOnly: true,
+      },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
+  // Permission-scoped action list (US-1074): drop admin-only actions for
+  // non-admins and capability-gated actions the active workspace role can't
+  // perform. Recomputed when role/admin status changes.
+  const availableActions: ActionEntry[] = useMemo(
+    () =>
+      actions.filter(
+        (a) =>
+          (!a.adminOnly || isAdmin) && (!a.requires || can(a.requires)),
+      ),
+    [actions, isAdmin, can],
+  );
+
   const sections: Section[] = useMemo(() => {
     const q = query.trim().toLowerCase();
 
-    const matchAction = actions.filter(
-      (a) => a.kind === "action" && a.label.toLowerCase().includes(q),
+    const matchAction = availableActions.filter((a) =>
+      a.label.toLowerCase().includes(q),
     );
 
     const matchItems: Entry[] = items
@@ -414,7 +489,7 @@ export function CommandPalette() {
     if (deepEntries.length > 0)
       out.push({ title: "Full-text matches", entries: deepEntries });
     return out;
-  }, [query, actions, items, sources, recentIds, deepHits, submissionHits]);
+  }, [query, availableActions, items, sources, recentIds, deepHits, submissionHits]);
 
   // Flat list for keyboard navigation.
   const flat = useMemo(
