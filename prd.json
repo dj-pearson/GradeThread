@@ -2462,7 +2462,7 @@
         "deno/tsc/lint/test green."
       ],
       "priority": 1066,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: AI cost. No model cascade today — grading uses one model for all per-image calls (ai-grading.ts, getDefaultModel/getGradingCompositeModel in ai-config.ts). Eval gate exists (grading-eval.ts EVAL_MAX_MAE/EVAL_MIN_AGREEMENT). Route via system_settings. Must not regress eval."
     },
     {

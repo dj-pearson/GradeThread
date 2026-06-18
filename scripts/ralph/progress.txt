@@ -3058,3 +3058,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 12:56:29 PM
 ---
+## US-1066: Confidence-gated model routing / cheaper-model cascade for grading & extraction
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  1:08:15 PM
+---
