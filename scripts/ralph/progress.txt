@@ -3150,3 +3150,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  5:51:28 PM
 ---
+## US-1026: iOS: add pull-to-refresh to Grades, Analytics, and Consignors
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  5:55:14 PM
+---

@@ -2160,7 +2160,7 @@
         "No duplicate concurrent loads if a sync is already running."
       ],
       "priority": 1026,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=ux. ios/GradeThread/Grading/GradesListView.swift; Analytics/AnalyticsView.swift; Consignment/ConsignorsView.swift"
     },
     {
