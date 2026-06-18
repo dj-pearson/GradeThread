@@ -3070,3 +3070,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  1:38:38 PM
 ---
+## US-1063: Deepen community insights: price realization, time-to-sell, seasonality, brand/category deep-dives
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  1:53:24 PM
+---

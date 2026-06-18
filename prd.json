@@ -2423,7 +2423,7 @@
         "Migration idempotent; tsc/lint/build/deno green; SECURITY DEFINER aggregation leaks no individual data."
       ],
       "priority": 1063,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Community Insights. Existing community_benchmarks() RPC (00173) is real (sell-through vs peer median, top brands, trending categories, k-anon>=5) — user perceives it as stubbed because it's shallow. Page src/pages/flipdesk/community-insights.tsx, lib src/lib/community-benchmarks.ts. MIN_COHORT_SELLERS hardcoded 5. Expand metrics; honor k-anon."
     },
     {
