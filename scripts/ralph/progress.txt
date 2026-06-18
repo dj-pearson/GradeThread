@@ -3162,3 +3162,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  6:02:35 PM
 ---
+## US-1023: iOS: announce onboarding page position to VoiceOver
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  6:04:03 PM
+---

@@ -2121,7 +2121,7 @@
         "Visual dots unchanged for sighted users."
       ],
       "priority": 1023,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=accessibility. ios/GradeThread/Onboarding/OnboardingView.swift (~79-90)"
     },
     {
