@@ -183,6 +183,12 @@ struct LoginView: View {
             .frame(height: 1)
     }
 
+    /// Shared height for both social buttons so the Apple and Google CTAs line
+    /// up. The native `SignInWithAppleButton` previously used 48 while the
+    /// Google button's `.padding(.vertical, 14)` rendered ~52pt — a visible
+    /// mismatch when both were shown.
+    private static let socialButtonHeight: CGFloat = 50
+
     private var socialButtons: some View {
         VStack(spacing: 10) {
             // Drive the nonce handshake through the button's own request /
@@ -200,8 +206,13 @@ struct LoginView: View {
                 handleAppleCompletion(result)
             }
             .signInWithAppleButtonStyle(.black)
-            .frame(height: 48)
+            .frame(height: Self.socialButtonHeight)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+            // The native button already exposes the `.button` trait and a
+            // localized label, but pin it explicitly so VoiceOver always
+            // announces "Sign in with Apple, button" (AC, US-1024).
+            .accessibilityLabel(Text("Sign in with Apple"))
+            .accessibilityAddTraits(.isButton)
 
             // Hidden until the native Google OAuth flow is fixed (AppConfig).
             if AppConfig.googleSignInEnabled {
@@ -214,7 +225,7 @@ struct LoginView: View {
                             .font(.brandHeadline)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    .frame(height: Self.socialButtonHeight)
                     .background(Color(uiColor: .secondarySystemBackground))
                     .foregroundStyle(.primary)
                     .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
