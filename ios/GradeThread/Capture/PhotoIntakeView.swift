@@ -505,7 +505,13 @@ struct PhotoIntakeView: View {
         } catch CameraSession.CameraError.permissionDenied {
             permissionState = .denied
         } catch {
-            startupError = error.localizedDescription
+            // US-1025: friendly copy on-screen; raw detail to Sentry.
+            let detail = FriendlyErrorCopy.rawDetail(for: error)
+            Telemetry.breadcrumb("Camera start failed: \(detail)", category: "capture")
+            startupError = FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't start the camera. Please try again."
+            )
         }
     }
 
@@ -550,7 +556,14 @@ struct PhotoIntakeView: View {
         do {
             newItemId = try await createDraftInventoryItem(userId: userId)
         } catch {
-            startupError = "Couldn't create item: \(error.localizedDescription)"
+            // US-1025: friendly copy on-screen; raw detail to Sentry.
+            let detail = FriendlyErrorCopy.rawDetail(for: error)
+            Telemetry.breadcrumb("Create draft item failed: \(detail)", category: "intake")
+            Telemetry.event("intake_save_error", props: ["detail": detail])
+            startupError = FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't create your item. Please try again."
+            )
             return
         }
 
@@ -695,7 +708,13 @@ struct PhotoIntakeView: View {
                 // US-651: announce slot-filled progress as a live region.
                 announce("Photo captured. \(store.photos.count) of \(store.visibleSlots.count) slots filled.")
             } catch {
-                startupError = error.localizedDescription
+                // US-1025: friendly copy on-screen; raw detail to Sentry.
+                let detail = FriendlyErrorCopy.rawDetail(for: error)
+                Telemetry.breadcrumb("Photo capture failed: \(detail)", category: "capture")
+                startupError = FriendlyErrorCopy.actionMessage(
+                    for: error,
+                    fallback: "Couldn't capture the photo. Please try again."
+                )
             }
         }
     }

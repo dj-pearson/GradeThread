@@ -482,9 +482,17 @@ struct DetailsIntakeView: View {
                 enqueueOfflineMutation(payload: payload)
                 handleSavedOffline(outcome: outcome)
             } else {
+                // US-1025: friendly copy in the banner; raw technical detail
+                // (RLS denial, enum mismatch, …) goes to Sentry, not the UI.
+                let detail = FriendlyErrorCopy.rawDetail(for: error)
+                Telemetry.breadcrumb("Intake save failed: \(detail)", category: "intake")
+                Telemetry.event("intake_save_error", props: ["detail": detail])
                 bannerMessage = BannerMessage(
                     kind: .failure,
-                    text: "Couldn't save: \(error.localizedDescription)"
+                    text: FriendlyErrorCopy.actionMessage(
+                        for: error,
+                        fallback: "Couldn't save your item. Please try again."
+                    )
                 )
             }
         }

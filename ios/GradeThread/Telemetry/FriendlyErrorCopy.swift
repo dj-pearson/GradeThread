@@ -1,0 +1,134 @@
+import Foundation
+
+/// Maps raw `Error`s thrown by Supabase auth / URLSession into friendly,
+/// actionable copy for the auth + intake surfaces (US-1025). Keeps the raw
+/// technical string (Supabase/GoTrue/URLError) out of the UI while preserving
+/// it via ``rawDetail(for:)`` so callers can log the original to Sentry.
+///
+/// Why string-matching instead of typed `AuthError` cases: GoTrue surfaces the
+/// same condition under different shapes across supabase-swift versions (a typed
+/// case, an `errorCode`, or just a localized message), and some failures arrive
+/// as a bare `URLError`. Matching the flattened message + NSError code is the
+/// version-robust common denominator. Pure + `nonisolated` so it's unit-testable
+/// off the main actor.
+enum FriendlyErrorCopy {
+    /// The recognised categories. Drives both the copy and — for `.offline` —
+    /// the banner kind on the intake surfaces.
+    enum Kind: Equatable {
+        case offline
+        case invalidCredentials
+        case emailNotConfirmed
+        case rateLimited
+        case generic
+    }
+
+    /// True when the failure is a network-reachability problem (offline, DNS,
+    /// TLS, timeout) rather than an application-level rejection. Shared by the
+    /// auth and intake surfaces so "offline" is classified one way everywhere.
+    nonisolated static func isOffline(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return true
+        }
+        // Some failures wrap a URLError deeper in the chain (supabase-swift,
+        // URLSession bridging). Walk it.
+        if underlyingURLErrorDomain(nsError) {
+            return true
+        }
+        // Defensive string net for SDKs that surface connectivity errors under
+        // their own domain.
+        let lower = rawDetail(for: error).lowercased()
+        return lower.contains("offline")
+            || lower.contains("the internet connection")
+            || lower.contains("not connected to the internet")
+            || lower.contains("network connection was lost")
+            || lower.contains("timed out")
+    }
+
+    /// Classifies an error into a known ``Kind``.
+    nonisolated static func kind(for error: Error) -> Kind {
+        if isOffline(error) {
+            return .offline
+        }
+        let lower = rawDetail(for: error).lowercased()
+        if lower.contains("invalid login credentials")
+            || lower.contains("invalid_credentials")
+            || lower.contains("invalid email or password")
+            || lower.contains("incorrect email or password") {
+            return .invalidCredentials
+        }
+        if lower.contains("email not confirmed")
+            || lower.contains("email_not_confirmed")
+            || lower.contains("not confirmed")
+            || lower.contains("confirm your email") {
+            return .emailNotConfirmed
+        }
+        if lower.contains("rate limit")
+            || lower.contains("rate_limit")
+            || lower.contains("too many requests")
+            || lower.contains("over_email_send_rate_limit") {
+            return .rateLimited
+        }
+        return .generic
+    }
+
+    /// Friendly copy for the auth surfaces (login / signup / reset).
+    nonisolated static func authMessage(for error: Error) -> String {
+        switch kind(for: error) {
+        case .offline:
+            return "You're offline. Check your connection and try again."
+        case .invalidCredentials:
+            return "The email or password you entered is incorrect."
+        case .emailNotConfirmed:
+            return "Please confirm your email first — we sent a link to your inbox."
+        case .rateLimited:
+            return "Too many attempts. Please wait a moment and try again."
+        case .generic:
+            return "Something went wrong. Please try again."
+        }
+    }
+
+    /// Friendly copy for a generic save / load action. `fallback` is the
+    /// action-specific line shown for unrecognised, non-offline failures
+    /// (e.g. "Couldn't save your item. Please try again.").
+    nonisolated static func actionMessage(for error: Error, fallback: String) -> String {
+        switch kind(for: error) {
+        case .offline:
+            return "You're offline. We'll keep your work and retry when you reconnect."
+        case .rateLimited:
+            return "Too many attempts. Please wait a moment and try again."
+        case .invalidCredentials, .emailNotConfirmed, .generic:
+            return fallback
+        }
+    }
+
+    /// Flattened technical detail for Sentry — never shown to the user. Walks
+    /// the NSError chain (domain/code/description per level, following
+    /// `NSUnderlyingErrorKey`), bounded so a cyclic/deep chain can't spin.
+    nonisolated static func rawDetail(for error: Error) -> String {
+        var parts: [String] = []
+        var current: NSError? = error as NSError
+        var depth = 0
+        while let err = current, depth < 5 {
+            parts.append("\(err.domain) \(err.code): \(err.localizedDescription)")
+            current = err.userInfo[NSUnderlyingErrorKey] as? NSError
+            depth += 1
+        }
+        return parts.joined(separator: " ← ")
+    }
+
+    /// Walks the NSError chain looking for a `URLError` / `NSURLErrorDomain`
+    /// link beneath the top level.
+    private nonisolated static func underlyingURLErrorDomain(_ error: NSError) -> Bool {
+        var current: NSError? = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        var depth = 0
+        while let err = current, depth < 5 {
+            if err.domain == NSURLErrorDomain {
+                return true
+            }
+            current = err.userInfo[NSUnderlyingErrorKey] as? NSError
+            depth += 1
+        }
+        return false
+    }
+}

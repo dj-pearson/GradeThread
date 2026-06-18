@@ -63,7 +63,10 @@ struct LoginView: View {
                         .multilineTextAlignment(.center)
                 }
                 if let error = authStore.lastError {
-                    Text(error.localizedDescription)
+                    // US-1025: show friendly, actionable copy — never the raw
+                    // Supabase/URLError string. The raw detail is captured to
+                    // Sentry at the call site (`reportAuthFailure`).
+                    Text(FriendlyErrorCopy.authMessage(for: error))
                         .font(.footnote)
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
@@ -248,6 +251,7 @@ struct LoginView: View {
         switch mode {
         case .signIn:
             await authStore.signIn(email: trimmedEmail, password: password, captchaToken: captchaToken)
+            reportAuthFailure(context: "sign_in")
         case .signUp:
             await authStore.signUp(
                 email: trimmedEmail,
@@ -260,8 +264,20 @@ struct LoginView: View {
             // stream will flip phase once they confirm.
             if authStore.lastError == nil {
                 infoMessage = "Check your email to confirm your account."
+            } else {
+                reportAuthFailure(context: "sign_up")
             }
         }
+    }
+
+    /// US-1025: the UI shows friendly copy (``FriendlyErrorCopy``), so the raw
+    /// technical detail would otherwise be lost. Capture it to Sentry (and a
+    /// PostHog event) so failures stay diagnosable. No-op when no error is set.
+    private func reportAuthFailure(context: String) {
+        guard let error = authStore.lastError else { return }
+        let detail = FriendlyErrorCopy.rawDetail(for: error)
+        Telemetry.breadcrumb("Auth \(context) failed: \(detail)", category: "auth")
+        Telemetry.event("auth_error", props: ["context": context, "detail": detail])
     }
 
     private func sendPasswordReset() async {
@@ -283,6 +299,8 @@ struct LoginView: View {
             // there. The deep link in the email also lands here.
             showingPasswordReset = true
             infoMessage = "We sent you a reset link."
+        } else {
+            reportAuthFailure(context: "reset_password")
         }
     }
 
@@ -336,26 +354,11 @@ struct LoginView: View {
             // (e.g. an AKAuthenticationError from AuthKit). Capture the whole
             // chain to Sentry AND surface it on-screen so a TestFlight tester
             // can read WHY instead of a bare "error 1000".
-            let detail = Self.describeAuthError(error)
+            let detail = FriendlyErrorCopy.rawDetail(for: error)
             Telemetry.breadcrumb("Sign in with Apple failed: \(detail)", category: "auth")
             Telemetry.event("apple_signin_failed", props: ["detail": detail])
             authStore.lastError = AppleSignInFailure(detail: detail)
         }
-    }
-
-    /// Flattens an NSError chain (each level's domain/code/description, following
-    /// `NSUnderlyingErrorKey`) into one readable line. Bounded so a cyclic or
-    /// deep chain can't spin.
-    private static func describeAuthError(_ error: Error) -> String {
-        var parts: [String] = []
-        var current: NSError? = error as NSError
-        var depth = 0
-        while let err = current, depth < 5 {
-            parts.append("\(err.domain) \(err.code): \(err.localizedDescription)")
-            current = err.userInfo[NSUnderlyingErrorKey] as? NSError
-            depth += 1
-        }
-        return parts.joined(separator: " ← ")
     }
 
     /// Carries the unwrapped underlying reason into the on-screen error region.
