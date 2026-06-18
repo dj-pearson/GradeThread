@@ -12,15 +12,15 @@
 //
 // Pure module (no supabase/network import) so it unit-tests without env.
 
+import {
+  EBAY_OWNED_ITEM_SPECIFIC_FIELDS,
+  isBlank,
+} from "./sync-precedence.ts";
+
 // The inventory_items catalog fields this sync may write. `title` is handled
-// separately (overwrite); the rest are fill-if-blank.
-export const FILL_IF_BLANK_FIELDS = [
-  "brand",
-  "size",
-  "color",
-  "style",
-  "material",
-] as const;
+// separately (overwrite); the rest are fill-if-blank. Sourced from the shared
+// precedence registry (sync-precedence.ts) — no duplicate field list here.
+export const FILL_IF_BLANK_FIELDS = EBAY_OWNED_ITEM_SPECIFIC_FIELDS;
 
 export type FillField = (typeof FILL_IF_BLANK_FIELDS)[number];
 
@@ -46,10 +46,6 @@ export interface EbayCatalog {
   title: string | null;
   // eBay item specifics, already flattened to one value per name.
   specifics: Record<string, string>;
-}
-
-function isBlank(v: string | null | undefined): boolean {
-  return !v || !v.trim();
 }
 
 // eBay's getInventoryItem `product.aspects` is Record<name, string[]>. Take the

@@ -37,6 +37,42 @@ export const EBAY_OWNED_LISTING_FIELDS = [
 export type EbayOwnedListingField = (typeof EBAY_OWNED_LISTING_FIELDS)[number];
 
 /**
+ * eBay "item specifics" / aspects that map onto inventory_items catalog columns.
+ * eBay supplies these on a pull; the catalog merge (ebay-catalog-merge.ts) fills
+ * them only when the local cell is blank. Single source of truth for that list —
+ * ebay-catalog-merge re-exports it as FILL_IF_BLANK_FIELDS.
+ */
+export const EBAY_OWNED_ITEM_SPECIFIC_FIELDS = [
+  "brand",
+  "size",
+  "color",
+  "style",
+  "material",
+] as const;
+
+export type EbayOwnedItemSpecificField =
+  (typeof EBAY_OWNED_ITEM_SPECIFIC_FIELDS)[number];
+
+/**
+ * eBay-managed condition fields on listings. eBay owns the item condition; the
+ * GradeThread editor surfaces these read-only for eBay-originated listings.
+ */
+export const EBAY_OWNED_CONDITION_FIELDS = [
+  "ebay_condition",
+  "ebay_condition_description",
+] as const;
+
+/**
+ * eBay business-policy references on listings (fulfillment / payment / return).
+ * Configured on eBay; eBay-owned for precedence purposes.
+ */
+export const EBAY_OWNED_POLICY_FIELDS = [
+  "shipping_policy_id",
+  "payment_policy_id",
+  "return_policy_id",
+] as const;
+
+/**
  * A strict subset of EBAY_OWNED_LISTING_FIELDS that represent observable facts
  * about the listing on eBay (active/ended/sold state). These flow in regardless
  * of listing_origin: GradeThread needs to know when eBay ends or marks a listing
@@ -54,6 +90,7 @@ export const LISTING_READONLY_SIGNALS: ReadonlyArray<EbayOwnedListingField> = [
 export const GRADETHREAD_OWNED_ITEM_FIELDS = [
   "grade_value",
   "condition_notes",
+  "measurements",
   "acquired_price",
   "acquired_date",
   "sku",
@@ -62,6 +99,57 @@ export const GRADETHREAD_OWNED_ITEM_FIELDS = [
 
 export type GradethreadOwnedItemField =
   (typeof GRADETHREAD_OWNED_ITEM_FIELDS)[number];
+
+// ── Ownership helpers + shared blank check ─────────────────────────────────
+
+/**
+ * The complete set of eBay-owned field names across listings + inventory_items:
+ * the mirrored listing columns, the item-specifics/aspects, eBay condition, and
+ * the business-policy references. This is the registry `isEbayOwned` consults.
+ *
+ * NOTE: this is a SUPERSET of EBAY_OWNED_LISTING_FIELDS. The narrower
+ * EBAY_OWNED_LISTING_FIELDS / isEbayOwnedListingField drive the inbound-pull
+ * mirror, the US-1080 edit guard, and the US-1083 Sheets carve-out (which must
+ * only lock the mirrored listing columns, not fill-if-blank aspects). Use
+ * isEbayOwned for "is this field eBay's to manage at all?" questions.
+ */
+export const EBAY_OWNED_FIELDS = [
+  ...EBAY_OWNED_LISTING_FIELDS,
+  ...EBAY_OWNED_ITEM_SPECIFIC_FIELDS,
+  ...EBAY_OWNED_CONDITION_FIELDS,
+  ...EBAY_OWNED_POLICY_FIELDS,
+] as const;
+
+/** Alias for GRADETHREAD_OWNED_ITEM_FIELDS — the fields GradeThread always owns. */
+export const GRADETHREAD_OWNED_FIELDS = GRADETHREAD_OWNED_ITEM_FIELDS;
+
+const EBAY_OWNED_FIELD_SET: ReadonlySet<string> = new Set(EBAY_OWNED_FIELDS);
+const GRADETHREAD_OWNED_FIELD_SET: ReadonlySet<string> = new Set(
+  GRADETHREAD_OWNED_ITEM_FIELDS,
+);
+
+/** Whether `field` is owned/managed by eBay (any of the eBay-owned registries). */
+export function isEbayOwned(field: string): boolean {
+  return EBAY_OWNED_FIELD_SET.has(field);
+}
+
+/** Whether `field` is always owned by GradeThread (never written by eBay/CSV). */
+export function isGradeThreadOwned(field: string): boolean {
+  return GRADETHREAD_OWNED_FIELD_SET.has(field);
+}
+
+/**
+ * Shared blank test for fill-only / precedence logic. A value is blank ONLY when
+ * it is null/undefined or a string that is empty (or whitespace-only). Anything
+ * else counts as SET — notably `0`, `false`, an empty array `[]`, and any object
+ * (e.g. a placeholder/JSON value). This intentionally differs from a truthiness
+ * check so a legitimate `0` price or empty-but-present collection is preserved.
+ */
+export function isBlank(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  return false;
+}
 
 // ── Inbound eBay pull ──────────────────────────────────────────────────────
 
@@ -97,10 +185,6 @@ export function buildListingPullPatch(
 }
 
 // ── CSV fill-only import ───────────────────────────────────────────────────
-
-function isBlank(v: unknown): boolean {
-  return v === null || v === undefined || String(v).trim() === "";
-}
 
 /**
  * Build the patch for a CSV import row merging onto an existing inventory_item.

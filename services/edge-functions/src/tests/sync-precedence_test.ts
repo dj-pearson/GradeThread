@@ -22,9 +22,14 @@ import {
   buildCsvFillPatch,
   buildListingPullPatch,
   deriveListingOrigin,
+  EBAY_OWNED_FIELDS,
+  EBAY_OWNED_ITEM_SPECIFIC_FIELDS,
   EBAY_OWNED_LISTING_FIELDS,
   GRADETHREAD_OWNED_ITEM_FIELDS,
+  isBlank,
+  isEbayOwned,
   isEbayOwnedListingField,
+  isGradeThreadOwned,
   isSheetEditLockedByEbay,
   LISTING_READONLY_SIGNALS,
   validateEbayOriginEdit,
@@ -335,6 +340,67 @@ Deno.test("guard ebay: mixed eBay-owned and non-owned fields in one request", ()
   assertEquals(result.locked.sort(), ["listing_price", "listing_title"].sort());
   assertEquals(result.other.sort(), ["grade_value", "internal_note"].sort());
   assertEquals(result.allowed.length, 0);
+});
+
+// ── US-1076 ownership helpers + shared isBlank ─────────────────────────────
+
+Deno.test("isEbayOwned: true for listing fields, item specifics, condition, policies", () => {
+  for (const f of EBAY_OWNED_LISTING_FIELDS) {
+    assert(isEbayOwned(f), `${f} (listing field) must be eBay-owned`);
+  }
+  for (const f of EBAY_OWNED_ITEM_SPECIFIC_FIELDS) {
+    assert(isEbayOwned(f), `${f} (item specific) must be eBay-owned`);
+  }
+  for (
+    const f of ["ebay_condition", "shipping_policy_id", "payment_policy_id", "return_policy_id"]
+  ) {
+    assert(isEbayOwned(f), `${f} must be eBay-owned`);
+  }
+  // GradeThread-owned + arbitrary fields are NOT eBay-owned.
+  for (const f of ["grade_value", "sku", "measurements", "internal_note"]) {
+    assert(!isEbayOwned(f), `${f} must NOT be eBay-owned`);
+  }
+});
+
+Deno.test("isEbayOwned matches EBAY_OWNED_FIELDS membership exactly", () => {
+  for (const f of EBAY_OWNED_FIELDS) assert(isEbayOwned(f), `${f} must be eBay-owned`);
+});
+
+Deno.test("isGradeThreadOwned: true for grade/condition/measurements/cost/sku", () => {
+  for (const f of GRADETHREAD_OWNED_ITEM_FIELDS) {
+    assert(isGradeThreadOwned(f), `${f} must be GradeThread-owned`);
+  }
+  for (const f of ["measurements", "grade_value", "sku"]) {
+    assert(isGradeThreadOwned(f), `${f} must be GradeThread-owned`);
+  }
+  // eBay-owned + arbitrary fields are NOT GradeThread-owned.
+  for (const f of ["listing_price", "brand", "ebay_condition", "watchers"]) {
+    assert(!isGradeThreadOwned(f), `${f} must NOT be GradeThread-owned`);
+  }
+});
+
+Deno.test("ownership is mutually exclusive (no field is both eBay- and GT-owned)", () => {
+  for (const f of EBAY_OWNED_FIELDS) {
+    assert(!isGradeThreadOwned(f), `${f} must not be both eBay- and GT-owned`);
+  }
+  for (const f of GRADETHREAD_OWNED_ITEM_FIELDS) {
+    assert(!isEbayOwned(f), `${f} must not be both eBay- and GT-owned`);
+  }
+});
+
+Deno.test("isBlank: null/undefined/empty-or-whitespace string are blank", () => {
+  assert(isBlank(null));
+  assert(isBlank(undefined));
+  assert(isBlank(""));
+  assert(isBlank("   "));
+});
+
+Deno.test("isBlank: 0, false, empty array, and objects count as SET", () => {
+  assert(!isBlank(0), "0 is a set value, not blank");
+  assert(!isBlank(false), "false is a set value, not blank");
+  assert(!isBlank([]), "empty array is a set value, not blank");
+  assert(!isBlank({}), "object/placeholder is a set value, not blank");
+  assert(!isBlank("x"), "non-empty string is set");
 });
 
 // ── Listing provenance + Google Sheets carve-out (US-1083) ─────────────────
