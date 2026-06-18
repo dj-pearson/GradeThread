@@ -125,6 +125,7 @@ import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog, writeSystemAuditLog } from "../lib/audit-log.ts";
 import { getSetting } from "../lib/system-settings.ts";
+import { deriveListingOrigin } from "../lib/sync-precedence.ts";
 import {
   buildPriceQtyRequest,
   chunk,
@@ -1211,6 +1212,13 @@ async function doListingsPull(
     listing_description: string | null;
     platform_category_id: string | null;
     source_of_truth: Record<string, string> | null;
+    // US-1081: provenance signals + drift marker. batch_id/synced_to_ebay_at
+    // decide whether this listing is GradeThread-originated (GT is the source of
+    // truth → inbound pull must NOT overwrite eBay-owned editable fields; it only
+    // records that eBay drifted in platform_fields.sync_drift).
+    batch_id: string | null;
+    synced_to_ebay_at: string | null;
+    platform_fields: Record<string, unknown> | null;
   };
   // Every column the offers/legacy passes may write to `listings`. Building a
   // FULL row for every insert AND edit (seeded from the pre-loaded snapshot,
@@ -1267,7 +1275,7 @@ async function doListingsPull(
     const { data: rows } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, source_of_truth, created_at, inventory_items!inner(user_id)",
+        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, source_of_truth, batch_id, synced_to_ebay_at, platform_fields, created_at, inventory_items!inner(user_id)",
       )
       .eq("platform", "ebay")
       .eq("inventory_items.user_id", userId)
@@ -1410,6 +1418,12 @@ async function doListingsPull(
     return !!winner && winner !== "ebay";
   };
 
+  // US-1081: per-listing platform_fields writes for drift bookkeeping on
+  // GradeThread-originated listings (keyed by listing id). Flushed after the
+  // loop. Separate from the bulk listing upsert — that upsert never carries
+  // platform_fields, so these writes aren't clobbered.
+  const driftFieldWrites = new Map<string, Record<string, unknown>>();
+
   for (const o of offers) {
     try {
       // Drafts (unpublished offers) have no listingId yet — skip in this pass.
@@ -1501,6 +1515,80 @@ async function doListingsPull(
         if (o.categoryId) {
           patch.platform_category_id = o.categoryId;
         }
+
+        // US-1081: provenance-aware inbound merge. For GradeThread-originated
+        // listings GradeThread is the source of truth — the inbound pull must
+        // NOT overwrite eBay-owned editable fields (price/description/quantity/
+        // category). It still mirrors the read-only signals (status/is_active)
+        // already in `patch`, and records that eBay has drifted so the editor
+        // can offer a non-blocking "Re-push to eBay" re-assert. Origin is
+        // derived from the same signals US-1077 backfills from.
+        const origin = existing
+          ? deriveListingOrigin({
+              platform: "ebay",
+              platform_listing_id: existing.platform_listing_id,
+              batch_id: existing.batch_id,
+              synced_to_ebay_at: existing.synced_to_ebay_at,
+            })
+          : "ebay";
+        if (existing && origin === "gradethread") {
+          const drifted: string[] = [];
+          const ebaySnapshot: Record<string, unknown> = {};
+          if (
+            o.title &&
+            o.title.trim() &&
+            existing.listing_title != null &&
+            o.title.trim() !== existing.listing_title.trim()
+          ) {
+            drifted.push("title");
+            ebaySnapshot.title = o.title.trim();
+          }
+          if (
+            priceNum != null &&
+            existing.listing_price != null &&
+            Math.abs(priceNum - existing.listing_price) > 0.005
+          ) {
+            drifted.push("price");
+            ebaySnapshot.price = priceNum;
+          }
+          if (
+            o.listingDescription &&
+            o.listingDescription.trim() &&
+            existing.listing_description != null &&
+            o.listingDescription.trim() !== existing.listing_description.trim()
+          ) {
+            drifted.push("description");
+            ebaySnapshot.description = o.listingDescription.trim();
+          }
+          // Keep GradeThread's values — never let eBay win on a GT listing.
+          delete patch.listing_price;
+          delete patch.listing_description;
+          delete patch.quantity;
+          delete patch.platform_category_id;
+
+          // Record (or clear) the drift marker; informational only — we never
+          // pull eBay's drifted value into GradeThread. Skip the write unless the
+          // marker actually changes so a steady-state sync stays free.
+          const prevPf = (existing.platform_fields ?? {}) as Record<
+            string,
+            unknown
+          >;
+          const hadDrift = !!(prevPf as { sync_drift?: unknown }).sync_drift;
+          if (drifted.length > 0) {
+            driftFieldWrites.set(existing.id, {
+              ...prevPf,
+              sync_drift: {
+                fields: drifted,
+                ebay: ebaySnapshot,
+                detected_at: new Date().toISOString(),
+              },
+            });
+          } else if (hadDrift) {
+            const nextPf = { ...prevPf };
+            delete (nextPf as { sync_drift?: unknown }).sync_drift;
+            driftFieldWrites.set(existing.id, nextPf);
+          }
+        }
         // US-405: accumulate the write — flushed as one bulk upsert after both
         // listing passes. ensurePendingListing seeds a full row from the
         // pre-loaded snapshot (or a fresh client-id'd row), then the patch is
@@ -1519,13 +1607,15 @@ async function doListingsPull(
         }
         // eBay as source of truth: title overwrite, specifics fill-if-blank.
         // Modern offers carry title + aspects (from listAllOffers) — free.
+        // US-1081: for GradeThread-originated listings GradeThread owns the
+        // title, so skip eBay's title overwrite (specifics still fill-if-blank).
         const localRow = sku ? itemBySku.get(sku) : undefined;
         if (localRow) {
           await applyCatalogPatch(
             itemId,
             localRow,
             buildCatalogPatch(localRow, {
-              title: o.title,
+              title: origin === "gradethread" ? null : o.title,
               specifics: flattenAspects(o.aspects),
             }),
           );
@@ -1741,6 +1831,19 @@ async function doListingsPull(
       .from("listings")
       .upsert(Array.from(pendingListing.values()), { onConflict: "id" });
     if (error) errors.push(`listings upsert: ${error.message.slice(0, 160)}`);
+  }
+  // US-1081: write the drift markers for GradeThread-originated listings. These
+  // touch only `platform_fields` (which the bulk upsert above never carries, so
+  // they aren't clobbered) and only fire when a marker changed, so a normal
+  // in-agreement sync issues none.
+  for (const [listingId, platformFields] of driftFieldWrites) {
+    const { error } = await supabaseAdmin
+      .from("listings")
+      .update({ platform_fields: platformFields } as never)
+      .eq("id", listingId);
+    if (error) {
+      errors.push(`drift marker ${listingId}: ${error.message.slice(0, 120)}`);
+    }
   }
   if (orphanByEbayId.size > 0) {
     const { error } = await supabaseAdmin
@@ -3659,6 +3762,26 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         },
         422
       );
+    }
+  }
+
+  // US-1081: a revise re-asserts GradeThread's values onto eBay, so any recorded
+  // eBay-drift marker is now resolved — clear it so the "eBay differs" indicator
+  // disappears without waiting for the next inbound sync.
+  {
+    const { data: cur } = await supabaseAdmin
+      .from("listings")
+      .select("platform_fields")
+      .eq("id", listingId)
+      .maybeSingle();
+    const pf = ((cur as { platform_fields?: Record<string, unknown> } | null)
+      ?.platform_fields) ?? {};
+    if ((pf as { sync_drift?: unknown }).sync_drift) {
+      delete (pf as { sync_drift?: unknown }).sync_drift;
+      await supabaseAdmin
+        .from("listings")
+        .update({ platform_fields: pf } as never)
+        .eq("id", listingId);
     }
   }
 

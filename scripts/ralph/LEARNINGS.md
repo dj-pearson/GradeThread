@@ -44,6 +44,14 @@ memory — not a progress log (the harness records progress separately).
   NOT `select("listing_origin")` (PostgREST 400s on the missing column).
 - `listings.source_of_truth` (US-148 pin) is deprecated (US-1078); new sync code
   must not read it — provenance drives precedence now.
+- US-1081 wired the eBay→FlipDesk drift path in `doListingsPull` (flipdesk-ebay.ts):
+  for GT-originated matched offers it deletes editable eBay-owned keys from the
+  listing `patch` (GT stays source of truth) and records/clears
+  `listings.platform_fields.sync_drift` via a separate per-listing update. That
+  survives because the bulk `pendingListing` upsert never carries
+  `platform_fields`. The frontend badge/indicator lives in
+  `GradethreadListingCard` (item.tsx) + `src/lib/listing-origin.ts`; re-push reuses
+  the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## Frontend conventions
 - shadcn: don't hand-edit `src/components/ui/*`. Toasts via `sonner`, not shadcn

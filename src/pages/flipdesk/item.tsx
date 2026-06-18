@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowLeft,
+  BadgeCheck,
   ExternalLink,
   Megaphone,
   Percent,
+  RefreshCw,
   Store,
   Zap,
 } from "lucide-react";
@@ -25,9 +28,15 @@ import {
   useEbayLeaveFeedback,
   useEbayPromotion,
   useEbayRemovePromotion,
+  useEbayReviseListing,
   useEbaySetPromotion,
   useEbayStartSale,
 } from "@/hooks/use-ebay";
+import {
+  deriveListingOrigin,
+  driftFieldLabel,
+  type SyncDriftMarker,
+} from "@/lib/listing-origin";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
@@ -131,6 +140,10 @@ export function FlipdeskItemPage() {
           pushed inline by the canvas "Save & sync to eBay" button below. */}
       <EbayNativeNotice itemId={item.id} />
 
+      {/* US-1081: GradeThread-originated live listings — authority badge +
+          non-blocking eBay-drift indicator with a "Re-push to eBay" re-assert. */}
+      <GradethreadListingCard itemId={item.id} itemTitle={item.item_title} />
+
       <PromotionSaleCard itemId={item.id} />
 
       <LeaveFeedbackCard itemId={item.id} />
@@ -213,6 +226,155 @@ function EbayNativeNotice({ itemId }: { itemId: string }) {
             >
               <ExternalLink className="mr-2 h-4 w-4" />
               Edit on eBay
+            </a>
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// US-1081: for listings GradeThread published to eBay, GradeThread is the source
+// of truth. Show an "Edit in GradeThread" badge (warn that eBay-side edits get
+// overwritten) and, when an inbound sync detected eBay-owned values drifting on
+// eBay, a non-blocking "eBay differs" indicator with a "Re-push to eBay" action
+// that re-asserts GradeThread's values. The indicator is informational only — it
+// never pulls eBay's drifted value back into GradeThread.
+function GradethreadListingCard({
+  itemId,
+  itemTitle,
+}: {
+  itemId: string;
+  itemTitle: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const { data: ebayConnection } = useEbayConnection();
+  const revise = useEbayReviseListing();
+
+  type GtListingRow = {
+    id: string;
+    platform_offer_id: string | null;
+    platform_listing_id: string | null;
+    listing_url: string | null;
+    listing_status: string | null;
+    listing_title: string | null;
+    listing_description: string | null;
+    listing_price: number | null;
+    batch_id: string | null;
+    synced_to_ebay_at: string | null;
+    platform_fields: Record<string, unknown> | null;
+  };
+
+  const queryKey = ["item_gt_listing", itemId];
+  const { data: listing } = useQuery({
+    queryKey,
+    queryFn: async (): Promise<GtListingRow | null> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select(
+          "id, platform_offer_id, platform_listing_id, listing_url, listing_status, listing_title, listing_description, listing_price, batch_id, synced_to_ebay_at, platform_fields",
+        )
+        .eq("inventory_item_id", itemId)
+        .eq("platform", "ebay")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as unknown as GtListingRow | null;
+    },
+  });
+
+  if (!ebayConnection || !listing) return null;
+
+  const origin = deriveListingOrigin({
+    platform: "ebay",
+    platform_listing_id: listing.platform_listing_id,
+    batch_id: listing.batch_id,
+    synced_to_ebay_at: listing.synced_to_ebay_at,
+  });
+
+  // Only for GradeThread-originated listings that are actually live on eBay
+  // (an offer id means we can re-push via the Sell API). Drafts / eBay-native
+  // listings are handled elsewhere.
+  if (origin !== "gradethread" || !listing.platform_offer_id) return null;
+
+  const drift = (listing.platform_fields?.sync_drift ?? null) as
+    | SyncDriftMarker
+    | null;
+  const driftedFields = drift?.fields?.filter(Boolean) ?? [];
+
+  async function rePush() {
+    const lst = listing!;
+    try {
+      await revise.mutateAsync({
+        listingId: lst.id,
+        patch: {
+          title: (lst.listing_title ?? itemTitle ?? undefined) || undefined,
+          description: lst.listing_description ?? undefined,
+          listing_price: lst.listing_price ?? undefined,
+          // Force the full re-PUT so photos/specifics re-assert too even when
+          // no text field changed.
+          photos: true,
+        },
+      });
+      toast.success("Re-pushed your GradeThread values to eBay.");
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["items_full"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't re-push to eBay.");
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 pt-6">
+        <div className="flex flex-wrap items-center gap-2 font-medium">
+          <BadgeCheck className="h-4 w-4 text-brand-red-text" />
+          Edit in GradeThread
+          <Badge variant="outline" className="font-normal">
+            Source of truth
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          You published this listing from GradeThread, so manage it here. Edits
+          made directly on eBay aren't authoritative and will be overwritten the
+          next time you push from GradeThread.
+        </p>
+
+        {driftedFields.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/30">
+            <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4" />
+              eBay differs
+            </div>
+            <p className="mt-1 text-amber-700 dark:text-amber-200/80">
+              The {driftedFields.map(driftFieldLabel).join(", ")}{" "}
+              {driftedFields.length === 1 ? "field was" : "fields were"} changed
+              on eBay since your last push. GradeThread kept your values — re-push
+              to re-assert them on eBay.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={rePush}
+              disabled={revise.isPending}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              {revise.isPending ? "Re-pushing…" : "Re-push to eBay"}
+            </Button>
+          </div>
+        )}
+
+        {listing.listing_url && (
+          <Button asChild variant="ghost" size="sm" className="px-0">
+            <a
+              href={listing.listing_url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink className="mr-2 h-4 w-4" />
+              View on eBay
             </a>
           </Button>
         )}
