@@ -288,48 +288,89 @@ struct PhotoIntakeView: View {
         .padding(.top, 24)
     }
 
+    /// One slot in the bottom strip. A filled slot gets a visible trash
+    /// badge (US-1022) so sighted users can discover deletion without the
+    /// hidden 0.4s long-press — the long-press still works as a shortcut,
+    /// and VoiceOver keeps using the `.accessibilityActions` delete action
+    /// (the visible badge is hidden from it to avoid a duplicate).
+    @ViewBuilder
+    private func slotButton(for slot: PhotoSlotType) -> some View {
+        Button {
+            AppRouter.haptic()
+            if let phase = uploadPhase(for: slot), case .failed = phase {
+                // Tap on a failed slot retries the upload instead of
+                // opening the preview — that's the affordance the slot's
+                // failureOverlay teases.
+                retryUpload(for: slot)
+            } else if store.photos[slot] != nil {
+                slotForPreview = slot
+            } else {
+                store.setActiveSlot(slot)
+            }
+        } label: {
+            SlotThumbnail(
+                slot: slot,
+                capture: store.photos[slot],
+                isActive: store.activeSlot == slot,
+                uploadPhase: uploadPhase(for: slot)
+            )
+        }
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                if store.photos[slot] != nil {
+                    AppRouter.haptic()
+                    store.clearPhoto(at: slot)
+                }
+            }
+        )
+        // US-1022: visible delete affordance for filled slots. Scoped to
+        // the capture/review stage (no in-flight upload) so it never
+        // overlaps the upload progress / retry overlays. Sits on top of
+        // the slot button so its tap takes precedence over opening the
+        // preview.
+        .overlay(alignment: .topLeading) {
+            if store.photos[slot] != nil, uploadPhase(for: slot) == nil {
+                deleteBadge(for: slot)
+            }
+        }
+        // US-704: VoiceOver/Switch Control can't do the long-press, so
+        // expose delete as an accessibility action on filled slots.
+        .accessibilityActions {
+            if store.photos[slot] != nil {
+                Button("Delete photo") {
+                    AppRouter.haptic()
+                    store.clearPhoto(at: slot)
+                }
+            }
+        }
+    }
+
+    /// Tappable trash badge overlaid on a filled slot's top-leading corner.
+    /// Hidden from VoiceOver — the slot already carries a "Delete photo"
+    /// accessibility action, so surfacing this as a second element would be
+    /// a redundant control.
+    private func deleteBadge(for slot: PhotoSlotType) -> some View {
+        Button {
+            AppRouter.haptic()
+            store.clearPhoto(at: slot)
+        } label: {
+            Image(systemName: "trash.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(6)
+                .background(Color.brandRed)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 1.5))
+        }
+        .offset(x: -6, y: -6)
+        .accessibilityHidden(true)
+    }
+
     private var bottomStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(store.visibleSlots) { slot in
-                    Button {
-                        AppRouter.haptic()
-                        if let phase = uploadPhase(for: slot), case .failed = phase {
-                            // Tap on a failed slot retries the upload
-                            // instead of opening the preview — that's the
-                            // affordance the slot's failureOverlay teases.
-                            retryUpload(for: slot)
-                        } else if store.photos[slot] != nil {
-                            slotForPreview = slot
-                        } else {
-                            store.setActiveSlot(slot)
-                        }
-                    } label: {
-                        SlotThumbnail(
-                            slot: slot,
-                            capture: store.photos[slot],
-                            isActive: store.activeSlot == slot,
-                            uploadPhase: uploadPhase(for: slot)
-                        )
-                    }
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-                            if store.photos[slot] != nil {
-                                AppRouter.haptic()
-                                store.clearPhoto(at: slot)
-                            }
-                        }
-                    )
-                    // US-704: VoiceOver/Switch Control can't do the long-press,
-                    // so expose delete as an accessibility action on filled slots.
-                    .accessibilityActions {
-                        if store.photos[slot] != nil {
-                            Button("Delete photo") {
-                                AppRouter.haptic()
-                                store.clearPhoto(at: slot)
-                            }
-                        }
-                    }
+                    slotButton(for: slot)
                 }
 
                 if !store.hiddenExtraSlots.isEmpty {
