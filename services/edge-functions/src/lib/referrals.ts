@@ -17,6 +17,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser } from "./notify.ts";
 import { sendReferralRewardEmail } from "./email.ts";
 import {
+  milestonesReached,
   REFERRED_REWARD_CREDITS,
   REFERRER_REWARD_CREDITS,
 } from "./referral-rewards.ts";
@@ -161,11 +162,98 @@ export async function grantReferralReward(
     notifyReward(ev.referred_user_id, REFERRED_REWARD_CREDITS, false),
   ]);
 
+  // US-1071: now that this grant is committed, check whether the referrer just
+  // crossed a milestone tier and owes a one-time bonus. Best-effort — never
+  // undoes the grant above.
+  await awardReferralMilestones(ev.referrer_user_id);
+
   return {
     status: "granted",
     referrer_credits: REFERRER_REWARD_CREDITS,
     referred_credits: REFERRED_REWARD_CREDITS,
   };
+}
+
+// US-1071: grant any milestone bonus the referrer has unlocked but not yet been
+// paid. Idempotent + race-safe: each bonus is CLAIMED by inserting its
+// (user_id, threshold) row (UNIQUE) BEFORE moving credits, so two concurrent
+// grant paths can't double-pay a tier. Best-effort — a failure here leaves the
+// row unclaimed for a later grant to retry and never breaks the base reward.
+export async function awardReferralMilestones(referrerUserId: string): Promise<void> {
+  try {
+    const { count, error: countErr } = await supabaseAdmin
+      .from("referral_events")
+      .select("id", { count: "exact", head: true })
+      .eq("referrer_user_id", referrerUserId)
+      .eq("reward_status", "granted");
+    if (countErr) {
+      console.error("[referrals] milestone count failed:", countErr.message);
+      return;
+    }
+    const grantedCount = count ?? 0;
+    const eligible = milestonesReached(grantedCount);
+    if (eligible.length === 0) return;
+
+    // Which tiers were already paid?
+    const { data: paidRows } = await supabaseAdmin
+      .from("referral_milestone_grants")
+      .select("threshold")
+      .eq("user_id", referrerUserId);
+    const paid = new Set(
+      ((paidRows ?? []) as Array<{ threshold: number }>).map((r) => r.threshold),
+    );
+
+    for (const m of eligible) {
+      if (paid.has(m.threshold)) continue;
+
+      // CLAIM the tier (insert; UNIQUE(user_id, threshold) blocks a double).
+      const { error: claimErr } = await supabaseAdmin
+        .from("referral_milestone_grants")
+        .insert({
+          user_id: referrerUserId,
+          threshold: m.threshold,
+          bonus_credits: m.bonus,
+        });
+      if (claimErr) {
+        // 23505 = a concurrent caller already claimed it — fine, skip.
+        if ((claimErr as { code?: string }).code !== "23505") {
+          console.error("[referrals] milestone claim failed:", claimErr.message);
+        }
+        continue;
+      }
+
+      const { error: creditErr } = await supabaseAdmin.rpc("grant_grade_credits", {
+        p_user_id: referrerUserId,
+        p_credits: m.bonus,
+        p_reason: "admin_grant",
+        p_stripe_payment_intent: null,
+        p_notes: `Referral milestone bonus (${m.threshold} referrals)`,
+      });
+      if (creditErr) {
+        // Roll the claim back so a retry can pay it.
+        console.error("[referrals] milestone credit failed:", creditErr.message);
+        await supabaseAdmin
+          .from("referral_milestone_grants")
+          .delete()
+          .eq("user_id", referrerUserId)
+          .eq("threshold", m.threshold);
+        continue;
+      }
+
+      await notifyUser(referrerUserId, {
+        type: "billing",
+        title: "Referral milestone reached!",
+        message:
+          `You hit ${m.threshold} referrals — ${m.bonus} bonus grade credits were added to your account.`,
+        link: "/dashboard/referrals",
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.error(
+      "[referrals] milestone award threw:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 // Called when a referred user performs their first PAID action. Flips the

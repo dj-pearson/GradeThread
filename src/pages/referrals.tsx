@@ -12,16 +12,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { affiliateBadgeEmbed, affiliateLink } from "@/lib/affiliate";
 import { TopReferrers } from "@/components/referral/top-referrers";
-import { Gift, Copy, Check, BadgeCheck, Trophy } from "lucide-react";
+import { Gift, Copy, Check, BadgeCheck, Trophy, Ticket, Target } from "lucide-react";
+
+interface ReferralMilestone {
+  threshold: number;
+  bonus: number;
+}
 
 interface ReferralMe {
   code: string;
   stats: { total: number; pending: number; qualified: number; granted: number };
   // US-864: reward shown in actual grade credits.
   credits: { per_referral: number; earned: number; pending: number };
+  // US-1071: tiered/milestone rewards.
+  milestones: {
+    tiers: ReferralMilestone[];
+    earned_thresholds: number[];
+    earned_bonus_credits: number;
+    next: { threshold: number; bonus: number; remaining: number } | null;
+  };
   leaderboard: { enabled: boolean; display_name: string | null };
   referred_by: { status: string; code: string } | null;
 }
@@ -39,6 +52,9 @@ export function ReferralsPage() {
   const [copiedBadgeLink, setCopiedBadgeLink] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
+  // US-1071: campaign / promo code redemption.
+  const [campaignCode, setCampaignCode] = useState("");
+  const [redeemingCampaign, setRedeemingCampaign] = useState(false);
   // US-864: leaderboard opt-in form.
   const [leaderboardName, setLeaderboardName] = useState("");
   const [savingLeaderboard, setSavingLeaderboard] = useState(false);
@@ -110,6 +126,78 @@ export function ReferralsPage() {
       qc.invalidateQueries({ queryKey: ["referrals-me"] });
     } finally {
       setRedeeming(false);
+    }
+  };
+
+  // US-1071: prefilled social share. The link carries the affiliate ?ref= so
+  // shares through these channels are attributed + counted like the badge.
+  const sharePromo = data ? affiliateLink(data.code, "link") : "";
+  const shareMessage =
+    "I grade my pre-owned clothing with GradeThread — get a free condition grade + certificate. Join with my link:";
+
+  const openShare = (url: string) => {
+    if (typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const shareNative = async () => {
+    if (!sharePromo) return;
+    // Web Share API where available (mobile), else copy the message + link.
+    const nav = navigator as Navigator & { share?: (d: { title?: string; text?: string; url?: string }) => Promise<void> };
+    if (typeof nav.share === "function") {
+      try {
+        await nav.share({ title: "GradeThread", text: shareMessage, url: sharePromo });
+        return;
+      } catch {
+        /* user dismissed — fall through to copy */
+      }
+    }
+    await copyTo(`${shareMessage} ${sharePromo}`, () => {});
+    toast.success("Share message copied — paste it anywhere.");
+  };
+
+  const shareTargets = sharePromo
+    ? [
+        {
+          label: "X",
+          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(sharePromo)}`,
+        },
+        {
+          label: "Facebook",
+          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(sharePromo)}`,
+        },
+        {
+          label: "WhatsApp",
+          url: `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${sharePromo}`)}`,
+        },
+        {
+          label: "Email",
+          url: `mailto:?subject=${encodeURIComponent("Grade your clothes with GradeThread")}&body=${encodeURIComponent(`${shareMessage} ${sharePromo}`)}`,
+        },
+      ]
+    : [];
+
+  const redeemCampaign = async () => {
+    const code = campaignCode.trim().toUpperCase();
+    if (!code) return;
+    setRedeemingCampaign(true);
+    try {
+      const res = await edgeFetch("/api/referrals/campaign-codes/redeem", {
+        method: "POST",
+        json: { code },
+        silentGate: true,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "Couldn't redeem that code.");
+        return;
+      }
+      toast.success(
+        json.credits > 0 ? `${json.credits} bonus grade credits added!` : "Campaign code applied!",
+      );
+      setCampaignCode("");
+      qc.invalidateQueries({ queryKey: ["referrals-me"] });
+    } finally {
+      setRedeemingCampaign(false);
     }
   };
 
@@ -207,6 +295,99 @@ export function ReferralsPage() {
                 You earn {data.credits.per_referral} grade credits each time a
                 referral qualifies — applied to your balance automatically.
               </p>
+
+              {/* US-1071: prefilled one-tap share. */}
+              <div className="space-y-2">
+                <Button onClick={shareNative} className="w-full">
+                  <Gift className="mr-2 h-4 w-4" /> Share your link
+                </Button>
+                <div className="grid grid-cols-4 gap-2">
+                  {shareTargets.map((t) => (
+                    <Button
+                      key={t.label}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openShare(t.url)}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* US-1071: milestone / tiered rewards — bonus credits for hitting
+              referral thresholds. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Target className="h-5 w-5 text-brand-red-text" /> Milestone bonuses
+              </CardTitle>
+              <CardDescription>
+                {data.milestones.next
+                  ? `${data.milestones.next.remaining} more referral${
+                      data.milestones.next.remaining === 1 ? "" : "s"
+                    } to unlock +${data.milestones.next.bonus} bonus credits.`
+                  : "You've earned every milestone bonus — nice work!"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {data.milestones.next && (
+                <Progress
+                  value={Math.min(
+                    100,
+                    Math.round((data.stats.granted / data.milestones.next.threshold) * 100),
+                  )}
+                />
+              )}
+              <div className="flex flex-wrap gap-2">
+                {data.milestones.tiers.map((tier) => {
+                  const earned = data.milestones.earned_thresholds.includes(tier.threshold);
+                  return (
+                    <div
+                      key={tier.threshold}
+                      className={
+                        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium " +
+                        (earned
+                          ? "border-brand-red/40 bg-brand-red/5 text-brand-red-text"
+                          : "text-muted-foreground")
+                      }
+                    >
+                      {earned && <Check className="h-3.5 w-3.5" />}
+                      {tier.threshold} referrals → +{tier.bonus}
+                    </div>
+                  );
+                })}
+              </div>
+              {data.milestones.earned_bonus_credits > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  You've earned {data.milestones.earned_bonus_credits} bonus credits from milestones.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* US-1071: redeem a named campaign / promo code for bonus credits. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Ticket className="h-5 w-5 text-brand-red-text" /> Have a promo code?
+              </CardTitle>
+              <CardDescription>
+                Enter a campaign code from one of our promotions to claim bonus grade credits.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex gap-2">
+              <Input
+                value={campaignCode}
+                onChange={(e) => setCampaignCode(e.target.value.toUpperCase())}
+                placeholder="e.g. THRIFT10"
+                className="font-mono"
+              />
+              <Button onClick={redeemCampaign} disabled={!campaignCode.trim() || redeemingCampaign}>
+                {redeemingCampaign ? "Applying…" : "Apply"}
+              </Button>
             </CardContent>
           </Card>
 

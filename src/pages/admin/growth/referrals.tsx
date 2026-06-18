@@ -10,6 +10,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -18,10 +30,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { useAuth } from "@/hooks/use-auth";
-import { Gift, Users, CheckCircle2, Clock } from "lucide-react";
+import {
+  Gift,
+  Users,
+  CheckCircle2,
+  Clock,
+  Zap,
+  TrendingUp,
+  Ticket,
+  Trash2,
+} from "lucide-react";
 
 interface ReferralOverview {
   funnel: { codes: number; total: number; pending: number; qualified: number; granted: number };
@@ -37,7 +68,41 @@ interface ReferralOverview {
   }[];
 }
 
-function Stat({ icon: Icon, label, value }: { icon: typeof Gift; label: string; value: number }) {
+interface CohortStats {
+  users: number;
+  activated: number;
+  activation_rate: number;
+  paying: number;
+  paying_rate: number;
+  revenue_cents: number;
+  ltv_cents: number;
+}
+
+interface ReferralAnalytics {
+  window_days: number;
+  series: { date: string; clicks: number; signups: number; qualified: number; granted: number }[];
+  totals: { clicks: number; signups: number; qualified: number; granted: number };
+  conversion: { click_to_signup: number; signup_to_qualified: number; qualified_to_granted: number };
+  k_factor: number;
+  referrers: number;
+  cohorts: { referred: CohortStats; direct: CohortStats };
+}
+
+interface CampaignCode {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  bonus_referred_credits: number;
+  is_active: boolean;
+  starts_at: string;
+  ends_at: string | null;
+  max_redemptions: number | null;
+  redemption_count: number;
+  created_at: string;
+}
+
+function Stat({ icon: Icon, label, value, hint }: { icon: typeof Gift; label: string; value: string | number; hint?: string }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -46,9 +111,14 @@ function Stat({ icon: Icon, label, value }: { icon: typeof Gift; label: string; 
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold tabular-nums">{value}</div>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </CardContent>
     </Card>
   );
+}
+
+function money(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
 }
 
 export function GrowthReferralsPage() {
@@ -68,6 +138,29 @@ export function GrowthReferralsPage() {
       return json;
     },
     refetchInterval: 30_000,
+  });
+
+  const { data: analytics } = useQuery({
+    queryKey: ["growth-referral-analytics"],
+    queryFn: async (): Promise<ReferralAnalytics> => {
+      const res = await edgeFetch("/api/admin/growth/referrals/analytics?days=30");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load referral analytics");
+      return json;
+    },
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
+  const { data: campaign } = useQuery({
+    queryKey: ["growth-campaign-codes"],
+    queryFn: async (): Promise<{ codes: CampaignCode[] }> => {
+      const res = await edgeFetch("/api/admin/growth/campaign-codes");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load campaign codes");
+      return json;
+    },
+    staleTime: 30_000,
   });
 
   async function grant(id: string) {
@@ -124,6 +217,114 @@ export function GrowthReferralsPage() {
             <Stat icon={Clock} label="Qualified" value={data.funnel.qualified} />
             <Stat icon={CheckCircle2} label="Granted" value={data.funnel.granted} />
           </div>
+
+          {/* US-1071: virality analytics — funnel over time, conversion %, K-factor. */}
+          {analytics && (
+            <>
+              <div>
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Virality — last {analytics.window_days} days
+                </h2>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Stat
+                    icon={Zap}
+                    label="K-factor"
+                    value={analytics.k_factor.toFixed(2)}
+                    hint={`${analytics.referrers} referrers · >1 self-sustains`}
+                  />
+                  <Stat
+                    icon={TrendingUp}
+                    label="Click → signup"
+                    value={`${analytics.conversion.click_to_signup}%`}
+                    hint={`${analytics.totals.clicks} clicks · ${analytics.totals.signups} signups`}
+                  />
+                  <Stat
+                    icon={TrendingUp}
+                    label="Signup → qualified"
+                    value={`${analytics.conversion.signup_to_qualified}%`}
+                    hint={`${analytics.totals.qualified} qualified`}
+                  />
+                  <Stat
+                    icon={TrendingUp}
+                    label="Qualified → granted"
+                    value={`${analytics.conversion.qualified_to_granted}%`}
+                    hint={`${analytics.totals.granted} granted`}
+                  />
+                </div>
+              </div>
+
+              {analytics.series.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Referral funnel over time</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <AreaChart data={analytics.series} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={(d: string) => d.slice(5)}
+                          fontSize={11}
+                          stroke="currentColor"
+                          className="text-muted-foreground"
+                        />
+                        <YAxis allowDecimals={false} fontSize={11} stroke="currentColor" className="text-muted-foreground" />
+                        <Tooltip />
+                        <Legend />
+                        <Area type="monotone" dataKey="clicks" name="Clicks" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.15} strokeWidth={2} />
+                        <Area type="monotone" dataKey="signups" name="Signups" stroke="#0F3460" fill="#0F3460" fillOpacity={0.15} strokeWidth={2} />
+                        <Area type="monotone" dataKey="qualified" name="Qualified" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} strokeWidth={2} />
+                        <Area type="monotone" dataKey="granted" name="Granted" stroke="#E94560" fill="#E94560" fillOpacity={0.15} strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Referred-cohort retention/LTV vs direct. */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Referred vs direct cohort</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Metric</TableHead>
+                        <TableHead className="text-right">Referred</TableHead>
+                        <TableHead className="text-right">Direct</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <CohortRow label="Users" referred={analytics.cohorts.referred.users} direct={analytics.cohorts.direct.users} />
+                      <CohortRow
+                        label="Activated (≥1 grade)"
+                        referred={`${analytics.cohorts.referred.activated} (${analytics.cohorts.referred.activation_rate}%)`}
+                        direct={`${analytics.cohorts.direct.activated} (${analytics.cohorts.direct.activation_rate}%)`}
+                      />
+                      <CohortRow
+                        label="Paying"
+                        referred={`${analytics.cohorts.referred.paying} (${analytics.cohorts.referred.paying_rate}%)`}
+                        direct={`${analytics.cohorts.direct.paying} (${analytics.cohorts.direct.paying_rate}%)`}
+                      />
+                      <CohortRow
+                        label="LTV / user"
+                        referred={money(analytics.cohorts.referred.ltv_cents)}
+                        direct={money(analytics.cohorts.direct.ltv_cents)}
+                      />
+                    </TableBody>
+                  </Table>
+                  <p className="px-4 py-3 text-xs text-muted-foreground">
+                    LTV is gross credit-pack revenue (directional) — subscriptions, refunds, and exact Stripe charges aren't reflected.
+                  </p>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* US-1071: campaign / promo codes. */}
+          <CampaignCodesCard codes={campaign?.codes ?? []} canEdit={isSuperAdmin} />
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -207,5 +408,221 @@ export function GrowthReferralsPage() {
 
       <MfaStepUpDialog open={stepUpOpen} onOpenChange={setStepUpOpen} onVerified={() => retry?.()} />
     </div>
+  );
+}
+
+function CohortRow({ label, referred, direct }: { label: string; referred: string | number; direct: string | number }) {
+  return (
+    <TableRow>
+      <TableCell className="text-sm font-medium">{label}</TableCell>
+      <TableCell className="text-right tabular-nums">{referred}</TableCell>
+      <TableCell className="text-right tabular-nums text-muted-foreground">{direct}</TableCell>
+    </TableRow>
+  );
+}
+
+function CampaignCodesCard({ codes, canEdit }: { codes: CampaignCode[]; canEdit: boolean }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ code: "", name: "", description: "", bonus: "3", max: "" });
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ["growth-campaign-codes"] });
+
+  async function create() {
+    const code = form.code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,32}$/.test(code)) {
+      toast.error("Code must be 3–32 letters/numbers.");
+      return;
+    }
+    if (!form.name.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await edgeFetch("/api/admin/growth/campaign-codes", {
+        method: "POST",
+        json: {
+          code,
+          name: form.name.trim(),
+          description: form.description.trim() || null,
+          bonus_referred_credits: Number(form.bonus) || 0,
+          max_redemptions: form.max.trim() ? Number(form.max) : null,
+        },
+        silentGate: true,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "Couldn't create the code.");
+        return;
+      }
+      toast.success("Campaign code created.");
+      setForm({ code: "", name: "", description: "", bonus: "3", max: "" });
+      setOpen(false);
+      refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleActive(c: CampaignCode) {
+    const res = await edgeFetch(`/api/admin/growth/campaign-codes/${c.id}`, {
+      method: "PATCH",
+      json: { is_active: !c.is_active },
+      silentGate: true,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error ?? "Couldn't update the code.");
+      return;
+    }
+    refresh();
+  }
+
+  async function remove(c: CampaignCode) {
+    const res = await edgeFetch(`/api/admin/growth/campaign-codes/${c.id}`, {
+      method: "DELETE",
+      silentGate: true,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error ?? "Couldn't delete the code.");
+      return;
+    }
+    toast.success("Campaign code deleted.");
+    refresh();
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Ticket className="h-5 w-5 text-brand-red-text" /> Campaign codes
+        </CardTitle>
+        {canEdit && (
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm">New code</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>New campaign code</DialogTitle>
+                <DialogDescription>
+                  A named promo code new users redeem for bonus grade credits. Granted immediately on
+                  redemption (one per user).
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cc-code">Code</Label>
+                  <Input
+                    id="cc-code"
+                    value={form.code}
+                    onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+                    placeholder="e.g. THRIFT10"
+                    className="font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cc-name">Name</Label>
+                  <Input
+                    id="cc-name"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder="e.g. TikTok launch"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cc-desc">Description (optional)</Label>
+                  <Textarea
+                    id="cc-desc"
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    rows={2}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cc-bonus">Bonus credits</Label>
+                    <Input
+                      id="cc-bonus"
+                      type="number"
+                      min={0}
+                      value={form.bonus}
+                      onChange={(e) => setForm({ ...form, bonus: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cc-max">Max redemptions</Label>
+                    <Input
+                      id="cc-max"
+                      type="number"
+                      min={1}
+                      value={form.max}
+                      onChange={(e) => setForm({ ...form, max: e.target.value })}
+                      placeholder="∞"
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={create} disabled={saving}>
+                  {saving ? "Creating…" : "Create code"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+      </CardHeader>
+      <CardContent className="p-0">
+        {codes.length === 0 ? (
+          <div className="p-6 text-center text-sm text-muted-foreground">No campaign codes yet.</div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Code</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead className="text-right">Bonus</TableHead>
+                <TableHead className="text-right">Redemptions</TableHead>
+                <TableHead>Status</TableHead>
+                {canEdit && <TableHead className="text-right">Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {codes.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="font-mono text-sm font-semibold">{c.code}</TableCell>
+                  <TableCell className="text-sm">{c.name}</TableCell>
+                  <TableCell className="text-right tabular-nums">{c.bonus_referred_credits}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {c.redemption_count}
+                    {c.max_redemptions != null && <span className="text-muted-foreground">/{c.max_redemptions}</span>}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={c.is_active ? "default" : "secondary"}>
+                      {c.is_active ? "Active" : "Inactive"}
+                    </Badge>
+                  </TableCell>
+                  {canEdit && (
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => toggleActive(c)}>
+                          {c.is_active ? "Deactivate" : "Activate"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => remove(c)}>
+                          <Trash2 className="h-4 w-4 text-brand-red-text" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

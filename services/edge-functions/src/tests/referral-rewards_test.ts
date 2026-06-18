@@ -7,7 +7,10 @@
 
 import { assertEquals } from "@std/assert";
 import {
+  milestonesReached,
+  nextMilestone,
   rankReferrers,
+  REFERRAL_MILESTONES,
   REFERRED_REWARD_CREDITS,
   REFERRER_REWARD_CREDITS,
 } from "../lib/referral-rewards.ts";
@@ -58,4 +61,35 @@ Deno.test("rankReferrers caps the board at the limit", () => {
 
 Deno.test("rankReferrers on an empty cohort returns an empty board", () => {
   assertEquals(rankReferrers([], new Map()), []);
+});
+
+// ── US-1071: milestone tiers ──
+
+Deno.test("REFERRAL_MILESTONES is sorted ascending by threshold", () => {
+  for (let i = 1; i < REFERRAL_MILESTONES.length; i++) {
+    const prev = REFERRAL_MILESTONES[i - 1]!;
+    const cur = REFERRAL_MILESTONES[i]!;
+    if (cur.threshold <= prev.threshold) {
+      throw new Error("REFERRAL_MILESTONES must be sorted ascending by threshold");
+    }
+  }
+});
+
+Deno.test("milestonesReached returns every tier at or below the count", () => {
+  assertEquals(milestonesReached(0), []);
+  assertEquals(milestonesReached(4), []);
+  assertEquals(milestonesReached(5).map((m) => m.threshold), [5]);
+  assertEquals(milestonesReached(10).map((m) => m.threshold), [5, 10]);
+  assertEquals(
+    milestonesReached(1000).map((m) => m.threshold),
+    REFERRAL_MILESTONES.map((m) => m.threshold),
+  );
+});
+
+Deno.test("nextMilestone returns the next unreached tier, null once maxed out", () => {
+  assertEquals(nextMilestone(0)?.threshold, 5);
+  assertEquals(nextMilestone(5)?.threshold, 10);
+  assertEquals(nextMilestone(9)?.threshold, 10);
+  const last = REFERRAL_MILESTONES[REFERRAL_MILESTONES.length - 1]!;
+  assertEquals(nextMilestone(last.threshold), null);
 });

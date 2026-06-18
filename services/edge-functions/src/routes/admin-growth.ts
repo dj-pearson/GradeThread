@@ -930,6 +930,173 @@ adminGrowthRoutes.post("/referrals/:id/grant", async (c) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
+// REFERRAL VIRALITY ANALYTICS (US-1071)
+// ════════════════════════════════════════════════════════════════════
+
+// Virality rollup: funnel time series + conversion %, K-factor, and referred-
+// vs direct-cohort activation/paying/LTV. All aggregation is server-side in the
+// referral_analytics() RPC (cross-tenant, admin/service-role gated).
+adminGrowthRoutes.get("/referrals/analytics", async (c) => {
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 30), 1), 365);
+  const { data, error } = await supabaseAdmin.rpc("referral_analytics", { p_days: days });
+  if (error) {
+    console.error("[admin-growth] referral_analytics failed:", error.message);
+    return c.json({ error: "Failed to load referral analytics" }, 500);
+  }
+  return c.json(data);
+});
+
+// ════════════════════════════════════════════════════════════════════
+// CAMPAIGN CODES (US-1071)
+// ════════════════════════════════════════════════════════════════════
+
+// Named promo / campaign codes (not tied to a referrer) that grant bonus credits
+// to a new user on redemption. Admin CRUD + a redemption roll-up. Codes are
+// normalized to UPPERCASE so they match the user-facing redeem (which upcases).
+
+function normalizeCampaignCode(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().toUpperCase() : "";
+}
+
+adminGrowthRoutes.get("/campaign-codes", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("referral_campaign_codes")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ codes: data ?? [] });
+});
+
+adminGrowthRoutes.post("/campaign-codes", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const code = normalizeCampaignCode(body.code);
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!code) return c.json({ error: "code is required" }, 400);
+  if (!/^[A-Z0-9]{3,32}$/.test(code)) {
+    return c.json({ error: "code must be 3–32 letters/numbers" }, 400);
+  }
+  if (!name) return c.json({ error: "name is required" }, 400);
+
+  const bonus = Number(body.bonus_referred_credits);
+  if (!Number.isInteger(bonus) || bonus < 0) {
+    return c.json({ error: "bonus_referred_credits must be a non-negative integer" }, 400);
+  }
+  const maxRedemptions = body.max_redemptions == null || body.max_redemptions === ""
+    ? null
+    : Number(body.max_redemptions);
+  if (maxRedemptions !== null && (!Number.isInteger(maxRedemptions) || maxRedemptions < 1)) {
+    return c.json({ error: "max_redemptions must be a positive integer" }, 400);
+  }
+
+  const insert: Record<string, unknown> = {
+    code,
+    name,
+    description: typeof body.description === "string" ? body.description : null,
+    bonus_referred_credits: bonus,
+    is_active: body.is_active !== false,
+    max_redemptions: maxRedemptions,
+    created_by: c.get("userId"),
+  };
+  if (typeof body.starts_at === "string" && body.starts_at) {
+    insert.starts_at = new Date(body.starts_at).toISOString();
+  }
+  if (typeof body.ends_at === "string" && body.ends_at) {
+    insert.ends_at = new Date(body.ends_at).toISOString();
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("referral_campaign_codes")
+    .insert(insert)
+    .select("*")
+    .single();
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return c.json({ error: "That code already exists" }, 409);
+    }
+    return c.json({ error: error.message }, 500);
+  }
+
+  await writeAuditLog(c, {
+    action: "growth.campaign_code.create",
+    targetType: "referral_campaign_code",
+    targetId: data.id,
+    details: { code, name, bonus },
+  });
+  return c.json({ code: data });
+});
+
+adminGrowthRoutes.patch("/campaign-codes/:id", async (c) => {
+  const id = c.req.param("id");
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const patch: Record<string, unknown> = {};
+  if (typeof body.name === "string") patch.name = body.name.trim();
+  if (typeof body.description === "string" || body.description === null) {
+    patch.description = body.description;
+  }
+  if (typeof body.is_active === "boolean") patch.is_active = body.is_active;
+  if (body.bonus_referred_credits !== undefined) {
+    const bonus = Number(body.bonus_referred_credits);
+    if (!Number.isInteger(bonus) || bonus < 0) {
+      return c.json({ error: "bonus_referred_credits must be a non-negative integer" }, 400);
+    }
+    patch.bonus_referred_credits = bonus;
+  }
+  if (body.max_redemptions !== undefined) {
+    if (body.max_redemptions === null || body.max_redemptions === "") {
+      patch.max_redemptions = null;
+    } else {
+      const m = Number(body.max_redemptions);
+      if (!Number.isInteger(m) || m < 1) {
+        return c.json({ error: "max_redemptions must be a positive integer" }, 400);
+      }
+      patch.max_redemptions = m;
+    }
+  }
+  if (body.ends_at !== undefined) {
+    patch.ends_at = body.ends_at ? new Date(String(body.ends_at)).toISOString() : null;
+  }
+  if (Object.keys(patch).length === 0) return c.json({ error: "Nothing to update" }, 400);
+
+  const { data, error } = await supabaseAdmin
+    .from("referral_campaign_codes")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+
+  await writeAuditLog(c, {
+    action: "growth.campaign_code.update",
+    targetType: "referral_campaign_code",
+    targetId: id,
+    details: { patch },
+  });
+  return c.json({ code: data });
+});
+
+adminGrowthRoutes.delete("/campaign-codes/:id", async (c) => {
+  const id = c.req.param("id");
+  const { error } = await supabaseAdmin.from("referral_campaign_codes").delete().eq("id", id);
+  if (error) return c.json({ error: error.message }, 500);
+  await writeAuditLog(c, {
+    action: "growth.campaign_code.delete",
+    targetType: "referral_campaign_code",
+    targetId: id,
+  });
+  return c.json({ ok: true });
+});
+
+// ════════════════════════════════════════════════════════════════════
 // CRON: scheduled-campaign dispatch (US-627)
 // ════════════════════════════════════════════════════════════════════
 
