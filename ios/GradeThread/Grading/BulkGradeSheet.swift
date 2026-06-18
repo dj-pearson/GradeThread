@@ -5,6 +5,7 @@ import SwiftUI
 /// the ready items in one shot (blocked items are listed + skipped).
 struct BulkGradeSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var authStore
 
     let itemIds: [String]
     /// Called after a successful submit so the list can clear selection +
@@ -12,6 +13,13 @@ struct BulkGradeSheet: View {
     let onSubmitted: () -> Void
 
     @State private var store: BulkGradeStore?
+    /// Presents the in-app StoreKit paywall (credit packs + plans).
+    @State private var showCreditPaywall = false
+
+    private var currentUserId: UUID? {
+        if case let .signedIn(user) = authStore.phase { return user.id }
+        return nil
+    }
 
     var body: some View {
         NavigationStack {
@@ -35,6 +43,11 @@ struct BulkGradeSheet: View {
             }
         }
         .interactiveDismissDisabled(store?.phase == .submitting)
+        .sheet(isPresented: $showCreditPaywall, onDismiss: { Task { await store?.load() } }) {
+            if let userId = currentUserId {
+                NavigationStack { PaywallView(userId: userId) }
+            }
+        }
     }
 
     private var closeTitle: String {
@@ -127,30 +140,53 @@ struct BulkGradeSheet: View {
 
     private func planSummary(_ store: BulkGradeStore, user: GradingUserInfo) -> some View {
         let credits = store.validation?.creditsRequired ?? 0
-        return HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(user.includedRemaining) included grade\(user.includedRemaining == 1 ? "" : "s") left")
-                    .font(.footnote.weight(.medium))
-                Text("\(user.creditBalance) credit\(user.creditBalance == 1 ? "" : "s") · \(user.plan.capitalized) plan")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        return VStack(spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(user.includedRemaining) included grade\(user.includedRemaining == 1 ? "" : "s") left")
+                        .font(.footnote.weight(.medium))
+                    Text("\(user.creditBalance) credit\(user.creditBalance == 1 ? "" : "s") · \(user.plan.capitalized) plan")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(credits == 0 ? "Included" : "\(credits) credit\(credits == 1 ? "" : "s")")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.brandNavy)
+                    Text("for this batch")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(credits == 0 ? "Included" : "\(credits) credit\(credits == 1 ? "" : "s")")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.brandNavy)
-                Text("for this batch")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if currentUserId != nil {
+                Divider()
+                buyCreditsButton
             }
         }
         .padding(14)
         .cardStyle(.flush)  // US-691: unified card chrome
     }
 
+    /// In-app purchase entry point: opens the StoreKit paywall to buy grade
+    /// credit packs (10/25/50/100) or change plan. Always visible so credits
+    /// are buyable at the point of need (Guideline 3.1.1 — no steering to an
+    /// external/web purchase for in-app digital content).
+    private var buyCreditsButton: some View {
+        Button {
+            AppRouter.haptic()
+            showCreditPaywall = true
+        } label: {
+            Label("Buy grade credits", systemImage: "cart.badge.plus")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(Color.brandNavy)
+    }
+
     private var creditsBanner: some View {
-        Label("Not enough grading credits for this batch at this tier. Buy a credit pack or upgrade on the web, or pick a cheaper tier.", systemImage: "creditcard.trianglebadge.exclamationmark")
+        Label("Not enough grading credits for this batch at this tier. Buy a grade credit pack below, or pick a cheaper tier.", systemImage: "creditcard.trianglebadge.exclamationmark")
             .font(.caption)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)

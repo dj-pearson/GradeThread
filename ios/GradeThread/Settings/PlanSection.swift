@@ -62,7 +62,7 @@ struct PlanSection: View {
         } header: {
             Text("Plan & credits")
         } footer: {
-            Text("Manage your subscription, buy grade credits, and view invoices on the web.")
+            Text("Buy grade credits or change your plan with “See plans & credits” above. View past invoices on the web.")
                 .font(.footnote)
         }
         .task { await store.load() }

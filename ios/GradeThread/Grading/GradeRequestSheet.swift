@@ -7,6 +7,7 @@ import SwiftUI
 struct GradeRequestSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthStore.self) private var authStore
 
     /// The item being graded. Updated optimistically on completion so the
     /// canvas + list reflect the new grade before the next sync pull.
@@ -16,6 +17,14 @@ struct GradeRequestSheet: View {
     // init, mirroring ItemCanvasState — constructing a @MainActor store in a
     // View initializer trips main-actor isolation.
     @State private var store: GradeRequestStore?
+    /// Presents the in-app StoreKit paywall (credit packs + plans) so the
+    /// seller can top up grade credits without leaving the app.
+    @State private var showCreditPaywall = false
+
+    private var currentUserId: UUID? {
+        if case let .signedIn(user) = authStore.phase { return user.id }
+        return nil
+    }
 
     var body: some View {
         NavigationStack {
@@ -39,6 +48,11 @@ struct GradeRequestSheet: View {
             }
         }
         .interactiveDismissDisabled(isWorking)
+        .sheet(isPresented: $showCreditPaywall, onDismiss: { Task { await store?.load() } }) {
+            if let userId = currentUserId {
+                NavigationStack { PaywallView(userId: userId) }
+            }
+        }
     }
 
     @ViewBuilder
@@ -185,21 +199,44 @@ struct GradeRequestSheet: View {
     }
 
     private func planSummary(_ store: GradeRequestStore, user: GradingUserInfo) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(user.includedRemaining) included grade\(user.includedRemaining == 1 ? "" : "s") left")
-                    .font(.footnote.weight(.medium))
-                Text("\(user.creditBalance) credit\(user.creditBalance == 1 ? "" : "s") · \(user.plan.capitalized) plan")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(user.includedRemaining) included grade\(user.includedRemaining == 1 ? "" : "s") left")
+                        .font(.footnote.weight(.medium))
+                    Text("\(user.creditBalance) credit\(user.creditBalance == 1 ? "" : "s") · \(user.plan.capitalized) plan")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(costLabel(store, user: user))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.brandNavy)
             }
-            Spacer()
-            Text(costLabel(store, user: user))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.brandNavy)
+            if currentUserId != nil {
+                Divider()
+                buyCreditsButton
+            }
         }
         .padding(14)
         .cardStyle(.flush)  // US-691: unified card chrome
+    }
+
+    /// In-app purchase entry point: opens the StoreKit paywall to buy grade
+    /// credit packs (10/25/50/100) or change plan. Always visible in the grade
+    /// flow so credits are buyable at the point of need (Guideline 3.1.1 — no
+    /// steering to an external/web purchase for in-app digital content).
+    private var buyCreditsButton: some View {
+        Button {
+            AppRouter.haptic()
+            showCreditPaywall = true
+        } label: {
+            Label("Buy grade credits", systemImage: "cart.badge.plus")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(Color.brandNavy)
     }
 
     /// What this grade costs the user: free if covered by an included
@@ -213,7 +250,7 @@ struct GradeRequestSheet: View {
     }
 
     private var creditsBanner: some View {
-        Label("Not enough grading credits for this tier. Buy a credit pack or upgrade your plan on the web to continue.", systemImage: "creditcard.trianglebadge.exclamationmark")
+        Label("Not enough grading credits for this tier. Buy a grade credit pack below, or pick a cheaper tier.", systemImage: "creditcard.trianglebadge.exclamationmark")
             .font(.caption)
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -73,7 +73,7 @@ struct PaywallView: View {
     private var managedBanner: some View {
         Section {
             Label {
-                Text("Your subscription is billed on the web. Manage or change it at gradethread.com — credit packs are still available below.")
+                Text("Your subscription is managed on the web and can't be changed here. Grade credit packs are still available below.")
                     .font(.footnote)
             } icon: {
                 Image(systemName: "globe").foregroundStyle(Color.brandNavy)
