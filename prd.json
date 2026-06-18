@@ -2501,7 +2501,7 @@
         "Migration idempotent; tsc/lint/build/deno green; referral-rewards_test.ts updated."
       ],
       "priority": 1069,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Referral/Growth. Rewards hardcoded in services/edge-functions/src/lib/referral-rewards.ts (5/3 credits); no system_settings home, no cap, no window. Admin coupons exist (src/pages/admin/coupons.tsx + admin-billing.ts, Stripe), pricing config (00209), settings registry (00208). Consolidate into an Incentives surface. severity=high (user explicit)."
     },
     {

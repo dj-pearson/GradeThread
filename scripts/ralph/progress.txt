@@ -3046,3 +3046,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 11:11:18 AM
 ---
+## US-1069: Admin-configurable referral & promo incentives (credits, free months, % off)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 12:26:08 PM
+---
