@@ -3102,3 +3102,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  3:15:34 PM
 ---
+## US-1055: Offer & return/dispute notifications across all channels
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  3:31:52 PM
+---

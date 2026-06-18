@@ -2319,7 +2319,7 @@
         "deno/tsc/lint green with tests for dedup + preference gating."
       ],
       "priority": 1055,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-15] Epic: Notifications. No offer/return/dispute notification types today. Relates to US-1043 (returns mgmt) and US-1049 (payment disputes). Email infra ready (email.ts category-based retry outbox, 00095). Add templates + notify types + push categories."
     },
     {
