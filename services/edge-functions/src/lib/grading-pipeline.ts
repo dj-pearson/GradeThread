@@ -34,7 +34,8 @@ import { withImageBufferSlot } from "./grading-capacity.ts";
 import { captureServer } from "./posthog.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import { pushReviewNeeded } from "./transactional-push.ts";
-import { recordAiUsage } from "./ai-usage.ts";
+import { recordAiUsage, type AiTokenUsage } from "./ai-usage.ts";
+import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -118,6 +119,9 @@ async function runDefectZoomPass(
   // US-896: stable canary bucket key so the zoom re-analysis uses the SAME
   // (active vs canary) per-image prompt the submission was graded with.
   bucketKey?: string,
+  // US-1066: the model the submission is being graded on for this pass (cascade
+  // first-pass model, or the escalation model on a re-grade). Undefined → default.
+  modelOverride?: string,
 ): Promise<PerImageAnalysis[]> {
   const candidates = selectDefectsForZoom(perImageResults);
   if (candidates.length === 0) return perImageResults;
@@ -162,7 +166,7 @@ async function runDefectZoomPass(
         submission.garment_category,
         styleHint,
         undefined,
-        undefined,
+        modelOverride,
         bucketKey,
       );
       const target = byType.get(cand.image_type);
@@ -178,6 +182,99 @@ async function runDefectZoomPass(
     }
   }
   return updated;
+}
+
+// US-1066: re-grade a submission on the (stronger) escalation model after a
+// low-confidence / high-value first pass. Re-downloads + re-analyzes every image
+// on the escalation model (under the same memory gate), re-runs the defect-zoom
+// pass on that model, and re-composites. Returns the escalated per-image +
+// composite results, or null when escalation can't produce a usable grade (a
+// required-angle re-analysis failed, or the composite errored) — in which case
+// the caller keeps the first-pass grade. Never lets an escalation failure fail
+// the paid grade. The escalation is the low-confidence minority, so the extra
+// download + AI cost is bounded; the savings come from the confident majority
+// that never reaches here.
+async function escalateGrade(
+  images: ZoomImageRow[],
+  submission: { garment_type: string; garment_category: string },
+  garmentInfo: GarmentInfo,
+  styleHint: string[],
+  submissionId: string,
+  model: string,
+): Promise<
+  { perImageResults: PerImageAnalysis[]; compositeResult: CompositeGradeResult } | null
+> {
+  const settled = await withImageBufferSlot(async () => {
+    const imageDataPromises = images.map(async (image) => {
+      const { data: fileData, error: downloadError } = await supabaseAdmin.storage
+        .from("submission-images")
+        .download(image.storage_path);
+      if (downloadError || !fileData) {
+        throw new Error(`Failed to download image: ${image.storage_path}`);
+      }
+      const arrayBuffer = await fileData.arrayBuffer();
+      const base64 = uint8ToBase64(new Uint8Array(arrayBuffer));
+      const ext = image.storage_path.split(".").pop()?.toLowerCase() || "jpg";
+      const mediaTypeMap: Record<string, string> = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        gif: "image/gif",
+        webp: "image/webp",
+      };
+      const mediaType = mediaTypeMap[ext] || "image/jpeg";
+      return {
+        imageType: image.image_type,
+        dataUri: `data:${mediaType};base64,${base64}`,
+      };
+    });
+
+    const imageData = await Promise.all(imageDataPromises);
+    const perImagePromises = imageData.map((img) =>
+      analyzeImage(
+        img.dataUri,
+        img.imageType,
+        submission.garment_type,
+        submission.garment_category,
+        styleHint,
+        undefined,
+        model,
+        submissionId,
+      )
+    );
+    const results = await Promise.allSettled(perImagePromises);
+    return results.map((s, i): SettledImage => ({
+      imageType: imageData[i].imageType,
+      result: s.status === "fulfilled" ? s.value : null,
+    }));
+  });
+
+  const { usable, failedRequired } = partitionImageResults(
+    settled,
+    REQUIRED_IMAGE_TYPES,
+  );
+  // A required angle failed to re-analyze (or nothing succeeded) — abandon the
+  // escalation and keep the first-pass grade rather than ship a worse one.
+  if (failedRequired.length > 0 || usable.length === 0) return null;
+
+  let perImageResults = usable;
+  perImageResults = await runDefectZoomPass(
+    perImageResults,
+    images,
+    submission,
+    styleHint,
+    submissionId,
+    model,
+  ).catch(() => perImageResults);
+
+  const compositeResult = await compositeGrade(
+    perImageResults,
+    garmentInfo,
+    undefined,
+    model,
+    submissionId,
+  );
+  return { perImageResults, compositeResult };
 }
 
 /**
@@ -601,6 +698,13 @@ export async function processSubmission(submissionId: string) {
       ? (submission.style_attributes as string[])
       : [];
 
+    // US-1066: confidence-gated model cascade. When enabled (config-driven via
+    // system_settings, off by default), grade the first pass on the cheap model
+    // and escalate to the stronger model only when confidence is low / the item
+    // is high-value. `firstPassModel` undefined ⇒ default single-model behavior.
+    const cascade = await getCascadeConfig();
+    const firstPassModel = cascade.enabled ? cascade.firstPassModel : undefined;
+
     // US-601: premium authenticity / counterfeit-confidence add-on. Only runs
     // when the seller purchased it at submit (gated to Premium/Express tiers in
     // grade.ts). A SEPARATE garment-authenticity vision pass — distinct from the
@@ -667,10 +771,11 @@ export async function processSubmission(submissionId: string) {
           submission.garment_type,
           submission.garment_category,
           styleHint,
-          // US-896: no prompt/model override on the live path; submissionId is the
+          // US-896: no prompt override on the live path; submissionId is the
           // stable canary bucket key so the whole submission resolves consistently.
           undefined,
-          undefined,
+          // US-1066: cheap first-pass model when the cascade is on (else default).
+          firstPassModel,
           submissionId,
         )
       );
@@ -799,6 +904,7 @@ export async function processSubmission(submissionId: string) {
       submission,
       styleHint,
       submissionId,
+      firstPassModel,
     ).catch((err) => {
       console.error(
         `[Pipeline] defect zoom pass error for submission ${submissionId}:`,
@@ -819,14 +925,94 @@ export async function processSubmission(submissionId: string) {
 
     console.log(`[Pipeline] Running composite grading for submission ${submissionId}`);
 
-    const compositeResult: CompositeGradeResult = await compositeGrade(
+    let compositeResult: CompositeGradeResult = await compositeGrade(
       perImageResults,
       garmentInfo,
       // US-896: live path — no override; submissionId buckets the canary slice.
       undefined,
-      undefined,
+      // US-1066: cheap first-pass model when the cascade is on (else default).
+      firstPassModel,
       submissionId,
     );
+
+    // US-1066: escalate a low-confidence / high-value first-pass grade to the
+    // stronger model. The first-pass usages are captured for the ledger so the
+    // savings (grades that DON'T escalate) and the escalation overhead are both
+    // measurable. Off-by-default + best-effort: any failure keeps the first pass.
+    let firstPassUsages: Array<{ phase: string; usage: AiTokenUsage }> = [];
+    if (cascade.enabled) {
+      // Item value for the high-value gate — only queried when value-routing is
+      // configured. Uses the linked FlipDesk item's target (intended sale) price.
+      let itemValueUsd: number | null = null;
+      if (cascade.highValueUsd !== null) {
+        const { data: valItem } = await supabaseAdmin
+          .from("inventory_items")
+          .select("target_price")
+          .eq("submission_id", submissionId)
+          .maybeSingle();
+        const tp = (valItem as { target_price?: number | null } | null)?.target_price;
+        itemValueUsd = typeof tp === "number" && Number.isFinite(tp) ? tp : null;
+      }
+
+      const decision = decideEscalation({
+        confidence: compositeResult.confidence_score,
+        itemValueUsd,
+        config: cascade,
+      });
+      const firstPassConfidence = compositeResult.confidence_score;
+
+      if (decision.escalate) {
+        firstPassUsages = [
+          ...perImageResults
+            .filter((r) => r.usage)
+            .map((r) => ({ phase: "per_image_firstpass", usage: r.usage! })),
+          ...(compositeResult.usage
+            ? [{ phase: "composite_firstpass", usage: compositeResult.usage }]
+            : []),
+        ];
+        try {
+          const escalated = await escalateGrade(
+            images as ZoomImageRow[],
+            submission,
+            garmentInfo,
+            styleHint,
+            submissionId,
+            cascade.escalationModel,
+          );
+          if (escalated) {
+            perImageResults = escalated.perImageResults;
+            compositeResult = escalated.compositeResult;
+          } else {
+            // Escalation couldn't produce a usable grade — drop the captured
+            // first-pass usages so the ledger doesn't double-count this grade.
+            firstPassUsages = [];
+          }
+        } catch (err) {
+          console.error(
+            `[Pipeline][cascade] escalation failed for submission ${submissionId} — keeping first pass:`,
+            err instanceof Error ? err.message : String(err),
+          );
+          firstPassUsages = [];
+        }
+      }
+
+      console.log(
+        `[Pipeline][cascade] submission ${submissionId} | first_pass_model=${cascade.firstPassModel} | ` +
+          `first_pass_confidence=${firstPassConfidence} | escalated=${decision.escalate && firstPassUsages.length > 0} | ` +
+          `reason=${decision.reason}`,
+      );
+      // Escalation decision metric so escalation rate + cost savings are
+      // measurable (the ledger rows below carry the per-call model + cost).
+      void captureServer("grading-engine", "grading.model_escalation", {
+        submission_id: submissionId,
+        reason: decision.reason,
+        escalated: decision.escalate && firstPassUsages.length > 0,
+        first_pass_model: cascade.firstPassModel,
+        escalation_model: cascade.escalationModel,
+        first_pass_confidence: firstPassConfidence,
+        final_confidence: compositeResult.confidence_score,
+      });
+    }
 
     // US-485: a grade produced from an incomplete image set must not ship
     // confidently — cap confidence below the review threshold and route to a
@@ -1196,6 +1382,10 @@ export async function processSubmission(submissionId: string) {
       userId: submission.user_id,
       submissionId,
       usages: [
+        // US-1066: when the grade escalated, the cheap first-pass calls are
+        // recorded under *_firstpass phases so the cascade's extra cost — and,
+        // by contrast, the savings on grades that never escalate — are visible.
+        ...firstPassUsages,
         ...perImageResults
           .filter((r) => r.usage)
           .map((r) => ({ phase: "per_image", usage: r.usage! })),
