@@ -13,6 +13,10 @@ struct OnboardingView: View {
 
     private var isLastPage: Bool { index >= pages.count - 1 }
 
+    /// Spoken position for VoiceOver — the visual dots are `accessibilityHidden`
+    /// and the paged `TabView` exposes no position, so we surface it here.
+    private var pagePositionLabel: String { "Page \(index + 1) of \(pages.count)" }
+
     var body: some View {
         VStack(spacing: 0) {
             skipBar
@@ -29,6 +33,11 @@ struct OnboardingView: View {
         }
         .background(Color(uiColor: .systemBackground))
         .onAppear { Telemetry.event("onboarding_started") }
+        // Swiping (or tapping Next) changes the page with no native VoiceOver
+        // feedback, so announce the new position. No-op when VoiceOver is off.
+        .onChange(of: index) { _, _ in
+            A11yAnnounce.announce(pagePositionLabel)
+        }
     }
 
     // MARK: - Sections
@@ -86,7 +95,12 @@ struct OnboardingView: View {
             }
         }
         .padding(.bottom, 20)
-        .accessibilityHidden(true)
+        // Visual dots are unchanged for sighted users; collapse them into a
+        // single VoiceOver element that speaks the current position instead of
+        // hiding them entirely (so the position is reachable, not just announced).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Page position")
+        .accessibilityValue(pagePositionLabel)
     }
 
     private var primaryButton: some View {
