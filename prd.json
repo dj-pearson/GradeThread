@@ -2637,7 +2637,7 @@
         "tsc/lint/build green; deno lint/check/test green for edge changes."
       ],
       "priority": 1079,
-      "passes": false,
+      "passes": true,
       "notes": "[Backlog expansion 2026-06-16] Epic: Sync source-of-truth (provenance model). Contract doc: SYNC_SOURCE_OF_TRUTH.md. Authority follows listing provenance (listing_origin). Supersedes the US-148 eBay source_of_truth pin. Depends on US-1078 (sync model) + US-1076. Extends existing revise endpoints in flipdesk-ebay.ts. severity=medium."
     },
     {
