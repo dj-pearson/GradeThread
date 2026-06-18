@@ -69,6 +69,11 @@ memory — not a progress log (the harness records progress separately).
   `ios/project.yml`, whose `sources:` are directory paths (`GradeThread`,
   `GradeThreadTests`). New `.swift` files under those dirs are auto-included; do
   NOT hand-edit a pbxproj. Not buildable on Windows — gates on iOS CI.
+- iOS error→UI copy: reuse `FriendlyErrorCopy` (Telemetry/) — maps raw
+  Supabase/URLError failures to friendly copy (offline/invalid-creds/
+  email-not-confirmed/rate-limited/generic) + a `rawDetail` flattener for Sentry.
+  Never surface `error.localizedDescription` on user-facing screens; log raw to
+  `Telemetry.breadcrumb`/`event` at the call site instead.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses
