@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { isPseudonymousLabel } from "../lib/garment-passport.ts";
+import {
+  generateClaimToken,
+  hashClaimToken,
+  isPseudonymousLabel,
+  pseudonymousLabel,
+} from "../lib/garment-passport.ts";
 
 // Garment Passport edge API (US-1092). Mounted at /api/passport.
 //
@@ -26,6 +31,14 @@ export const passportRoutes = new Hono<{
 // own pipelines (grading, sale reconciliation, fingerprint service), not here.
 const APPENDABLE_EVENT_TYPES = new Set(["ownership_transfer", "listed"]);
 const CONFIDENCE_VALUES = new Set(["deterministic", "probable", "unknown"]);
+
+// US-1094: ownership-claim tokens are valid for 30 days from mint.
+const CLAIM_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Public site origin (no trailing slash) for building claim links. */
+function publicSiteUrl(): string {
+  return (Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com").replace(/\/$/, "");
+}
 
 // Drop any payload key that could carry identity — defense-in-depth for the
 // public response (US-1090 AC#2). The edge only writes PII-free payloads, but a
@@ -177,4 +190,167 @@ passportRoutes.post("/garments/:id/events", async (c) => {
   }
 
   return c.json({ ok: true, event: inserted }, 201);
+});
+
+// POST /garments/:id/claim-token — authed, tenant-scoped. Mint a single-use,
+// time-bounded claim token for a (sold) garment so its buyer can take over the
+// passport. The RAW token is returned exactly once; only its hash is stored.
+passportRoutes.post("/garments/:id/claim-token", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const garmentId = c.req.param("id");
+  if (!garmentId) return c.json({ error: "garment id is required" }, 400);
+
+  // US-268: verify the garment belongs to this workspace owner BEFORE minting.
+  const { data: garment, error: gErr } = await supabaseAdmin
+    .from("garments")
+    .select("id")
+    .eq("id", garmentId)
+    .eq("created_by", ownerId)
+    .maybeSingle();
+  if (gErr) {
+    console.error("[passport] claim-token ownership lookup failed:", gErr.message);
+    return c.json({ error: "Lookup failed" }, 500);
+  }
+  if (!garment) return c.json({ error: "Garment not found" }, 404);
+
+  const token = generateClaimToken();
+  const tokenHash = await hashClaimToken(token);
+  const expiresAt = new Date(Date.now() + CLAIM_TOKEN_TTL_MS).toISOString();
+
+  const { error: insErr } = await supabaseAdmin.from("passport_claim_tokens").insert({
+    garment_id: garmentId,
+    token_hash: tokenHash,
+    created_by: ownerId,
+    expires_at: expiresAt,
+  });
+  if (insErr) {
+    console.error("[passport] claim-token insert failed:", insErr.message);
+    return c.json({ error: "Failed to create claim token" }, 500);
+  }
+
+  // The raw token is shown ONCE — it is not recoverable from the stored hash.
+  return c.json(
+    { token, claim_url: `${publicSiteUrl()}/claim/${token}`, expires_at: expiresAt },
+    201,
+  );
+});
+
+// POST /claim — ANONYMOUS (not under /garments/*, so no auth middleware). Redeem
+// a claim token: transfer the passport to a new pseudonymous buyer node and
+// append a deterministic ownership_transfer event. No account required; if a
+// valid bearer token is present the buyer node is linked to that account (a uuid
+// linkage only — never any PII). Single-use + time-bounded + replay-guarded.
+passportRoutes.post("/claim", async (c) => {
+  let body: { token?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (!token) return c.json({ error: "token is required" }, 400);
+
+  const tokenHash = await hashClaimToken(token);
+  const nowIso = new Date().toISOString();
+
+  // Atomic single-use claim: the UPDATE succeeds only if the token is still
+  // unclaimed AND unexpired. A replay / concurrent double-claim loses this race
+  // (claimed_at is already set) and matches no row → rejected below. This is the
+  // core replay guard (US-1094 AC#3).
+  const { data: claimed, error: claimErr } = await supabaseAdmin
+    .from("passport_claim_tokens")
+    .update({ claimed_at: nowIso })
+    .eq("token_hash", tokenHash)
+    .is("claimed_at", null)
+    .gt("expires_at", nowIso)
+    .select("id, garment_id")
+    .maybeSingle();
+  if (claimErr) {
+    console.error("[passport] claim update failed:", claimErr.message);
+    return c.json({ error: "Claim failed" }, 500);
+  }
+  if (!claimed) {
+    // Invalid / expired / already-used — deliberately indistinguishable so a
+    // caller can't probe which tokens exist.
+    return c.json({ error: "This claim link is invalid, expired, or already used." }, 410);
+  }
+  const garmentId = (claimed as { id: string; garment_id: string }).garment_id;
+  const tokenId = (claimed as { id: string }).id;
+
+  // Optional account association (no PII — just the auth user's uuid).
+  let linkedUserId: string | null = null;
+  const authz = c.req.header("Authorization") ?? "";
+  const jwt = authz.toLowerCase().startsWith("bearer ") ? authz.slice(7).trim() : "";
+  if (jwt) {
+    const { data: u } = await supabaseAdmin.auth.getUser(jwt);
+    linkedUserId = u?.user?.id ?? null;
+  }
+
+  // Chain position: the origin seller is seq 0 ("Seller A"); the Nth buyer is
+  // seq = (prior ownership transfers) + 1 → "Buyer B", "Buyer C", … — stable,
+  // ordinal, PII-free.
+  const { count } = await supabaseAdmin
+    .from("garment_events")
+    .select("id", { count: "exact", head: true })
+    .eq("garment_id", garmentId)
+    .eq("event_type", "ownership_transfer");
+  const seq = (count ?? 0) + 1;
+
+  const { data: node, error: nodeErr } = await supabaseAdmin
+    .from("owner_nodes")
+    .insert({
+      pseudonymous_label: pseudonymousLabel("buyer", seq),
+      kind: "buyer",
+      linked_user_id: linkedUserId,
+    })
+    .select("id")
+    .single();
+  if (nodeErr || !node) {
+    console.error("[passport] claim buyer-node insert failed:", nodeErr?.message);
+    return c.json({ error: "Claim failed" }, 500);
+  }
+  const nodeId = (node as { id: string }).id;
+
+  // Deterministic ownership_transfer event — the actor is the new buyer node.
+  const { error: evErr } = await supabaseAdmin.from("garment_events").insert({
+    garment_id: garmentId,
+    event_type: "ownership_transfer",
+    actor_node_id: nodeId,
+    payload: {},
+    confidence: "deterministic",
+    source: "claim",
+  });
+  if (evErr) {
+    console.error("[passport] claim event insert failed:", evErr.message);
+    return c.json({ error: "Claim failed" }, 500);
+  }
+
+  // Point the garment at the new current owner (timeline + future appends).
+  const { error: updErr } = await supabaseAdmin
+    .from("garments")
+    .update({ current_owner_node_id: nodeId })
+    .eq("id", garmentId);
+  if (updErr) {
+    console.error("[passport] claim current-owner update failed:", updErr.message);
+    return c.json({ error: "Claim failed" }, 500);
+  }
+
+  // Audit: record which node redeemed the token (best-effort).
+  await supabaseAdmin
+    .from("passport_claim_tokens")
+    .update({ claimed_by_node_id: nodeId })
+    .eq("id", tokenId)
+    .then(() => {}, () => {});
+
+  // Return the passport slug so the buyer can view the updated timeline.
+  const { data: g } = await supabaseAdmin
+    .from("garments")
+    .select("public_passport_slug")
+    .eq("id", garmentId)
+    .maybeSingle();
+
+  return c.json(
+    { ok: true, passport_slug: (g as { public_passport_slug: string } | null)?.public_passport_slug ?? null },
+    200,
+  );
 });

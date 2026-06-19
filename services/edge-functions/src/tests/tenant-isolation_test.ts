@@ -1575,3 +1575,23 @@ Deno.test({
     assertDenied(res.status, "POST passport/garments/:id/events (A's garment)");
   },
 });
+
+// US-1094: minting an ownership-claim token is tenant-scoped — B must not mint a
+// claim token for A's garment (ownership verified by created_by before insert,
+// so B's id resolves to no row → 404). The /claim REDEMPTION path is
+// intentionally anonymous (token-bearer auth), so the mint path is the isolation
+// surface here.
+Deno.test({
+  name: "B cannot mint a claim token for A's garment passport",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GARMENT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GARMENT_ID")!;
+    const res = await fetch(`${BASE}/api/passport/garments/${id}/claim-token`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST passport/garments/:id/claim-token (A's garment)");
+  },
+});

@@ -2901,7 +2901,7 @@
         "Tests cover happy path + invalid/expired/replayed token; build + deno checks pass"
       ],
       "priority": 705,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Layer1] The 'title transfer' that makes tracking work without magic. Depends on [[US-1092]], [[US-1093]]. Incentive design (guarantee transfers) handled in [[US-1100]]."
     },
     {
