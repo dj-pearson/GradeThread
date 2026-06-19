@@ -3454,3 +3454,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  7:22:06 AM
 ---
+## US-950: Show grade pricing and billing method before photo upload
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  8:01:54 AM
+---

@@ -1084,7 +1084,7 @@
         "Typecheck passes"
       ],
       "priority": 950,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Reuses the precedence computation already in new-submission.tsx (~lines 685-706). Pure presentation/reordering; no new endpoints."
     },
     {
