@@ -1924,7 +1924,7 @@
         "Build fails fast if an http base URL is configured."
       ],
       "priority": 1008,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Networking/AppConfig.swift (~10-37); Info.plist"
     },
     {

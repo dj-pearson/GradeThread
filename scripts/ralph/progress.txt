@@ -3222,3 +3222,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:39:15 PM
 ---
+## US-1008: iOS: assert https-only base URLs in AppConfig and CI-check merged ATS
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:43:42 PM
+---
