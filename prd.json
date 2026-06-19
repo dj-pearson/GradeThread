@@ -1222,7 +1222,7 @@
         "Typecheck passes"
       ],
       "priority": 959,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/listings.tsx (InlineCell ~1587-1627, rows ~1524-1659), src/components/.../inline-cell.tsx. Mirror the price->eBay-offer fallback logic for status where applicable."
     },
     {

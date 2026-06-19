@@ -3418,3 +3418,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  1:55:40 AM
 ---
+## US-959: Inline status change and expanded inline edits in listings table
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  2:09:32 AM
+---
