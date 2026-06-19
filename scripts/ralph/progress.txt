@@ -3426,3 +3426,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  2:25:47 AM
 ---
+## US-957: Inline photo QA feedback during AutoLister intake
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  2:39:44 AM
+---

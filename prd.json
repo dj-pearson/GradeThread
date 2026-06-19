@@ -1191,7 +1191,7 @@
         "Typecheck passes"
       ],
       "priority": 957,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: src/pages/flipdesk/autolister.tsx (intake/grouping), reuse the runPhotoQa endpoint from autolister-queue.tsx (US-537). Saves AI quota by catching unusable photos pre-generation."
     },
     {
