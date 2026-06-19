@@ -1566,7 +1566,7 @@
         "Application-level 4xx rejections are NOT queued (only true network failures)."
       ],
       "priority": 982,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=functional. ios/GradeThread/Persistence/SyncEngine.swift (apply ~599-616); Money/ExpenseStore.swift (~76,89); sale recording; item edit path"
     },
     {

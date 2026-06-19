@@ -3326,3 +3326,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:28:49 PM
 ---
+## US-982: iOS: expand the offline write queue to sales, expenses, and item edits
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:40:04 PM
+---
