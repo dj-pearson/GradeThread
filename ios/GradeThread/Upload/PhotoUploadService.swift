@@ -299,8 +299,14 @@ public final class PhotoUploadService {
         // item_photos row — then finalize.
         let sortOrder = sortOrderByUploadId.removeValue(forKey: id) ?? 0
         Task { @MainActor [weak self] in
-            await self?.insertPhotoRow(for: task, sortOrder: sortOrder)
-            try? FileManager.default.removeItem(at: task.localFileURL)
+            let linked = await self?.insertPhotoRow(for: task, sortOrder: sortOrder) ?? false
+            // Only discard the staged JPEG once the row is durably linked. If
+            // the DB insert failed we queued a pending mutation that re-uploads
+            // from this very file on the next sync — deleting it would strand
+            // that retry (replay reads `local_file_url`).
+            if linked {
+                try? FileManager.default.removeItem(at: task.localFileURL)
+            }
             self?.startNextIfPossible()
         }
     }
@@ -321,7 +327,12 @@ public final class PhotoUploadService {
         task.id.uuidString.lowercased()
     }
 
-    private func insertPhotoRow(for task: PhotoUploadTask, sortOrder: Int) async {
+    /// Inserts the `item_photos` row for a finished storage upload. Returns
+    /// `true` once the row is durably linked, `false` if the insert failed
+    /// (in which case a pending mutation has been queued and the staged JPEG
+    /// must be kept on disk for the replay to re-upload).
+    @discardableResult
+    private func insertPhotoRow(for task: PhotoUploadTask, sortOrder: Int) async -> Bool {
         let publicURL = storagePublicURL(for: task.storagePath)
         let row = ItemPhotoInsert(
             id: Self.photoId(for: task),
@@ -343,15 +354,28 @@ public final class PhotoUploadService {
                 .upsert(row)
                 .execute()
             store.updatePhase(task.id, to: .uploaded(publicURL: publicURL))
+            return true
         } catch {
-            // Storage upload succeeded but the DB write failed. Surface it as a
-            // failure so the user can retry — the retry path re-attempts the
-            // (idempotent) storage upload and upserts the SAME id.
-            store.updatePhase(
-                task.id,
-                to: .failed(error: "Saved photo, couldn't link it: \(error.localizedDescription)")
-            )
+            // Storage upload succeeded but the DB write failed (e.g. the access
+            // token expired between the two phases). Don't rely on the manual
+            // retry button — it's gone the moment the user leaves the capture
+            // screen. Queue a pending mutation so the next SyncEngine pass
+            // re-links the photo automatically (idempotent storage re-upload +
+            // upsert by the SAME deterministic id ⇒ no duplicate rows).
+            handlePhotoLinkFailure(task: task, message: error.localizedDescription)
+            return false
         }
+    }
+
+    /// A successful storage upload followed by a failed `item_photos` insert.
+    /// Marks the task `.failed` for the UI AND enqueues a pending mutation so
+    /// the photo is auto-re-linked on the next sync rather than orphaned.
+    func handlePhotoLinkFailure(task: PhotoUploadTask, message: String) {
+        store.updatePhase(
+            task.id,
+            to: .failed(error: "Saved photo, couldn't link it: \(message)")
+        )
+        enqueuePendingMutation(for: task, message: message)
     }
 
     private func storagePublicURL(for path: String) -> String {

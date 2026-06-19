@@ -1,3 +1,4 @@
+import SwiftData
 import XCTest
 @testable import GradeThread
 
@@ -187,7 +188,70 @@ final class PhotoUploadTests: XCTestCase {
         XCTAssertTrue(service.sortOrderByUploadId.isEmpty)
     }
 
+    // MARK: - DB-link failure auto-retries (US-1001)
+
+    /// A storage upload that succeeds but whose `item_photos` insert fails
+    /// (e.g. the access token expired between the two phases) must NOT rely on
+    /// the manual retry button — that's lost the moment the user leaves the
+    /// capture screen. It enqueues a pending mutation so the next SyncEngine
+    /// pass re-links the photo automatically.
+    func test_dbLinkFailure_enqueuesPendingMutation_forAutoRetry() throws {
+        let store = PhotoUploadStore()
+        let container = try makeContainer()
+        let service = PhotoUploadService(
+            store: store,
+            modelContainer: container,
+            sessionIdentifier: "test-linkfail-\(UUID().uuidString)"
+        )
+
+        let task = makeTask(slot: .front, itemId: "item-A")
+        store.upsert(task)
+
+        service.handlePhotoLinkFailure(task: task, message: "token expired")
+
+        // Surfaced as failed for the UI...
+        if case let .failed(error) = store.tasks[task.id]?.phase {
+            XCTAssertTrue(error.contains("token expired"))
+        } else {
+            XCTFail("expected failed phase")
+        }
+
+        // ...AND a pending mutation was queued so the next sync re-links it
+        // without re-prompting the user.
+        let context = ModelContext(container)
+        let mutations = try context.fetch(FetchDescriptor<LocalPendingMutation>())
+        XCTAssertEqual(mutations.count, 1)
+        let mutation = try XCTUnwrap(mutations.first)
+        XCTAssertEqual(mutation.kindEnum, .uploadPhoto)
+        XCTAssertEqual(mutation.targetId, "item-A")
+
+        // The payload carries the deterministic row id (the task's own id) so
+        // the replay upserts the SAME item_photos row — no duplicate.
+        struct Payload: Decodable {
+            let photo_id: String
+            let storage_path: String
+            let local_file_url: String
+        }
+        let payload = try JSONDecoder().decode(Payload.self, from: mutation.payload)
+        XCTAssertEqual(payload.photo_id, PhotoUploadService.photoId(for: task))
+        XCTAssertEqual(payload.storage_path, task.storagePath)
+        XCTAssertEqual(payload.local_file_url, task.localFileURL.path)
+    }
+
     // MARK: - Helpers
+
+    private func makeContainer() throws -> ModelContainer {
+        let schema = Schema([
+            LocalInventoryItem.self,
+            LocalItemPhoto.self,
+            LocalListing.self,
+            LocalSale.self,
+            LocalSource.self,
+            LocalPendingMutation.self,
+        ])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+        return try ModelContainer(for: schema, configurations: config)
+    }
 
     private func makeTask(
         slot: PhotoSlotType = .front,
