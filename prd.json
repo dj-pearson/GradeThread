@@ -1054,7 +1054,7 @@
         "Typecheck passes"
       ],
       "priority": 948,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Targets the needs_photos low-confidence loop at its source. Files: src/pages/new-submission.tsx (step/Continue logic ~lines 228-235, 524-531), src/components/submission/photo-upload.tsx. Pairs with US-947, US-949."
     },
     {

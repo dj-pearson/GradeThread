@@ -3462,3 +3462,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  8:34:43 AM
 ---
+## US-948: Per-slot photo guidance + completeness progress in submission flow
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  8:42:31 AM
+---
