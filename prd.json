@@ -1650,7 +1650,7 @@
         "Custom-scheme handling remains only for <17.4."
       ],
       "priority": 988,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Auth/AuthStore.swift (handleAuthCallback ~130-140)"
     },
     {

@@ -3302,3 +3302,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:59:33 PM
 ---
+## US-988: iOS: strict auth-callback deep-link matching on iOS 17.4+ (drop claimable scheme)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:01:19 PM
+---
