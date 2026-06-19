@@ -130,6 +130,83 @@ export function useApplyReprice() {
   });
 }
 
+// US-962: bulk match-to-comp reprice. Preview computes a per-listing suggested
+// price off the repricing engine; apply pushes it (eBay where present + local),
+// respecting the margin floor server-side.
+export type BulkRepriceSkip = "no_comps" | "below_margin_floor";
+
+export interface BulkRepricePreviewRow {
+  listing_id: string;
+  inventory_item_id: string;
+  title: string;
+  current_price_cents: number;
+  suggested_price_cents: number;
+  delta_cents: number;
+  comp_count: number;
+  comp_median_cents: number | null;
+  reason_code: ReasonCode;
+  margin_floor_cents: number | null;
+  skip: BulkRepriceSkip | null;
+}
+
+export interface BulkRepricePreview {
+  items: BulkRepricePreviewRow[];
+  capped: boolean;
+}
+
+export interface BulkRepriceApplyResult {
+  applied: number;
+  ebay_synced: number;
+  skipped: Array<{ listing_id: string; reason: BulkRepriceSkip | "not_found" }>;
+  errors: Array<{ listing_id: string; message: string }>;
+}
+
+export function useBulkRepricePreview() {
+  return useMutation({
+    mutationFn: async (listingIds: string[]): Promise<BulkRepricePreview> => {
+      const res = await edgeFetch("/api/flipdesk/pricing/reprice/preview", {
+        method: "POST",
+        json: { listingIds },
+      });
+      const data = (await res.json().catch(() => ({}))) as
+        & Partial<BulkRepricePreview>
+        & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Couldn't build the reprice preview.");
+      return { items: data.items ?? [], capped: data.capped ?? false };
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useBulkRepriceApply() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      items: Array<{ listing_id: string; price_cents: number }>,
+    ): Promise<BulkRepriceApplyResult> => {
+      const res = await edgeFetch("/api/flipdesk/pricing/reprice/apply", {
+        method: "POST",
+        json: { items },
+      });
+      const data = (await res.json().catch(() => ({}))) as
+        & Partial<BulkRepriceApplyResult>
+        & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Couldn't apply the new prices.");
+      return {
+        applied: data.applied ?? 0,
+        ebay_synced: data.ebay_synced ?? 0,
+        skipped: data.skipped ?? [],
+        errors: data.errors ?? [],
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["items_full"] });
+      queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
 export function useDismissReprice() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -28,6 +28,7 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  Tag,
 } from "lucide-react";
 import {
   Card,
@@ -81,6 +82,7 @@ import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
+import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
 import { useSavedViews } from "@/hooks/use-saved-views";
@@ -430,6 +432,8 @@ export function FlipdeskListingsPage() {
   });
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [aiEnrichOpen, setAiEnrichOpen] = useState(false);
+  // US-962: bulk match-to-comp reprice of the selected active listings.
+  const [repriceOpen, setRepriceOpen] = useState(false);
 
   // Load a saved view when ?view=<id> resolves — applies the saved filter
   // and strips the param so a reload doesn't re-apply.
@@ -2205,6 +2209,16 @@ export function FlipdeskListingsPage() {
                 </>
               ) : isActive ? (
                 <>
+                  {ebayConnection && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setRepriceOpen(true)}
+                      disabled={busy}
+                    >
+                      <Tag className="mr-2 h-4 w-4" />
+                      Reprice to comp
+                    </Button>
+                  )}
                   <Select value={bulkDropPct} onValueChange={setBulkDropPct}>
                     <SelectTrigger className="h-9 w-28">
                       <SelectValue />
@@ -2331,6 +2345,18 @@ export function FlipdeskListingsPage() {
         open={saveViewOpen}
         onOpenChange={setSaveViewOpen}
         query={filterQuery}
+      />
+
+      <BulkRepriceDialog
+        open={repriceOpen}
+        onOpenChange={setRepriceOpen}
+        listingIds={Array.from(selected)
+          .map((id) => items.find((i) => i.id === id)?.listing_id)
+          .filter((v): v is string => !!v)}
+        onApplied={() => {
+          setSelected(new Set());
+          void qc.invalidateQueries({ queryKey: ["items_full"] });
+        }}
       />
 
       <BulkAiEnrichDialog

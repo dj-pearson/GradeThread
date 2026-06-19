@@ -16,7 +16,12 @@ import {
   computeSuggestion,
   gradeToConditionId,
   type ReasonCode,
+  type RepriceSuggestion as EngineSuggestion,
 } from "../lib/repricing.ts";
+import {
+  computeFloorCents,
+  DEFAULT_MARGIN_FLOOR_PCT,
+} from "../lib/automation-rules.ts";
 import {
   evaluatePerformance,
   type PerformanceSignalCode,
@@ -50,6 +55,9 @@ export const flipdeskPricingRoutes = new Hono<{
 const DEFAULT_SCAN_LIMIT = 25;
 const MAX_SCAN_LIMIT = 50;
 const CRON_SCAN_LIMIT = 200;
+// US-962: bulk match-to-comp reprice. Each item costs one eBay Browse call in
+// preview, so cap a single selection the same way the scan is capped.
+const MAX_BULK_REPRICE = 50;
 
 // Reason codes that are worth surfacing as a nudge. OK / NO_COMPS are not.
 const ACTIONABLE: ReasonCode[] = ["UNDERPRICED", "OVERPRICED", "STALE"];
@@ -66,6 +74,7 @@ interface ListingJoinRow {
   click_through_rate: number | null;
   platform_offer_id: string | null;
   platform_category_id: string | null;
+  listing_title: string | null;
   inventory_items: {
     user_id: string;
     ebay_category_id: string | null;
@@ -73,8 +82,16 @@ interface ListingJoinRow {
     brand: string | null;
     size: string | null;
     title: string | null;
+    // US-962: cost basis for the margin floor on bulk reprice.
+    acquired_price: number | null;
   };
 }
+
+// Columns the repricing engine needs off a listing + its item, shared by the
+// scan and the bulk match-to-comp flow (US-962).
+const REPRICE_LISTING_COLUMNS =
+  "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, listing_title, " +
+  "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title, acquired_price)";
 
 interface ScanResult {
   scanned: number;
@@ -87,6 +104,43 @@ function daysSince(iso: string): number {
   const t = new Date(iso).getTime();
   if (!isFinite(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+}
+
+/**
+ * Run the condition-aware repricing engine for one listing: pull
+ * condition-matched comps and position a suggested price by grade. Returns null
+ * when the listing has no category to comp against. Shared by the scan and the
+ * bulk match-to-comp reprice (US-962) so both price off the same engine.
+ */
+async function computeListingSuggestion(
+  listing: ListingJoinRow,
+): Promise<EngineSuggestion | null> {
+  const item = listing.inventory_items;
+  const categoryId = listing.platform_category_id ?? item.ebay_category_id;
+  if (!categoryId) return null;
+
+  const comps = await searchBrowseComps({
+    categoryId,
+    q: item.brand ?? item.title ?? undefined,
+    brand: item.brand ?? undefined,
+    size: item.size ?? undefined,
+    conditionId: gradeToConditionId(item.grade_value),
+  });
+
+  return computeSuggestion({
+    currentPriceCents: Math.round(listing.listing_price * 100),
+    gradeValue: item.grade_value,
+    stats: comps.stats,
+    listingAgeDays: daysSince(listing.listed_at),
+    // watchers_count is the fresh analytics watcher total (US-151);
+    // listing.watchers is the legacy listings-pull value — prefer the former.
+    watchers: listing.watchers_count ?? listing.watchers ?? 0,
+    views: listing.views ?? 0,
+    // US-565: feed engagement signals so a watched-but-unsold listing earns
+    // a markdown nudge even before the 30-day age gate.
+    impressions: listing.impressions_7d ?? 0,
+    clickThroughRate: listing.click_through_rate ?? null,
+  });
 }
 
 /**
@@ -106,10 +160,7 @@ async function scanListings(
 
   let q = supabaseAdmin
     .from("listings")
-    .select(
-      "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, " +
-        "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title)",
-    )
+    .select(REPRICE_LISTING_COLUMNS)
     .eq("platform", "ebay")
     .eq("listing_status", "active")
     .order("updated_at", { ascending: true })
@@ -126,35 +177,13 @@ async function scanListings(
   for (const listing of listings) {
     result.scanned++;
     const item = listing.inventory_items;
-    const categoryId = listing.platform_category_id ?? item.ebay_category_id;
-    if (!categoryId) {
-      result.skipped_no_category++;
-      continue;
-    }
 
     try {
-      const comps = await searchBrowseComps({
-        categoryId,
-        q: item.brand ?? item.title ?? undefined,
-        brand: item.brand ?? undefined,
-        size: item.size ?? undefined,
-        conditionId: gradeToConditionId(item.grade_value),
-      });
-
-      const suggestion = computeSuggestion({
-        currentPriceCents: Math.round(listing.listing_price * 100),
-        gradeValue: item.grade_value,
-        stats: comps.stats,
-        listingAgeDays: daysSince(listing.listed_at),
-        // watchers_count is the fresh analytics watcher total (US-151);
-        // listing.watchers is the legacy listings-pull value — prefer the former.
-        watchers: listing.watchers_count ?? listing.watchers ?? 0,
-        views: listing.views ?? 0,
-        // US-565: feed engagement signals so a watched-but-unsold listing earns
-        // a markdown nudge even before the 30-day age gate.
-        impressions: listing.impressions_7d ?? 0,
-        clickThroughRate: listing.click_through_rate ?? null,
-      });
+      const suggestion = await computeListingSuggestion(listing);
+      if (!suggestion) {
+        result.skipped_no_category++;
+        continue;
+      }
 
       if (ACTIONABLE.includes(suggestion.reasonCode)) {
         result.actionable++;
@@ -469,6 +498,249 @@ flipdeskPricingRoutes.post("/suggestions/:id/dismiss", async (c) => {
   if (error) return failSafe(c, 500, "Couldn't dismiss the suggestion.", error, "repricing.dismiss");
   if (!data) return jsonError(c, 404, "Suggestion not found");
   return c.json({ dismissed: true });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Bulk match-to-comp reprice (US-962)
+// ══════════════════════════════════════════════════════════════════
+// Reprice a SELECTION of listings to their condition-matched comp in one action,
+// with a dry-run preview. Preview computes a suggested price per listing off the
+// same engine the scan uses; apply pushes to eBay (where an offer exists) and
+// writes the local price, never below the cost-basis margin floor. Every query
+// is tenant-scoped through inventory_items.user_id (US-268).
+
+type BulkSkipReason = "no_comps" | "below_margin_floor";
+
+interface RepricePreviewRow {
+  listing_id: string;
+  inventory_item_id: string;
+  title: string;
+  current_price_cents: number;
+  suggested_price_cents: number;
+  delta_cents: number;
+  comp_count: number;
+  comp_median_cents: number | null;
+  reason_code: ReasonCode;
+  margin_floor_cents: number | null;
+  // null = appliable; otherwise why it's excluded from the apply.
+  skip: BulkSkipReason | null;
+}
+
+function parseListingIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids: string[] = [];
+  for (const v of value) {
+    if (typeof v === "string" && v.length > 0 && !ids.includes(v)) ids.push(v);
+  }
+  return ids.slice(0, MAX_BULK_REPRICE);
+}
+
+// Tenant-scoped fetch of the caller's active eBay listings by id — the !inner
+// join on inventory_items.user_id is the ownership gate (US-268).
+async function loadOwnedRepriceListings(
+  ownerId: string,
+  listingIds: string[],
+): Promise<ListingJoinRow[]> {
+  if (listingIds.length === 0) return [];
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select(REPRICE_LISTING_COLUMNS)
+    .eq("platform", "ebay")
+    .eq("inventory_items.user_id", ownerId)
+    .in("id", listingIds);
+  if (error) {
+    console.error("[repricing] bulk listing fetch failed:", error.message);
+    return [];
+  }
+  return (data ?? []) as unknown as ListingJoinRow[];
+}
+
+async function buildPreviewRow(
+  listing: ListingJoinRow,
+): Promise<RepricePreviewRow> {
+  const item = listing.inventory_items;
+  const currentCents = Math.round(listing.listing_price * 100);
+  const floorCents = computeFloorCents(
+    item.acquired_price,
+    DEFAULT_MARGIN_FLOOR_PCT,
+  );
+  const base = {
+    listing_id: listing.id,
+    inventory_item_id: listing.inventory_item_id,
+    title: listing.listing_title || item.title || "Untitled item",
+    current_price_cents: currentCents,
+    margin_floor_cents: floorCents,
+  };
+
+  let suggestion: EngineSuggestion | null = null;
+  try {
+    suggestion = await computeListingSuggestion(listing);
+  } catch (err) {
+    console.error(
+      "[repricing] bulk preview comp failed for listing",
+      listing.id,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // No category, comp hiccup, or too few comps → can't price; skip it.
+  if (!suggestion || suggestion.reasonCode === "NO_COMPS") {
+    return {
+      ...base,
+      suggested_price_cents: currentCents,
+      delta_cents: 0,
+      comp_count: suggestion?.compCount ?? 0,
+      comp_median_cents: suggestion?.compMedianCents ?? null,
+      reason_code: "NO_COMPS",
+      skip: "no_comps",
+    };
+  }
+
+  const suggested = suggestion.suggestedPriceCents;
+  const belowFloor = floorCents != null && suggested < floorCents;
+  return {
+    ...base,
+    suggested_price_cents: suggested,
+    delta_cents: suggested - currentCents,
+    comp_count: suggestion.compCount,
+    comp_median_cents: suggestion.compMedianCents,
+    reason_code: suggestion.reasonCode,
+    skip: belowFloor ? "below_margin_floor" : null,
+  };
+}
+
+// ── POST /reprice/preview ─────────────────────────────────────────
+// Dry run: returns current → suggested per selected listing, marking which are
+// skipped (no comps / below the margin floor). No writes.
+flipdeskPricingRoutes.post("/reprice/preview", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  let body: { listingIds?: unknown };
+  try {
+    body = (await c.req.json()) as { listingIds?: unknown };
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const requestedCount = Array.isArray(body.listingIds)
+    ? body.listingIds.filter((v) => typeof v === "string" && v.length > 0).length
+    : 0;
+  const listingIds = parseListingIds(body.listingIds);
+  if (listingIds.length === 0) {
+    return jsonError(c, 400, "Provide at least one listingId.");
+  }
+
+  const listings = await loadOwnedRepriceListings(ownerId, listingIds);
+  const items: RepricePreviewRow[] = [];
+  for (const listing of listings) {
+    items.push(await buildPreviewRow(listing));
+  }
+  // Tell the UI when we trimmed an oversized selection to the per-call cap.
+  return c.json({ items, capped: requestedCount > listingIds.length });
+});
+
+// ── POST /reprice/apply ───────────────────────────────────────────
+// Apply confirmed per-item prices: push to eBay (where an offer exists) then
+// persist the local price, re-validating ownership + the margin floor server-
+// side so a client can never write below the floor.
+flipdeskPricingRoutes.post("/reprice/apply", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { items?: unknown };
+  try {
+    body = (await c.req.json()) as { items?: unknown };
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  const requested: Array<{ listingId: string; priceCents: number }> = [];
+  for (const r of rawItems) {
+    if (!r || typeof r !== "object") continue;
+    const listingId = (r as { listing_id?: unknown }).listing_id;
+    const priceCents = (r as { price_cents?: unknown }).price_cents;
+    if (
+      typeof listingId === "string" &&
+      typeof priceCents === "number" &&
+      Number.isFinite(priceCents) &&
+      priceCents > 0 &&
+      !requested.some((x) => x.listingId === listingId)
+    ) {
+      requested.push({ listingId, priceCents: Math.round(priceCents) });
+    }
+  }
+  const capped = requested.slice(0, MAX_BULK_REPRICE);
+  if (capped.length === 0) {
+    return jsonError(c, 400, "No valid items to apply.");
+  }
+
+  const listings = await loadOwnedRepriceListings(
+    ownerId,
+    capped.map((r) => r.listingId),
+  );
+  const byId = new Map<string, ListingJoinRow>();
+  for (const l of listings) byId.set(l.id, l);
+
+  let applied = 0;
+  let ebaySynced = 0;
+  const skipped: Array<{ listing_id: string; reason: BulkSkipReason | "not_found" }> = [];
+  const errors: Array<{ listing_id: string; message: string }> = [];
+  const now = new Date().toISOString();
+
+  for (const req of capped) {
+    const listing = byId.get(req.listingId);
+    if (!listing) {
+      skipped.push({ listing_id: req.listingId, reason: "not_found" });
+      continue;
+    }
+    const floor = computeFloorCents(
+      listing.inventory_items.acquired_price,
+      DEFAULT_MARGIN_FLOOR_PCT,
+    );
+    if (floor != null && req.priceCents < floor) {
+      skipped.push({ listing_id: req.listingId, reason: "below_margin_floor" });
+      continue;
+    }
+
+    const dollars = req.priceCents / 100;
+    const offerId = listing.platform_offer_id;
+    const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+
+    // Push to eBay FIRST (US-467): a failed remote update must not desync the
+    // local price, so skip the local write and surface it as a retryable error.
+    if (hasLiveOffer) {
+      try {
+        await updateOfferPrice(ownerId, offerId!, dollars);
+      } catch (err) {
+        errors.push({
+          listing_id: req.listingId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
+    }
+
+    const { error: updErr } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_price: dollars, price_is_estimated: false })
+      .eq("id", req.listingId);
+    if (updErr) {
+      errors.push({ listing_id: req.listingId, message: updErr.message });
+      continue;
+    }
+
+    // Clear any pending comp suggestion for this listing so the nudges feed
+    // doesn't re-surface a price the user just acted on.
+    await supabaseAdmin
+      .from("repricing_suggestions")
+      .update({ status: "applied", applied_at: now })
+      .eq("listing_id", req.listingId)
+      .eq("user_id", ownerId);
+
+    applied++;
+    if (hasLiveOffer) ebaySynced++;
+  }
+
+  return c.json({ applied, ebay_synced: ebaySynced, skipped, errors });
 });
 
 // ── Cron: scan every owner's active listings ──────────────────────
