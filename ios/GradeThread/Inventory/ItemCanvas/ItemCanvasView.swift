@@ -30,6 +30,10 @@ struct ItemCanvasView: View {
     /// and links out to the live listing — part of the Item↔Listing↔Sale thread.
     @Query private var itemListings: [LocalListing]
     @State private var state: ItemCanvasState?
+    /// US-967: parsed `measurements_json`, memoized so the Measurements section
+    /// reads a cached value instead of re-decoding JSON on every `body` pass.
+    /// Rebuilt via `.onChange(of: item.measurementsJSON)`.
+    @State private var measurements: [String: Double]?
     @State private var showingDiscardConfirmation = false
     @State private var showingPublishDialog = false
     @State private var showingPhotoManager = false
@@ -177,8 +181,17 @@ struct ItemCanvasView: View {
         // freshly AI-extracted fields appear right after photo intake instead
         // of requiring a back-out/re-enter to rebuild the snapshot. The
         // ItemDraft key changes exactly when an editable field changes.
-        .onChange(of: ItemDraft(from: item, currencyFormatter: currencyFormatter)) { _, _ in
+        // US-967: key on a cheap integer signature of the item's editable fields
+        // instead of constructing a full `ItemDraft` (two `CurrencyFormatter`
+        // calls) on every `body` pass. The signature changes exactly when an
+        // editable field changes, so a realtime/sync push still folds in while
+        // unrelated re-renders no longer rebuild the draft.
+        .onChange(of: ItemCanvasView.editableSignature(item)) { _, _ in
             state?.refreshFromItem(item)
+        }
+        // US-967: decode measurements JSON once per change, not every body pass.
+        .onChange(of: item.measurementsJSON, initial: true) { _, _ in
+            measurements = ItemCanvasView.decodeMeasurements(item.measurementsJSON)
         }
         .task { await consignorStore.load() }
         .alert(
@@ -932,7 +945,7 @@ struct ItemCanvasView: View {
 
     private var measurementsSection: some View {
         Section {
-            if let measurements = parsedMeasurements(), !measurements.isEmpty {
+            if let measurements, !measurements.isEmpty {
                 ForEach(Array(measurements.keys.sorted()), id: \.self) { key in
                     HStack {
                         Text(key.capitalized)
@@ -1578,9 +1591,35 @@ struct ItemCanvasView: View {
 
     // MARK: - Measurements
 
-    private func parsedMeasurements() -> [String: Double]? {
-        guard let json = item.measurementsJSON?.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([String: Double].self, from: json)
+    /// US-967: decode `measurements_json` into `[name: inches]`. Static + pure so
+    /// it's unit-testable and so the section reads a memoized `@State`
+    /// (`measurements`) rather than re-parsing JSON on every `body` pass.
+    static func decodeMeasurements(_ json: String?) -> [String: Double]? {
+        guard let data = json?.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([String: Double].self, from: data)
+    }
+
+    /// US-967: cheap signature of the editable `inventory_items` fields the
+    /// canvas mirrors — the exact set ``ItemDraft/init(from:currencyFormatter:)``
+    /// reads (category is always nil there, so it's excluded). Prices fold in as
+    /// raw `Double`s, avoiding the per-render `CurrencyFormatter` work the old
+    /// `ItemDraft`-as-onChange-key incurred.
+    static func editableSignature(_ item: LocalInventoryItem) -> Int {
+        var hasher = Hasher()
+        hasher.combine(item.title)
+        hasher.combine(item.brand)
+        hasher.combine(item.sku)
+        hasher.combine(item.size)
+        hasher.combine(item.color)
+        hasher.combine(item.material)
+        hasher.combine(item.conditionNotes)
+        hasher.combine(item.status)
+        hasher.combine(item.targetPrice)
+        hasher.combine(item.acquiredPrice)
+        hasher.combine(item.locationBin)
+        hasher.combine(item.consignorId)
+        hasher.combine(item.consignmentSplitPct)
+        return hasher.finalize()
     }
 }
 

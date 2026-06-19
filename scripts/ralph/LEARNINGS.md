@@ -106,6 +106,14 @@ memory — not a progress log (the harness records progress separately).
   Mutating its internal memo during `body` is safe (doesn't schedule an update);
   key the slot on a cheap `Hasher`-built signature of the inputs (for `@Model`
   rows: `count` + each `id`+`updatedAt`). See `InventoryDerivation` (US-1017).
+  Lighter variant for a plain lookup/series (no instrumentation needed): hold
+  the result in `@State` and rebuild it in `.onChange(of: signature, initial:
+  true) { … }`, where `signature` is a cheap `Hasher`-built `Int` over only the
+  fields the derive reads. `initial: true` populates on first appearance. Used
+  for MoneyView.titlesByItemId, DashboardView.trendPoints, ItemCanvasView
+  measurements + the editable-field onChange key (US-967) — the last replaced a
+  per-render `ItemDraft(from:)` (two `CurrencyFormatter` calls) with a raw-Double
+  signature.
 - Base URLs MUST be https: `AppConfig.validatedHTTPSURL` rejects non-https and
   the accessors fatal-error (US-1008). `ios/Scripts/check-ats.py` (runs in
   ios-ci.yml after `xcodegen generate`, also locally on Windows) fails on any ATS

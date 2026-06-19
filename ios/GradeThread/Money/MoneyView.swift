@@ -22,7 +22,28 @@ struct MoneyView: View {
     private var netProfit: Double {
         metrics.grossProfitThisMonth - expenseStore.thisMonthTotal()
     }
-    private var titlesByItemId: [String: String] {
+
+    /// US-967: id→title lookup for the sales preview, memoized in `@State` and
+    /// rebuilt (via `.onChange` below) only when the item set or a title
+    /// actually changes — not on every `body` pass (a refresh banner, an
+    /// expense-store update, the export sheet toggling all re-evaluate `body`).
+    @State private var titlesByItemId: [String: String] = [:]
+
+    /// Cheap content signature gating the title-map rebuild: item count folded
+    /// with each row's id + title.
+    private var titlesSignature: Int { MoneyView.titlesSignature(items) }
+
+    static func titlesSignature(_ items: [LocalInventoryItem]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(items.count)
+        for item in items {
+            hasher.combine(item.id)
+            hasher.combine(item.title)
+        }
+        return hasher.finalize()
+    }
+
+    static func buildTitlesByItemId(_ items: [LocalInventoryItem]) -> [String: String] {
         Dictionary(items.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
     }
 
@@ -65,6 +86,11 @@ struct MoneyView: View {
         }
         .sheet(isPresented: $showingAddExpense) {
             ExpenseFormSheet(store: expenseStore)
+        }
+        // US-967: rebuild the id→title map only when the items (or a title)
+        // change, not on every `body` re-evaluation.
+        .onChange(of: titlesSignature, initial: true) { _, _ in
+            titlesByItemId = MoneyView.buildTitlesByItemId(items)
         }
     }
 

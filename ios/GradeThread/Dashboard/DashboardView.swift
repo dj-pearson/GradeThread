@@ -68,13 +68,42 @@ struct DashboardView: View {
         .sheet(isPresented: $showingScout) {
             ScoutView()
         }
+        // US-967: rebuild the 14-day trend series only when sales or items
+        // change, not on every `body` re-evaluation (where it was read 3×).
+        .onChange(of: trendSignature, initial: true) { _, _ in
+            trendPoints = DashboardTrend.dailySeries(sales: sales, items: items, days: 14, now: .now)
+        }
     }
 
     // MARK: - Populated dashboard
 
-    /// Trailing-14-day daily revenue/profit for the sparkline.
-    private var trendPoints: [DashboardTrendPoint] {
-        DashboardTrend.dailySeries(sales: sales, items: items, days: 14, now: .now)
+    /// US-967: the trailing-14-day daily revenue/profit series, memoized in
+    /// `@State`. It's read up to three times per `body` pass (the activity gate,
+    /// the header total, the sparkline), and `DashboardTrend.dailySeries` is an
+    /// O(n) bucket over every sale plus an item cost-basis map — so recomputing
+    /// it per read (and on every unrelated re-render) is wasted main-thread work.
+    /// Rebuilt via `.onChange` only when the sales or items actually change.
+    @State private var trendPoints: [DashboardTrendPoint] = []
+
+    /// Cheap signature of the inputs `DashboardTrend.dailySeries` consumes: each
+    /// sale's bucketing fields plus each item's cost basis.
+    private var trendSignature: Int { DashboardView.trendSignature(sales: sales, items: items) }
+
+    static func trendSignature(sales: [LocalSale], items: [LocalInventoryItem]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(sales.count)
+        for sale in sales {
+            hasher.combine(sale.inventoryItemId)
+            hasher.combine(sale.saleDate)
+            hasher.combine(sale.salePrice)
+            hasher.combine(sale.platformFees)
+        }
+        hasher.combine(items.count)
+        for item in items {
+            hasher.combine(item.id)
+            hasher.combine(item.acquiredPrice)
+        }
+        return hasher.finalize()
     }
 
     /// Certified-graded items, newest first (for the grades card).
