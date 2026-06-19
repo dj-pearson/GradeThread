@@ -3466,3 +3466,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  8:42:31 AM
 ---
+## US-947: In-browser camera capture for web grading submission
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  8:57:32 AM
+---

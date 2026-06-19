@@ -1039,7 +1039,7 @@
         "Typecheck passes"
       ],
       "priority": 947,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Reuses photo-upload.tsx slot model + image-utils compression + lib/upload-validation.ts (US-276). Mirrors the iOS native CameraSession experience for web. Pairs with US-948."
     },
     {
