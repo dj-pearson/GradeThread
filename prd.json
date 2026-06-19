@@ -1622,7 +1622,7 @@
         "Prune behavior for full backfill is unchanged (existing prune tests pass)."
       ],
       "priority": 986,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=performance. ios/GradeThread/Persistence/SyncMergeActor.swift (~40,92,133)"
     },
     {

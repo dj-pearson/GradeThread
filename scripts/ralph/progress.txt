@@ -3310,3 +3310,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:05:45 PM
 ---
+## US-986: iOS: delta-sync merge should fetch only affected rows, not the whole table
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:08:58 PM
+---
