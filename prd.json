@@ -1827,7 +1827,7 @@
         "Leaving and returning to the item shows the photo once it syncs."
       ],
       "priority": 1001,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional. ios/GradeThread/Upload/PhotoUploadService.swift (~313-321,335)"
     },
     {
