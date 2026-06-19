@@ -6,6 +6,11 @@ import SwiftData
 /// server-authoritative.
 @Model
 final class LocalSale {
+    // US-985: `saleDate` backs the Money/Sales list `@Query(sort:)`, `createdAt`
+    // backs the background-refresh sort, and `inventoryItemId` backs the
+    // sale→item joins. `id` is covered by its `@Attribute(.unique)` constraint.
+    #Index<LocalSale>([\.saleDate], [\.createdAt], [\.inventoryItemId])
+
     @Attribute(.unique) var id: String
     var inventoryItemId: String
     var listingId: String?

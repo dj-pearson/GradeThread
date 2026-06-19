@@ -12,6 +12,16 @@ import SwiftData
 /// the uniqueness via `@Attribute(.unique)`.
 @Model
 final class LocalInventoryItem {
+    // US-985: cover the columns hit by #Predicate / sortBy so realtime upserts
+    // and per-mutation lookups don't full-scan the catalog. `id` is already
+    // indexed by its `@Attribute(.unique)` constraint, so it's intentionally
+    // omitted here. `updatedAt` backs every list `@Query(sort:)`; `status` backs
+    // the stage facets; the `gradeValue`/`(gradeValue, updatedAt)` pair backs the
+    // Grades list (filter `gradeValue != nil`, sort by `updatedAt`).
+    #Index<LocalInventoryItem>(
+        [\.updatedAt], [\.status], [\.gradeValue], [\.gradeValue, \.updatedAt]
+    )
+
     @Attribute(.unique) var id: String
     var userId: String
 

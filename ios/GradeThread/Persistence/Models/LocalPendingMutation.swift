@@ -10,6 +10,11 @@ import SwiftData
 /// concrete `MutationPayload` value the engine constructs from each kind.
 @Model
 final class LocalPendingMutation {
+    // US-985: `createdAt` backs the FIFO drain order
+    // (`sortBy: [SortDescriptor(\.createdAt)]` in SyncEngine.snapshotMutations).
+    // `id` is covered by its `@Attribute(.unique)` constraint.
+    #Index<LocalPendingMutation>([\.createdAt])
+
     @Attribute(.unique) var id: String
 
     /// One of ``MutationKind``'s raw values. String-backed to keep the

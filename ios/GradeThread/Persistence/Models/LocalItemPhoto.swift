@@ -4,6 +4,12 @@ import SwiftData
 /// Local mirror of `item_photos`. One row per photo on disk.
 @Model
 final class LocalItemPhoto {
+    // US-985: `inventoryItemId` backs the per-item photo `#Predicate`, and the
+    // compound `(inventoryItemId, sortOrder)` backs the strip query that filters
+    // by item and sorts by `sortOrder` (CertifiedGradeSection). `id` is covered
+    // by its `@Attribute(.unique)` constraint.
+    #Index<LocalItemPhoto>([\.inventoryItemId], [\.inventoryItemId, \.sortOrder])
+
     @Attribute(.unique) var id: String
 
     /// Loose wire FK to `inventory_items.id`. Retained for PostgREST mapping

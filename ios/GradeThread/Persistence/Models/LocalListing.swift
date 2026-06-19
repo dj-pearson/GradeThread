@@ -6,6 +6,12 @@ import SwiftData
 /// views) since eBay pushes those — see ``SyncEngine.merge(...)``.
 @Model
 final class LocalListing {
+    // US-985: `listingStatus` backs the active-listing count `#Predicate`
+    // (EbaySyncService / SyncMergeActor), and `inventoryItemId` backs the
+    // item→listing joins the dashboards do per render. `id` is covered by its
+    // `@Attribute(.unique)` constraint.
+    #Index<LocalListing>([\.listingStatus], [\.inventoryItemId])
+
     @Attribute(.unique) var id: String
     var inventoryItemId: String
 

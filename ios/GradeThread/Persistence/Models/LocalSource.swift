@@ -5,6 +5,10 @@ import SwiftData
 /// sale, wholesale, etc.).
 @Model
 final class LocalSource {
+    // US-985: `name` backs the `@Query(sort: \LocalSource.name)` the intake +
+    // search pickers use. `id` is covered by its `@Attribute(.unique)` constraint.
+    #Index<LocalSource>([\.name])
+
     @Attribute(.unique) var id: String
     var userId: String
 

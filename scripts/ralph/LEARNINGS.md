@@ -65,6 +65,15 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- SwiftData's `#Index` / `#Unique` macros are **iOS 18.0+** only (they carry
+  `@available(iOS 18, *)`); they cannot live in a `@Model` body compiled for a
+  lower deployment target. US-985 raised the floor to iOS 18 in `project.yml`
+  (`deploymentTarget.iOS` + `IPHONEOS_DEPLOYMENT_TARGET`, two places) so the
+  cache models can declare `#Index`. Note the models still use the iOS-17-era
+  `@Attribute(.unique)` (NOT the `#Unique` macro) for the `id` uniqueness — the
+  unique constraint already indexes `id`, so don't add a redundant `#Index([\.id])`.
+  Adding `#Index` is an automatic lightweight migration (no SchemaMigrationPlan
+  needed) and is non-destructive.
 - `Money.cents(_:)` (Money/MoneyMath.swift) is the shared cents-normalization
   primitive — `NSDecimalRound .plain` to 2dp, returned as `Double`. Route ANY
   single money value through it at a boundary that must agree with the drift-free
