@@ -354,20 +354,34 @@ struct AIExtractView: View {
 // MARK: - Progress dots
 
 /// Three animated dots while the extract call is in flight.
+///
+/// Driven by SwiftUI's `phaseAnimator` rather than a free-running
+/// `Timer.publish().autoconnect()`: the phase cursor is owned by the view
+/// hierarchy, so the animation is created when the dots appear and torn down
+/// (no lingering main-thread wakeups) the moment they leave the screen — i.e.
+/// once the extract finishes and the view transitions away.
 private struct ProgressDots: View {
-    @State private var phase = 0
-    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
+    /// Index of the highest lit dot for each phase. Cycles 0 → 1 → 2 → 0…
+    private let phases = [0, 1, 2]
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(0..<3) { idx in
+            ForEach(0..<3) { _ in
                 Circle()
-                    .fill(idx <= phase ? Color.brandNavy : Color.secondary.opacity(0.2))
+                    .fill(Color.secondary.opacity(0.2))
                     .frame(width: 8, height: 8)
             }
         }
-        .onReceive(timer) { _ in
-            phase = (phase + 1) % 3
+        .phaseAnimator(phases) { _, highestLit in
+            HStack(spacing: 6) {
+                ForEach(0..<3) { idx in
+                    Circle()
+                        .fill(idx <= highestLit ? Color.brandNavy : Color.secondary.opacity(0.2))
+                        .frame(width: 8, height: 8)
+                }
+            }
+        } animation: { _ in
+            .easeInOut(duration: 0.4)
         }
     }
 }
