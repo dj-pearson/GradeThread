@@ -30,10 +30,11 @@ struct AutoListerQueueView: View {
             }
             .onChange(of: generator.batch.phase) { _, newPhase in
                 switch newPhase {
-                case .completed: HapticFeedback.success(); logCompletion("completed")
-                case .partial:   HapticFeedback.warning(); logCompletion("partial")
-                case .failed:    HapticFeedback.error();   logCompletion("failed")
-                default:         break
+                case .completed:    HapticFeedback.success(); logCompletion("completed")
+                case .partial:      HapticFeedback.warning(); logCompletion("partial")
+                case .failed:       HapticFeedback.error();   logCompletion("failed")
+                case .disconnected: HapticFeedback.warning(); logCompletion("disconnected")
+                default:            break
                 }
             }
     }
@@ -170,7 +171,24 @@ struct AutoListerQueueView: View {
                 }
             }
 
-            if generator.batch.isTerminal {
+            if case .disconnected(let message) = generator.batch.phase {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Connection lost", systemImage: "wifi.exclamationmark")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.brandRed)
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        generator.batch.resume()
+                    } label: {
+                        Label("Resume", systemImage: "arrow.clockwise")
+                    }
+                    Button("Done") { dismiss() }
+                }
+            } else if generator.batch.isTerminal {
                 Section {
                     if generator.batch.hasFailures {
                         Button {
@@ -228,7 +246,7 @@ struct AutoListerQueueView: View {
             return "Done — \(batch.succeededCount) listing\(batch.succeededCount == 1 ? "" : "s") generated."
         case .partial:
             return "\(batch.succeededCount) generated, \(batch.failedCount) failed."
-        case .failed(let message):
+        case .failed(let message), .disconnected(let message):
             return message
         default:
             return "Generating \(batch.succeededCount + batch.failedCount)/\(batch.itemCount)…"

@@ -15,10 +15,13 @@ final class AutolisterBatchStore: ObservableObject {
     enum Phase: Equatable {
         case idle
         case submitting
-        case running          // batch created; polling per-job status
-        case completed        // all jobs succeeded
-        case partial          // some succeeded, some failed
-        case failed(String)   // batch failed outright / submit error
+        case running              // batch created; polling per-job status
+        case completed            // all jobs succeeded
+        case partial              // some succeeded, some failed
+        case failed(String)       // batch failed outright / submit error
+        // US-983: polling gave up after too many consecutive fetch failures.
+        // Terminal so the UI stops spinning and offers a Resume action instead.
+        case disconnected(String)
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -58,7 +61,7 @@ final class AutolisterBatchStore: ObservableObject {
 
     var isTerminal: Bool {
         switch phase {
-        case .completed, .partial, .failed: return true
+        case .completed, .partial, .failed, .disconnected: return true
         case .idle, .submitting, .running: return false
         }
     }
@@ -96,6 +99,17 @@ final class AutolisterBatchStore: ObservableObject {
         } catch {
             errorMessage = message(error)
         }
+    }
+
+    /// US-983: restart polling after the loop gave up (`.disconnected`). Clears
+    /// the consecutive-failure streak and resumes from `.running`, so a recovered
+    /// network drives the in-flight batch to its real terminal state.
+    func resume() {
+        guard batchId != nil else { return }
+        consecutivePollFailures = 0
+        errorMessage = nil
+        phase = .running
+        startPolling()
     }
 
     /// Score the given items' photos for listing-readiness (non-fatal; results
@@ -160,8 +174,13 @@ final class AutolisterBatchStore: ObservableObject {
                 category: "autolister"
             )
             if consecutivePollFailures >= maxConsecutivePollFailures {
-                errorMessage =
-                    "Lost connection while generating listings — check your network and reopen this batch."
+                // US-983: terminalize into .disconnected so the queue shows a
+                // failed/disconnected state with a Resume action, not a spinner.
+                let msg =
+                    "Lost connection while generating listings — check your network and tap Resume to keep going."
+                errorMessage = msg
+                phase = .disconnected(msg)
+                return true
             }
             return false
         }

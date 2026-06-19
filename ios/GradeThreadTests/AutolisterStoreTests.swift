@@ -154,6 +154,75 @@ final class AutolisterStoreTests: XCTestCase {
         XCTAssertEqual(store.jobs.count, 1)
     }
 
+    func test_pollOnce_givesUpAfterConsecutiveFailures_disconnectedIsTerminal() async {
+        // US-983: after the consecutive-failure cap the batch reaches a terminal
+        // .disconnected state (not a perpetual .running spinner).
+        let fake = FakeAutolisterService()
+        fake.startResult = StartBatchResponse(batchId: "B1", itemCount: 1)
+        let store = AutolisterBatchStore(service: fake)
+        await store.submit(itemIds: ["a"])
+        store.stop() // kill the background poll; drive pollOnce manually
+        fake.errorToThrow = EdgeAPIError.rateLimited
+        var lastReturn = false
+        // Loop past the cap (5); the give-up poll returns terminal=true.
+        for _ in 0..<6 { lastReturn = await store.pollOnce() }
+        XCTAssertTrue(lastReturn, "give-up poll reports terminal so the loop stops")
+        XCTAssertTrue(store.isTerminal)
+        XCTAssertNotNil(store.errorMessage)
+        if case .disconnected = store.phase {} else {
+            XCTFail("expected .disconnected phase, got \(store.phase)")
+        }
+    }
+
+    func test_resume_clearsFailureStreakAndCompletes() async {
+        // US-983: Resume restarts polling from .running and a recovered network
+        // drives the in-flight batch to its real terminal state.
+        let fake = FakeAutolisterService()
+        fake.startResult = StartBatchResponse(batchId: "B1", itemCount: 1)
+        let store = AutolisterBatchStore(service: fake)
+        await store.submit(itemIds: ["a"])
+        store.stop()
+        fake.errorToThrow = EdgeAPIError.rateLimited
+        for _ in 0..<6 { _ = await store.pollOnce() }
+        guard case .disconnected = store.phase else {
+            return XCTFail("precondition: expected .disconnected")
+        }
+
+        // No suspension between resume() and the asserts, so the background poll
+        // resume() kicks off can't run before we cancel it.
+        store.resume()
+        XCTAssertEqual(store.phase, .running)
+        XCTAssertNil(store.errorMessage)
+        store.stop()
+
+        // Network recovers; a single poll completes the batch normally.
+        fake.errorToThrow = nil
+        fake.statusResult = Self.statusResponse(.completed, succeeded: 1, failed: 0)
+        let terminal = await store.pollOnce()
+        XCTAssertTrue(terminal)
+        XCTAssertEqual(store.phase, .completed)
+    }
+
+    func test_pollOnce_reconnectMidBatch_clearsStreakAndContinues() async {
+        // US-983: transient blips below the cap don't terminalize; a recovered
+        // server clears the streak and the batch completes normally.
+        let fake = FakeAutolisterService()
+        fake.startResult = StartBatchResponse(batchId: "B1", itemCount: 1)
+        let store = AutolisterBatchStore(service: fake)
+        await store.submit(itemIds: ["a"])
+        store.stop()
+        fake.errorToThrow = EdgeAPIError.rateLimited
+        for _ in 0..<3 { _ = await store.pollOnce() }
+        XCTAssertFalse(store.isTerminal)
+        XCTAssertEqual(store.phase, .running)
+
+        fake.errorToThrow = nil
+        fake.statusResult = Self.statusResponse(.completed, succeeded: 1, failed: 0)
+        let terminal = await store.pollOnce()
+        XCTAssertTrue(terminal)
+        XCTAssertEqual(store.phase, .completed)
+    }
+
     func test_retryFailed_callsServiceAndResumes() async {
         let fake = FakeAutolisterService()
         fake.startResult = StartBatchResponse(batchId: "B1", itemCount: 2)
