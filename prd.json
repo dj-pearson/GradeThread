@@ -1267,7 +1267,7 @@
         "Typecheck passes"
       ],
       "priority": 962,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/repricing.tsx (suggestion engine), src/pages/flipdesk/listings.tsx (bulk actions ~987-1044, bulkPriceDrop). Reuse sold-comp pricing (US-460/542/594). Keep the apply path inside the existing eBay-offer-or-local fallback."
     },
     {
