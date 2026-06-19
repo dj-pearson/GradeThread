@@ -161,9 +161,52 @@ enum EbayConnectResult: Equatable {
         case "state_expired":
             return .stateExpired
         default:
+            // US-989: the callback's `error`/`ebay` codes are attacker-controllable
+            // on the legacy custom-scheme path (any app/page can redirect to
+            // `com.gradethread.app://oauth/ebay?error=<anything>`). NEVER surface
+            // the raw value — map it through a small allowlist of known codes and
+            // fall back to generic copy for everything else (or when no error code
+            // is present at all but the edge bounced an unrecognized `ebay=` status).
             let errorValue = items.first { $0.name == "error" }?.value
-            if let errorValue { return .error(message: errorValue) }
+            if let errorValue {
+                return .error(message: sanitizedErrorMessage(forCode: errorValue))
+            }
+            if let ebayValue, !ebayValue.isEmpty {
+                return .error(message: sanitizedErrorMessage(forCode: ebayValue))
+            }
             return nil
+        }
+    }
+
+    /// Generic copy shown for any unknown, oversized, or otherwise
+    /// non-allowlisted callback error code. Deliberately leaks nothing about
+    /// the raw value.
+    static let genericErrorMessage = "eBay sign-in failed. Please try again."
+
+    /// US-989: map a callback error code to user-facing copy. Only an allowlist
+    /// of known OAuth/edge codes maps to specific copy; anything else — unknown
+    /// code, or an oversized value (> 64 chars, i.e. someone trying to smuggle a
+    /// message through the param) — collapses to ``genericErrorMessage`` so no
+    /// raw, attacker-controllable string reaches the UI.
+    static func sanitizedErrorMessage(forCode rawCode: String) -> String {
+        // Reject oversized values outright before any matching.
+        guard rawCode.count <= 64 else { return genericErrorMessage }
+        switch rawCode.lowercased() {
+        case "access_denied":
+            return "eBay sign-in was cancelled."
+        case "invalid_scope":
+            return "eBay rejected the requested permissions. Please try again."
+        case "invalid_state", "state_expired":
+            return "Connection state expired — try connecting again."
+        case "invalid_request", "unauthorized_client",
+             "unsupported_response_type", "unsupported_grant_type":
+            return "eBay couldn't complete the sign-in request. Please try again."
+        case "exchange_failed":
+            return "Couldn't finish connecting to eBay. Please try again."
+        case "server_error", "temporarily_unavailable":
+            return "eBay is temporarily unavailable. Please try again shortly."
+        default:
+            return genericErrorMessage
         }
     }
 }

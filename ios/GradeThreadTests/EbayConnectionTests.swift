@@ -130,9 +130,52 @@ final class EbayConnectionTests: XCTestCase {
         XCTAssertFalse(a.isEmpty)
     }
 
-    func test_callbackParse_errorMessage() {
+    // US-989: the `error` callback param is attacker-controllable on the legacy
+    // custom-scheme path — known codes map to specific copy; the RAW code never
+    // reaches the message.
+    func test_callbackParse_knownErrorCode_mapsToSpecificCopy() {
         let url = URL(string: "com.gradethread.app://oauth/ebay?error=invalid_scope")!
-        XCTAssertEqual(EbayConnectResult.from(callbackURL: url), .error(message: "invalid_scope"))
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url),
+            .error(message: "eBay rejected the requested permissions. Please try again."))
+    }
+
+    func test_callbackParse_unknownErrorCode_isGeneric() {
+        // An unrecognized code must NOT be echoed verbatim into the UI.
+        let url = URL(string: "com.gradethread.app://oauth/ebay?error=totally_made_up")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url),
+            .error(message: EbayConnectResult.genericErrorMessage))
+    }
+
+    func test_callbackParse_oversizedErrorValue_isGeneric() {
+        // Someone smuggling a long message through the param gets collapsed to
+        // the generic copy — the raw string never renders.
+        let injected = "<script>alert(1)</script>" + String(repeating: "A", count: 200)
+        var comps = URLComponents(string: "com.gradethread.app://oauth/ebay")!
+        comps.queryItems = [URLQueryItem(name: "error", value: injected)]
+        let url = comps.url!
+        guard case let .error(message) = EbayConnectResult.from(callbackURL: url) else {
+            return XCTFail("expected an .error result")
+        }
+        XCTAssertEqual(message, EbayConnectResult.genericErrorMessage)
+        XCTAssertFalse(message.contains("script"))
+        XCTAssertFalse(message.contains("AAAA"))
+    }
+
+    func test_callbackParse_unknownEbayStatus_isGenericError() {
+        // The edge can bounce `ebay=<code>` values the client doesn't model
+        // (e.g. exchange_failed); they must surface friendly copy, never raw.
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=exchange_failed")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url),
+            .error(message: "Couldn't finish connecting to eBay. Please try again."))
+    }
+
+    func test_sanitizedErrorMessage_accessDenied_readsAsCancelled() {
+        XCTAssertEqual(
+            EbayConnectResult.sanitizedErrorMessage(forCode: "ACCESS_DENIED"),
+            "eBay sign-in was cancelled.")
     }
 
     func test_callbackParse_noKnownParams_returnsNil() {
@@ -174,6 +217,50 @@ final class EbayConnectionTests: XCTestCase {
         XCTAssertEqual(EbayConnectionService.universalLinkHost, "gradethread.com")
         XCTAssertEqual(EbayConnectionService.universalLinkPath, "/app/oauth/ebay")
         XCTAssertEqual(EbayConnectionService.universalLinkRedirectPath, "/app/oauth/ebay")
+    }
+
+    // MARK: - US-989 consent URL host allowlist
+
+    func test_consentURL_acceptsSigninEbay() throws {
+        let url = try EbayConnectionService.validatedConsentURL(
+            "https://signin.ebay.com/authorize?client_id=abc")
+        XCTAssertEqual(url.host, "signin.ebay.com")
+    }
+
+    func test_consentURL_acceptsSandboxSubdomain() throws {
+        let url = try EbayConnectionService.validatedConsentURL(
+            "https://signin.sandbox.ebay.com/authorize?client_id=abc")
+        XCTAssertEqual(url.host, "signin.sandbox.ebay.com")
+    }
+
+    func test_consentURL_acceptsApexEbay() throws {
+        let url = try EbayConnectionService.validatedConsentURL("https://ebay.com/authorize")
+        XCTAssertEqual(url.host, "ebay.com")
+    }
+
+    func test_consentURL_rejectsForeignHost() {
+        XCTAssertThrowsError(
+            try EbayConnectionService.validatedConsentURL("https://evil.example.com/phish"))
+    }
+
+    func test_consentURL_rejectsLookalikeHost() {
+        // `evil-ebay.com` / `ebay.com.evil.com` must not satisfy the suffix check.
+        XCTAssertThrowsError(
+            try EbayConnectionService.validatedConsentURL("https://evil-ebay.com/phish"))
+        XCTAssertThrowsError(
+            try EbayConnectionService.validatedConsentURL("https://ebay.com.evil.com/phish"))
+    }
+
+    func test_consentURL_rejectsNonHTTPS() {
+        // A well-formed URL that parses fine but isn't https must still be
+        // rejected — URL(string:) success alone no longer gates the session.
+        XCTAssertThrowsError(
+            try EbayConnectionService.validatedConsentURL("http://signin.ebay.com/authorize"))
+    }
+
+    func test_consentURL_rejectsNonEbayCustomScheme() {
+        XCTAssertThrowsError(
+            try EbayConnectionService.validatedConsentURL("javascript://signin.ebay.com/alert"))
     }
 
     // MARK: - MarketplaceConnectionStore phase transitions

@@ -255,8 +255,32 @@ public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
                 URLQueryItem(name: "client_state", value: stateNonce),
             ]
         )
-        guard let url = URL(string: response.consentUrl) else {
-            throw ConnectionError.network(message: "Server returned an invalid consent URL.")
+        return try Self.validatedConsentURL(response.consentUrl)
+    }
+
+    /// US-989: hosts the eBay OAuth consent URL is allowed to point at. A
+    /// server-returned consent URL on any other host is rejected so a
+    /// compromised, buggy, or man-in-the-middled edge can't drive the in-app
+    /// `ASWebAuthenticationSession` (which looks authenticated to the user) to
+    /// an attacker-controlled page. Covers `ebay.com`, any subdomain
+    /// (`signin.ebay.com`, `auth.ebay.com`, …) and the sandbox equivalents
+    /// (`signin.sandbox.ebay.com` ends with `.ebay.com`).
+    static func isAllowedConsentHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        return h == "ebay.com" || h.hasSuffix(".ebay.com")
+    }
+
+    /// US-989: parse + validate a server-returned consent URL string. A
+    /// successful `URL(string:)` parse alone no longer gates opening the
+    /// web-auth session — the URL must also be https and on the eBay host
+    /// allowlist. Throws ``ConnectionError/network(message:)`` otherwise.
+    static func validatedConsentURL(_ raw: String) throws -> URL {
+        guard let url = URL(string: raw),
+              url.scheme?.lowercased() == "https",
+              let host = url.host,
+              isAllowedConsentHost(host) else {
+            throw ConnectionError.network(
+                message: "Server returned an unexpected consent URL.")
         }
         return url
     }
