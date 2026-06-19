@@ -116,6 +116,27 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertNil(s.purchaseError)
     }
 
+    // MARK: - Disclosures (Guideline 3.1.2)
+
+    func test_subscriptionDisclosure_statesAutoRenewCadence() {
+        XCTAssertTrue(sub("com.gradethread.sub.pro.monthly").isSubscription)
+        XCTAssertEqual(
+            sub("com.gradethread.sub.pro.monthly").renewalDisclosure,
+            "Auto-renews every month")
+        XCTAssertEqual(
+            sub("com.gradethread.sub.pro.yearly").renewalDisclosure,
+            "Auto-renews every year")
+        XCTAssertEqual(sub("com.gradethread.sub.pro.monthly").kind.billingPeriodNoun, "month")
+        XCTAssertEqual(sub("com.gradethread.sub.pro.yearly").kind.billingPeriodNoun, "year")
+    }
+
+    func test_consumableDisclosure_isOneTimeNotAutoRenewing() {
+        let credits = pack("com.gradethread.credits.25")
+        XCTAssertFalse(credits.isSubscription)
+        XCTAssertNil(credits.kind.billingPeriodNoun)
+        XCTAssertEqual(credits.renewalDisclosure, "One-time purchase · credits never expire")
+    }
+
     func test_buy_blockedPurchaseDoesNotCallService() async {
         let fake = FakeStoreKit(); fake.outcome = .success
         let s = store(service: fake)

@@ -24,6 +24,7 @@ struct PaywallView: View {
                 intervalSection
                 plansSection
                 creditsSection
+                legalSection
                 restoreSection
             }
         }
@@ -99,10 +100,14 @@ struct PaywallView: View {
     // MARK: - Plans
 
     private var plansSection: some View {
-        Section("Plans") {
+        Section {
             ForEach(IAPCatalog.subscriptions(interval: store.interval)) { entry in
                 productRow(entry)
             }
+        } header: {
+            Text("Plans")
+        } footer: {
+            Text("Auto-renewing subscription. Your Apple ID is charged at confirmation and again at the start of each \(store.interval == "yearly" ? "year" : "month") unless you cancel at least 24 hours before the renewal date. Manage or cancel anytime in Settings › Apple ID › Subscriptions.")
         }
     }
 
@@ -123,6 +128,14 @@ struct PaywallView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.title).font(.body.weight(.semibold))
                 Text(entry.blurb).font(.caption).foregroundStyle(.secondary)
+                Label {
+                    Text(entry.renewalDisclosure)
+                } icon: {
+                    Image(systemName: entry.isSubscription
+                        ? "arrow.triangle.2.circlepath" : "creditcard")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             trailing(for: entry)
@@ -147,6 +160,26 @@ struct PaywallView: View {
             .buttonStyle(.borderedProminent)
             .tint(.brandNavy)
             .disabled(!store.canPurchase(entry))
+        }
+    }
+
+    // MARK: - Legal (Guideline 3.1.2)
+
+    private enum LegalLinks {
+        static let terms = URL(string: "https://gradethread.com/terms")!
+        static let privacy = URL(string: "https://gradethread.com/privacy")!
+    }
+
+    private var legalSection: some View {
+        Section {
+            Link(destination: LegalLinks.terms) {
+                Label("Terms of Use", systemImage: "doc.text")
+            }
+            Link(destination: LegalLinks.privacy) {
+                Label("Privacy Policy", systemImage: "hand.raised")
+            }
+        } footer: {
+            Text("By subscribing you agree to our Terms of Use and Privacy Policy.")
         }
     }
 

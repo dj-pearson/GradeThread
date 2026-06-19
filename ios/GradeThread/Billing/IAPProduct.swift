@@ -28,6 +28,42 @@ struct IAPCatalogEntry: Identifiable, Equatable {
     var id: String { productId }
 }
 
+extension IAPKind {
+    /// True for auto-renewing subscriptions (vs one-time consumable credit packs).
+    var isSubscription: Bool {
+        if case .subscription = self { return true }
+        return false
+    }
+
+    /// Singular billing-period noun for an auto-renewing subscription
+    /// ("month"/"year"), or nil for consumables. Mirrors the StoreKit
+    /// `Product.subscription.subscriptionPeriod` for the product's interval and
+    /// drives the per-row auto-renew disclosure required by App Store Guideline
+    /// 3.1.2.
+    var billingPeriodNoun: String? {
+        guard case let .subscription(_, interval) = self else { return nil }
+        switch interval {
+        case "yearly": return "year"
+        case "monthly": return "month"
+        default: return interval
+        }
+    }
+}
+
+extension IAPCatalogEntry {
+    var isSubscription: Bool { kind.isSubscription }
+
+    /// Per-row disclosure line. For subscriptions: states the auto-renew cadence
+    /// (Guideline 3.1.2); for consumables: marks the one-time nature so credit
+    /// packs are visually distinguished from auto-renewing subscriptions.
+    var renewalDisclosure: String {
+        if let period = kind.billingPeriodNoun {
+            return "Auto-renews every \(period)"
+        }
+        return "One-time purchase · credits never expire"
+    }
+}
+
 enum IAPCatalog {
     static let all: [IAPCatalogEntry] = [
         IAPCatalogEntry(
