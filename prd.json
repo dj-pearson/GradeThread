@@ -1869,7 +1869,7 @@
         "The English-substring fallback is removed or only a last resort behind code checks."
       ],
       "priority": 1004,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/i18n. ios/GradeThread/DetailsIntake/DetailsIntakeView.swift (isNetworkFailure ~482-494)"
     },
     {
