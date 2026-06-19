@@ -15,6 +15,8 @@ struct BulkGradeSheet: View {
     @State private var store: BulkGradeStore?
     /// Presents the in-app StoreKit paywall (credit packs + plans).
     @State private var showCreditPaywall = false
+    /// US-980: confirm before a tap spends paid grade credits for the batch.
+    @State private var showSpendConfirm = false
 
     private var currentUserId: UUID? {
         if case let .signedIn(user) = authStore.phase { return user.id }
@@ -217,9 +219,16 @@ struct BulkGradeSheet: View {
 
     private func submitButton(_ store: BulkGradeStore) -> some View {
         let count = store.readyItems.count
+        let credits = store.validation?.creditsRequired ?? 0
         return Button {
             AppRouter.haptic()
-            Task { await store.submit() }
+            // US-980: gate a paid batch spend behind a single confirmation;
+            // an Included (0-credit) batch still submits in one tap.
+            if credits > 0 {
+                showSpendConfirm = true
+            } else {
+                Task { await store.submit() }
+            }
         } label: {
             Label(
                 count > 0 ? "Grade \(count) item\(count == 1 ? "" : "s")" : "Nothing ready to grade",
@@ -232,6 +241,18 @@ struct BulkGradeSheet: View {
         .buttonStyle(.borderedProminent)
         .tint(Color.brandNavy)
         .disabled(!store.canSubmit)
+        .confirmationDialog(
+            "Spend \(credits) credit\(credits == 1 ? "" : "s")?",
+            isPresented: $showSpendConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Grade \(count) item\(count == 1 ? "" : "s") for \(credits) credit\(credits == 1 ? "" : "s")") {
+                Task { await store.submit() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Grading \(count) item\(count == 1 ? "" : "s") at the \(store.tier.label) tier will use \(credits) grade credit\(credits == 1 ? "" : "s") from your balance.")
+        }
     }
 
     // MARK: - Done

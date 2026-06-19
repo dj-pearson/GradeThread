@@ -23,6 +23,9 @@ struct GradeRequestSheet: View {
     /// Presents the in-app StoreKit paywall (credit packs + plans) so the
     /// seller can top up grade credits without leaving the app.
     @State private var showCreditPaywall = false
+    /// US-980: confirm before a tap spends paid grade credits, so a mis-tap
+    /// can't charge real money with no undo. Free/Included grades skip this.
+    @State private var showSpendConfirm = false
 
     private var currentUserId: UUID? {
         if case let .signedIn(user) = authStore.phase { return user.id }
@@ -119,7 +122,7 @@ struct GradeRequestSheet: View {
                         OfflineNotice(intent: .blocked, detail: "to request a certified grade")
                     }
 
-                    submitButton(store)
+                    submitButton(store, user: validation.user)
 
                     Text("You'll get a 1–10 condition grade across five factors, an AI summary, and a public certificate you can link from your listing.")
                         .font(.caption)
@@ -246,10 +249,16 @@ struct GradeRequestSheet: View {
         .tint(Color.brandNavy)
     }
 
+    /// Whether this grade spends paid credits (vs. being covered by an
+    /// included Standard grade). Drives the spend-confirmation gate.
+    private func isPaidGrade(_ store: GradeRequestStore, user: GradingUserInfo) -> Bool {
+        !(store.tier == .standard && user.includedRemaining > 0)
+    }
+
     /// What this grade costs the user: free if covered by an included
     /// Standard grade, otherwise the tier's credit cost.
     private func costLabel(_ store: GradeRequestStore, user: GradingUserInfo) -> String {
-        if store.tier == .standard && user.includedRemaining > 0 {
+        if !isPaidGrade(store, user: user) {
             return "Included"
         }
         let credits = store.tier.creditCost
@@ -265,10 +274,18 @@ struct GradeRequestSheet: View {
             .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
-    private func submitButton(_ store: GradeRequestStore) -> some View {
-        Button {
+    private func submitButton(_ store: GradeRequestStore, user: GradingUserInfo) -> some View {
+        let paid = isPaidGrade(store, user: user)
+        let credits = store.tier.creditCost
+        return Button {
             AppRouter.haptic()
-            Task { await store.submit() }
+            // US-980: gate a paid spend behind a confirmation; free/Included
+            // grades still submit in one tap.
+            if paid {
+                showSpendConfirm = true
+            } else {
+                Task { await store.submit() }
+            }
         } label: {
             Label("Get certified grade", systemImage: "checkmark.seal.fill")
                 .font(.subheadline.weight(.semibold))
@@ -278,6 +295,18 @@ struct GradeRequestSheet: View {
         .buttonStyle(.borderedProminent)
         .tint(Color.brandNavy)
         .disabled(!store.canSubmit || NetworkMonitor.isOffline(networkMonitor))
+        .confirmationDialog(
+            "Spend \(credits) credit\(credits == 1 ? "" : "s")?",
+            isPresented: $showSpendConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Grade for \(credits) credit\(credits == 1 ? "" : "s")") {
+                Task { await store.submit() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This \(store.tier.label) grade will use \(credits) grade credit\(credits == 1 ? "" : "s") from your balance.")
+        }
     }
 
     // MARK: - Processing / still-processing
