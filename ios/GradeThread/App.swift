@@ -8,37 +8,23 @@ struct GradeThreadApp: App {
     /// SwiftData store backing the offline cache. Created eagerly at app
     /// launch so views can synchronously query the cache before the first
     /// sync pass finishes.
-    private let container: ModelContainer = {
-        do {
-            let schema = Schema([
-                LocalInventoryItem.self,
-                LocalItemPhoto.self,
-                LocalListing.self,
-                LocalSale.self,
-                LocalSource.self,
-                LocalPendingMutation.self,
-            ])
-            // Note: cloudKitDatabase is intentionally `none`; sync goes through
-            // Supabase, not iCloud. Keeping CloudKit off avoids surprise
-            // duplicate-account merges across iCloud users on one device.
-            let configuration = ModelConfiguration(
-                schema: schema,
-                isStoredInMemoryOnly: false,
-                cloudKitDatabase: .none
-            )
-            return try ModelContainer(for: schema, configurations: configuration)
-        } catch {
-            // SwiftData can't recover from a busted schema. Crash early
-            // with the underlying message — the alternative is silent data
-            // loss, which is worse than a relaunch.
-            fatalError("Failed to initialize SwiftData container: \(error)")
-        }
-    }()
+    ///
+    /// US-987: built via ``ModelStoreProvider`` so a corrupt store recovers
+    /// (delete + recreate, falling back to in-memory) instead of `fatalError`-ing
+    /// the app into an unrecoverable relaunch loop. The outcome carries whether
+    /// the local cache had to be reset so we can show a one-time notice.
+    private let storeOutcome: ModelStoreProvider.LoadOutcome = ModelStoreProvider.load()
+
+    private var container: ModelContainer { storeOutcome.container }
 
     /// Per-category photo-profile table (server-authoritative, cached). Created
     /// once and shared so the capture + retag surfaces resolve a category's
     /// photo slots without each refetching. See PhotoProfileStore.
     @State private var photoProfileStore = PhotoProfileStore()
+
+    /// US-987: drives the one-time "local data was reset" notice when launch had
+    /// to discard a corrupt cache. Set from `storeOutcome` once the scene is up.
+    @State private var showingStoreResetNotice = false
 
     var body: some Scene {
         WindowGroup {
@@ -57,8 +43,38 @@ struct GradeThreadApp: App {
                     // Drain StoreKit transaction updates (renewals/refunds/
                     // deferred buys): report + finish each. Detached, lives on.
                     _ = StoreKitService.startTransactionListener()
+                    // US-987: if the on-disk cache was corrupt and we recovered,
+                    // record it for diagnostics + surface a one-time notice so
+                    // the user understands why their local data looks empty until
+                    // the next sync repopulates it.
+                    if storeOutcome.didResetStore {
+                        Telemetry.breadcrumb(
+                            storeOutcome.isInMemoryFallback
+                                ? "SwiftData store recovery fell back to in-memory"
+                                : "SwiftData store reset after corruption",
+                            category: "persistence"
+                        )
+                        showingStoreResetNotice = true
+                    }
+                }
+                .alert(
+                    "Local data was reset",
+                    isPresented: $showingStoreResetNotice
+                ) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(storeResetMessage)
                 }
         }
+    }
+
+    /// Copy for the recovery notice. The in-memory case is more severe (the
+    /// cache won't survive the next launch), so it gets a distinct message.
+    private var storeResetMessage: String {
+        if storeOutcome.isInMemoryFallback {
+            return "We couldn't repair this device's offline cache, so GradeThread is running without one for now. Your account and data on our servers are safe and will sync back in. Restarting the app may restore offline storage."
+        }
+        return "GradeThread's offline cache was damaged and had to be cleared. Your account and data on our servers are safe — they'll sync back to this device automatically."
     }
 }
 
