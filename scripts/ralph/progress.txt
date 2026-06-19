@@ -3378,3 +3378,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:30:50 AM
 ---
+## US-969: iOS: app-wide keyboard dismissal and field traversal
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:40:11 AM
+---

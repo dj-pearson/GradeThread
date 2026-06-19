@@ -1372,7 +1372,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 969,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Audit-confirmed counts across ios/GradeThread: 0 keyboard ToolbarItemGroup, 0 .scrollDismissesKeyboard, 1 @FocusState, 11 .keyboardType(.decimalPad). Files include Money/ExpenseFormSheet.swift, Marketplaces/Publish/{PublishDialog,ReviseListingSheet}.swift, DetailsIntake/DetailsIntakeView.swift, AutoLister/AutoListerView.swift, Snap/SnapView.swift."
     },
     {
