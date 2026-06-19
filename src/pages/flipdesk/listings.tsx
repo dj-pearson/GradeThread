@@ -29,6 +29,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Tag,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   Card,
@@ -40,7 +41,16 @@ import {
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ItemCardList } from "@/components/flipdesk/item-card-list";
+import { ItemQuickEditSheet } from "@/components/flipdesk/item-quick-edit-sheet";
 import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -383,6 +393,9 @@ export function FlipdeskListingsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(100);
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
+  // US-961: mobile per-card quick-edit drawer + the mobile filters sheet.
+  const [quickEditItem, setQuickEditItem] = useState<ItemFullRow | null>(null);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [sortPreset, setSortPreset] = useState<SortPreset>("listability");
   // When set, overrides the tab's default sort. Lets the user click a
   // column header — currently SKU, can extend to others — to take control
@@ -1340,7 +1353,117 @@ export function FlipdeskListingsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Mobile: a compact full-width search + a Filters sheet. The desktop
+          toolbar below is hidden under md. Search + advanced-filter + saved-view
+          state are shared, so the sheet round-trips with the URL filter and the
+          desktop surface (US-958 unified state). */}
+      <div className="flex items-center gap-2 md:hidden">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search title, brand, SKU…"
+            className="w-full pl-9"
+          />
+        </div>
+        <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="relative shrink-0"
+              aria-label="Filters"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {filterQuery.rules.length > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-red px-1 text-[10px] font-semibold text-white">
+                  {filterQuery.rules.length}
+                </span>
+              )}
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>Filters</SheetTitle>
+              <SheetDescription>
+                Narrow the {activeTab.label} list.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="space-y-4 px-4 pb-4">
+              {isToList && (
+                <div className="space-y-1.5">
+                  <span className="text-sm font-medium">Sort</span>
+                  <Select
+                    value={sortPreset}
+                    onValueChange={(v) => setSortPreset(v as SortPreset)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(SORT_PRESET_LABELS) as SortPreset[]).map(
+                        (p) => (
+                          <SelectItem key={p} value={p}>
+                            {SORT_PRESET_LABELS[p]}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">Advanced filter</span>
+                <div>
+                  <FilterBuilder query={filterQuery} onChange={setFilterQuery} />
+                </div>
+              </div>
+              {savedViews.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-sm font-medium">Saved views</span>
+                  <Select
+                    value=""
+                    onValueChange={(id) => {
+                      const v = savedViews.find((sv) => sv.id === id);
+                      if (v) {
+                        const q = v.query_json as unknown as FilterQuery;
+                        setFilterQuery(
+                          q && Array.isArray(q.rules) ? q : EMPTY_QUERY,
+                        );
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full text-xs">
+                      <SelectValue placeholder="Saved views" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savedViews.map((v) => (
+                        <SelectItem key={v.id} value={v.id}>
+                          {v.emoji ? `${v.emoji} ` : ""}
+                          {v.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {filterQuery.rules.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setSaveViewOpen(true)}
+                >
+                  Save view
+                </Button>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+
+      <div className="hidden flex-wrap items-center gap-2 md:flex">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -1561,7 +1684,30 @@ export function FlipdeskListingsPage() {
             <>
               {/* Mobile: card list (the wide table is unusable on a phone). */}
               <div className="md:hidden">
-                <ItemCardList items={pageRows} onOpen={setDetailItem} />
+                {selectable && (
+                  <label className="flex cursor-pointer items-center gap-2 border-b px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={allOnPageSelected}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 cursor-pointer"
+                      aria-label="Select all on page"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {selected.size > 0
+                        ? `${selected.size} selected`
+                        : "Select all on page"}
+                    </span>
+                  </label>
+                )}
+                <ItemCardList
+                  items={pageRows}
+                  onOpen={setDetailItem}
+                  selectable={selectable}
+                  selectedIds={selected}
+                  onToggleSelect={toggleSelected}
+                  onQuickEdit={setQuickEditItem}
+                />
               </div>
               <div
                 ref={tableScrollRef}
@@ -2313,6 +2459,11 @@ export function FlipdeskListingsPage() {
       </AlertDialog>
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+
+      <ItemQuickEditSheet
+        item={quickEditItem}
+        onClose={() => setQuickEditItem(null)}
+      />
 
       <MarkListedDialog
         item={markListedItem}
