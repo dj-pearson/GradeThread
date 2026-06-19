@@ -42,9 +42,12 @@ final class GradeNotificationTests: XCTestCase {
         XCTAssertEqual(route, .inventoryItem(id: "item-1"))
     }
 
-    func test_gradeReadyCategory_withoutItemId_isNil() {
-        XCTAssertNil(
-            DeepLinkRoute.from(category: NotificationCategoryID.gradeReady.rawValue, userInfo: [:])
+    func test_gradeReadyCategory_withoutItemId_fallsBackToGradesList() {
+        // US-999: a grade-ready push lacking an item id used to be a no-op; it
+        // now lands on the Grades list so the tap always navigates.
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: NotificationCategoryID.gradeReady.rawValue, userInfo: [:]),
+            .gradesList
         )
     }
 

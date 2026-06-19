@@ -431,6 +431,17 @@ struct MainShell: View {
             if let item = fetchInventoryItem(id: id) {
                 router.inventoryPath.append(item)
             }
+        case let .negotiationInbox(filterItemId):
+            // Offers/messages push → open the inbox under Marketplaces, filtered
+            // to the item when one was referenced (US-999).
+            router.selection = .marketplaces
+            router.marketplacesPath = NavigationPath()
+            router.marketplacesPath.append(NegotiationRoute(filterItemId: filterItemId))
+        case .gradesList:
+            // Grade-ready push with no item id → the Grades list lives off Home.
+            router.selection = .home
+            router.homePath = NavigationPath()
+            router.homePath.append(GradesRoute())
         }
     }
 
@@ -532,6 +543,9 @@ private struct TabBarShell: View {
             NavigationStack(path: $router.marketplacesPath) {
                 MarketplacesPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
+                    .navigationDestination(for: NegotiationRoute.self) { route in
+                        NegotiationInboxView(filterItemId: route.filterItemId)
+                    }
                     // US-684: add-method menu reachable from the Marketplaces tab.
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
@@ -634,6 +648,9 @@ private struct SidebarSplitView: View {
                 }
                 .navigationDestination(for: GradesRoute.self) { _ in
                     GradesListView()
+                }
+                .navigationDestination(for: NegotiationRoute.self) { route in
+                    NegotiationInboxView(filterItemId: route.filterItemId)
                 }
         }
     }

@@ -51,6 +51,12 @@ public enum DeepLinkRoute: Equatable {
     /// Opens the Inventory list (no specific row) — used by the aging-stock
     /// digest (US-679) so the tap lands on triage.
     case inventoryTab
+    /// Opens the best-offers + buyer-messages inbox (US-999), filtered to a
+    /// specific item when the push carried one.
+    case negotiationInbox(filterItemId: String?)
+    /// Opens the Grades list — used when a grade-ready push has no item id so
+    /// the tap still lands somewhere useful (US-999).
+    case gradesList
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.
@@ -64,13 +70,14 @@ public enum DeepLinkRoute: Equatable {
              NotificationCategoryID.payoutCleared.rawValue,
              NotificationCategoryID.payoutPosted.rawValue:
             return .salesTab(inventoryItemId: itemId)
-        case NotificationCategoryID.tokenExpiring.rawValue,
-             NotificationCategoryID.offerReceived.rawValue,
-             NotificationCategoryID.messageReceived.rawValue:
-            // Offers + buyer messages live on the Marketplaces surface; without
-            // an item id we can't target a row, so land on the tab.
-            if let itemId { return .inventoryItem(id: itemId) }
+        case NotificationCategoryID.tokenExpiring.rawValue:
+            // Reconnect prompt → the Marketplaces surface where the account lives.
             return .marketplacesTab
+        case NotificationCategoryID.offerReceived.rawValue,
+             NotificationCategoryID.messageReceived.rawValue:
+            // Offers + buyer messages open the Negotiation inbox; filter to the
+            // referenced item when the push carried one.
+            return .negotiationInbox(filterItemId: itemId)
         case NotificationCategoryID.agingDigest.rawValue:
             // Digest is a summary across many items → open the triage list.
             return .inventoryTab
@@ -78,16 +85,16 @@ public enum DeepLinkRoute: Equatable {
             // Relist prompt → open the specific item if we have it, else triage.
             if let itemId { return .inventoryItem(id: itemId) }
             return .inventoryTab
-        case NotificationCategoryID.gradeReady.rawValue,
-             NotificationCategoryID.itemReviewNeeded.rawValue:
-            // Open the specific item's canvas (its certified-grade report
-            // lives there). Without an id we can't target a row, so ignore.
-            if let itemId {
-                return .inventoryItem(id: itemId)
-            }
-            return category == NotificationCategoryID.itemReviewNeeded.rawValue
-                ? .salesTab(inventoryItemId: nil)
-                : nil
+        case NotificationCategoryID.gradeReady.rawValue:
+            // Open the item's canvas when targeted; otherwise the Grades list so
+            // the tap always lands somewhere useful instead of being a no-op.
+            if let itemId { return .inventoryItem(id: itemId) }
+            return .gradesList
+        case NotificationCategoryID.itemReviewNeeded.rawValue:
+            // The flagged item's canvas when we have it, else the review queue
+            // (which surfaces on the Money/Sales tab).
+            if let itemId { return .inventoryItem(id: itemId) }
+            return .salesTab(inventoryItemId: nil)
         default:
             return nil
         }

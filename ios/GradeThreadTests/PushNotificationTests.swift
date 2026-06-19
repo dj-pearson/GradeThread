@@ -97,15 +97,54 @@ final class PushNotificationTests: XCTestCase {
             .salesTab(inventoryItemId: nil))
     }
 
-    func test_deepLink_offerAndMessage_routeToMarketplacesWithoutItem() {
-        XCTAssertEqual(DeepLinkRoute.from(category: "offer.received", userInfo: [:]), .marketplacesTab)
-        XCTAssertEqual(DeepLinkRoute.from(category: "message.received", userInfo: [:]), .marketplacesTab)
+    func test_deepLink_offerAndMessage_openNegotiationInboxWithoutItem() {
+        // US-999: offers/messages now open the Negotiation inbox (was the
+        // Marketplaces tab root), unfiltered when no item id is present.
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "offer.received", userInfo: [:]),
+            .negotiationInbox(filterItemId: nil))
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "message.received", userInfo: [:]),
+            .negotiationInbox(filterItemId: nil))
     }
 
-    func test_deepLink_offer_withItemId_routesToItem() {
+    func test_deepLink_offer_withItemId_filtersNegotiationInbox() {
+        // US-999: with an item id, the inbox opens filtered to that item rather
+        // than diverting to the item canvas.
         XCTAssertEqual(
             DeepLinkRoute.from(category: "offer.received", userInfo: ["inventory_item_id": "i9"]),
-            .inventoryItem(id: "i9"))
+            .negotiationInbox(filterItemId: "i9"))
+    }
+
+    func test_deepLink_tokenExpiring_stillRoutesToMarketplaces() {
+        // Splitting offers/messages off must leave token.expiring on the tab.
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "token.expiring", userInfo: [:]),
+            .marketplacesTab)
+    }
+
+    // MARK: - US-999 grade-ready fallback
+
+    func test_deepLink_gradeReady_withItemId_routesToItem() {
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "grade.ready", userInfo: ["inventory_item_id": "g7"]),
+            .inventoryItem(id: "g7"))
+    }
+
+    func test_deepLink_gradeReady_withoutItemId_fallsBackToGradesList() {
+        // Was a no-op tap (returned nil); now lands on the Grades list.
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "grade.ready", userInfo: [:]),
+            .gradesList)
+    }
+
+    func test_deepLink_everyKnownCategory_resolvesToARoute() {
+        // AC: no notification category may resolve to a no-op tap.
+        for id in NotificationCategoryID.allCases {
+            XCTAssertNotNil(
+                DeepLinkRoute.from(category: id.rawValue, userInfo: [:]),
+                "\(id.rawValue) resolved to a no-op tap")
+        }
     }
 
     func test_deepLink_agingDigest_routesToInventoryTab() {

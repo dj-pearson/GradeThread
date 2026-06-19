@@ -1,14 +1,35 @@
 import SwiftUI
 
+/// Value-based deep-link target for the negotiation inbox (US-999). Carries an
+/// optional item id so an offer/message push can filter the inbox to the
+/// referenced item. Register with `.navigationDestination(for: NegotiationRoute.self)`.
+struct NegotiationRoute: Hashable {
+    var filterItemId: String?
+}
+
 /// Best offers + buyer messages inbox (US-673). A segmented picker switches
 /// between the two; offers can be accepted / declined / countered, messages
 /// replied to, and the toolbar sends a discount offer to interested buyers.
 struct NegotiationInboxView: View {
+    /// When set (via a notification deep link, US-999), the offers and messages
+    /// lists are filtered to this inventory item.
+    var filterItemId: String? = nil
+
     @State private var store = NegotiationStore()
     @State private var tab: Tab = .offers
     @State private var countering: BestOffer?
     @State private var replying: BuyerMessage?
     @State private var showSendOffer = false
+
+    private var visibleOffers: [BestOffer] {
+        guard let filterItemId else { return store.offers }
+        return store.offers.filter { $0.itemId == filterItemId }
+    }
+
+    private var visibleMessages: [BuyerMessage] {
+        guard let filterItemId else { return store.messages }
+        return store.messages.filter { $0.itemId == filterItemId }
+    }
 
     enum Tab: String, CaseIterable, Identifiable {
         case offers = "Offers"
@@ -88,10 +109,10 @@ struct NegotiationInboxView: View {
         case .failed(let message):
             ContentUnavailableView("Couldn't load offers", systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
-            if store.offers.isEmpty {
+            if visibleOffers.isEmpty {
                 ContentUnavailableView("No active offers", systemImage: "tag", description: Text("Incoming best offers from buyers will show up here."))
             } else {
-                List(store.offers) { offer in
+                List(visibleOffers) { offer in
                     offerRow(offer)
                 }
                 .listStyle(.plain)
@@ -139,10 +160,10 @@ struct NegotiationInboxView: View {
         case .failed(let message):
             ContentUnavailableView("Couldn't load messages", systemImage: "exclamationmark.triangle", description: Text(message))
         case .ready:
-            if store.messages.isEmpty {
+            if visibleMessages.isEmpty {
                 ContentUnavailableView("No messages", systemImage: "bubble.left.and.bubble.right", description: Text("Buyer messages from the last 30 days will show up here."))
             } else {
-                List(store.messages) { message in
+                List(visibleMessages) { message in
                     Button { replying = message } label: { messageRow(message) }
                         .tint(.primary)
                 }
