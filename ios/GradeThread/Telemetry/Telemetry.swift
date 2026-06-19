@@ -51,18 +51,30 @@ public enum Telemetry {
     // MARK: - User context
 
     /// Stamps the current user on Sentry (always) and PostHog (when
-    /// analytics opt-in is on). `id` should be auth.uid — no PII per
-    /// the AC.
-    public static func setUser(id: String, email: String?) {
+    /// analytics opt-in is on). `id` should be auth.uid — no PII.
+    ///
+    /// Deliberately takes NO email (or any other PII). Email is not a
+    /// parameter at all so a future refactor can't reintroduce it by
+    /// wiring `user.email` into the call site; `makeSentryUser` is the
+    /// single construction point and is covered by a test that asserts
+    /// the Sentry user never carries an email.
+    public static func setUser(id: String) {
         if AppConfig.sentryDSN != nil {
-            let user = User()
-            user.userId = id
-            // Email omitted per AC — Sentry user context is auth.uid only.
-            SentrySDK.setUser(user)
+            SentrySDK.setUser(makeSentryUser(id: id))
         }
         if isAnalyticsEnabled, AppConfig.postHogAPIKey != nil {
             PostHogSDK.shared.identify(id)
         }
+    }
+
+    /// Builds the Sentry user context. The single place a `Sentry.User`
+    /// is constructed for `setUser`, so the no-PII invariant is testable:
+    /// only `userId` (auth.uid) is set — `email`/`username`/`ipAddress`
+    /// are intentionally left nil.
+    static func makeSentryUser(id: String) -> User {
+        let user = User()
+        user.userId = id
+        return user
     }
 
     /// Clears user context on sign-out so the next user's events don't
@@ -81,9 +93,23 @@ public enum Telemetry {
         PostHogSDK.shared.capture(name, properties: props)
     }
 
-    /// Crash-report breadcrumb. Routes to Sentry even when analytics is
-    /// off so we still get pre-crash context. No-op when Sentry DSN
-    /// isn't configured.
+    /// Crash-report breadcrumb. Intentionally NOT gated on the analytics
+    /// opt-out toggle, and that's a deliberate privacy decision, not an
+    /// oversight (US-1014):
+    ///
+    ///   - A breadcrumb is not an analytics event. It never leaves the
+    ///     device on its own — it is only transmitted *attached to* a
+    ///     crash/error report, which is the always-on Sentry channel
+    ///     (crashes are errors, not analytics; see the type-level docs).
+    ///   - Every breadcrumb is PII/token/URL-scrubbed via
+    ///     `beforeBreadcrumb` (`scrubBreadcrumb`) before it can be
+    ///     persisted or sent, so opting out of analytics doesn't expose
+    ///     anything a breadcrumb could leak.
+    ///   - Gating breadcrumbs on the analytics toggle would silently
+    ///     degrade crash diagnostics for opted-out users without any
+    ///     corresponding privacy gain.
+    ///
+    /// No-op when the Sentry DSN isn't configured.
     public static func breadcrumb(_ message: String, category: String) {
         guard AppConfig.sentryDSN != nil else { return }
         let crumb = Breadcrumb()

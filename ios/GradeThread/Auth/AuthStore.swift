@@ -194,8 +194,9 @@ public final class AuthStore {
         case .initialSession, .signedIn, .tokenRefreshed, .userUpdated:
             if let user = session?.user {
                 phase = .signedIn(user)
-                // US-191 — stamp Sentry + PostHog user context.
-                Telemetry.setUser(id: user.id.uuidString, email: user.email)
+                // US-191 — stamp Sentry + PostHog user context. No email /
+                // PII (US-1014) — auth.uid is the only identifier we attach.
+                Telemetry.setUser(id: user.id.uuidString)
             } else {
                 phase = .signedOut
                 Telemetry.clearUser()

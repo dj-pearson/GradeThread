@@ -73,6 +73,18 @@ final class TelemetryTests: XCTestCase {
         Telemetry.clearUser()
     }
 
+    // MARK: - Sentry user context carries no PII (US-1014)
+
+    func test_makeSentryUser_setsOnlyUserId_neverEmail() {
+        let user = Telemetry.makeSentryUser(id: "auth-uid-123")
+        XCTAssertEqual(user.userId, "auth-uid-123")
+        // The whole point of the story: email (and other PII) is never
+        // stamped onto the Sentry user context.
+        XCTAssertNil(user.email)
+        XCTAssertNil(user.username)
+        XCTAssertNil(user.ipAddress)
+    }
+
     // MARK: - TelemetryScrubber (US-662)
 
     func test_scrubber_redactsEmail() {
