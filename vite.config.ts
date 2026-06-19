@@ -157,6 +157,56 @@ export default defineConfig({
               expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
             },
           },
+          // US-744: offline viewing of CERTIFICATES + the public passport. These
+          // are server-rendered (Pages Functions) and excluded from the SPA
+          // navigateFallback, so without this a navigation while offline fails.
+          // NetworkFirst keeps the LAST-SEEN render available offline while an
+          // online client always gets the fresh edge render (network wins when
+          // reachable), so there's no stale-while-online risk.
+          {
+            urlPattern: ({ url, request }) =>
+              request.mode === "navigate" &&
+              (/^\/cert\//.test(url.pathname) || /^\/passport\//.test(url.pathname)),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "gt-public-pages",
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 14 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // US-744: the public certificate payload the SPA cert page fetches
+          // (/verify). Read-only + unauthenticated, so it's safe to retain for
+          // offline. NetworkFirst → fresh when online, last-seen when offline.
+          {
+            urlPattern: ({ url }) =>
+              /(^|\.)functions\./.test(url.hostname) &&
+              url.pathname.startsWith("/api/content/public/certificates/"),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "gt-public-cert-api",
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // US-744: a reseller's own SUBMISSION STATUS + grade reports (Supabase
+          // REST, authed). NetworkFirst so an online client always reads fresh,
+          // and only the signed-in owner's last-seen rows are served offline.
+          // The cache is per-browser-profile (this one installed PWA user) and
+          // capped at a 1-day TTL, so staleness is bounded. Only 200s are cached.
+          {
+            urlPattern: ({ url }) =>
+              /(^|\.)api\./.test(url.hostname) &&
+              /\/rest\/v1\/(submissions|grade_reports)\b/.test(url.pathname),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "gt-submission-status",
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
         ],
       },
     }),

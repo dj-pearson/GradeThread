@@ -16,7 +16,7 @@
         "The mobile capture path reuses the upload validation/EXIF-strip rules (US-276); build + eslint clean"
       ],
       "priority": 744,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Cohesion/Mobile] DEFERRED 2026-06-08 — needs real device/PWA QA, and the audit was partly stale. AC2 ALREADY EXISTS: snap.tsx already has a 'List it with FlipDesk' CTA (-> /dashboard/flipdesk) alongside 'Get a certified grade' (-> /dashboard/submissions/new), so it's not isolated from the pipeline. The rest is genuinely PWA/service-worker/offline work that can't be verified headless: (AC1) pwa-install-banner.tsx is mounted only in flipdesk/intake.tsx and calls ensureServiceWorker() — the SW is DELIBERATELY scoped to FlipDesk intake (vite.config 'service worker not auto-injected app-wide'; only the banner + use-offline-intake register it), so surfacing the install affordance app-wide changes SW registration scope and offline behavior and must be QA'd on a real device + as an installed PWA; (AC3) caching submission-status/certificate routes for offline is a Workbox/SW change whose correctness (cache invalidation, stale auth) only shows on a device. RECOMMENDATION: do this as a focused mobile/PWA session with an actual phone + installed-PWA testing — generalize the banner copy + mount point with intentional SW-scope changes, add Workbox runtimeCaching for the read-only submission/cert routes, and (optionally) a snap-photo -> FlipDesk-intake handoff that prefills the captured image (reusing US-276 validateImageUpload/stripImageMetadata). NOT shipping blind. Depends on [[US-736]]."
     },
     {
@@ -30,7 +30,7 @@
         "Replaces the 'Coming soon' placeholder cards in MarketplacesView.swift (lines ~86-126) for these platforms; eBay publish path is unchanged"
       ],
       "priority": 745,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Parity] BIGGEST parity gap from the iOS feature audit: iOS is eBay-only — AutoLister/Marketplaces have no cross-listing, and MarketplacesView shows Poshmark/Mercari/Grailed/Depop as 'Coming soon'. Web shipped the full cross-list stack (US-719..US-725: marketplace-specs registry, per-platform field/condition/category mapping, photo export, pre-flight validation, copy-paste Listing Kit). KEY INSIGHT: don't re-port the registry to Swift — the server already generates + persists per-platform fields (listings.platform_fields) via the US-721 endpoint, so iOS should consume that and render a native copy/share kit. Files: Marketplaces/MarketplacesView.swift, AutoLister/*, Marketplaces/Publish/PublishDialog.swift. Mirrors web [[US-723]]/[[US-721]]/[[US-725]]."
     },
     {
@@ -44,7 +44,7 @@
         "Generic-carousel copy is replaced/tailored per use case"
       ],
       "priority": 747,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Parity] From the feature audit: iOS onboarding is a generic 4-slide carousel (OnboardingView.swift) with no use-case detection/routing; ActivationChecklist.swift exists but isn't wired into the first-run flow. Mirrors web [[US-742]]. Files: Onboarding/OnboardingView.swift, Onboarding/OnboardingState.swift, Onboarding/ActivationChecklist.swift."
     },
     {
@@ -3062,7 +3062,7 @@
         "No PII is revealed without explicit per-user opt-in; build + deno checks pass"
       ],
       "priority": 716,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][Privacy] The deferred opt-in the user described ('later maybe have an opt in'). Depends on [[US-1090]], [[US-1093]]. Off by default; reversible."
     },
     {
@@ -3076,7 +3076,7 @@
         "No PII exposed; build + tsc + eslint clean"
       ],
       "priority": 717,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][Growth] Demand-side wedge that grows coverage. Depends on [[US-1093]], [[US-1095]]. Follow SEO registry rules (public-routes.ts + entry-server.tsx + head-builder.ts)."
     }
   ]

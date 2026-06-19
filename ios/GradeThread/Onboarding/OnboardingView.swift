@@ -1,14 +1,17 @@
 import SwiftUI
 
-/// First-run welcome carousel. Sells the reseller value prop across a few
-/// branded slides, then hands off to the login / main shell. Shown once
-/// (gated by ``OnboardingState``) over everything else at launch.
+/// First-run welcome carousel + use-case picker (US-747). Sells the reseller
+/// value prop across a few branded slides, then asks the user what they're here
+/// to do so we can drop them on the fitting first action instead of a generic
+/// dismissal. Shown once (gated by ``OnboardingState``) over everything at launch.
 struct OnboardingView: View {
-    /// Called when the user finishes or skips. The host persists the flag
-    /// and dismisses.
-    let onFinish: () -> Void
+    /// Called when the user finishes or skips, with the chosen use case (nil if
+    /// skipped). The host persists the flag + use case and dismisses.
+    let onFinish: (OnboardingUseCase?) -> Void
 
     @State private var index = 0
+    /// US-747: once the carousel ends we swap to the use-case picker.
+    @State private var showingUseCasePicker = false
     private let pages = OnboardingPage.pages
 
     private var isLastPage: Bool { index >= pages.count - 1 }
@@ -18,6 +21,20 @@ struct OnboardingView: View {
     private var pagePositionLabel: String { "Page \(index + 1) of \(pages.count)" }
 
     var body: some View {
+        Group {
+            if showingUseCasePicker {
+                useCasePicker
+            } else {
+                carousel
+            }
+        }
+        .background(Color(uiColor: .systemBackground))
+        .onAppear { Telemetry.event("onboarding_started") }
+    }
+
+    // MARK: - Carousel
+
+    private var carousel: some View {
         VStack(spacing: 0) {
             skipBar
             TabView(selection: $index) {
@@ -31,8 +48,6 @@ struct OnboardingView: View {
             pageDots
             primaryButton
         }
-        .background(Color(uiColor: .systemBackground))
-        .onAppear { Telemetry.event("onboarding_started") }
         // Swiping (or tapping Next) changes the page with no native VoiceOver
         // feedback, so announce the new position. No-op when VoiceOver is off.
         .onChange(of: index) { _, _ in
@@ -40,19 +55,15 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Sections
-
     private var skipBar: some View {
         HStack {
             Spacer()
             Button("Skip") {
                 Telemetry.event("onboarding_skipped", props: ["page": index])
-                finish()
+                onFinish(nil)
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
-            .opacity(isLastPage ? 0 : 1)
-            .disabled(isLastPage)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -95,9 +106,6 @@ struct OnboardingView: View {
             }
         }
         .padding(.bottom, 20)
-        // Visual dots are unchanged for sighted users; collapse them into a
-        // single VoiceOver element that speaks the current position instead of
-        // hiding them entirely (so the position is reachable, not just announced).
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Page position")
         .accessibilityValue(pagePositionLabel)
@@ -107,14 +115,19 @@ struct OnboardingView: View {
         Button {
             AppRouter.haptic()
             if isLastPage {
-                finish()
+                // US-747: the carousel hands off to the use-case picker rather
+                // than dismissing into a generic shell.
+                Telemetry.event("onboarding_usecase_shown")
+                withAnimation(ReducedMotion.animation(.easeInOut)) {
+                    showingUseCasePicker = true
+                }
             } else {
                 withAnimation(ReducedMotion.animation(.easeInOut)) {
                     index += 1
                 }
             }
         } label: {
-            Text(isLastPage ? "Get started" : "Next")
+            Text(isLastPage ? "Choose your focus" : "Next")
                 .font(.brandHeadline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 15)
@@ -126,12 +139,77 @@ struct OnboardingView: View {
         .padding(.bottom, 24)
     }
 
-    private func finish() {
-        if isLastPage { Telemetry.event("onboarding_completed") }
-        onFinish()
+    // MARK: - Use-case picker (US-747)
+
+    private var useCasePicker: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 12) {
+                Text("What brings you to GradeThread?")
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+                Text("We'll drop you straight into the right first step.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 32)
+            .padding(.bottom, 24)
+
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(OnboardingUseCase.allCases) { useCase in
+                        useCaseCard(useCase)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Button("Not sure yet — just explore") {
+                Telemetry.event("onboarding_usecase_skipped")
+                onFinish(nil)
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 20)
+        }
+    }
+
+    private func useCaseCard(_ useCase: OnboardingUseCase) -> some View {
+        Button {
+            AppRouter.haptic()
+            Telemetry.event("onboarding_completed", props: ["use_case": useCase.rawValue])
+            onFinish(useCase)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: useCase.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(Color.brandNavy)
+                    .frame(width: 34)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(useCase.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(useCase.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(useCase.title). \(useCase.subtitle)")
     }
 }
 
 #Preview {
-    OnboardingView(onFinish: {})
+    OnboardingView(onFinish: { _ in })
 }

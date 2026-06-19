@@ -64,6 +64,56 @@ export function pseudonymousLabel(kind: OwnerNodeKind, seq: number): string {
   return `${KIND_PREFIX[kind]} ${chainLabel(seq)}`;
 }
 
+// ── Opt-in identity reveal (US-1105) ─────────────────────────────────────────
+// A passport hop is pseudonymous unless its owner explicitly opts in. The reveal
+// is the AND of two independent opt-ins, so it can NEVER leak more than the user
+// already chose to make public:
+//   1. the per-hop consent flag on the node (`identity_revealed`), AND
+//   2. the node is linked to an account (`linked_user_id`) whose GradeThread
+//      Verified profile is itself PUBLIC (`verified_enabled` + a handle).
+// Turning off either one instantly re-pseudonymizes the hop. The ONLY fields a
+// reveal ever surfaces are the user's already-public verified handle + display
+// name — never an id, email, or address (US-1090 AC#2).
+
+/** A node's reveal-relevant columns (PII-free: a bool, a timestamp, a uuid). */
+export interface RevealableNode {
+  identity_revealed?: boolean | null;
+  linked_user_id?: string | null;
+}
+
+/** The linked user's PUBLIC verified-profile fields (the only thing revealed). */
+export interface VerifiedIdentity {
+  verified_enabled?: boolean | null;
+  verified_handle?: string | null;
+  verified_display_name?: string | null;
+}
+
+/** What a public surface renders for a revealed hop (or null = stay pseudonymous). */
+export interface RevealedIdentity {
+  handle: string;
+  display_name: string | null;
+}
+
+/**
+ * Resolve the PUBLIC identity to show for a passport hop, or null to keep it
+ * pseudonymous. PURE (no DB / env) so it's the single, unit-tested gate every
+ * surface (public passport read, SSR) routes through — a reveal requires BOTH
+ * the per-hop consent AND a live public verified profile.
+ */
+export function effectiveRevealedIdentity(
+  node: RevealableNode | null | undefined,
+  user: VerifiedIdentity | null | undefined,
+): RevealedIdentity | null {
+  if (!node?.identity_revealed || !node.linked_user_id) return null;
+  if (!user?.verified_enabled) return null;
+  const handle = typeof user.verified_handle === "string" ? user.verified_handle.trim() : "";
+  if (!handle) return null;
+  const dn = typeof user.verified_display_name === "string"
+    ? user.verified_display_name.trim()
+    : "";
+  return { handle, display_name: dn || null };
+}
+
 const PSEUDONYMOUS_RE = /^(Seller|Buyer|Owner) [A-Z]+$/;
 
 /**

@@ -144,6 +144,10 @@ export function MarketingLayout({
               <Link to="/verify" className="hover:text-foreground">
                 Verify a Grade
               </Link>
+              {/* US-1106: buyer-facing "scan before you buy" passport lookup. */}
+              <Link to="/scan" className="hover:text-foreground">
+                Scan a Passport
+              </Link>
             </nav>
           </div>
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">

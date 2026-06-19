@@ -63,6 +63,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/transparency": "2026-06-01",
   "/resale-condition-report": "2026-06-18",
   "/verify": "2026-06-12",
+  "/scan": "2026-06-19",
   "/verified": "2026-06-13",
   "/developers": "2026-06-12",
   "/whats-it-worth": "2026-06-13",
@@ -184,6 +185,19 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "Verify a Condition Grade",
     description:
       "Scan the QR code or enter a GradeThread certificate number to verify a pre-owned clothing condition grade before you buy — free, no account needed.",
+    changefreq: "monthly",
+    priority: 0.8,
+    jsonLdType: "HowTo",
+  },
+  {
+    // US-1106: buyer-facing "scan before you buy" Garment Passport entry — a
+    // no-login lookup that resolves a scanned tag QR / pasted passport slug /
+    // printed tag code to the public passport timeline (US-1093) or tag resolver
+    // (US-1096). Demand-side wedge that grows passport coverage.
+    path: "/scan",
+    title: "Scan a Garment Passport Before You Buy",
+    description:
+      "Scan the passport QR or enter the code to see a pre-owned garment's full grade, listing, and ownership history before you buy — free, no account needed.",
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "HowTo",

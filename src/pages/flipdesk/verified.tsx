@@ -6,6 +6,8 @@ import {
   Check,
   X,
   ShieldCheck,
+  Eye,
+  History,
 } from "lucide-react";
 import {
   Card,
@@ -26,6 +28,11 @@ import {
   useUpdateVerifiedProfile,
   checkHandleAvailable,
 } from "@/hooks/use-verified";
+import {
+  usePassportIdentityNodes,
+  useSetPassportReveal,
+  type PassportIdentityNode,
+} from "@/hooks/use-passport-identity";
 import {
   validateHandle,
   profileUrl,
@@ -354,6 +361,119 @@ export function FlipdeskVerifiedPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* US-1105: opt-in identity reveal on Garment Passports. */}
+      <PassportIdentityCard profilePublic={isLive} />
     </div>
+  );
+}
+
+/** A human-readable garment name from the PII-free sku_class descriptor. */
+function garmentName(sku: Record<string, unknown>): string {
+  const brand = typeof sku.brand === "string" ? sku.brand.trim() : "";
+  const type = typeof sku.garment_type === "string" ? sku.garment_type.trim() : "";
+  const pretty = type
+    ? type.split(/[-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+    : "";
+  const parts = [brand, pretty].filter(Boolean);
+  return parts.length ? parts.join(" ") : "Graded garment";
+}
+
+// Lets the seller reveal their public Verified identity on chosen passport hops.
+// Strictly opt-in, OFF by default, reversible, and per-hop (US-1105). Only
+// meaningful once the Verified profile above is public — otherwise there's no
+// public handle to show, so the toggles are disabled with a prompt.
+function PassportIdentityCard({ profilePublic }: { profilePublic: boolean }) {
+  const { data, isLoading } = usePassportIdentityNodes();
+  const setReveal = useSetPassportReveal();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  // Hide the section entirely when the user owns no claimed passport hops —
+  // there's nothing to reveal and it would only add noise.
+  if (!isLoading && (!data || data.nodes.length === 0)) return null;
+
+  async function toggle(node: PassportIdentityNode, next: boolean) {
+    setPendingId(node.node_id);
+    try {
+      await setReveal.mutateAsync({ nodeId: node.node_id, revealed: next });
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  // The server is the source of truth for whether revealing is possible right
+  // now; fall back to the locally-known publish state while loading.
+  const canReveal = data?.verified_profile_public ?? profilePublic;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Eye className="h-5 w-5 text-brand-navy dark:text-foreground" />
+          Reveal your identity on passports
+        </CardTitle>
+        <CardDescription>
+          Garment Passports are pseudonymous by default. Opt in — per item — to
+          show your Verified handle on a garment's public history, so buyers can
+          see the items you've owned and graded. You can turn this off any time.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!canReveal && (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            Publish your Verified profile above first — that's the handle a reveal
+            shows.
+          </div>
+        )}
+
+        {isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          <ul className="space-y-3">
+            {(data?.nodes ?? []).map((node) => {
+              const busy = setReveal.isPending && pendingId === node.node_id;
+              return (
+                <li
+                  key={node.node_id}
+                  className="flex items-center justify-between gap-3 rounded-lg border p-4"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="truncate font-medium">{garmentName(node.sku_class)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {node.label}
+                      {node.revealed && !node.revealed_effective && (
+                        <span className="ml-1 text-amber-600 dark:text-amber-400">
+                          · hidden until your profile is public
+                        </span>
+                      )}
+                    </p>
+                    {node.passport_slug && (
+                      <a
+                        href={`/passport/${node.passport_slug}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-brand-navy hover:underline dark:text-foreground"
+                      >
+                        <History className="h-3.5 w-3.5" />
+                        View passport
+                      </a>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {busy && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    <Switch
+                      checked={node.revealed}
+                      disabled={busy || (!node.revealed && !canReveal)}
+                      onCheckedChange={(next) => toggle(node, next)}
+                      aria-label={`Reveal identity on ${garmentName(node.sku_class)}`}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

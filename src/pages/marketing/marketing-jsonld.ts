@@ -299,6 +299,58 @@ export function verifyJsonLd(): JsonLd[] {
   ];
 }
 
+// ── /scan (US-1106) — buyer-facing "scan before you buy" passport lookup ──────
+
+export const SCAN_STEPS = [
+  {
+    name: "Scan the tag QR code or open the passport link",
+    text: "If the item carries a GradeThread passport tag or the seller shared a passport link, scan the QR with your phone camera or tap the link — it opens the item's full history instantly.",
+  },
+  {
+    name: "Or enter the passport slug or tag code",
+    text: "No QR handy? Paste the passport URL, its slug, or the printed tag code (like ABCD-EFGH-JK) into the box on gradethread.com/scan to pull up the item's passport.",
+  },
+  {
+    name: "Read the garment's history before you buy",
+    text: "The passport shows a confidence-scored timeline — every grade, listing, sale, and ownership handoff — so you can see how the item was described over time and whether the condition holds up.",
+  },
+  {
+    name: "Buy with the history behind you",
+    text: "Participants stay pseudonymous and no personal data is shown. You just get the provenance: an independent record of what this specific garment has been through.",
+  },
+];
+
+export const SCAN_FAQS = [
+  {
+    q: "How do I look up a garment's passport before buying?",
+    a: "Scan the GradeThread passport QR on the item or listing, open the seller's passport link, or paste the passport slug or printed tag code at gradethread.com/scan. The public passport shows the item's confidence-scored grade, listing, and ownership history — free and with no account.",
+  },
+  {
+    q: "What's the difference between a passport and a certificate?",
+    a: "A certificate is the grade for one inspection. A Garment Passport is the item's whole story over time — every grade, listing, sale, and ownership transfer linked to the same physical garment — so you can see provenance, not just a single snapshot.",
+  },
+  {
+    q: "Does looking up a passport reveal who owned the item?",
+    a: "No. Passports are pseudonymous by design — participants appear only as ordinal labels like 'Seller A' or 'Buyer B'. A past owner only ever appears by name if they personally opted in to be shown. No personal information is exposed.",
+  },
+  {
+    q: "I'm a seller — how do my items get a passport?",
+    a: "Grade an item with GradeThread and it gets a passport automatically. Add a physical QR tag so buyers can scan it in hand, and the item's verified history travels with it across every marketplace.",
+  },
+];
+
+export function passportScanJsonLd(): JsonLd[] {
+  return [
+    howToLd({
+      name: "How to look up a Garment Passport before you buy",
+      description:
+        "Scan the passport QR code or enter the slug/tag code to see a pre-owned garment's full, confidence-scored history before you buy — free, no account.",
+      steps: SCAN_STEPS,
+    }),
+    faqPageLd(SCAN_FAQS),
+  ];
+}
+
 // ── /whats-it-worth (US-849) ─────────────────────────────────────────
 // Public "what's my item worth?" condition-value tool — a top-of-funnel lead
 // magnet for a high-intent query. The estimate is read live from the public

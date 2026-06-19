@@ -10,6 +10,8 @@ struct DraftsLibraryView: View {
     @State private var store = DraftsLibraryStore()
     @State private var search = ""
     @State private var editMode: EditMode = .inactive
+    // US-745: the drafted item whose cross-marketplace Listing Kit is presented.
+    @State private var kitTarget: ListingKitTarget?
     private let currency = CurrencyFormatter()
 
     var body: some View {
@@ -21,6 +23,17 @@ struct DraftsLibraryView: View {
             .safeAreaInset(edge: .bottom) { publishBar }
             .task { await store.load() }
             .refreshable { await store.load() }
+            // US-745: present the cross-marketplace Listing Kit for a drafted item.
+            .sheet(item: $kitTarget) { target in
+                NavigationStack {
+                    ListingKitView(itemId: target.id, itemTitle: target.title)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { kitTarget = nil }
+                            }
+                        }
+                }
+            }
             // US-964: published-vs-skipped summary, reusing the bulk-edit publish
             // result UI shape (a single alert over the summary string).
             .alert(
@@ -173,6 +186,19 @@ struct DraftsLibraryView: View {
                             currency: currency
                         )
                     }
+                    // US-745: cross-list this item to the no-API marketplaces via
+                    // the copy/paste Listing Kit (Poshmark/Mercari/Grailed/Depop).
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            kitTarget = ListingKitTarget(
+                                id: draft.inventoryItemId,
+                                title: store.title(for: draft)
+                            )
+                        } label: {
+                            Label("Listing Kit", systemImage: "doc.on.doc")
+                        }
+                        .tint(.brandNavy)
+                    }
                 }
             } header: {
                 Text("Drafts")
@@ -184,6 +210,12 @@ struct DraftsLibraryView: View {
         }
         .searchable(text: $search, prompt: "Search drafts by title")
     }
+}
+
+// US-745: identifies the drafted item whose Listing Kit sheet is presented.
+private struct ListingKitTarget: Identifiable {
+    let id: String   // inventory item id
+    let title: String
 }
 
 private struct DraftLibraryRow: View {

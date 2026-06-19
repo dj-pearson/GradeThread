@@ -40,6 +40,7 @@ import { GradingStandardPage } from "@/pages/marketing/grading-standard";
 import { TransparencyPage } from "@/pages/marketing/transparency";
 import { ResaleConditionReportPage } from "@/pages/marketing/resale-condition-report";
 import { VerifyGradePage } from "@/pages/marketing/verify";
+import { PassportScanPage } from "@/pages/marketing/passport-scan";
 import { DevelopersPage } from "@/pages/marketing/developers";
 import { WhatsItWorthPage } from "@/pages/marketing/whats-it-worth";
 import { BuyerGuaranteePage } from "@/pages/marketing/buyer-guarantee";
@@ -69,6 +70,8 @@ const PAGES: Record<string, React.ReactNode> = {
   // client-side; the prerendered shell carries the methodology + Dataset JSON-LD.
   "/resale-condition-report": <ResaleConditionReportPage />,
   "/verify": <VerifyGradePage />,
+  // US-1106: buyer-facing "scan before you buy" passport lookup landing.
+  "/scan": <PassportScanPage />,
   "/developers": <DevelopersPage />,
   "/whats-it-worth": <WhatsItWorthPage />,
   // US-867: buyer trust guarantee policy page.
