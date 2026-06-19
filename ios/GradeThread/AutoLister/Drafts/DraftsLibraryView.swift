@@ -1,29 +1,111 @@
 import SwiftUI
+import SwiftData
 
 /// AutoLister drafts library (US-675): the durable home for every unpublished
 /// AutoLister draft, with search + a route into bulk-edit. Mirrors the web
-/// autolister-drafts page.
+/// autolister-drafts page. US-964 adds multi-select + a "Publish N" action so a
+/// batch can be finished from the phone without opening each draft.
 struct DraftsLibraryView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var store = DraftsLibraryStore()
     @State private var search = ""
+    @State private var editMode: EditMode = .inactive
     private let currency = CurrencyFormatter()
 
     var body: some View {
         content
             .navigationTitle("AutoLister drafts")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        DraftsBulkEditView()
-                    } label: {
-                        Label("Bulk edit", systemImage: "square.and.pencil")
-                    }
-                    .disabled(store.isEmpty)
-                }
-            }
+            .environment(\.editMode, $editMode)
+            .toolbar { toolbarContent }
+            .safeAreaInset(edge: .bottom) { publishBar }
             .task { await store.load() }
             .refreshable { await store.load() }
+            // US-964: published-vs-skipped summary, reusing the bulk-edit publish
+            // result UI shape (a single alert over the summary string).
+            .alert(
+                "Publish to eBay",
+                isPresented: Binding(
+                    get: { store.publishSummary != nil },
+                    set: { if !$0 { store.publishSummary = nil } }
+                ),
+                presenting: store.publishSummary
+            ) { _ in
+                Button("OK", role: .cancel) { store.publishSummary = nil }
+            } message: { Text($0) }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            NavigationLink {
+                DraftsBulkEditView()
+            } label: {
+                Label("Bulk edit", systemImage: "square.and.pencil")
+            }
+            .disabled(store.isEmpty || editMode == .active)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            if store.phase == .ready && !store.isEmpty {
+                // EditButton drives `editMode`, flipping rows into multi-select.
+                EditButton()
+            }
+        }
+    }
+
+    /// US-964: the bulk-publish action, shown only while selecting drafts.
+    @ViewBuilder
+    private var publishBar: some View {
+        if editMode == .active && !store.selected.isEmpty {
+            Button {
+                Task {
+                    let published = await store.publishSelected()
+                    applyOptimisticPublish(listingIds: published)
+                    if !published.isEmpty { editMode = .inactive }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if store.isPublishing {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                    }
+                    Text("Publish \(store.selected.count)")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.brandNavy)
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
+            }
+            .disabled(store.isPublishing)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.bar)
+        }
+    }
+
+    /// US-964: optimistically flip the published drafts' cached listing rows to
+    /// `active` so the dashboards/active-count update before the next sync pull,
+    /// then request a pull to reconcile with server truth (`SyncEngine.merge`
+    /// treats marketplace fields as server-authoritative).
+    private func applyOptimisticPublish(listingIds: Set<String>) {
+        guard !listingIds.isEmpty else { return }
+        let ids = Array(listingIds)
+        let descriptor = FetchDescriptor<LocalListing>(
+            predicate: #Predicate { ids.contains($0.id) }
+        )
+        if let rows = try? modelContext.fetch(descriptor) {
+            let now = Date.now
+            for row in rows {
+                row.listingStatus = "active"
+                row.listedAt = now
+                row.updatedAt = now
+            }
+            try? modelContext.save()
+        }
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }
 
     @ViewBuilder
@@ -56,7 +138,12 @@ struct DraftsLibraryView: View {
     }
 
     private var list: some View {
-        List {
+        // US-964: `List(selection:)` drives multi-select in edit mode; outside
+        // edit mode rows stay tappable NavigationLinks into the per-batch editor.
+        List(selection: Binding(
+            get: { store.selected },
+            set: { store.selected = $0 }
+        )) {
             Section {
                 HStack {
                     Text("\(store.drafts.count) draft\(store.drafts.count == 1 ? "" : "s")")

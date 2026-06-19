@@ -225,4 +225,128 @@ final class DraftsTests: XCTestCase {
         ))
         XCTAssertEqual(row.toEdit().listingOrigin, "gradethread")
     }
+
+    // MARK: - Library bulk-publish (US-964)
+
+    /// Fakes the validate→push surface so the publish loop is testable without
+    /// live HTTP. Keyed by inventory item id; defaults to success.
+    @MainActor
+    final class FakePublisher: DraftPublishing {
+        var validateOutcomes: [String: PublishOutcome] = [:]
+        var pushOutcomes: [String: PublishOutcome] = [:]
+        private(set) var validated: [String] = []
+        private(set) var pushed: [String] = []
+
+        func validate(inventoryItemId: String) async -> PublishOutcome {
+            validated.append(inventoryItemId)
+            return validateOutcomes[inventoryItemId]
+                ?? .validated(ValidateResponse(ok: true, blockers: [], summary: nil))
+        }
+
+        func push(inventoryItemId: String, relist: Bool) async -> PublishOutcome {
+            pushed.append(inventoryItemId)
+            return pushOutcomes[inventoryItemId]
+                ?? .pushed(PushResponse(
+                    ok: true, listingId: "L", listingURL: "u", offerId: "o", sku: "s"
+                ))
+        }
+    }
+
+    private func ready(_ id: String, item: String) -> DraftListing {
+        DraftListing(
+            id: id, inventoryItemId: item, listingTitle: "Coat", listingPrice: 10,
+            ebayCondition: "USED_GOOD", platformCategoryId: "57988", batchId: "b1"
+        )
+    }
+
+    @MainActor
+    func test_library_publishSelected_publishesReadySkipsBlocked() async {
+        // a = ready (title/price/condition/category); b = blocked (no category).
+        let blocked = DraftListing(
+            id: "b", inventoryItemId: "i2", listingTitle: "Hat", listingPrice: 5,
+            ebayCondition: "USED_GOOD", platformCategoryId: nil, batchId: "b1"
+        )
+        let fake = FakeService(drafts: [ready("a", item: "i1"), blocked],
+                               titles: ["i1": "Coat", "i2": "Hat"])
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+        store.toggle("a")
+        store.toggle("b")
+
+        let publisher = FakePublisher()
+        let published = await store.publishSelected(using: publisher)
+
+        XCTAssertEqual(published, ["a"])
+        // Only the ready draft reached the network; the blocked one is gated locally.
+        XCTAssertEqual(publisher.validated, ["i1"])
+        XCTAssertEqual(publisher.pushed, ["i1"])
+        XCTAssertEqual(store.publishSummary, "Published 1 of 2; 1 skipped:\nHat: No category")
+        // Published draft is deselected; the skipped one stays selected for retry.
+        XCTAssertEqual(store.selected, ["b"])
+    }
+
+    @MainActor
+    func test_library_publishSelected_allReadyReportsSuccessAndReturnsIds() async {
+        let fake = FakeService(drafts: [ready("a", item: "i1"), ready("c", item: "i3")])
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+        store.toggle("a")
+        store.toggle("c")
+
+        let published = await store.publishSelected(using: FakePublisher())
+
+        XCTAssertEqual(published, ["a", "c"])
+        XCTAssertEqual(store.publishSummary, "Published 2 drafts to eBay.")
+    }
+
+    @MainActor
+    func test_library_publishSelected_pushFailureSurfacesPerItemReason() async {
+        let fake = FakeService(drafts: [ready("a", item: "i1")], titles: ["i1": "Coat"])
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+        store.toggle("a")
+
+        let publisher = FakePublisher()
+        publisher.pushOutcomes["i1"] = .noOfferId
+        let published = await store.publishSelected(using: publisher)
+
+        XCTAssertTrue(published.isEmpty)
+        XCTAssertEqual(store.publishSummary,
+                       "Published 0 of 1; 1 skipped:\nCoat: no eBay offer — sync first")
+    }
+
+    @MainActor
+    func test_library_publishSelected_noSelectionIsNoOp() async {
+        let fake = FakeService(drafts: [ready("a", item: "i1")])
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+
+        let publisher = FakePublisher()
+        let published = await store.publishSelected(using: publisher)
+
+        XCTAssertTrue(published.isEmpty)
+        XCTAssertTrue(publisher.validated.isEmpty)
+        XCTAssertNil(store.publishSummary)
+    }
+
+    @MainActor
+    func test_library_publishSelected_skipsEbayOriginated() async {
+        let ebay = DraftListing(
+            id: "e", inventoryItemId: "i9", listingTitle: "Jacket", listingPrice: 20,
+            ebayCondition: "USED_GOOD", platformCategoryId: "1", batchId: "b1",
+            listingOrigin: "ebay"
+        )
+        let fake = FakeService(drafts: [ebay], titles: ["i9": "Jacket"])
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+        store.toggle("e")
+
+        let publisher = FakePublisher()
+        let published = await store.publishSelected(using: publisher)
+
+        XCTAssertTrue(published.isEmpty)
+        XCTAssertTrue(publisher.pushed.isEmpty)
+        XCTAssertEqual(store.publishSummary,
+                       "Published 0 of 1; 1 skipped:\nJacket: eBay-originated — edit on eBay")
+    }
 }
