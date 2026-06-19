@@ -2069,7 +2069,7 @@
         "The animation stops (no main-thread wakeups) once the extract finishes or the view disappears."
       ],
       "priority": 1019,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=performance. ios/GradeThread/AIExtract/AIExtractView.swift (~358)"
     },
     {

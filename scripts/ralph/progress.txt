@@ -3178,3 +3178,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  6:14:10 PM
 ---
+## US-1019: iOS: replace the AI-extract ProgressDots Timer with phaseAnimator/TimelineView
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:07:01 PM
+---
