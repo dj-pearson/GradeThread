@@ -130,9 +130,17 @@ struct LoginView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
+                .accessibilityHint(emailValidationHint.map { Text($0) } ?? Text(""))
+            if let emailValidationHint {
+                validationHint(emailValidationHint)
+            }
             SecureField("Password", text: $password)
                 .textContentType(mode == .signUp ? .newPassword : .password)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityHint(passwordValidationHint.map { Text($0) } ?? Text(""))
+            if let passwordValidationHint {
+                validationHint(passwordValidationHint)
+            }
 
             if mode == .signIn {
                 HStack {
@@ -234,10 +242,40 @@ struct LoginView: View {
         }
     }
 
+    /// A short, red reason rendered directly under the offending field. A plain
+    /// `Text` is read by VoiceOver as it scrolls, and the same string is also
+    /// attached to the field via `.accessibilityHint` so focusing the field
+    /// announces why it's invalid (AC, US-1010).
+    private func validationHint(_ message: String) -> some View {
+        Text(message)
+            .font(.footnote)
+            .foregroundStyle(.red)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     // MARK: - Actions
 
+    /// Non-nil while the entered email is present but malformed; `nil` when the
+    /// field is empty (no nagging before the user types) or valid (clears the
+    /// hint). Reuses the shared `WorkspaceEmail` regex so the rule matches the
+    /// team-invite flow.
+    private var emailValidationHint: String? {
+        let trimmed = email.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        return WorkspaceEmail.isValid(trimmed)
+            ? nil
+            : "Enter a valid email address, like you@example.com."
+    }
+
+    /// Non-nil while a password is being typed but is still too short; `nil`
+    /// when empty or once it meets the 6-character minimum.
+    private var passwordValidationHint: String? {
+        guard !password.isEmpty else { return nil }
+        return password.count >= 6 ? nil : "Password must be at least 6 characters."
+    }
+
     private var canSubmit: Bool {
-        !email.trimmingCharacters(in: .whitespaces).isEmpty
+        WorkspaceEmail.isValid(email.trimmingCharacters(in: .whitespaces))
         && password.count >= 6
     }
 
