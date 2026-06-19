@@ -3450,3 +3450,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  4:10:01 AM
 ---
+## US-951: Local draft autosave and resume for web grading submission
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  7:22:06 AM
+---

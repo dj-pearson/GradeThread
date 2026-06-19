@@ -1099,7 +1099,7 @@
         "Typecheck passes"
       ],
       "priority": 951,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/new-submission.tsx. Distinct from US-744 (iOS/PWA offline) — this is web-app resilience only. Keep storage URLs (signed-URL caveat from US-276) in mind: re-validate that staged uploads still resolve on resume."
     },
     {
