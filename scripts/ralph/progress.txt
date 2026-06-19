@@ -3366,3 +3366,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 11:13:43 PM
 ---
+## US-972: iOS: consistent action feedback and destructive-action confirmations
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:18:05 AM
+---

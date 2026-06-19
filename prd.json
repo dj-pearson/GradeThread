@@ -1418,7 +1418,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 972,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (templateMenu overwrite ~498), ios/GradeThread/Marketplaces/EbayAccountsView.swift (set-primary), ios/GradeThread/Inventory/InventoryListView.swift (BulkUndoBar 6s auto-dismiss ~209), ios/GradeThread/Haptics + Feedback utilities. Audit-confirmed silent-success in marketplace flows."
     },
     {
