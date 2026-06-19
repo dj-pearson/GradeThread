@@ -78,6 +78,41 @@ final class EbaySyncTests: XCTestCase {
         ))
     }
 
+    func test_didAdvance_returnsFalseWhenCurrentIsOlder() {
+        // US-1007: the parse path (now backed by hoisted static formatters)
+        // must order an OLDER current strictly before the baseline.
+        let svc = EbaySyncService()
+        let baseline = EbaySyncBaseline(
+            listings: 0, activeListings: 0, sales: 0,
+            lastSyncedAt: "2026-05-27T14:05:00.000Z"
+        )
+        XCTAssertFalse(svc.didAdvance(
+            baseline: baseline,
+            current: "2026-05-27T14:00:00Z"
+        ))
+    }
+
+    func test_didAdvance_isStableAcrossManyCalls() {
+        // US-1007: hoisting the ISO8601 formatters to cached statics must not
+        // change behavior under repeated reuse (the poll loop calls this every
+        // tick). Hammer it and assert a consistent verdict each time.
+        let svc = EbaySyncService()
+        let baseline = EbaySyncBaseline(
+            listings: 0, activeListings: 0, sales: 0,
+            lastSyncedAt: "2026-05-27T14:00:00.000Z"
+        )
+        for _ in 0..<500 {
+            XCTAssertTrue(svc.didAdvance(
+                baseline: baseline,
+                current: "2026-05-27T14:05:30.250Z"
+            ))
+            XCTAssertFalse(svc.didAdvance(
+                baseline: baseline,
+                current: "2026-05-27T13:59:59Z"
+            ))
+        }
+    }
+
     // MARK: - EbaySyncStore phase transitions
 
     func test_store_initial_idle() {

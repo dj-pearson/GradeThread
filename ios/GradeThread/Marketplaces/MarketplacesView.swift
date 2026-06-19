@@ -5,12 +5,15 @@ import SwiftUI
 /// when US-149 lands.
 struct MarketplacesView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.syncEngine) private var syncEngine
     @Environment(AuthStore.self) private var authStore
     @State private var store = MarketplaceConnectionStore()
 
     // US-184 sync
     @State private var syncStore = EbaySyncStore()
     @State private var showingSyncModal = false
+    // US-1007: retained so dismissing the modal cancels the poll loop promptly.
+    @State private var syncTask: Task<Void, Never>?
 
     // US-186 reconciliation count badge — refreshed alongside connection
     // state so the link only shows up when there's actually orphan work.
@@ -70,10 +73,10 @@ struct MarketplacesView: View {
                 await refreshOrphanCount(userId: userId)
             }
         }
-        .sheet(isPresented: $showingSyncModal, onDismiss: { syncStore.reset() }) {
+        .sheet(isPresented: $showingSyncModal, onDismiss: { cancelSync() }) {
             EbaySyncModal(
                 store: syncStore,
-                onDismiss: { syncStore.reset() }
+                onDismiss: { cancelSync() }
             )
         }
     }
@@ -501,7 +504,8 @@ struct MarketplacesView: View {
             HStack(spacing: 10) {
                 Button {
                     AppRouter.haptic()
-                    Task { await runSync(userId: userId) }
+                    syncTask?.cancel()
+                    syncTask = Task { await runSync(userId: userId) }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.triangle.2.circlepath")
@@ -538,9 +542,12 @@ struct MarketplacesView: View {
         syncStore.beginSync()
         showingSyncModal = true
 
-        let service = EbaySyncService(container: modelContext.container)
+        let service = EbaySyncService(container: modelContext.container, syncEngine: syncEngine)
         let baseline = await service.snapshot(userId: userId)
         let completion = await service.sync(userId: userId, baseline: baseline)
+        // Modal dismissed mid-sync — the task was cancelled; don't apply a
+        // result over the reset store or fire feedback for a sync the user left.
+        if Task.isCancelled { return }
         syncStore.apply(completion)
         // US-195: feedback that mirrors the completion outcome.
         switch completion {
@@ -552,6 +559,14 @@ struct MarketplacesView: View {
 
         // Refresh the connection card so the "last synced" line catches up.
         await store.refresh(userId: userId)
+    }
+
+    /// Cancels an in-flight sync poll and resets the modal store. Called when
+    /// the sync sheet is dismissed (US-1007).
+    private func cancelSync() {
+        syncTask?.cancel()
+        syncTask = nil
+        syncStore.reset()
     }
 
     private func reconnectBody(

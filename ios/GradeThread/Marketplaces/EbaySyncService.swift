@@ -24,15 +24,38 @@ public final class EbaySyncService {
     private let supabase: SupabaseClient
     private let container: ModelContainer?
     private let policy: PollingPolicy
+    /// Long-lived engine that owns the pull→merge loop. When injected the
+    /// completion path awaits ``SyncEngine/sync()`` directly so the summary
+    /// counts reflect the just-merged rows deterministically (US-1007) instead
+    /// of firing a notification and sleeping a fixed beat.
+    private let syncEngine: SyncEngine?
 
     public init(
         supabase: SupabaseClient = SupabaseShared.client,
         container: ModelContainer? = nil,
+        syncEngine: SyncEngine? = nil,
         policy: PollingPolicy = .default
     ) {
         self.supabase = supabase
         self.container = container
+        self.syncEngine = syncEngine
         self.policy = policy
+    }
+
+    /// Cached ISO-8601 parsers. Allocating an `ISO8601DateFormatter` is
+    /// expensive; the poll comparator (`didAdvance`) runs on every tick, so we
+    /// reuse these instead of building a fresh pair per call (US-1007).
+    private static let isoFull: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+
+    /// Parses an ISO-8601 timestamp (with or without fractional seconds),
+    /// returning nil when neither precision matches so callers can fall back.
+    private static func parseISODate(_ s: String) -> Date? {
+        isoFull.date(from: s) ?? isoPlain.date(from: s)
     }
 
     // MARK: - Public API
@@ -92,9 +115,19 @@ public final class EbaySyncService {
         let maxConsecutivePollFailures = 3
         var lastPollError: String?
         while Date.now < deadline {
-            try? await Task.sleep(
-                nanoseconds: Backoff.delayNanos(attempt: pollAttempt, base: policy.interval, cap: max(policy.interval, 8))
-            )
+            // US-1007: yield promptly when the modal is dismissed. The caller's
+            // sync Task is cancelled on dismiss; bail instead of finishing the
+            // whole poll window (the pull keeps running server-side regardless).
+            if Task.isCancelled { return .timedOut }
+            do {
+                try await Task.sleep(
+                    nanoseconds: Backoff.delayNanos(attempt: pollAttempt, base: policy.interval, cap: max(policy.interval, 8))
+                )
+            } catch {
+                // Sleep throws CancellationError when the Task is cancelled
+                // (modal dismissed / continue-in-background) — stop polling now.
+                return .timedOut
+            }
             pollAttempt += 1
 
             do {
@@ -185,24 +218,24 @@ public final class EbaySyncService {
         // String compare works for ISO 8601 with the same precision;
         // dates parse to be safe across mixed-precision sources.
         if current == baselineString { return false }
-        let parseDate: (String) -> Date? = { s in
-            let isoFull = ISO8601DateFormatter()
-            isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return isoFull.date(from: s) ?? ISO8601DateFormatter().date(from: s)
-        }
-        if let lhs = parseDate(current), let rhs = parseDate(baselineString) {
+        if let lhs = Self.parseISODate(current), let rhs = Self.parseISODate(baselineString) {
             return lhs > rhs
         }
         return current > baselineString
     }
 
     private func buildSummary(baseline: EbaySyncBaseline) async -> EbaySyncSummary {
-        // Let the SyncEngine pull pick up the fresh rows so the count
-        // queries below reflect the just-synced state. We post the
-        // notification and wait a beat; ContentView routes it to
-        // syncEngine.sync().
-        requestLocalRefresh()
-        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        // Settle the local cache against the just-synced server state BEFORE
+        // counting. US-1007: await the engine pull directly so the counts are
+        // deterministic — the old path fired a notification then slept a fixed
+        // 1.2s and hoped the merge had landed (a race with the local refresh).
+        if let syncEngine {
+            await syncEngine.sync()
+        } else {
+            // No engine injected (legacy callers / unit tests with no container)
+            // — fall back to the notification ContentView routes to the engine.
+            requestLocalRefresh()
+        }
 
         let (listings, activeListings, sales) = countLocalRows()
         return EbaySyncSummary(

@@ -81,6 +81,8 @@ struct InventoryListView: View {
     // US-184 sync
     @State private var syncStore = EbaySyncStore()
     @State private var showingSyncModal = false
+    // US-1007: retained so dismissing the modal cancels the poll loop promptly.
+    @State private var syncTask: Task<Void, Never>?
     @Environment(\.modelContext) private var modelContext
 
     // US-193 drag-drop from Photos.app — captures live here until the
@@ -120,8 +122,8 @@ struct InventoryListView: View {
                 resultCount: { resultCount(for: $0) }
             )
         }
-        .sheet(isPresented: $showingSyncModal) {
-            EbaySyncModal(store: syncStore, onDismiss: { syncStore.reset() })
+        .sheet(isPresented: $showingSyncModal, onDismiss: { cancelSync() }) {
+            EbaySyncModal(store: syncStore, onDismiss: { cancelSync() })
         }
         .sheet(isPresented: $showingBulkGrade) {
             BulkGradeSheet(itemIds: bulkGradeTargetIds) {
@@ -490,7 +492,8 @@ struct InventoryListView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 AppRouter.haptic()
-                Task { await runEbaySync() }
+                syncTask?.cancel()
+                syncTask = Task { await runEbaySync() }
             } label: {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .accessibilityLabel("Sync from eBay")
@@ -505,9 +508,12 @@ struct InventoryListView: View {
         syncStore.beginSync()
         showingSyncModal = true
 
-        let service = EbaySyncService(container: modelContext.container)
+        let service = EbaySyncService(container: modelContext.container, syncEngine: syncEngine)
         let baseline = await service.snapshot(userId: userId)
         let completion = await service.sync(userId: userId, baseline: baseline)
+        // Modal dismissed mid-sync — the task was cancelled; don't apply a
+        // result over the reset store or fire feedback for a sync the user left.
+        if Task.isCancelled { return }
         syncStore.apply(completion)
         switch completion {
         case .completed:           HapticFeedback.success()
@@ -515,6 +521,14 @@ struct InventoryListView: View {
         case .connectionFlagged,
              .failed:              HapticFeedback.error()
         }
+    }
+
+    /// Cancels an in-flight sync poll and resets the modal store. Called when
+    /// the sync sheet is dismissed (US-1007).
+    private func cancelSync() {
+        syncTask?.cancel()
+        syncTask = nil
+        syncStore.reset()
     }
 
     @ToolbarContentBuilder
