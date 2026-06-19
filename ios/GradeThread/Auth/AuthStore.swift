@@ -155,7 +155,12 @@ public final class AuthStore {
     /// `gradethread.com.evil.com`) plus a `/app/auth-callback` path prefix. The
     /// claimable custom scheme (`com.gradethread.app://auth-callback`) is
     /// accepted only when `allowCustomScheme` is true (iOS < 17.4).
-    static func isAcceptableAuthCallback(url: URL, allowCustomScheme: Bool) -> Bool {
+    // `nonisolated` so the synchronous, nonisolated unit tests can call this pure
+    // matcher directly (AuthStore is @MainActor; without this the test target
+    // fails to compile — "main actor-isolated static method in a synchronous
+    // nonisolated context"). It touches no main-actor state, and the @MainActor
+    // caller in handleAuthCallback can still call a nonisolated method freely.
+    nonisolated static func isAcceptableAuthCallback(url: URL, allowCustomScheme: Bool) -> Bool {
         let scheme = url.scheme?.lowercased()
         let host = url.host?.lowercased()
         if scheme == "https" {
