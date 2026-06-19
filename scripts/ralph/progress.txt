@@ -3470,3 +3470,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  8:57:32 AM
 ---
+## US-946: Trial-conversion analytics dashboard
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 10:49:00 AM
+---
