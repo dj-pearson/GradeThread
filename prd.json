@@ -1145,7 +1145,7 @@
         "Typecheck passes"
       ],
       "priority": 954,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: src/pages/flipdesk/autolister-queue.tsx, services/edge-functions/src/routes/flipdesk-autolister.ts (/listings/validate). Complements the Aspect Autofill epic (US-821-828) which fills aspects; this surfaces what's still missing. Honor eBay rate limits with the existing bounded concurrency."
     },
     {

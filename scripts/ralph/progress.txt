@@ -3438,3 +3438,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  3:10:48 AM
 ---
+## US-954: Background pre-flight blocker detection in AutoLister queue
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  3:24:45 AM
+---
