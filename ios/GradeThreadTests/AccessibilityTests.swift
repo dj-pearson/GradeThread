@@ -47,4 +47,21 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNotNil(navy)
         XCTAssertNotNil(red)
     }
+
+    // MARK: - eBay account rows (US-1009)
+
+    func test_ebayAccountsView_compiles() {
+        // SwiftUI views can't be evaluated headlessly, but the row must
+        // type-check with its accessibility actions + confirmation wiring.
+        let _: AnyView = AnyView(EbayAccountsView(userId: "u"))
+    }
+
+    func test_ebayAccountRow_statusNeverConveyedByColorAlone() {
+        // The selected/disconnected state a sighted user reads from the
+        // icon color must be present in the VoiceOver label too.
+        let selected = RemoteMarketplaceConnection(id: "a", accountHandle: "store", isPrimary: true)
+        XCTAssertTrue(selected.accessibilityRowLabel.contains("Selected"))
+        let off = RemoteMarketplaceConnection(id: "b", accountHandle: "store2", isActive: false)
+        XCTAssertTrue(off.accessibilityRowLabel.contains("Disconnected"))
+    }
 }

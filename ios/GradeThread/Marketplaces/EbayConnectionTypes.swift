@@ -86,6 +86,33 @@ struct RemoteMarketplaceConnection: Decodable, Equatable, Identifiable {
         if let accountHandle, !accountHandle.isEmpty { return accountHandle }
         return "eBay account"
     }
+
+    /// US-1009: status conveyed to VoiceOver (color/icon alone isn't enough).
+    /// Mirrors the visual state — selected radio, disconnected, reconnect-needed.
+    var accessibilityStatus: String {
+        if !isActive { return "Disconnected" }
+        if isPrimary { return "Selected" }
+        if refreshError != nil { return "Reconnect needed" }
+        return "Not selected"
+    }
+
+    /// US-1009: combined VoiceOver label for an account row — name + handle (when
+    /// a label is also set) + status — so the row reads fully without relying on
+    /// the icon's color.
+    var accessibilityRowLabel: String {
+        var parts = [displayName]
+        if label != nil, let handle = accountHandle, !handle.isEmpty {
+            parts.append(handle)
+        }
+        parts.append(accessibilityStatus)
+        return parts.joined(separator: ", ")
+    }
+
+    /// US-1009: confirmation title naming the account before a destructive
+    /// disconnect (which stops sync + publishing for the store).
+    var disconnectConfirmationTitle: String {
+        "Disconnect \(displayName)?"
+    }
 }
 
 /// Outcome surfaced by ``EbayConnectionService.connect()``. Mirrors the

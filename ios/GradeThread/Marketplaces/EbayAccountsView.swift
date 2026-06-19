@@ -7,6 +7,8 @@ struct EbayAccountsView: View {
     @State private var store: EbayAccountsStore
     @State private var renaming: RemoteMarketplaceConnection?
     @State private var renameText = ""
+    /// US-1009: account pending a confirmed disconnect.
+    @State private var disconnecting: RemoteMarketplaceConnection?
 
     init(userId: String) {
         self.userId = userId
@@ -75,6 +77,26 @@ struct EbayAccountsView: View {
         } message: {
             Text(store.actionError ?? "")
         }
+        // US-1009: disconnect breaks publishing/sync — confirm first, naming the
+        // store. Reached from both the swipe action and the VoiceOver action.
+        .confirmationDialog(
+            disconnecting?.disconnectConfirmationTitle ?? "Disconnect account?",
+            isPresented: Binding(
+                get: { disconnecting != nil },
+                set: { if !$0 { disconnecting = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                if let conn = disconnecting {
+                    Task { await store.disconnect(conn) }
+                }
+                disconnecting = nil
+            }
+            Button("Cancel", role: .cancel) { disconnecting = nil }
+        } message: {
+            Text("Disconnecting stops sync and publishing for this store. You can reconnect it later.")
+        }
     }
 
     @ViewBuilder
@@ -98,35 +120,56 @@ struct EbayAccountsView: View {
 
     @ViewBuilder
     private func accountRow(_ conn: RemoteMarketplaceConnection) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: conn.isPrimary ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(conn.isPrimary ? Color.brandEmerald : Color.secondary)
-                .accessibilityLabel(conn.isPrimary ? "Selected" : "Not selected")
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(conn.displayName).font(.body.weight(.medium))
-                HStack(spacing: 6) {
-                    if conn.label != nil, let handle = conn.accountHandle {
-                        Text(handle)
-                    }
-                    if !conn.isActive {
-                        Text("· Disconnected").foregroundStyle(.brandAmber)
-                    } else if conn.refreshError != nil {
-                        Text("· Reconnect needed").foregroundStyle(.brandAmber)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+        // US-1009: the row is a real Button so VoiceOver/Switch Control announce
+        // it as a button and a double-tap selects (makes primary) the account.
+        // Per-action operations (select/rename/disconnect) used to live ONLY in
+        // swipeActions, which assistive tech can't reach — they're now also
+        // exposed via `.accessibilityActions` below.
+        Button {
             if conn.isActive { Task { await store.makePrimary(conn) } }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: conn.isPrimary ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(conn.isPrimary ? Color.brandEmerald : Color.secondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(conn.displayName).font(.body.weight(.medium))
+                    HStack(spacing: 6) {
+                        if conn.label != nil, let handle = conn.accountHandle {
+                            Text(handle)
+                        }
+                        if !conn.isActive {
+                            Text("· Disconnected").foregroundStyle(.brandAmber)
+                        } else if conn.refreshError != nil {
+                            Text("· Reconnect needed").foregroundStyle(.brandAmber)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(conn.accessibilityRowLabel)
+        .accessibilityHint(conn.isActive && !conn.isPrimary ? "Selects this account for sync and publish" : "")
+        .accessibilityActions {
+            if conn.isActive && !conn.isPrimary {
+                Button("Select for sync and publish") {
+                    Task { await store.makePrimary(conn) }
+                }
+            }
+            Button("Rename") {
+                renameText = conn.label ?? ""
+                renaming = conn
+            }
+            Button("Disconnect") { disconnecting = conn }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
-                Task { await store.disconnect(conn) }
+                disconnecting = conn
             } label: {
                 Label("Disconnect", systemImage: "minus.circle")
             }

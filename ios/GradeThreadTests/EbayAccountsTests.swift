@@ -86,6 +86,43 @@ final class EbayAccountsTests: XCTestCase {
         XCTAssertFalse(store.connections.contains { $0.id == "b" })
     }
 
+    // MARK: - Accessibility (US-1009)
+
+    func test_accessibilityStatus_reflectsState() {
+        XCTAssertEqual(
+            RemoteMarketplaceConnection(id: "a", isPrimary: true).accessibilityStatus,
+            "Selected"
+        )
+        XCTAssertEqual(
+            RemoteMarketplaceConnection(id: "a", isPrimary: false).accessibilityStatus,
+            "Not selected"
+        )
+        XCTAssertEqual(
+            RemoteMarketplaceConnection(id: "a", isActive: false).accessibilityStatus,
+            "Disconnected"
+        )
+        XCTAssertEqual(
+            RemoteMarketplaceConnection(id: "a", refreshError: "expired").accessibilityStatus,
+            "Reconnect needed"
+        )
+    }
+
+    func test_accessibilityRowLabel_includesNameHandleAndStatus() {
+        let labelled = RemoteMarketplaceConnection(
+            id: "a", accountHandle: "store_one", label: "Main store", isPrimary: true
+        )
+        XCTAssertEqual(labelled.accessibilityRowLabel, "Main store, store_one, Selected")
+
+        // No separate label → handle is the name, so it isn't repeated.
+        let handleOnly = RemoteMarketplaceConnection(id: "b", accountHandle: "store_two")
+        XCTAssertEqual(handleOnly.accessibilityRowLabel, "store_two, Not selected")
+    }
+
+    func test_disconnectConfirmationTitle_namesTheAccount() {
+        let conn = RemoteMarketplaceConnection(id: "a", accountHandle: "store_one", label: "Main store")
+        XCTAssertEqual(conn.disconnectConfirmationTitle, "Disconnect Main store?")
+    }
+
     // MARK: - Fake
 
     @MainActor
