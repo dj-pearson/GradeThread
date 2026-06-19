@@ -40,7 +40,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { ItemCardList } from "@/components/flipdesk/item-card-list";
 import { ItemQuickEditSheet } from "@/components/flipdesk/item-quick-edit-sheet";
 import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
@@ -86,6 +85,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
+import { InlineStatusSelect } from "@/components/flipdesk/inline-status-select";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
@@ -1058,6 +1058,73 @@ export function FlipdeskListingsPage() {
     }
   }
 
+  // Generic inline edit of a single base inventory_items column, mirrored
+  // optimistically into the items_full cache under its view alias and rolled
+  // back on a server error (US-959). Writes hit the RLS-enforced client, so
+  // they're tenant-scoped without an explicit user_id filter (same as every
+  // other write on this page). NOT for list_price — that path syncs to eBay
+  // via updateListingPrice.
+  async function patchItemColumn(
+    it: ItemFullRow,
+    column: string,
+    value: string | number | null,
+    viewPatch: Partial<ItemFullRow>,
+    label: string,
+  ) {
+    const prev = items;
+    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+      (old ?? []).map((i) => (i.id === it.id ? { ...i, ...viewPatch } : i)),
+    );
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ [column]: value } as never)
+        .eq("id", it.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success(`${label} updated.`);
+    } catch (err) {
+      qc.setQueryData(["items_full", user?.id], prev);
+      toast.error(
+        `Couldn't update ${label.toLowerCase()}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  // Inline status change. Honors the explicit pick (forward or back, incl.
+  // side-track statuses) — same direct write the mobile quick-edit sheet uses.
+  async function updateItemStatus(it: ItemFullRow, next: ItemStatus) {
+    if (next === it.status) return;
+    await patchItemColumn(it, "status", next, { status: next }, "Status");
+  }
+
+  // Inline numeric edit (cost → acquired_price, target → target_price). Empty
+  // clears the field; otherwise must be a finite, non-negative number.
+  async function updateItemMoney(
+    it: ItemFullRow,
+    raw: string,
+    column: "acquired_price" | "target_price",
+    viewKey: "purchase_price" | "target_price",
+    label: string,
+  ) {
+    const trimmed = raw.trim();
+    const value = trimmed === "" ? null : Number(trimmed);
+    if (value != null && (!Number.isFinite(value) || value < 0)) {
+      toast.error(`Enter a valid ${label.toLowerCase()}.`);
+      return;
+    }
+    await patchItemColumn(it, column, value, { [viewKey]: value }, label);
+  }
+
+  // Inline notes edit (condition_notes on the base table, aliased as `notes`).
+  async function updateItemNotes(it: ItemFullRow, raw: string) {
+    const trimmed = raw.trim();
+    const value = trimmed === "" ? null : trimmed;
+    await patchItemColumn(it, "condition_notes", value, { notes: value }, "Notes");
+  }
+
   async function endListing(it: ItemFullRow) {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
@@ -1909,6 +1976,7 @@ export function FlipdeskListingsPage() {
                         </>
                       )}
                       <TableHead className="w-24">Status</TableHead>
+                      <TableHead className="min-w-[140px]">Notes</TableHead>
                       {(isDrafts || isActive) && (
                         <TableHead className="w-28">Platforms</TableHead>
                       )}
@@ -2094,11 +2162,43 @@ export function FlipdeskListingsPage() {
                             </>
                           ) : isToList ? (
                             <>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtMoney(it.purchase_price)}
+                              <TableCell
+                                className="text-right tabular-nums"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <InlineCell
+                                  value={it.purchase_price}
+                                  type="number"
+                                  align="right"
+                                  onChange={(v) =>
+                                    updateItemMoney(
+                                      it,
+                                      v,
+                                      "acquired_price",
+                                      "purchase_price",
+                                      "Cost",
+                                    )
+                                  }
+                                />
                               </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtMoney(it.target_price ?? it.list_price)}
+                              <TableCell
+                                className="text-right tabular-nums"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <InlineCell
+                                  value={it.target_price}
+                                  type="number"
+                                  align="right"
+                                  onChange={(v) =>
+                                    updateItemMoney(
+                                      it,
+                                      v,
+                                      "target_price",
+                                      "target_price",
+                                      "Target",
+                                    )
+                                  }
+                                />
                               </TableCell>
                               <TableCell className="text-right">
                                 <span
@@ -2193,11 +2293,43 @@ export function FlipdeskListingsPage() {
                             </>
                           ) : (
                             <>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtMoney(it.purchase_price)}
+                              <TableCell
+                                className="text-right tabular-nums"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <InlineCell
+                                  value={it.purchase_price}
+                                  type="number"
+                                  align="right"
+                                  onChange={(v) =>
+                                    updateItemMoney(
+                                      it,
+                                      v,
+                                      "acquired_price",
+                                      "purchase_price",
+                                      "Cost",
+                                    )
+                                  }
+                                />
                               </TableCell>
-                              <TableCell className="text-right tabular-nums">
-                                {fmtMoney(it.target_price ?? it.list_price)}
+                              <TableCell
+                                className="text-right tabular-nums"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <InlineCell
+                                  value={it.target_price}
+                                  type="number"
+                                  align="right"
+                                  onChange={(v) =>
+                                    updateItemMoney(
+                                      it,
+                                      v,
+                                      "target_price",
+                                      "target_price",
+                                      "Target",
+                                    )
+                                  }
+                                />
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {fmtMoney(it.sale_price)}
@@ -2214,10 +2346,21 @@ export function FlipdeskListingsPage() {
                               </TableCell>
                             </>
                           )}
-                          <TableCell>
-                            <StatusBadge
-                              status={it.status}
-                              className="text-[10px]"
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <InlineStatusSelect
+                              value={it.status}
+                              onChange={(next) => updateItemStatus(it, next)}
+                            />
+                          </TableCell>
+                          <TableCell
+                            className="text-muted-foreground"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <InlineCell
+                              value={it.notes}
+                              type="text"
+                              placeholder="Add notes"
+                              onChange={(v) => updateItemNotes(it, v)}
                             />
                           </TableCell>
                           {(isDrafts || isActive) && (
