@@ -3414,3 +3414,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  1:39:29 AM
 ---
+## US-960: Shipped-tab fulfillment: carrier, tracking, and delivered status
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  1:55:40 AM
+---

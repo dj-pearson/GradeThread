@@ -1237,7 +1237,7 @@
         "Typecheck passes"
       ],
       "priority": 960,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. NEW MIGRATION 00169_* (re-check max before creating; 00168 is current). Files: src/pages/flipdesk/listings.tsx (Sold/Shipped tabs, mark-shipped bulk ~867-897). Surface on items_full (security_invoker view, see 00111/00168 pattern)."
     },
     {
