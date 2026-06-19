@@ -42,7 +42,7 @@ struct FeedbackSheet: View {
                         Label(result.text, systemImage: result.isError
                               ? "exclamationmark.triangle"
                               : "checkmark.circle")
-                            .foregroundStyle(result.isError ? .red : .green)
+                            .foregroundStyle(result.isError ? .brandRed : .brandEmerald)
                             .font(.footnote)
                     }
                 }

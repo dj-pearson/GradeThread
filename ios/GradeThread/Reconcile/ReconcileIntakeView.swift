@@ -64,7 +64,7 @@ struct ReconcileIntakeView: View {
                     }
                 case .completed(let count):
                     Label("Synced \(count) photo\(count == 1 ? "" : "s") to a reconcile session. Open the web board to cluster + finish.", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(.brandEmerald)
                 case .failed(let message):
                     Label(message, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)

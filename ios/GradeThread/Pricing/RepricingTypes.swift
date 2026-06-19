@@ -81,8 +81,8 @@ enum RepricingReason: String {
 
     var tint: Color {
         switch self {
-        case .underpriced: return .green
-        case .overpriced:  return .orange
+        case .underpriced: return .brandEmerald
+        case .overpriced:  return .brandAmber
         case .stale:       return Color.brandNavy
         case .other:       return .secondary
         }

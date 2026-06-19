@@ -34,7 +34,7 @@ struct EbaySyncModal: View {
                 title: "Connection flagged",
                 message: message,
                 icon: "exclamationmark.triangle.fill",
-                color: .orange,
+                color: .brandAmber,
                 retryLabel: "Reconnect on Marketplaces"
             )
         case .failed(let message):
@@ -99,7 +99,7 @@ struct EbaySyncModal: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 48))
-                .foregroundStyle(.green)
+                .foregroundStyle(.brandEmerald)
             Text("Sync complete")
                 .font(.brandTitle2)
 
@@ -147,7 +147,7 @@ struct EbaySyncModal: View {
         VStack(spacing: 14) {
             Image(systemName: "clock.badge.exclamationmark")
                 .font(.system(size: 44))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.brandAmber)
             Text("Still syncing in the background")
                 .font(.brandHeadline)
                 .multilineTextAlignment(.center)
@@ -220,10 +220,10 @@ struct EbaySyncModal: View {
                 if let delta, delta != 0 {
                     Text(delta > 0 ? "+\(delta)" : "\(delta)")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(delta > 0 ? .green : .secondary)
+                        .foregroundStyle(delta > 0 ? .brandEmerald : .secondary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background((delta > 0 ? Color.green : Color.secondary).opacity(0.12))
+                        .background((delta > 0 ? Color.brandEmerald : Color.secondary).opacity(0.12))
                         .clipShape(Capsule())
                 }
             }

@@ -207,7 +207,7 @@ struct DashboardView: View {
                 value: currency.formatDisplay(metrics.netProfitThisWeek),
                 subtitle: "after fees + cost",
                 systemImage: "chart.line.uptrend.xyaxis",
-                tint: metrics.netProfitThisWeek < 0 ? .brandRed : .green
+                tint: metrics.netProfitThisWeek < 0 ? .brandRed : .brandEmerald
             )
         }
     }

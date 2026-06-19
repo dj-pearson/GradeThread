@@ -101,7 +101,7 @@ struct ReconciliationView: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.seal")
                 .font(.system(size: 44, weight: .light))
-                .foregroundStyle(.green)
+                .foregroundStyle(.brandEmerald)
             Text("Nothing to reconcile")
                 .font(.brandHeadline)
             Text("Every eBay listing is linked to an inventory item.")

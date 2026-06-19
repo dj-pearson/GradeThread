@@ -100,7 +100,7 @@ struct EbayAccountsView: View {
     private func accountRow(_ conn: RemoteMarketplaceConnection) -> some View {
         HStack(spacing: 12) {
             Image(systemName: conn.isPrimary ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(conn.isPrimary ? Color.green : Color.secondary)
+                .foregroundStyle(conn.isPrimary ? Color.brandEmerald : Color.secondary)
                 .accessibilityLabel(conn.isPrimary ? "Selected" : "Not selected")
 
             VStack(alignment: .leading, spacing: 2) {
@@ -110,9 +110,9 @@ struct EbayAccountsView: View {
                         Text(handle)
                     }
                     if !conn.isActive {
-                        Text("· Disconnected").foregroundStyle(.orange)
+                        Text("· Disconnected").foregroundStyle(.brandAmber)
                     } else if conn.refreshError != nil {
-                        Text("· Reconnect needed").foregroundStyle(.orange)
+                        Text("· Reconnect needed").foregroundStyle(.brandAmber)
                     }
                 }
                 .font(.caption)
@@ -143,7 +143,7 @@ struct EbayAccountsView: View {
                 } label: {
                     Label("Select", systemImage: "checkmark.circle")
                 }
-                .tint(.green)
+                .tint(.brandEmerald)
             }
         }
     }

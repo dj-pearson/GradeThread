@@ -129,17 +129,17 @@ struct GradeRequestSheet: View {
     private var readyBanner: some View {
         Label("This item is ready to grade", systemImage: "checkmark.circle.fill")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.green)
+            .foregroundStyle(.brandEmerald)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .background(Color.green.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+            .background(Color.brandEmerald.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func blockersBanner(_ validatedItem: GradingValidatedItem) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Not ready yet", systemImage: "exclamationmark.triangle.fill")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.brandAmber)
             ForEach(validatedItem.blockers, id: \.self) { blocker in
                 Text("• \(humanize(blocker))")
                     .font(.footnote)
@@ -153,7 +153,7 @@ struct GradeRequestSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+        .background(Color.brandAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func tierPicker(_ store: GradeRequestStore) -> some View {

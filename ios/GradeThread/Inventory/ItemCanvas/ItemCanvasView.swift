@@ -1058,7 +1058,7 @@ struct ItemCanvasView: View {
             if !state.canTransition(to: state.draft.status) {
                 Text("This item is already in a terminal state. Reverting to a pre-sale status isn't allowed from here.")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.brandAmber)
             }
         }
     }

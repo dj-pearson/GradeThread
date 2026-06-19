@@ -117,7 +117,7 @@ struct NegotiationInboxView: View {
             }
             HStack(spacing: 10) {
                 Button("Accept") { Task { await store.accept(offer) } }
-                    .buttonStyle(.borderedProminent).tint(.green)
+                    .buttonStyle(.borderedProminent).tint(.brandEmerald)
                 Button("Counter") { countering = offer }
                     .buttonStyle(.bordered)
                 Button("Decline", role: .destructive) { Task { await store.decline(offer) } }
@@ -159,7 +159,7 @@ struct NegotiationInboxView: View {
                 Text(message.senderUsername ?? "Buyer").font(.subheadline.weight(.semibold))
                 Spacer()
                 if message.answered {
-                    Text("Replied").font(.caption2.weight(.semibold)).foregroundStyle(.green)
+                    Text("Replied").font(.caption2.weight(.semibold)).foregroundStyle(.brandEmerald)
                 }
             }
             if let subject = message.subject, !subject.isEmpty {

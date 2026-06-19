@@ -79,14 +79,14 @@ struct ScoutView: View {
     private var disclaimer: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
-                .foregroundStyle(.orange)
+                .foregroundStyle(.brandAmber)
             Text("Shadow grades are private AI estimates from each listing's photos — not a GradeThread certificate, and not visible to the seller. Always verify condition before buying.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+        .background(Color.brandAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     // MARK: - Results

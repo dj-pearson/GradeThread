@@ -90,8 +90,8 @@ private struct RecommendationRow: View {
 
     private var confidenceColor: Color {
         switch rec.confidenceLevel {
-        case .high:   return .green
-        case .medium: return .orange
+        case .high:   return .brandEmerald
+        case .medium: return .brandAmber
         case .low:    return .secondary
         }
     }

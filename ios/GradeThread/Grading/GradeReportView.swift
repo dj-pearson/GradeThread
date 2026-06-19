@@ -114,10 +114,14 @@ struct GradeReportView: View {
                 .font(.subheadline.weight(.semibold))
             ForEach(defects) { defect in
                 HStack(alignment: .top, spacing: 10) {
-                    Circle()
-                        .fill(severityColor(defect.severity))
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 5)
+                    // Non-color severity signal (US-1012): each severity gets a
+                    // distinct SF Symbol shape so it reads without relying on
+                    // color, for low-vision / color-blind users.
+                    Image(systemName: severityIcon(defect.severity))
+                        .font(.footnote)
+                        .foregroundStyle(severityColor(defect.severity))
+                        .accessibilityHidden(true)
+                        .padding(.top, 1)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(defect.defect.capitalized)
@@ -144,8 +148,18 @@ struct GradeReportView: View {
     private func severityColor(_ severity: String) -> Color {
         switch severity.lowercased() {
         case "major": return .brandRed
-        case "moderate": return .orange
+        case "moderate": return .brandAmber
         default: return .secondary
+        }
+    }
+
+    /// Distinct glyph per severity so the level is conveyed by shape, not just
+    /// color (US-1012 accessibility — color-only signals fail WCAG 1.4.1).
+    private func severityIcon(_ severity: String) -> String {
+        switch severity.lowercased() {
+        case "major": return "exclamationmark.octagon.fill"
+        case "moderate": return "exclamationmark.triangle.fill"
+        default: return "info.circle.fill"
         }
     }
 
@@ -263,6 +277,6 @@ struct GradeReportView: View {
             .foregroundStyle(.secondary)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+            .background(Color.brandAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 }

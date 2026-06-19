@@ -564,7 +564,7 @@ struct MarketplacesView: View {
                 "eBay flagged this connection — token refresh failed.",
                 systemImage: "exclamationmark.triangle.fill"
             )
-            .foregroundStyle(.orange)
+            .foregroundStyle(.brandAmber)
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -605,9 +605,9 @@ struct MarketplacesView: View {
         Group {
             switch store.phase {
             case .connected:
-                pill(text: "Connected", color: .green)
+                pill(text: "Connected", color: .brandEmerald)
             case .reconnectRequired:
-                pill(text: "Reconnect required", color: .orange)
+                pill(text: "Reconnect required", color: .brandAmber)
             case .disconnected:
                 pill(text: "Setup required", color: .secondary)
             case .loading, .failed:

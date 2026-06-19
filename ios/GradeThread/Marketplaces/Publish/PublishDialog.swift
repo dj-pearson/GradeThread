@@ -155,7 +155,7 @@ struct PublishDialog: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Fix these before pushing", systemImage: "exclamationmark.triangle.fill")
                 .font(.brandHeadline)
-                .foregroundStyle(.orange)
+                .foregroundStyle(.brandAmber)
             ForEach(Array(blockers.enumerated()), id: \.offset) { _, blocker in
                 Label(blocker, systemImage: "circle.fill")
                     .labelStyle(.titleAndIcon)
@@ -176,7 +176,7 @@ struct PublishDialog: View {
         VStack(spacing: 14) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 48))
-                .foregroundStyle(.green)
+                .foregroundStyle(.brandEmerald)
             Text("Live on eBay")
                 .font(.brandTitle2)
             Text("Listing \(response.listingId)")
@@ -422,7 +422,7 @@ private struct ComposerForm: View {
                         Spacer()
                         Text("\(title.count)/\(Self.titleLimit)")
                             .font(.caption2)
-                            .foregroundStyle(title.count >= Self.titleLimit ? .orange : .secondary)
+                            .foregroundStyle(title.count >= Self.titleLimit ? .brandAmber : .secondary)
                     }
                     TextField("Listing title", text: $title, axis: .vertical)
                         .lineLimit(1...3)
@@ -549,7 +549,7 @@ private struct ComposerForm: View {
     private var relistWarningBanner: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(.brandAmber)
             VStack(alignment: .leading, spacing: 4) {
                 Text("This item is still live on eBay.")
                     .font(.subheadline.weight(.semibold))
@@ -560,7 +560,7 @@ private struct ComposerForm: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12))
+        .background(Color.brandAmber.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
@@ -648,9 +648,9 @@ private struct ComposerForm: View {
     }
 
     private func profitColor(_ estimate: ListingProfit) -> Color {
-        if estimate.net < 0 { return .red }
-        if estimate.marginPct < 20 { return .orange }
-        return .green
+        if estimate.net < 0 { return .brandRed }
+        if estimate.marginPct < 20 { return .brandAmber }
+        return .brandEmerald
     }
 
     private func profitDetail(_ estimate: ListingProfit) -> String {

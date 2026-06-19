@@ -37,7 +37,7 @@ struct ConsignmentReportView: View {
                                 Spacer()
                                 Text(money(row.consignorPayout))
                                     .font(.body.weight(.semibold))
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(.brandEmerald)
                             }
                             HStack(spacing: 8) {
                                 Text("\(row.itemsSold) sold")

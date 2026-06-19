@@ -84,7 +84,7 @@ struct MoneyView: View {
                 MoneyStatTile(
                     label: "Net profit",
                     value: currency.formatDisplay(netProfit),
-                    tint: netProfit < 0 ? .brandRed : .green
+                    tint: netProfit < 0 ? .brandRed : .brandEmerald
                 )
                 Divider()
                 MoneyStatTile(

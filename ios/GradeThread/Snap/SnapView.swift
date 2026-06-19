@@ -164,7 +164,7 @@ struct SnapView: View {
                 .foregroundStyle(.secondary)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: CornerRadius.chip))
+                .background(Color.brandAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: CornerRadius.chip))
 
             HStack(spacing: 10) {
                 Button {

@@ -230,7 +230,7 @@ private struct RepricingCard: View {
             if let pct = suggestion.deltaPct {
                 Text(Self.signedPct(pct))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(suggestion.deltaCents >= 0 ? .green : .orange)
+                    .foregroundStyle(suggestion.deltaCents >= 0 ? .brandEmerald : .brandAmber)
             }
             Spacer(minLength: 0)
         }

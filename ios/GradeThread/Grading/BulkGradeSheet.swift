@@ -98,7 +98,7 @@ struct BulkGradeSheet: View {
         return HStack(spacing: 12) {
             Image(systemName: ready == total ? "checkmark.circle.fill" : "checkmark.circle")
                 .font(.brandTitle2)
-                .foregroundStyle(ready > 0 ? .green : .secondary)
+                .foregroundStyle(ready > 0 ? .brandEmerald : .secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(ready) of \(total) ready to grade")
                     .font(.subheadline.weight(.semibold))
@@ -212,7 +212,7 @@ struct BulkGradeSheet: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+        .background(Color.brandAmber.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func submitButton(_ store: BulkGradeStore) -> some View {
