@@ -493,11 +493,39 @@ struct PhotoIntakeView: View {
             Text("Camera access is off")
                 .font(.brandTitle2)
                 .foregroundStyle(.white)
-            Text("Turn it on in Settings to capture photos. Or use the Library button (coming soon) to pick from your Photos.")
+            Text("Turn it on in Settings to capture photos, or pick existing shots from your library to keep going.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.8))
                 .padding(.horizontal, 32)
+
+            // US-1005: real Photo Library fallback. PHPicker needs no camera
+            // (or library) permission, so this works even with camera access
+            // denied. Picks flow through the same staging-tray → assign →
+            // upload pipeline as captured shots via `ingestLibraryPicks`.
+            Button {
+                AppRouter.haptic()
+                showingLibraryPicker = true
+            } label: {
+                HStack(spacing: 8) {
+                    if isLoadingLibraryPicks {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "photo.on.rectangle")
+                            .scaledIconFont(size: 16, weight: .semibold)
+                    }
+                    Text("Pick from Library")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(Color.brandNavy)
+                .clipShape(Capsule())
+            }
+            .disabled(isLoadingLibraryPicks)
+            .accessibilityLabel("Pick from photo library")
+
             if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                 Link(destination: settingsURL) {
                     Text("Open Settings")
@@ -505,8 +533,7 @@ struct PhotoIntakeView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 10)
-                        .background(Color.brandNavy)
-                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(.white.opacity(0.5), lineWidth: 1))
                 }
             }
         }
