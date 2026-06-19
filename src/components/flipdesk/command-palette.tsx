@@ -386,7 +386,7 @@ export function CommandPalette() {
         id: "listings",
         label: "Go to Listings",
         icon: <ListChecks className="h-4 w-4" />,
-        run: () => go("/dashboard/flipdesk/listings"),
+        run: () => go("/dashboard/flipdesk/inventory"),
       },
       {
         kind: "action",
@@ -400,7 +400,7 @@ export function CommandPalette() {
         id: "pipeline",
         label: "Go to Pipeline",
         icon: <LayoutGrid className="h-4 w-4" />,
-        run: () => go("/dashboard/flipdesk/pipeline"),
+        run: () => go("/dashboard/flipdesk/inventory?mode=kanban"),
       },
       {
         kind: "action",

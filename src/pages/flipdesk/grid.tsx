@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
+import { useUrlParamState } from "@/hooks/use-url-param-state";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import type { ItemFullRow } from "@/types/database";
 
@@ -163,7 +164,9 @@ interface EditLog {
 export function FlipdeskGridPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const [search, setSearch] = useState("");
+  // US-958: search lives in the URL (`?q=`) so it carries across view-mode
+  // switches (shared with the table + kanban views).
+  const [search, setSearch] = useUrlParamState("q", "");
   const [page, setPage] = useState(1);
   const [staged, setStaged] = useState<Staged>(new Map());
   const [history, setHistory] = useState<EditLog[]>([]);

@@ -87,6 +87,9 @@ import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { InlineStatusSelect } from "@/components/flipdesk/inline-status-select";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useUrlParamState } from "@/hooks/use-url-param-state";
+import { useInventorySelection } from "@/stores/inventory-selection";
+import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
@@ -395,14 +398,23 @@ export function FlipdeskListingsPage() {
   const [tab, setTab] = useState<TabId>(
     TABS.some((t) => t.id === initialTab) ? initialTab : "to_list",
   );
-  const [search, setSearch] = useState("");
+  // US-958: search lives in the URL (`?q=`) so it survives switching between
+  // the unified Inventory view modes (table/grid/kanban).
+  const [search, setSearch] = useUrlParamState("q", "");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(100);
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   // US-961: mobile per-card quick-edit drawer + the mobile filters sheet.
   const [quickEditItem, setQuickEditItem] = useState<ItemFullRow | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [sortPreset, setSortPreset] = useState<SortPreset>("listability");
+  // US-958: sort preset lives in the URL (`?sort=`) so it persists across view
+  // mode switches. Guard against a hand-edited/unknown value.
+  const [sortParam, setSortParam] = useUrlParamState("sort", "listability");
+  const sortPreset: SortPreset =
+    sortParam in SORT_PRESET_LABELS
+      ? (sortParam as SortPreset)
+      : "listability";
+  const setSortPreset = (v: SortPreset) => setSortParam(v);
   // When set, overrides the tab's default sort. Lets the user click a
   // column header — currently SKU, can extend to others — to take control
   // without losing the stage tab they're in.
@@ -420,7 +432,10 @@ export function FlipdeskListingsPage() {
     );
   }
   const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // US-958: selection lives in a shared store so it carries across a view-mode
+  // switch (table ↔ kanban) without being dropped on unmount.
+  const selected = useInventorySelection((s) => s.selected);
+  const setSelected = useInventorySelection((s) => s.setSelected);
   const [busy, setBusy] = useState(false);
   const [endTarget, setEndTarget] = useState<ItemFullRow | null>(null);
   const [bulkDropPct, setBulkDropPct] = useState<string>("10");
@@ -506,6 +521,11 @@ export function FlipdeskListingsPage() {
     },
   ]);
 
+  // US-958: the selection store now survives this component unmounting (a view
+  // mode switch), so clearing it on every mount would wipe a selection carried
+  // over from the kanban. Skip the clear on the first run; only clear when the
+  // tab genuinely changes.
+  const tabMountedRef = useRef(false);
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
     if (tab === "to_list") next.delete("tab");
@@ -514,7 +534,8 @@ export function FlipdeskListingsPage() {
       setSearchParams(next, { replace: true });
     }
     setPage(1);
-    setSelected(new Set());
+    if (tabMountedRef.current) setSelected(new Set());
+    else tabMountedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -556,25 +577,12 @@ export function FlipdeskListingsPage() {
   });
 
   // US-404: stage-tab counts come from a server-side grouped count (one row per
-  // status) rather than from the loaded rows — keyed under the items_full prefix
-  // so the existing items_full invalidations refresh it after status changes.
-  const { data: statusCounts } = useQuery({
-    queryKey: ["items_full", "status_counts", user?.id],
-    enabled: !!user,
-    staleTime: 15 * 60 * 1000,
-    queryFn: async (): Promise<Record<string, number>> => {
-      const { data, error } = await (
-        supabase.rpc as unknown as (
-          fn: "inventory_status_counts",
-        ) => Promise<{
-          data: Record<string, number> | null;
-          error: Error | null;
-        }>
-      )("inventory_status_counts");
-      if (error) throw error;
-      return data ?? {};
-    },
-  });
+  // status) rather than from the loaded rows. US-958: extracted into the shared
+  // useInventoryStatusCounts hook so the table tabs and the kanban column badges
+  // read from one cached query (keyed under the items_full prefix so the
+  // existing items_full invalidations refresh it after status changes) instead
+  // of each view recomputing the totals.
+  const { data: statusCounts } = useInventoryStatusCounts();
 
   // US-149: which marketplaces each item is listed on (draft/active/sold rows
   // across the cross-listing group) — drives the Platforms column chips.

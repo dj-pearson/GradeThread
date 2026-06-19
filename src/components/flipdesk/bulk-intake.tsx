@@ -254,7 +254,7 @@ export function BulkIntake() {
       toast.success(
         `Haul finalized — ${itemCount} item${itemCount === 1 ? "" : "s"} cataloged.`,
       );
-      navigate("/dashboard/flipdesk/pipeline");
+      navigate("/dashboard/flipdesk/inventory?mode=kanban");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Finalize failed: ${msg}`);

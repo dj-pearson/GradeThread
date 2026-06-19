@@ -61,6 +61,9 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useItemsFull } from "@/hooks/use-items-full";
+import { useUrlParamState } from "@/hooks/use-url-param-state";
+import { useInventorySelection } from "@/stores/inventory-selection";
+import { useInventoryStatusCounts } from "@/hooks/use-inventory-status-counts";
 import {
   FLIPDESK_PIPELINE,
   ITEM_CATEGORIES,
@@ -140,7 +143,9 @@ export function FlipdeskPipelinePage() {
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const wipLimits = useFlipdeskSettings((s) => s.wipLimits);
-  const [search, setSearch] = useState("");
+  // US-958: search lives in the URL (`?q=`) so it carries across view-mode
+  // switches (shared with the table + grid views).
+  const [search, setSearch] = useUrlParamState("q", "");
   const [categoryFilter, setCategoryFilter] = useState<ItemCategory | "all">(
     "all",
   );
@@ -148,7 +153,10 @@ export function FlipdeskPipelinePage() {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   const [activeDrag, setActiveDrag] = useState<ItemFullRow | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // US-958: selection lives in the shared store so it carries over from the
+  // table view (and back) without being dropped on unmount.
+  const selectedIds = useInventorySelection((s) => s.selected);
+  const setSelectedIds = useInventorySelection((s) => s.setSelected);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -207,6 +215,12 @@ export function FlipdeskPipelinePage() {
     isFetching,
     refetch,
   } = useItemsFull();
+
+  // US-958: stage population for the column badges comes from the shared
+  // status-counts query (same source the table's stage tabs read) rather than
+  // being recomputed per view. It reflects the true total in each stage, so the
+  // WIP-limit check measures real pressure even when a filter hides cards.
+  const { data: statusCounts } = useInventoryStatusCounts();
 
   const brands = useMemo(() => {
     const set = new Set<string>();
@@ -640,7 +654,7 @@ export function FlipdeskPipelinePage() {
                     status={step.status}
                     label={step.label}
                     nextAction={step.nextAction}
-                    count={colItems.length}
+                    count={statusCounts?.[step.status] ?? colItems.length}
                     limit={wipLimits[step.status]}
                   >
                     {colItems.length === 0 ? (

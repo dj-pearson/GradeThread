@@ -113,17 +113,13 @@ const EmbedGradePage = lazy(() => import("@/pages/embed-grade").then(m => ({ def
 const GradingGlossaryPage = lazy(() => import("@/pages/marketing/grading-glossary").then(m => ({ default: m.GradingGlossaryPage })));
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskSearchPage = lazy(() => import("@/pages/flipdesk/search").then(m => ({ default: m.FlipdeskSearchPage })));
-const FlipdeskPipelinePage = lazy(() => import("@/pages/flipdesk/pipeline").then(m => ({ default: m.FlipdeskPipelinePage })));
-const FlipdeskListingsPage = lazy(() => import("@/pages/flipdesk/listings").then(m => ({ default: m.FlipdeskListingsPage })));
-// FlipdeskItemsPage was the legacy power-user table. Its features (saved
-// views, filter builder, CSV export, bulk AI enrich) now live on the
-// canonical Inventory page (FlipdeskListingsPage) — the /items URL is kept
-// as a redirect below so saved-view links from before the consolidation
-// still resolve cleanly.
-const FlipdeskGridPage = lazy(() => import("@/pages/flipdesk/grid").then(m => ({ default: m.FlipdeskGridPage })));
+// US-958: unified Inventory surface — hosts the table/grid/kanban/prep views as
+// `?mode=` toggles on one route. The individual view page components
+// (listings/grid/pipeline/prep) are imported lazily by this container — they
+// are no longer mounted directly by the router — so their chunks stay split.
+const FlipdeskInventoryPage = lazy(() => import("@/pages/flipdesk/inventory").then(m => ({ default: m.FlipdeskInventoryPage })));
 const FlipdeskComposerPage = lazy(() => import("@/pages/flipdesk/composer").then(m => ({ default: m.FlipdeskComposerPage })));
 const FlipdeskItemPage = lazy(() => import("@/pages/flipdesk/item").then(m => ({ default: m.FlipdeskItemPage })));
-const FlipdeskPrepPage = lazy(() => import("@/pages/flipdesk/prep").then(m => ({ default: m.FlipdeskPrepPage })));
 const FlipdeskExpensesPage = lazy(() => import("@/pages/flipdesk/expenses").then(m => ({ default: m.FlipdeskExpensesPage })));
 const FlipdeskAnalyticsPage = lazy(() => import("@/pages/flipdesk/analytics").then(m => ({ default: m.FlipdeskAnalyticsPage })));
 const FlipdeskListingPerformancePage = lazy(() => import("@/pages/flipdesk/listing-performance").then(m => ({ default: m.FlipdeskListingPerformancePage })));
@@ -247,6 +243,25 @@ function ContentRedirect() {
   const { pathname, search } = useLocation();
   const target = pathname.replace(/^\/dashboard\/content/, "/admin/content");
   return <Navigate to={`${target}${search}`} replace />;
+}
+
+// US-958: the standalone /grid, /pipeline, /listings, /prep (and the
+// /inventory/* sub-routes) are consolidated into the single unified Inventory
+// surface, which selects the shape via `?mode=`. Redirect each legacy URL to
+// /inventory with the equivalent mode, preserving any incoming query params
+// (tab/q/sort/filter) so bookmarks + saved-view links keep working.
+function InventoryModeRedirect({ mode }: { mode?: string }) {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  if (mode) params.set("mode", mode);
+  else params.delete("mode");
+  const qs = params.toString();
+  return (
+    <Navigate
+      to={`/dashboard/flipdesk/inventory${qs ? `?${qs}` : ""}`}
+      replace
+    />
+  );
 }
 
 // US-740: the legacy core inventory is consolidated into the richer FlipDesk
@@ -375,26 +390,30 @@ export const router = createBrowserRouter([
               // /kanban host the photo-card + pipeline shapes of the same data.
               // The pre-consolidation URLs (/items, /grid, /pipeline, /listings,
               // /prep) stay live below so saved views + bookmarks keep working.
-              { path: "/dashboard/flipdesk/inventory", element: <SuspenseWrapper><FlipdeskListingsPage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/inventory/grid", element: <SuspenseWrapper><FlipdeskGridPage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/inventory/kanban", element: <SuspenseWrapper><FlipdeskPipelinePage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/inventory/prep", element: <SuspenseWrapper><FlipdeskPrepPage /></SuspenseWrapper> },
+              // US-958: one route hosts every shape via `?mode=` (table is the
+              // default). The /inventory/{grid,kanban,prep} sub-routes redirect
+              // into it, preserving query params.
+              { path: "/dashboard/flipdesk/inventory", element: <SuspenseWrapper><FlipdeskInventoryPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/inventory/grid", element: <InventoryModeRedirect mode="grid" /> },
+              { path: "/dashboard/flipdesk/inventory/kanban", element: <InventoryModeRedirect mode="kanban" /> },
+              { path: "/dashboard/flipdesk/inventory/prep", element: <InventoryModeRedirect mode="prep" /> },
               // Legacy paths — still resolve so links don't break.
-              // /items now redirects to /inventory (preserving query params).
-              { path: "/dashboard/flipdesk/items", element: <Navigate to="/dashboard/flipdesk/inventory" replace /> },
-              { path: "/dashboard/flipdesk/grid", element: <SuspenseWrapper><FlipdeskGridPage /></SuspenseWrapper> },
+              // /items now redirects to /inventory (preserving query params,
+              // e.g. a saved-view ?view= link).
+              { path: "/dashboard/flipdesk/items", element: <InventoryModeRedirect /> },
+              { path: "/dashboard/flipdesk/grid", element: <InventoryModeRedirect mode="grid" /> },
               { path: "/dashboard/flipdesk/items/:id", element: <SuspenseWrapper><FlipdeskItemPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/items/:id/draft", element: <SuspenseWrapper><FlipdeskComposerPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/intake", element: <SuspenseWrapper><FlipdeskIntakePage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/prep", element: <SuspenseWrapper><FlipdeskPrepPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/prep", element: <InventoryModeRedirect mode="prep" /> },
               { path: "/dashboard/flipdesk/import", element: <SuspenseWrapper><FlipdeskImportPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister", element: <SuspenseWrapper><FlipdeskAutolisterPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister/queue", element: <SuspenseWrapper><FlipdeskAutolisterQueuePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister/bulk-edit", element: <SuspenseWrapper><FlipdeskAutolisterBulkEditPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister/drafts", element: <SuspenseWrapper><FlipdeskAutolisterDraftsPage /></SuspenseWrapper> },
           { path: "/dashboard/flipdesk/scheduled-drops", element: <SuspenseWrapper><FlipdeskScheduledDropsPage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/pipeline", element: <SuspenseWrapper><FlipdeskPipelinePage /></SuspenseWrapper> },
-              { path: "/dashboard/flipdesk/listings", element: <SuspenseWrapper><FlipdeskListingsPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/pipeline", element: <InventoryModeRedirect mode="kanban" /> },
+              { path: "/dashboard/flipdesk/listings", element: <InventoryModeRedirect /> },
               { path: "/dashboard/flipdesk/verified", element: <SuspenseWrapper><FlipdeskVerifiedPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/sources", element: <SuspenseWrapper><FlipdeskSourcesPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/consignment", element: <SuspenseWrapper><FlipdeskConsignmentPage /></SuspenseWrapper> },

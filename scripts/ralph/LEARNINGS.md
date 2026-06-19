@@ -180,6 +180,18 @@ memory — not a progress log (the harness records progress separately).
   `src/prerender/entry-server.tsx`, or the prerender sync-guard test fails.
 - `react-helmet-async` v3 renders no SSR head; add structured data via `<SEO
   jsonLd=…>` AND mirror it in `src/lib/seo/head-builder.ts` `jsonLdForRoute()`.
+- Unified Inventory surface (US-958): `/dashboard/flipdesk/inventory` hosts the
+  table/grid/kanban/prep views as `?mode=` toggles (one route). `?mode=` is the
+  view toggle; `?view=` is ALREADY the saved-view loader (listings/pipeline read
+  it, apply the saved filter, then strip the param) — don't conflate them.
+  Shared cross-view state: search `?q=` + sort `?sort=` (via `useUrlParamState`),
+  filter `?filter=`, selection via the `useInventorySelection` store (NOT URL —
+  select-all can be thousands of ids), status counts via
+  `useInventoryStatusCounts`. listings/grid/pipeline/prep are mounted only by the
+  `inventory.tsx` container (lazy) — not the router directly; the legacy
+  /grid /pipeline /listings /prep + /inventory/{grid,kanban,prep} routes are
+  `InventoryModeRedirect`s. listings' tab-change effect must skip clearing the
+  shared selection on mount (else a view switch wipes it).
 
 ## Storage / uploads
 - Server uploads: `validateImageUpload()` → `stripImageMetadata()` →
