@@ -5,6 +5,9 @@ import SwiftUI
 /// pushing → success (listing URL + open) | failure (error + retry).
 struct PublishDialog: View {
     @Environment(\.dismiss) private var dismiss
+    /// Optional so the dialog never crashes if presented outside the shell that
+    /// injects it (previews/tests). Drives the offline pre-check (US-1006).
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
 
     let inventoryItemId: String
     /// Cost basis for the live profit estimate in the composer (nil when unknown).
@@ -28,7 +31,16 @@ struct PublishDialog: View {
         case blocked([String])
         case pushing
         case succeeded(PushResponse)
-        case failed(message: String)
+        case failed(message: String, retry: RetryAction)
+    }
+
+    /// What the failure card's "Try again" does. A failure during the
+    /// validate phase re-runs validation from scratch; a failure during the
+    /// push phase resumes the composer with the user's edits intact so a
+    /// transient blip never restarts at `runValidate` and wipes them (US-1006).
+    private enum RetryAction: Equatable {
+        case revalidate
+        case resumeComposer(PublishSummary)
     }
 
     var body: some View {
@@ -75,7 +87,7 @@ struct PublishDialog: View {
                 pushLabel: relist ? "Relist on eBay" : "Push to eBay",
                 showRelistWarning: listingActive
             ) { edits in
-                Task { await runPush(edits: edits, priceValue: summary.priceValue) }
+                Task { await runPush(edits: edits, summary: summary) }
             }
 
         case .blocked(let blockers):
@@ -87,8 +99,8 @@ struct PublishDialog: View {
         case .succeeded(let response):
             successCard(response)
 
-        case .failed(let message):
-            failureCard(message: message)
+        case .failed(let message, let retry):
+            failureCard(message: message, retry: retry)
         }
     }
 
@@ -220,7 +232,7 @@ struct PublishDialog: View {
         .cardStyle(.flush)
     }
 
-    private func failureCard(message: String) -> some View {
+    private func failureCard(message: String, retry: RetryAction) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "xmark.octagon.fill")
                 .font(.system(size: 40))
@@ -233,7 +245,14 @@ struct PublishDialog: View {
                 .multilineTextAlignment(.center)
             HStack(spacing: 10) {
                 Button("Try again") {
-                    Task { await runValidate() }
+                    switch retry {
+                    case .revalidate:
+                        Task { await runValidate() }
+                    case .resumeComposer(let summary):
+                        // Restore the composer pre-filled with the user's edits
+                        // instead of re-validating from scratch (US-1006).
+                        phase = .readyToPush(summary)
+                    }
                 }
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14)
@@ -283,16 +302,35 @@ struct PublishDialog: View {
         case .blockers(let blockers):
             phase = .blocked(blockers)
         case .noOfferId:
-            phase = .failed(message: "No active eBay offer linked. Sync from Marketplaces, then try again.")
+            phase = .failed(
+                message: "No active eBay offer linked. Sync from Marketplaces, then try again.",
+                retry: .revalidate
+            )
         case .failed(let message):
-            phase = .failed(message: message)
+            phase = .failed(message: message, retry: .revalidate)
         case .pushed, .priceUpdated, .ended:
             // Wrong outcome shape for validate — shouldn't happen.
-            phase = .failed(message: "Unexpected response from server.")
+            phase = .failed(message: "Unexpected response from server.", retry: .revalidate)
         }
     }
 
-    private func runPush(edits: ComposerEdits, priceValue: String) async {
+    private func runPush(edits: ComposerEdits, summary: PublishSummary) async {
+        // The composer state we restore if a transient failure forces a retry,
+        // so the user never re-types title/condition/description (US-1006).
+        let resume = RetryAction.resumeComposer(PublishSummary.merging(edits, into: summary))
+
+        // Offline pre-check: don't fire a doomed round-trip. Surface friendly
+        // offline copy and let "Try again" resume the composer with edits intact
+        // (saveDraft hasn't run yet, so nothing is lost — they live in `resume`).
+        if let networkMonitor, !networkMonitor.isConnected {
+            phase = .failed(
+                message: "You're offline. Your edits are kept here — reconnect and tap Try again.",
+                retry: resume
+            )
+            HapticFeedback.warning()
+            return
+        }
+
         phase = .pushing
         Telemetry.breadcrumb("Publishing to eBay", category: "publish")
 
@@ -301,11 +339,20 @@ struct PublishDialog: View {
         do {
             try await ListingDraftService().saveDraft(
                 inventoryItemId: inventoryItemId,
-                priceValue: priceValue,
+                priceValue: summary.priceValue,
                 edits: edits
             )
         } catch {
-            phase = .failed(message: "Couldn't save your edits: \(error.localizedDescription)")
+            // Keep the user's edits on retry — a transient save failure must not
+            // wipe what they typed (US-1006). FriendlyErrorCopy maps offline/raw
+            // URLError failures to friendly copy.
+            phase = .failed(
+                message: FriendlyErrorCopy.actionMessage(
+                    for: error,
+                    fallback: "Couldn't save your edits. Please try again."
+                ),
+                retry: resume
+            )
             HapticFeedback.error()
             return
         }
@@ -328,16 +375,20 @@ struct PublishDialog: View {
             ReviewPromptService.shared.recordPublish()
             ReviewPromptService.shared.maybePrompt()
         case .blockers(let blockers):
+            // A genuine 422 still routes to the blockers card (US-1006 AC3).
             phase = .blocked(blockers)
             HapticFeedback.warning()
         case .noOfferId:
-            phase = .failed(message: "eBay couldn't link the offer. Try again or check Marketplaces.")
+            phase = .failed(
+                message: "eBay couldn't link the offer. Try again or check Marketplaces.",
+                retry: resume
+            )
             HapticFeedback.error()
         case .failed(let message):
-            phase = .failed(message: message)
+            phase = .failed(message: message, retry: resume)
             HapticFeedback.error()
         case .validated, .priceUpdated, .ended:
-            phase = .failed(message: "Unexpected response from server.")
+            phase = .failed(message: "Unexpected response from server.", retry: resume)
             HapticFeedback.error()
         }
     }

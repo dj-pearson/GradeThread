@@ -29,6 +29,22 @@ struct PublishSummary: Decodable, Equatable {
         case priceValue = "priceValue"
         case currency
     }
+
+    /// Rebuilds a summary that reflects the user's in-progress composer edits,
+    /// keeping price + currency from the validated `base`. Used to re-hydrate the
+    /// composer after a transient publish failure so tapping "Try again" never
+    /// wipes the title/condition/description the user just typed (US-1006).
+    static func merging(_ edits: ComposerEdits, into base: PublishSummary) -> PublishSummary {
+        let note = edits.conditionDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PublishSummary(
+            title: edits.title,
+            description: edits.description,
+            condition: edits.condition.rawValue,
+            conditionDescription: note.isEmpty ? nil : note,
+            priceValue: base.priceValue,
+            currency: base.currency
+        )
+    }
 }
 
 /// `POST /api/flipdesk/ebay/listings/push` success response (HTTP 200).

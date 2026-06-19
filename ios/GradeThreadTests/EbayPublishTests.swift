@@ -126,4 +126,75 @@ final class EbayPublishTests: XCTestCase {
         XCTAssertEqual(PublishOutcome.blockers(["a", "b"]), .blockers(["a", "b"]))
         XCTAssertNotEqual(PublishOutcome.failed(message: "x"), .failed(message: "y"))
     }
+
+    // MARK: - Edit-preservation on retry (US-1006)
+
+    private func sampleSummary() -> PublishSummary {
+        PublishSummary(
+            title: "Server title",
+            description: "Server description",
+            condition: "USED_GOOD",
+            conditionDescription: "server note",
+            priceValue: "42.00",
+            currency: "USD"
+        )
+    }
+
+    func test_publishSummaryMerging_keepsUserEdits_andBasePrice() {
+        let edits = ComposerEdits(
+            title: "My edited title",
+            condition: .likeNew,
+            conditionDescription: "  light wear at cuffs  ",
+            description: "My edited description"
+        )
+        let merged = PublishSummary.merging(edits, into: sampleSummary())
+
+        // User edits win for the text fields...
+        XCTAssertEqual(merged.title, "My edited title")
+        XCTAssertEqual(merged.description, "My edited description")
+        XCTAssertEqual(merged.condition, "LIKE_NEW")
+        // ...condition note is trimmed.
+        XCTAssertEqual(merged.conditionDescription, "light wear at cuffs")
+        // ...while price + currency stay anchored to the validated base.
+        XCTAssertEqual(merged.priceValue, "42.00")
+        XCTAssertEqual(merged.currency, "USD")
+    }
+
+    func test_publishSummaryMerging_blankConditionNote_becomesNil() {
+        let edits = ComposerEdits(
+            title: "t",
+            condition: .usedExcellent,
+            conditionDescription: "   ",
+            description: "d"
+        )
+        let merged = PublishSummary.merging(edits, into: sampleSummary())
+        XCTAssertNil(merged.conditionDescription)
+    }
+
+    func test_publishSummaryMerging_roundTripsThroughComposerCondition() {
+        // Every EbayCondition rawValue must resolve back to the same case so the
+        // re-hydrated composer shows the user's pick, not the default.
+        for option in EbayCondition.allCases {
+            let edits = ComposerEdits(
+                title: "t", condition: option, conditionDescription: "", description: "d"
+            )
+            let merged = PublishSummary.merging(edits, into: sampleSummary())
+            XCTAssertEqual(EbayCondition.resolve(merged.condition), option)
+        }
+    }
+
+    // MARK: - Offline classification (US-1006)
+
+    func test_networkFailureMessage_offlineErrorIsFriendly() {
+        let offline = URLError(.notConnectedToInternet)
+        XCTAssertEqual(
+            EbayPublishService.networkFailureMessage(offline),
+            "You're offline. Check your connection and try again."
+        )
+    }
+
+    func test_networkFailureMessage_nonOfflineKeepsDescription() {
+        struct Boom: LocalizedError { var errorDescription: String? { "kaboom" } }
+        XCTAssertEqual(EbayPublishService.networkFailureMessage(Boom()), "kaboom")
+    }
 }

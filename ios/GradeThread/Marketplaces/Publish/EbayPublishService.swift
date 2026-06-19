@@ -29,7 +29,7 @@ public final class EbayPublishService {
         } catch let error as PublishHTTPError {
             return outcome(from: error)
         } catch {
-            return .failed(message: error.localizedDescription)
+            return .failed(message: Self.networkFailureMessage(error))
         }
     }
 
@@ -57,7 +57,7 @@ public final class EbayPublishService {
         } catch let error as PublishHTTPError {
             return outcome(from: error)
         } catch {
-            return .failed(message: error.localizedDescription)
+            return .failed(message: Self.networkFailureMessage(error))
         }
     }
 
@@ -75,7 +75,7 @@ public final class EbayPublishService {
         } catch let error as PublishHTTPError {
             return outcome(from: error)
         } catch {
-            return .failed(message: error.localizedDescription)
+            return .failed(message: Self.networkFailureMessage(error))
         }
     }
 
@@ -120,7 +120,7 @@ public final class EbayPublishService {
             let parsed = try? JSONDecoder().decode(EdgeErrorBody.self, from: error.body)
             return .failed(message: parsed?.message ?? "Unexpected error (HTTP \(error.statusCode)).")
         } catch {
-            return .failed(message: error.localizedDescription)
+            return .failed(message: Self.networkFailureMessage(error))
         }
     }
 
@@ -138,13 +138,23 @@ public final class EbayPublishService {
         } catch let error as PublishHTTPError {
             return outcome(from: error)
         } catch {
-            return .failed(message: error.localizedDescription)
+            return .failed(message: Self.networkFailureMessage(error))
         }
     }
 
     // MARK: - Internals
 
     private struct EmptyBody: Encodable {}
+
+    /// Friendly copy for a transport-layer failure (no HTTP status reached us).
+    /// Classifies offline/DNS/timeout via ``FriendlyErrorCopy`` so the publish
+    /// surfaces "you're offline" instead of a raw `URLError` string (US-1006);
+    /// any other failure keeps its localized description.
+    nonisolated static func networkFailureMessage(_ error: Error) -> String {
+        FriendlyErrorCopy.isOffline(error)
+            ? "You're offline. Check your connection and try again."
+            : error.localizedDescription
+    }
 
     /// 4xx/5xx that the typed PublishOutcome cases want to surface
     /// individually. We don't reuse EdgeAPIError because we need the
