@@ -3306,3 +3306,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:01:19 PM
 ---
+## US-987: iOS: recover gracefully from a corrupt SwiftData store instead of fatalError
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:05:45 PM
+---

@@ -1636,7 +1636,7 @@
         "Normal launches are unaffected."
       ],
       "priority": 987,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=stability. ios/GradeThread/App.swift (~34 fatalError)"
     },
     {
