@@ -43,6 +43,7 @@ import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-v
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
+import { RelistSuggestionCard } from "@/components/passport/relist-suggestion-card";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 
 // US-1075: dollar floor for the "grade this to boost trust" cross-surface nudge.
@@ -193,6 +194,11 @@ export function FlipdeskItemPage() {
         title={item.item_title}
         grade={item.grade_value}
       />
+
+      {/* US-1099: relist detection — if these listing photos visually match a
+          garment we've already graded, suggest continuing its passport chain
+          (suggestion-only; never auto-links). */}
+      <RelistSuggestionCard itemId={item.id} />
 
       {/* Auto-Disclosure Engine: condition & flaws + annotated defect photos. */}
       <DisclosurePanel itemId={item.id} />
