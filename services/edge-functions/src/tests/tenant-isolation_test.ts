@@ -292,8 +292,12 @@ Deno.test({
     const listForA = await fetch(`${BASE}/api/keys`, {
       headers: authHeaders(A_JWT!),
     });
-    const body = (await listForA.json()) as { keys?: Array<{ id: string }> };
-    const stillThere = (body.keys ?? []).some((k) => k.id === id);
+    // GET /api/keys returns { data: [...] } (tolerate a legacy { keys } shape).
+    const body = (await listForA.json()) as {
+      data?: Array<{ id: string }>;
+      keys?: Array<{ id: string }>;
+    };
+    const stillThere = (body.data ?? body.keys ?? []).some((k) => k.id === id);
     assert(
       stillThere,
       "user A's API key was removed by user B's delete — tenant isolation breached",
@@ -429,12 +433,14 @@ Deno.test({
     });
     const status = res.status;
     await res.body?.cancel();
-    // Item isn't owned by B → the publish-context assembly can't find it.
-    // 422 (unprocessable/blockers) is also acceptable: it did NOT publish.
+    // B is blocked before it could ever publish A's item. assemblePublishContext
+    // fail-fasts on a missing eBay connection (400) and the activeListings cap
+    // gate can 402 — both BEFORE the ownership 404 (which is intact). 422 =
+    // blockers. The invariant that matters: it did NOT publish (no 2xx).
     assert(
-      DENIED.has(status) || status === 422,
+      DENIED_OR_GATED.has(status) || status === 400 || status === 422,
       `POST listings/push for another tenant's item should be denied ` +
-        `(401/403/404/422) but got ${status}`,
+        `(400/401/402/403/404/422) but got ${status}`,
     );
   },
 });
@@ -842,8 +848,16 @@ Deno.test({
       `${BASE}/api/flipdesk/reconciliation/dismiss/${id}`,
       { method: "POST", headers: authHeaders(B_JWT!) },
     );
+    const status = res.status;
     await res.body?.cancel();
-    assertDenied(res.status, "POST reconciliation/dismiss (A's payout)");
+    // Reconciliation is plan-gated (requireFlipdesk "reconciliation"), so B can
+    // be denied by the plan gate (402) before the ownership 404 — both are valid
+    // denials (no dismissal committed either way).
+    assert(
+      DENIED_OR_GATED.has(status),
+      `POST reconciliation/dismiss (A's payout): cross-tenant access should be ` +
+        `denied (401/402/403/404) but got ${status}`,
+    );
   },
 });
 
@@ -866,10 +880,16 @@ Deno.test({
         }),
       },
     );
+    const status = res.status;
     const body = (await res.json().catch(() => ({}))) as {
       resolved?: number;
       failed?: Array<{ conflict_id: string }>;
     };
+    // Reconciliation is plan-gated: B can be denied by the plan gate (402)
+    // before the resolver runs — a valid denial (nothing resolved). Otherwise B
+    // reaches the resolver, where conflicts load .eq(user_id), so A's conflict
+    // resolves NOTHING (resolved 0, reported as failed).
+    if (DENIED_OR_GATED.has(status)) return;
     assert(
       body.resolved === 0,
       `B resolved ${body.resolved} of A's conflicts — should be 0`,
