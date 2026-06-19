@@ -2057,7 +2057,7 @@
         "Sign-out -> sign-in shows no residual upload progress (test)."
       ],
       "priority": 1018,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=stability. ios/GradeThread/Upload/PhotoUploadService.swift (cancelAll ~155-171)"
     },
     {
