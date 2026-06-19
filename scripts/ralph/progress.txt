@@ -3442,3 +3442,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  3:24:45 AM
 ---
+## US-953: Per-item tier selection in bulk grading
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  3:39:25 AM
+---

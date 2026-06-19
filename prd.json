@@ -1129,7 +1129,7 @@
         "Typecheck passes"
       ],
       "priority": 953,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/bulk-submission.tsx (validateRow ~83-110, submit loop ~246-336), services/edge-functions/src/routes/grade.ts (/submit already accepts tier, defaults standard ~222). Tenant-scope each submission (US-268)."
     },
     {
