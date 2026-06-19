@@ -1176,7 +1176,7 @@
         "Typecheck passes"
       ],
       "priority": 956,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: services/edge-functions/src/routes/flipdesk-autolister.ts (generation sets price_is_estimated), src/pages/flipdesk/autolister-drafts.tsx + autolister-bulk-edit.tsx (badge render). Small, high-signal cleanup."
     },
     {

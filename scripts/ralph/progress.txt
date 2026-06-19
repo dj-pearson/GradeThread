@@ -3430,3 +3430,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  2:39:44 AM
 ---
+## US-956: Clear the estimated-price flag when AI price confidence is high
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  2:54:57 AM
+---
