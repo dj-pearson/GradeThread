@@ -1799,7 +1799,7 @@
         "Existing item-targeted routes unchanged; PushNotificationTests updated."
       ],
       "priority": 999,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional. ios/GradeThread/Notifications/NotificationDelegate.swift (~67-90)"
     },
     {

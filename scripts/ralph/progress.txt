@@ -3258,3 +3258,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:16:34 PM
 ---
+## US-999: iOS: notification deep-links for offers/messages and grade-ready-without-id
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:21:09 PM
+---
