@@ -3210,3 +3210,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:32:46 PM
 ---
+## US-1011: iOS: mark Title required and explain the disabled Save in manual intake
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:34:42 PM
+---

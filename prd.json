@@ -1966,7 +1966,7 @@
         "DetailsIntakeTests updated."
       ],
       "priority": 1011,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ux. ios/GradeThread/DetailsIntake/DetailsIntakeView.swift (~165,332-349); IntakeFormState.swift (~35-37)"
     },
     {
