@@ -1993,7 +1993,7 @@
         "creationDate() is removed or only invoked when library access is already authorized."
       ],
       "priority": 1013,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security/privacy. ios/GradeThread/Capture/PhotoLibraryPicker.swift (~9-12,24,75-79)"
     },
     {
