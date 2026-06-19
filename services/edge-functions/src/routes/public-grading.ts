@@ -6,6 +6,10 @@ import {
   type PublicTransparencyReport,
 } from "../lib/accuracy-tracking.ts";
 import { getIndexCurveBySlug, getIndexHub } from "../lib/condition-index.ts";
+import {
+  computeResaleConditionReport,
+  type ResaleConditionReport,
+} from "../lib/resale-condition.ts";
 
 // Public, UNAUTHENTICATED grading-transparency surface (US-326).
 //
@@ -66,6 +70,36 @@ publicGradingRoutes.get("/stats", async (c) => {
     // US-580: unauthenticated surface — log server-side, return a generic body.
     console.error(
       "public-grading /stats:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Internal error" }, 500);
+  }
+});
+
+// ── State of Resale Condition report (US-976) ────────────────────────
+// Public, UNAUTHENTICATED, aggregate-only data report on how a garment's
+// condition grade relates to resale outcomes (return rate, sell-through, and
+// median resale price by grade band). The strongest GEO lever: original,
+// citable statistics. Cached like /transparency — it scans items_full and moves
+// slowly. See computeResaleConditionReport() for the aggregate-only safety
+// contract (no per-tenant rows; every rate sample-gated).
+const RESALE_CACHE_TTL_MS = 15 * 60 * 1000;
+let resaleCache: { at: number; report: ResaleConditionReport } | null = null;
+
+// GET /resale-condition-report — return rate, sell-through + value by grade band.
+publicGradingRoutes.get("/resale-condition-report", async (c) => {
+  try {
+    const now = Date.now();
+    if (!resaleCache || now - resaleCache.at > RESALE_CACHE_TTL_MS) {
+      resaleCache = { at: now, report: await computeResaleConditionReport() };
+    }
+    return c.json(resaleCache.report, 200, {
+      "Cache-Control": "public, max-age=600, s-maxage=900",
+    });
+  } catch (err) {
+    // US-580: unauthenticated surface — log server-side, return a generic body.
+    console.error(
+      "public-grading /resale-condition-report:",
       err instanceof Error ? err.message : String(err),
     );
     return c.json({ error: "Internal error" }, 500);

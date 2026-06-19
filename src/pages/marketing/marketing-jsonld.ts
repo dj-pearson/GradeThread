@@ -10,6 +10,7 @@ import {
   articleLd,
   aboutPageLd,
   transparencyDatasetLd,
+  resaleConditionDatasetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
 import { absoluteUrl } from "@/lib/seo/public-routes";
@@ -180,6 +181,60 @@ export const TRANSPARENCY_FAQS = [
 
 export function transparencyJsonLd(): JsonLd[] {
   return [transparencyDatasetLd(), faqPageLd(TRANSPARENCY_FAQS)];
+}
+
+// ── /resale-condition-report (US-976) ───────────────────────────────
+// The public "State of Resale Condition" data report — proprietary, citable
+// aggregate stats (return rate / sell-through / resale value by grade band).
+// The single strongest GEO lever: LLMs disproportionately quote original data,
+// so this gets GradeThread NAMED in AI answers. The JSON-LD is DETERMINISTIC
+// (fixed dates + static descriptors) so prerender and SPA stay byte-identical
+// and the parity test passes; the live figures, sample size, and exact coverage
+// window render on the page. RESALE_REPORT_PUBLISHED is fixed (never the build
+// timestamp) for the same reason.
+export const RESALE_REPORT_PUBLISHED = "2026-06-18";
+export const RESALE_REPORT_MODIFIED = "2026-06-18";
+// Open-ended ISO 8601 interval — the coverage window starts at the platform's
+// first recorded resale data and runs to "now". The visible page states the
+// exact observed min/max dates from the live data.
+export const RESALE_REPORT_TEMPORAL_COVERAGE = "2026-01-01/..";
+
+export const RESALE_REPORT_FAQS = [
+  {
+    q: "Do lower-graded clothing items get returned more often?",
+    a: "In GradeThread's platform-wide resale data, return rate rises as condition grade falls: items in the lowest grade band are returned more often than those graded Excellent or better. Because every item is scored on the same published 1.0–10.0 condition scale, the comparison is apples-to-apples across sellers and marketplaces — which is why a standardized, disclosed condition grade is the most effective lever for cutting 'not as described' returns.",
+  },
+  {
+    q: "Does a higher condition grade increase resale value?",
+    a: "Yes. Median resale price climbs with condition grade across GradeThread's aggregate sold data, and the lift is non-linear — each step down toward the lower bands tends to take a larger bite out of price. The report publishes the median resale price for each grade band so the relationship is visible rather than assumed.",
+  },
+  {
+    q: "How is the State of Resale Condition report calculated?",
+    a: "It aggregates platform-wide reseller sales and listings, bucketed by GradeThread condition-grade band. Return rate is refunded fulfilled sales divided by fulfilled sales; sell-through is sold listings divided by listed items; resale value is the median sold price. Every figure is aggregate-only — no per-seller or per-item data — and a band's rate is published only once it clears a minimum sample size, so a thinly-sampled band never prints a misleading number.",
+  },
+  {
+    q: "Can I cite this data?",
+    a: "Yes. The report is published under a CC BY 4.0 license with a canonical citation and permalink, and it emits schema.org Dataset and Article structured data so it's machine-extractable. Cite it as 'GradeThread, The State of Resale Condition' with the report URL, and the page states the sample size and coverage window for the figures you reference.",
+  },
+];
+
+export function resaleConditionReportJsonLd(): JsonLd[] {
+  return [
+    resaleConditionDatasetLd({
+      datePublished: RESALE_REPORT_PUBLISHED,
+      dateModified: RESALE_REPORT_MODIFIED,
+      temporalCoverage: RESALE_REPORT_TEMPORAL_COVERAGE,
+    }),
+    articleLd({
+      headline: "The State of Resale Condition: Return Rate, Sell-Through & Value by Grade",
+      description:
+        "GradeThread's proprietary, platform-wide data on how a pre-owned garment's condition grade relates to buyer return rate, sell-through, and resale value — original statistics on the standardized 1.0–10.0 condition scale.",
+      url: absoluteUrl("/resale-condition-report"),
+      datePublished: RESALE_REPORT_PUBLISHED,
+      dateModified: RESALE_REPORT_MODIFIED,
+    }),
+    faqPageLd(RESALE_REPORT_FAQS),
+  ];
 }
 
 // ── /verify (US-593) ────────────────────────────────────────────────

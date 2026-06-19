@@ -184,6 +184,66 @@ export function transparencyDatasetLd(): JsonLd {
 }
 
 /**
+ * Dataset descriptor for the public "State of Resale Condition" report
+ * (US-976). Models GradeThread's proprietary aggregate stats — return rate by
+ * grade band, sell-through by grade band, and median resale price by grade band
+ * — as a schema.org Dataset so AI answer engines and journalists can extract
+ * and CITE them by name (the strongest GEO lever: original data). Deterministic
+ * (fixed dates + static descriptors, no live numbers) so the prerendered head
+ * and the live SPA emit byte-identical structured data; the figures, sample
+ * size, and exact coverage window render on the page itself.
+ *
+ * `datePublished`/`dateModified` are fixed YYYY-MM-DD strings, and
+ * `temporalCoverage` is the (open-ended) coverage window as an ISO 8601
+ * interval — the machine-readable "date range" a citation needs.
+ */
+export function resaleConditionDatasetLd(opts: {
+  datePublished: string;
+  dateModified: string;
+  temporalCoverage: string;
+}): JsonLd {
+  const canonical = `${SITE_URL}/resale-condition-report`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "@id": `${canonical}#dataset`,
+    name: "The State of Resale Condition — GradeThread Data Report",
+    description:
+      "Proprietary, platform-wide statistics on how a pre-owned garment's condition grade relates to real-world resale outcomes: buyer return rate by grade band, sell-through rate by grade band, and median resale price by grade band, on the standardized GradeThread 1.0–10.0 condition scale. Aggregate-only (no per-seller or per-item data) and sample-gated; refreshed continuously as new sales and listings are recorded. The page states the exact sample size and coverage window.",
+    url: canonical,
+    creator: { "@id": ORG_ID },
+    publisher: { "@id": ORG_ID },
+    isAccessibleForFree: true,
+    license: "https://creativecommons.org/licenses/by/4.0/",
+    datePublished: opts.datePublished,
+    dateModified: opts.dateModified,
+    temporalCoverage: opts.temporalCoverage,
+    measurementTechnique:
+      "Platform-wide aggregation of reseller sales and listings (the items_full fact view) bucketed by GradeThread condition-grade band. Return rate = refunded fulfilled sales / fulfilled sales; sell-through = sold listings / listed items; resale value = median sold price; each rate published only when its band clears a minimum sample size.",
+    variableMeasured: [
+      "Buyer return rate by condition-grade band",
+      "Sell-through rate by condition-grade band",
+      "Median resale price by condition-grade band",
+      "Graded vs. ungraded buyer return rate",
+    ],
+    keywords: [
+      "pre-owned clothing resale",
+      "condition grading",
+      "return rate by condition",
+      "sell-through by condition",
+      "resale value by condition",
+    ],
+    distribution: [
+      {
+        "@type": "DataDownload",
+        encodingFormat: "application/json",
+        contentUrl: "https://functions.gradethread.com/api/grading/public/resale-condition-report",
+      },
+    ],
+  };
+}
+
+/**
  * Article node for the cornerstone pillar pages (US-855). These are durable,
  * hand-curated authority pages, so we model each as an Article authored and
  * published by the GradeThread Organization (referenced by @id — the page's

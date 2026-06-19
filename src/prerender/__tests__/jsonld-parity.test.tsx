@@ -16,6 +16,7 @@ import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
 import { TransparencyPage } from "@/pages/marketing/transparency";
+import { ResaleConditionReportPage } from "@/pages/marketing/resale-condition-report";
 import { WhatsItWorthPage } from "@/pages/marketing/whats-it-worth";
 import { ReduceReturnsPage } from "@/pages/marketing/reduce-returns";
 import { ResellerGradingGuidePage } from "@/pages/marketing/reseller-grading-guide";
@@ -100,6 +101,7 @@ const CASES: Array<[string, ComponentType<Record<string, unknown>>, string]> = [
   ["condition-grading", ConditionGradingPage, "/condition-grading"],
   ["grading-standard", GradingStandardPage, "/grading-standard"],
   ["transparency", TransparencyPage, "/transparency"],
+  ["resale-condition-report", ResaleConditionReportPage, "/resale-condition-report"],
   ["whats-it-worth", WhatsItWorthPage, "/whats-it-worth"],
   ["reduce-returns", ReduceReturnsPage, "/reduce-returns"],
   ["reseller-grading-guide", ResellerGradingGuidePage, "/reseller-grading-guide"],

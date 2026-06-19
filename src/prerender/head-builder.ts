@@ -33,6 +33,7 @@ import {
   conditionGradingJsonLd,
   gradingStandardJsonLd,
   transparencyJsonLd,
+  resaleConditionReportJsonLd,
   verifyJsonLd,
   whatsItWorthJsonLd,
   reduceReturnsJsonLd,
@@ -83,6 +84,9 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/condition-grading": conditionGradingJsonLd,
   "/grading-standard": gradingStandardJsonLd,
   "/transparency": transparencyJsonLd,
+  // US-976: public "State of Resale Condition" data report (Dataset + Article +
+  // FAQPage). Deterministic JSON-LD so prerender == SPA (parity test covers it).
+  "/resale-condition-report": resaleConditionReportJsonLd,
   "/verify": verifyJsonLd,
   "/whats-it-worth": whatsItWorthJsonLd,
   // Cornerstone pillar pages (US-855): Article + FAQPage.

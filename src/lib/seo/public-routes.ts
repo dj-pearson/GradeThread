@@ -61,6 +61,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/condition-grading": "2026-06-01",
   "/grading-standard": "2026-06-01",
   "/transparency": "2026-06-01",
+  "/resale-condition-report": "2026-06-18",
   "/verify": "2026-06-12",
   "/verified": "2026-06-13",
   "/developers": "2026-06-12",
@@ -158,6 +159,20 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "Grading Accuracy & Transparency Report",
     description:
       "GradeThread's published grading accuracy versus expert reviewers: AI-vs-human agreement, mean error, model confidence, and buyer dispute rate.",
+    changefreq: "weekly",
+    priority: 0.8,
+    jsonLdType: "Dataset",
+  },
+  {
+    // US-976: public "State of Resale Condition" data report — proprietary,
+    // citable aggregate stats (return rate / sell-through / resale value by
+    // grade band). The strongest GEO lever (LLMs disproportionately quote
+    // original data). Figures load client-side from the aggregate-only edge
+    // endpoint; the prerendered shell carries the methodology + Dataset JSON-LD.
+    path: "/resale-condition-report",
+    title: "State of Resale Condition Report",
+    description:
+      "Original GradeThread data on how a garment's condition grade drives buyer return rate, sell-through, and resale value on the standardized 1.0–10.0 scale.",
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "Dataset",

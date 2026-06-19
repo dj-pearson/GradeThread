@@ -38,6 +38,7 @@ import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
 import { TransparencyPage } from "@/pages/marketing/transparency";
+import { ResaleConditionReportPage } from "@/pages/marketing/resale-condition-report";
 import { VerifyGradePage } from "@/pages/marketing/verify";
 import { DevelopersPage } from "@/pages/marketing/developers";
 import { WhatsItWorthPage } from "@/pages/marketing/whats-it-worth";
@@ -64,6 +65,9 @@ const PAGES: Record<string, React.ReactNode> = {
   "/condition-grading": <ConditionGradingPage />,
   "/grading-standard": <GradingStandardPage />,
   "/transparency": <TransparencyPage />,
+  // US-976: public "State of Resale Condition" data report. Figures load
+  // client-side; the prerendered shell carries the methodology + Dataset JSON-LD.
+  "/resale-condition-report": <ResaleConditionReportPage />,
   "/verify": <VerifyGradePage />,
   "/developers": <DevelopersPage />,
   "/whats-it-worth": <WhatsItWorthPage />,
