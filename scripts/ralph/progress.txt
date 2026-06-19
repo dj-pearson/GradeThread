@@ -3422,3 +3422,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  2:09:32 AM
 ---
+## US-958: Unify listings, grid, and pipeline into one surface with shared state
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  2:25:47 AM
+---

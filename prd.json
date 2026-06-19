@@ -1207,7 +1207,7 @@
         "Typecheck passes"
       ],
       "priority": 958,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/{listings,grid,pipeline}.tsx. Builds on inventory consolidation (US-740) and sidebar IA (US-743). Pairs with virtualization (US-733). Largest of the manage stories — may warrant splitting during planning."
     },
     {
