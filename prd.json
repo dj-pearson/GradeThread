@@ -1841,7 +1841,7 @@
         "Existing SalePnL rollup output unchanged; tests added."
       ],
       "priority": 1002,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/data-integrity. ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (~629,661-663); Money/MoneyMath.swift"
     },
     {

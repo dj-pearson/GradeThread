@@ -3246,3 +3246,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:02:25 PM
 ---
+## US-1002: iOS: unify eBay publish profit/price math through Money/MoneyMath
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:09:11 PM
+---
