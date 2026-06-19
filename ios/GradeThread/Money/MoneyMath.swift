@@ -24,6 +24,16 @@ enum Money {
         return rounded
     }
 
+    /// Cents-normalized `Double`: the exact 2-dp value re-entered as a `Double`,
+    /// rounded the SAME way (`NSDecimalRound .plain`) the drift-free rollups
+    /// round each amount. Use at boundaries that must agree with those rollups
+    /// to the cent — e.g. a listing price before it's sent to eBay, or a single
+    /// profit estimate shown next to the Money tab's realized net. Single values
+    /// don't need `sum`, but they DO need to round identically to it.
+    static func cents(_ dollars: Double) -> Double {
+        decimal(dollars).currencyDouble
+    }
+
     /// Drift-free sum of `Double` dollar amounts, as an exact `Decimal`.
     static func sumDecimal<S: Sequence>(_ amounts: S) -> Decimal
     where S.Element == Double {

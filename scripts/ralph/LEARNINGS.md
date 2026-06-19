@@ -65,6 +65,16 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- `Money.cents(_:)` (Money/MoneyMath.swift) is the shared cents-normalization
+  primitive — `NSDecimalRound .plain` to 2dp, returned as `Double`. Route ANY
+  single money value through it at a boundary that must agree with the drift-free
+  rollups to the cent (listing price before push, a profit estimate shown beside
+  the Money tab). The Money tab rounds each sale's realized net via `Money.sum`
+  over `SalePnL.net`; a composer estimate matches it only if its displayed net is
+  `Money.cents(net)` — raw Double + `%.2f` can disagree on .xx5 boundaries
+  (NSDecimalRound rounds half-away, printf rounds half-even). Keep
+  `ListingProfit.estimate` itself raw (it mirrors the web `estimateListingProfit`
+  field-for-field); round only at the display boundary (`netCents`/`feesCents`).
 - Dynamic-Type-scale an SF Symbol glyph with `.scaledIconFont(size:weight:relativeTo:maxSize:)`
   (Accessibility/ScaledIconFont.swift) — NOT `.font(.system(size:))`, which pins
   the glyph to a fixed point size that ignores accessibility text settings. There

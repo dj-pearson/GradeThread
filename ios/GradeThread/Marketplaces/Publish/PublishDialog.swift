@@ -678,9 +678,12 @@ private struct ComposerForm: View {
 
     @ViewBuilder
     private var profitEstimate: some View {
-        // Locale-tolerant parse so "24,99"/"$25" estimate correctly; 0 is fine
+        // Locale-tolerant parse so "24,99"/"$25" estimate correctly, then
+        // cents-normalize through `Money` so the figure rounds identically to
+        // the listing price that's persisted/pushed AND to the Money tab's
+        // realized net for an equivalent completed sale (US-1002). 0 is fine
         // here (display-only — the insert path validates before persisting, US-789).
-        let price = CurrencyFormatter().parse(summary.priceValue) ?? 0
+        let price = Money.cents(CurrencyFormatter().parse(summary.priceValue) ?? 0)
         let estimate = ListingProfit.estimate(price: price, costBasis: acquiredCost)
         HStack(alignment: .firstTextBaseline) {
             Text("Est. net profit")
@@ -688,7 +691,7 @@ private struct ComposerForm: View {
                 .foregroundStyle(.secondary)
             Spacer()
             VStack(alignment: .trailing, spacing: 1) {
-                Text("\(Self.dollars(estimate.net)) · \(Int(estimate.marginPct.rounded()))% margin")
+                Text("\(Self.dollars(estimate.netCents)) · \(Int(estimate.marginPctCents(price: price).rounded()))% margin")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(profitColor(estimate))
                 Text(profitDetail(estimate))
@@ -699,13 +702,13 @@ private struct ComposerForm: View {
     }
 
     private func profitColor(_ estimate: ListingProfit) -> Color {
-        if estimate.net < 0 { return .brandRed }
+        if estimate.netCents < 0 { return .brandRed }
         if estimate.marginPct < 20 { return .brandAmber }
         return .brandEmerald
     }
 
     private func profitDetail(_ estimate: ListingProfit) -> String {
-        var parts = ["eBay fees ~\(Self.dollars(estimate.fees))"]
+        var parts = ["eBay fees ~\(Self.dollars(estimate.feesCents))"]
         if acquiredCost == nil {
             parts.append("add cost for true margin")
         }

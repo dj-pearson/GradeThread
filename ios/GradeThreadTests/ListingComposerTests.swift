@@ -44,6 +44,81 @@ final class ListingComposerTests: XCTestCase {
         XCTAssertEqual(e.costs, 0)
     }
 
+    // MARK: - US-1002: composer estimate ↔ Money tab parity
+
+    /// UTC calendar + fixed `now` so the Money rollup's month filter is
+    /// deterministic regardless of the runner's timezone (mirrors MoneyRollupTests).
+    private let cal: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
+    private let now = Date(timeIntervalSince1970: 1_700_000_000) // mid-Nov 2023
+
+    /// The composer's est. net profit must equal the Money tab's realized net for
+    /// an equivalent completed sale, to the cent — both routed through `Money`.
+    func test_composerNet_matchesMoneyTabNet_forEquivalentSale() {
+        let cost = 12.34
+        for price in [24.99, 50.0, 100.10, 7.77, 250.25, 19.95] {
+            let estimate = ListingProfit.estimate(price: price, costBasis: cost)
+
+            // The "equivalent completed sale": same price, fees equal to the
+            // estimate's fees, the item's acquired price as cost basis, and no
+            // shipping/grading/other costs.
+            let item = LocalInventoryItem(id: "i", userId: "u", title: "t", status: "sold")
+            item.acquiredPrice = cost
+            let sale = LocalSale(
+                id: "s",
+                inventoryItemId: "i",
+                salePrice: price,
+                saleDate: now,
+                platformFees: estimate.fees
+            )
+            let metrics = MoneyRollup.compute(items: [item], sales: [sale], now: now, calendar: cal)
+
+            // Exact equality: both sides are `Money.cents` of the identical net.
+            XCTAssertEqual(
+                estimate.netCents, metrics.grossProfitThisMonth,
+                "composer net must equal Money tab net to the cent for price \(price)"
+            )
+        }
+    }
+
+    /// The cents primitive both surfaces share rounds to whole cents, half away
+    /// from zero — the same `NSDecimalRound .plain` the drift-free rollups use.
+    func test_moneyCents_roundsToWholeCents() {
+        XCTAssertEqual(Money.cents(24.999), 25.00, accuracy: 0.0001)
+        XCTAssertEqual(Money.cents(24.994), 24.99, accuracy: 0.0001)
+        XCTAssertEqual(Money.cents(0.005), 0.01, accuracy: 0.0001)
+        // Idempotent: re-normalizing a cents value is a no-op.
+        XCTAssertEqual(Money.cents(Money.cents(24.999)), 25.00, accuracy: 0.0001)
+    }
+
+    /// The price persisted/pushed is cents-normalized — it carries no sub-cent
+    /// binary-float tail (re-normalizing it is a no-op) rather than seeding a
+    /// drifting listing price.
+    func test_validatedListingPrice_returnsCentsExactValue() throws {
+        let usd = CurrencyFormatter(locale: Locale(identifier: "en_US"))
+        let price = try ListingDraftService.validatedListingPrice("24.99", formatter: usd)
+        XCTAssertEqual(price, Money.cents(price), accuracy: 0.0, "pushed price is cents-exact")
+        XCTAssertEqual(price, 24.99, accuracy: 0.0001)
+    }
+
+    /// Locale inputs like "24,99" round identically across both surfaces (the
+    /// composer estimate's price and the pushed listing price).
+    func test_localePrice_roundsIdenticallyAcrossSurfaces() throws {
+        let de = CurrencyFormatter(locale: Locale(identifier: "de_DE")) // comma decimal
+        let us = CurrencyFormatter(locale: Locale(identifier: "en_US"))
+
+        let deCents = Money.cents(try XCTUnwrap(de.parse("24,99")))
+        let usCents = Money.cents(try XCTUnwrap(us.parse("24.99")))
+        XCTAssertEqual(deCents, usCents, accuracy: 0.0, "comma + dot inputs normalize to the same cents")
+
+        // The listing-price path agrees with that normalized value.
+        let listingPrice = try ListingDraftService.validatedListingPrice("24,99", formatter: de)
+        XCTAssertEqual(listingPrice, deCents, accuracy: 0.0)
+    }
+
     // MARK: - ListingCopy decoding
 
     func test_listingCopy_decodes_ignoringExtraKeys() throws {

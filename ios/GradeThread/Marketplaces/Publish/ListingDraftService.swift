@@ -30,16 +30,22 @@ struct ListingDraftService {
         }
     }
 
-    /// Parse a composer-supplied price string into a positive amount, or throw.
-    /// Uses the locale-tolerant currency parser (handles "$25", "24,99", and
-    /// grouping separators) and rejects nil/zero/negative results — the guard
-    /// that stops a $0 listing from being persisted (US-789). `formatter` is
-    /// injectable so tests can pin a locale.
+    /// Parse a composer-supplied price string into a positive, cents-normalized
+    /// amount, or throw. Uses the locale-tolerant currency parser (handles
+    /// "$25", "24,99", and grouping separators), then rounds through ``Money``
+    /// so the price sent to eBay carries no binary-float tail and rounds
+    /// identically to the composer's profit estimate (US-1002). Rejects
+    /// nil/zero/negative results — the guard that stops a $0 listing from being
+    /// persisted (US-789). `formatter` is injectable so tests can pin a locale.
     nonisolated static func validatedListingPrice(
         _ priceValue: String,
         formatter: CurrencyFormatter = CurrencyFormatter()
     ) throws -> Double {
-        guard let price = formatter.parse(priceValue), price > 0 else {
+        guard let parsed = formatter.parse(priceValue) else {
+            throw ListingDraftError.invalidPrice(priceValue)
+        }
+        let price = Money.cents(parsed)
+        guard price > 0 else {
             throw ListingDraftError.invalidPrice(priceValue)
         }
         return price

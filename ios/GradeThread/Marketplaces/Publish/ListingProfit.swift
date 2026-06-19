@@ -43,3 +43,23 @@ public struct ListingProfit: Equatable {
         return ListingProfit(fees: fees, costs: costs, net: net, marginPct: marginPct)
     }
 }
+
+extension ListingProfit {
+    /// `net` rounded to whole cents through ``Money`` — the SAME rounding the
+    /// Money tab applies to each completed sale's realized P&L (`Money.sum` over
+    /// `SalePnL.net`). The composer displays THIS, not the raw `net`, so its
+    /// estimate matches the Money tab's net for an equivalent completed sale to
+    /// the cent (the raw `net` stays a faithful mirror of the web
+    /// `estimateListingProfit`; only the display boundary rounds).
+    var netCents: Double { Money.cents(net) }
+
+    /// `fees` rounded to whole cents for display alongside ``netCents``.
+    var feesCents: Double { Money.cents(fees) }
+
+    /// Margin recomputed from the cents-exact ``netCents`` so the shown "% margin"
+    /// agrees with the shown net (0 when there's no price to divide by).
+    func marginPctCents(price: Double) -> Double {
+        let p = Money.cents(price)
+        return p > 0 ? (netCents / p) * 100 : 0
+    }
+}
