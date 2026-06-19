@@ -34,6 +34,7 @@ import {
 } from "@/lib/seo/json-ld";
 import { LaunchBanner } from "@/components/launch-banner";
 import { StatCounters } from "@/components/marketing/stat-counters";
+import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
 import { WaitlistForm } from "@/components/waitlist-form";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import {
@@ -576,9 +577,13 @@ export function LandingPage() {
 
       {/* Hero */}
       <section className="relative flex flex-col items-center justify-center px-6 py-24 text-center lg:py-32 overflow-hidden">
-        {/* Ambient background glows */}
+        {/* Ambient background glows — also the static "poster" fallback shown
+            when the WebGL orb is gated off (mobile / reduced-motion / no GL). */}
         <div className="absolute top-1/4 left-1/2 -z-10 h-72 w-72 -translate-x-1/2 rounded-full bg-brand-red/10 blur-[100px]" />
         <div className="absolute bottom-1/4 left-1/3 -z-10 h-96 w-96 rounded-full bg-brand-navy/15 blur-[120px] dark:bg-brand-navy/35" />
+
+        {/* Animated WebGL "condition orb" — lazy, desktop-only, never blocks LCP. */}
+        <HeroBackdrop />
 
         <Badge variant="secondary" className="mb-6 text-sm font-medium border-brand-navy/10 dark:border-white/10 glass-card px-4 py-1.5 rounded-full">
           The condition-grading standard for resellers
