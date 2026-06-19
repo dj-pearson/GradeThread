@@ -1464,7 +1464,7 @@
         "Typecheck + build green; the image sitemap validates and is in the sitemap index."
       ],
       "priority": 975,
-      "passes": false,
+      "passes": true,
       "notes": "[SEO / Core Web Vitals] Added 2026-06-13. CF Image Resizing is currently DISABLED (responsive-image.tsx VITE_CF_IMAGE_RESIZING gate; see cf-image-resizing-disabled memory). Enabling Transformations is an OPS step in the Cloudflare dashboard — document it, do NOT block the story on it. Files: src/components/responsive-image.tsx, functions/_shared/sitemap.ts, new functions/sitemap-images.xml.ts, functions/sitemap.xml.ts. The CLS/alt/srcset code work is the deliverable; the flag flip is the human step."
     },
     {

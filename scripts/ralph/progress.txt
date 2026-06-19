@@ -3354,3 +3354,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:30:07 PM
 ---
+## US-975: Image-optimization readiness: explicit dimensions, srcset correctness, image sitemap
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:44:02 PM
+---
