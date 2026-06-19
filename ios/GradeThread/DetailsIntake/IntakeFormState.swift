@@ -36,6 +36,16 @@ public final class IntakeFormState {
         !title.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    /// Title is the lone gate on Save (see `canSubmit`). While it's blank the
+    /// form surfaces `titleRequiredHelp` so the user understands why both Save
+    /// buttons are disabled; the helper disappears once a title is entered.
+    public var isTitleMissing: Bool {
+        title.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Helper copy shown beneath the required Title field while it's empty.
+    public static let titleRequiredHelp = "A title is required to save"
+
     public init() {}
 
     /// "Save & Add another" reset: clears item-identity fields and

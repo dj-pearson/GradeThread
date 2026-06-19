@@ -59,6 +59,25 @@ final class DetailsIntakeTests: XCTestCase {
         XCTAssertTrue(form.canSubmit)
     }
 
+    func test_isTitleMissing_tracksTitle() {
+        let form = IntakeFormState()
+        // Empty title → the required helper should show.
+        XCTAssertTrue(form.isTitleMissing)
+
+        form.title = "   "
+        XCTAssertTrue(form.isTitleMissing, "whitespace-only title still counts as missing")
+
+        form.title = "Wool coat"
+        XCTAssertFalse(form.isTitleMissing, "helper hides once a title is entered")
+
+        // It's exactly the inverse of the Save gate.
+        XCTAssertEqual(form.isTitleMissing, !form.canSubmit)
+    }
+
+    func test_titleRequiredHelp_copy() {
+        XCTAssertEqual(IntakeFormState.titleRequiredHelp, "A title is required to save")
+    }
+
     func test_resetForBatchAddAnother_preservesSourcingContext() {
         let form = IntakeFormState()
         // Fill everything.

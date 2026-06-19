@@ -194,11 +194,29 @@ struct DetailsIntakeView: View {
 
     private var itemSection: some View {
         Section("Item") {
-            TextField("Title", text: $form.title)
-                .textInputAutocapitalization(.words)
-                .focused($focusedField, equals: .title)
-                .submitLabel(.next)
-                .onSubmit { focusedField = .sku }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    TextField("Title", text: $form.title)
+                        .textInputAutocapitalization(.words)
+                        .focused($focusedField, equals: .title)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .sku }
+                        .accessibilityLabel("Title, required")
+                    // Visual "required" marker — the field carries the label
+                    // for VoiceOver, so this stays decorative.
+                    Text("Required")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.brandRed)
+                        .accessibilityHidden(true)
+                }
+                if form.isTitleMissing {
+                    // Explains why both Save buttons are disabled; clears the
+                    // moment a title is typed.
+                    Text(IntakeFormState.titleRequiredHelp)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             HStack {
                 TextField("SKU", text: $form.sku)
