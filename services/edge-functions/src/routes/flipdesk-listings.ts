@@ -17,6 +17,7 @@ import {
   validateSiblingForPublish,
 } from "../lib/cross-listing-fields.ts";
 import { generatePlatformVariants } from "../lib/ai-listing.ts";
+import { recordRelist } from "../lib/passport-relist.ts";
 
 // Multi-marketplace cross-listing dispatch (US-149 + US-564).
 //
@@ -325,6 +326,11 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
         continue;
       }
       rowId = (created as { id: string }).id;
+
+      // US-1095: a NEW listing for a passport-linked item CONTINUES the chain —
+      // append a 'listed' event to the same garment (no new garment created;
+      // tenant-scoped via the item's owner). Best-effort, never blocks the push.
+      void recordRelist(draft.inventory_item_id, ownerId, platform);
     }
 
     // US-725: pre-flight the mapped sibling against the platform's requirements

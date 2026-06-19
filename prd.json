@@ -2916,7 +2916,7 @@
         "build + tsc + eslint + deno checks pass"
       ],
       "priority": 706,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Layer1] Closes the loop so resale-through-ecosystem extends the chain. Depends on [[US-1094]]. Touches FlipDesk autolister + embed-grade.tsx (US-596) + certificate.tsx."
     },
     {

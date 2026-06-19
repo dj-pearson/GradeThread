@@ -10,7 +10,7 @@
 // exposed through the embed.
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { ShieldCheck } from "lucide-react";
+import { History, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { GRADE_FACTORS } from "@/lib/constants";
 import type { PublicGradeReportRow, SubmissionRow } from "@/types/database";
@@ -36,6 +36,7 @@ export function EmbedGradePage() {
   const [params] = useSearchParams();
   const [report, setReport] = useState<PublicGradeReportRow | null>(null);
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
+  const [passportSlug, setPassportSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -74,6 +75,15 @@ export function EmbedGradePage() {
         .single();
       if (!active) return;
       if (subData) setSubmission(subData as SubmissionRow);
+      // US-1095: surface the Garment Passport link when the cert is chain-linked.
+      const { data: passportLink } = await supabase
+        .from("public_passport_links")
+        .select("passport_slug")
+        .eq("certificate_id", id)
+        .maybeSingle();
+      if (active && passportLink) {
+        setPassportSlug((passportLink as { passport_slug: string }).passport_slug);
+      }
       setLoading(false);
     })();
     return () => {
@@ -167,6 +177,24 @@ export function EmbedGradePage() {
               );
             })}
           </div>
+
+          {/* US-1095: Garment Passport link — lets a buyer open the full
+              provenance history (and claim the item after purchase). */}
+          {passportSlug && (
+            <a
+              href={
+                typeof window !== "undefined"
+                  ? `${window.location.origin}/passport/${passportSlug}`
+                  : `/passport/${passportSlug}`
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <History className="h-3.5 w-3.5" />
+              View Garment Passport — full history
+            </a>
+          )}
 
           {/* Attribution — keeps the result independently trustworthy even when
               branded. Links to the full GradeThread certificate. */}

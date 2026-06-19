@@ -3178,6 +3178,11 @@ export interface Database {
       public_grade_reports: {
         Row: PublicGradeReportRow;
       };
+      // US-1091: PII-free map from a public certificate_id to its Garment
+      // Passport slug (migration 00257).
+      public_passport_links: {
+        Row: { certificate_id: string; passport_slug: string };
+      };
     };
     Enums: {
       user_plan: UserPlan;
