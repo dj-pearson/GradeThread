@@ -3214,3 +3214,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:34:42 PM
 ---
+## US-1010: iOS: inline validation feedback on the login form
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:36:32 PM
+---

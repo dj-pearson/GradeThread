@@ -1952,7 +1952,7 @@
         "Valid input clears all hints."
       ],
       "priority": 1010,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ux/accessibility. ios/GradeThread/Auth/LoginView.swift (~136-137,194-197)"
     },
     {
