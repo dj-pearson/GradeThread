@@ -3374,3 +3374,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:24:35 AM
 ---
+## US-970: iOS: inline validation feedback for price and amount forms
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:30:50 AM
+---

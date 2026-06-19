@@ -1387,7 +1387,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 970,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Money/ExpenseFormSheet.swift (Save .disabled(parsedAmount==nil):65, no footer), ios/GradeThread/Marketplaces/Publish/ReviseListingSheet.swift (title cap/counter), ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (ComposerForm price/title). Extends US-754 beyond details intake; distinct from US-789 (the $0-draft bug, already fixed)."
     },
     {
