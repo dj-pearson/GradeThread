@@ -6,10 +6,14 @@ import UIKit
 /// SwiftUI host for `PHPickerViewController`. Multi-select up to
 /// `selectionLimit`, images only.
 ///
-/// PHPicker is the right pick (vs. the deprecated UIImagePickerController)
-/// because it does not require photo-library permission — the picker runs
-/// in a separate process and only the explicitly-selected images are
-/// handed back to us. No "Allow access to all photos?" prompt.
+/// We configure it with a bare `PHPickerConfiguration()` — NO
+/// `photoLibrary:` argument (US-1013). That keeps the picker fully
+/// out-of-process: it requires no photo-library permission, never shows
+/// the "Allow access to all photos?" prompt, and hands back only the
+/// explicitly-selected images. The tradeoff is that results carry no
+/// `assetIdentifier`, so we can't read PHAsset metadata (capture date) —
+/// callers fall back to `.now`. Not escalating to full-library access just
+/// to pick a few photos is the deliberate privacy win here.
 struct PhotoLibraryPicker: UIViewControllerRepresentable {
     /// Max number of images the user can pick in one pass. `0` means
     /// unlimited; we cap at 8 per the AC to keep the staging tray
@@ -21,7 +25,8 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
     let onResults: ([PHPickerResult]) -> Void
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
-        var config = PHPickerConfiguration(photoLibrary: .shared())
+        // Bare config (no `photoLibrary:`) → no library permission, no prompt.
+        var config = PHPickerConfiguration()
         config.selectionLimit = selectionLimit
         config.filter = .images
         // Skip the slow PHAsset → JPEG transcoding step — we already
@@ -66,14 +71,20 @@ extension PHPickerResult {
         }
     }
 
-    /// The picked asset's ORIGINAL capture time (US-289). PHPicker supplies an
-    /// `assetIdentifier` when configured with `.shared()`; we look the asset up
-    /// to read `creationDate` — the real time the photo was taken — BEFORE
-    /// PhotoCompressor strips EXIF. Best-effort: returns nil if there's no
-    /// identifier or the library isn't readable, and the caller falls back to
-    /// `.now`.
+    /// The picked asset's ORIGINAL capture time (US-289), read from `PHAsset`
+    /// BEFORE PhotoCompressor strips EXIF. Strictly best-effort and, by design
+    /// (US-1013), almost always nil: it needs both an `assetIdentifier` (only
+    /// present when the picker is configured with a shared `photoLibrary`,
+    /// which we deliberately don't do) AND already-granted library read access.
+    /// We never request that access here, so a capture-date lookup can never be
+    /// the thing that triggers a permission prompt or reads the library without
+    /// consent. When it returns nil the caller falls back to `.now`.
     func creationDate() -> Date? {
         guard let id = assetIdentifier else { return nil }
+        // Only touch PHAsset if the user has ALREADY authorized full library
+        // reads. `.limited` is excluded on purpose — the picked asset may sit
+        // outside the limited selection, and probing could surface a prompt.
+        guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else { return nil }
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
         return assets.firstObject?.creationDate
     }
