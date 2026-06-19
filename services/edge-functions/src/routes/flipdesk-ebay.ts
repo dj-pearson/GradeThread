@@ -78,6 +78,7 @@ import {
 } from "../lib/negotiation-enrich.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
 import { autoEndCrossListings } from "../lib/cross-listings.ts";
+import { recordEbaySale } from "../lib/passport-sale.ts";
 import {
   recordSourceObservations,
   type SourceObservation,
@@ -2247,6 +2248,17 @@ async function doListingsPull(
                 itemTitle: li.title,
                 price: itemCost,
                 itemId,
+              });
+              // US-1100: capture "who it sold to" on the Garment Passport —
+              // a 'sold' event + a pseudonymous sold-to node keyed by a salted
+              // hash of the buyer (no PII) + a buyer claim offer. Best-effort;
+              // no-op when the item has no passport. Once per NEW sale (this
+              // is the dedup-guarded new-insert branch), so it never doubles.
+              void recordEbaySale({
+                inventoryItemId: itemId,
+                ownerId: userId,
+                buyerIdentifier: order.buyerUsername ?? null,
+                platform: "ebay",
               });
             }
           }

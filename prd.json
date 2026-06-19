@@ -2991,7 +2991,7 @@
         "deno lint/check/test pass"
       ],
       "priority": 711,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Layer4] Answers the user's 'who bought it / did they resell it' via salted-hash pseudonymous nodes — limited-PII by construction. Depends on [[US-1090]], [[US-1092]], [[US-1094]]. Touches flipdesk-ebay.ts / flipdesk-webhooks.ts."
     },
     {
