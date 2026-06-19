@@ -1595,3 +1595,20 @@ Deno.test({
     assertDenied(res.status, "POST passport/garments/:id/claim-token (A's garment)");
   },
 });
+
+// US-1096: issuing a physical passport tag is tenant-scoped — B must not mint a
+// tag for A's garment (ownership verified by created_by before insert → 404).
+Deno.test({
+  name: "B cannot issue a passport tag for A's garment",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GARMENT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GARMENT_ID")!;
+    const res = await fetch(`${BASE}/api/passport/garments/${id}/tags`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST passport/garments/:id/tags (A's garment)");
+  },
+});

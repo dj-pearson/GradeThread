@@ -72,6 +72,7 @@ const PriceSuggestionsPage = lazy(() => import("@/pages/price-suggestions").then
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
 const PassportPage = lazy(() => import("@/pages/passport").then(m => ({ default: m.PassportPage })));
 const PassportClaimPage = lazy(() => import("@/pages/passport-claim").then(m => ({ default: m.PassportClaimPage })));
+const TagScanPage = lazy(() => import("@/pages/tag-scan").then(m => ({ default: m.TagScanPage })));
 const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m => ({ default: m.VerifiedSellerPage })));
 const VerifiedDirectoryPage = lazy(() => import("@/pages/verified-directory").then(m => ({ default: m.VerifiedDirectoryPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
@@ -296,6 +297,9 @@ export const router = createBrowserRouter([
       // the edge), kept OUTSIDE /passport/* so it stays a pure SPA route (no SSR
       // Pages Function). noindex; NOT registered in PUBLIC_ROUTES.
       { path: "/claim/:token", element: <SuspenseWrapper><PassportClaimPage /></SuspenseWrapper> },
+      // US-1096: physical-tag scan landing. Public; resolves a scanned QR/short
+      // code to its passport + scan-to-claim. Pure SPA route (no SSR Function).
+      { path: "/t/:code", element: <SuspenseWrapper><TagScanPage /></SuspenseWrapper> },
       // GradeThread Verified — public seller directory + leaderboard (US-863).
       // Static, indexable, prerendered (registered in PUBLIC_ROUTES); the seller
       // list itself loads client-side from the public sellers feed.

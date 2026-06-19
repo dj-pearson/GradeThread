@@ -65,6 +65,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
+import { PassportTagPanel } from "@/components/passport/passport-tag-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { useAuth } from "@/hooks/use-auth";
@@ -1295,6 +1296,13 @@ export function SubmissionDetailPage() {
             />
           </CardContent>
         </Card>
+      )}
+
+      {/* US-1096: physical Garment Passport tag — opt-in QR/short-code for
+          higher-value items, bound to this grade's garment. Only shown once the
+          grade has a passport (garment_id set). */}
+      {submission.status === "completed" && gradeReport?.garment_id && (
+        <PassportTagPanel garmentId={gradeReport.garment_id} />
       )}
 
       {/* US-1075: cross-surface activation — once a grade lands and it isn't

@@ -536,6 +536,12 @@ app.use("/api/waitlist", rateLimiter(10, 60_000, "waitlist", undefined, { failCl
 // US-867: buyer trust-guarantee claim intake is UNAUTHENTICATED (buyers have no
 // account) — cap tightly per-IP and fail-closed so a flood can't fill the table.
 app.use("/api/guarantee/*", rateLimiter(5, 60_000, "guarantee", undefined, { failClosed: true, methods: ["POST"] }));
+// US-1094/US-1096: the public Garment Passport claim + physical-tag scan/claim
+// endpoints are UNAUTHENTICATED (buyers scanning a link/QR). Cap per-IP and
+// fail-closed so a flood can't spam transfers. (The authed garments/* mint path
+// is covered by auth + tenant scoping, not this limiter.)
+app.use("/api/passport/claim", rateLimiter(10, 60_000, "passport-claim", undefined, { failClosed: true, methods: ["POST"] }));
+app.use("/api/passport/tag/*", rateLimiter(20, 60_000, "passport-tag", undefined, { failClosed: true, methods: ["GET", "POST"] }));
 // US-884: the grade cap is read through the DB-backed settings registry
 // (`rate_limit_grade_per_min`) via the per-request resolver so it can be retuned
 // without a deploy. getSettingSync serves the cached value (default 60) and

@@ -669,6 +669,9 @@ export interface GradeReportRow {
   // the submission is the one with superseded_at IS NULL. Null for every report
   // graded before the regrade flow existed.
   superseded_at: string | null;
+  // US-1091: the Garment Passport this report's certificate maps to. Null for
+  // non-certificated/superseded reports and pre-passport grades.
+  garment_id: string | null;
   created_at: string;
 }
 
