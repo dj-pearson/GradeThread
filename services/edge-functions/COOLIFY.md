@@ -181,6 +181,7 @@ the handler returns 401.
 | content-digest          | `0 14 * * 1` (Mon 14:00) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $CONTENT_INTERNAL_JOB_SECRET" http://localhost:8787/api/content/scheduler/digest`                |
 | ai-budget-guardrails    | `*/15 * * * *` (15min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ai-budget-guardrails`                  |
 | audit-anomaly-scan      | `5 * * * *` (hourly)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/audit-anomaly-scan`                    |
+| passport-integrity-scan | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/passport-integrity-scan`               |
 
 > **Cadence notes (US-496):**
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h

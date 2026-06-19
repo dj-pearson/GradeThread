@@ -3034,7 +3034,7 @@
         "Edge endpoints tenant/role-scoped (AAL2 admin); deno checks + build pass"
       ],
       "priority": 714,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][Safety] Keeps the ledger credible. Depends on [[US-1097]], [[US-1094]]. Extends admin-fraud.ts/admin-safety.ts patterns."
     },
     {

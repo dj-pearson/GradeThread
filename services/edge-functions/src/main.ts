@@ -77,6 +77,7 @@ import { adminBulkRoutes } from "./routes/admin-bulk.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { adminFraudRoutes } from "./routes/admin-fraud.ts";
 import { adminSafetyRoutes } from "./routes/admin-safety.ts";
+import { adminPassportIntegrityRoutes } from "./routes/admin-passport-integrity.ts";
 import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAnalyticsRoutes } from "./routes/admin-analytics.ts";
 import { adminDripRoutes } from "./routes/admin-drip.ts";
@@ -103,6 +104,7 @@ import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
+import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
@@ -858,6 +860,13 @@ app.route("/api/admin/fraud", adminFraudRoutes);
 // moderation/user endpoints. Admin JWT + AAL2 via the /api/admin/* group;
 // resolving a signal additionally requires a super_admin MFA step-up.
 app.route("/api/admin/safety", adminSafetyRoutes);
+// US-1103 Garment Passport integrity — durable, triageable ledger-integrity
+// anomalies (wear reversal, duplicate fingerprint across owners, rapid re-claim,
+// token replay), populated by the passport-integrity-scan cron. List/triage API
+// + admin actions (flag, annotate, sever a probable link). Admin JWT + AAL2 via
+// the /api/admin/* group; resolving/severing additionally requires a super_admin
+// MFA step-up.
+app.route("/api/admin/passport-integrity", adminPassportIntegrityRoutes);
 // US-891 Revenue & MRR analytics dashboard — read-only server-side rollup
 // (MRR/ARR, plan mix, MRR movement, trial conversion, credit-pack revenue +
 // daily/weekly time series) from the revenue_dashboard RPC. Admin JWT + AAL2 via
@@ -957,6 +966,11 @@ app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
 // cross-account phash photo-reuse + submission-velocity signals. Idempotent
 // (dedupe_key); the handler enforces X-Internal-Job-Secret itself.
 app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
+// US-1103 Garment Passport integrity scan — populates the integrity queue with
+// wear-reversal, duplicate-fingerprint-across-owners, rapid-reclaim and
+// token-replay anomalies. Idempotent (dedupe_key); the handler enforces
+// X-Internal-Job-Secret itself.
+app.post("/api/jobs/passport-integrity-scan", (c) => handlePassportIntegrityScanCron(c));
 // US-905 scheduled audit-log anomaly scan (role-change bursts, mass refunds,
 // off-hours destructive actions). Thresholds in the settings registry; raises
 // an ops alert + admin_audit_anomalies finding. Enforces the job secret itself.
