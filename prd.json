@@ -1297,7 +1297,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 964,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / iOS] Added 2026-06-12. Files: ios/GradeThread/Marketplaces/.../DraftsLibraryView + DraftsBulkEditView, EbayPublishService, PublishDialog. Server publish endpoint already tenant-scopes (US-268). Closes the gap flagged in the iOS audit (publish stubbed for bulk)."
     },
     {

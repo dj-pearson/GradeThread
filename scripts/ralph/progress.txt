@@ -3398,3 +3398,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:54:09 AM
 ---
+## US-964: iOS bulk-publish from AutoLister drafts
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  1:02:04 AM
+---
