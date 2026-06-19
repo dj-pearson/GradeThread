@@ -11,12 +11,18 @@ import {
   aboutPageLd,
   transparencyDatasetLd,
   resaleConditionDatasetLd,
+  definedTermLd,
+  definedTermSetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
 import { absoluteUrl } from "@/lib/seo/public-routes";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
-import { glossaryTrail, type GlossaryEntry } from "@/lib/seo/glossary";
+import {
+  glossaryTrail,
+  GLOSSARY_ENTRIES,
+  type GlossaryEntry,
+} from "@/lib/seo/glossary";
 
 // ── /how-it-works ──────────────────────────────────────────────────
 export const HOW_IT_WORKS_STEPS = [
@@ -128,7 +134,10 @@ export const CONDITION_GRADING_FAQS = [
 ];
 
 export function conditionGradingJsonLd(): JsonLd[] {
-  return [faqPageLd(CONDITION_GRADING_FAQS)];
+  // The /condition-grading hub emits the DefinedTermSet (US-973) listing every
+  // glossary term, so the whole condition vocabulary is one machine-extractable,
+  // citable set. Each glossary spoke emits its own DefinedTerm pointing back here.
+  return [definedTermSetLd(GLOSSARY_ENTRIES), faqPageLd(CONDITION_GRADING_FAQS)];
 }
 
 // ── /grading-standard ──────────────────────────────────────────────
@@ -587,7 +596,21 @@ export function glossaryBreadcrumbItems(
  * prerender head-builder — so the breadcrumb is emitted EXACTLY ONCE. (US-423:
  * this used to also return breadcrumbLd() here, which double-emitted the
  * BreadcrumbList on the live page since the layout already emits one.)
+ *
+ * US-973: also emits a DefinedTerm for the entry (name=term, alternateName=
+ * expansion, description=definition, url=absolute path) linked to the hub's
+ * DefinedTermSet via inDefinedTermSet, so the definition is machine-extractable.
+ * Defined here (not in the page) so the live <SEO> and the prerender head-builder
+ * emit byte-identical structured data (parity test covers it).
  */
 export function glossaryJsonLd(entry: GlossaryEntry): JsonLd[] {
-  return [faqPageLd(entry.faqs)];
+  return [
+    definedTermLd({
+      term: entry.term,
+      expansion: entry.expansion,
+      definition: entry.definition,
+      path: entry.path,
+    }),
+    faqPageLd(entry.faqs),
+  ];
 }

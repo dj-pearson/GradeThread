@@ -317,6 +317,82 @@ export function profilePageLd(opts: Parameters<typeof personLd>[0]): JsonLd {
   };
 }
 
+// ── Condition glossary: DefinedTerm / DefinedTermSet (US-973) ────────
+// schema.org DefinedTerm makes each condition abbreviation (NWT, NWOT, …) and
+// grading factor machine-extractable as a *term*, and the DefinedTermSet groups
+// them into the one canonical glossary AI answer-engines can cite — so
+// GradeThread reads as the structured source behind "nwt vs nwot meaning"-style
+// queries. Every DefinedTerm references the set via inDefinedTermSet (the set's
+// @id), so a term never dangles outside its set even on a page that only emits
+// the single term (the glossary spoke).
+
+/** Stable @id for the condition-glossary DefinedTermSet (the /condition-grading hub). */
+export const CONDITION_GLOSSARY_SET_ID = `${SITE_URL}/#condition-glossary`;
+
+export interface DefinedTermInput {
+  /** Display term, e.g. "NWT" or "Fabric Condition". */
+  term: string;
+  /** Full expansion, e.g. "New With Tags" (tiers that have one). */
+  expansion?: string;
+  /** Answer-first definition. */
+  definition: string;
+  /** Absolute path of the term's page, e.g. "/grading/nwt". */
+  path: string;
+}
+
+/**
+ * A bare DefinedTerm node (no @context) for nesting inside a DefinedTermSet's
+ * hasDefinedTerm. inDefinedTermSet carries the set's @id URL (not an @id graph
+ * ref) so the term resolves whether or not the set node is on the same page.
+ */
+function definedTermNode(entry: DefinedTermInput): Record<string, unknown> {
+  return {
+    "@type": "DefinedTerm",
+    name: entry.term,
+    ...(entry.expansion ? { alternateName: entry.expansion } : {}),
+    description: entry.definition,
+    url: `${SITE_URL}${entry.path}`,
+    inDefinedTermSet: CONDITION_GLOSSARY_SET_ID,
+  };
+}
+
+/**
+ * DefinedTerm for a single glossary entry (US-973), emitted on its
+ * /grading/:slug page. ALWAYS links back to the hub DefinedTermSet via
+ * inDefinedTermSet — never emit a DefinedTerm without it.
+ */
+export function definedTermLd(entry: DefinedTermInput): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "DefinedTerm",
+    name: entry.term,
+    ...(entry.expansion ? { alternateName: entry.expansion } : {}),
+    description: entry.definition,
+    url: `${SITE_URL}${entry.path}`,
+    inDefinedTermSet: CONDITION_GLOSSARY_SET_ID,
+  };
+}
+
+/**
+ * DefinedTermSet for the condition glossary (US-973), emitted on the
+ * /condition-grading hub. hasDefinedTerm lists every glossary term so the whole
+ * vocabulary is extractable as one canonical, named set.
+ */
+export function definedTermSetLd(
+  entries: ReadonlyArray<DefinedTermInput>,
+): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "DefinedTermSet",
+    "@id": CONDITION_GLOSSARY_SET_ID,
+    name: "GradeThread Clothing Condition Grading Glossary",
+    description:
+      "The canonical glossary of pre-owned clothing condition terms: the grade tiers (NWT, NWOT, Excellent, Very Good, Good, Fair, Poor) on the standardized 1.0–10.0 scale and the five weighted grading factors GradeThread assesses.",
+    url: `${SITE_URL}/condition-grading`,
+    hasDefinedTerm: entries.map(definedTermNode),
+  };
+}
+
 /** BreadcrumbList for hierarchy/topical-authority signals. */
 export function breadcrumbLd(
   items: ReadonlyArray<{ name: string; url: string }>,

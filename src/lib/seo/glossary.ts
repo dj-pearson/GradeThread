@@ -31,6 +31,12 @@ export interface GlossaryEntry {
   kind: GlossaryKind;
   /** Display term, e.g. "NWT" or "Fabric Condition". */
   term: string;
+  /**
+   * Full expansion of an abbreviated term, e.g. "New With Tags" (NWT/NWOT
+   * tiers). Surfaced as the DefinedTerm `alternateName` (US-973); undefined for
+   * terms that aren't abbreviations (most tiers + every factor).
+   */
+  expansion?: string;
   /** <title> (without the " | GradeThread" suffix the SEO layer adds). */
   title: string;
   /** Meta description (≤ ~160 chars). */
@@ -386,6 +392,7 @@ function buildTierEntries(): GlossaryEntry[] {
       path: `/grading/${slug}`,
       kind: "tier",
       term,
+      ...(content.expansion ? { expansion: content.expansion } : {}),
       title: tierTitle(term, content.expansion),
       description: tierDescription(term, content.score, content.expansion),
       h1: content.expansion

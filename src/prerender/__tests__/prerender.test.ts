@@ -11,6 +11,10 @@ import {
 const dist = (p: string) => resolve(process.cwd(), "dist", p);
 const landing = PUBLIC_ROUTES.find((r) => r.path === "/")!;
 const privacy = PUBLIC_ROUTES.find((r) => r.path === "/privacy")!;
+const conditionGrading = PUBLIC_ROUTES.find(
+  (r) => r.path === "/condition-grading",
+)!;
+const glossarySpoke = PUBLIC_ROUTES.find((r) => r.path.startsWith("/grading/"))!;
 
 describe("prerender head-builder (US-292)", () => {
   it("landing head has exactly one title, canonical, robots index, and 4 JSON-LD blocks", () => {
@@ -40,6 +44,24 @@ describe("prerender head-builder (US-292)", () => {
     expect(head).toContain('href="https://gradethread.com/privacy"');
     const types = jsonLdForRoute("/privacy").map((o) => o["@type"]);
     expect(types).toEqual(["Organization", "BreadcrumbList"]);
+  });
+
+  it("a glossary spoke's head contains a DefinedTerm script linked to the set (US-973)", () => {
+    const head = buildHeadTags(glossarySpoke);
+    expect(head).toContain('"@type":"DefinedTerm"');
+    expect(head).toContain(
+      '"inDefinedTermSet":"https://gradethread.com/#condition-glossary"',
+    );
+    const types = jsonLdForRoute(glossarySpoke.path).map((o) => o["@type"]);
+    expect(types).toContain("DefinedTerm");
+  });
+
+  it("the condition-grading hub head emits the DefinedTermSet (US-973)", () => {
+    const head = buildHeadTags(conditionGrading);
+    expect(head).toContain('"@type":"DefinedTermSet"');
+    expect(head).toContain('"@id":"https://gradethread.com/#condition-glossary"');
+    const types = jsonLdForRoute("/condition-grading").map((o) => o["@type"]);
+    expect(types).toContain("DefinedTermSet");
   });
 
   it("JSON-LD escapes < so it cannot break out of the script tag", () => {

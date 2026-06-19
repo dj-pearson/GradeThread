@@ -131,4 +131,30 @@ describe("JSON-LD prerender parity (US-423)", () => {
     expect(runtime.length).toBeGreaterThan(0);
     expect(canonical(runtime)).toEqual(canonical(built));
   });
+
+  // US-973: the glossary spoke must emit a DefinedTerm linked to the hub set,
+  // and the /condition-grading hub must emit the DefinedTermSet listing terms.
+  it("a glossary spoke emits a DefinedTerm linked to the condition-glossary set (US-973)", () => {
+    const route = glossaryRoutes()[0]!;
+    const built = jsonLdForRoute(route.path) as Array<Record<string, unknown>>;
+    const term = built.find((n) => n["@type"] === "DefinedTerm");
+    expect(term).toBeDefined();
+    expect(term!.inDefinedTermSet).toBe(
+      "https://gradethread.com/#condition-glossary",
+    );
+    expect(term!.url).toBe(`https://gradethread.com${route.path}`);
+  });
+
+  it("the /condition-grading hub emits a DefinedTermSet with every term (US-973)", () => {
+    const built = jsonLdForRoute("/condition-grading") as Array<
+      Record<string, unknown>
+    >;
+    const set = built.find((n) => n["@type"] === "DefinedTermSet");
+    expect(set).toBeDefined();
+    expect(set!["@id"]).toBe("https://gradethread.com/#condition-glossary");
+    const terms = set!.hasDefinedTerm as unknown[];
+    // 7 tiers + 5 factors.
+    expect(terms.length).toBe(glossaryRoutes().length);
+    expect(terms.length).toBe(12);
+  });
 });

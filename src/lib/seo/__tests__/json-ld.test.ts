@@ -9,6 +9,9 @@ import {
   certificateLd,
   personLd,
   profilePageLd,
+  definedTermLd,
+  definedTermSetLd,
+  CONDITION_GLOSSARY_SET_ID,
 } from "../json-ld";
 import { SITE_URL } from "../public-routes";
 // US-425: the cert SSR Pages Function builds its Product JSON-LD from this shared
@@ -162,6 +165,50 @@ describe("JSON-LD builders (US-298/299/300)", () => {
       url: SITE_URL,
     });
     expect(spa.itemCondition).toBe("https://schema.org/UsedCondition");
+  });
+
+  it("definedTermLd carries name/description/url + links to the set @id (US-973)", () => {
+    const ld = definedTermLd({
+      term: "NWT",
+      expansion: "New With Tags",
+      definition: "Brand-new, unworn, tags attached.",
+      path: "/grading/nwt",
+    });
+    expect(ld["@type"]).toBe("DefinedTerm");
+    expect(ld.name).toBe("NWT");
+    expect(ld.alternateName).toBe("New With Tags");
+    expect(ld.description).toBe("Brand-new, unworn, tags attached.");
+    expect(ld.url).toBe(`${SITE_URL}/grading/nwt`);
+    // Never emit a DefinedTerm without inDefinedTermSet linking to the hub set.
+    expect(ld.inDefinedTermSet).toBe(CONDITION_GLOSSARY_SET_ID);
+  });
+
+  it("definedTermLd omits alternateName when there is no expansion (US-973)", () => {
+    const ld = definedTermLd({
+      term: "Fabric Condition",
+      definition: "The state of the material.",
+      path: "/grading/fabric-condition",
+    });
+    expect("alternateName" in ld).toBe(false);
+    expect(ld.inDefinedTermSet).toBe(CONDITION_GLOSSARY_SET_ID);
+  });
+
+  it("definedTermSetLd lists every term, each linked back to the set (US-973)", () => {
+    const ld = definedTermSetLd([
+      { term: "NWT", expansion: "New With Tags", definition: "d1", path: "/grading/nwt" },
+      { term: "Fabric Condition", definition: "d2", path: "/grading/fabric-condition" },
+    ]);
+    expect(ld["@type"]).toBe("DefinedTermSet");
+    expect(ld["@id"]).toBe(CONDITION_GLOSSARY_SET_ID);
+    const terms = ld.hasDefinedTerm as Array<Record<string, unknown>>;
+    expect(terms).toHaveLength(2);
+    expect(terms[0]!["@type"]).toBe("DefinedTerm");
+    expect(terms[0]!.name).toBe("NWT");
+    expect(terms[0]!.alternateName).toBe("New With Tags");
+    expect(terms[0]!.inDefinedTermSet).toBe(CONDITION_GLOSSARY_SET_ID);
+    // Nested terms omit @context (only the set node carries it).
+    expect("@context" in terms[0]!).toBe(false);
+    expect("alternateName" in terms[1]!).toBe(false);
   });
 
   it("every builder is valid JSON (serializes without throwing)", () => {
