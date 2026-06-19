@@ -1479,7 +1479,7 @@
         "Typecheck + build green; the route prerenders."
       ],
       "priority": 976,
-      "passes": false,
+      "passes": true,
       "notes": "[GEO / Original Data] Added 2026-06-13. Strongest GEO lever — get GradeThread NAMED in AI answers, not just crawled. Reuses aggregate-only signals: 00168 return-reduction RPC, 00148 sell-through, 00594 sold-comps. MUST be aggregate-only via security-invoker views/RPCs (US-268 tenant rules). Register route (public-routes + entry-server CI guard + sitemap-static). Use schema.org/Dataset + Article. Complements US-855 cornerstone pages and the seeded topic bank (00192)."
     },
     {

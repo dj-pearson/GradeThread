@@ -3350,3 +3350,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:15:10 PM
 ---
+## US-976: Publish a 'State of Resale Condition' public data report (original, citable stats)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:30:07 PM
+---
