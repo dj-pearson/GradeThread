@@ -224,6 +224,46 @@ actor SyncMergeActor {
         try? modelContext.save()
     }
 
+    /// Upserts the local mirror of `flipdesk_expenses` (US-750) so the Money tab
+    /// reads expenses from the same SwiftData cache as everything else. Server is
+    /// authoritative for amount/category/date and the 00266 attribution links.
+    /// Like sales, expenses never prune, so this is always a delta over the rows
+    /// the payload touches.
+    func mergeExpenses(_ remoteExpenses: [SyncEngine.RemoteExpenseRow]) {
+        guard !remoteExpenses.isEmpty else { return }
+        lastMergeFetchedRowCount = 0
+        let ids = Array(Set(remoteExpenses.map(\.id)))
+        let existing = fetchCounting(
+            FetchDescriptor<LocalExpense>(predicate: #Predicate { ids.contains($0.id) })
+        )
+        var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+        for remote in remoteExpenses {
+            let local: LocalExpense
+            if let existing = existingById[remote.id] {
+                local = existing
+            } else {
+                local = LocalExpense(
+                    id: remote.id,
+                    category: remote.category,
+                    amount: remote.amount,
+                    spentOn: remote.spentOnDate,
+                    createdAt: remote.created_at.isEmpty ? .now : SyncEngine.parseDate(remote.created_at)
+                )
+                modelContext.insert(local)
+                existingById[remote.id] = local
+            }
+            // Server-authoritative fields (refresh every sync).
+            local.category = remote.category
+            local.amount = remote.amount
+            local.spentOn = SyncEngine.parseDate(remote.spent_on)
+            local.expenseDescription = remote.description
+            local.inventoryItemId = remote.inventory_item_id
+            local.listingId = remote.listing_id
+        }
+        try? modelContext.save()
+    }
+
     /// Upserts the local mirror of `listings` so the item canvas can resolve a
     /// live eBay listing and decide between in-place revise (Sell offer present)
     /// and an Edit-on-eBay link. Server is authoritative for marketplace fields

@@ -19,6 +19,26 @@
 > **`claude/prd-story-loop-continued-ghuqm5`**.
 
 ### Session 2026-06-19 (on `claude/prd-story-loop-continued-ydaege`)
+- **US-750** iOS single source of truth for Sales + Expenses — **EXPENSES half**
+  (Sales half shipped 2026-06-08). New **`LocalExpense`** `@Model` (registered in
+  `ModelStoreProvider.schema`) mirrors `flipdesk_expenses`; **SyncEngine** pulls it
+  (`RemoteExpenseRow` + `expenseColumns` incl. the new link cols +
+  `decodeExpensesResiliently`, ownerId-scoped) → **`SyncMergeActor.mergeExpenses`**
+  (delta upsert by id; date-only `spent_on` parse) → **`SyncWatermark .expenses`**
+  cursor (schemaVersion **2→3** forces a one-time backfill on existing installs).
+  **MoneyView** now reads `@Query<LocalExpense>` for the list + net-profit
+  (`expensesThisMonthTotal`), no `ExpenseStore.refresh` — single source,
+  offline-instant, no double-fetch. **`ExpenseStore.create/delete`** rewritten to
+  send a client-id row to the server (idempotent) AND mirror into the shared cache
+  (online + offline-queue), carrying optional `inventoryItemId`/`listingId`.
+  **ExpenseFormSheet** gained an optional "attribute to item" picker. **`LocalExpense`
+  added to BOTH `ContentView` sign-out + workspace-switch wipes** (tenant isolation).
+  AC3 link backed by **migration `00266`** (`flipdesk_expenses.inventory_item_id` +
+  `listing_id`, nullable FK `ON DELETE SET NULL`, partial indexes) — applied +
+  idempotent + FK-set-null verified on throwaway PG16; **`EXPECTED_SCHEMA_VERSION`
+  bumped 00265→00266 same commit**. Tests: `ExpenseSyncTests`. ⚠️ iOS UNVERIFIABLE
+  here (no macOS/xcodebuild); `no-ungated-print.py` passed. **Schema → 00266.**
+  **NEXT iOS story: US-751** (reconciliation link/create refreshes the local cache).
 - **US-749** iOS: surface the buried power modules. New **Tools hub**
   (`ios/.../Tools/ToolsHubView.swift`) groups Scout/Snap/Prospect (nested sheets)
   + AutoLister/Grades/Reconciliation/Reconcile-photo-dump/Referrals/Verified
@@ -132,7 +152,7 @@ This run (on `claude/prd-story-loop-rzz40a`):
   passport.tsx (per-link tooltip + "Chain strength" card) + certificate.tsx.
   Frontend-only; vitest `passport-confidence.test.ts`.
 
-Schema version is at **`00264`** (`services/edge-functions/src/lib/schema-version.ts`).
+Schema version is at **`00266`** (`services/edge-functions/src/lib/schema-version.ts`).
 `prd.json.nextId` = **1109** (use it + bump for any NEW story; never `max(id)+1`).
 
 ## ⏭️ Next up (priority order)

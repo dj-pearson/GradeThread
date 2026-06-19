@@ -22,12 +22,15 @@ struct SyncWatermark {
         case inventoryItems = "inventory_items"
         case itemPhotos = "item_photos"
         case sales = "sales"
+        /// US-750: operating expenses now mirror into the shared cache too. Like
+        /// sales they have no `updated_at`, so they delta on `created_at`.
+        case expenses = "flipdesk_expenses"
 
         /// The timestamp column the delta filter compares against.
         var cursorColumn: String {
             switch self {
             case .inventoryItems: return "updated_at"
-            case .itemPhotos, .sales: return "created_at"
+            case .itemPhotos, .sales, .expenses: return "created_at"
             }
         }
     }
@@ -42,7 +45,9 @@ struct SyncWatermark {
     ///   v2 (00111): prune stale items (fixes inflated "listed" counts),
     ///   backfill listing prices for market value, and pull the new sale
     ///   status / cost columns.
-    private static let currentSchemaVersion = 2
+    ///   v3 (US-750): expenses now sync into the shared cache — force a one-time
+    ///   full backfill so existing installs populate `LocalExpense`.
+    private static let currentSchemaVersion = 3
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

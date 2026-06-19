@@ -148,6 +148,7 @@ actor SyncEngine {
             )
             await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
             await mergeActor.mergeSales(payload.sales)
+            await mergeActor.mergeExpenses(payload.expenses)
             await mergeActor.mergeListings(payload.listings)
 
             // Advance watermarks ONLY after a successful merge (US-633) so a
@@ -155,6 +156,7 @@ actor SyncEngine {
             watermark.advance(.inventoryItems, to: payload.items.map(\.updated_at).max())
             watermark.advance(.itemPhotos, to: payload.photos.map(\.created_at).max())
             watermark.advance(.sales, to: payload.sales.map(\.created_at).max())
+            watermark.advance(.expenses, to: payload.expenses.map(\.created_at).max())
             lastPullError = nil
         case .failure(let error):
             // Connection errors are expected on the road; the banner flips to
@@ -188,6 +190,8 @@ actor SyncEngine {
         let items: [RemoteInventoryItem]
         let photos: [RemoteItemPhoto]
         let sales: [RemoteSaleRow]
+        /// US-750: operating expenses, mirrored into the shared cache.
+        let expenses: [RemoteExpenseRow]
         /// True when the photo pull was a full backfill (no watermark) — only
         /// then may the merge prune locals not present in the response.
         let isFullPhotoSync: Bool
@@ -383,6 +387,53 @@ actor SyncEngine {
         }
     }
 
+    /// Wire-shape `flipdesk_expenses` row (US-750). `amount` is a Postgres
+    /// decimal (number OR numeric string); `spent_on` is a date-only column.
+    /// `inventory_item_id` / `listing_id` are the 00266 attribution links.
+    struct RemoteExpenseRow: Decodable, Sendable {
+        let id: String
+        let category: String
+        let description: String?
+        let amount: Double
+        let spent_on: String
+        let inventory_item_id: String?
+        let listing_id: String?
+        let created_at: String
+
+        private enum CodingKeys: String, CodingKey {
+            case id, category, description, amount, spent_on
+            case inventory_item_id, listing_id, created_at
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            category = (try? c.decode(String.self, forKey: .category)) ?? "other"
+            description = try c.decodeIfPresent(String.self, forKey: .description)
+            if let d = try? c.decode(Double.self, forKey: .amount) {
+                amount = d
+            } else if let s = try? c.decode(String.self, forKey: .amount), let d = Double(s) {
+                amount = d
+            } else {
+                amount = 0
+            }
+            spent_on = (try? c.decode(String.self, forKey: .spent_on)) ?? ""
+            inventory_item_id = try c.decodeIfPresent(String.self, forKey: .inventory_item_id)
+            listing_id = try c.decodeIfPresent(String.self, forKey: .listing_id)
+            created_at = (try? c.decode(String.self, forKey: .created_at)) ?? ""
+        }
+
+        /// Parsed `spent_on` — date-only first (what the column is), ISO fallback.
+        var spentOnDate: Date {
+            let dateOnly = DateFormatter()
+            dateOnly.locale = Locale(identifier: "en_US_POSIX")
+            dateOnly.timeZone = TimeZone(identifier: "UTC")
+            dateOnly.dateFormat = "yyyy-MM-dd"
+            if let d = dateOnly.date(from: spent_on) { return d }
+            return SyncEngine.parseDate(spent_on)
+        }
+    }
+
     private func pullRemote() async -> Result<PullPayload, Error> {
         do {
             // US-670: scope the pull to the active workspace owner. Additive
@@ -427,6 +478,18 @@ actor SyncEngine {
                 decode: Self.decodeSalesResiliently
             )) ?? []
 
+            // US-750: operating expenses — best-effort + delta-scoped, mirrored
+            // into the shared cache so the Money tab no longer needs a separate
+            // server fetch (ExpenseStore.refresh).
+            let expenses = (try? await paginatedFetch(
+                table: "flipdesk_expenses",
+                columns: Self.expenseColumns,
+                cursor: SyncWatermark.Table.expenses.cursorColumn,
+                watermark: watermark.value(for: .expenses),
+                scopeUserId: ownerId,
+                decode: Self.decodeExpensesResiliently
+            )) ?? []
+
             // Listing prices — best-effort, NOT watermarked. We pull every
             // listing each pass (bounded by maxRowsPerPass) and keep the latest
             // price per item, so "inventory value" tracks the current listed
@@ -453,6 +516,7 @@ actor SyncEngine {
 
             return .success(PullPayload(
                 items: items, photos: photos, sales: sales,
+                expenses: expenses,
                 isFullPhotoSync: isFullPhotoSync,
                 isFullItemSync: isFullItemSync,
                 listingPrices: listingPrices,
@@ -508,6 +572,10 @@ actor SyncEngine {
 
     private static let saleColumns =
         "id,inventory_item_id,sale_price,platform_fees,payment_processing_fees,shipping_collected,shipping_cost,grading_cost,other_costs,tax,net_profit,status,sale_date,buyer_username,created_at"
+
+    // US-750 / 00266: includes the inventory_item_id + listing_id attribution links.
+    private static let expenseColumns =
+        "id,category,description,amount,spent_on,inventory_item_id,listing_id,created_at"
 
     /// Full listings projection. Drives BOTH the cached market (listing) price
     /// per item AND the local LocalListing mirror that the item canvas reads to
@@ -573,6 +641,13 @@ actor SyncEngine {
     static func decodeSalesResiliently(_ data: Data) -> [RemoteSaleRow] {
         guard let rows = try? JSONDecoder().decode(
             [Failable<RemoteSaleRow>].self, from: data
+        ) else { return [] }
+        return rows.compactMap(\.value)
+    }
+
+    static func decodeExpensesResiliently(_ data: Data) -> [RemoteExpenseRow] {
+        guard let rows = try? JSONDecoder().decode(
+            [Failable<RemoteExpenseRow>].self, from: data
         ) else { return [] }
         return rows.compactMap(\.value)
     }

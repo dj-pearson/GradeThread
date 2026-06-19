@@ -224,6 +224,7 @@ struct ContentView: View {
             try ctx.delete(model: LocalItemPhoto.self)
             try ctx.delete(model: LocalListing.self)
             try ctx.delete(model: LocalSale.self)
+            try ctx.delete(model: LocalExpense.self)
             try ctx.delete(model: LocalSource.self)
             try ctx.save()
         } catch {
@@ -243,6 +244,7 @@ struct ContentView: View {
             try ctx.delete(model: LocalItemPhoto.self)
             try ctx.delete(model: LocalListing.self)
             try ctx.delete(model: LocalSale.self)
+            try ctx.delete(model: LocalExpense.self)
             try ctx.delete(model: LocalSource.self)
             try ctx.delete(model: LocalPendingMutation.self)
             try ctx.save()

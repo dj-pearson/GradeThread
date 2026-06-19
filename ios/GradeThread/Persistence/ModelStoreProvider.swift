@@ -47,6 +47,7 @@ enum ModelStoreProvider {
             LocalItemPhoto.self,
             LocalListing.self,
             LocalSale.self,
+            LocalExpense.self,
             LocalSource.self,
             LocalPendingMutation.self,
         ])
