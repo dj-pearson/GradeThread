@@ -1434,7 +1434,7 @@
         "Type check passes; npm run build green."
       ],
       "priority": 973,
-      "passes": false,
+      "passes": true,
       "notes": "[GEO / Entity & Definitions] Added 2026-06-13. Complements US-855 cornerstone pages and the seeded topic bank (migration 00192 — 'nwt vs nwot meaning' etc.). Files: src/lib/seo/json-ld.ts (new definedTermLd + DefinedTermSet @id), src/pages/marketing/marketing-jsonld.ts (glossaryJsonLd + conditionGradingJsonLd), src/prerender/head-builder.ts (jsonLdForRoute glossary + /condition-grading branches), src/lib/seo/glossary.ts (GlossaryEntry: term/expansion/definition). CRITICAL: keep prerender<->runtime JSON-LD parity — add to glossaryJsonLd so both emit paths stay identical, and update jsonld-parity.test.tsx. Never emit a DefinedTerm without inDefinedTermSet linking to the hub set's @id. The robots max-image-preview directive already shipped separately (PR #78)."
     },
     {

@@ -3362,3 +3362,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:57:57 PM
 ---
+## US-973: DefinedTerm/DefinedTermSet schema for the condition glossary (GEO)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 11:13:43 PM
+---
