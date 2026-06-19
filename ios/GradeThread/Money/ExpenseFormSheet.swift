@@ -22,8 +22,7 @@ struct ExpenseFormSheet: View {
     private let currency = CurrencyFormatter()
 
     private var parsedAmount: Double? {
-        guard let value = currency.parse(amountText), value > 0 else { return nil }
-        return value
+        MoneyFieldValidation.positiveAmount(amountText, formatter: currency)
     }
 
     var body: some View {
@@ -35,10 +34,20 @@ struct ExpenseFormSheet: View {
                             Label(cat.label, systemImage: cat.systemImage).tag(cat)
                         }
                     }
-                    HStack {
-                        Text(currency.symbol).foregroundStyle(.secondary)
-                        TextField("Amount", text: $amountText)
-                            .keyboardType(.decimalPad)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(currency.symbol).foregroundStyle(.secondary)
+                            TextField("Amount", text: $amountText)
+                                .keyboardType(.decimalPad)
+                        }
+                        // US-970: explain why Save is disabled instead of leaving
+                        // the button silently dead. Reuses the details-intake
+                        // inline-help pattern (US-754).
+                        if let help = MoneyFieldValidation.requiredAmountHelp(amountText, formatter: currency) {
+                            Text(help)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     DatePicker("Date", selection: $spentOn, displayedComponents: .date)
                 }

@@ -143,7 +143,7 @@ struct PublishDialog: View {
                     LabeledContent("Condition", value: humanCondition(condition))
                 }
                 LabeledContent("Price") {
-                    Text("\(summary.currency ?? "USD") \(summary.priceValue)")
+                    Text("\(summary.currency ?? "USD") \(MoneyFieldValidation.twoDecimalDisplay(summary.priceValue))")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.brandNavy)
                 }
@@ -477,11 +477,15 @@ private struct ComposerForm: View {
                 }
 
                 fieldGroup("Title") {
+                    // US-970: warn as the 80-char cap nears (amber) and at the
+                    // cap (red), plus an explicit at-limit note so characters
+                    // truncated past the cap are never silently swallowed.
+                    let titleFeedback = TitleLimitFeedback(count: title.count, limit: Self.titleLimit)
                     HStack {
                         Spacer()
-                        Text("\(title.count)/\(Self.titleLimit)")
+                        Text(titleFeedback.counterText)
                             .font(.caption2)
-                            .foregroundStyle(title.count >= Self.titleLimit ? .brandAmber : .secondary)
+                            .foregroundStyle(Self.counterColor(titleFeedback.level))
                     }
                     TextField("Listing title", text: $title, axis: .vertical)
                         .lineLimit(1...3)
@@ -491,6 +495,11 @@ private struct ComposerForm: View {
                                 title = String(newValue.prefix(Self.titleLimit))
                             }
                         }
+                    if let note = titleFeedback.atLimitNote {
+                        Text(note)
+                            .font(.caption2)
+                            .foregroundStyle(.brandAmber)
+                    }
                 }
 
                 fieldGroup("Condition") {
@@ -521,7 +530,7 @@ private struct ComposerForm: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text("\(summary.currency ?? "USD") \(summary.priceValue)")
+                    Text("\(summary.currency ?? "USD") \(MoneyFieldValidation.twoDecimalDisplay(summary.priceValue))")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.brandNavy)
                 }
@@ -661,6 +670,16 @@ private struct ComposerForm: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.brandAmber.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+    }
+
+    /// US-970: map the title-counter level to a brand color — plain until the
+    /// cap nears, amber as it approaches, red at the cap.
+    private static func counterColor(_ level: TitleLimitFeedback.Level) -> Color {
+        switch level {
+        case .normal: return .secondary
+        case .approaching: return .brandAmber
+        case .atLimit: return .brandRed
+        }
     }
 
     @ViewBuilder

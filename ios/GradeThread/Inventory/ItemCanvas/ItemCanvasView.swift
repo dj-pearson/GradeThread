@@ -789,15 +789,33 @@ struct ItemCanvasView: View {
     private func pricingSection(state: ItemCanvasState) -> some View {
         @Bindable var state = state
         return Section("Pricing") {
-            HStack {
-                Text(currencyFormatter.symbol).foregroundStyle(.secondary)
-                TextField("Target price", text: $state.draft.targetPriceText)
-                    .keyboardType(.decimalPad)
+            // US-970: inline feedback when a typed price can't be parsed, so the
+            // value isn't silently dropped on Save (which, for a live GradeThread
+            // listing, also revises the eBay price). Reuses the details-intake
+            // help pattern (US-754).
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(currencyFormatter.symbol).foregroundStyle(.secondary)
+                    TextField("Target price", text: $state.draft.targetPriceText)
+                        .keyboardType(.decimalPad)
+                }
+                if let help = MoneyFieldValidation.optionalPriceHelp(
+                    state.draft.targetPriceText, formatter: currencyFormatter
+                ) {
+                    Text(help).font(.footnote).foregroundStyle(.secondary)
+                }
             }
-            HStack {
-                Text(currencyFormatter.symbol).foregroundStyle(.secondary)
-                TextField("Cost", text: $state.draft.acquiredPriceText)
-                    .keyboardType(.decimalPad)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(currencyFormatter.symbol).foregroundStyle(.secondary)
+                    TextField("Cost", text: $state.draft.acquiredPriceText)
+                        .keyboardType(.decimalPad)
+                }
+                if let help = MoneyFieldValidation.optionalPriceHelp(
+                    state.draft.acquiredPriceText, formatter: currencyFormatter
+                ) {
+                    Text(help).font(.footnote).foregroundStyle(.secondary)
+                }
             }
         }
     }
