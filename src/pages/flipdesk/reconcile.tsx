@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   DndContext,
@@ -56,6 +57,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EbaySkuMatch } from "@/components/flipdesk/ebay-sku-match";
+import { CrossSourceConflicts } from "@/components/flipdesk/cross-source-conflicts";
+import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
+import { ReconciliationPayoutsTab } from "@/pages/flipdesk/reconciliation";
 import { supabase } from "@/lib/supabase";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { readCaptureTime } from "@/lib/exif";
@@ -128,8 +134,31 @@ const NEW_CLUSTER_DROP = "__new_cluster__";
 // item statuses eligible to receive a linked cluster (no photos yet)
 const LINKABLE_STATUSES = new Set(["sourced", "cataloged", "drafted"]);
 
+// US-963: the unified Reconcile area hosts four flows as tabs. The active tab is
+// reflected in the `?tab=` query param so the old /reconciliation route can deep
+// -link straight to its flow and tab choice survives a refresh/share.
+const RECONCILE_TABS = ["photos", "ebay", "payouts", "cross-source"] as const;
+type ReconcileTab = (typeof RECONCILE_TABS)[number];
+
 export function FlipdeskReconcilePage() {
   const { workspaceOwnerId, can } = useWorkspace();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab: ReconcileTab = RECONCILE_TABS.includes(tabParam as ReconcileTab)
+    ? (tabParam as ReconcileTab)
+    : "photos";
+  const setActiveTab = (value: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("tab", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+  // Open cross-source conflict count for the tab badge (US-148).
+  const { data: conflicts } = useSyncConflicts();
   const [photos, setPhotos] = useState<DumpPhoto[]>([]);
   const [assignments, setAssignments] = useState<AssignmentMap>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -536,23 +565,52 @@ export function FlipdeskReconcilePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
+          <Layers className="h-5 w-5" />
+        </div>
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
-            <Layers className="h-6 w-6 text-primary" />
-            Photo Dump Reconcile
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Drop a whole haul at once, fix the grouping, set photo types, then commit
-            each group as an inventory item.
+          <h1 className="text-2xl font-bold tracking-tight">Reconcile</h1>
+          <p className="text-sm text-muted-foreground">
+            Cluster a photo haul into items, match eBay SKUs, and close the loop
+            on payouts &amp; fees — all in one place.
           </p>
         </div>
-        {photos.length > 0 && (
-          <Button variant="outline" size="sm" onClick={reset}>
-            Clear
-          </Button>
-        )}
       </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="photos">Photos &rarr; Items</TabsTrigger>
+          <TabsTrigger value="ebay">eBay SKU match</TabsTrigger>
+          <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
+          <TabsTrigger value="cross-source">
+            Cross-source
+            {(conflicts?.total ?? 0) > 0 && (
+              <Badge variant="destructive" className="ml-1.5 px-1.5 text-[10px]">
+                {conflicts!.total}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="photos" className="mt-6 space-y-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                <Layers className="h-5 w-5 text-primary" />
+                Photo Dump Reconcile
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Drop a whole haul at once, fix the grouping, set photo types, then commit
+                each group as an inventory item.
+              </p>
+            </div>
+            {photos.length > 0 && (
+              <Button variant="outline" size="sm" onClick={reset}>
+                Clear
+              </Button>
+            )}
+          </div>
 
       {/* Drop zone */}
       <Card>
@@ -779,6 +837,20 @@ export function FlipdeskReconcilePage() {
           </DndContext>
         </>
       )}
+        </TabsContent>
+
+        <TabsContent value="ebay" className="mt-6">
+          <EbaySkuMatch />
+        </TabsContent>
+
+        <TabsContent value="payouts" className="mt-6">
+          <ReconciliationPayoutsTab />
+        </TabsContent>
+
+        <TabsContent value="cross-source" className="mt-6">
+          <CrossSourceConflicts />
+        </TabsContent>
+      </Tabs>
 
       <CommitResultsDialog results={results} onClose={() => setResults(null)} />
     </div>

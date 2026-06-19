@@ -31,10 +31,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EbaySkuMatch } from "@/components/flipdesk/ebay-sku-match";
-import { CrossSourceConflicts } from "@/components/flipdesk/cross-source-conflicts";
-import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useItemsFull } from "@/hooks/use-items-full";
@@ -100,7 +96,11 @@ function fmtRelative(iso: string | null | undefined): string {
   return new Date(t).toLocaleDateString();
 }
 
-export function FlipdeskReconciliationPage() {
+// Payouts & fees tab content (CSV import, review queue, discrepancies, and the
+// eBay sync history). US-963 merged the standalone Reconciliation page into the
+// unified Reconcile area; this is the "Payouts & fees" tab. The eBay SKU match
+// and Cross-source flows are sibling tabs rendered by FlipdeskReconcilePage.
+export function ReconciliationPayoutsTab() {
   const user = useAuthStore((s) => s.user);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
@@ -108,8 +108,6 @@ export function FlipdeskReconciliationPage() {
   const { data: payoutImports = [], isLoading: payoutsLoading } =
     usePayoutImports();
   const { data: queue = [], isLoading: queueLoading } = useReconciliationQueue();
-  // Open cross-source conflict count for the tab badge (US-148).
-  const { data: conflicts } = useSyncConflicts();
 
   async function handlePayoutFile(file: File) {
     setImporting(true);
@@ -167,19 +165,7 @@ export function FlipdeskReconciliationPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <Scale className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Reconciliation</h1>
-            <p className="text-sm text-muted-foreground">
-              Close the loop between eBay and FlipDesk — SKUs, payouts, and
-              per-item profit.
-            </p>
-          </div>
-        </div>
+      <div className="flex justify-end">
         <Button
           variant="outline"
           onClick={() => downloadSalesCsv(sales, titleById)}
@@ -190,30 +176,7 @@ export function FlipdeskReconciliationPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="ebay">
-        <TabsList>
-          <TabsTrigger value="ebay">eBay SKU match</TabsTrigger>
-          <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
-          <TabsTrigger value="cross-source">
-            Cross-source
-            {(conflicts?.total ?? 0) > 0 && (
-              <Badge variant="destructive" className="ml-1.5 px-1.5 text-[10px]">
-                {conflicts!.total}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="ebay" className="mt-6">
-          <EbaySkuMatch />
-        </TabsContent>
-
-        <TabsContent value="cross-source" className="mt-6">
-          <CrossSourceConflicts />
-        </TabsContent>
-
-        <TabsContent value="payouts" className="mt-6 space-y-6">
-          {/* CSV import */}
+      {/* CSV import */}
           <Card>
             <CardHeader>
               <CardTitle>Import payouts</CardTitle>
@@ -424,8 +387,6 @@ export function FlipdeskReconciliationPage() {
           </ol>
         </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
 
       {/* eBay sync history — stats from each background pull, newest first. */}
       <SyncHistoryCard />

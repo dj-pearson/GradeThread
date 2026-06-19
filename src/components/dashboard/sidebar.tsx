@@ -17,7 +17,6 @@ import {
   Sparkles,
   ShieldCheck,
   TrendingUp,
-  Layers,
   ClipboardList,
   Radar,
   ScanBarcode,
@@ -114,10 +113,6 @@ const navGroups: NavGroup[] = [
           { to: "/dashboard/flipdesk/autolister/drafts", icon: ClipboardList, label: "Drafts", end: false, requiresFlipdeskFlag: "autolister" },
           { to: "/dashboard/flipdesk/scheduled-drops", icon: CalendarClock, label: "Scheduled drops", end: false },
           { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
-          // Reconcile is the ungated bulk-photo→item tool. Once a plan unlocks
-          // AutoLister (Pro+), AutoLister supersedes it, so hide Reconcile to
-          // avoid showing two overlapping tools. The route still works via deep link.
-          { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false, hiddenWhenFlipdeskFlag: "autolister" },
         ],
       },
       {
@@ -139,7 +134,10 @@ const navGroups: NavGroup[] = [
           { to: "/dashboard/flipdesk/bulk-pricing", icon: Tags, label: "Bulk pricing", end: false },
           { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
           { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
-          { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
+          // US-963: one Reconcile entry hosts Photos→Items, eBay SKU match,
+          // Payouts & fees, and Cross-source as tabs. Always visible — it now
+          // carries the reconciliation/payout flows, not just the photo tool.
+          { to: "/dashboard/flipdesk/reconcile", icon: Scale, label: "Reconcile", end: false },
           { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
         ],
       },

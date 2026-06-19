@@ -405,9 +405,9 @@ export function CommandPalette() {
       {
         kind: "action",
         id: "reconciliation",
-        label: "Go to Reconciliation",
+        label: "Go to Reconcile",
         icon: <Scale className="h-4 w-4" />,
-        run: () => go("/dashboard/flipdesk/reconciliation"),
+        run: () => go("/dashboard/flipdesk/reconcile"),
       },
       // Platform-admin quick actions — filtered out for non-admins below.
       {
