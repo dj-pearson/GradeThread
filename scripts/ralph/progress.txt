@@ -3254,3 +3254,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:12:15 PM
 ---
+## US-1000: iOS: retry APNs edge-registration after a transient server failure
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:16:34 PM
+---

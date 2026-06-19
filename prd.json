@@ -1813,7 +1813,7 @@
         "PushNotificationTests cover the retry."
       ],
       "priority": 1000,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional. ios/GradeThread/Notifications/PushService.swift (~63,101-121)"
     },
     {
