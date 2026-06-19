@@ -3322,3 +3322,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:25:37 PM
 ---
+## US-983: iOS: AutolisterBatchStore must reach a terminal failed state and offer resume
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:28:49 PM
+---

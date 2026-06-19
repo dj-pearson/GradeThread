@@ -1580,7 +1580,7 @@
         "Reconnection mid-batch still completes normally; AutolisterStoreTests cover the give-up transition."
       ],
       "priority": 983,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=functional. ios/GradeThread/AutoLister/AutolisterBatchStore.swift (startPolling ~130-140, pollOnce ~162-167, isTerminal ~59-64)"
     },
     {
