@@ -16,7 +16,8 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
-import { searchBrowseComps } from "../lib/ebay-client.ts";
+import { searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
+import { extractMatchHints, type VisionImage } from "../lib/ai-reconcile.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import {
   valueAtGrade,
@@ -309,6 +310,277 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     matchedCategoryId,
     disclaimer:
       "This is a private AI estimate from your photo — not a GradeThread certificate. Resale, sell-through, and ROI are estimates from condition-matched eBay comps. Verify condition before buying.",
+  });
+});
+
+// ── US-953: /prospect — snap-and-source, NO typing ──────────────────────────
+//
+// The thrift-aisle entry point. /appraise already grades + values + forecasts,
+// but it makes the reseller TYPE the keyword/brand/category. /prospect closes
+// that gap: snap 1-2 photos (front + tag), and we IDENTIFY the item from the
+// photo (brand + keywords off the tag, US-285 primitive), resolve its eBay leaf
+// category, then run the exact same condition-matched value + sell-through
+// pipeline. The reseller learns "what is it, how many are out there, what's the
+// going rate, will it sell" without touching the keyboard.
+//
+// Comp basis = ACTIVE eBay listings (asking prices). When the Marketplace
+// Insights grant lands (EBAY_MARKETPLACE_INSIGHTS), valueAtGrade's comp source
+// flips to realized SOLD prices with no change here — the `source` field tells
+// the client which it is. Paid (compPulls) + up to 2 AI actions (identify +
+// grade), each reserved atomically and refunded on failure.
+
+// Split a data URI into the base64 payload + media type the vision layer wants;
+// tolerates a bare base64 string (assumed JPEG). Returns null when unusable.
+function splitImageInput(
+  s: string,
+): { base64: string; mediaType: string } | null {
+  const m = s.match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+  if (m) return { mediaType: m[1]!, base64: m[2]! };
+  // Bare base64 (no data: prefix) — assume JPEG, the iOS capture default.
+  if (/^[A-Za-z0-9+/=\s]+$/.test(s) && s.length > 64) {
+    return { mediaType: "image/jpeg", base64: s.replace(/\s+/g, "") };
+  }
+  return null;
+}
+
+// Title-case a short identification phrase for display ("lululemon" → "Lululemon").
+function titleizeWords(parts: string[]): string {
+  return parts
+    .join(" ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
+    .trim();
+}
+
+flipdeskScoutRoutes.post("/prospect", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  // Same paid gate + AI quota as the scan/appraise: prospecting runs the grader.
+  const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
+  if (gate) return gate;
+
+  let body: { image?: unknown; images?: unknown; costCents?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+
+  // Accept a single `image` or up to two `images` (front + tag). Front is used
+  // for the condition grade; all are fed to the identifier (the tag carries the
+  // brand). Keep them in order — the first is treated as the front.
+  const rawImages: string[] = [];
+  if (Array.isArray(body.images)) {
+    for (const v of body.images) {
+      if (typeof v === "string" && v.length > 0) rawImages.push(v);
+    }
+  } else if (typeof body.image === "string" && body.image.length > 0) {
+    rawImages.push(body.image);
+  }
+  const capped = rawImages.slice(0, 2);
+  if (capped.length === 0) {
+    return jsonError(c, 400, "Provide a photo (front and/or the brand tag).");
+  }
+  for (const img of capped) {
+    if (img.length > MAX_APPRAISE_IMAGE_BYTES * 1.4) {
+      return jsonError(c, 413, "Image is too large — use a photo under 12 MB.");
+    }
+  }
+
+  const visionImages: VisionImage[] = [];
+  let frontDataUri: string | null = null;
+  for (const img of capped) {
+    const parsed = splitImageInput(img);
+    if (!parsed) continue;
+    visionImages.push({ data: parsed.base64, mediaType: parsed.mediaType });
+    if (!frontDataUri) {
+      frontDataUri = `data:${parsed.mediaType};base64,${parsed.base64}`;
+    }
+  }
+  if (visionImages.length === 0) {
+    return jsonError(c, 400, "Couldn't read that image. Try a clearer photo.");
+  }
+
+  const costCents =
+    typeof body.costCents === "number" && body.costCents > 0
+      ? Math.round(body.costCents)
+      : null;
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) {
+    return c.json(quota.body, quota.status);
+  }
+
+  // 1) IDENTIFY — read the brand/size tag and pull short matching keywords
+  //    (US-285 primitive). One AI action; the comp search is meaningless
+  //    without it, so a failure here is terminal for this call.
+  {
+    const { data: reserved } = await supabaseAdmin.rpc("reserve_ai_action", {
+      p_user_id: userId,
+      p_limit: quota.limit,
+    });
+    if (reserved !== true) {
+      return jsonError(
+        c,
+        429,
+        "Monthly AI action limit reached — upgrade or wait for the reset.",
+      );
+    }
+  }
+  let hints;
+  try {
+    hints = await extractMatchHints(visionImages);
+  } catch (err) {
+    await supabaseAdmin.rpc("refund_ai_action", { p_user_id: userId }).then(
+      () => {},
+      () => {},
+    );
+    return failSafe(
+      c,
+      502,
+      "Couldn't read that photo. Try a clearer shot of the item and its tag.",
+      err,
+      "scout.prospect.identify",
+    );
+  }
+
+  const brand = hints.brand?.trim() || null;
+  const keywords = hints.keywords.map((k) => k.trim()).filter(Boolean);
+  const query = [brand, ...keywords].filter(Boolean).join(" ").trim();
+  const displayTitle = titleizeWords([brand ?? "", ...keywords].filter(Boolean));
+
+  // No brand AND no keywords → we can't comp. Return the (empty) identification
+  // honestly rather than a misleading "0 comps" against a blank search.
+  if (!query) {
+    recordMetric("scout.prospect", 1, { identified: "false" });
+    return c.json({
+      identified: false,
+      item: { brand: null, title: null, keywords: [], identifyConfidence: hints.confidence },
+      category: null,
+      grade: null,
+      stats: null,
+      sellThrough: null,
+      source: "active",
+      note:
+        "Couldn't identify the item — try a sharper photo of the brand/size tag.",
+    });
+  }
+
+  // 2) Resolve an eBay leaf category from the identification query.
+  let categoryId: string | null = null;
+  let categoryPath: string | null = null;
+  try {
+    const cats = await suggestCategories(query);
+    categoryId = cats[0]?.categoryId ?? null;
+    categoryPath = cats[0]?.categoryTreePath ?? null;
+  } catch (err) {
+    captureException(err, { level: "warn", route: "scout.prospect.category" });
+  }
+
+  // 3) GRADE the front photo (best-effort) so the value is condition-adjusted.
+  //    If the cap is hit or grading fails, fall through with a null grade —
+  //    valueAtGrade then prices at the default "used" condition.
+  let shadowGrade: number | null = null;
+  let gradeTier: string | null = null;
+  let gradeConfidence = 0;
+  if (frontDataUri) {
+    const { data: reservedGrade } = await supabaseAdmin.rpc("reserve_ai_action", {
+      p_user_id: userId,
+      p_limit: quota.limit,
+    });
+    if (reservedGrade === true) {
+      try {
+        const grade = await quickGrade({
+          images: [{ dataUri: frontDataUri, type: "front" }],
+          garment: { brand, title: keywords.join(" ") || undefined },
+        });
+        shadowGrade = grade.overallScore;
+        gradeTier = grade.gradeTier;
+        gradeConfidence = grade.confidence;
+      } catch (err) {
+        await supabaseAdmin.rpc("refund_ai_action", { p_user_id: userId }).then(
+          () => {},
+          () => {},
+        );
+        captureException(err, { level: "warn", route: "scout.prospect.grade" });
+      }
+    }
+  }
+
+  // 4) Condition-matched value range (= comp count + going rate) — only when we
+  //    resolved a category. Then a transparent sell-through forecast.
+  let value: ValueRange | null = null;
+  if (categoryId) {
+    try {
+      value = await valueAtGrade(
+        { categoryId, q: keywords.join(" ") || undefined, brand: brand ?? undefined },
+        shadowGrade,
+      );
+    } catch (err) {
+      captureException(err, { level: "warn", route: "scout.prospect.value" });
+    }
+  }
+  const sellThrough = value
+    ? forecastSellThrough(value, value.medianCents ?? 0)
+    : null;
+  const decision = value
+    ? decideBuy({
+        shadowGrade,
+        gradeConfidence,
+        value,
+        sellThrough: sellThrough!,
+        costCents,
+      })
+    : null;
+
+  // A deep link to eBay's SOLD/completed search for this item — lets the
+  // reseller eyeball actual realized prices in the browser even while our comp
+  // basis is active listings (until the Marketplace Insights grant lands).
+  const ebaySoldSearchUrl =
+    `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}` +
+    `&LH_Sold=1&LH_Complete=1`;
+
+  recordMetric("scout.prospect", 1, {
+    identified: "true",
+    comped: String((value?.sampleSize ?? 0) > 0),
+  });
+
+  return c.json({
+    identified: true,
+    item: {
+      brand,
+      title: displayTitle || null,
+      keywords,
+      identifyConfidence: hints.confidence,
+    },
+    category: categoryId ? { id: categoryId, path: categoryPath } : null,
+    grade: shadowGrade != null
+      ? { value: shadowGrade, tier: gradeTier, confidence: gradeConfidence }
+      : null,
+    // The headline numbers: count = how many comps backed the estimate,
+    // medianCents = the going rate, low/high = the spread.
+    stats: value
+      ? {
+          count: value.sampleSize,
+          lowCents: value.lowCents,
+          medianCents: value.medianCents,
+          highCents: value.highCents,
+          currency: value.currency,
+          confidence: value.confidence,
+          sufficient: value.sufficient,
+        }
+      : null,
+    sellThrough,
+    costCents,
+    decision,
+    ebaySoldSearchUrl,
+    // "active" today; flips to "sold" automatically once Marketplace Insights
+    // is granted — the client labels its pricing copy off this.
+    source: "active",
+    disclaimer:
+      "Identified by AI from your photos. Prices come from condition-matched ACTIVE eBay listings (asking prices) — real sold prices are often lower, so treat the going rate as a ceiling. Tap to see sold comps on eBay.",
   });
 });
 

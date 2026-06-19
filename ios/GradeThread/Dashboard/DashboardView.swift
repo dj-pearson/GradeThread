@@ -15,6 +15,8 @@ struct DashboardView: View {
     @State private var showingSnap = false
     /// ScoutAI: presents the "find underpriced deals" sheet.
     @State private var showingScout = false
+    /// US-953: presents the in-store Item Prospecting (snap → comps) sheet.
+    @State private var showingProspect = false
     /// US-647: post-signup activation checklist.
     @State private var activation = ActivationChecklistStore()
 
@@ -67,6 +69,9 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showingScout) {
             ScoutView()
+        }
+        .sheet(isPresented: $showingProspect) {
+            ProspectView(router: router)
         }
         // US-967: rebuild the 14-day trend series only when sales or items
         // change, not on every `body` re-evaluation (where it was read 3×).
@@ -286,6 +291,15 @@ struct DashboardView: View {
                 showingSnap = true
             } label: {
                 Label("What's it worth?", systemImage: "sparkles")
+            }
+            .buttonStyle(.brandSecondary)
+
+            // US-953: Item Prospecting — snap an item in-store, get comps.
+            Button {
+                AppRouter.haptic()
+                showingProspect = true
+            } label: {
+                Label("Prospect an item", systemImage: "viewfinder.circle")
             }
             .buttonStyle(.brandSecondary)
 
