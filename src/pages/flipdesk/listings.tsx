@@ -30,6 +30,7 @@ import {
   ChevronsUpDown,
   Tag,
   SlidersHorizontal,
+  CheckCircle2,
 } from "lucide-react";
 import {
   Card,
@@ -93,6 +94,7 @@ import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
+import { PrepareShipmentDialog } from "@/components/flipdesk/prepare-shipment-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
 import { useSavedViews } from "@/hooks/use-saved-views";
@@ -303,6 +305,10 @@ const LISTINGS_COLUMNS = [
   "listing_views",
   "sale_status",
   "sale_cancelled_at",
+  // US-960: Shipped-tab fulfillment (carrier + shipped/delivered timestamps).
+  "carrier",
+  "shipped_at",
+  "delivered_at",
 ].join(",");
 
 function fmtMoney(n: number | null | undefined): string {
@@ -447,6 +453,9 @@ export function FlipdeskListingsPage() {
   const [aiEnrichOpen, setAiEnrichOpen] = useState(false);
   // US-962: bulk match-to-comp reprice of the selected active listings.
   const [repriceOpen, setRepriceOpen] = useState(false);
+  // US-960: bulk "Prepare shipment" — fill carrier + tracking across the
+  // selected sold items and advance them to shipped.
+  const [prepareShipOpen, setPrepareShipOpen] = useState(false);
 
   // Load a saved view when ?view=<id> resolves — applies the saved filter
   // and strips the param so a reload doesn't re-apply.
@@ -482,6 +491,7 @@ export function FlipdeskListingsPage() {
   const isSold = tab === "sold";
   const isActive = tab === "active";
   const isDrafts = tab === "drafts";
+  const isShipped = tab === "shipped";
   const selectable = isToList || isSold || isActive || isDrafts;
 
   // Power-user shortcut: 'a' toggles select-all on the current page (only on
@@ -917,34 +927,83 @@ export function FlipdeskListingsPage() {
     }
   }
 
-  async function bulkMarkShipped() {
-    if (selected.size === 0) return;
-    setBusy(true);
-    const errors: { message: string }[] = [];
-    let done = 0;
-    for (const id of selected) {
-      try {
-        const { error } = await supabase
-          .from("inventory_items")
-          .update({ status: "shipped" } as never)
-          .eq("id", id);
-        if (error) throw error;
-        done++;
-      } catch (err) {
-        errors.push({
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
+  // US-960: look up the item's most-recent sale id so the Shipped tab can write
+  // fulfillment fields (tracking / delivered_at) to the right sale row. RLS on
+  // `sales` scopes both the read and the write to the owner.
+  async function latestSaleId(itemId: string): Promise<string | null> {
+    const { data, error } = await supabase
+      .from("sales")
+      .select("id")
+      .eq("inventory_item_id", itemId)
+      .order("sale_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as { id: string } | null)?.id ?? null;
+  }
+
+  // US-960: edit/add the tracking number on a shipped item straight from the
+  // Shipped tab. Optimistic local write-through, then persists to the sale.
+  async function updateTracking(it: ItemFullRow, raw: string) {
+    const next = raw.trim();
+    if ((it.tracking ?? "") === next) return;
+    const prev = items;
+    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+      (old ?? []).map((i) =>
+        i.id === it.id ? { ...i, tracking: next || null } : i,
+      ),
+    );
+    try {
+      const saleId = await latestSaleId(it.id);
+      if (!saleId) throw new Error("No sale record for this item.");
+      const { error } = await supabase
+        .from("sales")
+        .update({ tracking_number: next || null } as never)
+        .eq("id", saleId);
+      if (error) throw error;
+      toast.success("Tracking updated.");
+    } catch (err) {
+      qc.setQueryData(["items_full", user?.id], prev);
+      toast.error(
+        `Couldn't update tracking: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
-    setBusy(false);
-    setSelected(new Set());
-    await qc.invalidateQueries({ queryKey: ["items_full"] });
-    if (errors.length === 0) {
-      toast.success(`Marked ${done} shipped.`);
-    } else {
-      toast.warning(
-        `Marked ${done} shipped, ${errors.length} failed. First: ${errors[0]?.message}`,
-        { duration: 12_000 },
+  }
+
+  // US-960: one-click "Mark delivered" on the Shipped tab — stamps the sale's
+  // delivered_at and moves the item to `completed` (terminal). Optimistic.
+  async function markDelivered(it: ItemFullRow) {
+    const now = new Date().toISOString();
+    const prev = items;
+    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+      (old ?? []).map((i) =>
+        i.id === it.id ? { ...i, delivered_at: now, status: "completed" } : i,
+      ),
+    );
+    try {
+      const saleId = await latestSaleId(it.id);
+      if (saleId) {
+        const { error } = await supabase
+          .from("sales")
+          .update({ delivered_at: now } as never)
+          .eq("id", saleId);
+        if (error) throw error;
+      }
+      const { error: iErr } = await supabase
+        .from("inventory_items")
+        .update({ status: "completed" } as never)
+        .eq("id", it.id);
+      if (iErr) throw iErr;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Marked delivered.");
+    } catch (err) {
+      qc.setQueryData(["items_full", user?.id], prev);
+      toast.error(
+        `Couldn't mark delivered: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       );
     }
   }
@@ -1599,7 +1658,7 @@ export function FlipdeskListingsPage() {
                 SORT_PRESET_LABELS[sortPreset].toLowerCase() +
                 ". Select rows to bulk-create drafts."
               : isSold
-                ? "Most recent sale first. Select rows to bulk mark shipped."
+                ? "Most recent sale first. Select rows to prepare shipments."
                 : isDrafts
                   ? ebayConnection
                     ? "Oldest first. Select rows to bulk-publish to eBay."
@@ -1825,6 +1884,15 @@ export function FlipdeskListingsPage() {
                               Days listed
                             </SortHeader>
                           </TableHead>
+                        </>
+                      ) : isShipped ? (
+                        <>
+                          <TableHead className="w-20 text-right">Net</TableHead>
+                          <TableHead className="w-20">Carrier</TableHead>
+                          <TableHead className="min-w-[150px]">
+                            Tracking
+                          </TableHead>
+                          <TableHead className="w-36">Delivery</TableHead>
                         </>
                       ) : (
                         <>
@@ -2073,6 +2141,54 @@ export function FlipdeskListingsPage() {
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {daysSince(it.list_date) ?? "—"}
+                              </TableCell>
+                            </>
+                          ) : isShipped ? (
+                            <>
+                              <TableCell
+                                className={cn(
+                                  "text-right tabular-nums",
+                                  it.net_profit != null &&
+                                    it.net_profit < 0 &&
+                                    "text-destructive",
+                                )}
+                              >
+                                {fmtMoney(it.net_profit)}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {it.carrier ?? "—"}
+                              </TableCell>
+                              <TableCell
+                                className="font-mono text-[11px]"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <InlineCell
+                                  value={it.tracking}
+                                  type="text"
+                                  placeholder="Add tracking"
+                                  onChange={(v) => updateTracking(it, v)}
+                                />
+                              </TableCell>
+                              <TableCell onClick={(e) => e.stopPropagation()}>
+                                {it.delivered_at ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Delivered{" "}
+                                    {new Date(
+                                      it.delivered_at,
+                                    ).toLocaleDateString()}
+                                  </span>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px]"
+                                    onClick={() => markDelivered(it)}
+                                    title="Mark this order delivered"
+                                  >
+                                    Mark delivered
+                                  </Button>
+                                )}
                               </TableCell>
                             </>
                           ) : (
@@ -2416,13 +2532,12 @@ export function FlipdeskListingsPage() {
                   </span>
                 )
               ) : (
-                <Button onClick={bulkMarkShipped} disabled={busy}>
-                  {busy ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Truck className="mr-2 h-4 w-4" />
-                  )}
-                  Mark {selected.size} shipped
+                <Button
+                  onClick={() => setPrepareShipOpen(true)}
+                  disabled={busy}
+                >
+                  <Truck className="mr-2 h-4 w-4" />
+                  Prepare shipment
                 </Button>
               )}
             </div>
@@ -2508,6 +2623,15 @@ export function FlipdeskListingsPage() {
           setSelected(new Set());
           void qc.invalidateQueries({ queryKey: ["items_full"] });
         }}
+      />
+
+      <PrepareShipmentDialog
+        open={prepareShipOpen}
+        onOpenChange={setPrepareShipOpen}
+        items={Array.from(selected)
+          .map((id) => items.find((i) => i.id === id))
+          .filter((v): v is ItemFullRow => !!v)}
+        onApplied={() => setSelected(new Set())}
       />
 
       <BulkAiEnrichDialog

@@ -1069,6 +1069,10 @@ export interface SaleRow {
   sold_at: string | null;
   shipped_at: string | null;
   tracking_number: string | null;
+  // US-960: shipping carrier (USPS/UPS/…) + delivery timestamp for the
+  // Shipped-tab fulfillment flow (00250).
+  carrier: string | null;
+  delivered_at: string | null;
   payout_reference: string | null;
   tax: number;
   payout_amount: number | null;
@@ -1454,6 +1458,11 @@ export interface ItemFullRow {
   // filter (US-1051).
   color: string | null;
   listing_platform: ListingPlatform | null;
+  // Trailing columns added in migration 00250 — Shipped-tab fulfillment, joined
+  // from the most-recent sale (US-960). Null until the order is shipped.
+  carrier: string | null;
+  shipped_at: string | null;
+  delivered_at: string | null;
 }
 
 // ── Admin task / project management (00047) ──────────────────────────────
@@ -2047,6 +2056,8 @@ export interface SaleInsert {
   sold_at?: string | null;
   shipped_at?: string | null;
   tracking_number?: string | null;
+  carrier?: string | null;
+  delivered_at?: string | null;
   payout_reference?: string | null;
   tax?: number;
   payout_amount?: number | null;

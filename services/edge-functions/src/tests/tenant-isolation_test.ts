@@ -183,6 +183,28 @@ Deno.test({
 });
 
 Deno.test({
+  // US-960: marking a sale shipped (carrier + tracking → eBay + sales row) is
+  // tenant-scoped — the sale is loaded THROUGH inventory_items.user_id, so B
+  // pointing at A's sale id hits 0 rows and 404s (never writes A's fulfillment
+  // fields). Env-gated on a sale id owned by A.
+  name: "B cannot mark A's sale shipped",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SALE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_SALE_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/orders/${id}/ship`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ tracking_number: "PWNED123", carrier: "USPS" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST order ship");
+  },
+});
+
+Deno.test({
   // US-455: the suggestions list is scoped to the caller's workspace owner, so
   // B's list must never contain one of A's suggestion ids. (RLS on
   // repricing_suggestions is defense-in-depth; the edge scoping is the boundary

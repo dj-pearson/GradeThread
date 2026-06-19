@@ -71,6 +71,9 @@ function makeItem(overrides: Partial<ItemFullRow> = {}): ItemFullRow {
     sale_cancelled_at: null,
     color: null,
     listing_platform: null,
+    carrier: null,
+    shipped_at: null,
+    delivered_at: null,
     ...overrides,
   };
 }

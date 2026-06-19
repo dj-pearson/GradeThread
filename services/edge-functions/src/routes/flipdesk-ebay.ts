@@ -4223,6 +4223,10 @@ flipdeskEbayRoutes.post("/orders/:saleId/ship", async (c) => {
     .update({
       shipped_at: sale.shipped_at ?? new Date().toISOString(),
       tracking_number: trackingNumber,
+      // US-960: persist the carrier alongside the tracking number (column added
+      // in 00250) so the Shipped tab can show it. Keep an existing value when
+      // the caller didn't send one.
+      ...(carrier ? { carrier } : {}),
     })
     .eq("id", sale.id);
   if (updErr) {

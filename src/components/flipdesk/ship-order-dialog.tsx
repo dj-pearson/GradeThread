@@ -87,6 +87,8 @@ export function ShipOrderDialog({
           .update({
             shipped_at: new Date().toISOString(),
             tracking_number: tn,
+            // US-960: persist the carrier (column added in 00250).
+            carrier,
           } as never)
           .eq("id", sale.id);
         if (error) throw error;
