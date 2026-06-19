@@ -1980,7 +1980,7 @@
         "DesignTokensTests/BrandFontTests still pass."
       ],
       "priority": 1012,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ui/accessibility. ios/GradeThread/Grading/GradeReportView.swift (~117-127,148,266); GradeRequestSheet.swift; Marketplaces/EbayAccountsView.swift; Publish/PublishDialog.swift"
     },
     {
