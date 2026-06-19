@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import {
@@ -85,6 +86,38 @@ interface DripStep {
 interface DripGraph {
   entryStepId: string | null;
   steps: DripStep[];
+  autotuneEnabled?: boolean;
+}
+
+// US-944: optimizer payload (mirrors services/edge-functions/src/lib/drip-optimizer.ts).
+interface VariantScore {
+  variantId: string;
+  sent: number;
+  openRate: number;
+  clickRate: number;
+  conversionRate: number;
+  unsubRate: number;
+  trusted: boolean;
+  retired: boolean;
+  isWinner: boolean;
+  weight: number;
+}
+interface StepOptimization {
+  stepId: string;
+  label: string;
+  ordinal: number;
+  changed: boolean;
+  totalSent: number;
+  hasEnoughData: boolean;
+  winnerId: string | null;
+  scores: VariantScore[];
+  recommendedWeights: Record<string, number>;
+}
+interface OptimizerResponse {
+  autotuneEnabled: boolean;
+  config: { minSample: number; explorationFloor: number; unsubRetireRate: number };
+  optimizations: StepOptimization[];
+  changedSteps: number;
 }
 interface CampaignRow {
   campaign: string;
@@ -166,6 +199,38 @@ export function AdminDripBuilderPage() {
     },
     staleTime: 20_000,
   });
+
+  const optimizer = useQuery({
+    queryKey: ["admin-drip-optimizer", campaign],
+    queryFn: async (): Promise<OptimizerResponse> => {
+      const res = await edgeFetch(`/api/admin/drip/campaigns/${campaign}/optimizer`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load optimizer.");
+      return json as OptimizerResponse;
+    },
+    staleTime: 30_000,
+  });
+
+  function applyOptimizer(opts: { autotuneEnabled?: boolean; applyWeights?: boolean }) {
+    run(
+      () =>
+        edgeFetch(`/api/admin/drip/campaigns/${campaign}/optimizer/apply`, {
+          method: "POST",
+          json: opts,
+          silentGate: true,
+        }),
+      () => {
+        toast.success(
+          opts.applyWeights === false
+            ? "Autotune setting updated."
+            : "Optimizer applied — weights re-tuned toward winners.",
+        );
+        setDirty(false);
+        qc.invalidateQueries({ queryKey: ["admin-drip-campaign", campaign] });
+        qc.invalidateQueries({ queryKey: ["admin-drip-optimizer", campaign] });
+      },
+    );
+  }
 
   // Seed the editable draft once the campaign loads (and not while dirty).
   useEffect(() => {
@@ -412,6 +477,15 @@ export function AdminDripBuilderPage() {
       />
 
       <Simulator campaign={campaign} />
+
+      <OptimizerPanel
+        data={optimizer.data}
+        loading={optimizer.isLoading}
+        error={optimizer.error as Error | null}
+        isSuperAdmin={isSuperAdmin}
+        working={working}
+        onApply={applyOptimizer}
+      />
 
       {/* Step graph */}
       <div className="space-y-3">
@@ -891,6 +965,166 @@ function UserJourneyDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function pct(n: number): string {
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+// US-944: per-step A/B performance + recommended self-tuned weights, with an
+// autotune toggle and a one-click "apply". Conversion is the optimized goal;
+// weights shift toward the winner with an exploration floor, and high-unsub
+// arms are retired (weight → 0).
+function OptimizerPanel({
+  data,
+  loading,
+  error,
+  isSuperAdmin,
+  working,
+  onApply,
+}: {
+  data?: OptimizerResponse;
+  loading: boolean;
+  error: Error | null;
+  isSuperAdmin: boolean;
+  working: boolean;
+  onApply: (opts: { autotuneEnabled?: boolean; applyWeights?: boolean }) => void;
+}) {
+  const tunable = (data?.optimizations ?? []).filter((o) => o.scores.length > 1);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4" /> Conversion optimizer (A/B self-tuning)
+        </CardTitle>
+        <CardDescription>
+          Per-step variant performance from the send + attribution ledger.
+          Weights self-tune toward the highest-<strong>converting</strong> arm
+          (clicks as a secondary signal), keep an exploration floor for losers,
+          and retire high-unsubscribe arms. Below{" "}
+          {data ? data.config.minSample : "the"} sends/arm it keeps testing
+          evenly (no spurious winners). All data-driven, but visible and
+          overridable below.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : error ? (
+          <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
+            <AlertTriangle className="h-4 w-4" /> {error.message}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="autotune"
+                  checked={data?.autotuneEnabled ?? false}
+                  disabled={!isSuperAdmin || working}
+                  onCheckedChange={(v) =>
+                    onApply({ autotuneEnabled: v, applyWeights: false })
+                  }
+                />
+                <Label htmlFor="autotune" className="text-sm">
+                  Autonomous self-tuning{" "}
+                  <span className="text-xs text-muted-foreground">
+                    (engine re-tunes weights automatically)
+                  </span>
+                </Label>
+              </div>
+              <Button
+                size="sm"
+                disabled={!isSuperAdmin || working || (data?.changedSteps ?? 0) === 0}
+                onClick={() => onApply({ applyWeights: true })}
+              >
+                {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Apply recommendations
+                {data && data.changedSteps > 0 ? ` (${data.changedSteps})` : ""}
+              </Button>
+            </div>
+
+            {tunable.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No multi-variant steps to optimize — add a second variant to a
+                step to start A/B testing.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {tunable.map((o) => (
+                  <div key={o.stepId} className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                      <span>{o.ordinal}. {o.label}</span>
+                      {o.hasEnoughData ? (
+                        <Badge className="bg-green-600 hover:bg-green-600">
+                          winner {o.winnerId}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">gathering data</Badge>
+                      )}
+                      {o.changed && (
+                        <span className="text-xs text-amber-600">re-tune available</span>
+                      )}
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {o.totalSent} sends
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="text-muted-foreground">
+                          <tr className="border-b text-left">
+                            <th className="py-1 pr-3">variant</th>
+                            <th className="py-1 pr-3">sent</th>
+                            <th className="py-1 pr-3">conv</th>
+                            <th className="py-1 pr-3">click</th>
+                            <th className="py-1 pr-3">unsub</th>
+                            <th className="py-1 pr-3">rec. weight</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {o.scores.map((s) => {
+                            return (
+                              <tr key={s.variantId} className="border-b last:border-0">
+                                <td className="py-1 pr-3">
+                                  <span className="flex items-center gap-1">
+                                    {s.variantId}
+                                    {s.isWinner && (
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                                    )}
+                                    {s.retired && (
+                                      <Badge variant="destructive" className="px-1 py-0 text-[10px]">
+                                        retired
+                                      </Badge>
+                                    )}
+                                  </span>
+                                </td>
+                                <td className="py-1 pr-3">{s.sent}</td>
+                                <td className="py-1 pr-3 font-medium">{pct(s.conversionRate)}</td>
+                                <td className="py-1 pr-3">{pct(s.clickRate)}</td>
+                                <td className={cn("py-1 pr-3", s.retired && "text-red-600")}>
+                                  {pct(s.unsubRate)}
+                                </td>
+                                <td className="py-1 pr-3">
+                                  <span className={cn(s.retired ? "text-red-600" : "font-medium")}>
+                                    {s.weight}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

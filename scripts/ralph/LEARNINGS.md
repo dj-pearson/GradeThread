@@ -68,6 +68,16 @@ memory — not a progress log (the harness records progress separately).
   evaluator in `lib/drip-graph.ts` (`simulateJourney`/`validateGraph`/`renderStep`).
 - `lib/drip-graph.ts` is dependency-free (no supabase/env) so its test imports
   without the env dance; keep AI/supabase/email imports in the route file only.
+- US-944 added the per-step A/B optimizer (`lib/drip-optimizer.ts`, also pure):
+  epsilon-greedy weight shift toward the highest-CONVERTING arm (click is only a
+  secondary tiebreak), exploration floor for losers, auto-retire of high-unsub
+  arms. The optimizer is STATELESS per call — it must be fed the CUMULATIVE
+  windowed ledger (`drip_sends`/`drip_attributions`), not per-round deltas, or a
+  retired arm with 0 new traffic falls back below `minSample` and re-enters as a
+  survivor (oscillates). `optimizeGraph` keys stats by 1-based ordinal =
+  `drip_sends.step`. Conversion is attributed per (step,variant) by joining each
+  send to its enrollment's attribution. `graph.autotuneEnabled` (optional, off by
+  default) is the autonomous gate the future engine tick reads.
 
 ## Sync provenance epic (US-1076…1086)
 - The `listings.listing_origin` enum column is now PERSISTED (US-1077, migration

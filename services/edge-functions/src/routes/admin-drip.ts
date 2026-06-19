@@ -14,6 +14,12 @@ import {
   simulateJourney,
   validateGraph,
 } from "../lib/drip-graph.ts";
+import {
+  applyOptimizationToGraph,
+  DEFAULT_OPTIMIZER_CONFIG,
+  optimizeGraph,
+  type VariantStats,
+} from "../lib/drip-optimizer.ts";
 
 // US-946: Trial-conversion drip analytics (read-only) + US-945: the visual
 // drip / journey BUILDER backing the admin page (src/pages/admin/drip.tsx).
@@ -37,6 +43,11 @@ import {
 //   GET  /campaigns/:c/enrollments         — live: counts by step + recent exits.
 //   GET  /campaigns/:c/users/:userId       — one user's journey + send history.
 //   POST /campaigns/:c/simulate            — dry-run the evaluator for a user.
+//   GET  /campaigns/:c/optimizer           — US-944: per-step A/B performance +
+//                                            recommended self-tuned weights.
+//   POST /campaigns/:c/optimizer/apply     — US-944: apply recommended weights
+//                                            (and toggle autotune). super_admin +
+//                                            step-up + audited.
 
 type AdminEnv = {
   Variables: {
@@ -572,5 +583,189 @@ adminDripRoutes.post("/campaigns/:campaign/simulate", async (c) => {
     campaignStatus: row.status,
     nextTick: nextTickIso(now),
     result,
+  });
+});
+
+// ── Per-step A/B optimizer + conversion self-tuning (US-944) ──
+
+interface SendRow {
+  enrollment_id: string;
+  step: number;
+  variant: string | null;
+  sent_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
+  unsubscribed: boolean;
+}
+
+/**
+ * Aggregate the send/attribution ledger into per-(ordinal,variant) stats the
+ * optimizer consumes. Conversion is attributed by joining each send to its
+ * enrollment's attribution (one per converted enrollment) — so every variant a
+ * converter was exposed to at each step gets credit. Windowed by sent_at.
+ */
+async function loadVariantStats(
+  campaign: string,
+  startIso: string,
+  endIso: string,
+): Promise<Record<number, Record<string, VariantStats>>> {
+  const { data: sendsData } = await supabaseAdmin
+    .from("drip_sends")
+    .select("enrollment_id, step, variant, sent_at, opened_at, clicked_at, unsubscribed")
+    .eq("campaign", campaign)
+    .not("sent_at", "is", null)
+    .gte("sent_at", startIso)
+    .lt("sent_at", endIso)
+    .limit(100000);
+  const sends = (sendsData ?? []) as SendRow[];
+
+  // Enrollments that converted (any time) — used to attribute conversions.
+  const { data: attrData } = await supabaseAdmin
+    .from("drip_attributions")
+    .select("enrollment_id")
+    .eq("campaign", campaign)
+    .limit(100000);
+  const converted = new Set(
+    (attrData ?? []).map((r) => (r as { enrollment_id: string }).enrollment_id),
+  );
+
+  const byOrdinal: Record<number, Record<string, VariantStats>> = {};
+  for (const s of sends) {
+    if (!s.variant) continue; // can't attribute a null variant to a graph arm
+    const ord = byOrdinal[s.step] ?? (byOrdinal[s.step] = {});
+    const acc = ord[s.variant] ?? (ord[s.variant] = {
+      variantId: s.variant,
+      sent: 0,
+      opened: 0,
+      clicked: 0,
+      converted: 0,
+      unsubscribed: 0,
+    });
+    acc.sent += 1;
+    if (s.opened_at) acc.opened += 1;
+    if (s.clicked_at) acc.clicked += 1;
+    if (s.unsubscribed) acc.unsubscribed += 1;
+    if (converted.has(s.enrollment_id)) acc.converted += 1;
+  }
+  return byOrdinal;
+}
+
+function optimizerWindow(period: string, startQ?: string, endQ?: string):
+  | { start: string; end: string }
+  | { error: string } {
+  if (period === "custom") {
+    const startMs = startQ ? Date.parse(startQ) : NaN;
+    const endMs = endQ ? Date.parse(endQ) : NaN;
+    if (Number.isNaN(startMs) || Number.isNaN(endMs) || startMs >= endMs) {
+      return { error: "Invalid custom start/end range" };
+    }
+    return { start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
+  }
+  const days = PERIOD_DAYS[period];
+  if (!days) return { error: `Unknown period '${period}' (expected 30d|90d|180d|365d|custom)` };
+  const now = Date.now();
+  return { start: new Date(now - days * DAY_MS).toISOString(), end: new Date(now).toISOString() };
+}
+
+// GET /campaigns/:campaign/optimizer?period=90d — per-step A/B performance +
+// recommended self-tuned weights (read-only; nothing is applied).
+adminDripRoutes.get("/campaigns/:campaign/optimizer", async (c) => {
+  const campaign = c.req.param("campaign");
+  const row = await loadCampaign(campaign);
+  if (!row) return jsonError(c, 404, "Unknown campaign");
+
+  const win = optimizerWindow(
+    c.req.query("period") ?? "90d",
+    c.req.query("start") ?? undefined,
+    c.req.query("end") ?? undefined,
+  );
+  if ("error" in win) return c.json({ error: win.error }, 400);
+
+  const stats = await loadVariantStats(campaign, win.start, win.end);
+  const optimizations = optimizeGraph(row.graph, stats, DEFAULT_OPTIMIZER_CONFIG);
+
+  return c.json({
+    campaign,
+    window: win,
+    autotuneEnabled: row.graph.autotuneEnabled === true,
+    config: DEFAULT_OPTIMIZER_CONFIG,
+    optimizations,
+    // Any multi-variant step whose recommended weights differ from current.
+    changedSteps: optimizations.filter((o) => o.changed).length,
+  });
+});
+
+// POST /campaigns/:campaign/optimizer/apply — apply the recommended weights to
+// the live graph and/or toggle autotune. Body: { autotuneEnabled?: boolean,
+// applyWeights?: boolean (default true), period? }. super_admin + step-up +
+// audited (it changes live sends, same as a manual graph edit).
+adminDripRoutes.post("/campaigns/:campaign/optimizer/apply", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return jsonError(c, 403, "Super admin required to apply optimizer changes.");
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const campaign = c.req.param("campaign");
+  let body: { autotuneEnabled?: boolean; applyWeights?: boolean; period?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+
+  const before = await loadCampaign(campaign);
+  if (!before) return jsonError(c, 404, "Unknown campaign");
+
+  const applyWeights = body.applyWeights !== false;
+  const win = optimizerWindow(body.period ?? "90d");
+  if ("error" in win) return c.json({ error: win.error }, 400);
+
+  let nextGraph: DripGraph = before.graph;
+  let optimizations: ReturnType<typeof optimizeGraph> = [];
+  if (applyWeights) {
+    const stats = await loadVariantStats(campaign, win.start, win.end);
+    optimizations = optimizeGraph(before.graph, stats, DEFAULT_OPTIMIZER_CONFIG);
+    nextGraph = applyOptimizationToGraph(before.graph, optimizations);
+  }
+  if (typeof body.autotuneEnabled === "boolean") {
+    nextGraph = { ...nextGraph, autotuneEnabled: body.autotuneEnabled };
+  }
+
+  // Validate the resulting graph before persisting (defense in depth).
+  const validation = validateGraph(nextGraph);
+  if (!validation.ok) {
+    return c.json({ error: "Optimized graph is invalid", code: "GRAPH_INVALID", errors: validation.errors }, 400);
+  }
+
+  const { data: after, error } = await supabaseAdmin
+    .from("drip_campaigns")
+    .update({ graph: nextGraph, updated_by: c.get("userId") })
+    .eq("campaign", campaign)
+    .select("campaign, name, status, feature_flag_key, graph, updated_at")
+    .maybeSingle();
+  if (error) return jsonError(c, 500, "Failed to apply optimizer changes");
+
+  await writeAuditLog(c, {
+    action: "drip.optimizer_apply",
+    targetType: "drip_campaign",
+    targetId: campaign,
+    details: {
+      applyWeights,
+      autotuneEnabled: body.autotuneEnabled,
+      changedSteps: optimizations.filter((o) => o.changed).map((o) => ({
+        stepId: o.stepId,
+        winnerId: o.winnerId,
+        recommendedWeights: o.recommendedWeights,
+      })),
+    },
+  });
+
+  return c.json({
+    ok: true,
+    campaign: after,
+    appliedWeights: applyWeights,
+    autotuneEnabled: nextGraph.autotuneEnabled === true,
+    optimizations,
   });
 });

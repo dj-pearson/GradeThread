@@ -71,6 +71,13 @@ export interface DripStep {
 export interface DripGraph {
   entryStepId: string | null;
   steps: DripStep[];
+  /**
+   * US-944: when true, the engine autonomously re-tunes per-step variant
+   * weights from recorded conversions each optimizer run (still visible +
+   * overridable in the builder). Optional; defaults to off. Ignored by
+   * validateGraph/simulateJourney — it only gates self-tuning.
+   */
+  autotuneEnabled?: boolean;
 }
 
 // ── Validation ──
