@@ -9,8 +9,11 @@ import UserNotifications
 /// Seam so ``BackgroundRefreshService`` can be unit-tested with a spy that
 /// records notifications (the concrete notifier no-ops in tests because
 /// UNUserNotificationCenter isn't authorized).
+// Internal (not `public`): the requirement exposes the internal `LocalSale`
+// SwiftData model, which a public protocol may not do. The notifier is only
+// used within this app target.
 @MainActor
-public protocol NewSaleNotifying: AnyObject {
+protocol NewSaleNotifying: AnyObject {
     func notifyNewSales(count: Int, latest: LocalSale) async
 }
 
@@ -33,7 +36,7 @@ public final class NewSaleNotifier: NewSaleNotifying {
 
     /// Schedules an immediate-delivery local notification. iOS will
     /// suppress it if permission isn't granted — no error to surface.
-    public func notifyNewSales(count: Int, latest: LocalSale) async {
+    func notifyNewSales(count: Int, latest: LocalSale) async {
         await requestPermissionIfNeeded()
 
         let center = UNUserNotificationCenter.current()

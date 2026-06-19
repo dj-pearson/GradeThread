@@ -1355,36 +1355,30 @@ private struct AppLockCoverView: View {
 
 // MARK: - Brand colors
 
-extension Color {
-    /// Brand palette mirrors the refreshed media kit (design.md §2 / §4A and
-    /// the web app's src/index.css). Read from the asset catalog (US-192) so
-    /// iOS swaps to the high-contrast variant when Increase Contrast is on in
-    /// Accessibility Settings.
-    ///
-    /// `brandNavy` is the Obsidian Navy (#0C1E36) brand anchor. The Excellent
-    /// grade tier (7.0–9.0) uses the distinct Steel Navy (#0F3460) —
-    /// `brandSteelNavy` — per design.md §3B, so the anchor and the tier stay
-    /// independently tunable.
-    static let brandNavy = Color(
-        "BrandNavy",
-        bundle: nil
-    )
-    static let brandSteelNavy = Color(
-        "BrandSteelNavy",
-        bundle: nil
-    )
-    static let brandRed = Color(
-        "BrandRed",
-        bundle: nil
-    )
-    static let brandEmerald = Color(
-        "BrandEmerald",
-        bundle: nil
-    )
-    static let brandAmber = Color(
-        "BrandAmber",
-        bundle: nil
-    )
+/// Brand palette declared on `ShapeStyle where Self == Color` — NOT a plain
+/// `Color` extension — so the leading-dot syntax resolves the way SwiftUI's own
+/// `.red` / `.blue` do. Implicit-member lookup in a `some ShapeStyle` position
+/// (`.foregroundStyle(.brandEmerald)`, `.fill(.brandRed)`, `.tint(.brandAmber)`)
+/// only sees members declared here, never `static`s on `Color` itself — that's
+/// why a `Color` extension produced "ShapeStyle has no member 'brandEmerald'".
+/// Declaring them here also keeps `Color.brandNavy` and `let c: Color =
+/// .brandNavy` working (since `Self == Color`), so this is a strict superset of
+/// the old `Color` statics — with no `Color.brandRed` ambiguity from defining
+/// the same name twice.
+///
+/// Mirrors the refreshed media kit (design.md §2 / §4A and the web app's
+/// src/index.css) and reads from the asset catalog (US-192) so iOS swaps to the
+/// high-contrast variant when Increase Contrast is on in Accessibility Settings.
+///
+/// `brandNavy` is the Obsidian Navy (#0C1E36) brand anchor. The Excellent grade
+/// tier (7.0–9.0) uses the distinct Steel Navy (#0F3460) — `brandSteelNavy` —
+/// per design.md §3B, so the anchor and the tier stay independently tunable.
+extension ShapeStyle where Self == Color {
+    static var brandNavy: Color { Color("BrandNavy") }
+    static var brandSteelNavy: Color { Color("BrandSteelNavy") }
+    static var brandRed: Color { Color("BrandRed") }
+    static var brandEmerald: Color { Color("BrandEmerald") }
+    static var brandAmber: Color { Color("BrandAmber") }
 }
 
 #Preview {

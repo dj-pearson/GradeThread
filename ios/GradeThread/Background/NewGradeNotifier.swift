@@ -8,8 +8,11 @@ import UserNotifications
 /// mechanism as ``NewSaleNotifier``.
 /// Seam so ``BackgroundRefreshService`` can be unit-tested with a spy that
 /// records notifications (mirrors ``NewSaleNotifying``).
+// Internal (not `public`): the requirement exposes the internal
+// `LocalInventoryItem` SwiftData model, which a public protocol may not do. The
+// notifier is only used within this app target.
 @MainActor
-public protocol NewGradeNotifying: AnyObject {
+protocol NewGradeNotifying: AnyObject {
     func notifyNewGrades(count: Int, latest: LocalInventoryItem) async
 }
 
@@ -30,7 +33,7 @@ public final class NewGradeNotifier: NewGradeNotifying {
 
     /// Schedules an immediate local notification for one or more newly
     /// graded items. iOS suppresses it when permission isn't granted.
-    public func notifyNewGrades(count: Int, latest: LocalInventoryItem) async {
+    func notifyNewGrades(count: Int, latest: LocalInventoryItem) async {
         await requestPermissionIfNeeded()
 
         let center = UNUserNotificationCenter.current()

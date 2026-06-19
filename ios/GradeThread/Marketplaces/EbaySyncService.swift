@@ -30,7 +30,11 @@ public final class EbaySyncService {
     /// of firing a notification and sleeping a fixed beat.
     private let syncEngine: SyncEngine?
 
-    public init(
+    // Internal (not `public`): the `syncEngine` parameter is the internal
+    // `SyncEngine` actor, and a `public init` may not expose an internal type.
+    // The service is only ever constructed within this app target, so internal
+    // access is sufficient.
+    init(
         supabase: SupabaseClient = SupabaseShared.client,
         container: ModelContainer? = nil,
         syncEngine: SyncEngine? = nil,

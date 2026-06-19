@@ -45,7 +45,11 @@ public final class BackgroundRefreshService {
     // simply triggers the cold-launch fallback in `resolveSyncEngine`.
     private weak var syncEngine: (any BackgroundSyncing)?
 
-    public init(
+    // Internal (not `public`): the `notifier`/`gradeNotifier` parameters are the
+    // internal `NewSaleNotifying`/`NewGradeNotifying` protocols (they expose
+    // internal SwiftData models), and a `public init` may not expose an internal
+    // type. The service is only constructed within this app target.
+    init(
         modelContainer: ModelContainer? = nil,
         notifier: any NewSaleNotifying = NewSaleNotifier(),
         gradeNotifier: any NewGradeNotifying = NewGradeNotifier()

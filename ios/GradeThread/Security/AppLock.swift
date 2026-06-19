@@ -154,7 +154,11 @@ public final class AppLock {
 
     // MARK: - Real device implementation
 
-    private static func policy(for mode: AuthMode) -> LAPolicy {
+    // `nonisolated` because `deviceCanEvaluate`/`deviceEvaluate` below are
+    // nonisolated (used as default args) and call this; the @MainActor class
+    // isolation would otherwise make it a "call in a synchronous nonisolated
+    // context" error. Pure switch over an enum, so it's safe off the main actor.
+    private nonisolated static func policy(for mode: AuthMode) -> LAPolicy {
         switch mode {
         case .biometricsOrPasscode: return .deviceOwnerAuthentication
         case .biometricsOnly: return .deviceOwnerAuthenticationWithBiometrics
