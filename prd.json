@@ -1114,7 +1114,7 @@
         "Typecheck passes"
       ],
       "priority": 952,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/snap.tsx -> src/pages/new-submission.tsx. Builds on completed Snap (US-612/613/614) and the grading bridge (US-736/746). Carry the snap image via storage ref, not a fresh upload, when possible."
     },
     {
