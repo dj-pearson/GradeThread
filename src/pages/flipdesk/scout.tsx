@@ -23,6 +23,7 @@ import {
   useScoutScan,
   type ScoutScored,
 } from "@/hooks/use-scout";
+import { ForecastCard } from "@/components/flipdesk/forecast-card";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -232,6 +233,10 @@ export function FlipdeskScoutPage() {
           condition before buying.
         </span>
       </div>
+
+      {/* US-1104: longitudinal resale-value & depreciation forecast from the
+          reseller's own sale ledger. Seeds the brand from the search above. */}
+      <ForecastCard brand={brand.trim() || undefined} />
 
       {/* Results */}
       {scan.isPending ? (

@@ -1,9 +1,11 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   generateClaimToken,
   hashClaimToken,
   isPseudonymousLabel,
+  minimizeLinkageRef,
 } from "../lib/garment-passport.ts";
 import { transferToNewBuyer, userIdFromBearer } from "../lib/passport-transfer.ts";
 import {
@@ -136,6 +138,9 @@ passportRoutes.get("/:slug", async (c) => {
     .from("garment_events")
     .select("event_type, confidence, source, payload, created_at, actor_node_id")
     .eq("garment_id", g.id)
+    // US-1103: an admin-severed link (a fraudulent probable link) is dropped from
+    // the public timeline + chain — the integrity action that keeps it credible.
+    .is("severed_at", null)
     .order("created_at", { ascending: true });
   const rows = (eventRows ?? []) as Array<{
     event_type: string;
@@ -291,6 +296,43 @@ passportRoutes.post("/garments/:id/claim-token", async (c) => {
   );
 });
 
+// Best-effort, salted hash of the caller IP for the claim-attempt log (US-1103).
+// PII-minimized: we never store a raw IP, only a salted digest for clustering.
+async function sourceHashFromRequest(c: Context): Promise<string | null> {
+  const ip = c.req.header("CF-Connecting-IP") ??
+    (c.req.header("X-Forwarded-For")?.split(",")[0]?.trim()) ?? "";
+  if (!ip) return null;
+  try {
+    return await minimizeLinkageRef(ip);
+  } catch {
+    return null;
+  }
+}
+
+// US-1103: record a claim redemption attempt (success or rejection) so the
+// token_replay / rapid_reclaim integrity detectors have something to count.
+// Append-only, service-role, and BEST-EFFORT — a logging failure never affects
+// the claim response. Stores only a token HASH + outcome + salted source hash.
+async function recordClaimAttempt(input: {
+  tokenHash: string;
+  garmentId: string | null;
+  outcome: "claimed" | "rejected";
+  claimedNodeId?: string | null;
+  sourceHash: string | null;
+}): Promise<void> {
+  try {
+    await supabaseAdmin.from("passport_claim_attempts").insert({
+      token_hash: input.tokenHash,
+      garment_id: input.garmentId,
+      outcome: input.outcome,
+      claimed_node_id: input.claimedNodeId ?? null,
+      source_hash: input.sourceHash,
+    });
+  } catch (err) {
+    console.error("[passport] claim-attempt log failed:", err);
+  }
+}
+
 // POST /claim — ANONYMOUS (not under /garments/*, so no auth middleware). Redeem
 // a claim token: transfer the passport to a new pseudonymous buyer node and
 // append a deterministic ownership_transfer event. No account required; if a
@@ -325,9 +367,23 @@ passportRoutes.post("/claim", async (c) => {
     console.error("[passport] claim update failed:", claimErr.message);
     return c.json({ error: "Claim failed" }, 500);
   }
+  const sourceHash = await sourceHashFromRequest(c);
   if (!claimed) {
     // Invalid / expired / already-used — deliberately indistinguishable so a
-    // caller can't probe which tokens exist.
+    // caller can't probe which tokens exist. Internally we still resolve the
+    // token to its garment (when it exists) so the replay detector can attribute
+    // the rejected attempt — this does NOT change the (uniform) response.
+    const { data: known } = await supabaseAdmin
+      .from("passport_claim_tokens")
+      .select("garment_id")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+    await recordClaimAttempt({
+      tokenHash,
+      garmentId: (known as { garment_id: string } | null)?.garment_id ?? null,
+      outcome: "rejected",
+      sourceHash,
+    });
     return c.json({ error: "This claim link is invalid, expired, or already used." }, 410);
   }
   const garmentId = (claimed as { id: string; garment_id: string }).garment_id;
@@ -347,6 +403,15 @@ passportRoutes.post("/claim", async (c) => {
     .update({ claimed_by_node_id: transfer.nodeId })
     .eq("id", tokenId)
     .then(() => {}, () => {});
+
+  // US-1103: log the successful redemption for the rapid-reclaim detector.
+  await recordClaimAttempt({
+    tokenHash,
+    garmentId,
+    outcome: "claimed",
+    claimedNodeId: transfer.nodeId,
+    sourceHash,
+  });
 
   return c.json({ ok: true, passport_slug: transfer.slug }, 200);
 });

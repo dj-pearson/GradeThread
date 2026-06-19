@@ -79,14 +79,19 @@ Deno.test("minMatchedPhotos guardrail filters a lone near-collision", () => {
 });
 
 Deno.test("more corroborating photos rank higher", () => {
-  const q = query({ phashes: [H_A, H_A1] });
-  const one = cand("ONE", { phashes: [H_A1] });
-  const two = cand("TWO", { phashes: [H_A, H_A1] });
+  // Two well-separated listing photos. ONE's lone hash can only corroborate the
+  // first; TWO carries both, so it reuses 2/2 photos vs 1/2 and must rank first.
+  // (H_A and H_A1 are 1 bit apart, so a single hash would corroborate BOTH —
+  // that wouldn't actually exercise the corroboration tie-break.)
+  const q = query({ phashes: [H_A, H_FAR] });
+  const one = cand("ONE", { phashes: [H_A] });
+  const two = cand("TWO", { phashes: [H_A, H_FAR] });
   const ranked = rankRelistCandidates(q, [one, two]);
   assertEquals(ranked.length, 2);
   assertEquals(ranked[0].garmentId, "TWO");
-  assert(ranked[0].matchedPhotos >= ranked[1].matchedPhotos);
-  assert(ranked[0].score >= ranked[1].score);
+  assertEquals(ranked[0].matchedPhotos, 2);
+  assertEquals(ranked[1].matchedPhotos, 1);
+  assert(ranked[0].score > ranked[1].score);
 });
 
 Deno.test("rankRelistCandidates: only plausible candidates returned, sorted", () => {

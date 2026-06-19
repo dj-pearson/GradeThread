@@ -125,16 +125,20 @@ export function scoreRelistCandidate(
   if (best < opts.minSimilarity) return null;
   if (matchedPhotos < opts.minMatchedPhotos) return null;
 
-  // Corroboration boost: each extra matched photo nudges the score up a little
-  // (capped), so a multi-photo reuse outranks a single near-collision.
-  const factor = 1 + Math.min(matchedPhotos - 1, 3) * 0.02; // up to +6%
+  // Ranking score: dominated by the best per-photo similarity, but lifted by the
+  // FRACTION of listing photos that were reused, so a candidate corroborated by
+  // several photos outranks a single near-collision. A blend (not a multiplier)
+  // is used deliberately: an exact-hash match saturates `best` at 1.0, which
+  // would make a capped multiplier a no-op and leave the corroboration tie-break
+  // dead. Both terms are in [0,1], so `score` stays in [0,1].
+  const corroboration = matchedPhotos / query.phashes.length; // (0,1]
   return {
     garmentId: candidate.garmentId,
     slug: candidate.slug,
     similarity: best,
     matchedPhotos,
     confidence: "probable",
-    score: clamp01(best * factor),
+    score: clamp01(best * 0.9 + corroboration * 0.1),
   };
 }
 
@@ -152,6 +156,14 @@ export function rankRelistCandidates(
     const r = scoreRelistCandidate(query, c, opts);
     if (r) out.push(r);
   }
-  out.sort((a, b) => b.score - a.score);
+  // Deterministic ordering: best score first, then more corroborating photos,
+  // then higher peak similarity, with garmentId as a final stable tie-break so
+  // equal-strength matches never reorder run-to-run.
+  out.sort((a, b) =>
+    b.score - a.score ||
+    b.matchedPhotos - a.matchedPhotos ||
+    b.similarity - a.similarity ||
+    a.garmentId.localeCompare(b.garmentId)
+  );
   return out;
 }

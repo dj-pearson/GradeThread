@@ -110,6 +110,9 @@ const safetyNavItems = [
   { to: "/admin/safety/signals", icon: Siren, label: "Abuse Signals", end: false },
   // US-890 rate-limit administration: counters + temporary per-user overrides.
   { to: "/admin/safety/rate-limits", icon: Gauge, label: "Rate Limits", end: false },
+  // US-1103 Garment Passport integrity: impossible chains, duplicate fingerprints,
+  // claim abuse — keeps the ledger credible.
+  { to: "/admin/safety/passport-integrity", icon: ShieldCheck, label: "Passport Integrity", end: false },
 ];
 
 // Growth / Promote suite (US-632) — segments, broadcast campaigns, in-app
