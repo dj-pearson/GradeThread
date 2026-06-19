@@ -12,7 +12,9 @@ final class AIExtractService {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-992: defaults to the bounded-timeout edge session so an extract call
+    // can't hang ~60s behind a spinner on flaky cellular.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
     }

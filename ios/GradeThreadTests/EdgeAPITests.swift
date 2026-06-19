@@ -173,6 +173,53 @@ final class EdgeAPITests: XCTestCase {
         }
     }
 
+    // MARK: - Request timeouts (US-992)
+
+    /// The shared bounded session must carry the configured idle/resource
+    /// timeouts — not URLSession's 60s default. This is what stops a hung
+    /// request from sitting ~60s behind a spinner (then retrying toward ~3min).
+    func test_boundedSession_hasConfiguredTimeouts() {
+        let config = EdgeNetwork.makeSession().configuration
+        XCTAssertEqual(config.timeoutIntervalForRequest, EdgeNetwork.requestTimeout)
+        XCTAssertEqual(config.timeoutIntervalForResource, EdgeNetwork.resourceTimeout)
+        XCTAssertLessThanOrEqual(EdgeNetwork.requestTimeout, 20, "Idle timeout should be ~15-20s, not the 60s default")
+        // The process-wide shared session must be bounded the same way.
+        XCTAssertEqual(EdgeNetwork.shared.configuration.timeoutIntervalForRequest, EdgeNetwork.requestTimeout)
+    }
+
+    /// A server that never responds must surface as `.network` and return well
+    /// within budget (bounded session) instead of hanging ~60s per attempt.
+    /// Uses a short per-request timeout so the test itself stays fast; the
+    /// transient-retry path runs but the whole call still completes quickly.
+    func test_stalledServer_timesOutAsNetworkError_withinBudget() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StallingURLProtocol.self]
+        config.timeoutIntervalForRequest = 0.5
+        config.timeoutIntervalForResource = 1
+        let session = URLSession(configuration: config)
+        let api = EdgeAPI(
+            baseURL: URL(string: "https://example.test")!,
+            session: session,
+            tokenProvider: { "tk_test" }
+        )
+
+        let start = Date()
+        do {
+            let _: Item = try await api.getJSON("/slow")
+            XCTFail("Expected a timeout, not a successful response")
+        } catch let error as EdgeAPIError {
+            guard case .network = error else {
+                return XCTFail("Timeout should map to .network, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(type(of: error)): \(error)")
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        // An unbounded session would hang ~60s per attempt (×3 with retries).
+        // Bounded: 3 attempts @0.5s + backoff (~0.5s + ~1s) ≈ 3s.
+        XCTAssertLessThan(elapsed, 20, "Bounded session should fail fast; took \(elapsed)s")
+    }
+
     // MARK: - Response cache bounding (US-995)
 
     private func cachedItemHandler() -> MockURLProtocol.Handler {
@@ -299,4 +346,41 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+// MARK: - Stalling URLProtocol (US-992)
+
+/// A protocol that never responds promptly — it simulates a hung connection so
+/// the session's request timeout is what ends the call. If the timeout fires
+/// (the bounded-session behavior we want), the awaiting task fails with
+/// `URLError.timedOut` and `stopLoading` cancels the deferred completion. If
+/// the timeout did NOT fire, the deferred completion would eventually succeed
+/// and the test's "expected throw" assertion would fail — so this can't hang.
+final class StallingURLProtocol: URLProtocol, @unchecked Sendable {
+    /// Far longer than any test session timeout — long enough that the timeout
+    /// always wins, short enough that a broken build fails fast rather than hangs.
+    static let stallSeconds: TimeInterval = 6
+    private var deferred: DispatchWorkItem?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let response = HTTPURLResponse(
+                url: self.request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: Data(#"{"id":"x","title":"y","created_at":"2026-01-01T00:00:00Z"}"#.utf8))
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+        deferred = item
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.stallSeconds, execute: item)
+    }
+
+    override func stopLoading() { deferred?.cancel() }
 }

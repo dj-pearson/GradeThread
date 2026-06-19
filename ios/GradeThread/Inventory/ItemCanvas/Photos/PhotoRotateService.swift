@@ -17,7 +17,9 @@ struct PhotoRotateService {
 
     init(
         supabase: SupabaseClient = SupabaseShared.client,
-        session: URLSession = .shared
+        // US-992: bounded-timeout session so the download/upload round-trip
+        // fails fast on a stalled connection instead of hanging ~60s.
+        session: URLSession = EdgeNetwork.shared
     ) {
         self.supabase = supabase
         self.session = session

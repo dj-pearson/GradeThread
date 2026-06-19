@@ -10,7 +10,9 @@ import Foundation
 public actor EdgeAPI {
     public static let shared = EdgeAPI(
         baseURL: AppConfig.edgeAPIURL,
-        session: .shared,
+        // US-992: bounded-timeout session so a stalled request fails fast as
+        // a transient `.network` error instead of hanging ~60s behind a spinner.
+        session: EdgeNetwork.shared,
         tokenProvider: { await SupabaseShared.currentAccessToken() }
     )
 
