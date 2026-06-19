@@ -31,10 +31,26 @@ struct CameraPreview: UIViewRepresentable {
     final class PreviewContainerView: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
 
+        /// Built only if the `layerClass` override somehow fails to take effect —
+        /// degrade gracefully instead of trapping on a force-cast. In a shipped
+        /// build the cast below always succeeds, so this stays nil.
+        private var fallbackPreviewLayer: AVCaptureVideoPreviewLayer?
+
         var previewLayer: AVCaptureVideoPreviewLayer {
-            // Force-cast safe because of layerClass override above.
-            // swiftlint:disable:next force_cast
-            layer as! AVCaptureVideoPreviewLayer
+            if let previewLayer = layer as? AVCaptureVideoPreviewLayer {
+                return previewLayer
+            }
+            if let fallback = fallbackPreviewLayer { return fallback }
+            let fallback = AVCaptureVideoPreviewLayer()
+            fallback.frame = bounds
+            layer.addSublayer(fallback)
+            fallbackPreviewLayer = fallback
+            return fallback
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            fallbackPreviewLayer?.frame = bounds
         }
     }
 }

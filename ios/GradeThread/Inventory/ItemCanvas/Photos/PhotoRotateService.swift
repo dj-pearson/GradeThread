@@ -28,6 +28,7 @@ struct PhotoRotateService {
         case downloadFailed
         case encodeFailed
         case uploadFailed(Int)
+        case invalidStorageURL
 
         var errorDescription: String? {
             switch self {
@@ -35,6 +36,7 @@ struct PhotoRotateService {
             case .downloadFailed: return "Couldn't load the photo to rotate."
             case .encodeFailed: return "Couldn't save the rotated photo."
             case .uploadFailed(let code): return "Upload failed (HTTP \(code))."
+            case .invalidStorageURL: return "Storage isn't configured correctly."
             }
         }
     }
@@ -108,9 +110,10 @@ struct PhotoRotateService {
         guard let accessToken = await SupabaseShared.currentAccessToken() else {
             throw RotateError.uploadFailed(401)
         }
-        var components = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
-        components.path = "/storage/v1/object/\(Self.bucket)/\(path)"
-        var request = URLRequest(url: components.url!)
+        guard let url = StorageURL.object(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path) else {
+            throw RotateError.invalidStorageURL
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
@@ -125,9 +128,8 @@ struct PhotoRotateService {
     }
 
     private static func publicURL(for path: String) -> String {
-        var components = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
-        components.path = "/storage/v1/object/public/\(Self.bucket)/\(path)"
-        return components.url?.absoluteString ?? ""
+        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path)?
+            .absoluteString ?? ""
     }
 
     /// 90° rotation that bakes the result upright (`.up`).

@@ -234,7 +234,11 @@ public final class PhotoUploadService {
                 return
             }
 
-            var request = URLRequest(url: storageURL(for: task.storagePath))
+            guard let url = storageURL(for: task.storagePath) else {
+                store.updatePhase(task.id, to: .failed(error: "Storage isn't configured correctly"))
+                return
+            }
+            var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
             request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
@@ -251,14 +255,10 @@ public final class PhotoUploadService {
         }
     }
 
-    private func storageURL(for path: String) -> URL {
+    private func storageURL(for path: String) -> URL? {
         // `/storage/v1/object/{bucket}/{path}` — same shape the web SDK uses.
-        var components = URLComponents(
-            url: AppConfig.supabaseURL,
-            resolvingAgainstBaseURL: false
-        )!
-        components.path = "/storage/v1/object/\(Self.bucket)/\(path)"
-        return components.url!
+        // nil if the base URL is misconfigured; the caller routes a `.failed`.
+        StorageURL.object(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path)
     }
 
     // MARK: - Delegate callbacks (entered from a non-isolated bridge)
@@ -379,12 +379,8 @@ public final class PhotoUploadService {
     }
 
     private func storagePublicURL(for path: String) -> String {
-        var components = URLComponents(
-            url: AppConfig.supabaseURL,
-            resolvingAgainstBaseURL: false
-        )!
-        components.path = "/storage/v1/object/public/\(Self.bucket)/\(path)"
-        return components.url?.absoluteString ?? ""
+        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path)?
+            .absoluteString ?? ""
     }
 
     // MARK: - Failure handling

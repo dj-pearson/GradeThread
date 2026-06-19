@@ -710,7 +710,10 @@ actor SyncEngine {
             throw SyncReplayError.notSignedIn
         }
 
-        var request = URLRequest(url: Self.storageObjectURL(path: p.storage_path))
+        guard let storageURL = Self.storageObjectURL(path: p.storage_path) else {
+            throw SyncReplayError.invalidStorageURL
+        }
+        var request = URLRequest(url: storageURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
@@ -745,16 +748,13 @@ actor SyncEngine {
 
     private static let storageBucket = "item-photos"
 
-    private static func storageObjectURL(path: String) -> URL {
-        var c = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
-        c.path = "/storage/v1/object/\(storageBucket)/\(path)"
-        return c.url!
+    private static func storageObjectURL(path: String) -> URL? {
+        StorageURL.object(base: AppConfig.supabaseURL, bucket: storageBucket, path: path)
     }
 
     private static func storagePublicURL(path: String) -> String {
-        var c = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
-        c.path = "/storage/v1/object/public/\(storageBucket)/\(path)"
-        return c.url?.absoluteString ?? ""
+        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: storageBucket, path: path)?
+            .absoluteString ?? ""
     }
 
     enum SyncReplayError: LocalizedError {
@@ -762,6 +762,7 @@ actor SyncEngine {
         case missingLocalFile
         case notSignedIn
         case storageUpload(status: Int)
+        case invalidStorageURL
 
         var errorDescription: String? {
             switch self {
@@ -769,6 +770,7 @@ actor SyncEngine {
             case .missingLocalFile: return "The staged photo is no longer available."
             case .notSignedIn: return "Sign-in expired before this change could sync."
             case .storageUpload(let status): return "Photo upload failed (HTTP \(status))."
+            case .invalidStorageURL: return "Storage isn't configured correctly."
             }
         }
     }
