@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { runWithConcurrency } from "@/lib/concurrency";
+import { blockerTarget } from "@/lib/publish-blockers";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -93,6 +95,16 @@ export function FlipdeskAutolisterQueuePage() {
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [preflight, setPreflight] = useState<PreflightItem[]>([]);
   const [preflightLoading, setPreflightLoading] = useState(false);
+  // US-954: background pre-flight cache keyed by inventory_item_id. Each
+  // succeeded draft is validated against eBay as it lands, so a per-row
+  // ready / will-block badge shows before the seller opens the publish dialog —
+  // and the dialog reuses these results instead of re-validating from scratch.
+  const [preflightByItem, setPreflightByItem] = useState<
+    Record<string, { blockers: string[]; loaded: boolean }>
+  >({});
+  // itemIds already validated or in-flight, so the polling effect never
+  // re-fires a validate for the same draft.
+  const preflightSeenRef = useRef<Set<string>>(new Set());
   // US-554: queue filter/sort + multi-select.
   const [queueFilter, setQueueFilter] = useState<"all" | "ready" | "review" | "failed">("all");
   const [queueSort, setQueueSort] = useState<"confidence" | "price" | "status">("confidence");
@@ -212,6 +224,48 @@ export function FlipdeskAutolisterQueuePage() {
     }
   }, [data, batchId, batchStatus]);
 
+  // US-954: background pre-flight. As each draft finishes generating, validate
+  // it against eBay (category, required aspects, price range, policies) with
+  // bounded concurrency so we respect eBay's rate budget. Results warm
+  // `preflightByItem`, driving the per-row badge and seeding the publish dialog.
+  // Skipped until eBay is connected (validate needs a live connection).
+  useEffect(() => {
+    if (!ebayConnection) return;
+    const succeeded = jobs
+      .filter((j) => j.status === "success")
+      .map((j) => j.inventory_item_id);
+    const pending = succeeded.filter((id) => !preflightSeenRef.current.has(id));
+    if (pending.length === 0) return;
+    pending.forEach((id) => preflightSeenRef.current.add(id));
+
+    let cancelled = false;
+    void runWithConcurrency(pending, 4, async (itemId) => {
+      if (cancelled) return;
+      try {
+        const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
+          method: "POST",
+          json: { inventory_item_id: itemId },
+        });
+        const json = await res.json().catch(() => ({}));
+        const blockers = Array.isArray(json.blockers)
+          ? (json.blockers as string[])
+          : [];
+        if (cancelled) return;
+        setPreflightByItem((prev) => ({
+          ...prev,
+          [itemId]: { blockers, loaded: true },
+        }));
+      } catch {
+        // Transient failure: don't cache a false "ready". Re-arm so a later
+        // poll re-validates, and let the publish dialog validate it on demand.
+        preflightSeenRef.current.delete(itemId);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobs, ebayConnection]);
+
   if (!batchId) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
@@ -330,17 +384,24 @@ export function FlipdeskAutolisterQueuePage() {
   // "Publish N clean" button — items with unresolved blockers are refused.
   async function openPublishDialog(subset: AutolisterJob[] = succeededJobs) {
     if (subset.length === 0) return;
-    const initial: PreflightItem[] = subset.map((j) => ({
-      itemId: j.inventory_item_id,
-      listingId: j.listing_id,
-      title: titleOf(j.inventory_item_id),
-      scheduledFor: null,
-      blockers: [],
-      blockersLoaded: false,
-    }));
+    // US-954: seed from the background pre-flight cache so a draft already
+    // validated in the queue doesn't re-validate from scratch.
+    const initial: PreflightItem[] = subset.map((j) => {
+      const cached = preflightByItem[j.inventory_item_id];
+      return {
+        itemId: j.inventory_item_id,
+        listingId: j.listing_id,
+        title: titleOf(j.inventory_item_id),
+        scheduledFor: null,
+        blockers: cached?.loaded ? cached.blockers : [],
+        blockersLoaded: cached?.loaded ?? false,
+      };
+    });
     setPreflight(initial);
     setPublishDialogOpen(true);
-    setPreflightLoading(true);
+    // Only the items not already cached still need a validate round-trip.
+    const needValidation = initial.filter((i) => !i.blockersLoaded);
+    setPreflightLoading(needValidation.length > 0);
 
     try {
       // Pull scheduled_publish_at for these drafts so the dialog flags them.
@@ -356,46 +417,44 @@ export function FlipdeskAutolisterQueuePage() {
       >) {
         scheduledByItem.set(row.inventory_item_id, row.scheduled_publish_at);
       }
+      // Apply schedule info to every row (cached + uncached) immediately.
+      setPreflight((prev) =>
+        prev.map((p) => ({
+          ...p,
+          scheduledFor: scheduledByItem.get(p.itemId) ?? null,
+        })),
+      );
 
-      const CONCURRENCY = 4;
-      for (let i = 0; i < initial.length; i += CONCURRENCY) {
-        const batchChunk = initial.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(
-          batchChunk.map(async (it) => {
-            try {
-              const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
-                method: "POST",
-                json: { inventory_item_id: it.itemId },
-              });
-              const json = await res.json().catch(() => ({}));
-              const blockers = Array.isArray(json.blockers)
-                ? (json.blockers as string[])
-                : [];
-              return { itemId: it.itemId, blockers };
-            } catch (err) {
-              return {
-                itemId: it.itemId,
-                blockers: [
-                  err instanceof Error ? err.message : "Validation request failed.",
-                ],
-              };
-            }
-          }),
-        );
+      // Validate only the uncached items, with bounded concurrency (eBay rate
+      // budget), warming the shared cache as each completes.
+      await runWithConcurrency(needValidation, 4, async (it) => {
+        let blockers: string[];
+        try {
+          const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
+            method: "POST",
+            json: { inventory_item_id: it.itemId },
+          });
+          const json = await res.json().catch(() => ({}));
+          blockers = Array.isArray(json.blockers)
+            ? (json.blockers as string[])
+            : [];
+        } catch (err) {
+          blockers = [
+            err instanceof Error ? err.message : "Validation request failed.",
+          ];
+        }
         setPreflight((prev) =>
-          prev.map((p) => {
-            const hit = results.find((x) => x.itemId === p.itemId);
-            return hit
-              ? {
-                  ...p,
-                  blockers: hit.blockers,
-                  blockersLoaded: true,
-                  scheduledFor: scheduledByItem.get(p.itemId) ?? null,
-                }
-              : p;
-          }),
+          prev.map((p) =>
+            p.itemId === it.itemId
+              ? { ...p, blockers, blockersLoaded: true }
+              : p,
+          ),
         );
-      }
+        setPreflightByItem((prev) => ({
+          ...prev,
+          [it.itemId]: { blockers, loaded: true },
+        }));
+      });
     } finally {
       setPreflightLoading(false);
     }
@@ -748,6 +807,17 @@ export function FlipdeskAutolisterQueuePage() {
               {/* US-537: photo readiness — nudge a reshoot before publish. */}
               <PhotoQaBadge meta={itemMeta[job.inventory_item_id]} />
 
+              {/* US-954: background eBay pre-flight — ready / will-block(reason)
+                  before the publish dialog is ever opened. Will-block reasons
+                  deep-link to the offending field in the composer. */}
+              {job.status === "success" && (
+                <PreflightBadge
+                  itemId={job.inventory_item_id}
+                  state={preflightByItem[job.inventory_item_id]}
+                  enabled={!!ebayConnection}
+                />
+              )}
+
               {/* US-541: AI flagged this draft as low-confidence — surface a
                   "Needs review" nudge so the seller checks it before publish. */}
               {job.status === "success" &&
@@ -870,6 +940,68 @@ function PhotoQaBadge({
   );
 }
 
+// US-954: per-row eBay pre-flight badge. Driven by the background validation
+// cache: "Checking…" while in flight, green "Ready" when clean, amber
+// "Will block" (deep-linking the first blocker to the offending composer field)
+// when there are unresolved blockers. Hidden until eBay is connected, since the
+// publish actions are gated on the connection anyway.
+function PreflightBadge({
+  itemId,
+  state,
+  enabled,
+}: {
+  itemId: string;
+  state?: { blockers: string[]; loaded: boolean };
+  enabled: boolean;
+}) {
+  if (!enabled) return null;
+  if (!state || !state.loaded) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 text-[10px] text-muted-foreground"
+        title="Checking this draft against eBay…"
+      >
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Checking…
+      </Badge>
+    );
+  }
+  if (state.blockers.length === 0) {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1 border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-700 dark:text-emerald-300"
+        title="Passes eBay pre-flight — ready to publish."
+      >
+        <ShieldCheck className="h-3 w-3" />
+        Ready
+      </Badge>
+    );
+  }
+  // Will block — deep-link the badge to the first blocker's field, list them all
+  // in the tooltip.
+  const first = state.blockers[0] ?? "Resolve before publishing.";
+  const target = blockerTarget(first, itemId);
+  const tip = state.blockers.map((b) => `• ${b}`).join("\n");
+  const count = state.blockers.length;
+  return (
+    <Link
+      to={target.to}
+      title={tip}
+      className="inline-flex"
+    >
+      <Badge
+        variant="outline"
+        className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
+      >
+        <AlertTriangle className="h-3 w-3" />
+        Will block{count > 1 ? ` (${count})` : ""}
+      </Badge>
+    </Link>
+  );
+}
+
 function PublishConfirmDialog({
   open,
   onOpenChange,
@@ -946,9 +1078,22 @@ function PublishConfirmDialog({
                   )}
                   {item.blockers.length > 0 && (
                     <ul className="mt-1 space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
-                      {item.blockers.map((b, i) => (
-                        <li key={i}>• {b}</li>
-                      ))}
+                      {item.blockers.map((b, i) => {
+                        // US-954: deep-link each blocker to the offending field.
+                        const target = blockerTarget(b, item.itemId);
+                        return (
+                          <li key={i}>
+                            •{" "}
+                            <Link
+                              to={target.to}
+                              className="underline-offset-2 hover:underline"
+                              title={`${target.label} →`}
+                            >
+                              {b}
+                            </Link>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

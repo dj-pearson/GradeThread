@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -85,6 +85,7 @@ import {
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
+import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import { itemPhotoThumb } from "@/lib/images";
 import {
   mapEbayCondition,
@@ -260,6 +261,33 @@ export function FlipdeskComposerPage() {
     () => items.find((it) => it.id === id) ?? null,
     [items, id],
   );
+
+  // US-954: when arriving from an AutoLister pre-flight blocker deep-link
+  // (`?focus=<field>`), scroll the offending field into view and focus it once
+  // the editor has mounted, so the seller lands directly on what to fix.
+  const [focusParams] = useSearchParams();
+  useEffect(() => {
+    if (isLoading || !item) return;
+    const focus = focusParams.get("focus");
+    if (!focus) return;
+    const anchorId = COMPOSER_FOCUS_ANCHORS[focus];
+    if (!anchorId) return;
+    // Defer a tick so the target has painted (the category section seeds behind
+    // its own loading skeleton).
+    const t = setTimeout(() => {
+      const el = document.getElementById(anchorId);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLSelectElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        el.focus({ preventScroll: true });
+      }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [isLoading, item, focusParams]);
 
   const { data: photos = [] } = useQuery({
     queryKey: ["item_photos", id],
@@ -902,6 +930,7 @@ export function FlipdeskComposerPage() {
             <CardContent className="space-y-3">
               <div className="relative">
                 <Input
+                  id="composer-title"
                   value={title}
                   maxLength={TITLE_MAX}
                   onChange={(e) => setTitle(e.target.value)}
@@ -990,6 +1019,7 @@ export function FlipdeskComposerPage() {
               picker seeds its (now lifted) aspect state from the real values —
               never from a transient empty map that a save would persist as a
               wipe. */}
+          <div id="composer-category">
           {listingLoading || ebayMappingLoading ? (
             <Card>
               <CardContent className="py-6">
@@ -1029,6 +1059,7 @@ export function FlipdeskComposerPage() {
               )}
             />
           )}
+          </div>
 
           {/* Live comps + price recommendation */}
           <EbayCompsPanel
@@ -1457,7 +1488,7 @@ export function FlipdeskComposerPage() {
           </Card>
 
           {/* Photos */}
-          <Card>
+          <Card id="composer-photos">
             <CardHeader>
               <CardTitle>Photos</CardTitle>
               <CardDescription>
