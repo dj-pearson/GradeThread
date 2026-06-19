@@ -2946,7 +2946,7 @@
         "deno lint/check/test + db verify pass"
       ],
       "priority": 708,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Layer3] Stores the instance-level signal; matching is [[US-1097]]. Depends on [[US-1089]], [[US-1091]]. Reuse grade_defects (00220) + US-276 pipeline; never expose submission-images publicly."
     },
     {

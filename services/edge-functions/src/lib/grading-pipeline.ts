@@ -18,7 +18,7 @@ import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { notifyUser } from "./notify.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
-import { createSingleHopPassport } from "./passport-write.ts";
+import { createSingleHopPassport, storeGarmentFingerprint } from "./passport-write.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
   evaluateVerifiedCapture,
@@ -1364,7 +1364,7 @@ export async function processSubmission(submissionId: string) {
     // it via grade_reports.garment_id. Best-effort — createSingleHopPassport
     // never throws; a passport failure must never fail a completed paid grade
     // (the 00257 backfill is idempotent and repairs any gaps later).
-    await createSingleHopPassport({
+    const passportGarmentId = await createSingleHopPassport({
       gradeReportId: gradeReport.id,
       createdByUserId: submission.user_id,
       skuClass: {
@@ -1377,6 +1377,20 @@ export async function processSubmission(submissionId: string) {
       confidenceScore: compositeResult.confidence_score,
       certificateId: certificateId,
     });
+
+    // US-1097: store the garment's visual fingerprint (perceptual hashes of the
+    // structured photos — reusing the phash already computed at upload — plus the
+    // defect map + wear score) for later probabilistic same-item matching.
+    // Best-effort; never affects the grade.
+    if (passportGarmentId) {
+      await storeGarmentFingerprint({
+        garmentId: passportGarmentId,
+        gradeReportId: gradeReport.id,
+        images: images.map((i) => ({ image_type: i.image_type, phash: i.phash })),
+        defects: compositeResult.defects_found,
+        overallScore: compositeResult.overall_score,
+      });
+    }
 
     // US-1037: dual-write genuine defects to the normalized grade_defects table
     // (queryable type/size/area for analytics + calibration). defects_found jsonb

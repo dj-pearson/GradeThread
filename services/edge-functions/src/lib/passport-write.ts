@@ -17,6 +17,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { pseudonymousLabel } from "./garment-passport.ts";
+import { buildFingerprintPayload, phashesByType, wearScore } from "./garment-fingerprint.ts";
 
 /** Coarse confidence bucket — mirrors public_grade_reports.confidence_label. */
 function confidenceLabel(score: number): string {
@@ -122,5 +123,46 @@ export async function createSingleHopPassport(
   } catch (e) {
     console.error("[passport-write] unexpected error:", e instanceof Error ? e.message : e);
     return null;
+  }
+}
+
+/**
+ * US-1097: store the per-grade visual fingerprint for a garment. Reuses the
+ * phash already computed + stored on submission_images (the hardened server-side
+ * dHash — no image re-fetch) plus the structured defect map. Idempotent (one
+ * fingerprint per grade_report; a re-run's unique-violation is ignored).
+ * Best-effort — never throws; a fingerprint failure must not affect the grade.
+ */
+export async function storeGarmentFingerprint(input: {
+  garmentId: string;
+  gradeReportId: string;
+  images: Array<{ image_type: string; phash: string | null }>;
+  defects: Array<{ defect_type?: string | null; location?: string | null }>;
+  overallScore: number;
+  measurements?: Record<string, number> | null;
+}): Promise<void> {
+  try {
+    const phashes = phashesByType(input.images);
+    // Nothing to fingerprint (no hashable photos AND no defects) → skip.
+    if (Object.keys(phashes).length === 0 && input.defects.length === 0) return;
+
+    const payload = buildFingerprintPayload({
+      phashes,
+      defects: input.defects,
+      measurements: input.measurements ?? null,
+    });
+
+    const { error } = await supabaseAdmin.from("garment_fingerprints").insert({
+      garment_id: input.garmentId,
+      grade_report_id: input.gradeReportId,
+      payload,
+      wear_score: wearScore(input.overallScore),
+    });
+    // 23505 = unique_violation (already fingerprinted this grade) → idempotent.
+    if (error && error.code !== "23505") {
+      console.error("[passport-write] fingerprint insert failed:", error.message);
+    }
+  } catch (e) {
+    console.error("[passport-write] fingerprint error:", e instanceof Error ? e.message : e);
   }
 }
