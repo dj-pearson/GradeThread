@@ -2826,8 +2826,8 @@
         "Migration applies cleanly on a fresh schema (db verify lane / supabase db reset) and is documented inline"
       ],
       "priority": 700,
-      "passes": false,
-      "notes": "[P1][Passport][Foundation] EPIC ANCHOR for the Garment Passport (CARFAX-for-clothing). Pseudonymous nodes only; opt-in identity is deferred to [[US-1105]]. Blocks the rest of the epic. Follow MIGRATIONS.md numbering (next after 00231)."
+      "passes": true,
+      "notes": "[P1][Passport][Foundation] EPIC ANCHOR for the Garment Passport (CARFAX-for-clothing). Pseudonymous nodes only; opt-in identity is deferred to [[US-1105]]. Blocks the rest of the epic. Follow MIGRATIONS.md numbering (next after 00231). DONE 2026-06-19: migration 00256_garment_passport_core.sql — garments + owner_nodes (pseudonymous) + append-only garment_events ledger; enums, UUID PKs, set_updated_at trigger, RLS (owner-scoped reads via created_by, append-only events, service-role-only nodes). EXPECTED_SCHEMA_VERSION bumped to 00256."
     },
     {
       "id": "US-1090",
