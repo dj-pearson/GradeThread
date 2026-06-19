@@ -13,8 +13,42 @@
 
 ## ✅ Done so far (Passport epic, `passes:true`)
 
-> **Branch note:** earlier stories landed on `claude/cool-johnson-1yzh21` (merged
-> via PR #88). The CURRENT loop branch is **`claude/prd-story-loop-rzz40a`**.
+> **Branch note:** earlier stories landed on `claude/cool-johnson-1yzh21` (PR #88)
+> and `claude/prd-story-loop-rzz40a` (PR #90, merged). The CURRENT loop branch is
+> **`claude/prd-story-loop-5zgguo`**.
+
+### This run (on `claude/prd-story-loop-5zgguo`)
+- **Flaky-test fix** — `relist-match.ts` ranking was non-deterministic (score
+  saturated at 1.0 so the corroboration boost was a no-op + no sort tie-break).
+  Now a bounded blend + deterministic tie-break; test vectors fixed. This was the
+  cause of the prior run's "Security"-workflow deno failure.
+- **US-1103** admin integrity & fraud signals. Mig `00264` (`passport_integrity_signals`,
+  `passport_claim_attempts`, `garment_events.severed_*`). Pure detectors
+  `lib/passport-integrity.ts` (wear_reversal, duplicate_fingerprint-across-owners,
+  rapid_reclaim, token_replay) + evidence-safety guard. Cron
+  `jobs-passport-integrity-scan.ts` (`POST /api/jobs/passport-integrity-scan`).
+  Admin API `admin-passport-integrity.ts` (`/api/admin/passport-integrity`, admin
+  JWT+AAL2; sever/scan = super_admin+step-up; all audited). Public passport GET
+  drops severed links; `/claim` logs attempts. Console
+  `src/pages/admin/passport-integrity.tsx` + nav. **Schema → 00264.**
+- **US-1104** resale-value & depreciation forecast. Pure `lib/passport-forecast.ts`
+  (grade-adjusted list price, days-to-sell, log-price~time 12-mo depreciation +
+  CI, graceful insufficient/sparse/sufficient). Tenant-scoped route
+  `flipdesk-forecast.ts` (`/api/flipdesk/forecast` POST + `/garments/:id`; cohort
+  from owner's own sales only; compPulls tier + `passport_forecast` flag).
+  `docs/PASSPORT_FORECAST.md`. Scout surface `components/flipdesk/forecast-card.tsx`
+  + `hooks/use-resale-forecast.ts` (NB: `use-forecast.ts` is the pre-existing
+  US-623 sell-through hook — do not clobber).
+
+> ⚠️ **CI caveat (this run):** the CI/db/edge workflows trigger only on
+> `pull_request`/`push` to **main** — a feature-branch push with NO PR runs no CI.
+> Per the session's "no PR unless asked" rule, no PR was opened, so the edge
+> `deno lint/check/test` lane is **unverified** for `00264`/forecast/integrity
+> code. It was mitigated by: migration applied+idempotent on throwaway PG16, all
+> pure logic Node-validated, frontend `tsc -b`+eslint+build green, and a careful
+> deno-strictness review (no `any`, untyped `supabaseAdmin` so new-table `.from()`
+> is fine, no exhaustive `FeatureKey` consumers). **If a PR gets opened, check the
+> edge lane and fix any fallout.**
 
 US-1089/1090/1092 (prior) + the prior run:
 - **US-1091** backfill certs → single-hop passports (mig `00257`) + forward wiring (`passport-write.ts`)
@@ -46,28 +80,29 @@ This run (on `claude/prd-story-loop-rzz40a`):
   passport.tsx (per-link tooltip + "Chain strength" card) + certificate.tsx.
   Frontend-only; vitest `passport-confidence.test.ts`.
 
-Schema version is at **`00263`** (`services/edge-functions/src/lib/schema-version.ts`).
+Schema version is at **`00264`** (`services/edge-functions/src/lib/schema-version.ts`).
 `prd.json.nextId` = **1109** (use it + bump for any NEW story; never `max(id)+1`).
-
-⚠️ **CI not yet confirmed green for this run** — the GitHub MCP tools were
-disconnected mid-session, so the edge `deno lint/check/test` lane (unrunnable
-locally) hasn't been verified. The next session should check CI on
-`claude/prd-story-loop-rzz40a` and fix any deno fallout before/while continuing.
 
 ## ⏭️ Next up (priority order)
 
-1. **US-1103** admin integrity & fraud signals (cross-tenant fingerprint collisions → `abuse-signals.ts`).
-   NB: US-1099 added `item_photos.phash` + caches hashes there, and US-1100 added
-   `owner_nodes.linkage_hash` — reuse BOTH for the cross-tenant collision sweep.
-2. **US-1104** longitudinal resale-value & depreciation forecast (Scout)
-3. **US-1105** opt-in identity reveal (sets `owner_nodes.linked_user_id`; deferred design)
-4. **US-1106** buyer-facing "scan before you buy" public entry
-5. then **iOS** (US-744+) and **drip** (US-908+).
+1. **US-1105** opt-in identity reveal (sets `owner_nodes.linked_user_id`; deferred
+   design). ⚠️ **Privacy-critical** — a mistake leaks PII. Do this in FRESH context
+   with care: consent-gated, off by default, reversible, per-hop, honored across
+   export/delete (`data_requests`/`00225`). Deliberately deferred at the end of the
+   last run to avoid rushing it on a long context window.
+2. **US-1106** buyer-facing "scan before you buy" public entry. Mostly
+   frontend/SEO — a `/verify` landing that resolves slug/short-code → existing
+   public `/passport/:slug` (US-1093) / `/t/:code` (US-1096). Follow the SEO
+   registry rules (`public-routes.ts` + `entry-server.tsx` + `head-builder.ts`).
+   Fully locally verifiable (no edge CI dependency).
+3. then **iOS** (US-744+) and **drip** (US-908+).
 
 ## 🔧 Working agreement (learnings from this run — follow these)
 
-- **Branch:** develop on `claude/cool-johnson-1yzh21`. One commit per story; mark
-  `passes:true` in `prd.json` in the same commit.
+- **Branch:** develop on the session's designated loop branch (currently
+  `claude/prd-story-loop-5zgguo`). One commit per story; mark `passes:true` in
+  `prd.json` in the same commit. **No PR unless explicitly asked** — but note CI
+  only runs on PRs/main, so edge code stays unverified without one (see caveat above).
 - **⚠️ Deno is NOT installable here** (`deno.land` 403 under the network policy)
   and **Docker is absent**, so the edge `deno lint/check/test` lane and the
   `db verify` lane **only run in GitHub CI**. CI is the authoritative gate for
