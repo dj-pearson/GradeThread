@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useSearchParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Share2,
@@ -76,7 +76,9 @@ import type {
   SubmissionImageRow,
   DisputeRow,
   InventoryItemRow,
+  ImageType,
 } from "@/types/database";
+import type { RetakeBridgeState } from "@/lib/retake-submission";
 
 function getConfidenceLabel(score: number): {
   label: string;
@@ -123,6 +125,7 @@ function LoadingSkeleton() {
 
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { workspaceOwnerId } = useWorkspace();
@@ -363,6 +366,50 @@ export function SubmissionDetailPage() {
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       return createdAt > sevenDaysAgo;
     })();
+
+  // US-949: one-tap retake. Carry the prior submission's garment details, any
+  // inventory linkage, the grader's flagged photo types, and the PASSING photos
+  // (as short-lived signed URLs) over to a fresh submission so a needs_photos /
+  // expired result isn't a dead end. The new submission references this one and
+  // supersedes it server-side (see grade.ts /submit `retake_of`).
+  function handleRetake() {
+    if (!submission) return;
+    const flaggedImageTypes = Array.from(
+      new Set(
+        (submission.quality_feedback?.issues ?? [])
+          .filter((i) => i.severity === "block")
+          .map((i) => i.image_type as ImageType)
+      )
+    );
+    const flaggedSet = new Set<ImageType>(flaggedImageTypes);
+    const reusablePhotos = images
+      .filter((img) => !flaggedSet.has(img.image_type) && imageUrls[img.id])
+      .map((img) => ({
+        imageType: img.image_type,
+        signedUrl: imageUrls[img.id]!,
+      }));
+
+    const retake: RetakeBridgeState = {
+      priorSubmissionId: submission.id,
+      garmentType: submission.garment_type,
+      garmentCategory: submission.garment_category,
+      brand: submission.brand ?? undefined,
+      title: submission.title,
+      description: submission.description ?? undefined,
+      styleAttributes: submission.style_attributes,
+      linkedItemId: linkedItem?.id ?? null,
+      flaggedImageTypes,
+      photoRequests: submission.quality_feedback?.photo_requests ?? [],
+      reusablePhotos,
+    };
+
+    track("grade.retake_started", {
+      from: submission.status,
+      reused: reusablePhotos.length,
+      flagged: flaggedImageTypes.length,
+    });
+    navigate("/dashboard/submissions/new", { state: { retake } });
+  }
 
   async function handleSubmitDispute() {
     if (!user || !gradeReport) return;
@@ -1144,9 +1191,20 @@ export function SubmissionDetailPage() {
                       ))}
                     </ul>
                   )}
-                <Button asChild className="mt-6">
-                  <Link to="/dashboard/submissions/new">Start a new submission</Link>
-                </Button>
+                {/* US-949: one-tap retake — prefills garment details + reuses
+                    the photos that passed, so the seller only redoes the
+                    flagged ones instead of starting from scratch. */}
+                <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
+                  <Button onClick={handleRetake}>
+                    <Camera className="mr-1.5 h-4 w-4" />
+                    Retake photos
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/dashboard/submissions/new">
+                      Start a new submission
+                    </Link>
+                  </Button>
+                </div>
               </>
             ) : submission.status === "expired" ? (
               <>
@@ -1154,12 +1212,22 @@ export function SubmissionDetailPage() {
                 <h3 className="mt-4 text-lg font-medium">Payment not completed</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   This submission expired because checkout was never completed, so
-                  it was never graded and you weren’t charged. Start a new
-                  submission to grade this item.
+                  it was never graded and you weren’t charged. Retake to reuse
+                  these photos and details, or start fresh.
                 </p>
-                <Button asChild className="mt-6">
-                  <Link to="/dashboard/submissions/new">Start a new submission</Link>
-                </Button>
+                {/* US-949: retake reuses the already-uploaded photos + garment
+                    details so an expired checkout isn't a dead end. */}
+                <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
+                  <Button onClick={handleRetake}>
+                    <Camera className="mr-1.5 h-4 w-4" />
+                    Retake photos
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/dashboard/submissions/new">
+                      Start a new submission
+                    </Link>
+                  </Button>
+                </div>
               </>
             ) : (
               <>

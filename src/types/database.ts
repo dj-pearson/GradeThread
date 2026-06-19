@@ -466,6 +466,13 @@ export interface SubmissionRow {
   grading_started_at: string | null;
   grading_lease_until: string | null;
   grading_attempts: number;
+  // US-949: one-tap retake chain. retake_of_submission_id points back to the
+  // prior needs_photos/expired submission this one replaces. The prior row gets
+  // superseded_at + superseded_by_submission_id set so it drops out of active
+  // counts but is preserved as history (not orphaned/deleted).
+  retake_of_submission_id: string | null;
+  superseded_at: string | null;
+  superseded_by_submission_id: string | null;
   created_at: string;
   updated_at: string;
 }

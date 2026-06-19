@@ -27,6 +27,11 @@ memory — not a progress log (the harness records progress separately).
   otherwise only fail in CI after you've committed.
 - Verify quietly: pipe build/test to a log and only read the tail on failure;
   don't ingest passing logs into context.
+- A build `error TS2307: Cannot find module 'X'` where X (e.g. `three`,
+  `@types/three`) IS already in `package.json` means `node_modules` is stale (a
+  co-running loop committed a new dep without installing). It is NOT your
+  regression — `npx tsc --noEmit` passes while `tsc -b`/`build:locked` fails on
+  it. Run `npm install` to sync, then rebuild.
 - An edge unit test that imports any lib which pulls in `lib/supabase.ts`
   (`supabaseAdmin`) crashes at import: `SUPABASE_URL is not set`. Fix like
   `ops-jobs_test.ts`: `Deno.env.set("SUPABASE_URL", …)` + `SUPABASE_SERVICE_ROLE_KEY`

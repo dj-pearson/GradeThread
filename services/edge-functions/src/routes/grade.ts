@@ -229,6 +229,10 @@ gradeRoutes.post("/submit", async (c) => {
   const tier: GradeTier = GRADE_TIERS.includes(tierRaw as GradeTier)
     ? (tierRaw as GradeTier)
     : "standard";
+  // US-949: one-tap retake. When present, this new submission replaces a prior
+  // needs_photos/expired one. The prior row is validated for ownership + a
+  // retakeable status below, then marked superseded after this row is created.
+  const retakeOf = (formData.get("retake_of") as string | null)?.trim() || null;
 
   const errors: string[] = [];
   if (!title || title.trim().length === 0) errors.push("title is required");
@@ -314,6 +318,29 @@ gradeRoutes.post("/submit", async (c) => {
     tierSupportsAuthenticityAddon(tier) &&
     (await isFeatureEnabled("authenticity_addon"));
 
+  // US-949: validate the retake target BEFORE creating the new submission, so a
+  // forged/foreign id can't link a retake chain across tenants (US-268). The
+  // prior submission must belong to the same workspace owner and be in a
+  // retakeable state (needs_photos = quality gate abstained, or expired =
+  // checkout never completed). Anything else is ignored (treated as a fresh
+  // submission) rather than failing the whole grade.
+  let retakeTargetId: string | null = null;
+  if (retakeOf) {
+    const { data: prior } = await supabaseAdmin
+      .from("submissions")
+      .select("id, status, superseded_at")
+      .eq("id", retakeOf)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (
+      prior &&
+      !prior.superseded_at &&
+      (prior.status === "needs_photos" || prior.status === "expired")
+    ) {
+      retakeTargetId = prior.id;
+    }
+  }
+
   // Create submission (unpaid). user_id is the workspace owner so the row
   // is visible to all workspace members via the additive RLS.
   const { data: submission, error: submissionError } = await supabaseAdmin
@@ -328,6 +355,7 @@ gradeRoutes.post("/submit", async (c) => {
       style_attributes: styleAttributes,
       verified_capture_opt_in: verifiedCaptureOptIn,
       authenticity_addon: authenticityAddon,
+      retake_of_submission_id: retakeTargetId,
       status: "pending",
       payment_status: "unpaid",
     })
@@ -453,6 +481,30 @@ gradeRoutes.post("/submit", async (c) => {
     }
     await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
     return c.json({ error: "Failed to save image records" }, 500);
+  }
+
+  // US-949: now that the retake submission exists with its images, mark the
+  // prior submission superseded so it drops out of active counts (preserved as
+  // history, not deleted). Tenant-scoped by user_id (US-268) and guarded on the
+  // retakeable status so a racing supersede can't clobber an unrelated row.
+  if (retakeTargetId) {
+    const { error: supersedeError } = await supabaseAdmin
+      .from("submissions")
+      .update({
+        superseded_at: new Date().toISOString(),
+        superseded_by_submission_id: submissionId,
+      })
+      .eq("id", retakeTargetId)
+      .eq("user_id", ownerId)
+      .in("status", ["needs_photos", "expired"]);
+    if (supersedeError) {
+      // Non-fatal: the new submission stands on its own; the old one just
+      // remains visible. Log for follow-up rather than failing the grade.
+      console.error(
+        `Failed to supersede prior submission ${retakeTargetId}:`,
+        supersedeError,
+      );
+    }
   }
 
   // Run payment precedence against the WORKSPACE OWNER's account — they pay,

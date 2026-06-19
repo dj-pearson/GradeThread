@@ -203,6 +203,24 @@ const UPLOAD_SLOTS: UploadSlot[] = [
   },
 ];
 
+// US-949: map a list of stored image_types to upload slotKeys, honoring slots
+// that legitimately share an image_type (defect ×3). Returns null at an index
+// whose type has no remaining free slot. Used to re-stage a retake's passing
+// photos into the right slots.
+export function assignSlotKeys(imageTypes: ImageType[]): (string | null)[] {
+  const used = new Set<string>();
+  return imageTypes.map((type) => {
+    const slot = UPLOAD_SLOTS.find(
+      (s) => s.imageType === type && !used.has(s.slotKey)
+    );
+    if (slot) {
+      used.add(slot.slotKey);
+      return slot.slotKey;
+    }
+    return null;
+  });
+}
+
 interface SlotState {
   file: File | null;
   preview: string | null;
@@ -231,9 +249,16 @@ interface PhotoUploadProps {
   // validate → compress path as a manual upload. Seeding only fills a slot
   // that is currently empty, so it never clobbers a user-chosen photo.
   initialPhotos?: { slotKey: string; file: File }[];
+  // US-949: slotKeys the grader flagged on a retake — drawn with an amber ring
+  // and a "Retake this photo" hint so the seller knows exactly which to redo.
+  highlightSlotKeys?: string[];
 }
 
-export function PhotoUpload({ onChange, initialPhotos }: PhotoUploadProps) {
+export function PhotoUpload({
+  onChange,
+  initialPhotos,
+  highlightSlotKeys,
+}: PhotoUploadProps) {
   const [slots, setSlots] = useState<Map<string, SlotState>>(() => {
     const initial = new Map<string, SlotState>();
     for (const slot of UPLOAD_SLOTS) {
@@ -390,6 +415,9 @@ export function PhotoUpload({ onChange, initialPhotos }: PhotoUploadProps) {
   function renderSlot(slot: UploadSlot) {
     const state = getSlot(slots, slot.slotKey);
     const Icon = slot.icon;
+    // US-949: this slot was flagged by the grader on a retake — emphasise it so
+    // the seller redoes exactly the photos that came back unusable.
+    const flagged = highlightSlotKeys?.includes(slot.slotKey) ?? false;
 
     return (
       <div key={slot.slotKey} className="space-y-1">
@@ -399,6 +427,9 @@ export function PhotoUpload({ onChange, initialPhotos }: PhotoUploadProps) {
             state.preview
               ? "border-primary bg-primary/5"
               : "border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50",
+            flagged &&
+              !state.preview &&
+              "border-amber-500 bg-amber-50 hover:border-amber-500 dark:bg-amber-950/30",
             state.isProcessing && "pointer-events-none opacity-60",
             state.errors.length > 0 && "border-destructive/50"
           )}
@@ -486,6 +517,12 @@ export function PhotoUpload({ onChange, initialPhotos }: PhotoUploadProps) {
               </p>
             ))}
           </div>
+        )}
+
+        {flagged && !state.preview && state.errors.length === 0 && (
+          <p className="text-[10px] font-medium leading-tight text-amber-600 dark:text-amber-400">
+            Retake this photo
+          </p>
         )}
       </div>
     );

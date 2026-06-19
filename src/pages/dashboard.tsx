@@ -69,10 +69,12 @@ export function DashboardPage() {
   } = useQuery({
     queryKey: ["dashboard-submissions"],
     queryFn: async () => {
-      // Fetch total submission count
+      // Fetch total submission count (US-949: exclude superseded retakes — they
+      // are history, not active submissions).
       const { count, error: countError } = await supabase
         .from("submissions")
-        .select("*", { count: "exact", head: true });
+        .select("*", { count: "exact", head: true })
+        .is("superseded_at", null);
 
       if (countError) throw countError;
 
@@ -80,6 +82,7 @@ export function DashboardPage() {
       const { data: recent, error: recentError } = await supabase
         .from("submissions")
         .select("*")
+        .is("superseded_at", null)
         .order("created_at", { ascending: false })
         .limit(5);
 

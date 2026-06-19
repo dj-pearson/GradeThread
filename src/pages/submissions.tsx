@@ -242,7 +242,10 @@ export function SubmissionsPage() {
     queryFn: async () => {
       let query = supabase
         .from("submissions")
-        .select("*", { count: "exact" });
+        .select("*", { count: "exact" })
+        // US-949: superseded (retaken) submissions are history — exclude them
+        // from the active list + count so a retake doesn't leave a dead row.
+        .is("superseded_at", null);
 
       if (statusFilter !== "all") {
         query = query.eq("status", statusFilter);

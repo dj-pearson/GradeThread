@@ -54,8 +54,10 @@ import {
 } from "@/components/submission/garment-info-form";
 import {
   PhotoUpload,
+  assignSlotKeys,
   type PhotoUploadItem,
 } from "@/components/submission/photo-upload";
+import type { RetakeBridgeState } from "@/lib/retake-submission";
 import { GradePricingSummary } from "@/components/submission/grade-pricing-summary";
 
 const STEPS = [
@@ -168,8 +170,15 @@ export function NewSubmissionPage() {
   const [packDialogOpen, setPackDialogOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
+  // US-949: one-tap retake bridge from submission-detail. Carries the prior
+  // submission's garment details, inventory linkage, the grader's flagged photo
+  // types, and the passing photos (signed URLs) so the seller only redoes the
+  // flagged shots. Read once from navigation state.
+  const retakeState =
+    (location.state as { retake?: RetakeBridgeState } | null)?.retake ?? null;
+
   const [linkedItemId, setLinkedItemId] = useState<string>(
-    () => searchParams.get("item") ?? "none"
+    () => searchParams.get("item") ?? retakeState?.linkedItemId ?? "none"
   );
 
   useEffect(() => {
@@ -238,6 +247,26 @@ export function NewSubmissionPage() {
         (p.exif?.dateTimeOriginal || p.exif?.dateTime)
     );
 
+  // US-949: prefill garment info from the prior submission when retaking and no
+  // inventory item drives the defaults. Enum fields are only carried when valid.
+  const retakeGarmentDefaults: Partial<GarmentInfo> | undefined = retakeState
+    ? {
+        garmentType: (GARMENT_TYPES as readonly string[]).includes(
+          retakeState.garmentType ?? ""
+        )
+          ? (retakeState.garmentType as GarmentInfo["garmentType"])
+          : undefined,
+        garmentCategory: (GARMENT_CATEGORIES as readonly string[]).includes(
+          retakeState.garmentCategory ?? ""
+        )
+          ? (retakeState.garmentCategory as GarmentInfo["garmentCategory"])
+          : undefined,
+        brand: retakeState.brand ?? "",
+        title: retakeState.title ?? "",
+        description: retakeState.description ?? "",
+      }
+    : undefined;
+
   const garmentDefaults: Partial<GarmentInfo> | undefined =
     garmentInfo ??
     (linkedItem
@@ -248,7 +277,57 @@ export function NewSubmissionPage() {
           title: linkedItem.title,
           description: linkedItem.description ?? "",
         }
-      : snapGarmentDefaults);
+      : retakeGarmentDefaults ?? snapGarmentDefaults);
+
+  // US-949: fetch the retake's passing photos and re-stage them as Files so the
+  // seller only redoes the flagged ones. Best-effort: a failed fetch just leaves
+  // that slot empty. Signed URLs are short-lived but the navigation is immediate.
+  const [retakeSeedFiles, setRetakeSeedFiles] = useState<
+    { slotKey: string; file: File }[]
+  >([]);
+  useEffect(() => {
+    if (!retakeState || retakeState.reusablePhotos.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const slotKeys = assignSlotKeys(
+        retakeState.reusablePhotos.map((p) => p.imageType)
+      );
+      const seeds: { slotKey: string; file: File }[] = [];
+      await Promise.all(
+        retakeState.reusablePhotos.map(async (p, i) => {
+          const slotKey = slotKeys[i];
+          if (!slotKey) return;
+          try {
+            const res = await fetch(p.signedUrl);
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const ext = blob.type.split("/")[1] || "jpg";
+            seeds.push({
+              slotKey,
+              file: new File([blob], `${p.imageType}.${ext}`, {
+                type: blob.type,
+              }),
+            });
+          } catch {
+            /* best-effort — leave the slot empty for a manual retake */
+          }
+        })
+      );
+      if (!cancelled) setRetakeSeedFiles(seeds);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Mount-once: retakeState is stable navigation state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // US-949: slotKeys the grader flagged, drawn with the "Retake this photo" hint.
+  const flaggedSlotKeys = retakeState
+    ? assignSlotKeys(retakeState.flaggedImageTypes).filter(
+        (k): k is string => k !== null
+      )
+    : undefined;
 
   function handleLinkedItemChange(value: string) {
     setLinkedItemId(value);
@@ -274,9 +353,9 @@ export function NewSubmissionPage() {
   useEffect(() => {
     if (draftDetectRef.current || !draftReady) return;
     draftDetectRef.current = true;
-    // A snap-bridge arrival is an intentional fresh start with its own prefill —
-    // don't interrupt it with a resume prompt.
-    if (snapState) {
+    // A snap-bridge or retake arrival is an intentional fresh start with its own
+    // prefill — don't interrupt it with a resume prompt.
+    if (snapState || retakeState) {
       setDraftResolved(true);
       return;
     }
@@ -286,7 +365,7 @@ export function NewSubmissionPage() {
     } else {
       setDraftResolved(true);
     }
-  }, [draftReady, readDraft, snapState]);
+  }, [draftReady, readDraft, snapState, retakeState]);
 
   // Autosave whenever the form changes — but only once the draft is resolved,
   // and never the image binaries (only a metadata manifest of the photos).
@@ -438,6 +517,12 @@ export function NewSubmissionPage() {
       formData.append("tier", tier);
       if (garmentInfo.brand) formData.append("brand", garmentInfo.brand);
       if (garmentInfo.description) formData.append("description", garmentInfo.description);
+      // US-949: link this submission to the prior needs_photos/expired one so the
+      // server references it and marks the old one superseded (excluded from
+      // active counts). Server re-validates ownership + retakeable status.
+      if (retakeState?.priorSubmissionId) {
+        formData.append("retake_of", retakeState.priorSubmissionId);
+      }
       // US-340: Verified Capture opt-in. Only sent as true when the seller
       // requested it AND every photo carries provenance EXIF; the server still
       // re-verifies recency/consistency/no-reuse before awarding the badge.
@@ -704,13 +789,36 @@ export function NewSubmissionPage() {
                   add the remaining required photos to continue.
                 </p>
               )}
+              {/* US-949: retake guidance — reuse the photos that passed, redo the
+                  flagged ones (highlighted in amber below). */}
+              {retakeState && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  <p className="flex items-center gap-1.5 font-medium">
+                    <BadgeCheck className="h-3.5 w-3.5" />
+                    We brought your good photos over — just redo the flagged ones.
+                  </p>
+                  {retakeState.photoRequests.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {retakeState.photoRequests.map((req, i) => (
+                        <li key={i} className="flex items-start gap-1.5">
+                          <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-amber-600" />
+                          <span>{req}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               <PhotoUpload
                 onChange={handlePhotosChange}
                 initialPhotos={
-                  snapFrontFile && !snapSeeded
-                    ? [{ slotKey: "front", file: snapFrontFile }]
-                    : undefined
+                  retakeState
+                    ? retakeSeedFiles
+                    : snapFrontFile && !snapSeeded
+                      ? [{ slotKey: "front", file: snapFrontFile }]
+                      : undefined
                 }
+                highlightSlotKeys={flaggedSlotKeys}
               />
               {/* US-339: provenance/EXIF disclosure. We read camera metadata
                   (and location, if your photo contains it) from the original
