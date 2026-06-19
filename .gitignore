@@ -100,3 +100,4 @@ services/edge-functions/deno.lock
 # Ralph per-iteration transient state (regenerated each loop)
 scripts/ralph/current-story.json
 supabase/.temp/cli-latest
+.claude/settings.local.json
