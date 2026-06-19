@@ -6,10 +6,11 @@ import Foundation
 /// No secrets live in source. Override the placeholder values in xcconfig
 /// before shipping a real build.
 enum AppConfig {
-    /// Self-hosted Supabase Kong base URL (auth, DB, storage).
+    /// Self-hosted Supabase Kong base URL (auth, DB, storage). MUST be https —
+    /// a plaintext base URL is a config-drift bug we refuse to launch with.
     static let supabaseURL: URL = {
-        guard let url = url(forInfoKey: "SUPABASE_URL") else {
-            fatalError("SUPABASE_URL missing or invalid in Info.plist — check xcconfig.")
+        guard let url = httpsURL(forInfoKey: "SUPABASE_URL") else {
+            fatalError("SUPABASE_URL missing, malformed, or not https in Info.plist — base URLs MUST be https. Check xcconfig.")
         }
         return url
     }()
@@ -28,10 +29,10 @@ enum AppConfig {
     }()
 
     /// Hono edge service base URL. Distinct from `supabaseURL` — Kong on
-    /// `api.*` will 404 anything outside the Supabase route table.
+    /// `api.*` will 404 anything outside the Supabase route table. MUST be https.
     static let edgeAPIURL: URL = {
-        guard let url = url(forInfoKey: "EDGE_API_URL") else {
-            fatalError("EDGE_API_URL missing or invalid in Info.plist — check xcconfig.")
+        guard let url = httpsURL(forInfoKey: "EDGE_API_URL") else {
+            fatalError("EDGE_API_URL missing, malformed, or not https in Info.plist — base URLs MUST be https. Check xcconfig.")
         }
         return url
     }()
@@ -91,5 +92,26 @@ enum AppConfig {
     private static func url(forInfoKey key: String) -> URL? {
         guard let raw = string(forInfoKey: key), !raw.isEmpty else { return nil }
         return URL(string: raw)
+    }
+
+    /// Base-URL accessor that REQUIRES an `https` scheme. Returns `nil` for a
+    /// missing, malformed, or non-https value so the caller fails fast. ATS
+    /// would already block a plaintext `http://` connection at runtime, but a
+    /// non-https base URL is a config-drift bug we refuse to launch with — the
+    /// failure should be loud and immediate, not a silent connection error.
+    private static func httpsURL(forInfoKey key: String) -> URL? {
+        validatedHTTPSURL(from: string(forInfoKey: key))
+    }
+
+    /// Pure, testable scheme validation: accepts only well-formed `https` URLs
+    /// with a non-empty host. `internal` so unit tests can exercise the reject
+    /// paths without tripping the `fatalError` in the base-URL accessors.
+    static func validatedHTTPSURL(from raw: String?) -> URL? {
+        guard let raw, !raw.isEmpty,
+              let url = URL(string: raw),
+              url.scheme?.lowercased() == "https",
+              let host = url.host, !host.isEmpty
+        else { return nil }
+        return url
     }
 }

@@ -51,6 +51,12 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
+      - name: Check ATS posture + https base URLs (US-1008)
+        # Run AFTER xcodegen so the regenerated Info.plist is what we scan. Fails
+        # if the merged Release Info.plist relaxes App Transport Security or if an
+        # xcconfig configures a non-https SUPABASE_URL / EDGE_API_URL.
+        run: python3 ios/Scripts/check-ats.py
+
       - name: Build + test
         working-directory: ios
         run: |
