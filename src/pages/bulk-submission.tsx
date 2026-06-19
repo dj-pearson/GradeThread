@@ -32,17 +32,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { supabase } from "@/lib/supabase";
 import { parseSheet } from "@/lib/csv";
 import { readZip, baseName, type ZipEntry } from "@/lib/zip";
 import { compressImage } from "@/lib/image-utils";
-import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
+import {
+  GARMENT_TYPES,
+  GARMENT_CATEGORIES,
+  GRADETHREAD_TIERS,
+  type GradeTierKey,
+} from "@/lib/constants";
 import type { ImageType } from "@/types/database";
 
 // Plans permitted to use bulk upload (PRD: gate behind Professional/Enterprise).
 const ALLOWED_PLANS = ["professional", "enterprise"];
+
+// Turnaround tiers a CSV `tier` column / the default-tier selector may name.
+// Mirrors GRADETHREAD_TIERS (and the edge GRADE_TIERS allowlist in grade.ts).
+const TURNAROUND_TIERS = Object.keys(GRADETHREAD_TIERS) as GradeTierKey[];
+
+function isTurnaroundTier(value: string): value is GradeTierKey {
+  return (TURNAROUND_TIERS as string[]).includes(value);
+}
 
 // Photos are assigned image types by their position in the photo_filenames
 // list. The grading pipeline requires front, back, label and one detail shot.
@@ -56,6 +76,10 @@ interface ParsedRow {
   garmentType: string;
   garmentCategory: string;
   photoFilenames: string[];
+  // Raw, lowercased value from the optional CSV `tier` column ("" when omitted).
+  // Resolved to a real GradeTierKey via resolveTier() (falls back to the
+  // UI-selected default tier when blank).
+  tierRaw: string;
   errors: string[];
 }
 
@@ -96,6 +120,11 @@ function validateRow(
   } else if (!GARMENT_CATEGORIES.includes(row.garmentCategory as never)) {
     errors.push(`Invalid category "${row.garmentCategory}"`);
   }
+  if (row.tierRaw && !isTurnaroundTier(row.tierRaw)) {
+    errors.push(
+      `Invalid tier "${row.tierRaw}" (use ${TURNAROUND_TIERS.join(", ")})`
+    );
+  }
   if (row.photoFilenames.length < REQUIRED_PHOTO_COUNT) {
     errors.push(
       `Needs at least ${REQUIRED_PHOTO_COUNT} photos (front, back, label, detail)`
@@ -126,12 +155,21 @@ export function BulkSubmissionPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [result, setResult] = useState<SubmitResult | null>(null);
+  // Default turnaround tier applied to any row that omits a CSV `tier` value.
+  const [defaultTier, setDefaultTier] = useState<GradeTierKey>("standard");
 
   const plan = profile?.plan ?? "free";
   const planAllowed = ALLOWED_PLANS.includes(plan);
 
   const validRows = rows.filter((r) => r.errors.length === 0);
   const invalidRows = rows.filter((r) => r.errors.length > 0);
+
+  // Resolve the tier a row will be submitted at: an explicit, valid CSV tier
+  // wins; otherwise the UI-selected default applies. (Invalid CSV tiers are
+  // caught in validateRow and never reach submission.)
+  function resolveTier(row: ParsedRow): GradeTierKey {
+    return isTurnaroundTier(row.tierRaw) ? row.tierRaw : defaultTier;
+  }
 
   function reparse(
     rawRows: ParsedRow[] | null,
@@ -165,6 +203,7 @@ export function BulkSubmissionPage() {
         "photos",
         "photo_files",
       ]);
+      const tierIdx = findHeader(headers, ["tier", "turnaround"]);
 
       if (titleIdx === -1 || typeIdx === -1 || categoryIdx === -1 || photosIdx === -1) {
         setParseError(
@@ -188,6 +227,8 @@ export function BulkSubmissionPage() {
             garmentType: (cells[typeIdx] ?? "").trim().toLowerCase(),
             garmentCategory: (cells[categoryIdx] ?? "").trim().toLowerCase(),
             photoFilenames,
+            tierRaw:
+              tierIdx === -1 ? "" : (cells[tierIdx] ?? "").trim().toLowerCase(),
             errors: [],
           };
           row.errors = validateRow(row, zipNames);
@@ -271,6 +312,9 @@ export function BulkSubmissionPage() {
           formData.append("garment_category", row.garmentCategory);
           formData.append("title", row.title);
           if (row.brand) formData.append("brand", row.brand);
+          // Per-row turnaround tier; the edge /submit applies the payment
+          // precedence (included → credits → checkout) at this tier (US-207).
+          formData.append("tier", resolveTier(row));
 
           for (let p = 0; p < row.photoFilenames.length; p++) {
             const fileName = row.photoFilenames[p]!;
@@ -394,7 +438,10 @@ export function BulkSubmissionPage() {
             CSV columns: <code>title</code>, <code>brand</code>,{" "}
             <code>garment_type</code>, <code>category</code>,{" "}
             <code>photo_filenames</code> (filenames separated by{" "}
-            <code>;</code> or <code>|</code>).
+            <code>;</code> or <code>|</code>). Optional <code>tier</code>{" "}
+            (<code>standard</code>, <code>premium</code> or{" "}
+            <code>express</code>) sets the turnaround per item — rows that omit
+            it use the default tier you choose below.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -474,6 +521,38 @@ export function BulkSubmissionPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex flex-col gap-1.5 sm:max-w-xs">
+              <label
+                htmlFor="bulk-default-tier"
+                className="text-sm font-medium"
+              >
+                Default tier
+              </label>
+              <Select
+                value={defaultTier}
+                onValueChange={(v) => setDefaultTier(v as GradeTierKey)}
+              >
+                <SelectTrigger id="bulk-default-tier">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TURNAROUND_TIERS.map((key) => {
+                    const t = GRADETHREAD_TIERS[key];
+                    return (
+                      <SelectItem key={key} value={key}>
+                        {t.label} — ${(t.priceCents / 100).toFixed(2)} ·{" "}
+                        {t.slaHours}h
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Applied to rows without an explicit <code>tier</code> column
+                value.
+              </p>
+            </div>
+
             <div className="overflow-x-auto rounded-md border">
               <Table>
                 <TableHeader>
@@ -482,6 +561,7 @@ export function BulkSubmissionPage() {
                     <TableHead>Title</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Category</TableHead>
+                    <TableHead>Tier</TableHead>
                     <TableHead>Photos</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
@@ -499,6 +579,20 @@ export function BulkSubmissionPage() {
                       </TableCell>
                       <TableCell>{row.garmentType || "—"}</TableCell>
                       <TableCell>{row.garmentCategory || "—"}</TableCell>
+                      <TableCell>
+                        {row.tierRaw && !isTurnaroundTier(row.tierRaw) ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span>
+                            {GRADETHREAD_TIERS[resolveTier(row)].label}
+                            {!row.tierRaw && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                (default)
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{row.photoFilenames.length}</TableCell>
                       <TableCell>
                         {row.errors.length === 0 ? (
