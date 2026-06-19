@@ -146,8 +146,10 @@ struct ContentView: View {
                 handleDeepLink(route)
             }
             .fullScreenCover(isPresented: $showingOnboarding) {
-                OnboardingView {
-                    OnboardingState().hasCompleted = true
+                // US-747: persist completion + the chosen use case, and queue the
+                // first-action routing (MainShell performs it).
+                OnboardingView { useCase in
+                    OnboardingState().complete(useCase: useCase)
                     showingOnboarding = false
                 }
             }
@@ -356,6 +358,16 @@ struct MainShell: View {
                     as? DeepLinkRoute else { return }
             apply(route: route, router: router)
         }
+        // US-747: drop a freshly-onboarded user on their use case's first action.
+        // The notification handles the common case (shell already mounted under
+        // the onboarding cover); the appear-pass below covers a user who finished
+        // onboarding before signing in (no shell mounted to receive the post).
+        .onReceive(
+            NotificationCenter.default.publisher(for: .onboardingDidFinish)
+        ) { _ in
+            consumeOnboardingFirstAction(router: router)
+        }
+        .onAppear { consumeOnboardingFirstAction(router: router) }
         // US-663: cover sensitive financial figures (Dashboard/Money/widget-
         // backed views all live under this shell) in the App Switcher snapshot
         // and while the app is inactive, so payout/sales numbers aren't exposed.
@@ -421,6 +433,20 @@ struct MainShell: View {
     /// routes resolve the `LocalInventoryItem` from the cache and push its
     /// canvas; if the row hasn't synced yet we fall back to the inventory
     /// list so the tap is never a dead end.
+    /// US-747: perform the one-shot, use-case-driven first-action routing queued
+    /// by onboarding. Idempotent — the pending flag is cleared the first time it
+    /// runs, so the notification + appear paths can both fire safely.
+    private func consumeOnboardingFirstAction(router: AppRouter) {
+        let state = OnboardingState()
+        guard state.pendingFirstAction, let useCase = state.selectedUseCase else { return }
+        state.pendingFirstAction = false
+        let action = useCase.firstAction
+        router.selection = action.section
+        if let intake = action.intake {
+            router.startIntake(intake)
+        }
+    }
+
     private func apply(route: DeepLinkRoute, router: AppRouter) {
         switch route {
         case .salesTab:

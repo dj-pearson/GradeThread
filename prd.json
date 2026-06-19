@@ -44,7 +44,7 @@
         "Generic-carousel copy is replaced/tailored per use case"
       ],
       "priority": 747,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Parity] From the feature audit: iOS onboarding is a generic 4-slide carousel (OnboardingView.swift) with no use-case detection/routing; ActivationChecklist.swift exists but isn't wired into the first-run flow. Mirrors web [[US-742]]. Files: Onboarding/OnboardingView.swift, Onboarding/OnboardingState.swift, Onboarding/ActivationChecklist.swift."
     },
     {

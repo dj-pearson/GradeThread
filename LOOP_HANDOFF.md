@@ -121,8 +121,10 @@ Schema version is at **`00264`** (`services/edge-functions/src/lib/schema-versio
 
 The **Garment Passport epic (US-1089→1106) is COMPLETE.** Remaining backlog:
 
-1. **iOS US-747+** (`passes:false`): US-747 onboarding/activation routing, US-749
-   surface buried modules, US-750 sales/expenses source-of-truth, US-751..768, …
+1. **iOS US-749+** (`passes:false`): ~~US-747 onboarding/activation routing (DONE
+   — use-case picker + first-action routing via MainShell, `OnboardingUseCase` +
+   one-shot `pendingFirstAction`)~~, US-749 surface buried modules, US-750
+   sales/expenses source-of-truth, US-751..768, …
    ⚠️ **Pure Swift — cannot be built/tested in this Linux env** (no macOS/xcodebuild;
    only `python3 ios/Scripts/no-ungated-print.py` runs). The user OK'd shipping iOS
    unverified ("attempt iOS anyway"). Match patterns precisely (see the iOS map in
