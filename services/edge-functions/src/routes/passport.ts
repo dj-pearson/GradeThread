@@ -18,6 +18,7 @@ import {
   rankCandidates,
 } from "../lib/garment-match.ts";
 import { getSettingSync } from "../lib/system-settings.ts";
+import { detectRelistCandidates } from "../lib/relist-detect.ts";
 
 // Garment Passport edge API (US-1092). Mounted at /api/passport.
 //
@@ -84,7 +85,7 @@ passportRoutes.get("/:slug", async (c) => {
 
   const { data: garment, error: gErr } = await supabaseAdmin
     .from("garments")
-    .select("id, public_passport_slug, sku_class, status, created_at")
+    .select("id, public_passport_slug, sku_class, status, created_at, created_by")
     .eq("public_passport_slug", slug)
     .maybeSingle();
   if (gErr) {
@@ -98,7 +99,38 @@ passportRoutes.get("/:slug", async (c) => {
     sku_class: unknown;
     status: string;
     created_at: string;
+    created_by: string | null;
   };
+
+  // US-1101: surface the ORIGIN seller's GradeThread Verified status (a PUBLIC,
+  // opt-in trust badge) so verified-seller trust travels with the passport. We
+  // expose ONLY the public verified profile fields (handle/display name) and
+  // ONLY when the seller opted in (verified_enabled) — never the user id/email,
+  // and nothing at all for a non-verified seller. This keeps the surface PII-free.
+  let originVerified: { handle: string; display_name: string | null; since: string | null } | null =
+    null;
+  if (g.created_by) {
+    const { data: seller } = await supabaseAdmin
+      .from("users")
+      .select("verified_enabled, verified_handle, verified_display_name, verified_since")
+      .eq("id", g.created_by)
+      .maybeSingle();
+    const s = seller as
+      | {
+        verified_enabled: boolean | null;
+        verified_handle: string | null;
+        verified_display_name: string | null;
+        verified_since: string | null;
+      }
+      | null;
+    if (s?.verified_enabled && s.verified_handle) {
+      originVerified = {
+        handle: s.verified_handle,
+        display_name: s.verified_display_name,
+        since: s.verified_since,
+      };
+    }
+  }
 
   const { data: eventRows } = await supabaseAdmin
     .from("garment_events")
@@ -135,6 +167,8 @@ passportRoutes.get("/:slug", async (c) => {
     sku_class: g.sku_class ?? {},
     status: g.status,
     created_at: g.created_at,
+    // US-1101: PII-free origin-seller verified badge (null unless opted in).
+    origin_verified_seller: originVerified,
     events: rows.map((r) => ({
       event_type: r.event_type,
       confidence: r.confidence,
@@ -542,4 +576,35 @@ passportRoutes.post("/garments/:id/match-candidates", async (c) => {
 
   const ranked = rankCandidates(query, candidates, opts).slice(0, 20);
   return c.json({ ok: true, candidates: ranked }, 200);
+});
+
+// ── Relist detection (US-1099, Layer-3) ──────────────────────────────────────
+
+// POST /garments/detect-relist — authed, tenant-scoped. Given an inventory item
+// the owner is drafting a listing for, perceptually hash its listing photos and
+// match them against the owner's prior garment fingerprints to flag a likely
+// RELIST (a seller re-using the original/similar photos of an item we already
+// graded). SUGGESTIONS ONLY (confidence='probable') — this never auto-links; the
+// seller confirms via the claim handoff (US-1094). Thresholds tunable via
+// system settings. Tenant-scoped: ownership of the item is verified before any
+// read (US-268), and only the owner's own fingerprints compete.
+passportRoutes.post("/garments/detect-relist", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id.trim() : "";
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+
+  // False-positive guardrails (AC4): per-image similarity floor + min number of
+  // distinct matched photos, both tunable. Defaults live in relist-match.ts.
+  const result = await detectRelistCandidates(itemId, ownerId, {
+    minSimilarity: getSettingSync<number>("passport_relist_min_similarity", 0.9),
+    minMatchedPhotos: getSettingSync<number>("passport_relist_min_matched_photos", 1),
+  });
+  return c.json(result, 200);
 });

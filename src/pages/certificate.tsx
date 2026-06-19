@@ -34,6 +34,7 @@ import {
   getProgressColor,
 } from "@/lib/constants";
 import { rubricForKey } from "@/lib/rubrics";
+import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
@@ -512,9 +513,21 @@ export function CertificatePage() {
             to={`/passport/${passportSlug}`}
             className="flex items-center justify-between gap-3 rounded-lg border border-brand-navy/20 bg-brand-navy/5 px-4 py-3 transition-colors hover:bg-brand-navy/10 print:hidden dark:border-blue-400/20 dark:bg-blue-400/5"
           >
-            <span className="flex items-center gap-2 text-sm font-medium text-brand-navy dark:text-blue-300">
-              <History className="h-4 w-4" />
-              View this garment's full Passport — provenance &amp; ownership history
+            <span className="flex flex-col gap-1.5 text-sm font-medium text-brand-navy dark:text-blue-300">
+              <span className="flex items-center gap-2">
+                <History className="h-4 w-4" />
+                View this garment's full Passport — provenance &amp; ownership history
+              </span>
+              {/* US-1102: this grade is a VERIFIED (deterministic) link in the
+                  chain — show its confidence with the taxonomy tooltip. */}
+              <Badge
+                variant="outline"
+                className="w-fit gap-1 border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                title={confidenceInfo("deterministic").tooltip}
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {confidenceInfo("deterministic").label} grade
+              </Badge>
             </span>
             <ArrowRight className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-blue-300" />
           </Link>

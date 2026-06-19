@@ -1629,3 +1629,26 @@ Deno.test({
     assertDenied(res.status, "POST passport/garments/:id/match-candidates (A's garment)");
   },
 });
+
+// US-1099: relist detection is tenant-scoped — B passing A's inventory item id
+// must get ZERO suggestions (the item lookup is .eq(user_id), so a non-owned id
+// resolves to no row and never reaches A's photos or A's fingerprints).
+Deno.test({
+  name: "B's relist detection on A's item returns no candidates",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/passport/garments/detect-relist`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_id: id }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      candidates?: Array<{ garmentId: string }>;
+    };
+    assert(
+      Array.isArray(body.candidates) && body.candidates.length === 0,
+      `B got ${JSON.stringify(body.candidates)} relist candidates for A's item — should be 0`,
+    );
+  },
+});

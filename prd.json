@@ -2976,7 +2976,7 @@
         "deno checks + build pass"
       ],
       "priority": 710,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][Layer3] Catches reused-photo relists (very common). Depends on [[US-1097]]. Suggestion-only, confirmed via [[US-1094]] handoff."
     },
     {
@@ -2991,7 +2991,7 @@
         "deno lint/check/test pass"
       ],
       "priority": 711,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Layer4] Answers the user's 'who bought it / did they resell it' via salted-hash pseudonymous nodes — limited-PII by construction. Depends on [[US-1090]], [[US-1092]], [[US-1094]]. Touches flipdesk-ebay.ts / flipdesk-webhooks.ts."
     },
     {
@@ -3005,7 +3005,7 @@
         "No PII leaks onto the public surface; tenant-scoped reads/writes; build + deno checks pass"
       ],
       "priority": 712,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Trust] Makes the passport more valuable per transaction (the flywheel incentive). Depends on [[US-1093]], [[US-1094]]. Ties existing US-867 guarantee + verified-seller surfaces."
     },
     {
@@ -3020,7 +3020,7 @@
         "build + tsc + eslint clean"
       ],
       "priority": 713,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Trust] The honesty layer that differentiates us and limits liability. Depends on [[US-1093]]. Consumes confidence from [[US-1094]],[[US-1097]],[[US-1099]],[[US-1100]]."
     },
     {

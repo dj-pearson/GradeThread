@@ -8,12 +8,15 @@
 ## ▶️ Paste this to resume the loop
 
 ```
-/loop Loop through all of our open stories in prd.json to work to build out our features. Fully complete each item. It self-resumes — prd.json tracks passes:true, so it picks up the next open story automatically. Next by priority is US-1099, then US-1100…US-1106 (rest of the Passport epic), then iOS (US-744+), then the drip epic (US-908+). Follow LOOP_HANDOFF.md "Working agreement".
+/loop Loop through all of our open stories in prd.json to work to build out our features. Fully complete each item. It self-resumes — prd.json tracks passes:true, so it picks up the next open story automatically. Next by priority is US-1103, then US-1104…US-1106 (rest of the Passport epic), then iOS (US-744+), then the drip epic (US-908+). Follow LOOP_HANDOFF.md "Working agreement".
 ```
 
-## ✅ Done so far (Passport epic, `passes:true`, pushed to `claude/cool-johnson-1yzh21`)
+## ✅ Done so far (Passport epic, `passes:true`)
 
-US-1089/1090/1092 (prior) + this run:
+> **Branch note:** earlier stories landed on `claude/cool-johnson-1yzh21` (merged
+> via PR #88). The CURRENT loop branch is **`claude/prd-story-loop-rzz40a`**.
+
+US-1089/1090/1092 (prior) + the prior run:
 - **US-1091** backfill certs → single-hop passports (mig `00257`) + forward wiring (`passport-write.ts`)
 - **US-1093** public `/passport/:slug` timeline page + SSR Pages Function + JSON-LD
 - **US-1094** claim-token handoff (mig `00258`) — mint + anonymous redeem, single-use/replay-guarded
@@ -22,24 +25,44 @@ US-1089/1090/1092 (prior) + this run:
 - **US-1097** per-grade visual fingerprint (mig `00260`) + chunked SQL backfill
 - **US-1098** candidate-match service + wear-monotonicity gate
 
-Schema version is at **`00260`** (`services/edge-functions/src/lib/schema-version.ts`).
+This run (on `claude/prd-story-loop-rzz40a`):
+- **US-1099** relist detection via listing-image hash (mig `00261` — `item_photos.phash`).
+  Pure matcher `relist-match.ts` (cross-product best-similarity, SKU-class gate,
+  min-matched-photos guardrail) + tenant-scoped orchestration `relist-detect.ts`
+  (on-demand server-side hashing of item_photos, candidate load from owner's
+  garment fingerprints). Route `POST /api/passport/garments/detect-relist`.
+  Frontend `RelistSuggestionCard` on the FlipDesk item page (suggestion-only).
+- **US-1100** eBay sale → sold-to node + claim offer (mig `00262` — `owner_nodes.linkage_hash`).
+  `passport-sale.ts` `recordEbaySale` (salted-hash pseudonymous buyer node, 'sold'
+  event, ownership move, claim-token mint), hooked into the `flipdesk-ebay.ts`
+  orders-sync new-sale branch. DI-testable; `passport-sale_test.ts` (fake DB).
+- **US-1101** Buyer Guarantee + Verified Seller on the chain (mig `00263` —
+  `guarantee_claims.garment_id`). `guarantee-public.ts` anchors claims to the
+  garment; `admin-claims.ts` surfaces `passport_slug`; `passport.ts` GET adds a
+  PII-free `origin_verified_seller`; passport SPA + SSR show the badge +
+  "guarantee transfers on claim" copy.
+- **US-1102** confidence taxonomy + badges. `src/lib/passport-confidence.ts`
+  (deterministic/probable/unknown labels+tooltips + `chainStrength()`), wired into
+  passport.tsx (per-link tooltip + "Chain strength" card) + certificate.tsx.
+  Frontend-only; vitest `passport-confidence.test.ts`.
+
+Schema version is at **`00263`** (`services/edge-functions/src/lib/schema-version.ts`).
 `prd.json.nextId` = **1109** (use it + bump for any NEW story; never `max(id)+1`).
+
+⚠️ **CI not yet confirmed green for this run** — the GitHub MCP tools were
+disconnected mid-session, so the edge `deno lint/check/test` lane (unrunnable
+locally) hasn't been verified. The next session should check CI on
+`claude/prd-story-loop-rzz40a` and fix any deno fallout before/while continuing.
 
 ## ⏭️ Next up (priority order)
 
-1. **US-1099** relist detection via listing-image hash — reuses `garment-match.ts`
-   (rankCandidates) + the existing CI-tested `computePhashFromImage` in
-   `perceptual-hash.ts`. Surface a "link to existing passport?" suggestion in the
-   FlipDesk listing flow; never auto-link. item_photos has **no** phash column —
-   hash on demand via signed URLs (US-276), or add a column.
-2. **US-1100** eBay sale → pseudonymous sold-to node + claim offer (`flipdesk-ebay.ts`)
-3. **US-1101** attach Buyer Guarantee + Verified Seller to the chain
-4. **US-1102** confidence model + UI badges across chain links (frontend-heavy — lower risk)
-5. **US-1103** admin integrity & fraud signals (cross-tenant fingerprint collisions → `abuse-signals.ts`)
-6. **US-1104** longitudinal resale-value & depreciation forecast (Scout)
-7. **US-1105** opt-in identity reveal (sets `owner_nodes.linked_user_id`; deferred design)
-8. **US-1106** buyer-facing "scan before you buy" public entry
-9. then **iOS** (US-744+) and **drip** (US-908+).
+1. **US-1103** admin integrity & fraud signals (cross-tenant fingerprint collisions → `abuse-signals.ts`).
+   NB: US-1099 added `item_photos.phash` + caches hashes there, and US-1100 added
+   `owner_nodes.linkage_hash` — reuse BOTH for the cross-tenant collision sweep.
+2. **US-1104** longitudinal resale-value & depreciation forecast (Scout)
+3. **US-1105** opt-in identity reveal (sets `owner_nodes.linked_user_id`; deferred design)
+4. **US-1106** buyer-facing "scan before you buy" public entry
+5. then **iOS** (US-744+) and **drip** (US-908+).
 
 ## 🔧 Working agreement (learnings from this run — follow these)
 
