@@ -2856,7 +2856,7 @@
         "db verify lane passes; existing certificate.tsx still renders unchanged"
       ],
       "priority": 702,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Passport] Seeds the ledger so the flywheel starts non-empty. Depends on [[US-1089]]. Touches grade.ts (US grading write path) and the public_grade_reports view (00194/00138 lineage)."
     },
     {

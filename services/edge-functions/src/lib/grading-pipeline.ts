@@ -18,6 +18,7 @@ import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { notifyUser } from "./notify.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
+import { createSingleHopPassport } from "./passport-write.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
   evaluateVerifiedCapture,
@@ -1357,6 +1358,25 @@ export async function processSubmission(submissionId: string) {
       console.error("[Pipeline] Failed to create grade report:", reportError);
       throw new Error("Failed to create grade report record");
     }
+
+    // US-1091: seed this certificate's single-hop Garment Passport (garment +
+    // pseudonymous origin seller node + deterministic 'graded' event) and link
+    // it via grade_reports.garment_id. Best-effort — createSingleHopPassport
+    // never throws; a passport failure must never fail a completed paid grade
+    // (the 00257 backfill is idempotent and repairs any gaps later).
+    await createSingleHopPassport({
+      gradeReportId: gradeReport.id,
+      createdByUserId: submission.user_id,
+      skuClass: {
+        brand: submission.brand ?? undefined,
+        garment_type: submission.garment_type,
+        category: submission.garment_category,
+      },
+      overallScore: compositeResult.overall_score,
+      gradeTier: compositeResult.grade_tier,
+      confidenceScore: compositeResult.confidence_score,
+      certificateId: certificateId,
+    });
 
     // US-1037: dual-write genuine defects to the normalized grade_defects table
     // (queryable type/size/area for analytics + calibration). defects_found jsonb
