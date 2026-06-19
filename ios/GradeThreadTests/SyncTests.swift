@@ -366,6 +366,51 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(ids, ["a", "local-1"])
     }
 
+    // MARK: - Delta merge fetches only affected rows (US-986)
+
+    func test_mergeActor_deltaFetchesOnlyAffectedRows() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        // Seed a "large" store.
+        let seed = (0..<50).map {
+            Self.remoteItem(id: "item-\($0)", title: "Item \($0)", updated: "2026-06-01T00:00:00Z")
+        }
+        await actor.mergeItems(seed, primaryPhotos: [:], listingPrices: [:], prune: false)
+
+        // A 1-row delta against the large store must materialize only a handful
+        // of rows, not all 50.
+        await actor.mergeItems(
+            [Self.remoteItem(id: "item-7", title: "Item 7 (updated)", updated: "2026-06-02T00:00:00Z")],
+            primaryPhotos: [:], listingPrices: [:], prune: false
+        )
+        let deltaFetched = await actor.lastMergeFetchedRowCount
+        XCTAssertLessThanOrEqual(deltaFetched, 5, "delta merge should fetch only the touched row")
+
+        // Full backfill (prune) still scans the whole table so stale locals can
+        // be deleted.
+        await actor.mergeItems(seed, primaryPhotos: [:], listingPrices: [:], prune: true)
+        let backfillFetched = await actor.lastMergeFetchedRowCount
+        XCTAssertGreaterThanOrEqual(backfillFetched, 50, "full backfill must fetch the whole table to prune")
+    }
+
+    func test_mergePhotos_deltaFetchesOnlyAffectedRows() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        let items = (0..<30).map {
+            Self.remoteItem(id: "item-\($0)", title: "Item \($0)", updated: "2026-06-01T00:00:00Z")
+        }
+        await actor.mergeItems(items, primaryPhotos: [:], listingPrices: [:], prune: false)
+        let photos = (0..<30).map { Self.remotePhoto(id: "p-\($0)", itemId: "item-\($0)") }
+        await actor.mergePhotos(photos, prune: false)
+
+        // 1-row photo delta: at most the touched photo + its one owning item.
+        await actor.mergePhotos([Self.remotePhoto(id: "p-3", itemId: "item-3")], prune: false)
+        let deltaFetched = await actor.lastMergeFetchedRowCount
+        XCTAssertLessThanOrEqual(deltaFetched, 5, "photo delta should fetch only the touched photo + owner")
+    }
+
     // MARK: - Item<->photo relationship (US-994)
 
     func test_deletingItem_cascadesPhotos() throws {

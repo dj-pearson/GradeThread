@@ -16,6 +16,19 @@ import SwiftData
 @ModelActor
 actor SyncMergeActor {
 
+    /// Test instrumentation: rows materialized by the most recent merge call's
+    /// fetches. Lets a test assert that a delta pulls only a handful of rows
+    /// (the ones the payload touches) instead of the whole table.
+    private(set) var lastMergeFetchedRowCount = 0
+
+    /// Fetch + tally for the row-count instrumentation. Every merge fetch goes
+    /// through here so `lastMergeFetchedRowCount` reflects the true cost.
+    private func fetchCounting<T: PersistentModel>(_ descriptor: FetchDescriptor<T>) -> [T] {
+        let rows = (try? modelContext.fetch(descriptor)) ?? []
+        lastMergeFetchedRowCount += rows.count
+        return rows
+    }
+
     // MARK: - Bulk merge (foreground / background pull)
 
     /// Upserts a delta (or full backfill) of inventory rows + caches each
@@ -37,9 +50,22 @@ actor SyncMergeActor {
         prune: Bool
     ) {
         guard !items.isEmpty || prune else { return }
-        let existing = (try? modelContext.fetch(FetchDescriptor<LocalInventoryItem>())) ?? []
-        var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        lastMergeFetchedRowCount = 0
         let remoteIds = Set(items.map(\.id))
+        // Delta (prune == false): fetch only the rows this payload touches, so a
+        // 1-row pull doesn't materialize the whole inventory table. Full backfill
+        // (prune == true) still needs every row to delete locals the server
+        // dropped.
+        let existing: [LocalInventoryItem]
+        if prune {
+            existing = fetchCounting(FetchDescriptor<LocalInventoryItem>())
+        } else {
+            let ids = Array(remoteIds)
+            existing = fetchCounting(
+                FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { ids.contains($0.id) })
+            )
+        }
+        var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         for remote in items {
             let createdAt = SyncEngine.parseDate(remote.created_at)
@@ -89,14 +115,30 @@ actor SyncMergeActor {
     /// mode `remotePhotos` is just the new rows, so pruning locals not in the
     /// set would wrongly wipe the whole strip.
     func mergePhotos(_ remotePhotos: [SyncEngine.RemoteItemPhoto], prune: Bool) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<LocalItemPhoto>())) ?? []
-        var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        lastMergeFetchedRowCount = 0
         let remoteIds = Set(remotePhotos.map(\.id))
+        // Delta: only the photo rows this payload touches; full backfill needs
+        // the whole strip so absent locals can be pruned.
+        let existing: [LocalItemPhoto]
+        if prune {
+            existing = fetchCounting(FetchDescriptor<LocalItemPhoto>())
+        } else {
+            let ids = Array(remoteIds)
+            existing = fetchCounting(
+                FetchDescriptor<LocalItemPhoto>(predicate: #Predicate { ids.contains($0.id) })
+            )
+        }
+        var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         // US-994: resolve each photo's owning item so the @Relationship (and its
         // cascade-delete) is populated, not just the loose FK string. mergeItems
         // runs before mergePhotos in `pull()`, so the items are already present.
-        let items = (try? modelContext.fetch(FetchDescriptor<LocalInventoryItem>())) ?? []
+        // Scope the lookup to the items these photos reference — even on a full
+        // backfill we only need the owners named in this payload.
+        let referencedItemIds = Array(Set(remotePhotos.map(\.inventory_item_id)))
+        let items = fetchCounting(
+            FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { referencedItemIds.contains($0.id) })
+        )
         let itemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         for remote in remotePhotos {
@@ -140,7 +182,13 @@ actor SyncMergeActor {
     /// server-side is rare and harmless to keep locally.
     func mergeSales(_ remoteSales: [SyncEngine.RemoteSaleRow]) {
         guard !remoteSales.isEmpty else { return }
-        let existing = (try? modelContext.fetch(FetchDescriptor<LocalSale>())) ?? []
+        lastMergeFetchedRowCount = 0
+        // Sales never prune, so this is always a delta: fetch only the rows the
+        // payload touches instead of every sale the user has ever made.
+        let ids = Array(Set(remoteSales.map(\.id)))
+        let existing = fetchCounting(
+            FetchDescriptor<LocalSale>(predicate: #Predicate { ids.contains($0.id) })
+        )
         var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         for remote in remoteSales {
@@ -183,7 +231,13 @@ actor SyncMergeActor {
     /// pass, so deleting locals absent from one page could wrongly drop rows.
     func mergeListings(_ remoteListings: [SyncEngine.RemoteListing]) {
         guard !remoteListings.isEmpty else { return }
-        let existing = (try? modelContext.fetch(FetchDescriptor<LocalListing>())) ?? []
+        lastMergeFetchedRowCount = 0
+        // Listings aren't pruned (the fetch is bounded per pass), so this is a
+        // delta: fetch only the rows the payload touches.
+        let ids = Array(Set(remoteListings.map(\.id)))
+        let existing = fetchCounting(
+            FetchDescriptor<LocalListing>(predicate: #Predicate { ids.contains($0.id) })
+        )
         var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         for remote in remoteListings {
