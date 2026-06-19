@@ -44,6 +44,14 @@ actor SyncEngine {
     private var isFlushing = false
     private var connectivityTask: Task<Void, Never>?
 
+    /// Debounces connectivity-driven syncs so a flap storm (walking between
+    /// Wi-Fi/cell) coalesces into one flush+pull instead of one per flap
+    /// (US-997). Manual ``sync()`` bypasses this and stays immediate.
+    private var connectivityDebouncer: ConnectivityDebouncer?
+    /// Window a burst of connectivity events must settle within before a single
+    /// trailing sync fires.
+    private static let connectivityDebounceWindow: Duration = .seconds(2)
+
     /// Last pull's error, if any — surfaced to pull-to-refresh (US-643) so the
     /// spinner can show a transient failure instead of silently succeeding.
     private var lastPullError: String?
@@ -71,14 +79,21 @@ actor SyncEngine {
         guard connectivityTask == nil else { return }
         let monitor = networkMonitor
         let status = statusStore
-        connectivityTask = Task { [weak self] in
+        // One debounced flush+pull per connectivity burst (US-997).
+        let debouncer = ConnectivityDebouncer(window: Self.connectivityDebounceWindow) { [weak self] in
+            await self?.flushPending()
+            await self?.pull()
+        }
+        connectivityDebouncer = debouncer
+        connectivityTask = Task {
             let stream = await MainActor.run { monitor.connectivityStream() }
             for await connected in stream {
                 if connected {
                     await status.set(.idle)
-                    await self?.flushPending()
-                    await self?.pull()
+                    await debouncer.trigger()
                 } else {
+                    // Drop any pending sync — it would only fail offline.
+                    await debouncer.cancel()
                     await status.set(.offline)
                 }
             }
@@ -88,6 +103,10 @@ actor SyncEngine {
     func stop() {
         connectivityTask?.cancel()
         connectivityTask = nil
+        if let debouncer = connectivityDebouncer {
+            Task { await debouncer.cancel() }
+        }
+        connectivityDebouncer = nil
     }
 
     /// Foreground entrypoint — also called when the user pulls-to-refresh.

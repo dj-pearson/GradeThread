@@ -181,6 +181,51 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(Backoff.delayNanos(attempt: 9, base: 1, cap: 8), 8_000_000_000)
     }
 
+    // MARK: - ConnectivityDebouncer (US-997)
+
+    /// Five reconnects in quick succession (a Wi-Fi↔cell flap storm) must
+    /// collapse into at most one flush+pull.
+    func test_connectivityDebouncer_coalescesBurstIntoSingleRun() async throws {
+        let counter = DebounceCallCounter()
+        let debouncer = ConnectivityDebouncer(window: .milliseconds(80)) {
+            await counter.bump()
+        }
+        for _ in 0..<5 { await debouncer.trigger() }
+        // Wait well past the window for the single trailing run to fire.
+        try await Task.sleep(for: .milliseconds(400))
+        let runs = await counter.value
+        XCTAssertEqual(runs, 1, "5 flaps within one window must coalesce to <= 1 sync")
+    }
+
+    /// Going offline (cancel) before the window elapses must drop the pending
+    /// sync entirely — it would only fail offline.
+    func test_connectivityDebouncer_cancelPreventsPendingRun() async throws {
+        let counter = DebounceCallCounter()
+        let debouncer = ConnectivityDebouncer(window: .milliseconds(80)) {
+            await counter.bump()
+        }
+        await debouncer.trigger()
+        await debouncer.cancel()
+        try await Task.sleep(for: .milliseconds(300))
+        let runs = await counter.value
+        XCTAssertEqual(runs, 0, "a cancelled (offline) debounce must not fire")
+    }
+
+    /// Distinct bursts separated by a settled window each sync once — the
+    /// debouncer defers, it doesn't permanently swallow.
+    func test_connectivityDebouncer_runsAgainAfterWindowSettles() async throws {
+        let counter = DebounceCallCounter()
+        let debouncer = ConnectivityDebouncer(window: .milliseconds(60)) {
+            await counter.bump()
+        }
+        await debouncer.trigger()
+        try await Task.sleep(for: .milliseconds(220))
+        await debouncer.trigger()
+        try await Task.sleep(for: .milliseconds(220))
+        let runs = await counter.value
+        XCTAssertEqual(runs, 2, "two settled bursts each fire one sync")
+    }
+
     // MARK: - SyncWatermark (US-633)
 
     func test_watermark_firstReadIsNil() {
@@ -353,4 +398,12 @@ final class SyncTests: XCTestCase {
         )
         return try ModelContainer(for: schema, configurations: config)
     }
+}
+
+/// Thread-safe call counter for the ``ConnectivityDebouncer`` tests — the
+/// debounced action runs off the test's main actor, so the tally needs its own
+/// isolation.
+private actor DebounceCallCounter {
+    private(set) var value = 0
+    func bump() { value += 1 }
 }
