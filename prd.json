@@ -1509,7 +1509,7 @@
         "Build + PaywallStoreTests green."
       ],
       "priority": 978,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=ui/app-store. ios/GradeThread/Billing/PaywallView.swift (productRow ~121-130)"
     },
     {

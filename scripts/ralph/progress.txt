@@ -3342,3 +3342,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:07:34 PM
 ---
+## US-978: iOS: PaywallView subscription disclosures (Apple Guideline 3.1.2)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:11:17 PM
+---
