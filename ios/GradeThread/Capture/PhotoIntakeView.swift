@@ -106,7 +106,7 @@ struct PhotoIntakeView: View {
             isPresented: $photoDraftToResume,
             titleVisibility: .visible
         ) {
-            Button("Resume") { PhotoDraftStore.restore(into: store) }
+            Button("Resume") { Task { await PhotoDraftStore.restore(into: store) } }
             Button("Start fresh", role: .destructive) { PhotoDraftStore.clear() }
         } message: {
             Text("You have photos from a session that didn't finish.")

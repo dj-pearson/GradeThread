@@ -145,21 +145,38 @@ enum PhotoDraftStore {
         return !manifest.entries.isEmpty
     }
 
-    /// Restore the persisted captures into a fresh store (rebuilding thumbnails
-    /// from the stored JPEGs).
+    /// Restore the persisted captures into a fresh store (US-996).
+    ///
+    /// The file reads and JPEG decodes run off the main actor on a detached
+    /// task: a 10-photo draft is up to ~10 multi-MB JPEGs, and synchronously
+    /// reading + fully decoding them on `@MainActor` hitched the UI. We also
+    /// build the slot thumbnails *downsampled* (~160px long edge) via
+    /// ImageIO rather than keeping full-resolution `UIImage`s resident — the
+    /// strip cell never needs more, and full-res thumbnails wasted memory.
+    /// Only the `setPhoto` mutations hop back to the main actor.
     @MainActor
-    static func restore(into store: PhotoIntakeStore) {
+    static func restore(into store: PhotoIntakeStore) async {
         guard let dir = directory,
               let data = try? Data(contentsOf: dir.appendingPathComponent("manifest.json")),
               let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else { return }
-        for entry in manifest.entries {
-            guard let slot = PhotoSlotType(rawValue: entry.slot),
-                  let bytes = try? Data(contentsOf: dir.appendingPathComponent(entry.filename)),
-                  let image = UIImage(data: bytes) else { continue }
-            store.setPhoto(
-                PhotoCapture(imageData: bytes, thumbnail: image, source: .library),
-                for: slot
-            )
+        let restored = await Task.detached(priority: .userInitiated) {
+            () -> [(PhotoSlotType, PhotoCapture)] in
+            var out: [(PhotoSlotType, PhotoCapture)] = []
+            for entry in manifest.entries {
+                autoreleasepool {
+                    guard let slot = PhotoSlotType(rawValue: entry.slot),
+                          let bytes = try? Data(contentsOf: dir.appendingPathComponent(entry.filename)),
+                          let thumb = ThumbnailLoader.downsample(
+                              data: bytes,
+                              maxPixel: PhotoCompressor.defaultThumbnailLongEdge
+                          ) else { return }
+                    out.append((slot, PhotoCapture(imageData: bytes, thumbnail: thumb, source: .library)))
+                }
+            }
+            return out
+        }.value
+        for (slot, capture) in restored {
+            store.setPhoto(capture, for: slot)
         }
     }
 
