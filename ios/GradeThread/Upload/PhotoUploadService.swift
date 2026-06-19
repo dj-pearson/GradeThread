@@ -31,15 +31,24 @@ public final class PhotoUploadService {
     private var session: URLSession!
     private let sessionDelegate: SessionDelegate
 
+    /// Cancels every in-flight background-session task, then invokes
+    /// `completion` on the MainActor once the session has reported them
+    /// cancelled. Injectable so ``cancelAll``'s deterministic reset path can be
+    /// exercised in tests without a live background URLSession (which CI can't
+    /// host hermetically). The default drives the real session.
+    var cancelInFlightTasks: (@escaping @MainActor () -> Void) -> Void = { completion in
+        Task { @MainActor in completion() }
+    }
+
     /// `URLSessionTask.taskIdentifier` → our `PhotoUploadTask.id`. Lives
     /// on the MainActor; the delegate only ever passes the int identifier
     /// across the actor boundary, never the dict itself, which keeps the
     /// access pattern race-free.
-    private var sessionTaskIdToUploadId: [Int: UUID] = [:]
+    private(set) var sessionTaskIdToUploadId: [Int: UUID] = [:]
 
     /// Per-task scheduling metadata: sort_order survives the upload so
     /// the post-upload `item_photos` insert can carry it through.
-    private var sortOrderByUploadId: [UUID: Int] = [:]
+    private(set) var sortOrderByUploadId: [UUID: Int] = [:]
 
     /// Set by ``handleBackgroundEvents(completion:)`` so the AppDelegate
     /// can hand us the system's "I woke you to finish this; call me when
@@ -49,7 +58,10 @@ public final class PhotoUploadService {
     public init(
         store: PhotoUploadStore,
         supabaseClient: SupabaseClient = SupabaseShared.client,
-        modelContainer: ModelContainer? = nil
+        modelContainer: ModelContainer? = nil,
+        // Defaults to the stable production identifier; tests pass a unique one
+        // so each constructed service claims its own background session.
+        sessionIdentifier: String = PhotoUploadService.backgroundSessionIdentifier
     ) {
         self.store = store
         self.supabaseClient = supabaseClient
@@ -59,7 +71,7 @@ public final class PhotoUploadService {
         self.sessionDelegate = delegate
 
         let config = URLSessionConfiguration.background(
-            withIdentifier: Self.backgroundSessionIdentifier
+            withIdentifier: sessionIdentifier
         )
         config.isDiscretionary = false                    // user-initiated, prioritise responsiveness
         config.sessionSendsLaunchEvents = true            // wake the app when transfers finish
@@ -72,6 +84,21 @@ public final class PhotoUploadService {
             delegateQueue: nil
         )
         delegate.parent = self
+
+        // Drive cancellation off the real session: enumerate its in-flight
+        // tasks, cancel each, then signal completion on the MainActor once the
+        // session has reported them. Set here (not as the stored default)
+        // because it needs `self.session`, which only exists post-init.
+        self.cancelInFlightTasks = { [weak self] completion in
+            guard let self else {
+                Task { @MainActor in completion() }
+                return
+            }
+            self.session.getAllTasks { tasks in
+                for t in tasks { t.cancel() }
+                Task { @MainActor in completion() }
+            }
+        }
     }
 
     // MARK: - Public API
@@ -153,21 +180,27 @@ public final class PhotoUploadService {
     /// to AuthStore.signOut() so the next user doesn't see the previous
     /// user's progress bars.
     public func cancelAll() {
-        session.getAllTasks { tasks in
-            for t in tasks { t.cancel() }
-        }
         for id in store.tasks.keys {
             store.updatePhase(id, to: .cancelled)
         }
-        // Reset after a tick so any final delegate callbacks land
-        // somewhere visible before being discarded.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            self?.store.reset()
-            self?.sessionTaskIdToUploadId.removeAll()
-            self?.sortOrderByUploadId.removeAll()
-            self?.cleanupAllTempFiles()
+        // Reset deterministically once the session confirms its in-flight
+        // tasks are cancelled — NOT after a fixed `Task.sleep`. Tearing the
+        // store/id-maps down on the cancellation completion guarantees any
+        // final delegate callbacks have already been enumerated, so a
+        // sign-out → sign-in can never surface residual upload progress.
+        cancelInFlightTasks { [weak self] in
+            self?.finalizeCancellation()
         }
+    }
+
+    /// Clears all upload state after cancellation has completed. Resets the
+    /// store (the source of any on-screen progress), the session→upload id
+    /// maps, and the staged temp files.
+    private func finalizeCancellation() {
+        store.reset()
+        sessionTaskIdToUploadId.removeAll()
+        sortOrderByUploadId.removeAll()
+        cleanupAllTempFiles()
     }
 
     /// Called from AppDelegate's

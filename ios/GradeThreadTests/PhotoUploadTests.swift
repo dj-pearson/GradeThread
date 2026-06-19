@@ -146,6 +146,47 @@ final class PhotoUploadTests: XCTestCase {
         XCTAssertEqual(store.activeCount(), cap)
     }
 
+    // MARK: - cancelAll deterministic reset (US-1018)
+
+    /// `cancelAll` must tear the store/id-maps down off the cancellation
+    /// completion, NOT after a fixed `Task.sleep`. We drive that completion
+    /// manually: until it fires the store still holds the (now-cancelled)
+    /// tasks; once it fires every trace is gone. A sign-out → sign-in can
+    /// therefore never surface a previous user's residual upload progress.
+    func test_cancelAll_resetsStoreDeterministicallyAfterCancellation() {
+        let store = PhotoUploadStore()
+        var seeded = makeTask(slot: .front, itemId: "item-A")
+        seeded.phase = .uploading(progress: 0.4)
+        store.upsert(seeded)
+
+        let service = PhotoUploadService(
+            store: store,
+            sessionIdentifier: "test-cancel-\(UUID().uuidString)"
+        )
+
+        // Capture the completion instead of running it, so we control exactly
+        // when the post-cancellation reset happens.
+        var capturedCompletion: (@MainActor () -> Void)?
+        service.cancelInFlightTasks = { completion in
+            capturedCompletion = completion
+        }
+
+        service.cancelAll()
+
+        // Cancellation hasn't reported back yet: the task is marked cancelled
+        // but still present — the reset is explicitly NOT on a timer.
+        XCTAssertEqual(store.tasks.count, 1)
+        XCTAssertEqual(store.tasks[seeded.id]?.phase, .cancelled)
+        XCTAssertNotNil(capturedCompletion, "cancelAll must route its reset through the cancellation completion")
+
+        // Session confirms cancellation → deterministic teardown.
+        capturedCompletion?()
+
+        XCTAssertTrue(store.tasks.isEmpty, "no residual upload progress should survive cancellation")
+        XCTAssertTrue(service.sessionTaskIdToUploadId.isEmpty)
+        XCTAssertTrue(service.sortOrderByUploadId.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeTask(
