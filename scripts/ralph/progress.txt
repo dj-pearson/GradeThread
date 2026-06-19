@@ -3390,3 +3390,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:48:26 AM
 ---
+## US-966: iOS negotiation inbox: send offer responses
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:50:35 AM
+---

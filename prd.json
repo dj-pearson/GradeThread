@@ -1326,7 +1326,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 966,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / iOS] Added 2026-06-12. Files: ios/GradeThread/Marketplaces/... negotiation inbox (US-673 read-only today), services/edge-functions/src/routes/flipdesk-ebay.ts offer endpoints. Verify the eBay Negotiation/Offer API endpoints exist before wiring."
     },
     {
