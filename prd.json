@@ -2045,7 +2045,7 @@
         "Opening a non-filter sheet does not trigger a full filter pass."
       ],
       "priority": 1017,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=performance. ios/GradeThread/Inventory/InventoryListView.swift (~88-95,543-564); InventoryFacets.swift (~42)"
     },
     {

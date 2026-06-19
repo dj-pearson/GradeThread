@@ -3186,3 +3186,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:11:34 PM
 ---
+## US-1017: iOS: memoize inventory facets / filtered list / stage counts
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:17:14 PM
+---
