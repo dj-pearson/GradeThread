@@ -16,6 +16,21 @@ public final class ReconciliationService {
 
     // MARK: - Read
 
+    /// Lightweight count of unmatched eBay listings — used by the shell-level
+    /// Reconcile affordance (US-749) so the badge can surface on any tab without
+    /// loading the full orphan list. Mirrors `fetchOrphans`'s filter.
+    public func countOrphans(userId: String) async throws -> Int {
+        struct Row: Decodable { let id: String }
+        let rows: [Row] = try await supabase
+            .from("flipdesk_ebay_listings")
+            .select("id")
+            .eq("user_id", value: userId)
+            .eq("match_status", value: "unmatched")
+            .execute()
+            .value
+        return rows.count
+    }
+
     /// Fetches every unmatched eBay listing for the user, newest first.
     public func fetchOrphans(userId: String) async throws -> [OrphanEbayListing] {
         try await supabase

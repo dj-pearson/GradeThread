@@ -18,7 +18,25 @@
 > (PR #91, merged). The CURRENT loop branch is
 > **`claude/prd-story-loop-continued-ghuqm5`**.
 
-### Session 2026-06-19 (on `claude/prd-story-loop-continued-ghuqm5`)
+### Session 2026-06-19 (on `claude/prd-story-loop-continued-ydaege`)
+- **US-749** iOS: surface the buried power modules. New **Tools hub**
+  (`ios/.../Tools/ToolsHubView.swift`) groups Scout/Snap/Prospect (nested sheets)
+  + AutoLister/Grades/Reconciliation/Reconcile-photo-dump/Referrals/Verified
+  (push), reachable from a stable **`ToolsButton`** (`square.grid.2x2`) on the
+  Home toolbar + iPad sidebar — **no change to the 5-tab spine** (AC4). **AC3:**
+  shell-level **`ReconcileBanner`** under `SyncStatusBar` surfaces the
+  unmatched-listing count on EVERY tab (`ReconcileBadgeStore` +
+  `ReconciliationService.countOrphans`, refreshed on appear/foreground; tap →
+  `ReconciliationView`). **AC2** was already met by existing bulk actions
+  (`.grade` "Send to grading" + `.createDraft` on the to-list stage —
+  `BulkActionTests`). New `router.showingToolsHub`/`showingReconciliation` flags.
+  Tests: `ReconcileBadgeStoreTests` (count / hide-on-zero / preserve-on-failure /
+  reset). ⚠️ **iOS UNVERIFIABLE here** — only `no-ungated-print.py` ran (passed);
+  pattern-fidelity + self-review only. XcodeGen globs the dir (no pbxproj edit).
+  **NEXT iOS story: US-750** (single source of truth for Sales+Expenses — retire
+  the Remote* shadow stores).
+
+### Prior session (on `claude/prd-story-loop-continued-ghuqm5`, merged via PR #92)
 - **US-1105** opt-in identity reveal — **Garment Passport epic (US-1089→1106) DONE.**
   Mig `00265` (`owner_nodes.identity_revealed` + `identity_revealed_at`, OFF by
   default). Pure double-opt-in gate `effectiveRevealedIdentity()` (per-hop consent

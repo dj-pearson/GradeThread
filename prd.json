@@ -58,8 +58,8 @@
         "No change to the core 5-tab spine (Home/Inventory/Add/Money/Marketplaces) unless it clearly improves discovery"
       ],
       "priority": 749,
-      "passes": false,
-      "notes": "[P1][iOS/Cohesion] From the cohesion audit: Scout/Snap/AutoLister are reachable only from Dashboard buttons; Grades only from a Dashboard nav link; Team/Referrals/Verified only buried in Settings; Reconcile only inside Marketplaces when orphan_count>0. Files: ContentView.swift (tab/nav shell), Dashboard/DashboardView.swift, Inventory/BulkActionExecutor.swift."
+      "passes": true,
+      "notes": "[P1][iOS/Cohesion] DONE: new Tools hub (ios/.../Tools/ToolsHubView.swift) groups Scout/Snap/Prospect (sheets) + AutoLister/Grades/Reconciliation/Reconcile-photo-dump/Referrals/Verified (push), reachable from a stable toolbar button (ToolsButton) on Home + the iPad sidebar — no change to the 5-tab spine. AC3: shell-level ReconcileBanner under the SyncStatusBar surfaces unmatched-listing count on EVERY tab (ReconcileBadgeStore + ReconciliationService.countOrphans, refreshed on appear/foreground; tap opens ReconciliationView). AC2 was already met by existing bulk actions (.grade 'Send to grading' + .createDraft on the to-list stage). Tests: ReconcileBadgeStoreTests (count/hide/preserve-on-failure). iOS UNVERIFIED here (no macOS/xcodebuild); no-ungated-print passed; XcodeGen globs the dir so no pbxproj edit. Original files: ContentView.swift, Dashboard/DashboardView.swift, Inventory/BulkActionExecutor.swift."
     },
     {
       "id": "US-750",

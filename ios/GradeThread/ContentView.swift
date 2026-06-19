@@ -308,7 +308,11 @@ struct MainShell: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Environment(AppLock.self) private var appLock
+    @Environment(AuthStore.self) private var authStore
     @State private var router = AppRouter()
+    /// US-749: tab-independent orphan-listing count for the shell Reconcile
+    /// banner. Refreshed on appear + foreground; the full list loads on tap.
+    @State private var reconcileBadge = ReconcileBadgeStore()
 
     /// US-189: PhotoIntakeView seeded from a Share Extension batch. Set
     /// when MainShell drains an inbox batch, cleared on dismiss. Using a
@@ -325,6 +329,15 @@ struct MainShell: View {
         VStack(spacing: 0) {
             SyncStatusBar()
                 .accessibleAnimation(.easeInOut(duration: 0.2), value: router.selection)
+            // US-749: surface unmatched eBay listings on every tab, not just
+            // inside Marketplaces. Tapping opens Reconciliation directly.
+            if reconcileBadge.hasOrphans {
+                ReconcileBanner(count: reconcileBadge.orphanCount) {
+                    AppRouter.haptic()
+                    router.showingReconciliation = true
+                }
+                .accessibleAnimation(.easeInOut(duration: 0.2), value: reconcileBadge.orphanCount)
+            }
             Group {
                 if horizontalSizeClass == .regular {
                     SidebarSplitView(router: router)
@@ -384,12 +397,17 @@ struct MainShell: View {
         }
         .task {
             drainSharedInboxIfNeeded()
+            // US-749: load the orphan-listing count for the shell Reconcile banner.
+            refreshReconcileBadge()
             // US-696: cold-launch / first-render unlock prompt.
             if appLock.state == .locked { await appLock.authenticate() }
         }
         .onChange(of: scenePhase) { _, newValue in
             if newValue == .active {
                 drainSharedInboxIfNeeded()
+                // US-749: re-check orphan listings on foreground (an eBay sync
+                // while backgrounded may have produced new unmatched rows).
+                refreshReconcileBadge()
                 // US-696: prompt to unlock when returning to the foreground.
                 if appLock.state == .locked { Task { await appLock.authenticate() } }
             }
@@ -397,6 +415,14 @@ struct MainShell: View {
         // US-678: global search sheet, reachable from the Home toolbar.
         .sheet(isPresented: $router.showingGlobalSearch) {
             GlobalSearchView()
+        }
+        // US-749: the Tools hub, reachable from the toolbar on any tab.
+        .sheet(isPresented: $router.showingToolsHub) {
+            ToolsHubView(router: router, orphanCount: reconcileBadge.orphanCount)
+        }
+        // US-749: Reconciliation presented from the shell-level orphan banner.
+        .sheet(isPresented: $router.showingReconciliation, onDismiss: { refreshReconcileBadge() }) {
+            NavigationStack { ReconciliationView() }
         }
         .fullScreenCover(item: $sharedIntakeBatch) { drained in
             NavigationStack {
@@ -445,6 +471,15 @@ struct MainShell: View {
         if let intake = action.intake {
             router.startIntake(intake)
         }
+    }
+
+    /// US-749: refresh the shell-level orphan-listing count, scoped to the
+    /// active workspace owner. Best-effort — the store keeps the last value on
+    /// failure. No-op when signed out.
+    private func refreshReconcileBadge() {
+        guard case let .signedIn(user) = authStore.phase else { return }
+        let ownerId = WorkspaceScope.tenantOwnerId(selfId: user.id.uuidString)
+        Task { await reconcileBadge.refresh(userId: ownerId) }
     }
 
     private func apply(route: DeepLinkRoute, router: AppRouter) {
@@ -509,6 +544,12 @@ private struct TabBarShell: View {
                         // — the Add tab itself is the one-tap photo-first path.
                         ToolbarItem(placement: .topBarLeading) {
                             AddMethodMenu(router: router)
+                        }
+                        // US-749: Tools hub — the discoverable home for the
+                        // secondary power modules (Scout/Snap/AutoLister/Grades/
+                        // Reconcile/Referrals/Verified).
+                        ToolbarItem(placement: .topBarLeading) {
+                            ToolsButton(router: router)
                         }
                         // US-678: global search across inventory/listings/sales/sources.
                         ToolbarItem(placement: .topBarTrailing) {
@@ -640,6 +681,10 @@ private struct SidebarSplitView: View {
                 // US-649: iPad has room for the explicit method menu in the
                 // sidebar toolbar (default = photo-first on a plain tap).
                 AddMethodMenu(router: router, primaryLabel: "Add")
+            }
+            // US-749: Tools hub reachable from the iPad sidebar toolbar too.
+            ToolbarItem(placement: .secondaryAction) {
+                ToolsButton(router: router)
             }
         }
     }
@@ -776,6 +821,12 @@ final class AppRouter {
     var showingAddSheet = false
     /// US-678: presents the global search sheet.
     var showingGlobalSearch = false
+    /// US-749: presents the Tools hub (Scout / Snap / AutoLister / Grades /
+    /// Reconcile / Referrals / Verified) — reachable from a toolbar on any tab.
+    var showingToolsHub = false
+    /// US-749: presents Reconciliation directly from the shell-level orphan
+    /// banner, so it's reachable regardless of which tab is active.
+    var showingReconciliation = false
 
     var homePath = NavigationPath()
     var inventoryPath = NavigationPath()
@@ -877,6 +928,26 @@ private struct AddMethodMenu: View {
                     .accessibilityLabel("Add an item")
             }
         }
+    }
+}
+
+// MARK: - Tools button (US-749)
+
+/// Toolbar control that opens the Tools hub. A single, stable entry point on
+/// Home (iPhone) and the iPad sidebar so the secondary modules are discoverable
+/// without hunting through the Dashboard or Settings.
+private struct ToolsButton: View {
+    let router: AppRouter
+
+    var body: some View {
+        Button {
+            AppRouter.haptic()
+            router.showingToolsHub = true
+        } label: {
+            Image(systemName: "square.grid.2x2")
+        }
+        .accessibilityLabel("Tools")
+        .accessibilityHint("Scout, Snap, AutoLister, grades, reconcile, referrals, and verified seller")
     }
 }
 
@@ -1323,6 +1394,38 @@ private struct IntakePlaceholder: View {
         case .autoLister:
             AutoListerView()
         }
+    }
+}
+
+// MARK: - Reconcile banner (US-749)
+
+/// Slim, tab-independent affordance shown directly under the sync bar when the
+/// eBay sync has left unmatched listings. Mirrors the sync bar's chrome so it
+/// reads as a sibling status strip, tinted amber to signal "needs attention".
+private struct ReconcileBanner: View {
+    let count: Int
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "arrow.left.arrow.right")
+                Text("\(count) unmatched listing\(count == 1 ? "" : "s") to reconcile")
+                    .font(.footnote.weight(.medium))
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption2)
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(Color.brandAmber.opacity(0.15))
+            .foregroundStyle(Color.brandAmber)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .accessibilityLabel("\(count) unmatched eBay listing\(count == 1 ? "" : "s") to reconcile")
+        .accessibilityHint("Opens reconciliation")
     }
 }
 
