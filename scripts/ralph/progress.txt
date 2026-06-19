@@ -3234,3 +3234,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:54:36 PM
 ---
+## US-1005: iOS: real Photo Library fallback when camera permission is denied
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:56:36 PM
+---

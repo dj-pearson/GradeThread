@@ -1883,7 +1883,7 @@
         "Camera-allowed flow unchanged."
       ],
       "priority": 1005,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=ux/functional. ios/GradeThread/Capture/PhotoIntakeView.swift (~400-418,455,643); Capture/PhotoLibraryPicker.swift"
     },
     {
