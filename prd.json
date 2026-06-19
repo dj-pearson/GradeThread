@@ -2006,7 +2006,7 @@
         "no-ungated-print.py scans ShareExtension/ and GradeThreadWidget/; no print( reaches a Release build."
       ],
       "priority": 1014,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=security/privacy. ios/GradeThread/Telemetry/Telemetry.swift (~56-66,87-95); Auth/AuthStore.swift (~191); ios/Scripts/no-ungated-print.py"
     },
     {
