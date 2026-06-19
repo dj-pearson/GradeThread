@@ -50,6 +50,12 @@ struct InventoryListView: View {
         }
     }
     @State private var showingFilterSheet = false
+    /// US-1017: memoizes the filtered list, per-stage counts, and facet index so
+    /// an unrelated `@State` change (a sheet toggle, select mode, the refresh
+    /// banner) doesn't re-run a full filter+sort / count / facet pass on the
+    /// main thread. A plain reference type, so mutating its cache during `body`
+    /// doesn't invalidate the view.
+    @State private var derivation = InventoryDerivation()
     @State private var savedFilters = SavedFilterStore()
     /// US-1052: server-side full-text search (`flipdesk_search`), unioned with
     /// the local token search so matches on server-only fields still surface.
@@ -109,7 +115,7 @@ struct InventoryListView: View {
         .sheet(isPresented: $showingFilterSheet) {
             InventoryFilterSheet(
                 criteria: $criteria,
-                facets: InventoryFacets.derive(from: allItems, sourceNames: sourceNames),
+                facets: facets,
                 savedFilters: savedFilters,
                 resultCount: { resultCount(for: $0) }
             )
@@ -579,16 +585,49 @@ struct InventoryListView: View {
 
     // MARK: - Derived state
 
+    /// US-1017: cheap content signature of the item cache, gating all three
+    /// memoized derivations below. See ``InventoryDerivation/itemsSignature(_:)``.
+    private var itemsSignature: Int { InventoryDerivation.itemsSignature(allItems) }
+
+    /// US-1017: memoized — the full filter+sort pass runs only when the items,
+    /// stage, debounced query, sort, criteria, sold-date map, or server-search
+    /// ids actually change; an unrelated `body` re-render returns the cached
+    /// result.
     private var filteredItems: [LocalInventoryItem] {
-        InventoryFilter.apply(
-            allItems,
+        let key = InventoryDerivation.filterKey(
+            itemsSignature: itemsSignature,
             stage: selectedStage,
-            search: debouncedQuery,
+            query: debouncedQuery,
             sort: sortOption,
             criteria: criteria,
             soldDates: soldDates,
             serverSearchIds: searchService.matchedItemIds
         )
+        return derivation.filteredItems(key: key) {
+            InventoryFilter.apply(
+                allItems,
+                stage: selectedStage,
+                search: debouncedQuery,
+                sort: sortOption,
+                criteria: criteria,
+                soldDates: soldDates,
+                serverSearchIds: searchService.matchedItemIds
+            )
+        }
+    }
+
+    /// US-1017: memoized facet index for the filter sheet. Keyed on the item
+    /// signature plus the source-name map (a rename changes labels only), so the
+    /// derive runs at most once per filter-sheet presentation rather than on
+    /// every body re-render while the sheet is up.
+    private var facets: InventoryFacets {
+        let key = InventoryDerivation.facetsKey(
+            itemsSignature: itemsSignature,
+            sourceNames: sourceNames
+        )
+        return derivation.facets(key: key) {
+            InventoryFacets.derive(from: allItems, sourceNames: sourceNames)
+        }
     }
 
     /// `sources.id` → display name, for the source facet + active chips.
@@ -609,15 +648,19 @@ struct InventoryListView: View {
 
     /// Single-pass count of items per stage (US-639). Built once per render and
     /// looked up by each chip, replacing the previous per-chip full `.filter`.
+    /// US-1017: additionally memoized on the item signature, so it recomputes
+    /// only when the cache changes — not on unrelated `@State`-driven renders.
     private var stageCounts: [InventoryStage: Int] {
-        var counts: [InventoryStage: Int] = [:]
-        for item in allItems {
-            for stage in InventoryStage.userFacing
-            where stage.matchingStatuses.contains(item.status) {
-                counts[stage, default: 0] += 1
+        derivation.stageCounts(key: itemsSignature) {
+            var counts: [InventoryStage: Int] = [:]
+            for item in allItems {
+                for stage in InventoryStage.userFacing
+                where stage.matchingStatuses.contains(item.status) {
+                    counts[stage, default: 0] += 1
+                }
             }
+            return counts
         }
-        return counts
     }
 
     /// Item count the given criteria yields under the current stage +

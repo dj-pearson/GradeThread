@@ -81,6 +81,12 @@ memory — not a progress log (the harness records progress separately).
   email-not-confirmed/rate-limited/generic) + a `rawDetail` flattener for Sentry.
   Never surface `error.localizedDescription` on user-facing screens; log raw to
   `Telemetry.breadcrumb`/`event` at the call site instead.
+- To memoize an expensive SwiftUI computed property (full filter/sort, facet
+  derive) across `body` re-renders, store a PLAIN `final class` cache in `@State`
+  (NOT `@Observable`/`ObservableObject` — those would re-invalidate the view).
+  Mutating its internal memo during `body` is safe (doesn't schedule an update);
+  key the slot on a cheap `Hasher`-built signature of the inputs (for `@Model`
+  rows: `count` + each `id`+`updatedAt`). See `InventoryDerivation` (US-1017).
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses
