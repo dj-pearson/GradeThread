@@ -1,5 +1,6 @@
 import XCTest
 import SwiftData
+import Supabase
 @testable import GradeThread
 
 @MainActor
@@ -135,6 +136,41 @@ final class RealtimeTests: XCTestCase {
         let context = ModelContext(container)
         let rows = try context.fetch(FetchDescriptor<LocalInventoryItem>())
         XCTAssertTrue(rows.isEmpty)
+    }
+
+    // MARK: - Off-main-actor serialization (US-968)
+
+    func test_largePayload_encodesOffMainActor() async throws {
+        // A realtime record with a large field (long condition notes) — the
+        // kind of payload that previously stalled the main thread on encode.
+        let bigNotes = String(repeating: "Worn hem, faded cuffs. ", count: 5_000)
+        let record: [String: AnyJSON] = [
+            "id": .string("rt-big"),
+            "user_id": .string("u"),
+            "title": .string("Vintage denim jacket"),
+            "status": .string("graded"),
+            "condition_notes": .string(bigNotes),
+        ]
+
+        // Mirror applyUpsert's production path: encode on a detached task and
+        // assert it did NOT run on the main thread.
+        let result: (offMain: Bool, data: Data?) = await Task.detached(priority: .utility) {
+            let offMain = !Thread.isMainThread
+            let data = RealtimeService.encodeRealtimeRecord(record)
+            return (offMain, data)
+        }.value
+
+        XCTAssertTrue(
+            result.offMain,
+            "Realtime payload encode must run off the main thread"
+        )
+        let data = try XCTUnwrap(result.data)
+        // The encoded JSON round-trips back to the original fields.
+        let roundTrip = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(roundTrip?["id"] as? String, "rt-big")
+        XCTAssertEqual(
+            (roundTrip?["condition_notes"] as? String)?.count, bigNotes.count
+        )
     }
 
     // MARK: - Helpers

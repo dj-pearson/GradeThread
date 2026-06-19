@@ -157,8 +157,30 @@ public final class RealtimeService {
         // Convert the AnyJSON dict back to raw JSON data so the
         // SyncEngine's existing decoder can route it through
         // RemoteInventoryItem without us re-implementing decode here.
-        guard let data = try? JSONEncoder().encode(record) else { return }
+        //
+        // US-968: JSONEncoder().encode used to run synchronously on the
+        // main actor for every upserted row — a large payload (long
+        // condition notes, measurements blob) could stall typing/scrolling
+        // while the sync channel was busy. Encode on a detached task so the
+        // main thread only does the final actor hop into the SyncEngine
+        // (itself a background `actor`, so the decode is already off-main).
+        //
+        // Ordering is preserved: the realtime listen loop awaits each
+        // `dispatch` fully (this method included), so the detached encode
+        // and the subsequent SyncEngine apply complete in order — no
+        // fire-and-forget that could reorder or drop a burst of updates.
+        guard let data = await Task.detached(priority: .utility) {
+            Self.encodeRealtimeRecord(record)
+        }.value else { return }
         await syncEngine.applyRealtimeInventoryUpsert(record: data)
+    }
+
+    /// Serializes a realtime record to JSON. `nonisolated static` so the
+    /// `Task.detached` in ``applyUpsert(record:)`` runs it off the main
+    /// actor; exposed at `internal` visibility for the off-main-thread
+    /// coverage in `RealtimeTests`.
+    nonisolated static func encodeRealtimeRecord(_ record: [String: AnyJSON]) -> Data? {
+        try? JSONEncoder().encode(record)
     }
 
     /// Helper that pulls a string field out of the AnyJSON record. Used
