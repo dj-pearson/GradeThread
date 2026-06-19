@@ -17,6 +17,7 @@ import {
   handleEbayPendingWebhooksCron,
 } from "./routes/flipdesk-webhooks.ts";
 import { flipdeskGradingRoutes } from "./routes/flipdesk-grading.ts";
+import { passportRoutes } from "./routes/passport.ts";
 import { flipdeskPhotoProfilesRoutes } from "./routes/flipdesk-photo-profiles.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskListingsRoutes } from "./routes/flipdesk-listings.ts";
@@ -266,6 +267,9 @@ app.use("/api/affiliate/me", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);
+// Garment Passport (US-1092): the public chain read (GET /api/passport/:slug) is
+// anonymous; only the append path under /garments/* is authed + workspace-scoped.
+app.use("/api/passport/garments/*", authMiddleware);
 // FlipDesk: everything under /api/flipdesk is authed except inbound webhooks
 // and the eBay OAuth callback (eBay redirects the browser there unauthenticated;
 // the `state` token from oauth_states identifies the user) + the scheduled
@@ -426,6 +430,7 @@ app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
 app.use("/api/flipdesk/product/*", workspaceMiddleware);
+app.use("/api/passport/garments/*", workspaceMiddleware);
 app.use("/api/flipdesk/templates/*", workspaceMiddleware);
 app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 // Only /oauth/start needs the workspace owner (to stage imports under the
@@ -703,6 +708,7 @@ app.route("/api/payments/appstore", appstoreVerifyRoutes);
 app.route("/api/webhooks", webhookRoutes);
 app.route("/api/webhooks/appstore", appstoreWebhookRoutes);
 app.route("/api/keys", apiKeyRoutes);
+app.route("/api/passport", passportRoutes);
 app.route("/api/v1", apiV1Routes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/flipdesk/ebay", flipdeskEbayRoutes);

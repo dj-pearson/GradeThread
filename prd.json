@@ -2871,8 +2871,8 @@
         "Unit/integration tests added; deno lint/check/test pass; a tenant-isolation case covers the new endpoints"
       ],
       "priority": 703,
-      "passes": false,
-      "notes": "[P1][Passport] Depends on [[US-1089]], [[US-1090]]. Mirror the ownership-verification pattern from flipdesk-ebay.ts (loadListingOwned/assemblePublishContext)."
+      "passes": true,
+      "notes": "[P1][Passport] Depends on [[US-1089]], [[US-1090]]. Mirror the ownership-verification pattern from flipdesk-ebay.ts (loadListingOwned/assemblePublishContext). DONE 2026-06-19: routes/passport.ts mounted at /api/passport — public GET /:slug (PII-free chain, pseudonymous actor labels, sanitized payloads) + authed POST /garments/:id/events (tenant-scoped via created_by, ownership verified before write, append-only, validated event_type). Wired auth+workspace middleware in main.ts. tenant-isolation case activated (POST append). Unit tests for sanitizePayload. deno check/lint/test pass."
     },
     {
       "id": "US-1093",

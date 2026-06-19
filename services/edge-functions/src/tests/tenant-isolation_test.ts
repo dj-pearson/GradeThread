@@ -1556,19 +1556,22 @@ Deno.test({
   },
 });
 
-// US-1090/1092: Garment Passport chain read is tenant-scoped — B must not read
-// A's passport. The read endpoint lands with the edge API (US-1092); this case
-// is ignore-guarded by TEST_USER_A_GARMENT_ID (seeded then) so it activates the
-// moment the endpoint + fixture exist, with no further test change.
+// US-1092: appending to a garment's passport is tenant-scoped — B must not
+// append an event to A's garment (the public GET /:slug read is intentionally
+// anonymous + PII-free, so the WRITE path is the isolation surface). Ownership
+// is verified by created_by before any insert, so B's id resolves to no row → 404.
+// ignore-guarded by TEST_USER_A_GARMENT_ID until the fixture seeds A's garment.
 Deno.test({
-  name: "B cannot read A's garment passport chain",
+  name: "B cannot append an event to A's garment passport",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GARMENT_ID"),
   fn: async () => {
     const id = Deno.env.get("TEST_USER_A_GARMENT_ID")!;
-    const res = await fetch(`${BASE}/api/passport/garments/${id}`, {
+    const res = await fetch(`${BASE}/api/passport/garments/${id}/events`, {
+      method: "POST",
       headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ event_type: "listed" }),
     });
     await res.body?.cancel();
-    assertDenied(res.status, "GET passport/garments/:id (A's garment)");
+    assertDenied(res.status, "POST passport/garments/:id/events (A's garment)");
   },
 });
