@@ -3242,3 +3242,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:00:36 PM
 ---
+## US-1003: iOS: stop silently swallowing sync-cursor and AutoLister classify failures
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:02:25 PM
+---

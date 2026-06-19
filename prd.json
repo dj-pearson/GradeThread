@@ -1855,7 +1855,7 @@
         "No new user-facing errors for the legitimate-nil case."
       ],
       "priority": 1003,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/observability. ios/GradeThread/Marketplaces/EbaySyncService.swift (~45,95,205); AutoLister/AutoListerGenerator.swift (~152,164); Pricing/RepricingRulesStore.swift (~37,95-96)"
     },
     {
