@@ -33,6 +33,9 @@ struct GradeThreadApp: App {
                 .environment(appDelegate.photoUploadStore)
                 .environment(photoProfileStore)
                 .environment(\.photoUploadService, appDelegate.photoUploadService)
+                // US-984: expose the shared background-refresh service so
+                // ContentView can hand it the live SyncEngine once it's built.
+                .environment(\.backgroundRefreshService, appDelegate.backgroundRefresh)
                 // Hand the background-refresh service the live container so
                 // its new-sale / new-grade detection can read the cache.
                 .task {
@@ -87,6 +90,12 @@ private struct PhotoUploadServiceKey: EnvironmentKey {
     static let defaultValue: PhotoUploadService? = nil
 }
 
+private struct BackgroundRefreshServiceKey: EnvironmentKey {
+    // nil-default for previews; the real instance is the AppDelegate-owned one
+    // and is only read from MainActor-isolated views.
+    static let defaultValue: BackgroundRefreshService? = nil
+}
+
 extension EnvironmentValues {
     /// Injected via the AppDelegate so the same service instance is
     /// available everywhere without a global singleton. nil during
@@ -95,5 +104,12 @@ extension EnvironmentValues {
     var photoUploadService: PhotoUploadService? {
         get { self[PhotoUploadServiceKey.self] }
         set { self[PhotoUploadServiceKey.self] = newValue }
+    }
+
+    /// US-984: the AppDelegate-owned ``BackgroundRefreshService`` so ContentView
+    /// can attach the live SyncEngine to it when sign-in builds the engine.
+    var backgroundRefreshService: BackgroundRefreshService? {
+        get { self[BackgroundRefreshServiceKey.self] }
+        set { self[BackgroundRefreshServiceKey.self] = newValue }
     }
 }

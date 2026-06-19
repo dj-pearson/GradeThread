@@ -35,13 +35,20 @@ public final class BackgroundRefreshService {
     // after it's constructed — the service itself is created at AppDelegate
     // init, before the container exists. See `attachModelContainer`.
     private var modelContainer: ModelContainer?
-    private let notifier: NewSaleNotifier
-    private let gradeNotifier: NewGradeNotifier
+    private let notifier: any NewSaleNotifying
+    private let gradeNotifier: any NewGradeNotifying
+
+    // US-984: weak handle to the live ``SyncEngine`` so the BG task can await
+    // the real pull+merge directly instead of posting a notification then
+    // sleeping a fixed interval. Weak because the engine's lifecycle is owned
+    // by ContentView (created on sign-in, dropped on sign-out); a stale handle
+    // simply triggers the cold-launch fallback in `resolveSyncEngine`.
+    private weak var syncEngine: (any BackgroundSyncing)?
 
     public init(
         modelContainer: ModelContainer? = nil,
-        notifier: NewSaleNotifier = NewSaleNotifier(),
-        gradeNotifier: NewGradeNotifier = NewGradeNotifier()
+        notifier: any NewSaleNotifying = NewSaleNotifier(),
+        gradeNotifier: any NewGradeNotifying = NewGradeNotifier()
     ) {
         self.modelContainer = modelContainer
         self.notifier = notifier
@@ -77,6 +84,13 @@ public final class BackgroundRefreshService {
     /// cache stays dormant until this is called. Idempotent.
     public func attachModelContainer(_ container: ModelContainer) {
         modelContainer = container
+    }
+
+    /// Injects the live ``SyncEngine`` once ContentView builds it (on sign-in).
+    /// Held weakly — see `syncEngine`. Idempotent; called again whenever a new
+    /// engine is created (e.g. after a workspace switch re-builds it).
+    func attachSyncEngine(_ engine: any BackgroundSyncing) {
+        syncEngine = engine
     }
 
     // MARK: - Registration
@@ -123,29 +137,64 @@ public final class BackgroundRefreshService {
         scheduleNext()
 
         let work = Task { @MainActor in
-            // The SyncEngine handle isn't directly accessible from the
-            // app delegate (it lives in ContentView). Bridge through
-            // the existing .inventoryPullRequested notification — ContentView
-            // routes it to SyncEngine.sync(). The work happens during
-            // the budget window even if we can't await directly.
-            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-
-            // Give the engine a beat to start, then check for new sales
-            // against the persisted baseline. We can't await the engine
-            // from here, so we sleep briefly and then snapshot.
-            try? await Task.sleep(nanoseconds: 8 * 1_000_000_000)
-            await self.detectNewSalesAndNotify()
-            await self.detectNewGradesAndNotify()
+            await self.performRefresh()
         }
 
         task.expirationHandler = { [work] in
-            // iOS is about to kill us — abandon work cleanly so we
-            // don't get throttled out of future schedules.
+            // iOS is about to kill us — cancel the work so we don't get
+            // throttled out of future schedules. `performRefresh` observes
+            // the cancellation and skips detection, and `setTaskCompleted`
+            // below reports the real (unfinished) outcome.
             work.cancel()
         }
 
-        _ = await work.value
-        task.setTaskCompleted(success: true)
+        let success = await work.value
+        task.setTaskCompleted(success: success)
+    }
+
+    /// One background-refresh pass, decoupled from `BGAppRefreshTask` so it's
+    /// directly unit-testable. Awaits the real pull+merge via the SyncEngine
+    /// (no fixed sleep), then runs new-sale / new-grade detection — which
+    /// therefore only ever sees rows the pull has already committed. Returns
+    /// whether the run genuinely succeeded so `setTaskCompleted` is honest.
+    func performRefresh() async -> Bool {
+        guard let engine = resolveSyncEngine() else {
+            // No container/engine available (e.g. signed out) — we can't pull,
+            // so report failure rather than claim a no-op succeeded.
+            return false
+        }
+
+        let outcome = await engine.sync()
+
+        // If iOS expired the task while the pull was in flight, bail before
+        // touching the cache so we don't fire notifications off a half-merged
+        // snapshot — and so the completion below reports failure.
+        if Task.isCancelled { return false }
+
+        // Detection runs ONLY after sync() returns, i.e. after the pull merge
+        // has committed to the SwiftData store.
+        await detectNewSalesAndNotify()
+        await detectNewGradesAndNotify()
+
+        if case .failed = outcome { return false }
+        return true
+    }
+
+    /// Resolves the SyncEngine to drive this pass. Prefers the live engine
+    /// ContentView injected; on a cold launch (the app was woken directly into
+    /// the background, so the SwiftUI scene never built one) it constructs a
+    /// throwaway engine bound to the same container. A single `sync()` needs
+    /// neither a started connectivity loop nor a UI-visible status store, so
+    /// the throwaway is safe to discard after the run. Returns nil only when no
+    /// container has been attached yet.
+    private func resolveSyncEngine() -> (any BackgroundSyncing)? {
+        if let syncEngine { return syncEngine }
+        guard let modelContainer else { return nil }
+        return SyncEngine(
+            container: modelContainer,
+            statusStore: SyncStatusStore(),
+            networkMonitor: NetworkMonitor()
+        )
     }
 
     // MARK: - New-sale detection
@@ -227,3 +276,15 @@ public final class BackgroundRefreshService {
         await gradeNotifier.notifyNewGrades(count: newlyGraded.count, latest: latest)
     }
 }
+
+// MARK: - SyncEngine seam (US-984)
+
+/// The slice of ``SyncEngine`` the background-refresh task depends on. Extracted
+/// to a protocol so the BG handler can hold a weak handle and so tests can
+/// inject a fake engine that drives the pull→detection ordering deterministically.
+protocol BackgroundSyncing: AnyObject, Sendable {
+    @discardableResult
+    func sync() async -> SyncEngine.SyncOutcome
+}
+
+extension SyncEngine: BackgroundSyncing {}

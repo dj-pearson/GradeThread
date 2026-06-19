@@ -10,6 +10,9 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.photoUploadService) private var photoUploadService
+    /// US-984: shared BG-refresh service; we hand it the live SyncEngine below
+    /// so the background task can await the real pull instead of a fixed sleep.
+    @Environment(\.backgroundRefreshService) private var backgroundRefreshService
 
     @State private var authStore = AuthStore()
     @State private var networkMonitor = NetworkMonitor()
@@ -255,6 +258,10 @@ struct ContentView: View {
             networkMonitor: networkMonitor
         )
         syncEngine = engine
+        // US-984: hand the BG-refresh task a handle so it can await the real
+        // pull directly. Held weakly there, so dropping `syncEngine` on
+        // sign-out lets it fall back to a cold-launch engine next run.
+        backgroundRefreshService?.attachSyncEngine(engine)
         Task {
             await engine.start()
             await engine.sync()

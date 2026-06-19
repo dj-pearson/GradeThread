@@ -6,8 +6,15 @@ import UserNotifications
 /// graded inventory item. Deliberately separate from push (US-187): it's
 /// scheduled locally from the BG handler, no APNs token needed — the same
 /// mechanism as ``NewSaleNotifier``.
+/// Seam so ``BackgroundRefreshService`` can be unit-tested with a spy that
+/// records notifications (mirrors ``NewSaleNotifying``).
 @MainActor
-public final class NewGradeNotifier {
+public protocol NewGradeNotifying: AnyObject {
+    func notifyNewGrades(count: Int, latest: LocalInventoryItem) async
+}
+
+@MainActor
+public final class NewGradeNotifier: NewGradeNotifying {
 
     nonisolated public init() {}
 
@@ -23,7 +30,7 @@ public final class NewGradeNotifier {
 
     /// Schedules an immediate local notification for one or more newly
     /// graded items. iOS suppresses it when permission isn't granted.
-    func notifyNewGrades(count: Int, latest: LocalInventoryItem) async {
+    public func notifyNewGrades(count: Int, latest: LocalInventoryItem) async {
         await requestPermissionIfNeeded()
 
         let center = UNUserNotificationCenter.current()

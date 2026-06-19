@@ -6,8 +6,16 @@ import UserNotifications
 /// emits after a background sync. We deliberately keep this separate
 /// from push (US-187) because it's a fundamentally different mechanism:
 /// scheduled locally from the BG handler, no APNs token needed.
+/// Seam so ``BackgroundRefreshService`` can be unit-tested with a spy that
+/// records notifications (the concrete notifier no-ops in tests because
+/// UNUserNotificationCenter isn't authorized).
 @MainActor
-public final class NewSaleNotifier {
+public protocol NewSaleNotifying: AnyObject {
+    func notifyNewSales(count: Int, latest: LocalSale) async
+}
+
+@MainActor
+public final class NewSaleNotifier: NewSaleNotifying {
 
     nonisolated public init() {}
 
@@ -25,7 +33,7 @@ public final class NewSaleNotifier {
 
     /// Schedules an immediate-delivery local notification. iOS will
     /// suppress it if permission isn't granted — no error to surface.
-    func notifyNewSales(count: Int, latest: LocalSale) async {
+    public func notifyNewSales(count: Int, latest: LocalSale) async {
         await requestPermissionIfNeeded()
 
         let center = UNUserNotificationCenter.current()
