@@ -153,8 +153,22 @@ struct MoneyView: View {
                 // US-656: shimmer skeleton rows instead of a bare spinner.
                 SkeletonRows(count: 3, showsLeadingBlock: false)
             case .failed(let message):
+                // US-971: a failed expenses load gets an explicit retry instead
+                // of stranding the user on a dead message. `refresh()` flips the
+                // phase back to `.loading` (skeleton rows) and clears the error.
                 rowMessage {
-                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(message).font(.footnote).foregroundStyle(.secondary)
+                        Button {
+                            Task { await expenseStore.refresh() }
+                        } label: {
+                            Label("Retry", systemImage: "arrow.clockwise")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(Color.brandNavy)
+                    }
                 }
             case .ready(let rows) where rows.isEmpty:
                 rowMessage {

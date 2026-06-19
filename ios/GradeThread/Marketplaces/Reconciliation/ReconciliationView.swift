@@ -115,20 +115,18 @@ struct ReconciliationView: View {
     }
 
     private func failureView(message: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.red)
-            Text("Couldn't load orphans")
-                .font(.brandHeadline)
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+        // US-971: an explicit "Try again" so the user isn't forced to discover
+        // pull-to-refresh. `store.refresh` flips the phase to `.loading`, which
+        // swaps this view out for `loadingView` and clears the error on success.
+        ErrorStateView(
+            title: "Couldn't load orphans",
+            message: message,
+            retry: {
+                if let userId = currentUserId() {
+                    await store.refresh(userId: userId)
+                }
+            }
+        )
     }
 
     private func listView(orphans: [OrphanEbayListing]) -> some View {

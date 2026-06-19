@@ -83,6 +83,39 @@ final class AutoListerGenerator: ObservableObject {
     ) async {
         guard case .idle = prep, !groups.isEmpty else { return }
 
+        await runPipeline(
+            groups: groups,
+            uploadService: uploadService,
+            uploadStore: uploadStore,
+            templateId: templateId
+        )
+    }
+
+    /// Reset a failed start back to `.idle` and re-run. Both `.failed` exits in
+    /// `run` happen before any inventory item is created, so retrying can't
+    /// duplicate work. Wired to the queue view's "Try again" (US-971).
+    func retry(
+        groups: [PreparedGroup],
+        uploadService: PhotoUploadService,
+        uploadStore: PhotoUploadStore,
+        templateId: String? = nil
+    ) async {
+        guard case .failed = prep else { return }
+        prep = .idle
+        await runPipeline(
+            groups: groups,
+            uploadService: uploadService,
+            uploadStore: uploadStore,
+            templateId: templateId
+        )
+    }
+
+    private func runPipeline(
+        groups: [PreparedGroup],
+        uploadService: PhotoUploadService,
+        uploadStore: PhotoUploadStore,
+        templateId: String?
+    ) async {
         let userId: String
         do {
             userId = try await SupabaseShared.client.auth.session.user.id.uuidString

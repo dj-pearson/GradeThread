@@ -133,6 +133,12 @@ memory — not a progress log (the harness records progress separately).
   toast type. `HapticFeedback` is a same-module `@MainActor` enum — call its
   `.success()/.warning()/.error()` straight from a store method (no import); the
   XCTest host instantiates the UIKit generators harmlessly.
+- Full-screen "couldn't load" / `.failed` states use the shared `ErrorStateView`
+  (Components/, US-971): `ContentUnavailableView` + a `.brandSecondary` "Try again"
+  that shows its own spinner; the parent store clears the error by moving its
+  phase off `.failed`. Optional `secondaryTitle`/`secondaryAction` (e.g. "Back").
+  Pass `retry:` with an EXPLICIT label — a bare trailing closure binds to the
+  optional `secondaryAction`, not `retry`, and won't compile.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

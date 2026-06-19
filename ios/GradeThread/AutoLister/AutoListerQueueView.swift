@@ -121,21 +121,22 @@ struct AutoListerQueueView: View {
     }
 
     private func failure(_ message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(Color.brandRed)
-            Text("Couldn't start generation")
-                .font(.brandHeadline)
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Back") { dismiss() }
-                .buttonStyle(.bordered)
-        }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // US-971: both failure exits happen before any item is created, so a
+        // "Try again" can safely re-run the pipeline; "Back" stays as the escape.
+        ErrorStateView(
+            title: "Couldn't start generation",
+            message: message,
+            retry: {
+                await generator.retry(
+                    groups: groups,
+                    uploadService: uploadService,
+                    uploadStore: uploadStore,
+                    templateId: templateId
+                )
+            },
+            secondaryTitle: "Back",
+            secondaryAction: { dismiss() }
+        )
     }
 
     // MARK: - Queue

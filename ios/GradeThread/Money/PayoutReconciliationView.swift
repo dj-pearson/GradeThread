@@ -14,14 +14,13 @@ struct PayoutReconciliationView: View {
             case .idle, .loading where store.entries.isEmpty:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("Couldn't load payouts", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    Button("Retry") { Task { await store.load() } }
-                        .buttonStyle(.brandSecondary)
-                }
+                // US-971: shared error state keeps the retry affordance uniform
+                // with the other data screens.
+                ErrorStateView(
+                    title: "Couldn't load payouts",
+                    message: message,
+                    retry: { await store.load() }
+                )
             default:
                 content
             }
