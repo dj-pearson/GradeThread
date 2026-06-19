@@ -2886,7 +2886,7 @@
         "JSON-LD/structured data for the passport added via <SEO> and mirrored in head-builder.ts jsonLdForRoute() per the SEO gotcha"
       ],
       "priority": 704,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Passport] The marquee buyer-facing surface. Depends on [[US-1091]], [[US-1092]]. Follow the prerender/SEO registry rules in CLAUDE.md (public-routes.ts + entry-server.tsx + head-builder.ts)."
     },
     {

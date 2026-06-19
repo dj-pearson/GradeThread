@@ -7,6 +7,7 @@ import {
   breadcrumbLd,
   howToLd,
   certificateLd,
+  passportLd,
   personLd,
   profilePageLd,
   definedTermLd,
@@ -17,7 +18,7 @@ import { SITE_URL } from "../public-routes";
 // US-425: the cert SSR Pages Function builds its Product JSON-LD from this shared
 // helper; the SPA route uses certificateLd above. The equivalence test below
 // pins the two shapes equal so the two code paths can't drift.
-import { certificateProductLd } from "../../../../functions/_shared/blog-render";
+import { certificateProductLd, passportProductLd } from "../../../../functions/_shared/blog-render";
 
 describe("JSON-LD builders (US-298/299/300)", () => {
   it("organizationLd has the core entity fields", () => {
@@ -165,6 +166,42 @@ describe("JSON-LD builders (US-298/299/300)", () => {
       url: SITE_URL,
     });
     expect(spa.itemCondition).toBe("https://schema.org/UsedCondition");
+  });
+
+  it("passportLd is a Product carrying the latest grade as a Review (US-1093)", () => {
+    const ld = passportLd({
+      slug: "abc123",
+      name: "Nike Shirt",
+      category: "tops",
+      brand: "Nike",
+      latestGrade: { score: 8.5, tier: "Excellent", datePublished: "2026-06-01T00:00:00Z" },
+    });
+    expect(ld["@type"]).toBe("Product");
+    expect(ld["@id"]).toBe(`${SITE_URL}/passport/abc123`);
+    expect(ld.itemCondition).toBe("https://schema.org/UsedCondition");
+    expect((ld.review as Record<string, unknown>).name).toBe(
+      "Condition grade: Excellent (8.5/10)",
+    );
+    expect(ld.brand).toEqual({ "@type": "Brand", name: "Nike" });
+  });
+
+  it("passportLd omits the review when there is no grade yet", () => {
+    const ld = passportLd({ slug: "x", name: "Graded garment", latestGrade: null });
+    expect(ld.review).toBeUndefined();
+    expect(ld.brand).toBeUndefined();
+  });
+
+  it("SPA passportLd and SSR passportProductLd emit identical markup (US-1093)", () => {
+    const input = {
+      slug: "abc123",
+      name: "Nike Shirt",
+      category: "tops",
+      brand: "Nike",
+      latestGrade: { score: 7, tier: "Very Good", datePublished: "2026-06-01T00:00:00Z" },
+    };
+    const spa = passportLd(input);
+    const ssr = passportProductLd({ ...input, siteUrl: SITE_URL });
+    expect(ssr).toEqual(spa);
   });
 
   it("definedTermLd carries name/description/url + links to the set @id (US-973)", () => {

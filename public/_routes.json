@@ -10,6 +10,7 @@
     "/signup",
     "/accept-invite",
     "/cert/*",
+    "/passport/*",
     "/verified/*",
     "/blog/*",
     "/authors/*",

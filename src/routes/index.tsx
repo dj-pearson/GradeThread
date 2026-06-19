@@ -70,6 +70,7 @@ const TeamPage = lazy(() => import("@/pages/team").then(m => ({ default: m.TeamP
 const AcceptInvitePage = lazy(() => import("@/pages/accept-invite").then(m => ({ default: m.AcceptInvitePage })));
 const PriceSuggestionsPage = lazy(() => import("@/pages/price-suggestions").then(m => ({ default: m.PriceSuggestionsPage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
+const PassportPage = lazy(() => import("@/pages/passport").then(m => ({ default: m.PassportPage })));
 const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m => ({ default: m.VerifiedSellerPage })));
 const VerifiedDirectoryPage = lazy(() => import("@/pages/verified-directory").then(m => ({ default: m.VerifiedDirectoryPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
@@ -286,6 +287,10 @@ export const router = createBrowserRouter([
       // Public routes
       { path: "/", element: <SuspenseWrapper><LandingPage /></SuspenseWrapper> },
       { path: "/cert/:id", element: <SuspenseWrapper><CertificatePage /></SuspenseWrapper> },
+      // Garment Passport — public, confidence-scored provenance timeline (US-1093).
+      // Dynamic (like /cert/:id): served by the SSR Pages Function in prod; this
+      // SPA route is the dev / in-app fallback. NOT registered in PUBLIC_ROUTES.
+      { path: "/passport/:slug", element: <SuspenseWrapper><PassportPage /></SuspenseWrapper> },
       // GradeThread Verified — public seller directory + leaderboard (US-863).
       // Static, indexable, prerendered (registered in PUBLIC_ROUTES); the seller
       // list itself loads client-side from the public sellers feed.
