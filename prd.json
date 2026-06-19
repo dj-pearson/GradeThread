@@ -1678,7 +1678,7 @@
         "apikey header value redaction is covered by a test."
       ],
       "priority": 990,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Upload/PhotoUploadService.swift (~206-211); SyncEngine.swift (~674-678); Telemetry/TelemetryScrubber.swift"
     },
     {
