@@ -128,4 +128,107 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertEqual(PushService.environmentName, "production")
         #endif
     }
+
+    // MARK: - US-1000: edge-registration retry
+
+    /// The hardcoded UserDefaults key PushService persists its cached hex token
+    /// under (kept private on PushService; mirrored here for the test seam).
+    private static let cachedTokenKey = "com.gradethread.app.push.tokenHex"
+
+    /// Builds a PushService backed by an isolated UserDefaults suite and a fake
+    /// sender, optionally pre-seeding a cached (but unconfirmed) token.
+    private func makeService(
+        cachedToken: String?,
+        sender: FakeRegisterSender
+    ) -> PushService {
+        let suite = "test.push.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        if let cachedToken {
+            defaults.set(cachedToken, forKey: Self.cachedTokenKey)
+        }
+        return PushService(
+            defaults: defaults,
+            registerSender: { try await sender.send($0, $1) }
+        )
+    }
+
+    func test_retry_after500_reRegistersAndReachesRegistered() async {
+        let sender = FakeRegisterSender()
+        sender.failFirstN = 1
+        let service = makeService(cachedToken: "abc123", sender: sender)
+
+        // First attempt hits a transient edge 500 → registration fails, but the
+        // cached token is retained for a later retry.
+        let firstSent = await service.retryRegistrationIfNeeded()
+        XCTAssertTrue(firstSent)
+        guard case .registrationFailed = service.phase else {
+            return XCTFail("Expected registrationFailed, got \(service.phase)")
+        }
+
+        // Next launch/reconnect re-POSTs the cached token; the edge succeeds.
+        let secondSent = await service.retryRegistrationIfNeeded()
+        XCTAssertTrue(secondSent)
+        XCTAssertEqual(service.phase, .registered(deviceToken: "abc123"))
+        XCTAssertEqual(sender.callCount, 2)
+        XCTAssertEqual(sender.lastToken, "abc123")
+    }
+
+    func test_retry_afterSuccess_isIdempotent_noFurtherSend() async {
+        let sender = FakeRegisterSender()
+        let service = makeService(cachedToken: "tok", sender: sender)
+
+        let first = await service.retryRegistrationIfNeeded()
+        XCTAssertTrue(first)
+        XCTAssertEqual(service.phase, .registered(deviceToken: "tok"))
+        XCTAssertEqual(sender.callCount, 1)
+
+        // A confirmed token must not be re-POSTed on subsequent launches.
+        let second = await service.retryRegistrationIfNeeded()
+        XCTAssertFalse(second)
+        XCTAssertEqual(sender.callCount, 1)
+    }
+
+    func test_retry_withNoCachedToken_doesNothing() async {
+        let sender = FakeRegisterSender()
+        let service = makeService(cachedToken: nil, sender: sender)
+
+        let sent = await service.retryRegistrationIfNeeded()
+        XCTAssertFalse(sent)
+        XCTAssertEqual(sender.callCount, 0)
+        XCTAssertEqual(service.phase, .unknown)
+    }
+
+    func test_initialPhase_cachedButUnconfirmedToken_isPendingRetry() async {
+        // A token cached on a prior launch but never confirmed by the edge must
+        // not present as `.registered` — otherwise the launch-time retry would
+        // skip it and the device stays silently unregistered.
+        let sender = FakeRegisterSender()
+        let service = makeService(cachedToken: "pending", sender: sender)
+        guard case .registering = service.phase else {
+            return XCTFail("Expected registering, got \(service.phase)")
+        }
+
+        let sent = await service.retryRegistrationIfNeeded()
+        XCTAssertTrue(sent)
+        XCTAssertEqual(service.phase, .registered(deviceToken: "pending"))
+    }
+}
+
+/// Fake edge sender for PushService retry tests: counts calls and can fail the
+/// first N attempts to simulate a transient 500 followed by success.
+final class FakeRegisterSender: @unchecked Sendable {
+    private(set) var callCount = 0
+    private(set) var lastToken: String?
+    private(set) var lastEnvironment: String?
+    var failFirstN = 0
+
+    func send(_ tokenHex: String, _ environment: String) async throws {
+        callCount += 1
+        lastToken = tokenHex
+        lastEnvironment = environment
+        if callCount <= failFirstN {
+            throw EdgeAPIError.serverError(detail: "simulated transient 500")
+        }
+    }
 }
