@@ -239,11 +239,12 @@ async function uploadRequiredPhotos(page: Page) {
   for (let i = 0; i < 4; i++) {
     await inputs.nth(i).setInputFiles(FIXTURE);
   }
-  // Wait until all four are processed (validate + compress) and the step's
-  // Continue button enables.
-  const cont = page.getByRole("button", { name: "Continue" });
-  await expect(cont).toBeEnabled({ timeout: 20_000 });
-  await cont.click();
+  // US-948: the Photos step AUTO-ADVANCES to Review the moment all four required
+  // photos validate + compress — there's no longer a "Continue" button to click.
+  // Confirm the advance by waiting for the Review step's Submit button.
+  await expect(
+    page.getByRole("button", { name: /submit for grading/i }),
+  ).toBeVisible({ timeout: 20_000 });
 }
 
 test("critical path: submit → grade → certificate, with no double-charge", async ({ page }) => {
