@@ -12,26 +12,49 @@ is idempotent where practical (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`,
 
 ## Applying to production (gated runbook)
 
-Self-hosted Supabase exposes Postgres directly. Apply with the Supabase CLI
-**or** psql. Always take a backup first (see `BACKUPS.md`).
+Self-hosted Supabase exposes Postgres directly. Always take a backup first
+(see `BACKUPS.md`). **Prefer the apply script** — it applies pending files in
+order AND records the version rows the edge boot guard reads, in one shot:
 
 ```bash
 # 1. Confirm what's applied vs. what's in the repo.
-psql "$SUPABASE_DB_URL" -c \
-  "select version from supabase_migrations.schema_migrations order by version;"
+psql "$SUPABASE_DB_URL" -c "select public.latest_schema_migration();"
 
 # 2. Dry-run on a fresh scratch DB (CI does this automatically — see below).
-# 3. Back up prod (BACKUPS.md), then apply pending files IN ORDER:
-for f in $(ls supabase/migrations/*.sql | sort); do
-  echo "applying $f"; psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$f";
-done
+# 3. Back up prod (BACKUPS.md), then apply + record pending files IN ORDER:
+SUPABASE_DB_URL="$SUPABASE_DB_URL" ./scripts/apply-prod-migrations.sh
 
 # 4. Re-test the endpoints that depend on the new schema, e.g.:
 curl -fsS https://functions.gradethread.com/api/grading/public | jq .
 ```
 
+Pasting into the Studio SQL editor also works for a one-off: every migration
+**self-records its own version** (footer below), so the guard stays in sync
+without a manual catchup either way.
+
 Record each production apply (date, migrations applied, operator) in the deploy
 log / incident channel.
+
+## Self-recording footer (US-1108 — the fix for stale-guard catchups)
+
+Every migration `00255+` MUST end with this footer, so applying it by ANY method
+(Studio paste, `psql -f`, the apply script, or the Supabase CLI) records its
+version into `public.applied_migrations` — the table `latest_schema_migration()`
+reads alongside the CLI's `supabase_migrations.schema_migrations`. This is what
+stops the edge refusing to boot against a "stale" DB when the apply path didn't
+write a tracker row (the recurring `prod-catchup-*.sql` chore — now retired).
+
+```sql
+-- self-record (US-1108): keeps the edge schema-version guard (US-778) in sync no
+-- matter how this migration is applied. Version = this file's NNNNN prefix.
+INSERT INTO public.applied_migrations (version) VALUES ('00255')
+ON CONFLICT (version) DO NOTHING;
+```
+
+A CI guard (`services/edge-functions/src/tests/schema-version_test.ts`, in
+`verify:edge`) fails the build if a migration after `00254` omits it. The footer
+writes ONLY to `public.applied_migrations` (never the CLI's table), so it can't
+collide with `supabase db reset` in the local `verify:db` lane.
 
 ## CI validation (drift + clean-apply)
 

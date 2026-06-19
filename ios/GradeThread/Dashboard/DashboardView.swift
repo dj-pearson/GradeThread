@@ -15,7 +15,7 @@ struct DashboardView: View {
     @State private var showingSnap = false
     /// ScoutAI: presents the "find underpriced deals" sheet.
     @State private var showingScout = false
-    /// US-953: presents the in-store Item Prospecting (snap → comps) sheet.
+    /// US-1107: presents the in-store Item Prospecting (snap → comps) sheet.
     @State private var showingProspect = false
     /// US-647: post-signup activation checklist.
     @State private var activation = ActivationChecklistStore()
@@ -294,7 +294,7 @@ struct DashboardView: View {
             }
             .buttonStyle(.brandSecondary)
 
-            // US-953: Item Prospecting — snap an item in-store, get comps.
+            // US-1107: Item Prospecting — snap an item in-store, get comps.
             Button {
                 AppRouter.haptic()
                 showingProspect = true

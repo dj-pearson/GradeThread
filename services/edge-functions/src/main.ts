@@ -78,6 +78,7 @@ import { adminFraudRoutes } from "./routes/admin-fraud.ts";
 import { adminSafetyRoutes } from "./routes/admin-safety.ts";
 import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAnalyticsRoutes } from "./routes/admin-analytics.ts";
+import { adminDripRoutes } from "./routes/admin-drip.ts";
 import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
 import { adminMarketplaceConnectionsRoutes } from "./routes/admin-marketplace-connections.ts";
@@ -851,6 +852,11 @@ app.route("/api/admin/revenue", adminRevenueRoutes);
 // retention_cohorts RPCs. Admin JWT + AAL2 via the /api/admin/* group; no writes,
 // so no step-up. Complements (does not replace) the PostHog product analytics.
 app.route("/api/admin/analytics", adminAnalyticsRoutes);
+// US-946 Trial-conversion drip analytics — read-only funnel/ROI rollup
+// (per-step funnel, signup-week cohorts, in-trial vs win-back + incentive +
+// A/B splits, attention flags) from the drip_analytics RPC. Admin JWT + AAL2
+// via the /api/admin/* group; no writes, so no step-up.
+app.route("/api/admin/drip", adminDripRoutes);
 // US-894 AI spend & token-usage dashboard — token/cost rollups by
 // model/feature/day from the ai_usage_events ledger (re-priced from the
 // config-driven price table). Admin JWT + AAL2 via the /api/admin/* group;

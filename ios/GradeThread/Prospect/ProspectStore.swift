@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// View-model for Item Prospecting (US-953). Holds up to two captured photos
+/// View-model for Item Prospecting (US-1107). Holds up to two captured photos
 /// (front + tag) and an optional "what would you pay?" amount, calls
 /// ``ProspectService``, and exposes the result/error for the view. Images are
 /// compressed (and EXIF-stripped) off the main actor via ``PhotoCompressor``

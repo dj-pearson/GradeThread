@@ -25,6 +25,7 @@ import {
   SlidersHorizontal,
   Megaphone,
   Layers,
+  Filter,
   Send,
   Bell,
   Gift,
@@ -120,6 +121,8 @@ const growthNavItems = [
   { to: "/admin/growth/campaigns", icon: Send, label: "Campaigns", end: false },
   { to: "/admin/growth/announcements", icon: Bell, label: "Announcements", end: false },
   { to: "/admin/growth/referrals", icon: Gift, label: "Referrals", end: false },
+  // US-946 trial-conversion drip funnel/ROI analytics.
+  { to: "/admin/growth/drip", icon: Filter, label: "Trial Conversion", end: false },
 ];
 
 // Operations console (US-881) — platform automation surface. Same admin +

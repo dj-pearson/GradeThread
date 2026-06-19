@@ -106,3 +106,36 @@ Deno.test("EXPECTED_SCHEMA_VERSION equals the LEXICALLY-last migration prefix", 
       "Bump it in the same commit as the new migration.",
   );
 });
+
+// ── CI guard: every migration AFTER the self-recording infra self-records ──
+//
+// US-1108: 00254 added public.applied_migrations + a per-file footer so a
+// migration records its own version no matter how it's applied (Studio paste /
+// psql / CLI), keeping the US-778 boot guard in sync without manual catchup
+// files. This test fails the build if a NEW migration forgets the footer.
+// Files at/before 00254 predate the convention and are seeded by 00254 itself.
+Deno.test("migrations after 00254 self-record their version (US-1108)", async () => {
+  const SELF_RECORD_SINCE = "00254"; // exclusive — a GREATER prefix must comply
+  const dir = new URL("../../../../supabase/migrations/", import.meta.url);
+  const missing: string[] = [];
+  for await (const entry of Deno.readDir(dir)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const m = entry.name.match(/^(\d+)_/);
+    if (!m) continue;
+    const prefix = m[1]!;
+    if (prefix <= SELF_RECORD_SINCE) continue;
+    const sql = await Deno.readTextFile(new URL(entry.name, dir));
+    // Lenient: an insert of THIS file's own prefix into applied_migrations.
+    if (!new RegExp(`applied_migrations[\\s\\S]*?'${prefix}'`, "i").test(sql)) {
+      missing.push(entry.name);
+    }
+  }
+  assertEquals(
+    missing,
+    [],
+    "Every migration after " + SELF_RECORD_SINCE +
+      " must end with the self-record footer (see MIGRATIONS.md):\n" +
+      "  INSERT INTO public.applied_migrations (version) VALUES ('NNNNN') ON CONFLICT (version) DO NOTHING;\n" +
+      "Missing in: " + missing.join(", "),
+  );
+});

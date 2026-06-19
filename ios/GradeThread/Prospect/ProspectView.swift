@@ -1,7 +1,7 @@
 import SwiftUI
 import PhotosUI
 
-/// Item Prospecting (US-953): the in-store "should I buy this?" scan. Snap the
+/// Item Prospecting (US-1107): the in-store "should I buy this?" scan. Snap the
 /// front + the brand/size tag and the app identifies the item, counts how many
 /// comps are out there, shows the going rate, and forecasts how fast it sells —
 /// no typing required. Optionally enter what you'd pay for a buy/skip verdict.

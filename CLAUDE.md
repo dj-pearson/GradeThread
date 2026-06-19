@@ -79,6 +79,7 @@ Navy `#0F3460` (primary/headers/sidebar) · Red `#E94560` (accent/CTA/destructiv
 - **Files:** components/pages `kebab-case.tsx`; hooks `use-*.ts`; stores `*-store.ts`; types `kebab-case.ts`; migrations `NNNNN_description.sql`.
 - **Components:** named exports (`export function X()`); `@/` import alias; icons from `lucide-react` only; toasts via `sonner` (not shadcn toast); controlled inputs (no form libs); spinner = `animate-spin rounded-full border-4 border-primary border-t-transparent`.
 - **DB:** UUID PKs (`gen_random_uuid()`); `created_at`/`updated_at` everywhere; enums for fixed sets; service-role client in edge for admin ops.
+- **Migrations (US-1108):** make each idempotent (`IF NOT EXISTS`, `CREATE OR REPLACE`); bump `EXPECTED_SCHEMA_VERSION` (edge `schema-version.ts`) in the SAME commit; and END every migration with the self-record footer (`INSERT INTO public.applied_migrations (version) VALUES ('NNNNN') ON CONFLICT DO NOTHING;`) so the edge boot guard stays in sync no matter how it's applied. CI (`schema-version_test.ts`) enforces both. See `MIGRATIONS.md`; apply to prod via `scripts/apply-prod-migrations.sh`.
 - **Errors:** auth fns throw → caller toasts; check `{ data, error }`; edge returns `{ error }` + HTTP status; frontend toasts user-facing errors.
 
 ### 🔒 SECURITY — tenant isolation (US-268) — MANDATORY

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Item Prospecting (US-953) — the thrift-aisle "snap it, don't type it" flow.
+/// Item Prospecting (US-1107) — the thrift-aisle "snap it, don't type it" flow.
 /// Mirrors `POST /api/flipdesk/scout/prospect`: send 1–2 photos (front + the
 /// brand/size tag), the edge IDENTIFIES the item from the photo, resolves its
 /// eBay category, and runs the condition-matched value + sell-through pipeline.

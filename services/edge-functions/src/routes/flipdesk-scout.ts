@@ -313,7 +313,7 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   });
 });
 
-// ── US-953: /prospect — snap-and-source, NO typing ──────────────────────────
+// ── US-1107: /prospect — snap-and-source, NO typing ─────────────────────────
 //
 // The thrift-aisle entry point. /appraise already grades + values + forecasts,
 // but it makes the reseller TYPE the keyword/brand/category. /prospect closes
