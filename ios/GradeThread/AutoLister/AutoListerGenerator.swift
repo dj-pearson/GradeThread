@@ -149,7 +149,20 @@ final class AutoListerGenerator: ObservableObject {
     private func applyClassification(group: PreparedGroup, scheduled: [ScheduledPhoto]) async {
         guard !scheduled.isEmpty else { return }
         let inputs = scheduled.map { ClassifyPhotoInput(id: $0.id, storagePath: $0.storagePath) }
-        guard let res = try? await service.classifyPhotos(inputs) else { return }
+        let res: ClassifyPhotosResponse
+        do {
+            res = try await service.classifyPhotos(inputs)
+        } catch {
+            // US-1003: classification is best-effort, but a swallowed failure
+            // means cover/role ordering silently defaulted. Leave a breadcrumb
+            // so the missing write-back is diagnosable; the listing still
+            // generates from the uploaded photos.
+            Telemetry.breadcrumb(
+                "AutoLister classify-photos failed, keeping default photo order — \(message(error))",
+                category: "autolister"
+            )
+            return
+        }
 
         let pathById = Dictionary(scheduled.map { ($0.id, $0.storagePath) },
                                   uniquingKeysWith: { a, _ in a })
@@ -161,11 +174,21 @@ final class AutoListerGenerator: ObservableObject {
         )
         struct Patch: Encodable { let sort_order: Int; let photo_type: String }
         for p in patches {
-            _ = try? await SupabaseShared.client
-                .from("item_photos")
-                .update(Patch(sort_order: p.sortOrder, photo_type: p.photoType))
-                .eq("storage_path", value: p.storagePath)
-                .execute()
+            do {
+                _ = try await SupabaseShared.client
+                    .from("item_photos")
+                    .update(Patch(sort_order: p.sortOrder, photo_type: p.photoType))
+                    .eq("storage_path", value: p.storagePath)
+                    .execute()
+            } catch {
+                // US-1003: a failed role write-back leaves that photo on its
+                // default role/order. Best-effort, but breadcrumb it so the
+                // drift is diagnosable.
+                Telemetry.breadcrumb(
+                    "AutoLister photo-role write-back failed for \(p.storagePath) — \(message(error))",
+                    category: "autolister"
+                )
+            }
         }
     }
 

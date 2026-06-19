@@ -34,7 +34,7 @@ final class RepricingRulesStore {
         phase = .loading
         do {
             rules = try await service.list()
-            actions = (try? await service.actions()) ?? []
+            actions = await loadActions(fallback: [])
             phase = .ready
         } catch {
             phase = .failed(message: error.localizedDescription)
@@ -92,10 +92,35 @@ final class RepricingRulesStore {
             banner = result.appliedCount > 0
                 ? "Repriced \(result.appliedCount) listing\(result.appliedCount == 1 ? "" : "s")."
                 : "No listings were due for a change."
-            actions = (try? await service.actions()) ?? actions
-            rules = (try? await service.list()) ?? rules
+            actions = await loadActions(fallback: actions)
+            do {
+                rules = try await service.list()
+            } catch {
+                // US-1003: the run succeeded; only the post-run rules refresh
+                // failed. Keep the existing rules but breadcrumb so the stale
+                // view is diagnosable rather than silently swallowed.
+                Telemetry.breadcrumb(
+                    "Repricing rules refresh after run failed, keeping cached rules — \(error.localizedDescription)",
+                    category: "repricing"
+                )
+            }
         } catch {
             actionError = error.localizedDescription
+        }
+    }
+
+    /// Load the applied-changes feed, falling back to `fallback` on failure.
+    /// US-1003: the feed is non-critical, but a failed fetch is breadcrumbed so
+    /// an empty/stale feed is diagnosable instead of silently swallowed.
+    private func loadActions(fallback: [RepricingAction]) async -> [RepricingAction] {
+        do {
+            return try await service.actions()
+        } catch {
+            Telemetry.breadcrumb(
+                "Repricing actions feed fetch failed, keeping \(fallback.count) cached — \(error.localizedDescription)",
+                category: "repricing"
+            )
+            return fallback
         }
     }
 }

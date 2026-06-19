@@ -65,7 +65,22 @@ public final class EbaySyncService {
     /// from the post-sync values for the summary deltas.
     public func snapshot(userId: String) async -> EbaySyncBaseline {
         let (listings, activeListings, sales) = countLocalRows()
-        let lastSyncedAt = (try? await fetchLastSyncedAt(userId: userId)) ?? nil
+        // US-1003: distinguish a genuinely-nil cursor (first-ever sync) from a
+        // FAILED fetch. The old `try?` coerced both to nil, so a transient query
+        // failure looked identical to a first sync — risking a full/duplicate
+        // pull or a skipped window with no trace. On error we breadcrumb and
+        // still fall back to nil (sync proceeds, no user-facing error); a real
+        // first-sync stays silent.
+        let lastSyncedAt: String?
+        do {
+            lastSyncedAt = try await fetchLastSyncedAt(userId: userId)
+        } catch {
+            Telemetry.breadcrumb(
+                "eBay sync baseline: fetchLastSyncedAt failed, treating as first-sync — \(error.localizedDescription)",
+                category: "ebay"
+            )
+            lastSyncedAt = nil
+        }
         return EbaySyncBaseline(
             listings: listings,
             activeListings: activeListings,
