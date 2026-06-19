@@ -3270,3 +3270,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:29:10 PM
 ---
+## US-996: iOS: restore drafts off-main with downsampled thumbnails
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:31:35 PM
+---

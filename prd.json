@@ -1758,7 +1758,7 @@
         "Restoring a 10-photo draft shows no main-thread hitch (no dropped frames)."
       ],
       "priority": 996,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/DetailsIntake/IntakeDraftStore.swift (~150-163); AIExtract/AIExtractView.swift (~332); Capture/PhotoPreview.swift (~18)"
     },
     {
