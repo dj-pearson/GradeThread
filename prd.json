@@ -1608,7 +1608,7 @@
         "Index migration applies cleanly on an existing store (non-destructive)."
       ],
       "priority": 985,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=performance. ios/GradeThread/Persistence/Models/LocalInventoryItem.swift, LocalItemPhoto.swift; SyncMergeActor.swift (~173,196), SyncEngine.swift (~808,819)"
     },
     {

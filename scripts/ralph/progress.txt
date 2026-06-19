@@ -3314,3 +3314,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:08:58 PM
 ---
+## US-985: iOS: add @Index to SwiftData models (predicates/merges do full scans)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:18:20 PM
+---
