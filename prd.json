@@ -1664,7 +1664,7 @@
         "URL(string:) success alone no longer gates opening the web-auth session."
       ],
       "priority": 989,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security. ios/GradeThread/Marketplaces/EbayConnectionTypes.swift (from ~124-139); EbayConnectionService.swift (fetchConsentURL ~249-262)"
     },
     {

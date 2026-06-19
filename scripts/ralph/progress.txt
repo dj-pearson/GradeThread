@@ -3298,3 +3298,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:56:29 PM
 ---
+## US-989: iOS: sanitize eBay OAuth callback error text and allowlist the consent URL host
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:59:33 PM
+---
