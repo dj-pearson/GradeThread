@@ -1,15 +1,42 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { jsonError } from "../lib/http-errors.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
+import { requireStepUp } from "../lib/step-up.ts";
+import { clearFeatureFlagCache } from "../lib/feature-flags.ts";
+import { deliverEmail } from "../lib/email.ts";
+import {
+  type DripGraph,
+  type DripStep,
+  type DripUserState,
+  nextTickIso,
+  renderStep,
+  simulateJourney,
+  validateGraph,
+} from "../lib/drip-graph.ts";
 
-// US-946: Trial-conversion drip analytics (read-only).
+// US-946: Trial-conversion drip analytics (read-only) + US-945: the visual
+// drip / journey BUILDER backing the admin page (src/pages/admin/drip.tsx).
 //
 // Mounted at /api/admin/drip, inheriting authMiddleware + adminAuthMiddleware
-// (admin JWT + AAL2) from the /api/admin/* group in main.ts. The aggregation
-// lives in the `drip_analytics` RPC (migration 00253), which rolls the
-// enrollment/send/attribution tables into one bounded jsonb document
-// (funnel, cohorts, phase + incentive + A/B splits, attention flags). This
-// route only resolves the requested period + campaign and forwards it. No
-// writes, so no audit log / step-up.
+// (admin JWT + AAL2) from the /api/admin/* group in main.ts.
+//
+//   GET  /analytics                       — funnel/ROI rollup (RPC, 00253).
+//   GET  /campaigns                        — list campaign definitions + status.
+//   GET  /campaigns/:c                     — full editable step graph.
+//   PUT  /campaigns/:c/graph               — save graph (validated). super_admin
+//                                            + fresh MFA step-up + audited.
+//   POST /campaigns/:c/status              — pause/resume/kill (kill flips the
+//                                            linked feature flag). super_admin +
+//                                            step-up + audited.
+//   POST /campaigns/:c/validate            — validate a proposed graph (no write).
+//   POST /campaigns/:c/preview             — render a step's HTML (no write).
+//   POST /campaigns/:c/test-send           — send a rendered step to an admin
+//                                            address (audited).
+//   POST /campaigns/:c/regenerate          — AI-draft step copy from the brief.
+//   GET  /campaigns/:c/enrollments         — live: counts by step + recent exits.
+//   GET  /campaigns/:c/users/:userId       — one user's journey + send history.
+//   POST /campaigns/:c/simulate            — dry-run the evaluator for a user.
 
 type AdminEnv = {
   Variables: {
@@ -82,5 +109,468 @@ adminDripRoutes.get("/analytics", async (c) => {
     // Stripe stays authoritative for realized conversions/MRR; the RPC reports a
     // reconciliation rate + documented tolerance so the client can surface it.
     stripeSourceOfTruth: true,
+  });
+});
+
+// ── Builder (US-945) ──
+
+interface CampaignRow {
+  campaign: string;
+  name: string;
+  status: "active" | "paused" | "killed";
+  feature_flag_key: string | null;
+  graph: DripGraph;
+  updated_at: string;
+}
+
+async function loadCampaign(campaign: string): Promise<CampaignRow | null> {
+  const { data } = await supabaseAdmin
+    .from("drip_campaigns")
+    .select("campaign, name, status, feature_flag_key, graph, updated_at")
+    .eq("campaign", campaign)
+    .maybeSingle();
+  return (data as CampaignRow | null) ?? null;
+}
+
+// Derive the dry-run user state from the users row + drip enrollment.
+async function loadUserState(
+  userId: string,
+  campaign: string,
+): Promise<(DripUserState & { userId: string; enrolledAtMs: number; email: string | null }) | null> {
+  const { data: u } = await supabaseAdmin
+    .from("users")
+    .select("id, email, full_name, plan, subscription_status, trial_ends_at, grades_used_this_month, created_at")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!u) return null;
+
+  const user = u as {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    plan: string | null;
+    subscription_status: string | null;
+    trial_ends_at: string | null;
+    grades_used_this_month: number | null;
+    created_at: string | null;
+  };
+
+  const { data: enrollment } = await supabaseAdmin
+    .from("drip_enrollments")
+    .select("enrolled_at, converted_at")
+    .eq("user_id", userId)
+    .eq("campaign", campaign)
+    .order("enrolled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const now = Date.now();
+  const enrolledAtMs = enrollment?.enrolled_at
+    ? Date.parse(enrollment.enrolled_at as string)
+    : (user.created_at ? Date.parse(user.created_at) : now);
+  const trialEndMs = user.trial_ends_at ? Date.parse(user.trial_ends_at) : null;
+  const converted = !!enrollment?.converted_at ||
+    user.subscription_status === "active";
+
+  return {
+    userId: user.id,
+    email: user.email,
+    firstName: (user.full_name ?? "").trim().split(/\s+/)[0] || null,
+    trialEndsAt: user.trial_ends_at,
+    converted,
+    plan: user.plan,
+    subscriptionStatus: user.subscription_status,
+    gradesUsed: user.grades_used_this_month ?? 0,
+    trialDaysRemaining: trialEndMs ? Math.ceil((trialEndMs - now) / DAY_MS) : 0,
+    daysSinceSignup: Math.floor((now - enrolledAtMs) / DAY_MS),
+    enrolledAtMs,
+  };
+}
+
+// GET /campaigns — list definitions + status + next tick.
+adminDripRoutes.get("/campaigns", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("drip_campaigns")
+    .select("campaign, name, status, feature_flag_key, updated_at")
+    .order("campaign");
+  if (error) return jsonError(c, 500, "Failed to load campaigns");
+  return c.json({ campaigns: data ?? [], nextTick: nextTickIso(Date.now()) });
+});
+
+// GET /campaigns/:campaign — full editable step graph.
+adminDripRoutes.get("/campaigns/:campaign", async (c) => {
+  const row = await loadCampaign(c.req.param("campaign"));
+  if (!row) return jsonError(c, 404, "Unknown campaign");
+  return c.json({ campaign: row, nextTick: nextTickIso(Date.now()) });
+});
+
+// POST /campaigns/:campaign/validate — validate a proposed graph (no write).
+adminDripRoutes.post("/campaigns/:campaign/validate", async (c) => {
+  let body: { graph?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  return c.json(validateGraph(body.graph));
+});
+
+// PUT /campaigns/:campaign/graph — save the edited graph.
+// super_admin + fresh MFA step-up + audited (a bad graph changes live sends).
+adminDripRoutes.put("/campaigns/:campaign/graph", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return jsonError(c, 403, "Super admin required to edit the drip graph.");
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const campaign = c.req.param("campaign");
+  let body: { graph?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+
+  const validation = validateGraph(body.graph);
+  if (!validation.ok) {
+    return c.json({ error: "Invalid graph", code: "GRAPH_INVALID", errors: validation.errors }, 400);
+  }
+
+  const before = await loadCampaign(campaign);
+  if (!before) return jsonError(c, 404, "Unknown campaign");
+
+  const { data: after, error } = await supabaseAdmin
+    .from("drip_campaigns")
+    .update({ graph: body.graph, updated_by: c.get("userId") })
+    .eq("campaign", campaign)
+    .select("campaign, name, status, feature_flag_key, graph, updated_at")
+    .maybeSingle();
+  if (error) return jsonError(c, 500, "Failed to save graph");
+
+  await writeAuditLog(c, {
+    action: "drip.graph_update",
+    targetType: "drip_campaign",
+    targetId: campaign,
+    before: { graph: before.graph },
+    after: { graph: body.graph },
+  });
+
+  return c.json({ ok: true, campaign: after });
+});
+
+// POST /campaigns/:campaign/status — pause / resume / kill.
+// Kill flips the linked feature flag OFF so the engine hard-stops everywhere.
+adminDripRoutes.post("/campaigns/:campaign/status", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return jsonError(c, 403, "Super admin required to change campaign status.");
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const campaign = c.req.param("campaign");
+  let body: { action?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const action = body.action;
+  const STATUS: Record<string, "active" | "paused" | "killed"> = {
+    resume: "active",
+    pause: "paused",
+    kill: "killed",
+  };
+  if (typeof action !== "string" || !(action in STATUS)) {
+    return jsonError(c, 400, "action must be one of: pause, resume, kill");
+  }
+  const status = STATUS[action];
+
+  const before = await loadCampaign(campaign);
+  if (!before) return jsonError(c, 404, "Unknown campaign");
+
+  const { error } = await supabaseAdmin
+    .from("drip_campaigns")
+    .update({ status, updated_by: c.get("userId") })
+    .eq("campaign", campaign);
+  if (error) return jsonError(c, 500, "Failed to update status");
+
+  // Kill integrates with the feature-flag kill-switch (US-507): flip the linked
+  // flag off so EVERY engine replica stops sending within the cache TTL.
+  let flagToggled = false;
+  if (action === "kill" && before.feature_flag_key) {
+    const { error: flagErr } = await supabaseAdmin
+      .from("feature_flags")
+      .update({ enabled: false, updated_by: c.get("userId") })
+      .eq("key", before.feature_flag_key);
+    if (!flagErr) {
+      clearFeatureFlagCache();
+      flagToggled = true;
+    }
+  } else if (action === "resume" && before.feature_flag_key) {
+    const { error: flagErr } = await supabaseAdmin
+      .from("feature_flags")
+      .update({ enabled: true, updated_by: c.get("userId") })
+      .eq("key", before.feature_flag_key);
+    if (!flagErr) {
+      clearFeatureFlagCache();
+      flagToggled = true;
+    }
+  }
+
+  await writeAuditLog(c, {
+    action: `drip.status_${action}`,
+    targetType: "drip_campaign",
+    targetId: campaign,
+    before: { status: before.status },
+    after: { status, flagToggled },
+  });
+
+  return c.json({ ok: true, status, flagToggled });
+});
+
+// POST /campaigns/:campaign/preview — render a step's HTML for a sample user.
+// Body: { step, variantId?, sampleUserId? }. The step is sent from the client so
+// the preview reflects UNSAVED edits.
+adminDripRoutes.post("/campaigns/:campaign/preview", async (c) => {
+  const campaign = c.req.param("campaign");
+  let body: { step?: unknown; variantId?: string; sampleUserId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const step = body.step as DripStep | undefined;
+  if (!step || !Array.isArray(step.variants) || step.variants.length === 0) {
+    return jsonError(c, 400, "step with at least one variant is required");
+  }
+
+  let user: DripUserState = { firstName: "Alex", trialEndsAt: new Date(Date.now() + 3 * DAY_MS).toISOString() };
+  if (body.sampleUserId) {
+    const loaded = await loadUserState(body.sampleUserId, campaign);
+    if (loaded) user = loaded;
+  }
+
+  const rendered = renderStep(step, user, body.variantId);
+  if (!rendered) return jsonError(c, 400, "Could not render step");
+  return c.json(rendered);
+});
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// POST /campaigns/:campaign/test-send — send a rendered step to an admin address.
+// Body: { step, variantId?, to }. Audited.
+adminDripRoutes.post("/campaigns/:campaign/test-send", async (c) => {
+  const campaign = c.req.param("campaign");
+  let body: { step?: unknown; variantId?: string; to?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const to = (body.to ?? "").trim();
+  if (!EMAIL_RE.test(to)) return jsonError(c, 400, "A valid 'to' email is required");
+  const step = body.step as DripStep | undefined;
+  if (!step || !Array.isArray(step.variants) || step.variants.length === 0) {
+    return jsonError(c, 400, "step with at least one variant is required");
+  }
+
+  const rendered = renderStep(
+    step,
+    { firstName: "Alex", trialEndsAt: new Date(Date.now() + 3 * DAY_MS).toISOString() },
+    body.variantId,
+  );
+  if (!rendered) return jsonError(c, 400, "Could not render step");
+
+  const ok = await deliverEmail({
+    to,
+    subject: `[TEST] ${rendered.subject}`,
+    html: `<p style="color:#888;font-size:12px">Drip test send — campaign '${campaign}', step '${step.id}', variant '${rendered.variantId}'.</p>${rendered.html}`,
+  });
+
+  await writeAuditLog(c, {
+    action: "drip.test_send",
+    targetType: "drip_campaign",
+    targetId: campaign,
+    details: { stepId: step.id, variantId: rendered.variantId, to, delivered: ok },
+  });
+
+  if (!ok) return jsonError(c, 502, "Email send failed (check SMTP config)");
+  return c.json({ ok: true, to, variantId: rendered.variantId });
+});
+
+// POST /campaigns/:campaign/regenerate — AI-draft step copy from the brief.
+// Returns proposed { subject, html } for the admin to review and then save via
+// PUT graph. Does NOT persist.
+adminDripRoutes.post("/campaigns/:campaign/regenerate", async (c) => {
+  let body: { brief?: string; instruction?: string; incentiveEnabled?: boolean };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const brief = (body.brief ?? "").trim();
+  if (!brief) return jsonError(c, 400, "A brief is required to regenerate copy");
+
+  // Lazy import keeps the AI client (and its env requirements) off the hot path
+  // for the read-only endpoints in this router.
+  const { getAnthropicClient, getDefaultModel } = await import("../lib/ai-config.ts");
+  const { enterAiFeature } = await import("../lib/ai-feature-context.ts");
+  enterAiFeature("drip", c.get("userId") ?? null);
+
+  const system = [
+    "You write transactional/marketing email copy for GradeThread, a clothing",
+    "condition-grading SaaS. Return STRICT JSON: {\"subject\": string, \"html\": string}.",
+    "Keep subject < 60 chars. HTML is simple paragraphs only (<p>, <a>).",
+    "You MAY use {{firstName}}, {{trialEndsAt}}, and {{incentive}} placeholders.",
+    body.incentiveEnabled
+      ? "Include the {{incentive}} placeholder once."
+      : "Do NOT include {{incentive}}.",
+  ].join(" ");
+  const userPrompt = [
+    `Brief: ${brief}`,
+    body.instruction ? `Refinement: ${body.instruction.trim()}` : "",
+  ].filter(Boolean).join("\n");
+
+  try {
+    const client = getAnthropicClient();
+    const resp = await client.messages.create({
+      model: getDefaultModel(),
+      max_tokens: 1024,
+      system,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    const textBlock = resp.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return jsonError(c, 502, "AI returned no copy");
+    }
+    const cleaned = textBlock.text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const parsed = JSON.parse(cleaned) as { subject?: unknown; html?: unknown };
+    if (typeof parsed.subject !== "string" || typeof parsed.html !== "string") {
+      return jsonError(c, 502, "AI returned malformed copy");
+    }
+    return c.json({ subject: parsed.subject, html: parsed.html });
+  } catch (e) {
+    console.error("[admin-drip] regenerate failed:", e instanceof Error ? e.message : String(e));
+    return jsonError(c, 502, "Copy generation failed");
+  }
+});
+
+// GET /campaigns/:campaign/enrollments — live: current count per step + recent
+// exits. "Current step" = the highest step ordinal an ACTIVE (not-yet-exited)
+// enrollment has been sent.
+adminDripRoutes.get("/campaigns/:campaign/enrollments", async (c) => {
+  const campaign = c.req.param("campaign");
+
+  // Active enrollments and their latest send step.
+  const { data: active, error: aErr } = await supabaseAdmin
+    .from("drip_enrollments")
+    .select("id")
+    .eq("campaign", campaign)
+    .is("exited_at", null)
+    .limit(5000);
+  if (aErr) return jsonError(c, 500, "Failed to load enrollments");
+  const activeIds = (active ?? []).map((r) => (r as { id: string }).id);
+
+  const byStep: Record<string, number> = {};
+  if (activeIds.length > 0) {
+    const { data: sends } = await supabaseAdmin
+      .from("drip_sends")
+      .select("enrollment_id, step")
+      .eq("campaign", campaign)
+      .in("enrollment_id", activeIds)
+      .limit(50000);
+    // Highest step per enrollment.
+    const maxByEnrollment = new Map<string, number>();
+    for (const s of (sends ?? []) as Array<{ enrollment_id: string; step: number }>) {
+      const cur = maxByEnrollment.get(s.enrollment_id);
+      if (cur === undefined || s.step > cur) maxByEnrollment.set(s.enrollment_id, s.step);
+    }
+    // Enrollments with no send yet sit at step 0 (enrolled, not yet contacted).
+    let unsent = activeIds.length;
+    for (const step of maxByEnrollment.values()) {
+      byStep[String(step)] = (byStep[String(step)] ?? 0) + 1;
+      unsent--;
+    }
+    if (unsent > 0) byStep["0"] = (byStep["0"] ?? 0) + unsent;
+  }
+
+  // Recent exits (converted / lapsed).
+  const { data: exits } = await supabaseAdmin
+    .from("drip_enrollments")
+    .select("user_id, exited_at, exit_reason, converted_at")
+    .eq("campaign", campaign)
+    .not("exited_at", "is", null)
+    .order("exited_at", { ascending: false })
+    .limit(25);
+
+  return c.json({
+    activeEnrollments: activeIds.length,
+    byStep,
+    recentExits: exits ?? [],
+  });
+});
+
+// GET /campaigns/:campaign/users/:userId — one user's journey + send history.
+adminDripRoutes.get("/campaigns/:campaign/users/:userId", async (c) => {
+  const campaign = c.req.param("campaign");
+  const userId = c.req.param("userId");
+
+  const { data: enrollment } = await supabaseAdmin
+    .from("drip_enrollments")
+    .select("id, enrolled_at, trial_started_at, converted_at, exited_at, exit_reason, variant, incentive_enabled")
+    .eq("campaign", campaign)
+    .eq("user_id", userId)
+    .order("enrolled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let sends: unknown[] = [];
+  if (enrollment) {
+    const { data } = await supabaseAdmin
+      .from("drip_sends")
+      .select("step, phase, variant, sent_at, opened_at, clicked_at, unsubscribed")
+      .eq("enrollment_id", (enrollment as { id: string }).id)
+      .order("step", { ascending: true });
+    sends = data ?? [];
+  }
+
+  return c.json({ userId, enrollment: enrollment ?? null, sends });
+});
+
+// POST /campaigns/:campaign/simulate — dry-run the evaluator for one account.
+// Body: { userId }.
+adminDripRoutes.post("/campaigns/:campaign/simulate", async (c) => {
+  const campaign = c.req.param("campaign");
+  let body: { userId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const userId = (body.userId ?? "").trim();
+  if (!userId) return jsonError(c, 400, "userId is required");
+
+  const row = await loadCampaign(campaign);
+  if (!row) return jsonError(c, 404, "Unknown campaign");
+
+  const user = await loadUserState(userId, campaign);
+  if (!user) return jsonError(c, 404, "User not found");
+
+  const now = Date.now();
+  const result = simulateJourney(row.graph, user, now);
+  return c.json({
+    userId,
+    user: {
+      email: user.email,
+      firstName: user.firstName,
+      plan: user.plan,
+      subscriptionStatus: user.subscriptionStatus,
+      converted: user.converted,
+      trialDaysRemaining: user.trialDaysRemaining,
+    },
+    campaignStatus: row.status,
+    nextTick: nextTickIso(now),
+    result,
   });
 });

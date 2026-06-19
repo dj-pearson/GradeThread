@@ -197,6 +197,7 @@ const AdminRateLimitsPage = lazy(() => import("@/pages/admin/rate-limits").then(
 const AdminRevenuePage = lazy(() => import("@/pages/admin/revenue").then(m => ({ default: m.AdminRevenuePage })));
 const AdminAnalyticsPage = lazy(() => import("@/pages/admin/analytics").then(m => ({ default: m.AdminAnalyticsPage })));
 const AdminDripAnalyticsPage = lazy(() => import("@/pages/admin/drip-analytics").then(m => ({ default: m.AdminDripAnalyticsPage })));
+const AdminDripBuilderPage = lazy(() => import("@/pages/admin/drip").then(m => ({ default: m.AdminDripBuilderPage })));
 const AdminReconciliationPage = lazy(() => import("@/pages/admin/reconciliation").then(m => ({ default: m.AdminReconciliationPage })));
 const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
 const AdminPricingPage = lazy(() => import("@/pages/admin/pricing").then(m => ({ default: m.AdminPricingPage })));
@@ -498,6 +499,7 @@ export const router = createBrowserRouter([
               { path: "/admin/revenue", element: <SuspenseWrapper><AdminRevenuePage /></SuspenseWrapper> },
               { path: "/admin/analytics", element: <SuspenseWrapper><AdminAnalyticsPage /></SuspenseWrapper> },
               { path: "/admin/growth/drip", element: <SuspenseWrapper><AdminDripAnalyticsPage /></SuspenseWrapper> },
+              { path: "/admin/growth/drip/builder", element: <SuspenseWrapper><AdminDripBuilderPage /></SuspenseWrapper> },
               { path: "/admin/billing/reconciliation", element: <SuspenseWrapper><AdminReconciliationPage /></SuspenseWrapper> },
               { path: "/admin/system", element: <SuspenseWrapper><AdminSystemPage /></SuspenseWrapper> },
               { path: "/admin/jobs", element: <SuspenseWrapper><AdminJobsPage /></SuspenseWrapper> },

@@ -122,7 +122,9 @@ const growthNavItems = [
   { to: "/admin/growth/announcements", icon: Bell, label: "Announcements", end: false },
   { to: "/admin/growth/referrals", icon: Gift, label: "Referrals", end: false },
   // US-946 trial-conversion drip funnel/ROI analytics.
-  { to: "/admin/growth/drip", icon: Filter, label: "Trial Conversion", end: false },
+  { to: "/admin/growth/drip", icon: Filter, label: "Trial Conversion", end: true },
+  // US-945 visual drip / journey builder.
+  { to: "/admin/growth/drip/builder", icon: GitMerge, label: "Drip Builder", end: false },
 ];
 
 // Operations console (US-881) — platform automation surface. Same admin +
