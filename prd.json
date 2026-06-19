@@ -1897,7 +1897,7 @@
         "Successful publish path unchanged."
       ],
       "priority": 1006,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=functional/ux. ios/GradeThread/Marketplaces/Publish/PublishDialog.swift (runPush ~292-339, retry ~233, draft save ~299)"
     },
     {

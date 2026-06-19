@@ -3230,3 +3230,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:48:28 PM
 ---
+## US-1006: iOS: PublishDialog offline pre-check + preserve composer edits on retry
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:54:36 PM
+---
