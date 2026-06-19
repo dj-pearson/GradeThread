@@ -33,6 +33,60 @@ final class FriendlyErrorCopyTests: XCTestCase {
         XCTAssertTrue(copy.lowercased().contains("offline"))
     }
 
+    /// US-1004: a non-English offline failure must still be classified as
+    /// offline (and therefore queued) — classification is by NSURLErrorDomain
+    /// code, NOT by matching English words in `localizedDescription`.
+    func test_offline_nonEnglishLocalizedDescription_isOffline() {
+        // Spanish "No hay conexión a Internet" — contains none of the English
+        // substrings the old fallback matched ("offline"/"network"/"timed out").
+        let err = NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorNotConnectedToInternet,
+            userInfo: [NSLocalizedDescriptionKey: "No hay conexión a Internet"]
+        )
+        XCTAssertFalse(err.localizedDescription.lowercased().contains("network"))
+        XCTAssertTrue(FriendlyErrorCopy.isOffline(err))
+        XCTAssertEqual(FriendlyErrorCopy.kind(for: err), .offline)
+    }
+
+    /// US-1004: DNS / host-resolution failures (also reported in the device
+    /// language) are connectivity problems and classify as offline.
+    func test_offline_dnsLookupFailed_nonEnglish_isOffline() {
+        let err = NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorDNSLookupFailed,
+            userInfo: [NSLocalizedDescriptionKey: "DNS-Suche fehlgeschlagen"]
+        )
+        XCTAssertTrue(FriendlyErrorCopy.isOffline(err))
+    }
+
+    /// US-1004: the typed `EdgeAPIError.network` transport failure is offline,
+    /// regardless of the embedded message.
+    func test_offline_edgeAPINetworkError_isOffline() {
+        let err = EdgeAPIError.network("la solicitud falló")
+        XCTAssertTrue(FriendlyErrorCopy.isOffline(err))
+        XCTAssertEqual(FriendlyErrorCopy.kind(for: err), .offline)
+    }
+
+    /// US-1004: a 4xx/validation rejection — even with a non-English message and
+    /// the word "network" absent — must NOT be classified as offline, so the
+    /// intake save surfaces it instead of silently queuing the create.
+    func test_validationError_nonEnglish_isNotOffline() {
+        let err = NSError(
+            domain: "Postgrest",
+            code: 400,
+            userInfo: [NSLocalizedDescriptionKey: "El valor no es válido"]
+        )
+        XCTAssertFalse(FriendlyErrorCopy.isOffline(err))
+        XCTAssertEqual(FriendlyErrorCopy.kind(for: err), .generic)
+    }
+
+    /// A typed `EdgeAPIError.badRequest` (4xx) is an app rejection, not offline.
+    func test_edgeAPIBadRequest_isNotOffline() {
+        let err = EdgeAPIError.badRequest(detail: "missing field")
+        XCTAssertFalse(FriendlyErrorCopy.isOffline(err))
+    }
+
     // MARK: - Auth-specific cases
 
     func test_invalidCredentials_mapsToSpecificCopy() {

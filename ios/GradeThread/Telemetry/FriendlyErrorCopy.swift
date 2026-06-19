@@ -25,7 +25,21 @@ enum FriendlyErrorCopy {
     /// True when the failure is a network-reachability problem (offline, DNS,
     /// TLS, timeout) rather than an application-level rejection. Shared by the
     /// auth and intake surfaces so "offline" is classified one way everywhere.
+    ///
+    /// US-1004: classification is driven by TYPED errors / NSError domain+code,
+    /// never by the localized message — so a non-English offline failure is
+    /// still queued. URLError codes covered include notConnectedToInternet,
+    /// timedOut, networkConnectionLost, cannotFindHost and dnsLookupFailed (all
+    /// live in `NSURLErrorDomain`), plus `EdgeAPIError.network`.
     nonisolated static func isOffline(_ error: Error) -> Bool {
+        // EdgeAPI surfaces transport failures as a typed `.network` case — a
+        // locale-independent signal, so check it directly.
+        if let edge = error as? EdgeAPIError, case .network = edge {
+            return true
+        }
+        // The NSError bridge of any URLError lives in NSURLErrorDomain; the code
+        // (not the message) identifies the failure, so this holds in every
+        // device language.
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain {
             return true
@@ -35,8 +49,11 @@ enum FriendlyErrorCopy {
         if underlyingURLErrorDomain(nsError) {
             return true
         }
-        // Defensive string net for SDKs that surface connectivity errors under
-        // their own domain.
+        // LAST RESORT ONLY: a locale-fragile English-substring net for SDKs that
+        // surface connectivity errors under their own domain with NO URLError
+        // link in the chain. Every typed/domain check above already classifies
+        // non-English offline failures, so this is reached only for exotic
+        // SDK-domain cases — never the primary path.
         let lower = rawDetail(for: error).lowercased()
         return lower.contains("offline")
             || lower.contains("the internet connection")

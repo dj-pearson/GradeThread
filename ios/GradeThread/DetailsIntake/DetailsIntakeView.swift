@@ -708,17 +708,13 @@ struct DetailsIntakeView: View {
     }
 
     private func isNetworkFailure(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        // URLError domain → network connectivity issue (offline, DNS,
-        // TLS, timeout). Anything else → application-level rejection
-        // we shouldn't silently queue.
-        if nsError.domain == NSURLErrorDomain { return true }
-        // supabase-swift surfaces some network errors via its own
-        // domain; do a string match as a defensive net.
-        let lower = error.localizedDescription.lowercased()
-        return lower.contains("offline")
-            || lower.contains("network")
-            || lower.contains("timed out")
+        // US-1004: classify by typed error / NSError domain+code via the shared
+        // classifier — NOT by matching English substrings in
+        // `localizedDescription`, which misclassified non-English offline
+        // failures as app rejections and silently dropped the queued create.
+        // A 4xx/validation rejection (PostgrestError, etc.) is not in
+        // NSURLErrorDomain, so it still falls through and is surfaced, not queued.
+        FriendlyErrorCopy.isOffline(error)
     }
 
     private func enqueueOfflineMutation(payload: ItemInsertPayload) {
