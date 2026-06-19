@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { validateImage, compressImage, extractExif } from "@/lib/image-utils";
+import {
+  CameraCaptureDialog,
+  isCameraCaptureSupported,
+} from "@/components/submission/camera-capture-dialog";
 import type { ImageType, ImageExifMetadata } from "@/types/database";
 
 export interface PhotoUploadItem {
@@ -328,6 +332,13 @@ export function PhotoUpload({
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // US-947: which slot (if any) is mid live-capture, plus a one-time
+  // feature-detect so the "Take photo" affordance only appears where
+  // getUserMedia is actually available (secure context + camera-capable
+  // browser). Camera-incapable devices simply keep the file picker.
+  const [cameraSlotKey, setCameraSlotKey] = useState<string | null>(null);
+  const [cameraSupported] = useState(() => isCameraCaptureSupported());
+
   const emitChange = useCallback(
     (updatedSlots: Map<string, SlotState>) => {
       const items: PhotoUploadItem[] = [];
@@ -571,6 +582,24 @@ export function PhotoUpload({
               <span className="text-[10px] leading-tight text-muted-foreground">
                 {slot.description}
               </span>
+              {/* US-947: live-capture affordance alongside the file picker
+                  (the slot body itself triggers upload). Only shown where
+                  getUserMedia is available; otherwise the file picker stands
+                  alone. stopPropagation so the tap doesn't also open the
+                  file dialog. */}
+              {cameraSupported && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCameraSlotKey(slot.slotKey);
+                  }}
+                  className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-primary/30 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/10"
+                >
+                  <Camera className="h-3 w-3" />
+                  Take photo
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -682,6 +711,29 @@ export function PhotoUpload({
           </div>
         );
       })}
+
+      {/* US-947: live camera capture for the active slot. The captured JPEG is
+          routed through processFile — the identical validate + compress + EXIF
+          path a manual upload takes (no bypass). */}
+      <CameraCaptureDialog
+        open={cameraSlotKey !== null}
+        slotLabel={
+          UPLOAD_SLOTS.find((s) => s.slotKey === cameraSlotKey)?.label ?? "photo"
+        }
+        onOpenChange={(open) => {
+          if (!open) setCameraSlotKey(null);
+        }}
+        onCapture={(file) => {
+          const key = cameraSlotKey;
+          setCameraSlotKey(null);
+          if (key) processFile(key, file);
+        }}
+        onFallback={() => {
+          const key = cameraSlotKey;
+          setCameraSlotKey(null);
+          if (key) fileInputRefs.current[key]?.click();
+        }}
+      />
     </div>
   );
 }
