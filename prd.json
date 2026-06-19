@@ -1537,7 +1537,7 @@
         "Cancelling the dialog leaves the credit balance unchanged."
       ],
       "priority": 980,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=ux. ios/GradeThread/Grading/GradeRequestSheet.swift (submitButton ~224-237, costLabel ~207-213); Grading/BulkGradeSheet.swift"
     },
     {

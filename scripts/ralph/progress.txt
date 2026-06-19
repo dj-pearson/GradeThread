@@ -3334,3 +3334,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:48:52 PM
 ---
+## US-980: iOS: confirm credit spend before submitting a paid grade
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:51:06 PM
+---
