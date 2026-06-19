@@ -21,6 +21,7 @@
 //   TEST_USER_A_RULE_ID         a repricing_rules.id (US-672)
 //   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
+//   TEST_USER_A_GARMENT_ID      a garments.id (Garment Passport, US-1090/1092)
 // For the AutoLister batch-enqueue test, user B should ideally be on a plan
 // that includes AutoLister so the OWNERSHIP path is exercised; if B is on a
 // free/starter plan the request is denied earlier with 402 (still a pass —
@@ -1552,5 +1553,22 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "GET admin/support-tickets");
+  },
+});
+
+// US-1090/1092: Garment Passport chain read is tenant-scoped — B must not read
+// A's passport. The read endpoint lands with the edge API (US-1092); this case
+// is ignore-guarded by TEST_USER_A_GARMENT_ID (seeded then) so it activates the
+// moment the endpoint + fixture exist, with no further test change.
+Deno.test({
+  name: "B cannot read A's garment passport chain",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GARMENT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GARMENT_ID")!;
+    const res = await fetch(`${BASE}/api/passport/garments/${id}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET passport/garments/:id (A's garment)");
   },
 });

@@ -2841,8 +2841,8 @@
         "deno lint/check/test + tenant-isolation suite pass"
       ],
       "priority": 701,
-      "passes": false,
-      "notes": "[P1][Passport][Privacy] Establishes the limited-PII posture the user asked for. Depends on [[US-1089]]. Pairs with the US-268 isolation rule and US-276 upload hardening."
+      "passes": true,
+      "notes": "[P1][Passport][Privacy] Establishes the limited-PII posture the user asked for. Depends on [[US-1089]]. Pairs with the US-268 isolation rule and US-276 upload hardening. DONE 2026-06-19: GARMENT_PASSPORT_PRIVACY.md data-classification doc; lib/garment-passport.ts privacy primitives (pseudonymousLabel/isPseudonymousLabel for PII-free public labels, minimizeLinkageRef salted-SHA256 retention/minimization) + unit tests; tenant-isolation case for the passport chain added skip-guarded (TEST_USER_A_GARMENT_ID) pending US-1092 endpoint. deno check/lint/test pass."
     },
     {
       "id": "US-1091",
