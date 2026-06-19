@@ -3286,3 +3286,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:45:48 PM
 ---
+## US-992: iOS: set request timeouts on EdgeAPI / AIExtract / PhotoRotate sessions
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:50:16 PM
+---

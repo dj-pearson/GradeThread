@@ -1705,7 +1705,7 @@
         "AIExtractService and PhotoRotateService get the same bounded timeout."
       ],
       "priority": 992,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Networking/EdgeAPI.swift (~12,153-186); AIExtract/AIExtractService.swift (~15); ItemCanvas/Photos/PhotoRotateService.swift (~21)"
     },
     {
