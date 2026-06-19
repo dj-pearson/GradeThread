@@ -22,10 +22,30 @@ public actor EdgeAPI {
 
     /// US-638: bounded retry budget for transient failures (network / 5xx).
     private static let maxRetries = 2
-    /// US-638: tiny in-memory TTL cache for idempotent GETs (comps, category
-    /// suggest) keyed by method+path+query. Raw bytes are cached so each caller
-    /// decodes into its own `Response` type.
-    private var responseCache: [String: (data: Data, expires: Date)] = [:]
+
+    /// US-995: hard caps on the in-memory response cache so paging many
+    /// comps/categories can't grow it without bound. Eviction is LRU once
+    /// either cap is exceeded; a blob larger than the byte cap is never cached.
+    private static let cacheMaxEntries = 64
+    private static let cacheMaxBytes = 4 * 1024 * 1024 // 4 MB
+
+    private struct CacheEntry {
+        let data: Data
+        let expires: Date
+        var lastAccess: UInt64
+    }
+
+    /// US-638/US-995: tiny in-memory TTL cache for idempotent GETs (comps,
+    /// category suggest) keyed by method+path+query. Raw bytes are cached so
+    /// each caller decodes into its own `Response` type. Bounded by
+    /// ``cacheMaxEntries`` / ``cacheMaxBytes`` with LRU eviction (US-995).
+    private var responseCache: [String: CacheEntry] = [:]
+    /// Running total of cached `data` byte counts — kept in sync with
+    /// ``responseCache`` so the byte cap is O(1) to enforce.
+    private var responseCacheBytes = 0
+    /// Monotonic tick stamped onto every read/write to order LRU eviction
+    /// without relying on wall-clock time.
+    private var cacheClock: UInt64 = 0
 
     public init(
         baseURL: URL,
@@ -149,10 +169,9 @@ public actor EdgeAPI {
     ) async throws -> Response {
         let cacheKey = "\(method) \(path)?\(Self.canonicalQuery(query))"
         // Serve fresh idempotent GETs from cache (US-638).
-        if cacheTTL > 0, method == "GET",
-           let entry = responseCache[cacheKey], entry.expires > .now {
-            if let cached = try? decoder.decode(Response.self, from: entry.data) {
-                return cached
+        if cacheTTL > 0, method == "GET", let cached = cacheLookup(cacheKey) {
+            if let value = try? decoder.decode(Response.self, from: cached) {
+                return value
             }
         }
 
@@ -176,7 +195,7 @@ public actor EdgeAPI {
                     throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
                 }
                 if cacheTTL > 0, method == "GET" {
-                    responseCache[cacheKey] = (data, Date.now.addingTimeInterval(cacheTTL))
+                    cacheStore(cacheKey, data: data, ttl: cacheTTL)
                 }
                 do {
                     return try decoder.decode(Response.self, from: data)
@@ -213,6 +232,72 @@ public actor EdgeAPI {
     /// Stable cache key fragment: query items sorted so order doesn't matter.
     private static func canonicalQuery(_ query: [URLQueryItem]) -> String {
         query.map { "\($0.name)=\($0.value ?? "")" }.sorted().joined(separator: "&")
+    }
+
+    // MARK: - Response cache (US-995)
+
+    /// Returns the cached bytes for `key` when a fresh entry exists, refreshing
+    /// its LRU stamp. Expired entries are removed eagerly (not just skipped).
+    private func cacheLookup(_ key: String) -> Data? {
+        guard let entry = responseCache[key] else { return nil }
+        guard entry.expires > .now else {
+            removeCacheEntry(key)
+            return nil
+        }
+        cacheClock &+= 1
+        responseCache[key]?.lastAccess = cacheClock
+        return entry.data
+    }
+
+    /// Inserts `data` under `key` and enforces the entry/byte caps, evicting the
+    /// least-recently-used entries (and any encountered expired ones) so the
+    /// cache can never grow without bound. Blobs larger than the byte cap are
+    /// not cached at all (caching one would force every other entry out).
+    private func cacheStore(_ key: String, data: Data, ttl: TimeInterval) {
+        purgeExpiredCacheEntries()
+        removeCacheEntry(key) // replace any prior entry's byte accounting
+
+        guard data.count <= Self.cacheMaxBytes else { return }
+
+        cacheClock &+= 1
+        responseCache[key] = CacheEntry(
+            data: data,
+            expires: Date.now.addingTimeInterval(ttl),
+            lastAccess: cacheClock
+        )
+        responseCacheBytes += data.count
+
+        evictUntilWithinCaps()
+    }
+
+    /// Drops expired entries up front so they don't count toward the caps.
+    private func purgeExpiredCacheEntries() {
+        let now = Date.now
+        let expired = responseCache.compactMap { $0.value.expires <= now ? $0.key : nil }
+        for key in expired { removeCacheEntry(key) }
+    }
+
+    /// Evicts the least-recently-used entry until both caps are satisfied.
+    private func evictUntilWithinCaps() {
+        while responseCache.count > Self.cacheMaxEntries
+            || responseCacheBytes > Self.cacheMaxBytes {
+            guard let oldest = responseCache.min(by: { $0.value.lastAccess < $1.value.lastAccess })?.key
+            else { break }
+            removeCacheEntry(oldest)
+        }
+    }
+
+    /// Removes one entry and keeps the running byte total in sync.
+    private func removeCacheEntry(_ key: String) {
+        if let removed = responseCache.removeValue(forKey: key) {
+            responseCacheBytes -= removed.data.count
+        }
+    }
+
+    /// Test-only introspection of the bounded response cache (US-995): current
+    /// entry count, total cached bytes, and the enforced caps.
+    public func cacheStatsForTesting() -> (entries: Int, bytes: Int, maxEntries: Int, maxBytes: Int) {
+        (responseCache.count, responseCacheBytes, Self.cacheMaxEntries, Self.cacheMaxBytes)
     }
 
     private func buildRequest<Body: Encodable>(

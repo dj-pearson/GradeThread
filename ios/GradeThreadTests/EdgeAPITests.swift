@@ -173,6 +173,54 @@ final class EdgeAPITests: XCTestCase {
         }
     }
 
+    // MARK: - Response cache bounding (US-995)
+
+    private func cachedItemHandler() -> MockURLProtocol.Handler {
+        { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"id":"x","title":"y","created_at":"2026-01-01T00:00:00Z"}"#.utf8)
+            )
+        }
+    }
+
+    /// Inserting more than the entry cap must not grow the cache past it; the
+    /// running byte total must also stay within the byte cap.
+    func test_responseCache_boundedByEntryCap_whenOverfilled() async throws {
+        MockURLProtocol.handler = cachedItemHandler()
+        let api = makeAPI()
+
+        let caps = await api.cacheStatsForTesting()
+        let overCap = caps.maxEntries + 25
+        for i in 0..<overCap {
+            let _: Item = try await api.getJSON("/api/v1/items/\(i)", cacheTTL: 60)
+        }
+
+        let stats = await api.cacheStatsForTesting()
+        XCTAssertGreaterThan(stats.entries, 0)
+        XCTAssertLessThanOrEqual(stats.entries, stats.maxEntries)
+        XCTAssertLessThanOrEqual(stats.bytes, stats.maxBytes)
+    }
+
+    /// Expired entries are removed on the next insert, not merely skipped on
+    /// lookup — so a long-lived session can't leak stale blobs forever.
+    func test_responseCache_removesExpiredEntriesOnInsert() async throws {
+        MockURLProtocol.handler = cachedItemHandler()
+        let api = makeAPI()
+
+        let _: Item = try await api.getJSON("/api/v1/items/stale", cacheTTL: 0.05)
+        try await Task.sleep(nanoseconds: 150_000_000) // 0.15s > 0.05s TTL
+        let _: Item = try await api.getJSON("/api/v1/items/fresh", cacheTTL: 60)
+
+        let stats = await api.cacheStatsForTesting()
+        XCTAssertEqual(stats.entries, 1, "Expired entry should have been purged on the fresh insert")
+    }
+
     // MARK: - Helpers
 
     /// Reads `httpBodyStream` to a Data buffer. URLProtocol surfaces request
