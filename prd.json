@@ -1311,7 +1311,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 965,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / iOS] Added 2026-06-12. Files: ios/GradeThread/Marketplaces/.../EbayCategorySpecificsView + EbayAspectsService, ios/GradeThread/Capture/CameraSession. Parity with web US-948."
     },
     {

@@ -3394,3 +3394,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:50:35 AM
 ---
+## US-965: iOS searchable eBay category picker and capture photo guidance
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:54:09 AM
+---
