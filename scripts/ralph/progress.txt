@@ -3346,3 +3346,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:11:17 PM
 ---
+## US-977: Real bylined Person authors with author pages for blog E-E-A-T
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:15:10 PM
+---

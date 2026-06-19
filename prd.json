@@ -1494,7 +1494,7 @@
         "Typecheck + build green."
       ],
       "priority": 977,
-      "passes": false,
+      "passes": true,
       "notes": "[SEO / E-E-A-T] Added 2026-06-13. Advances content-depth epic US-878. Files: functions/blog/[[path]].ts (Article author node ~246-250), functions/_shared/blog-render.ts (Person author helper ~770), the content scheduler author assignment, new /authors route in src/lib/seo/public-routes.ts + entry-server + sitemap. A Person author with sameAs strengthens BOTH Google trust signals and AI entity grounding."
     },
     {
