@@ -39,6 +39,11 @@ interface PassportResponse {
   sku_class: Record<string, unknown>;
   status: string;
   created_at: string;
+  origin_verified_seller?: {
+    handle: string;
+    display_name: string | null;
+    since: string | null;
+  } | null;
   events: PassportEvent[];
 }
 
@@ -133,12 +138,27 @@ async function renderPassport(context: Ctx): Promise<Response> {
     })
     .join("");
 
+  // US-1101: origin-seller Verified badge (public, opt-in) + the buyer-guarantee
+  // "transfers on claim" trust callout — the incentive to claim the chain.
+  const v = data.origin_verified_seller;
+  const verifiedHtml = v?.handle
+    ? `<p style="margin:8px 0 0;font-size:0.9rem">Originally graded &amp; sold by
+        <a href="/verified/${escape(v.handle)}"><strong>${escape(v.display_name || "@" + v.handle)}</strong></a>
+        <span style="font-size:0.8rem;color:var(--muted)">· Verified Seller</span></p>`
+    : "";
+  const guaranteeHtml = `<div style="margin:20px 0;padding:14px 16px;border:1px solid var(--border,#e2e8f0);border-radius:8px;background:rgba(15,52,96,0.05)">
+    <strong>The buyer guarantee transfers when you claim this passport.</strong>
+    <p style="margin:6px 0 0;color:var(--muted);font-size:0.9rem">A passported item carries GradeThread's condition-backed buyer guarantee. Claim ownership after you buy and the guarantee — and the item's full, confidence-scored history — follows you. <a href="/buyer-guarantee">How the buyer guarantee works &rarr;</a></p>
+  </div>`;
+
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
   <main class="container">
   <p style="color:var(--muted);margin-bottom:8px">Garment Passport — pseudonymous, confidence-scored provenance</p>
   <h1>${escape(name)}</h1>
   <p style="color:var(--muted)">${category ? escape(formatLabel(category)) : "Pre-owned garment"} · First graded ${escape(formatDate(data.created_at))}</p>
+  ${verifiedHtml}
   ${headerScoreHtml}
+  ${guaranteeHtml}
   <h2>Provenance timeline</h2>
   <ul style="list-style:none;padding:0">${eventsHtml || "<li style='color:var(--muted)'>No history recorded yet.</li>"}</ul>
   <p style="color:var(--muted);font-size:0.85rem;margin-top:24px">Each entry is labeled with how certain its link in the chain is. Participants are shown as pseudonymous labels only — GradeThread never exposes personal information on a public passport.</p>

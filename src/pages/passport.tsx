@@ -41,6 +41,12 @@ type PassportResponse = {
   sku_class: Record<string, unknown>;
   status: string;
   created_at: string;
+  // US-1101: PII-free origin-seller Verified badge (null unless opted in).
+  origin_verified_seller?: {
+    handle: string;
+    display_name: string | null;
+    since: string | null;
+  } | null;
   events: PassportEvent[];
 };
 
@@ -333,6 +339,51 @@ export function PassportPage() {
                 <div className="text-xs text-muted-foreground">{latestTier}</div>
               </div>
             )}
+          </CardContent>
+          {/* US-1101: the origin seller's GradeThread Verified badge — public,
+              opt-in trust that travels with the passport. */}
+          {data.origin_verified_seller && (
+            <CardContent className="flex flex-wrap items-center gap-2 border-t px-5 pb-5 pt-3 text-sm">
+              <BadgeCheck className="h-4 w-4 text-brand-navy" />
+              <span className="text-muted-foreground">Originally graded &amp; sold by</span>
+              <Link
+                to={`/verified/${data.origin_verified_seller.handle}`}
+                className="font-medium text-brand-navy hover:underline"
+              >
+                {data.origin_verified_seller.display_name ||
+                  `@${data.origin_verified_seller.handle}`}
+              </Link>
+              <Badge variant="outline" className="font-normal">
+                Verified Seller
+              </Badge>
+            </CardContent>
+          )}
+        </Card>
+
+        {/* US-1101: the trust that travels — the incentive to claim the chain.
+            The buyer-guarantee and verified-seller trust attach to the passport,
+            and the guarantee transfers to the new owner when they claim it. */}
+        <Card className="border-brand-navy/30 bg-brand-navy/5">
+          <CardContent className="flex flex-col gap-2 p-5 sm:flex-row sm:items-start">
+            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-navy" />
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-foreground">
+                The buyer guarantee transfers when you claim this passport
+              </p>
+              <p className="text-muted-foreground">
+                A passported item carries GradeThread&rsquo;s condition-backed buyer
+                guarantee. Claim ownership after you buy and the guarantee&nbsp;—&nbsp;and
+                the item&rsquo;s full, confidence-scored history&nbsp;—&nbsp;follows you,
+                so it&rsquo;s demonstrably safer to buy and easier to resell.
+              </p>
+              <Link
+                to="/buyer-guarantee"
+                className="inline-flex items-center gap-1 font-medium text-brand-navy hover:underline"
+              >
+                How the buyer guarantee works
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            </div>
           </CardContent>
         </Card>
 

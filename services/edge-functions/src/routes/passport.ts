@@ -85,7 +85,7 @@ passportRoutes.get("/:slug", async (c) => {
 
   const { data: garment, error: gErr } = await supabaseAdmin
     .from("garments")
-    .select("id, public_passport_slug, sku_class, status, created_at")
+    .select("id, public_passport_slug, sku_class, status, created_at, created_by")
     .eq("public_passport_slug", slug)
     .maybeSingle();
   if (gErr) {
@@ -99,7 +99,38 @@ passportRoutes.get("/:slug", async (c) => {
     sku_class: unknown;
     status: string;
     created_at: string;
+    created_by: string | null;
   };
+
+  // US-1101: surface the ORIGIN seller's GradeThread Verified status (a PUBLIC,
+  // opt-in trust badge) so verified-seller trust travels with the passport. We
+  // expose ONLY the public verified profile fields (handle/display name) and
+  // ONLY when the seller opted in (verified_enabled) — never the user id/email,
+  // and nothing at all for a non-verified seller. This keeps the surface PII-free.
+  let originVerified: { handle: string; display_name: string | null; since: string | null } | null =
+    null;
+  if (g.created_by) {
+    const { data: seller } = await supabaseAdmin
+      .from("users")
+      .select("verified_enabled, verified_handle, verified_display_name, verified_since")
+      .eq("id", g.created_by)
+      .maybeSingle();
+    const s = seller as
+      | {
+        verified_enabled: boolean | null;
+        verified_handle: string | null;
+        verified_display_name: string | null;
+        verified_since: string | null;
+      }
+      | null;
+    if (s?.verified_enabled && s.verified_handle) {
+      originVerified = {
+        handle: s.verified_handle,
+        display_name: s.verified_display_name,
+        since: s.verified_since,
+      };
+    }
+  }
 
   const { data: eventRows } = await supabaseAdmin
     .from("garment_events")
@@ -136,6 +167,8 @@ passportRoutes.get("/:slug", async (c) => {
     sku_class: g.sku_class ?? {},
     status: g.status,
     created_at: g.created_at,
+    // US-1101: PII-free origin-seller verified badge (null unless opted in).
+    origin_verified_seller: originVerified,
     events: rows.map((r) => ({
       event_type: r.event_type,
       confidence: r.confidence,

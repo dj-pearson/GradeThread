@@ -41,6 +41,8 @@ interface ClaimRow {
   id: string;
   certificate_id: string;
   grade_report_id: string;
+  // US-1101: the Garment Passport this claim is anchored to (null = pre-passport).
+  garment_id: string | null;
   seller_user_id: string;
   claimant_email: string;
   claimant_name: string | null;
@@ -157,6 +159,22 @@ adminClaimsRoutes.get("/", async (c) => {
     subById.set(s.id as string, s);
   }
 
+  // US-1101: resolve the Garment Passport slug for chain-linked claims so the
+  // reviewer can open the full provenance chain (not just the one-off cert).
+  const garmentIds = [
+    ...new Set(claims.map((cl) => cl.garment_id).filter((x): x is string => !!x)),
+  ];
+  const slugByGarment = new Map<string, string>();
+  if (garmentIds.length) {
+    const { data: garments } = await supabaseAdmin
+      .from("garments")
+      .select("id, public_passport_slug")
+      .in("id", garmentIds);
+    for (const g of (garments ?? []) as Array<{ id: string; public_passport_slug: string }>) {
+      slugByGarment.set(g.id, g.public_passport_slug);
+    }
+  }
+
   const enriched = claims.map((cl) => {
     const report = reportById.get(cl.grade_report_id);
     const submission = report ? subById.get(report.submission_id) : undefined;
@@ -179,6 +197,8 @@ adminClaimsRoutes.get("/", async (c) => {
             garment_category: submission.garment_category ?? null,
           }
         : null,
+      // US-1101: the passport this claim is anchored to (null = pre-passport).
+      passport_slug: cl.garment_id ? slugByGarment.get(cl.garment_id) ?? null : null,
     };
   });
 

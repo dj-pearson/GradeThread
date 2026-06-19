@@ -131,18 +131,20 @@ guaranteePublicRoutes.post("/claims", async (c) => {
   // Resolve the certified (public) report from the certificate_id. Same RLS-safe
   // gate as content-public: look up BY certificate_id, never by internal id, and
   // require a non-null certificate_id so a private report is unreachable.
+  // US-1101: also pull garment_id so the claim is tied to the Garment Passport
+  // CHAIN (not just the one-off certificate). Nullable for pre-passport grades.
   let report:
-    | { id: string; submission_id: string }
+    | { id: string; submission_id: string; garment_id: string | null }
     | null = null;
   try {
     const { data, error } = await supabaseAdmin
       .from("grade_reports")
-      .select("id, submission_id, certificate_id")
+      .select("id, submission_id, certificate_id, garment_id")
       .eq("certificate_id", certificateId)
       .not("certificate_id", "is", null)
       .maybeSingle();
     if (error) return publicError(c, error, "lookup");
-    report = (data as { id: string; submission_id: string } | null) ?? null;
+    report = (data as { id: string; submission_id: string; garment_id: string | null } | null) ?? null;
   } catch (err) {
     return publicError(c, err, "lookup");
   }
@@ -178,6 +180,8 @@ guaranteePublicRoutes.post("/claims", async (c) => {
       .insert({
         certificate_id: certificateId,
         grade_report_id: report.id,
+        // US-1101: anchor the claim to the passport chain when one exists.
+        garment_id: report.garment_id,
         seller_user_id: sellerUserId,
         claimant_email: claimantEmail,
         claimant_name: claimantName,
