@@ -1718,7 +1718,7 @@
         "CameraPreview degrades gracefully if the layer cast fails (as?)."
       ],
       "priority": 993,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=stability. ios/GradeThread/Upload/PhotoUploadService.swift (~223-228); SyncEngine.swift (~675,708-711); PhotoRotateService.swift (~111-113); Capture/CameraPreview.swift (~37)"
     },
     {

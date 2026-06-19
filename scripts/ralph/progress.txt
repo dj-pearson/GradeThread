@@ -3282,3 +3282,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:40:27 PM
 ---
+## US-993: iOS: remove force-unwrapped URL construction in upload/storage paths
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:45:48 PM
+---
