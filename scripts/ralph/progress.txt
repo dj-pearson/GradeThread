@@ -3318,3 +3318,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:18:20 PM
 ---
+## US-984: iOS: background refresh should await the real sync, not a fixed 8s sleep
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:25:37 PM
+---

@@ -1594,7 +1594,7 @@
         "A sale that landed server-side fires its notification within a single BG run; BackgroundRefreshTests updated."
       ],
       "priority": 984,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=performance/functional. ios/GradeThread/Background/BackgroundRefreshService.swift (~125-138)"
     },
     {
