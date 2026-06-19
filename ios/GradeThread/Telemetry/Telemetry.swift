@@ -135,17 +135,32 @@ public enum Telemetry {
     /// `nonisolated` + pure so it's trivially testable and has no main-actor
     /// dependency.
     nonisolated static func redactProperties(_ props: [String: Any]) -> [String: Any] {
-        props.mapValues(redactValue)
+        redactDict(props)
     }
 
-    nonisolated private static func redactValue(_ value: Any) -> Any {
+    /// Recursively redact a `[String: Any]` payload, passing each key down so a
+    /// sensitive-header value (e.g. a nested `["apikey": "<token>"]` request-
+    /// header dict from a swizzled HTTP breadcrumb) is dropped wholesale, not
+    /// just pattern-matched. (US-990)
+    nonisolated static func redactDict(_ dict: [String: Any]) -> [String: Any] {
+        dict.reduce(into: [String: Any]()) { acc, pair in
+            acc[pair.key] = redactValue(pair.value, key: pair.key)
+        }
+    }
+
+    nonisolated private static func redactValue(_ value: Any, key: String? = nil) -> Any {
+        // A value keyed by a sensitive header name is a raw token with no
+        // surrounding context for the string rules — redact it wholesale.
+        if let key, TelemetryScrubber.isSensitiveHeaderName(key), value is String {
+            return "[redacted]"
+        }
         switch value {
         case let string as String:
             return TelemetryScrubber.redact(string)
         case let array as [Any]:
-            return array.map(redactValue)
+            return array.map { redactValue($0) }
         case let dict as [String: Any]:
-            return dict.mapValues(redactValue)
+            return redactDict(dict)
         default:
             return value
         }
@@ -227,12 +242,10 @@ public enum Telemetry {
     nonisolated static func scrubBreadcrumb(_ crumb: Breadcrumb) {
         crumb.message = crumb.message.map(TelemetryScrubber.redact)
         guard let data = crumb.data else { return }
-        crumb.data = data.mapValues { value in
-            if let string = value as? String {
-                return TelemetryScrubber.redact(string)
-            }
-            return value
-        }
+        // Recurse + key-aware: swizzled HTTP breadcrumbs stash the request URL in
+        // `http.url` (signed-storage token) and may nest a request-header dict
+        // whose `Authorization` / `apikey` values are raw tokens.
+        crumb.data = redactDict(data)
     }
 
     private static func startPostHog() {

@@ -719,7 +719,7 @@ actor SyncEngine {
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
-        let (_, response) = try await URLSession.shared.upload(for: request, from: data)
+        let (_, response) = try await Self.storageUploadSession.upload(for: request, from: data)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw SyncReplayError.storageUpload(status: http.statusCode)
         }
@@ -747,6 +747,21 @@ actor SyncEngine {
     }
 
     private static let storageBucket = "item-photos"
+
+    /// Dedicated session for raw Storage uploads that set Authorization / apikey
+    /// headers. Deliberately NOT `URLSession.shared`: the shared session is the
+    /// one Sentry swizzles for auto HTTP breadcrumbs, so a signed-storage URL +
+    /// bearer creds would be captured into a crumb. Routing these authenticated
+    /// uploads through a private session keeps them off that swizzled path
+    /// (breadcrumb scrubbing is the second line of defense). The ephemeral
+    /// config also holds no on-disk cache/cookies for these requests. (US-990)
+    private static let storageUploadSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        return URLSession(configuration: config)
+    }()
 
     private static func storageObjectURL(path: String) -> URL? {
         StorageURL.object(base: AppConfig.supabaseURL, bucket: storageBucket, path: path)

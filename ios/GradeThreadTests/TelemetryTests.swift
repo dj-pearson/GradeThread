@@ -183,4 +183,81 @@ final class TelemetryTests: XCTestCase {
         Telemetry.scrubBreadcrumb(crumb)
         XCTAssertTrue(crumb.message?.contains("Bearer [redacted]") ?? false)
     }
+
+    // MARK: - Signed-storage URL + header redaction (US-990)
+
+    func test_scrubBreadcrumb_redactsSignedStorageUrlInHttpUrl() {
+        // Sentry's swizzled HTTP breadcrumbs store the request URL under
+        // `http.url` (not just `url`); a signed Storage upload URL carries the
+        // path + a `?token=` query that must never ship.
+        let crumb = Breadcrumb()
+        crumb.data = [
+            "http.url": "https://api.gradethread.com/storage/v1/object/item-photos/u/i/front_1.jpg?token=eyJsigned.abc-DEF",
+            "http.method": "POST",
+        ]
+        Telemetry.scrubBreadcrumb(crumb)
+
+        let url = crumb.data?["http.url"] as? String
+        XCTAssertEqual(url, "[redacted-storage-url]")
+        XCTAssertFalse(url?.contains("token=") ?? true)
+        XCTAssertEqual(crumb.data?["http.method"] as? String, "POST")
+    }
+
+    func test_scrubBreadcrumb_neverContainsBearerToken() {
+        // A bearer token can land in the message, a flat data string, OR a
+        // nested request-header dict — none may survive the scrub.
+        let crumb = Breadcrumb()
+        crumb.message = "Authorization: Bearer eyJhbGci.message-tok_ABC"
+        crumb.data = [
+            "http.url": "https://api.gradethread.com/x?Authorization=Bearer%20unused",
+            "auth": "Bearer eyJhbGci.flat-tok_DEF",
+            "headers": ["Authorization": "Bearer eyJhbGci.header-tok_GHI"],
+        ]
+        Telemetry.scrubBreadcrumb(crumb)
+
+        // Flatten everything the crumb still carries into one string and assert
+        // no raw token fragment remains anywhere.
+        func collect(_ value: Any) -> String {
+            switch value {
+            case let s as String: return s
+            case let a as [Any]: return a.map(collect).joined(separator: " ")
+            case let d as [String: Any]: return d.values.map(collect).joined(separator: " ")
+            default: return ""
+            }
+        }
+        let haystack = (crumb.message ?? "") + " " + collect(crumb.data ?? [:])
+        XCTAssertFalse(haystack.contains("eyJhbGci"))
+        XCTAssertFalse(haystack.contains("tok_ABC"))
+        XCTAssertFalse(haystack.contains("tok_DEF"))
+        XCTAssertFalse(haystack.contains("tok_GHI"))
+    }
+
+    func test_scrubBreadcrumb_redactsApiKeyHeaderValue() {
+        // A swizzled breadcrumb can split request headers into a nested dict
+        // where the `apikey` value is a BARE token (no `apikey=` prefix for the
+        // string rule to match) — it must still be redacted by header name.
+        let crumb = Breadcrumb()
+        crumb.data = [
+            "headers": [
+                "apikey": "sb_secret_anon_key_12345",
+                "Content-Type": "image/jpeg",
+            ],
+        ]
+        Telemetry.scrubBreadcrumb(crumb)
+
+        let headers = crumb.data?["headers"] as? [String: Any]
+        XCTAssertEqual(headers?["apikey"] as? String, "[redacted]")
+        XCTAssertFalse((headers?["apikey"] as? String ?? "").contains("sb_secret_anon_key_12345"))
+        // A non-sensitive header passes through untouched.
+        XCTAssertEqual(headers?["Content-Type"] as? String, "image/jpeg")
+    }
+
+    func test_redactProperties_redactsApiKeyHeaderValueByName() {
+        // Event props carrying a header dict get the same key-aware treatment.
+        let out = Telemetry.redactProperties([
+            "headers": ["apikey": "sb_secret_anon_key_12345"],
+        ])
+        let headers = out["headers"] as? [String: Any]
+        XCTAssertEqual(headers?["apikey"] as? String, "[redacted]")
+    }
 }

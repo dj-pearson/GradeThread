@@ -33,6 +33,22 @@ enum TelemetryScrubber {
              template: "[redacted-storage-url]"),
     ]
 
+    /// Header field names whose ENTIRE value must be dropped. A raw header
+    /// value — e.g. the bare token behind `apikey`, or the JWT behind
+    /// `Authorization` once a swizzled breadcrumb splits the dict into
+    /// `["apikey": "<token>"]` — carries none of the surrounding `apikey=` /
+    /// `Bearer ` context the string rules latch onto, so it must be redacted by
+    /// key. (US-990)
+    static let sensitiveHeaderNames: Set<String> = [
+        "authorization", "apikey", "api_key", "x-api-key", "x-apikey",
+        "access_token", "refresh_token", "cookie", "set-cookie",
+    ]
+
+    /// True when `name` is a header whose value should be redacted wholesale.
+    static func isSensitiveHeaderName(_ name: String) -> Bool {
+        sensitiveHeaderNames.contains(name.lowercased())
+    }
+
     private static func replace(_ string: String, pattern: String, template: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return string }
         let range = NSRange(string.startIndex..., in: string)
