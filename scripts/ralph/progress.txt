@@ -3370,3 +3370,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:18:05 AM
 ---
+## US-971: iOS: consistent error-state retry affordance across data screens
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:24:35 AM
+---

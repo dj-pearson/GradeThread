@@ -1402,7 +1402,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 971,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Marketplaces/Reconciliation/ReconciliationView.swift (failureView:117 — message only, no button). Sweep other *View error branches. Complements US-755 (offline indicator) which gates actions but doesn't add per-screen retry."
     },
     {
