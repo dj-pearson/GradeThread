@@ -3076,7 +3076,7 @@
         "No PII exposed; build + tsc + eslint clean"
       ],
       "priority": 717,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][Growth] Demand-side wedge that grows coverage. Depends on [[US-1093]], [[US-1095]]. Follow SEO registry rules (public-routes.ts + entry-server.tsx + head-builder.ts)."
     }
   ]

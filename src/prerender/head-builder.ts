@@ -35,6 +35,7 @@ import {
   transparencyJsonLd,
   resaleConditionReportJsonLd,
   verifyJsonLd,
+  passportScanJsonLd,
   whatsItWorthJsonLd,
   reduceReturnsJsonLd,
   resellerGuideJsonLd,
@@ -88,6 +89,8 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   // FAQPage). Deterministic JSON-LD so prerender == SPA (parity test covers it).
   "/resale-condition-report": resaleConditionReportJsonLd,
   "/verify": verifyJsonLd,
+  // US-1106: buyer-facing passport lookup (HowTo + FAQPage).
+  "/scan": passportScanJsonLd,
   "/whats-it-worth": whatsItWorthJsonLd,
   // Cornerstone pillar pages (US-855): Article + FAQPage.
   "/reduce-returns": reduceReturnsJsonLd,

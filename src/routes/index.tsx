@@ -98,6 +98,7 @@ const GradingStandardPage = lazy(() => import("@/pages/marketing/grading-standar
 const TransparencyPage = lazy(() => import("@/pages/marketing/transparency").then(m => ({ default: m.TransparencyPage })));
 const ResaleConditionReportPage = lazy(() => import("@/pages/marketing/resale-condition-report").then(m => ({ default: m.ResaleConditionReportPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
+const PassportScanPage = lazy(() => import("@/pages/marketing/passport-scan").then(m => ({ default: m.PassportScanPage })));
 const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m => ({ default: m.DevelopersPage })));
 const WhatsItWorthPage = lazy(() => import("@/pages/marketing/whats-it-worth").then(m => ({ default: m.WhatsItWorthPage })));
 // US-867: buyer trust guarantee policy (prerendered) + claim intake form (dynamic).
@@ -320,6 +321,8 @@ export const router = createBrowserRouter([
       { path: "/transparency", element: <SuspenseWrapper><TransparencyPage /></SuspenseWrapper> },
       { path: "/resale-condition-report", element: <SuspenseWrapper><ResaleConditionReportPage /></SuspenseWrapper> },
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },
+      // US-1106: buyer-facing "scan before you buy" passport lookup landing.
+      { path: "/scan", element: <SuspenseWrapper><PassportScanPage /></SuspenseWrapper> },
       { path: "/developers", element: <SuspenseWrapper><DevelopersPage /></SuspenseWrapper> },
       { path: "/whats-it-worth", element: <SuspenseWrapper><WhatsItWorthPage /></SuspenseWrapper> },
       // US-868: company/about page (entity-level authority surface)
