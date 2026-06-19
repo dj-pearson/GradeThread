@@ -30,7 +30,7 @@
         "Replaces the 'Coming soon' placeholder cards in MarketplacesView.swift (lines ~86-126) for these platforms; eBay publish path is unchanged"
       ],
       "priority": 745,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Parity] BIGGEST parity gap from the iOS feature audit: iOS is eBay-only — AutoLister/Marketplaces have no cross-listing, and MarketplacesView shows Poshmark/Mercari/Grailed/Depop as 'Coming soon'. Web shipped the full cross-list stack (US-719..US-725: marketplace-specs registry, per-platform field/condition/category mapping, photo export, pre-flight validation, copy-paste Listing Kit). KEY INSIGHT: don't re-port the registry to Swift — the server already generates + persists per-platform fields (listings.platform_fields) via the US-721 endpoint, so iOS should consume that and render a native copy/share kit. Files: Marketplaces/MarketplacesView.swift, AutoLister/*, Marketplaces/Publish/PublishDialog.swift. Mirrors web [[US-723]]/[[US-721]]/[[US-725]]."
     },
     {

@@ -13,9 +13,43 @@
 
 ## ✅ Done so far (Passport epic, `passes:true`)
 
-> **Branch note:** earlier stories landed on `claude/cool-johnson-1yzh21` (PR #88)
-> and `claude/prd-story-loop-rzz40a` (PR #90, merged). The CURRENT loop branch is
-> **`claude/prd-story-loop-5zgguo`**.
+> **Branch note:** earlier stories landed on `claude/cool-johnson-1yzh21` (PR #88),
+> `claude/prd-story-loop-rzz40a` (PR #90, merged) and `claude/prd-story-loop-5zgguo`
+> (PR #91, merged). The CURRENT loop branch is
+> **`claude/prd-story-loop-continued-ghuqm5`**.
+
+### Session 2026-06-19 (on `claude/prd-story-loop-continued-ghuqm5`)
+- **US-1105** opt-in identity reveal — **Garment Passport epic (US-1089→1106) DONE.**
+  Mig `00265` (`owner_nodes.identity_revealed` + `identity_revealed_at`, OFF by
+  default). Pure double-opt-in gate `effectiveRevealedIdentity()` (per-hop consent
+  AND a live public Verified profile). Edge `passport-identity.ts` (`GET /nodes`,
+  `POST /nodes/:id/reveal`, authed + scoped to `linked_user_id`). Public passport
+  GET surfaces the revealed handle only. Honored on export/delete (`account.ts`).
+  Frontend: reveal switches on the Verified page + handle render on passport SPA +
+  SSR. Docs `GARMENT_PASSPORT_PRIVACY.md`. **Schema → 00265.**
+- **US-1106** buyer "scan before you buy" — public `/scan` lookup (parses a
+  passport link/slug or tag code → `/passport/:slug` or `/t/:code`). Pure
+  `lib/passport-scan.ts` + vitest; SEO-registered (public-routes + entry-server +
+  head-builder, HowTo+FAQPage); footer link. NB: `/verify` was already taken (cert
+  verify), so the passport entry is `/scan`.
+- **US-744** mobile/PWA — generalized the install banner (`variant` + shared
+  dismiss key) onto `snap.tsx`; Workbox `runtimeCaching` (NetworkFirst) for offline
+  cert/passport pages + public cert API + the owner's submission/grade reads.
+  **AC1/AC3 need real-device + installed-PWA QA** (per the story notes); verified to
+  build/eslint/tsc only.
+- **US-745** iOS cross-marketplace Listing Kit (**P1 parity gap**). Consumes the web
+  `POST /api/flipdesk/autolister/platform-fields` (added an additive `spec` field
+  to that endpoint: label + per-field char limits + maxPhotos + sourceNote, so iOS
+  doesn't re-port the registry). New `ios/.../Marketplaces/ListingKit/*` (Types +
+  Service + Store + View) — per-platform Copy/Copy-all/Share + live char-count vs
+  limit + mapped condition/category + US-725 validation. Mounted via a per-draft
+  "Listing Kit" swipe-action sheet in `DraftsLibraryView`; `MarketplacesView`
+  retiered Poshmark/Mercari/Grailed/Depop from "Coming soon" → "Copy & paste kit".
+  XCTest `ListingKitTests.swift`. ⚠️ **iOS is UNVERIFIABLE here** — no
+  macOS/xcodebuild; only `no-ungated-print.py` ran (passed). XcodeGen (`project.yml`)
+  globs the source dir, so the new files are picked up without a pbxproj edit.
+  Compilation confidence rests on pattern fidelity + self-review only — **check the
+  iOS CI lane if a PR is opened.**
 
 ### This run (on `claude/prd-story-loop-5zgguo`)
 - **Flaky-test fix** — `relist-match.ts` ranking was non-deterministic (score
@@ -85,17 +119,20 @@ Schema version is at **`00264`** (`services/edge-functions/src/lib/schema-versio
 
 ## ⏭️ Next up (priority order)
 
-1. **US-1105** opt-in identity reveal (sets `owner_nodes.linked_user_id`; deferred
-   design). ⚠️ **Privacy-critical** — a mistake leaks PII. Do this in FRESH context
-   with care: consent-gated, off by default, reversible, per-hop, honored across
-   export/delete (`data_requests`/`00225`). Deliberately deferred at the end of the
-   last run to avoid rushing it on a long context window.
-2. **US-1106** buyer-facing "scan before you buy" public entry. Mostly
-   frontend/SEO — a `/verify` landing that resolves slug/short-code → existing
-   public `/passport/:slug` (US-1093) / `/t/:code` (US-1096). Follow the SEO
-   registry rules (`public-routes.ts` + `entry-server.tsx` + `head-builder.ts`).
-   Fully locally verifiable (no edge CI dependency).
-3. then **iOS** (US-744+) and **drip** (US-908+).
+The **Garment Passport epic (US-1089→1106) is COMPLETE.** Remaining backlog:
+
+1. **iOS US-747+** (`passes:false`): US-747 onboarding/activation routing, US-749
+   surface buried modules, US-750 sales/expenses source-of-truth, US-751..768, …
+   ⚠️ **Pure Swift — cannot be built/tested in this Linux env** (no macOS/xcodebuild;
+   only `python3 ios/Scripts/no-ungated-print.py` runs). The user OK'd shipping iOS
+   unverified ("attempt iOS anyway"). Match patterns precisely (see the iOS map in
+   this session's notes: `EdgeAPI` actor, `@MainActor ObservableObject` stores with
+   injected protocol services, `cardStyle`/`Spacing`/`CornerRadius`/`StatusBadge`,
+   XcodeGen globs the source dir). **Open a PR only if asked → then check the iOS CI
+   lane.**
+2. then **drip / email epic US-908+** — backend/edge/frontend, **fully locally
+   verifiable** (PG16 mig checks, Node-validated logic, tsc+eslint+build). If iOS
+   risk is unacceptable, this tier is the safer loop fuel.
 
 ## 🔧 Working agreement (learnings from this run — follow these)
 

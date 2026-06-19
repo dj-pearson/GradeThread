@@ -2046,7 +2046,27 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
   try {
     const result = await generatePlatformVariants(itemId, ownerId, platforms);
     await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
-    return c.json({ listing_id: result.listingId, variants: result.variants });
+    // US-745: attach each platform's field spec (display label + per-field
+    // char limits + required flags + photo cap + the "verify these" source
+    // note) so a thin native client (the iOS Listing Kit) can render a
+    // copy/share kit with live char-count-vs-limit straight from server data —
+    // no need to re-port the marketplace-specs registry into Swift. Additive:
+    // existing web consumers simply ignore the extra `spec` field.
+    const variants = result.variants.map((v) => {
+      const spec = getMarketplaceSpec(v.platform);
+      return {
+        ...v,
+        spec: spec
+          ? {
+            label: spec.label,
+            fields: spec.fields,
+            maxPhotos: spec.maxPhotos,
+            sourceNote: spec.sourceNote,
+          }
+          : null,
+      };
+    });
+    return c.json({ listing_id: result.listingId, variants });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Platform-field generation failed.";
     // "no eBay draft" is a precondition the caller can fix → 409.

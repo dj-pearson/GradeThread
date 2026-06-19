@@ -88,15 +88,16 @@ struct MarketplacesView: View {
     // (and cross-listing entry points) iterate over this list.
     private enum ChannelTier {
         case api          // live API connector (eBay, Shopify) — managed on the web dashboard
-        case apiPending   // connector built, awaiting platform approval (Depop)
-        case extensionKit // listed via the GradeThread Lister browser extension (desktop)
+        // US-745: no-API marketplaces now cross-list in-app via the copy/paste
+        // Listing Kit (open a drafted item → Listing Kit), replacing the prior
+        // "Coming soon" / browser-extension-only treatment for these platforms.
+        case listingKit
         case comingSoon   // no integration yet
 
         var badge: String {
             switch self {
             case .api: return "Live · manage on web"
-            case .apiPending: return "Coming soon"
-            case .extensionKit: return "Browser extension"
+            case .listingKit: return "Copy & paste kit"
             case .comingSoon: return "Coming soon"
             }
         }
@@ -111,10 +112,10 @@ struct MarketplacesView: View {
 
     private static let phasedChannels: [MarketplaceChannel] = [
         .init(id: "shopify", label: "Shopify", systemImage: "cart", tier: .api),
-        .init(id: "poshmark", label: "Poshmark", systemImage: "bag", tier: .extensionKit),
-        .init(id: "mercari", label: "Mercari", systemImage: "shippingbox", tier: .extensionKit),
-        .init(id: "grailed", label: "Grailed", systemImage: "tag", tier: .extensionKit),
-        .init(id: "depop", label: "Depop", systemImage: "tshirt", tier: .apiPending),
+        .init(id: "poshmark", label: "Poshmark", systemImage: "bag", tier: .listingKit),
+        .init(id: "mercari", label: "Mercari", systemImage: "shippingbox", tier: .listingKit),
+        .init(id: "grailed", label: "Grailed", systemImage: "tag", tier: .listingKit),
+        .init(id: "depop", label: "Depop", systemImage: "tshirt", tier: .listingKit),
         .init(id: "whatnot", label: "Whatnot", systemImage: "video", tier: .comingSoon),
     ]
 
@@ -123,7 +124,7 @@ struct MarketplacesView: View {
             Text("More channels")
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("eBay + Shopify connect via API on the web dashboard. Poshmark, Mercari & Grailed cross-list from your own logged-in tab with the GradeThread Lister browser extension.")
+            Text("eBay + Shopify connect via API on the web dashboard. For Poshmark, Mercari, Grailed & Depop, open a drafted item and tap Listing Kit to copy each platform's tailored fields — title, description, tags, condition & category — straight into the app.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
