@@ -1911,7 +1911,7 @@
         "EbaySyncTests updated."
       ],
       "priority": 1007,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Marketplaces/EbaySyncService.swift (~94,188-191,205)"
     },
     {
