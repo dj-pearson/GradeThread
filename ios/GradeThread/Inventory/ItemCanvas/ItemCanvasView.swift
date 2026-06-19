@@ -18,6 +18,8 @@ struct ItemCanvasView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.photoUploadService) private var uploadService
+    /// US-981: gate the network-only "Get eBay comps" lookup when offline.
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
 
     let item: LocalInventoryItem
 
@@ -940,7 +942,15 @@ struct ItemCanvasView: View {
                 } label: {
                     Label("Get eBay comps", systemImage: "chart.bar.doc.horizontal")
                 }
-                .disabled(state.draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    state.draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || NetworkMonitor.isOffline(networkMonitor)
+                )
+                if NetworkMonitor.isOffline(networkMonitor) {
+                    OfflineNotice(intent: .blocked, detail: "to pull eBay comps")
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
 
             case .loading:
                 HStack(spacing: 10) {

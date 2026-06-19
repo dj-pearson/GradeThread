@@ -8,6 +8,9 @@ struct GradeRequestSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthStore.self) private var authStore
+    /// US-981: gate the network-only submit when offline. Optional so the sheet
+    /// never crashes if presented outside the shell that injects it.
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
 
     /// The item being graded. Updated optimistically on completion so the
     /// canvas + list reflect the new grade before the next sync pull.
@@ -110,6 +113,10 @@ struct GradeRequestSheet: View {
 
                     if validation.limitExceeded {
                         creditsBanner
+                    }
+
+                    if NetworkMonitor.isOffline(networkMonitor) {
+                        OfflineNotice(intent: .blocked, detail: "to request a certified grade")
                     }
 
                     submitButton(store)
@@ -270,7 +277,7 @@ struct GradeRequestSheet: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(Color.brandNavy)
-        .disabled(!store.canSubmit)
+        .disabled(!store.canSubmit || NetworkMonitor.isOffline(networkMonitor))
     }
 
     // MARK: - Processing / still-processing

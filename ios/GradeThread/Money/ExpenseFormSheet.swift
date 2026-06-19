@@ -8,6 +8,9 @@ struct ExpenseFormSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthStore.self) private var authStore
+    /// US-981: Add Expense durably queues offline (US-982), so we don't block
+    /// Save — we just reassure the user it'll sync on reconnect.
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
 
     @State private var category: ExpenseCategory = .shippingSupplies
     @State private var amountText: String = ""
@@ -42,6 +45,13 @@ struct ExpenseFormSheet: View {
                 Section("Note") {
                     TextField("Optional", text: $note, axis: .vertical)
                         .lineLimit(1...3)
+                }
+                if NetworkMonitor.isOffline(networkMonitor) {
+                    Section {
+                        OfflineNotice(intent: .queued)
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                    }
                 }
                 if let errorMessage {
                     Section {

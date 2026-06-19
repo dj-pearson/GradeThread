@@ -416,6 +416,11 @@ private struct ComposerForm: View {
     var showRelistWarning: Bool = false
     let onPush: (ComposerEdits) -> Void
 
+    /// US-981: proactively gate the push button when offline so it shows an
+    /// offline state rather than firing a doomed round-trip (the parent's
+    /// `runPush` keeps a tap-time backstop for the flap-mid-tap case).
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
+
     @State private var title: String
     @State private var condition: EbayCondition
     @State private var conditionDescription: String
@@ -522,6 +527,11 @@ private struct ComposerForm: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
+                if NetworkMonitor.isOffline(networkMonitor) {
+                    OfflineNotice(intent: .blocked, detail: "to publish to eBay")
+                }
+
+                let pushDisabled = trimmedTitle.isEmpty || NetworkMonitor.isOffline(networkMonitor)
                 Button {
                     onPush(ComposerEdits(
                         title: trimmedTitle,
@@ -534,11 +544,11 @@ private struct ComposerForm: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(trimmedTitle.isEmpty ? Color.secondary.opacity(0.3) : Color.brandNavy)
+                        .background(pushDisabled ? Color.secondary.opacity(0.3) : Color.brandNavy)
                         .foregroundStyle(.white)
                         .clipShape(Capsule())
                 }
-                .disabled(trimmedTitle.isEmpty)
+                .disabled(pushDisabled)
                 .padding(.top, 4)
             }
             .padding(16)

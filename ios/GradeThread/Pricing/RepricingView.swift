@@ -6,6 +6,10 @@ import SwiftUI
 /// "Scan" button forces a fresh pass.
 struct RepricingView: View {
     @State private var store = RepricingStore()
+    /// US-981: gate the network-only scan / apply actions when offline.
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
+
+    private var isOffline: Bool { NetworkMonitor.isOffline(networkMonitor) }
 
     var body: some View {
         content
@@ -59,10 +63,14 @@ struct RepricingView: View {
         ScrollView {
             VStack(spacing: 12) {
                 summaryHeader
+                if isOffline {
+                    OfflineNotice(intent: .blocked, detail: "to apply price changes")
+                }
                 ForEach(store.suggestions) { suggestion in
                     RepricingCard(
                         suggestion: suggestion,
                         isBusy: store.inFlight.contains(suggestion.id),
+                        isOffline: isOffline,
                         errorMessage: store.rowErrors[suggestion.id],
                         onApply: { Task { await store.apply(suggestion) } },
                         onDismiss: { Task { await store.dismiss(suggestion) } }
@@ -109,7 +117,7 @@ struct RepricingView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color.brandNavy)
-            .disabled(store.isScanning)
+            .disabled(store.isScanning || isOffline)
         }
     }
 
@@ -134,7 +142,7 @@ struct RepricingView: View {
                     Label("Scan", systemImage: "arrow.clockwise")
                 }
             }
-            .disabled(store.isScanning)
+            .disabled(store.isScanning || isOffline)
         }
     }
 
@@ -159,6 +167,9 @@ struct RepricingView: View {
 private struct RepricingCard: View {
     let suggestion: RepricingSuggestion
     let isBusy: Bool
+    /// US-981: when offline, Apply (and Dismiss) hit the edge and would just
+    /// fail, so both are disabled until reconnect.
+    var isOffline: Bool = false
     let errorMessage: String?
     let onApply: () -> Void
     let onDismiss: () -> Void
@@ -264,7 +275,7 @@ private struct RepricingCard: View {
                 .foregroundStyle(.white)
                 .clipShape(Capsule())
             }
-            .disabled(isBusy)
+            .disabled(isBusy || isOffline)
 
             Button(action: onDismiss) {
                 Text("Dismiss")
@@ -275,7 +286,7 @@ private struct RepricingCard: View {
                     .background(Color.secondary.opacity(0.12))
                     .clipShape(Capsule())
             }
-            .disabled(isBusy)
+            .disabled(isBusy || isOffline)
         }
     }
 

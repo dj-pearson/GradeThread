@@ -8,6 +8,9 @@ import SwiftUI
 struct AIExtractView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(PhotoUploadStore.self) private var uploadStore
+    /// US-981: short-circuit with friendly copy when offline, instead of waiting
+    /// out the upload timeout only to surface a raw network failure.
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
 
     let inventoryItemId: String
     let userId: String
@@ -135,6 +138,13 @@ struct AIExtractView: View {
     // MARK: - Flow
 
     private func runFlow() async {
+        // Offline short-circuit (US-981): the photos sit safely in the upload
+        // queue, but the AI extract needs the network — don't spin on uploads
+        // that can't finish, just say so plainly.
+        if NetworkMonitor.isOffline(networkMonitor) {
+            store.fail("You're offline. Reconnect and reopen this item to let AI read your photos — they're saved and waiting.")
+            return
+        }
         await waitForUploads()
         await runExtract()
         await autoApplyIfReady()

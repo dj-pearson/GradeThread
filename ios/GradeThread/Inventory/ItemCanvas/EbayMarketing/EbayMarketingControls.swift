@@ -62,6 +62,10 @@ struct EbayMarketingControls: View {
     @State private var store: EbayMarketingStore
     @State private var rate: Double = 8
     @State private var salePct: Double = 15
+    /// US-981: gate the network-only promote / sale actions when offline.
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
+
+    private var isOffline: Bool { NetworkMonitor.isOffline(networkMonitor) }
 
     init(listingId: String) {
         self.listingId = listingId
@@ -77,6 +81,11 @@ struct EbayMarketingControls: View {
                 Text(message).font(.caption).foregroundStyle(.secondary)
             case .ready:
                 if let status = store.status {
+                    if isOffline {
+                        OfflineNotice(intent: .blocked, detail: "to change promotion or sale")
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                    }
                     promoteControls(status)
                     saleControls(status)
                 }
@@ -106,13 +115,13 @@ struct EbayMarketingControls: View {
             Button(promoted ? "Update rate" : "Promote") {
                 Task { await store.promote(ratePct: rate) }
             }
-            .disabled(store.busy)
+            .disabled(store.busy || isOffline)
             if promoted {
                 Spacer()
                 Button("Stop promoting", role: .destructive) {
                     Task { await store.stopPromote() }
                 }
-                .disabled(store.busy)
+                .disabled(store.busy || isOffline)
             }
         }
     }
@@ -127,7 +136,7 @@ struct EbayMarketingControls: View {
                 Button("End Sale", role: .destructive) {
                     Task { await store.endSale() }
                 }
-                .disabled(store.busy)
+                .disabled(store.busy || isOffline)
             }
         } else {
             Stepper(value: $salePct, in: 5...70, step: 5) {
@@ -136,7 +145,7 @@ struct EbayMarketingControls: View {
             Button("Start Sale") {
                 Task { await store.startSale(percentOff: salePct) }
             }
-            .disabled(store.busy)
+            .disabled(store.busy || isOffline)
         }
     }
 }
