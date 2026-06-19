@@ -54,6 +54,8 @@ struct AutoListerQueueView: View {
             preparing
         case .failed(let message):
             failure(message)
+        case .timedOut(let pending, let total):
+            timeoutWarning(pending: pending, total: total)
         case .finished:
             queue
         }
@@ -81,6 +83,40 @@ struct AutoListerQueueView: View {
             return "Preparing items \(done)/\(total)…"
         }
         return "Preparing…"
+    }
+
+    // MARK: - Upload timeout
+
+    private func timeoutWarning(pending: Int, total: Int) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "clock.badge.exclamationmark")
+                .font(.system(size: 40))
+                .foregroundStyle(Color.brandRed)
+            Text("Uploads still finishing")
+                .font(.brandHeadline)
+            Text("\(pending) of \(total) item\(total == 1 ? "" : "s") still \(pending == 1 ? "has" : "have") photos uploading. Retry the uploads so every listing generates from a complete photo set.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            VStack(spacing: 10) {
+                Button {
+                    Task { await generator.retryUploads() }
+                } label: {
+                    Label("Retry uploads", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Generate anyway") {
+                    Task { await generator.generateAnyway() }
+                }
+                .buttonStyle(.bordered)
+                Button("Back") { dismiss() }
+                    .buttonStyle(.borderless)
+            }
+            .padding(.top, 4)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func failure(_ message: String) -> some View {

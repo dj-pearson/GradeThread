@@ -11,15 +11,32 @@ import Foundation
 ///      embedded `AutolisterBatchStore`), and
 ///   5. best-effort `/photo-qa` for reshoot nudges.
 ///
+/// US-998: uploads for every group are scheduled UP FRONT so the shared
+/// `PhotoUploadService` (cap `maxConcurrent`) overlaps them — a later group's
+/// photos start transferring while earlier groups are still in flight, instead
+/// of draining one group's uploads before the next is even scheduled. A single
+/// wall-clock deadline then waits across the whole batch; if it elapses with
+/// photos still pending, generation does NOT proceed silently — the user is
+/// warned and can retry the uploads (or generate anyway).
+///
 /// Owns an `AutolisterBatchStore` and forwards its change notifications so a
 /// single `@StateObject` of this generator drives the whole queue screen.
 @MainActor
 final class AutoListerGenerator: ObservableObject {
 
+    /// Wall-clock cap for the whole batch's overlapped uploads. Because uploads
+    /// now overlap (cap `PhotoUploadService.maxConcurrent`) rather than running
+    /// per-group, this is a single batch deadline, not a per-group one.
+    static let uploadTimeout: TimeInterval = 90
+
     enum Prep: Equatable {
         case idle
         case running(done: Int, total: Int)
         case failed(String)
+        /// Upload deadline elapsed with `pending` of `total` items still
+        /// missing one or more terminal photos. The user chooses to retry the
+        /// uploads or generate anyway — generation never proceeds silently.
+        case timedOut(pending: Int, total: Int)
         case finished
     }
 
@@ -30,6 +47,21 @@ final class AutoListerGenerator: ObservableObject {
 
     private let service: AutolisterBatching
     private var bridge: AnyCancellable?
+
+    /// One group that was created + had its photos scheduled. Retained so a
+    /// post-timeout retry can re-drive the same uploads and classification.
+    private struct PreparedItem {
+        let itemId: String
+        let group: PreparedGroup
+        let scheduled: [ScheduledPhoto]
+    }
+
+    /// Retry context captured by `run`, consumed by `finishPreparation` and by
+    /// the post-timeout `retryUploads` / `generateAnyway` actions.
+    private var prepared: [PreparedItem] = []
+    private var templateId: String?
+    private weak var uploadStore: PhotoUploadStore?
+    private var uploadService: PhotoUploadService?
 
     init(service: AutolisterBatching = AutolisterService()) {
         self.service = service
@@ -59,26 +91,106 @@ final class AutoListerGenerator: ObservableObject {
             return
         }
 
-        prep = .running(done: 0, total: groups.count)
-        var itemIds: [String] = []
+        self.uploadService = uploadService
+        self.uploadStore = uploadStore
+        self.templateId = templateId
 
-        for (index, group) in groups.enumerated() {
+        prep = .running(done: 0, total: groups.count)
+
+        // Phase 1 — create every item and schedule ALL its uploads immediately.
+        // Each `schedule` kicks the shared service, which runs up to
+        // `maxConcurrent` transfers across the whole batch; so group N's photos
+        // begin uploading while we're still creating group N+1. A single group
+        // that fails to create is recorded and skipped — it never stalls the
+        // rest of the batch.
+        var built: [PreparedItem] = []
+        var createFailures = 0
+        for group in groups {
             do {
                 let itemId = try await createItem(userId: userId)
                 let scheduled = scheduleUploads(
                     group: group, itemId: itemId, userId: userId,
                     uploadService: uploadService, uploadStore: uploadStore
                 )
-                await waitForUploads(itemId: itemId, uploadStore: uploadStore)
-                await applyClassification(group: group, scheduled: scheduled)
-                itemIds.append(itemId)
-                prep = .running(done: index + 1, total: groups.count)
+                built.append(PreparedItem(itemId: itemId, group: group, scheduled: scheduled))
             } catch {
-                prep = .failed(message(error))
-                return
+                createFailures += 1
+                Telemetry.breadcrumb(
+                    "AutoLister item create failed, skipping group — \(message(error))",
+                    category: "autolister"
+                )
             }
         }
 
+        guard !built.isEmpty else {
+            prep = .failed("Couldn't create any items for this batch. Check your connection and try again.")
+            return
+        }
+        if createFailures > 0 {
+            Telemetry.event("autolister_prep_partial_create", props: [
+                "created": built.count, "failed": createFailures,
+            ])
+        }
+
+        prepared = built
+        await finishPreparation()
+    }
+
+    /// Phase 2 — wait for the overlapped uploads, classify, then generate. On a
+    /// timeout this parks in `.timedOut` instead of generating from a partial
+    /// photo set. Shared by the initial run and the post-timeout retry.
+    private func finishPreparation() async {
+        guard let uploadStore else { return }
+        let itemIds = prepared.map(\.itemId)
+
+        let allComplete = await waitForUploads(itemIds: itemIds, uploadStore: uploadStore)
+        guard allComplete else {
+            let pending = itemIds.filter {
+                !Self.isItemUploadComplete(uploadStore.tasks(inventoryItemId: $0))
+            }.count
+            Telemetry.event("autolister_upload_timeout", props: [
+                "pending": pending, "total": itemIds.count,
+            ])
+            prep = .timedOut(pending: pending, total: itemIds.count)
+            return
+        }
+
+        for item in prepared {
+            await applyClassification(group: item.group, scheduled: item.scheduled)
+        }
+        await generate()
+    }
+
+    /// Re-drives the uploads after a timeout: re-queues any failed transfers and
+    /// waits again from a fresh deadline. An explicit user action — generation
+    /// still only proceeds once everything is uploaded.
+    func retryUploads() async {
+        guard case .timedOut = prep,
+              let uploadService, let uploadStore, !prepared.isEmpty else { return }
+        prep = .running(done: 0, total: prepared.count)
+        for item in prepared {
+            for task in uploadStore.tasks(inventoryItemId: item.itemId) {
+                if case .failed = task.phase { uploadService.retry(task.id) }
+            }
+        }
+        await finishPreparation()
+    }
+
+    /// Proceeds to generation from the photos that DID upload, after the user
+    /// explicitly accepts a partial set following a timeout. Distinct from the
+    /// old silent fall-through: it only runs on an explicit tap.
+    func generateAnyway() async {
+        guard case .timedOut = prep, !prepared.isEmpty else { return }
+        for item in prepared {
+            await applyClassification(group: item.group, scheduled: item.scheduled)
+        }
+        await generate()
+    }
+
+    /// Hands the prepared item ids to the batch store for generation + photo-QA.
+    private func generate() async {
+        let itemIds = prepared.map(\.itemId)
+        let templateId = self.templateId
         prep = .finished
         await batch.submit(itemIds: itemIds, templateId: templateId)
         // Non-fatal reshoot nudges; surfaced in the queue.
@@ -133,15 +245,30 @@ final class AutoListerGenerator: ObservableObject {
         return scheduled
     }
 
-    /// Poll the upload store until this item's scheduled uploads all reach a
-    /// terminal state (or a wall-clock cap). Mirrors AIExtractView.waitForUploads.
-    private func waitForUploads(itemId: String, uploadStore: PhotoUploadStore) async {
-        let deadline = Date.now.addingTimeInterval(90)
+    /// Poll the upload store until EVERY item's scheduled uploads reach a
+    /// terminal state, or the single batch wall-clock cap elapses. Reports
+    /// per-item completion through `prep` as items finish. Returns `true` if all
+    /// items completed before the deadline, `false` on timeout — the caller
+    /// decides whether to warn (it does) rather than generate from partial work.
+    private func waitForUploads(itemIds: [String], uploadStore: PhotoUploadStore) async -> Bool {
+        let deadline = Date.now.addingTimeInterval(Self.uploadTimeout)
+        let total = itemIds.count
         while Date.now < deadline {
-            let tasks = uploadStore.tasks(inventoryItemId: itemId)
-            if !tasks.isEmpty, tasks.allSatisfy(\.isTerminal) { return }
+            let done = itemIds.filter {
+                Self.isItemUploadComplete(uploadStore.tasks(inventoryItemId: $0))
+            }.count
+            prep = .running(done: done, total: total)
+            if done == total { return true }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
+        return false
+    }
+
+    /// PURE: an item's uploads are "complete" once it has at least one task and
+    /// every task is terminal (uploaded or cancelled). A still-`failed` or
+    /// in-flight task keeps the item pending so it counts toward a timeout.
+    nonisolated static func isItemUploadComplete(_ tasks: [PhotoUploadTask]) -> Bool {
+        !tasks.isEmpty && tasks.allSatisfy(\.isTerminal)
     }
 
     /// Best-effort cover/role classification + write-back. Any failure here is

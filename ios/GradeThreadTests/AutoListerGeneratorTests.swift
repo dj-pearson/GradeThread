@@ -45,4 +45,41 @@ final class AutoListerGeneratorTests: XCTestCase {
             AutoListerGenerator.photoPatches(coverId: nil, roles: [:], orderedIds: [], pathById: [:]).isEmpty
         )
     }
+
+    // MARK: - Per-item upload completion (US-998)
+
+    func test_isItemUploadComplete_falseWhenNoTasks() {
+        // An item with no scheduled uploads is never "complete" — otherwise it
+        // would slip past the wait as a vacuously-satisfied set.
+        XCTAssertFalse(AutoListerGenerator.isItemUploadComplete([]))
+    }
+
+    func test_isItemUploadComplete_trueWhenAllTerminal() {
+        let uploaded = makeTask(slot: .front, phase: .uploaded(publicURL: "https://x/y.jpg"))
+        let cancelled = makeTask(slot: .back, phase: .cancelled)
+        XCTAssertTrue(AutoListerGenerator.isItemUploadComplete([uploaded, cancelled]))
+    }
+
+    func test_isItemUploadComplete_falseWhilePendingOrFailed() {
+        let uploaded = makeTask(slot: .front, phase: .uploaded(publicURL: "https://x/y.jpg"))
+        let inflight = makeTask(slot: .back, phase: .uploading(progress: 0.4))
+        XCTAssertFalse(AutoListerGenerator.isItemUploadComplete([uploaded, inflight]))
+
+        let failed = makeTask(slot: .back, phase: .failed(error: "boom"))
+        // A failed upload keeps the item pending so it counts toward a timeout
+        // (and can be retried) rather than silently generating a partial set.
+        XCTAssertFalse(AutoListerGenerator.isItemUploadComplete([uploaded, failed]))
+    }
+
+    private func makeTask(slot: PhotoSlotType, phase: PhotoUploadTask.Phase) -> PhotoUploadTask {
+        PhotoUploadTask(
+            inventoryItemId: "item-A",
+            userId: "user-1",
+            slot: slot,
+            storagePath: "user-1/item-A/\(slot.serverPhotoType)_0.jpg",
+            localFileURL: URL(fileURLWithPath: "/tmp/nope-\(UUID()).jpg"),
+            bytes: 1024,
+            phase: phase
+        )
+    }
 }
