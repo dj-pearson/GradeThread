@@ -12,6 +12,7 @@ struct BulkPricingView: View {
             Divider()
             listingsList
         }
+        .keyboardDoneToolbar()
         .navigationTitle("Bulk pricing")
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.load() }

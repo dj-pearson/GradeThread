@@ -41,6 +41,7 @@ struct QuickPriceSheet: View {
                     }
                 }
             }
+            .keyboardDoneToolbar()
             .navigationTitle("Edit price")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

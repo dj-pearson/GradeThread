@@ -139,6 +139,16 @@ memory — not a progress log (the harness records progress separately).
   phase off `.failed`. Optional `secondaryTitle`/`secondaryAction` (e.g. "Back").
   Pass `retry:` with an EXPLICIT label — a bare trailing closure binds to the
   optional `secondaryAction`, not `retry`, and won't compile.
+- Keyboard dismissal for `.decimalPad`/`.numberPad` fields (no Return key) uses
+  the shared `.keyboardDoneToolbar()` modifier (Components/KeyboardToolbar.swift,
+  US-969) — resigns first responder via UIApplication.sendAction, so it's
+  field-agnostic (no `@FocusState` to thread). Apply it ONCE per screen at the
+  Form/List/ScrollView root: SwiftUI AGGREGATES `.keyboard`-placement toolbars
+  across the responder hierarchy, so applying on multiple fields (or both a
+  parent and child) renders DUPLICATE "Done" buttons. A `.decimalPad` field
+  inside a SwiftUI `.alert` can't take a keyboard toolbar — it's already
+  dismissable via the alert's buttons, so skip it. Pair scrollable forms with
+  `.scrollDismissesKeyboard(.interactively)`.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

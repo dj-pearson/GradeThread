@@ -34,6 +34,7 @@ struct RuleEditorSheet: View {
                 actionSection
                 autoAcceptSection
             }
+            .keyboardDoneToolbar()
             .navigationTitle(existing == nil ? "New rule" : "Edit rule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

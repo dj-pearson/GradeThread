@@ -80,6 +80,8 @@ struct DetailsIntakeView: View {
                 bannerSection(banner)
             }
         }
+        .keyboardDoneToolbar()
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("New item")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

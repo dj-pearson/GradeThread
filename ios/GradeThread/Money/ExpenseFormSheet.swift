@@ -70,6 +70,8 @@ struct ExpenseFormSheet: View {
                     }
                 }
             }
+            .keyboardDoneToolbar()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add expense")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -161,6 +161,7 @@ struct ItemCanvasView: View {
                 ProgressView()
             }
         }
+        .keyboardDoneToolbar()
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }

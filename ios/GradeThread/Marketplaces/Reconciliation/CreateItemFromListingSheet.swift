@@ -69,6 +69,7 @@ struct CreateItemFromListingSheet: View {
                     }
                 }
             }
+            .keyboardDoneToolbar()
             .navigationTitle("Create item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

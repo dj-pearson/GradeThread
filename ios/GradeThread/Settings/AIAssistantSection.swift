@@ -170,6 +170,10 @@ struct AIAssistantSection: View {
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 100)
                 .onSubmit { commitLimit() }
+                // numberPad has no Return key — give it a shared Done accessory
+                // (this Section lives inside the Settings list, so attach at the
+                // field rather than a container we don't own here). US-969.
+                .keyboardDoneToolbar()
         }
     }
 

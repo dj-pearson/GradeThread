@@ -49,6 +49,7 @@ struct InventoryFilterSheet: View {
                 datesSection        // purchase / sale date ranges
                 advancedSection     // AND/OR rule builder
             }
+            .keyboardDoneToolbar()
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

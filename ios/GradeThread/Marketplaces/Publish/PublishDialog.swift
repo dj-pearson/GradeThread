@@ -426,6 +426,11 @@ private struct ComposerForm: View {
     @State private var conditionDescription: String
     @State private var description: String
 
+    /// US-969: keyboard Next/Return traversal across the editable text fields
+    /// (the condition Picker and read-only price are skipped).
+    @FocusState private var focusedField: Field?
+    private enum Field: Hashable { case title, conditionNote, description }
+
     // AI copy generation.
     @State private var isGenerating = false
     @State private var aiError: String?
@@ -490,6 +495,9 @@ private struct ComposerForm: View {
                     TextField("Listing title", text: $title, axis: .vertical)
                         .lineLimit(1...3)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .title)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .conditionNote }
                         .onChange(of: title) { _, newValue in
                             if newValue.count > Self.titleLimit {
                                 title = String(newValue.prefix(Self.titleLimit))
@@ -517,12 +525,18 @@ private struct ComposerForm: View {
                     TextField("e.g. light wear at cuffs", text: $conditionDescription, axis: .vertical)
                         .lineLimit(1...3)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .conditionNote)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .description }
                 }
 
                 fieldGroup("Description") {
                     TextField("Listing description", text: $description, axis: .vertical)
                         .lineLimit(4...12)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .description)
+                        .submitLabel(.done)
+                        .onSubmit { focusedField = nil }
                 }
 
                 HStack {
@@ -566,6 +580,8 @@ private struct ComposerForm: View {
             .padding(16)
             .cardStyle(.flush)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .keyboardDoneToolbar()
         .task { await templateStore.load() }
         // US-972: applying a template overwrites the condition note (and adds
         // boilerplate to the description) — confirm before replacing the user's

@@ -213,6 +213,7 @@ private struct CounterOfferSheet: View {
                     TextField("Note to buyer", text: $message, axis: .vertical).lineLimit(2...4)
                 }
             }
+            .keyboardDoneToolbar()
             .navigationTitle("Counter offer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -16,6 +16,7 @@ struct DraftsBulkEditView: View {
 
     var body: some View {
         content
+            .keyboardDoneToolbar()
             .navigationTitle("Bulk edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

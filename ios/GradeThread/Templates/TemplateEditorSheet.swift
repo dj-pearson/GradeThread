@@ -87,6 +87,7 @@ struct TemplateEditorSheet: View {
 
                 specificsSection
             }
+            .keyboardDoneToolbar()
             .navigationTitle(existing == nil ? "New template" : "Edit template")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

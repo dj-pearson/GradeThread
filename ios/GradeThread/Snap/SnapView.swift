@@ -55,6 +55,7 @@ struct SnapView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("What's it worth?")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -98,6 +98,7 @@ struct AutoListerView: View {
             }
             .padding()
         }
+        .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { generateBar }
     }
 
