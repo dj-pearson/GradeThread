@@ -3190,3 +3190,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:17:14 PM
 ---
+## US-1016: iOS: clarify App Lock auth policy (passcode fallback) and offer biometrics-only
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:21:37 PM
+---

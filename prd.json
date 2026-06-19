@@ -2032,7 +2032,7 @@
         "Behavior when no auth method is configured is documented and tested (AppLockTests)."
       ],
       "priority": 1016,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=security. ios/GradeThread/Security/AppLock.swift (~75-78,96-103)"
     },
     {
