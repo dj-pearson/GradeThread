@@ -8,5 +8,14 @@
     <array>
         <string>group.com.gradethread.app</string>
     </array>
+    <!-- US-1015: Data Protection floor. Matches the main app's
+         GradeThread.entitlements (US-658) so files the extension writes —
+         temp files, NSItemProvider materialization, App Group inbox drops —
+         default to NSFileProtectionCompleteUntilFirstUserAuthentication
+         instead of the weaker .none class. "Until first user authentication"
+         (not "complete") mirrors the app so writes stay readable after the
+         first post-boot unlock. -->
+    <key>com.apple.developer.default-data-protection</key>
+    <string>NSFileProtectionCompleteUntilFirstUserAuthentication</string>
 </dict>
 </plist>
