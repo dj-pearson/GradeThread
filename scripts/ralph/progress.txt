@@ -3458,3 +3458,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  8:01:54 AM
 ---
+## US-949: One-tap retake on low-confidence and expired submissions
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  8:34:43 AM
+---

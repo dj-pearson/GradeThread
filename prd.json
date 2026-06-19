@@ -1069,7 +1069,7 @@
         "Typecheck passes"
       ],
       "priority": 949,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Grade] Added 2026-06-12. Files: src/pages/submission-detail.tsx (needs_photos/expired branches), src/pages/new-submission.tsx (prefill). Server: tenant-scope the supersede update (US-268). May need a superseded_by column on submissions — check before adding; reuse existing status enum if a needs_photos/superseded value already exists."
     },
     {
