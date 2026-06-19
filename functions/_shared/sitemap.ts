@@ -36,7 +36,17 @@ interface SeoManifest {
   routes: ManifestRoute[];
 }
 interface BlogSitemap {
-  posts: Array<{ slug: string; published_at: string; updated_at: string }>;
+  posts: Array<{
+    slug: string;
+    published_at: string;
+    updated_at: string;
+    // US-975: hero image fields used by the image sitemap. Optional so a legacy
+    // /sitemap.json response that predates the extra columns still parses.
+    title?: string;
+    hero_image_url?: string | null;
+    hero_image_alt?: string | null;
+    hero_image_caption?: string | null;
+  }>;
   tags: string[];
 }
 interface CertSitemap {
@@ -251,3 +261,163 @@ export const SITEMAP_HEADERS = {
   "Content-Type": "application/xml; charset=utf-8",
   "Cache-Control": "public, max-age=600, s-maxage=3600",
 } as const;
+
+// ── Image sitemap (US-975) ────────────────────────────────────────────────
+// A Google image sitemap groups the indexable images that appear ON a page
+// under that page's <url> entry, so crawlers can discover images they might not
+// reach by parsing HTML. We list the public marketing share images + each blog
+// post's hero image, each with a descriptive title + caption.
+
+/** One image entry inside a page's <url> block. */
+export interface SitemapImage {
+  loc: string;
+  title?: string;
+  caption?: string;
+}
+
+/** A page URL plus the images that appear on it. */
+export interface ImageSitemapEntry {
+  loc: string;
+  images: SitemapImage[];
+}
+
+// Public marketing images keyed by the page they appear on. Mirrors
+// src/lib/seo/public-routes.ts ROUTE_OG_IMAGES (Pages Functions can't import
+// from src/), plus the home page hero. The 1200×630 share cards double as the
+// representative image Google associates with each marketing page. Keep titles
+// concise and captions descriptive (they map to image:title / image:caption).
+// KEEP IN SYNC with ROUTE_OG_IMAGES when adding/renaming a marketing card.
+const MARKETING_IMAGES: Array<{
+  path: string;
+  image: string;
+  title: string;
+  caption: string;
+}> = [
+  {
+    path: "/",
+    image: "/og-image.png",
+    title: "GradeThread — AI clothing condition grading",
+    caption:
+      "GradeThread delivers objective AI condition grading and verifiable certificates for pre-owned clothing.",
+  },
+  {
+    path: "/how-it-works",
+    image: "/social/how-it-works.png",
+    title: "How GradeThread grading works",
+    caption:
+      "How GradeThread grades pre-owned clothing across five weighted factors.",
+  },
+  {
+    path: "/pricing",
+    image: "/social/pricing.png",
+    title: "GradeThread pricing",
+    caption:
+      "GradeThread pricing — a free plan, pay-per-grade tiers, and FlipDesk subscriptions.",
+  },
+  {
+    path: "/for-resellers",
+    image: "/social/for-resellers.png",
+    title: "GradeThread for resellers",
+    caption:
+      "GradeThread for resellers — standardized condition grades that build buyer trust.",
+  },
+  {
+    path: "/condition-grading",
+    image: "/social/condition-grading.png",
+    title: "Clothing condition grading guide",
+    caption:
+      "A guide to clothing condition grading: the 1.0–10.0 scale, seven tiers, five factors.",
+  },
+  {
+    path: "/grading-standard",
+    image: "/social/grading-standard.png",
+    title: "The GradeThread grading standard",
+    caption:
+      "The GradeThread grading standard — a published 1.0–10.0 rubric with confidence scoring.",
+  },
+  {
+    path: "/transparency",
+    image: "/social/transparency.png",
+    title: "GradeThread grading transparency report",
+    caption:
+      "GradeThread's published grading accuracy and AI-vs-human agreement report.",
+  },
+  {
+    path: "/faq",
+    image: "/social/faq.png",
+    title: "GradeThread FAQ",
+    caption:
+      "GradeThread FAQ — AI grading, the 1.0–10.0 scale, disputes, certificates, and the API.",
+  },
+];
+
+/** Static marketing image entries (no network — derived from the constant). */
+export function marketingImageUrls(env: PagesEnv): ImageSitemapEntry[] {
+  const base = siteUrl(env);
+  return MARKETING_IMAGES.map((m) => ({
+    loc: m.path === "/" ? `${base}/` : `${base}${m.path}`,
+    images: [
+      { loc: `${base}${m.image}`, title: m.title, caption: m.caption },
+    ],
+  }));
+}
+
+/** Blog hero images grouped under each post URL (skips posts with no hero). */
+export async function blogImageUrls(env: PagesEnv): Promise<ImageSitemapEntry[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<BlogSitemap>(
+    env,
+    "/api/content/public/sitemap.json",
+  );
+  const entries: ImageSitemapEntry[] = [];
+  for (const p of data?.posts ?? []) {
+    const hero = (p.hero_image_url ?? "").trim();
+    if (!hero) continue;
+    entries.push({
+      loc: `${base}/blog/${p.slug}`,
+      images: [
+        {
+          loc: hero,
+          title: p.title || undefined,
+          // Caption prefers an explicit hero caption, else the alt text.
+          caption: p.hero_image_caption || p.hero_image_alt || undefined,
+        },
+      ],
+    });
+  }
+  return entries;
+}
+
+/** All image-sitemap entries: marketing images + blog hero images. */
+export async function imageUrls(env: PagesEnv): Promise<ImageSitemapEntry[]> {
+  const blog = await blogImageUrls(env);
+  return [...marketingImageUrls(env), ...blog];
+}
+
+/** Serialize image-sitemap entries to a Google image-sitemap <urlset>. */
+export function imageSitemapXml(entries: ImageSitemapEntry[]): string {
+  const body = entries
+    .filter((e) => e.images.length > 0)
+    .map((e) => {
+      const imgs = e.images
+        .map(
+          (img) =>
+            `<image:image><image:loc>${escape(img.loc)}</image:loc>` +
+            (img.title ? `<image:title>${escape(img.title)}</image:title>` : "") +
+            (img.caption
+              ? `<image:caption>${escape(img.caption)}</image:caption>`
+              : "") +
+            `</image:image>`,
+        )
+        .join("");
+      return `<url><loc>${escape(e.loc)}</loc>${imgs}</url>`;
+    })
+    .join("\n");
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" ` +
+    `xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n` +
+    body +
+    `\n</urlset>\n`
+  );
+}

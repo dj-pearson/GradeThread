@@ -47,6 +47,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           "sitemap-sellers.xml",
           "sitemap-condition.xml",
           "sitemap-authors.xml",
+          "sitemap-images.xml",
         ])
       : urlsetXml([
           ...statics,

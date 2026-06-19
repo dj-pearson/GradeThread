@@ -139,6 +139,7 @@ Disallow: /`);
   return `${blocks.join("\n\n")}
 
 Sitemap: ${opts.siteUrl}/sitemap.xml
+Sitemap: ${opts.siteUrl}/sitemap-images.xml
 `;
 }
 

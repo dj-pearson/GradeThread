@@ -495,7 +495,10 @@ contentPublicRoutes.get("/posts/preview/:token", async (c) => {
 contentPublicRoutes.get("/sitemap.json", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("blog_posts")
-    .select("slug, published_at, updated_at, title, excerpt")
+    .select(
+      // US-975: hero image fields feed the image sitemap (sitemap-images.xml).
+      "slug, published_at, updated_at, title, excerpt, hero_image_url, hero_image_alt, hero_image_caption",
+    )
     .eq("status", "published")
     .order("published_at", { ascending: false })
     .limit(1000);

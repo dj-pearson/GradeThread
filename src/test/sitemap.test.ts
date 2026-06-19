@@ -6,6 +6,10 @@ import {
   blogUrls,
   certUrls,
   authorUrls,
+  marketingImageUrls,
+  blogImageUrls,
+  imageUrls,
+  imageSitemapXml,
   SITEMAP_MAX_URLS,
   type SitemapUrl,
 } from "../../functions/_shared/sitemap";
@@ -188,6 +192,118 @@ describe("blogUrls + certUrls", () => {
     vi.stubGlobal("fetch", mockFetch({}));
     const urls = await authorUrls(env);
     expect(urls.map((u) => u.loc)).toEqual(["https://gradethread.com/authors"]);
+  });
+});
+
+describe("image sitemap (US-975)", () => {
+  it("imageSitemapXml emits the image namespace + image:loc/title/caption", () => {
+    const xml = imageSitemapXml([
+      {
+        loc: "https://gradethread.com/pricing",
+        images: [
+          {
+            loc: "https://gradethread.com/social/pricing.png",
+            title: "GradeThread pricing",
+            caption: "Plans & tiers",
+          },
+        ],
+      },
+    ]);
+    expect(xml).toContain(
+      'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"',
+    );
+    expect(xml).toContain("<loc>https://gradethread.com/pricing</loc>");
+    expect(xml).toContain(
+      "<image:loc>https://gradethread.com/social/pricing.png</image:loc>",
+    );
+    expect(xml).toContain("<image:title>GradeThread pricing</image:title>");
+    expect(xml).toContain("<image:caption>Plans &amp; tiers</image:caption>");
+    expect(xml.trimEnd().endsWith("</urlset>")).toBe(true);
+  });
+
+  it("imageSitemapXml drops entries with no images", () => {
+    const xml = imageSitemapXml([
+      { loc: "https://gradethread.com/empty", images: [] },
+    ]);
+    expect(xml).not.toContain("/empty");
+  });
+
+  it("marketingImageUrls maps the home page + each marketing card to absolute URLs", () => {
+    const entries = marketingImageUrls(env);
+    const home = entries.find((e) => e.loc === "https://gradethread.com/");
+    expect(home?.images[0]!.loc).toBe("https://gradethread.com/og-image.png");
+    const pricing = entries.find(
+      (e) => e.loc === "https://gradethread.com/pricing",
+    );
+    expect(pricing?.images[0]!.loc).toBe(
+      "https://gradethread.com/social/pricing.png",
+    );
+    expect(pricing?.images[0]!.title?.length).toBeGreaterThan(0);
+    expect(pricing?.images[0]!.caption?.length).toBeGreaterThan(0);
+  });
+
+  it("blogImageUrls lists posts with a hero image and skips those without", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/content/public/sitemap.json": {
+          posts: [
+            {
+              slug: "with-hero",
+              published_at: "2026-01-01",
+              updated_at: "2026-02-01",
+              title: "With Hero",
+              hero_image_url: "https://cdn/hero.jpg",
+              hero_image_caption: "A nice jacket",
+            },
+            {
+              slug: "no-hero",
+              published_at: "2026-01-01",
+              updated_at: "2026-02-01",
+              title: "No Hero",
+              hero_image_url: null,
+            },
+          ],
+          tags: [],
+        },
+      }),
+    );
+    const entries = await blogImageUrls(env);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.loc).toBe("https://gradethread.com/blog/with-hero");
+    expect(entries[0]!.images[0]!.loc).toBe("https://cdn/hero.jpg");
+    expect(entries[0]!.images[0]!.caption).toBe("A nice jacket");
+  });
+
+  it("imageUrls combines marketing images with blog hero images", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/api/content/public/sitemap.json": {
+          posts: [
+            {
+              slug: "with-hero",
+              published_at: "2026-01-01",
+              updated_at: "2026-02-01",
+              title: "With Hero",
+              hero_image_url: "https://cdn/hero.jpg",
+            },
+          ],
+          tags: [],
+        },
+      }),
+    );
+    const entries = await imageUrls(env);
+    const locs = entries.map((e) => e.loc);
+    expect(locs).toContain("https://gradethread.com/");
+    expect(locs).toContain("https://gradethread.com/blog/with-hero");
+  });
+
+  it("imageUrls still returns marketing images when the blog endpoint is down", async () => {
+    vi.stubGlobal("fetch", mockFetch({}));
+    const entries = await imageUrls(env);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((e) => e.images.length > 0)).toBe(true);
   });
 });
 
