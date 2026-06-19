@@ -33,6 +33,11 @@ import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { track } from "@/lib/analytics";
 import { dataUriToFile } from "@/lib/image-utils";
 import type { SnapBridgeState } from "@/hooks/use-snap";
+import {
+  useSubmissionDraft,
+  isMeaningfulDraft,
+  type SubmissionDraft,
+} from "@/hooks/use-submission-draft";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 
 // Item statuses from which a submission moves the item into 'grading'.
@@ -250,6 +255,93 @@ export function NewSubmissionPage() {
     setGarmentInfo(null);
   }
 
+  // US-951: local draft autosave + resume. `draftResolved` gates autosave so a
+  // freshly-mounted wizard never overwrites a saved draft before the seller has
+  // chosen Resume / Start over. `pendingDraft` is the detected draft awaiting
+  // that choice.
+  const {
+    read: readDraft,
+    save: saveDraft,
+    clear: clearDraft,
+    ready: draftReady,
+  } = useSubmissionDraft();
+  const [pendingDraft, setPendingDraft] = useState<SubmissionDraft | null>(null);
+  const [draftResolved, setDraftResolved] = useState(false);
+  const draftDetectRef = useRef(false);
+
+  // Detect a saved draft once, after auth (and thus the per-user key) is ready.
+  useEffect(() => {
+    if (draftDetectRef.current || !draftReady) return;
+    draftDetectRef.current = true;
+    // A snap-bridge arrival is an intentional fresh start with its own prefill —
+    // don't interrupt it with a resume prompt.
+    if (snapState) {
+      setDraftResolved(true);
+      return;
+    }
+    const existing = readDraft();
+    if (isMeaningfulDraft(existing)) {
+      setPendingDraft(existing);
+    } else {
+      setDraftResolved(true);
+    }
+  }, [draftReady, readDraft, snapState]);
+
+  // Autosave whenever the form changes — but only once the draft is resolved,
+  // and never the image binaries (only a metadata manifest of the photos).
+  useEffect(() => {
+    if (!draftResolved || !draftReady) return;
+    const hasContent =
+      garmentInfo !== null || photos.length > 0 || currentStep > 0;
+    if (!hasContent) {
+      clearDraft();
+      return;
+    }
+    saveDraft({
+      currentStep,
+      garmentInfo,
+      tier,
+      verifiedCaptureOptIn,
+      authenticityAddonOptIn,
+      linkedItemId,
+      photos: photos.map((p) => ({ imageType: p.imageType, name: p.file.name })),
+    });
+  }, [
+    draftResolved,
+    draftReady,
+    saveDraft,
+    clearDraft,
+    currentStep,
+    garmentInfo,
+    tier,
+    verifiedCaptureOptIn,
+    authenticityAddonOptIn,
+    linkedItemId,
+    photos,
+  ]);
+
+  function handleResumeDraft() {
+    if (!pendingDraft) return;
+    setGarmentInfo(pendingDraft.garmentInfo);
+    setTier(pendingDraft.tier);
+    setVerifiedCaptureOptIn(pendingDraft.verifiedCaptureOptIn);
+    setAuthenticityAddonOptIn(pendingDraft.authenticityAddonOptIn);
+    setLinkedItemId(pendingDraft.linkedItemId);
+    // Image binaries are never persisted, so never resume past the Photos step —
+    // the seller re-adds their images there.
+    setCurrentStep(
+      pendingDraft.garmentInfo ? Math.min(pendingDraft.currentStep, 1) : 0
+    );
+    setPendingDraft(null);
+    setDraftResolved(true);
+  }
+
+  function handleDiscardDraft() {
+    clearDraft();
+    setPendingDraft(null);
+    setDraftResolved(true);
+  }
+
   // US-207 pricing context — driven by the billing summary (plan + credit
   // balance + included-grade counter), not the legacy per-plan price.
   const { data: summary } = useBillingSummary();
@@ -417,6 +509,11 @@ export function NewSubmissionPage() {
       const submissionId: string = result.submissionId;
       const payment = result.payment ?? {};
 
+      // US-951: the submission row now exists server-side, so the local draft is
+      // obsolete — clear it whether payment cleared inline or a checkout is still
+      // required (resuming would create a duplicate submission).
+      clearDraft();
+
       // Link the inventory item regardless of the payment outcome — the
       // submission row now exists either way.
       await linkInventoryItem(submissionId);
@@ -500,6 +597,40 @@ export function NewSubmissionPage() {
         </p>
       </div>
 
+      {pendingDraft ? (
+        /* US-951: a saved draft was found — offer to resume or start fresh
+           before the wizard mounts, so editing can't clobber the draft. */
+        <Card className="border-primary/40 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Resume your saved draft?</p>
+              <p className="text-xs text-muted-foreground">
+                We saved your garment details from{" "}
+                {new Date(pendingDraft.updatedAt).toLocaleString()}.
+                {pendingDraft.photos.length > 0
+                  ? ` You'll need to re-add ${pendingDraft.photos.length} photo${
+                      pendingDraft.photos.length === 1 ? "" : "s"
+                    }.`
+                  : ""}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDiscardDraft}
+              >
+                Start over
+              </Button>
+              <Button type="button" size="sm" onClick={handleResumeDraft}>
+                Resume draft
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
       <StepIndicator currentStep={currentStep} />
 
       <Card>
@@ -915,6 +1046,8 @@ export function NewSubmissionPage() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
 
       {/* Mid-flow credit-pack purchase. On return, the submission auto-retries
           the payment precedence (?pay_retry) so it proceeds without a second
