@@ -3278,3 +3278,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:34:32 PM
 ---
+## US-994: iOS: model item<->photo as a SwiftData relationship (kill the N+1/proxy hack)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:40:27 PM
+---

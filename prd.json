@@ -1732,7 +1732,7 @@
         "Sync merge populates the relationship."
       ],
       "priority": 994,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Persistence/Models/LocalItemPhoto.swift, LocalInventoryItem.swift (~51); Inventory/InventoryRow.swift (~84-88)"
     },
     {
