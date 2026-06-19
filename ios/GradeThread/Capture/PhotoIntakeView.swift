@@ -120,6 +120,12 @@ struct PhotoIntakeView: View {
                 announce("Photo upload failed. Double-tap the slot to retry.")
             }
         }
+        // US-965: announce the active slot's capture guidance to VoiceOver when
+        // the slot changes (tap, swipe, or auto-advance after a capture) so the
+        // per-slot guidance is not sighted-only.
+        .onChange(of: store.activeSlot) { _, slot in
+            announce("\(slot.label). \(slot.hint)")
+        }
         .onDisappear { camera.stop() }
         .confirmationDialog(
             "Discard captured photos?",
@@ -237,6 +243,9 @@ struct PhotoIntakeView: View {
                 .background(.black.opacity(0.45))
                 .clipShape(Capsule())
                 .padding(.bottom, 8)
+                // US-965: label the guidance capsule so VoiceOver reads it as
+                // capture guidance rather than a bare floating phrase.
+                .accessibilityLabel("Capture guidance for \(store.activeSlot.label): \(store.activeSlot.hint)")
 
             bottomStrip
             captureRow

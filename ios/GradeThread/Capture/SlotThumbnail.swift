@@ -134,7 +134,9 @@ struct SlotThumbnail: View {
         if uploadFailed { return "\(slot.label) — upload failed, tap to retry" }
         if uploadComplete { return "\(slot.label) — uploaded" }
         if isFilled { return "\(slot.label) — captured" }
-        if isActive { return "\(slot.label) — active slot" }
-        return "\(slot.label) — empty"
+        // US-965: empty slots carry the per-slot capture guidance so VoiceOver
+        // users hear the same hint sighted users read in the overlay capsule.
+        if isActive { return "\(slot.label) — active slot. \(slot.hint)" }
+        return "\(slot.label) — empty. \(slot.hint)"
     }
 }
