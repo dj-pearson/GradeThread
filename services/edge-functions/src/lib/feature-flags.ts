@@ -33,7 +33,10 @@ export type FeatureKey =
   | "content_ai"
   | "repricing"
   | "authenticity_addon"
-  | "support_assistant";
+  | "support_assistant"
+  // US-1104: Garment Passport resale-value & depreciation forecast (Scout). An
+  // ops kill-switch on top of the compPulls plan gate; fail-open (default on).
+  | "passport_forecast";
 
 // The full targeting rule for one flag (one feature_flags row).
 export interface FeatureFlagRule {

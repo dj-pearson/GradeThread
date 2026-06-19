@@ -1630,6 +1630,22 @@ Deno.test({
   },
 });
 
+// US-1104: the resale-value/depreciation forecast is tenant-scoped — B must not
+// forecast A's garment (the garment lookup is .eq(created_by), so a non-owned id
+// resolves to no row → 404, and the cohort it would build is .eq(user_id=B) only).
+Deno.test({
+  name: "B cannot forecast A's garment",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GARMENT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GARMENT_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/forecast/garments/${id}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET flipdesk/forecast/garments/:id (A's garment)");
+  },
+});
+
 // US-1099: relist detection is tenant-scoped — B passing A's inventory item id
 // must get ZERO suggestions (the item lookup is .eq(user_id), so a non-owned id
 // resolves to no row and never reaches A's photos or A's fingerprints).

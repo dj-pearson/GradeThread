@@ -25,6 +25,7 @@ import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.t
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
+import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
 import { flipdeskProductRoutes } from "./routes/flipdesk-product.ts";
 import { flipdeskTemplatesRoutes } from "./routes/flipdesk-templates.ts";
 import {
@@ -735,6 +736,10 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
+// US-1104 Garment Passport resale-value & depreciation forecast — list price,
+// days-to-sell, 12-month resale projection + CI from the owner's SKU-class sale
+// ledger. Tenant-scoped; compPulls plan tier + passport_forecast kill-switch.
+app.route("/api/flipdesk/forecast", flipdeskForecastRoutes);
 app.route("/api/flipdesk/product", flipdeskProductRoutes);
 app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);

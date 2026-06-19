@@ -3048,7 +3048,7 @@
         "Tenant-scoped; gated behind a feature flag / plan tier; deno checks + build pass"
       ],
       "priority": 715,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][Valuation] Turns grading into valuation — the monetizable moat. Depends on [[US-1091]] (seeded history) and benefits from [[US-1099]] sale data. Surface in FlipDesk Scout."
     },
     {
