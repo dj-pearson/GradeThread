@@ -160,6 +160,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // ONLY by the edge marketplace-event poll/notify path via the service-role
   // client; the SPA never touches it. user_id is the tenant owner being notified.
   "marketplace_event_notifications",
+  // US-946 trial-conversion drip engine tables (migration 00253). RLS enabled
+  // with an explicit `revoke all from anon, authenticated` and zero policies by
+  // design — written ONLY by the edge drip engine via the service-role client;
+  // the dashboard reads exclusively through the aggregating drip_analytics RPC,
+  // never the raw rows. user_id is the enrolled/converted tenant, not a client
+  // read key. (drip_sends has no user_id, so it isn't auto-discovered.)
+  "drip_enrollments",
+  "drip_attributions",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

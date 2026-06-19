@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 // US-422: unknown URLs must return a real HTTP 404 instead of the soft-404 SPA
@@ -42,15 +42,24 @@ describe("soft-404 fix (US-422)", () => {
     expect(rules[rules.length - 1]?.[0]).toBe("/*");
   });
 
-  it("authenticated/app namespaces still serve the SPA shell with 200", () => {
+  it("authenticated/app namespaces are served as 200 by Pages Functions (not _redirects)", () => {
+    // US-422 follow-up: app shells (/dashboard, /admin) are NO LONGER served via
+    // _redirects — Cloudflare Pages canonicalizes a `→ /index.html 200` rewrite
+    // into a 308 → / that broke hard-loads/refreshes of every app route. They're
+    // now served as 200 by dedicated Pages Functions (functions/<ns>/[[path]].ts
+    // → _shared/spa-shell.ts) wired in public/_routes.json. Assert THAT contract.
+    const routes = JSON.parse(
+      readFileSync(resolve(process.cwd(), "public/_routes.json"), "utf8"),
+    ) as { include: string[] };
     for (const base of ["/dashboard", "/admin"]) {
-      const exact = rules.find((r) => r[0] === base);
-      const subtree = rules.find((r) => r[0] === `${base}/*`);
-      for (const rule of [exact, subtree]) {
-        expect(rule, `missing SPA-shell rule for ${base}`).toBeDefined();
-        expect(rule?.[1]).toBe("/index.html");
-        expect(rule?.[2]).toBe("200");
-      }
+      const fnPath = resolve(process.cwd(), `functions/${base.slice(1)}/[[path]].ts`);
+      expect(existsSync(fnPath), `missing SPA-shell Pages Function for ${base}`).toBe(true);
+      expect(routes.include, `_routes.json must route ${base}`).toContain(base);
+      expect(routes.include, `_routes.json must route ${base}/*`).toContain(`${base}/*`);
+      // And they must NOT be reintroduced as _redirects rules (the soft-404 trap
+      // / the 308 hard-load break this whole contract exists to prevent).
+      expect(rules.find((r) => r[0] === base)).toBeUndefined();
+      expect(rules.find((r) => r[0] === `${base}/*`)).toBeUndefined();
     }
   });
 

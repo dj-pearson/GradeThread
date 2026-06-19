@@ -169,9 +169,11 @@ public final class RealtimeService {
         // `dispatch` fully (this method included), so the detached encode
         // and the subsequent SyncEngine apply complete in order — no
         // fire-and-forget that could reorder or drop a burst of updates.
-        guard let data = await Task.detached(priority: .utility) {
+        // Trailing-closure form isn't allowed in a guard condition (the `{` is
+        // parsed as the guard body) — use the explicit `operation:` label.
+        guard let data = await Task.detached(priority: .utility, operation: {
             Self.encodeRealtimeRecord(record)
-        }.value else { return }
+        }).value else { return }
         await syncEngine.applyRealtimeInventoryUpsert(record: data)
     }
 
