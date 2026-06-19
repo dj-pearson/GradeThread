@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
+  Check,
   ImagePlus,
   Shirt,
   Tag,
@@ -36,6 +37,10 @@ interface UploadSlot {
   required: boolean;
   icon: React.ElementType;
   description: string;
+  // US-948: one-line shoot hint surfaced under required slots so first-time
+  // graders frame a gradeable photo before they land in the low-confidence
+  // retake loop.
+  hint?: string;
   slotKey: string;
   group: SlotGroup;
 }
@@ -63,6 +68,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: true,
     icon: Shirt,
     description: "Full front view of garment",
+    hint: "Lay flat, full garment in frame, neutral background.",
     slotKey: "front",
     group: "required",
   },
@@ -72,6 +78,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: true,
     icon: Shirt,
     description: "Full back view of garment",
+    hint: "Flip it over — full back, same flat framing.",
     slotKey: "back",
     group: "required",
   },
@@ -81,6 +88,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: true,
     icon: Tag,
     description: "Brand and care label",
+    hint: "Fill the frame with the tag — text must be legible.",
     slotKey: "label",
     group: "required",
   },
@@ -90,6 +98,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     required: true,
     icon: Search,
     description: "Close-up of key feature",
+    hint: "Sharp close-up of a key feature, seam, or flaw.",
     slotKey: "detail-1",
     group: "required",
   },
@@ -219,6 +228,56 @@ export function assignSlotKeys(imageTypes: ImageType[]): (string | null)[] {
     }
     return null;
   });
+}
+
+// US-948: lightweight inline-SVG framing examples for each required slot. Shows
+// the seller roughly what a gradeable shot looks like before they take it — no
+// binary assets to load, scales crisply at any slot size, and inherits
+// `currentColor` so it themes automatically.
+function ExampleThumbnail({ slotKey }: { slotKey: string }) {
+  const common = {
+    viewBox: "0 0 48 48",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.6,
+    strokeLinejoin: "round" as const,
+    strokeLinecap: "round" as const,
+    className: "h-10 w-10",
+    "aria-hidden": true,
+  };
+  switch (slotKey) {
+    case "front":
+      return (
+        <svg {...common}>
+          <path d="M18 9l-7 4 2 6 3-1v15h16V18l3 1 2-6-7-4-3 3h-9z" />
+        </svg>
+      );
+    case "back":
+      return (
+        <svg {...common}>
+          <path d="M18 9l-7 4 2 6 3-1v15h16V18l3 1 2-6-7-4h-12z" />
+          <path d="M21 9c0 2 6 2 6 0" />
+        </svg>
+      );
+    case "label":
+      return (
+        <svg {...common}>
+          <path d="M12 16h17l7 8-7 8H12z" />
+          <path d="M30 22v4" />
+          <path d="M16 23h7M16 27h10" />
+        </svg>
+      );
+    case "detail-1":
+      return (
+        <svg {...common}>
+          <circle cx="22" cy="22" r="9" />
+          <path d="M29 29l7 7" />
+          <path d="M19 22h6M22 19v6" />
+        </svg>
+      );
+    default:
+      return null;
+  }
 }
 
 interface SlotState {
@@ -427,6 +486,8 @@ export function PhotoUpload({
             state.preview
               ? "border-primary bg-primary/5"
               : "border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50",
+            // US-948: draw the eye to required slots that still need a photo.
+            slot.required && !state.preview && "border-primary/40",
             flagged &&
               !state.preview &&
               "border-amber-500 bg-amber-50 hover:border-amber-500 dark:bg-amber-950/30",
@@ -487,9 +548,17 @@ export function PhotoUpload({
             </>
           ) : (
             <div className="flex flex-col items-center gap-1.5 p-2 text-center">
-              <div className="rounded-full bg-muted p-2">
-                <Icon className="h-5 w-5 text-muted-foreground" />
-              </div>
+              {/* US-948: required slots show a framing example; optional slots
+                  keep the plain category icon. */}
+              {slot.required ? (
+                <div className="text-primary/70" aria-hidden="true">
+                  <ExampleThumbnail slotKey={slot.slotKey} />
+                </div>
+              ) : (
+                <div className="rounded-full bg-muted p-2">
+                  <Icon className="h-5 w-5 text-muted-foreground" />
+                </div>
+              )}
               <div className="flex items-center gap-1">
                 <ImagePlus className="h-3 w-3 text-muted-foreground" />
                 <span className="text-xs font-medium">
@@ -524,15 +593,72 @@ export function PhotoUpload({
             Retake this photo
           </p>
         )}
+
+        {/* US-948: per-slot shoot hint. Rendered under the tap target (not
+            inside it) so the slot stays full-size on the 2-col mobile grid. */}
+        {slot.hint && !state.preview && !flagged && state.errors.length === 0 && (
+          <p className="text-[10px] leading-tight text-muted-foreground">
+            {slot.hint}
+          </p>
+        )}
       </div>
     );
   }
 
+  // US-948: completeness progress over the required slots — surfaced as
+  // "N of M required photos" plus an explicit list of which are still missing.
+  const requiredSlots = UPLOAD_SLOTS.filter((s) => s.required);
+  const missingRequired = requiredSlots.filter(
+    (s) => !getSlot(slots, s.slotKey).file
+  );
+  const filledRequired = requiredSlots.length - missingRequired.length;
+  const allRequiredComplete = missingRequired.length === 0;
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Camera className="h-4 w-4" />
-        <span>Upload garment photos. Required slots are marked with *</span>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Camera className="h-4 w-4" />
+            <span>Required photos</span>
+          </div>
+          <span className="flex items-center gap-1 text-sm font-medium tabular-nums">
+            {allRequiredComplete && (
+              <Check
+                className="h-4 w-4 text-emerald-600 dark:text-emerald-400"
+                aria-hidden="true"
+              />
+            )}
+            {filledRequired} of {requiredSlots.length}
+          </span>
+        </div>
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-valuenow={filledRequired}
+          aria-valuemin={0}
+          aria-valuemax={requiredSlots.length}
+          aria-label="Required photos uploaded"
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{
+              width: `${(filledRequired / requiredSlots.length) * 100}%`,
+            }}
+          />
+        </div>
+        {allRequiredComplete ? (
+          <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            All {requiredSlots.length} required photos added.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Still need:{" "}
+            <span className="font-medium text-foreground">
+              {missingRequired.map((s) => s.label).join(", ")}
+            </span>
+          </p>
+        )}
       </div>
 
       {SLOT_GROUPS.map(({ group, title, hint }) => {

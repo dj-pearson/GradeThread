@@ -450,6 +450,29 @@ export function NewSubmissionPage() {
     requiredPhotosUploaded.some((p) => p.imageType === "label") &&
     requiredPhotosUploaded.some((p) => p.imageType === "detail");
 
+  // US-948: auto-advance to Review the moment all four required photos are
+  // present and validated, so the seller isn't left hunting for "Continue".
+  // Fires only on the incomplete→complete transition (a ref tracks the prior
+  // value) so returning to the Photos step from Review never bounces them
+  // straight back. A brief sonner "Back to photos" action is the undo.
+  const prevAllRequiredRef = useRef(false);
+  useEffect(() => {
+    if (
+      currentStep === 1 &&
+      hasAllRequiredPhotos &&
+      !prevAllRequiredRef.current
+    ) {
+      setCurrentStep(2);
+      toast.success("All required photos added — on to review.", {
+        action: {
+          label: "Back to photos",
+          onClick: () => setCurrentStep(1),
+        },
+      });
+    }
+    prevAllRequiredRef.current = hasAllRequiredPhotos;
+  }, [hasAllRequiredPhotos, currentStep]);
+
   function handleGarmentInfoSubmit(info: GarmentInfo) {
     setGarmentInfo(info);
     setCurrentStep(1);
