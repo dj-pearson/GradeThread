@@ -1146,12 +1146,16 @@ private struct RealtimeToggleSection: View {
     }
 }
 
-/// US-696: opt-in app lock. Toggling on takes effect on the next time the app
-/// is backgrounded + reopened; the device must have biometrics or a passcode
-/// configured (the toggle is disabled otherwise so we don't strand the user).
+/// US-696 / US-1016: opt-in app lock. Toggling on takes effect on the next time
+/// the app is backgrounded + reopened; the device must have biometrics or a
+/// passcode configured (the toggle is disabled otherwise so we don't strand the
+/// user). The optional biometrics-only sub-toggle switches the policy from
+/// `.deviceOwnerAuthentication` (passcode satisfies the lock) to
+/// `.deviceOwnerAuthenticationWithBiometrics` (Face ID / Touch ID only).
 private struct AppLockToggleSection: View {
     @Environment(AppLock.self) private var appLock
     @State private var isEnabled = false
+    @State private var biometricsOnly = false
 
     var body: some View {
         Section {
@@ -1162,15 +1166,38 @@ private struct AppLockToggleSection: View {
             .onChange(of: isEnabled) { _, newValue in
                 appLock.isEnabled = newValue
             }
+
+            // Only offer the stricter biometrics-only policy when the lock is on
+            // and the device actually has enrolled biometrics to fall back on.
+            if isEnabled && appLock.biometricsAvailable {
+                Toggle(isOn: $biometricsOnly) {
+                    Label("Biometrics only (no passcode)", systemImage: "faceid")
+                }
+                .onChange(of: biometricsOnly) { _, newValue in
+                    appLock.biometricsOnly = newValue
+                }
+            }
         } header: {
             Text("Security")
         } footer: {
-            Text(appLock.isAvailable
-                 ? "Require Face ID, Touch ID, or your device passcode each time you reopen GradeThread. Protects your sales, payouts, and account if someone gets your unlocked phone."
-                 : "Set up Face ID, Touch ID, or a passcode in iOS Settings to enable an app lock.")
+            Text(footerText)
                 .font(.footnote)
         }
-        .onAppear { isEnabled = appLock.isEnabled }
+        .onAppear {
+            isEnabled = appLock.isEnabled
+            biometricsOnly = appLock.biometricsOnly
+        }
+    }
+
+    private var footerText: String {
+        guard appLock.isAvailable else {
+            return "Set up Face ID, Touch ID, or a passcode in iOS Settings to enable an app lock."
+        }
+        if isEnabled && appLock.biometricsAvailable && biometricsOnly {
+            // Lockout warning: biometrics can lock out after repeated failures.
+            return "Biometrics only: GradeThread will require Face ID or Touch ID — your device passcode will not unlock it. After several failed attempts iOS locks out biometrics; if that happens you'll be asked for your passcode so you're never locked out."
+        }
+        return "Require Face ID, Touch ID, or your device passcode each time you reopen GradeThread. Your passcode always satisfies the lock, so you can't be locked out. Protects your sales, payouts, and account if someone gets your unlocked phone."
     }
 }
 
