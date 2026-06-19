@@ -1668,3 +1668,46 @@ Deno.test({
     );
   },
 });
+
+// US-1105: opt-in identity reveal is scoped to the caller's OWN passport hops
+// (owner_nodes.linked_user_id = caller). B toggling reveal on one of A's nodes
+// must hit 0 rows and 404 — never flip A's consent or leak A's identity. Env-
+// gated on a node id linked to A (TEST_USER_A_PASSPORT_NODE_ID).
+Deno.test({
+  name: "B cannot reveal identity on A's passport hop",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_PASSPORT_NODE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_PASSPORT_NODE_ID")!;
+    const res = await fetch(
+      `${BASE}/api/passport-identity/nodes/${id}/reveal`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ revealed: true }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST passport-identity/nodes/:id/reveal (A's node)");
+  },
+});
+
+// B's own identity-node list must never include A's node (the list is scoped by
+// linked_user_id = caller).
+Deno.test({
+  name: "B's passport identity list never includes A's node",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_PASSPORT_NODE_ID"),
+  fn: async () => {
+    const aNodeId = Deno.env.get("TEST_USER_A_PASSPORT_NODE_ID")!;
+    const res = await fetch(`${BASE}/api/passport-identity/nodes`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      nodes?: Array<{ node_id: string }>;
+    };
+    const ids = (body.nodes ?? []).map((n) => n.node_id);
+    assert(
+      !ids.includes(aNodeId),
+      `B's passport identity list leaked A's node ${aNodeId}`,
+    );
+  },
+});

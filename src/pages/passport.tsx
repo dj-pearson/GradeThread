@@ -37,6 +37,9 @@ type PassportEvent = {
   event_type: string;
   confidence: "deterministic" | "probable" | "unknown" | string;
   actor: string | null;
+  // US-1105: the actor's PUBLIC Verified identity, present ONLY when they opted
+  // in to reveal it for this hop. null (the default) = stay pseudonymous.
+  actor_revealed?: { handle: string; display_name: string | null } | null;
   source: string | null;
   payload: Record<string, unknown>;
   created_at: string;
@@ -194,7 +197,18 @@ function TimelineEvent({ event, isLast }: { event: PassportEvent; isLast: boolea
               <Calendar className="h-3.5 w-3.5" />
               {formatDate(event.created_at)}
             </span>
-            {event.actor && <span>{event.actor}</span>}
+            {event.actor_revealed?.handle
+              ? (
+                <Link
+                  to={`/verified/${event.actor_revealed.handle}`}
+                  className="inline-flex items-center gap-1 font-medium text-brand-navy hover:underline dark:text-blue-400"
+                  title="This participant opted to reveal their Verified identity"
+                >
+                  <BadgeCheck className="h-3.5 w-3.5" />
+                  {event.actor_revealed.display_name || `@${event.actor_revealed.handle}`}
+                </Link>
+              )
+              : event.actor && <span>{event.actor}</span>}
           </div>
 
           {certificate && (

@@ -22,9 +22,13 @@ platform [`DATA_RETENTION.md`](DATA_RETENTION.md) / [`SECURITY.md`](SECURITY.md)
 1. **Pseudonymous by default.** `owner_nodes` carry no name, email, address, or
    marketplace handle — only a stable label (`pseudonymousLabel()` →
    "Seller A", "Buyer B", "Owner 2", "System") and an enum `kind`.
-2. **Identity linkage is opt-in and deferred.** `owner_nodes.linked_user_id` is
-   nullable and stays unset until the explicit opt-in identity-reveal story
-   (**US-1105**). Nothing in this epic writes it before then.
+2. **Identity linkage is private; reveal is opt-in (US-1105).**
+   `owner_nodes.linked_user_id` is a nullable **uuid linkage only** — set when a
+   signed-in user claims/buys a garment (US-1094/1096/1100) so we can offer them
+   reveal — and is **NEVER exposed on any public surface** (the passport read
+   selects only `pseudonymous_label`/reveal fields, never the uuid). A hop stays
+   pseudonymous unless its owner explicitly opts in: see "Opt-in identity reveal"
+   below.
 3. **Public surfaces expose ONLY pseudonymous labels** (AC#2). Never a user id,
    email, address, or handle. `isPseudonymousLabel()`
    (`services/edge-functions/src/lib/garment-passport.ts`) is the guard a public
@@ -45,6 +49,27 @@ platform [`DATA_RETENTION.md`](DATA_RETENTION.md) / [`SECURITY.md`](SECURITY.md)
    id (which can be correlated back to a person) is discarded. Raw marketplace
    order payloads are processed in-memory only and not persisted to passport
    rows. This follows the minimization posture in `DATA_RETENTION.md`.
+
+## Opt-in identity reveal (US-1105, migration `00265`)
+
+A seller who wants public credit may **reveal their identity on a passport hop**
+— but only ever their **own already-public GradeThread Verified handle**, never
+an id, email, or address. The design makes an accidental PII leak structurally
+impossible:
+
+| Property | How it's enforced |
+|---|---|
+| **Off by default** | `owner_nodes.identity_revealed boolean NOT NULL DEFAULT false`. New nodes are pseudonymous. |
+| **Double opt-in** | A reveal is the AND of (a) the per-hop `identity_revealed` flag and (b) the linked user's Verified profile being **public** (`verified_enabled` + handle). `effectiveRevealedIdentity()` (`garment-passport.ts`, pure + unit-tested) is the single gate; disabling **either** opt-in instantly re-pseudonymizes the hop. |
+| **Per-hop** | Consent lives on each `owner_nodes` row (one per chain position), toggled independently via `POST /api/passport-identity/nodes/:id/reveal`. |
+| **Reversible** | Setting `revealed:false` clears the flag + `identity_revealed_at` immediately. |
+| **Only public fields** | The reveal surfaces `verified_handle` + `verified_display_name` — the same fields US-1101 already exposes for the origin seller. `linked_user_id` is never returned. |
+| **Tenant-scoped** | Management routes scope every read/write to `linked_user_id = userId` (US-268). A caller can never reveal or read another account's nodes. |
+| **Honored on export/delete (AC#3)** | `/api/account/export` includes the user's linked nodes + reveal flags. `/api/account/delete` explicitly clears `identity_revealed` + `linked_user_id` before the cascade (on top of the `ON DELETE SET NULL` FK), so no revealed handle can resolve after erasure. |
+
+The management surface is the Verified page (`/dashboard/flipdesk/verified`),
+under "Reveal your identity on passports" — disabled until the Verified profile
+is public, since that's the handle a reveal shows.
 
 ## Why this is defensible
 

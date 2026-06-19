@@ -30,6 +30,9 @@ interface PassportEvent {
   event_type: string;
   confidence: string;
   actor: string | null;
+  // US-1105: present only when this hop's owner opted to reveal their Verified
+  // identity. null = pseudonymous (the default).
+  actor_revealed?: { handle: string; display_name: string | null } | null;
   source: string | null;
   payload: Record<string, unknown>;
   created_at: string;
@@ -125,7 +128,16 @@ async function renderPassport(context: Ctx): Promise<Response> {
       const certLink = certificate
         ? `<div style="margin-top:6px"><a href="/cert/${escape(certificate)}">View grade certificate &rarr;</a></div>`
         : "";
-      const actor = e.actor ? ` · ${escape(e.actor)}` : "";
+      // US-1105: a revealed hop links to the actor's public Verified profile;
+      // otherwise show only the pseudonymous label.
+      const rev = e.actor_revealed;
+      const actor = rev?.handle
+        ? ` · <a href="/verified/${escape(rev.handle)}"><strong>${
+          escape(rev.display_name || "@" + rev.handle)
+        }</strong></a> <span style="font-size:0.75rem">(Verified)</span>`
+        : e.actor
+        ? ` · ${escape(e.actor)}`
+        : "";
       return `<li style="margin:0 0 16px;padding:12px 16px;border:1px solid var(--border,#e2e8f0);border-radius:8px">
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
           <strong>${escape(label)}</strong>

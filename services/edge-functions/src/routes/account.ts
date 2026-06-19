@@ -177,11 +177,19 @@ async function removeAll(bucket: string, paths: string[]) {
 accountRoutes.get("/export", async (c) => {
   const userId = c.get("userId");
 
-  const [profile, submissions, inventory, sources] = await Promise.all([
+  const [profile, submissions, inventory, sources, passportNodes] = await Promise.all([
     supabaseAdmin.from("users").select("*").eq("id", userId).maybeSingle(),
     supabaseAdmin.from("submissions").select("*").eq("user_id", userId),
     supabaseAdmin.from("inventory_items").select("*").eq("user_id", userId),
     supabaseAdmin.from("sources").select("*").eq("user_id", userId),
+    // US-1105: the Garment Passport hops linked to this account + the per-hop
+    // identity-reveal consent. Pseudonymous by default; the export documents the
+    // linkage + which hops the user opted to reveal so the subject sees exactly
+    // what identity data we hold for them.
+    supabaseAdmin
+      .from("owner_nodes")
+      .select("id, pseudonymous_label, kind, identity_revealed, identity_revealed_at, created_at")
+      .eq("linked_user_id", userId),
   ]);
 
   const submissionIds = (submissions.data ?? []).map((r) => (r as { id: string }).id);
@@ -207,6 +215,7 @@ accountRoutes.get("/export", async (c) => {
     listings: listings.data ?? [],
     sales: sales.data ?? [],
     sources: sources.data ?? [],
+    passport_identity_nodes: passportNodes.data ?? [],
   };
 
   return c.json(payload, 200, {
@@ -401,6 +410,25 @@ accountRoutes.post("/delete", async (c) => {
       console.error(
         `[account/delete] deletion-log insert failed for ${userId}:`,
         logErr.message,
+      );
+    }
+  }
+
+  // 3b. US-1105: re-pseudonymize this user's Garment Passport hops BEFORE the
+  //     cascade. owner_nodes.linked_user_id is ON DELETE SET NULL (00256), so the
+  //     account linkage is severed automatically — but we also explicitly clear
+  //     the reveal consent + linkage here so no opted-in handle can resolve for
+  //     even an instant, and the honoring is explicit/auditable, not implicit in
+  //     a FK rule. Best-effort: a failure here never blocks erasure.
+  {
+    const { error: revealErr } = await supabaseAdmin
+      .from("owner_nodes")
+      .update({ identity_revealed: false, identity_revealed_at: null, linked_user_id: null })
+      .eq("linked_user_id", userId);
+    if (revealErr) {
+      console.error(
+        `[account/delete] passport reveal teardown failed for ${userId}:`,
+        revealErr.message,
       );
     }
   }

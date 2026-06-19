@@ -18,6 +18,7 @@ import {
 } from "./routes/flipdesk-webhooks.ts";
 import { flipdeskGradingRoutes } from "./routes/flipdesk-grading.ts";
 import { passportRoutes } from "./routes/passport.ts";
+import { passportIdentityRoutes } from "./routes/passport-identity.ts";
 import { flipdeskPhotoProfilesRoutes } from "./routes/flipdesk-photo-profiles.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskListingsRoutes } from "./routes/flipdesk-listings.ts";
@@ -273,6 +274,9 @@ app.use("/api/verified/*", authMiddleware);
 // Garment Passport (US-1092): the public chain read (GET /api/passport/:slug) is
 // anonymous; only the append path under /garments/* is authed + workspace-scoped.
 app.use("/api/passport/garments/*", authMiddleware);
+// US-1105: opt-in identity-reveal management is per-ACCOUNT (the caller's own
+// passport hops), like the Verified profile — authed, NOT workspace-scoped.
+app.use("/api/passport-identity/*", authMiddleware);
 // FlipDesk: everything under /api/flipdesk is authed except inbound webhooks
 // and the eBay OAuth callback (eBay redirects the browser there unauthenticated;
 // the `state` token from oauth_states identifies the user) + the scheduled
@@ -549,6 +553,8 @@ app.use("/api/passport/tag/*", rateLimiter(20, 60_000, "passport-tag", undefined
 // append) + the candidate-match service (US-1098) — capped per-IP on top of the
 // auth + tenant scoping.
 app.use("/api/passport/garments/*", rateLimiter(30, 60_000, "passport-garments", undefined, { methods: ["POST"] }));
+// US-1105: identity-reveal management (authed) — capped per-IP on top of auth.
+app.use("/api/passport-identity/*", rateLimiter(30, 60_000, "passport-identity"));
 // US-884: the grade cap is read through the DB-backed settings registry
 // (`rate_limit_grade_per_min`) via the per-request resolver so it can be retuned
 // without a deploy. getSettingSync serves the cached value (default 60) and
@@ -722,6 +728,7 @@ app.route("/api/webhooks", webhookRoutes);
 app.route("/api/webhooks/appstore", appstoreWebhookRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/passport", passportRoutes);
+app.route("/api/passport-identity", passportIdentityRoutes);
 app.route("/api/v1", apiV1Routes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/flipdesk/ebay", flipdeskEbayRoutes);

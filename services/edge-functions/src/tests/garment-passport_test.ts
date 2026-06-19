@@ -3,6 +3,7 @@
 import { assert, assertEquals, assertNotEquals } from "@std/assert";
 import {
   chainLabel,
+  effectiveRevealedIdentity,
   generateClaimToken,
   hashClaimToken,
   isPseudonymousLabel,
@@ -53,6 +54,66 @@ Deno.test("minimizeLinkageRef: deterministic, hex, irreversible-by-storage", asy
   // The raw, PII-bearing value is never present in what we store.
   assert(!a.includes("123") || a.length === 64); // digest, not the raw id
   assert(!a.toLowerCase().includes("ebay"));
+});
+
+// US-1105: opt-in identity reveal. The gate must require BOTH per-hop consent
+// AND a live public Verified profile, and never surface anything but the public
+// handle/display name. A mistake here leaks PII, so the matrix is exhaustive.
+const PUBLIC_PROFILE = {
+  verified_enabled: true,
+  verified_handle: "thrift-king",
+  verified_display_name: "Thrift King",
+};
+
+Deno.test("effectiveRevealedIdentity: revealed + linked + public profile → handle", () => {
+  const out = effectiveRevealedIdentity(
+    { identity_revealed: true, linked_user_id: "u1" },
+    PUBLIC_PROFILE,
+  );
+  assertEquals(out, { handle: "thrift-king", display_name: "Thrift King" });
+});
+
+Deno.test("effectiveRevealedIdentity: falls back to handle when no display name", () => {
+  const out = effectiveRevealedIdentity(
+    { identity_revealed: true, linked_user_id: "u1" },
+    { ...PUBLIC_PROFILE, verified_display_name: "" },
+  );
+  assertEquals(out, { handle: "thrift-king", display_name: null });
+});
+
+Deno.test("effectiveRevealedIdentity: stays pseudonymous unless EVERY opt-in holds", () => {
+  // No per-hop consent.
+  assertEquals(
+    effectiveRevealedIdentity({ identity_revealed: false, linked_user_id: "u1" }, PUBLIC_PROFILE),
+    null,
+  );
+  // Consent but no account linkage.
+  assertEquals(
+    effectiveRevealedIdentity({ identity_revealed: true, linked_user_id: null }, PUBLIC_PROFILE),
+    null,
+  );
+  // Profile not public (disabled) — the second opt-in is withdrawn.
+  assertEquals(
+    effectiveRevealedIdentity(
+      { identity_revealed: true, linked_user_id: "u1" },
+      { ...PUBLIC_PROFILE, verified_enabled: false },
+    ),
+    null,
+  );
+  // Public-toggled but no handle to show.
+  assertEquals(
+    effectiveRevealedIdentity(
+      { identity_revealed: true, linked_user_id: "u1" },
+      { ...PUBLIC_PROFILE, verified_handle: "" },
+    ),
+    null,
+  );
+  // Missing node / user entirely.
+  assertEquals(effectiveRevealedIdentity(null, PUBLIC_PROFILE), null);
+  assertEquals(
+    effectiveRevealedIdentity({ identity_revealed: true, linked_user_id: "u1" }, null),
+    null,
+  );
 });
 
 // US-1094: ownership-claim token primitives.

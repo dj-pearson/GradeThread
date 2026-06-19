@@ -3062,7 +3062,7 @@
         "No PII is revealed without explicit per-user opt-in; build + deno checks pass"
       ],
       "priority": 716,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][Privacy] The deferred opt-in the user described ('later maybe have an opt in'). Depends on [[US-1090]], [[US-1093]]. Off by default; reversible."
     },
     {

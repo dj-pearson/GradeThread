@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
+  effectiveRevealedIdentity,
   generateClaimToken,
   hashClaimToken,
   isPseudonymousLabel,
   minimizeLinkageRef,
+  type RevealedIdentity,
 } from "../lib/garment-passport.ts";
 import { transferToNewBuyer, userIdFromBearer } from "../lib/passport-transfer.ts";
 import {
@@ -151,19 +153,56 @@ passportRoutes.get("/:slug", async (c) => {
     actor_node_id: string | null;
   }>;
 
-  // Resolve actor nodes → pseudonymous labels ONLY (never ids / linked_user_id).
+  // Resolve actor nodes → pseudonymous labels by default. A node owner may have
+  // OPTED IN per-hop to reveal their public Verified handle (US-1105); resolve
+  // that too, but ONLY ever the already-public verified handle/display name —
+  // never the linked_user_id itself. The default is fully pseudonymous.
   const nodeIds = [...new Set(rows.map((r) => r.actor_node_id).filter((x): x is string => !!x))];
   const labelByNode = new Map<string, string>();
+  const revealedByNode = new Map<string, RevealedIdentity>();
   if (nodeIds.length > 0) {
     const { data: nodes } = await supabaseAdmin
       .from("owner_nodes")
-      .select("id, pseudonymous_label")
+      .select("id, pseudonymous_label, identity_revealed, linked_user_id")
       .in("id", nodeIds);
-    for (const n of (nodes ?? []) as Array<{ id: string; pseudonymous_label: string }>) {
+    const nodeRows = (nodes ?? []) as Array<{
+      id: string;
+      pseudonymous_label: string;
+      identity_revealed: boolean | null;
+      linked_user_id: string | null;
+    }>;
+    for (const n of nodeRows) {
       labelByNode.set(
         n.id,
         isPseudonymousLabel(n.pseudonymous_label) ? n.pseudonymous_label : "Unknown",
       );
+    }
+    // Batch-load the verified profiles only for nodes that opted in AND are
+    // linked — a reveal is the AND of per-hop consent + a live public profile.
+    const revealUserIds = [
+      ...new Set(
+        nodeRows
+          .filter((n) => n.identity_revealed && n.linked_user_id)
+          .map((n) => n.linked_user_id as string),
+      ),
+    ];
+    if (revealUserIds.length > 0) {
+      const { data: profiles } = await supabaseAdmin
+        .from("users")
+        .select("id, verified_enabled, verified_handle, verified_display_name")
+        .in("id", revealUserIds);
+      const profileById = new Map(
+        ((profiles ?? []) as Array<{
+          id: string;
+          verified_enabled: boolean | null;
+          verified_handle: string | null;
+          verified_display_name: string | null;
+        }>).map((p) => [p.id, p]),
+      );
+      for (const n of nodeRows) {
+        const ident = effectiveRevealedIdentity(n, profileById.get(n.linked_user_id ?? ""));
+        if (ident) revealedByNode.set(n.id, ident);
+      }
     }
   }
 
@@ -178,6 +217,9 @@ passportRoutes.get("/:slug", async (c) => {
       event_type: r.event_type,
       confidence: r.confidence,
       actor: r.actor_node_id ? (labelByNode.get(r.actor_node_id) ?? "Unknown") : null,
+      // US-1105: the actor's PUBLIC verified identity, but ONLY when they opted
+      // in for this hop. null (the default) keeps the actor pseudonymous.
+      actor_revealed: r.actor_node_id ? (revealedByNode.get(r.actor_node_id) ?? null) : null,
       source: r.source,
       payload: sanitizePayload(r.payload),
       created_at: r.created_at,
