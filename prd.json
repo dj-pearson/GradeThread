@@ -1551,7 +1551,7 @@
         "No regression to the item-create/photo-upload offline-queue paths."
       ],
       "priority": 981,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=functional. ios/GradeThread/Networking/NetworkMonitor.swift; action-bearing views (PublishDialog, GradeRequestSheet, ExpenseFormSheet, etc.)"
     },
     {

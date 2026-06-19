@@ -3330,3 +3330,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:40:04 PM
 ---
+## US-981: iOS: wire NetworkMonitor offline guards into action surfaces
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  9:48:52 PM
+---
