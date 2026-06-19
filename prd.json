@@ -1161,7 +1161,7 @@
         "Typecheck passes"
       ],
       "priority": 955,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / List] Added 2026-06-12. Files: services/edge-functions/src/routes/flipdesk-autolister.ts (processBatch ~235-369, durable publish worker), src/pages/flipdesk/autolister.tsx (batch create) + autolister-queue.tsx. Depends on US-954 pre-flight to define 'clean'. Reuses confidence triage (US-550) and durable publish (US-559)."
     },
     {

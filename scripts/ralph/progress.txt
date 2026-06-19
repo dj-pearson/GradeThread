@@ -3434,3 +3434,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  2:54:57 AM
 ---
+## US-955: Optional auto-publish of green drafts on batch completion
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  3:10:48 AM
+---
