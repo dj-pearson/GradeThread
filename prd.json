@@ -1938,7 +1938,7 @@
         "EbayAccountsTests/AccessibilityTests updated."
       ],
       "priority": 1009,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=accessibility/ux. ios/GradeThread/Marketplaces/EbayAccountsView.swift (~123-148)"
     },
     {

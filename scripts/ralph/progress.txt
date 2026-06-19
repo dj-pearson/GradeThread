@@ -3218,3 +3218,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  7:36:32 PM
 ---
+## US-1009: iOS: accessible eBay account rows + confirm before disconnect
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  7:39:15 PM
+---
