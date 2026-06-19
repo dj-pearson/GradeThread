@@ -20,6 +20,7 @@ import {
   Undo2,
   Pencil,
   RotateCcw,
+  Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -39,7 +40,7 @@ import { readCaptureTime } from "@/lib/exif";
 import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
-import { useStartAutolisterBatch } from "@/hooks/use-autolister";
+import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import { FLIPDESK_PLANS } from "@/lib/constants";
@@ -200,6 +201,10 @@ interface BatchStats {
 const MIN_RESOLUTION = 1200;
 const BORDERLINE_RESOLUTION = 1500;
 
+// US-957: covers scoring below this (0-100 listing-readiness) get a non-blocking
+// "reshoot recommended" nudge before Generate. Advisory only — never blocks.
+const COVER_QA_REVIEW_THRESHOLD = 60;
+
 function looksHeic(file: File): boolean {
   const lc = file.name.toLowerCase();
   return (
@@ -265,6 +270,7 @@ export function FlipdeskAutolisterPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const startBatch = useStartAutolisterBatch();
+  const coverQa = useRunCoverQa();
 
   const { data: billing, isLoading: billingLoading } = useBillingSummary();
   const plan = billing?.subscription.plan ?? "free";
@@ -358,6 +364,11 @@ export function FlipdeskAutolisterPage() {
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   // US-534: id of the staged photo open in the crop/rotate/straighten editor.
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
+  // US-957: fast cover-photo QA scores, keyed by the cover staged-photo id
+  // (0-100, or -1 on error). A ref tracks covers whose scan is in flight so the
+  // scanning effect never double-submits the same cover.
+  const [coverScores, setCoverScores] = useState<Record<string, number>>({});
+  const coverInFlight = useRef<Set<string>>(new Set());
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -381,6 +392,57 @@ export function FlipdeskAutolisterPage() {
     [groups],
   );
   const ungrouped = staged.filter((p) => !groupedIds.has(p.id));
+
+  // US-957: how many groups have a low-scoring cover (drives the advisory near
+  // the Generate button). -1 (a QA error) is not counted as "low".
+  const lowCoverCount = useMemo(
+    () =>
+      groups.filter((g) => {
+        const s = coverScores[g.coverId];
+        return s != null && s >= 0 && s < COVER_QA_REVIEW_THRESHOLD;
+      }).length,
+    [groups, coverScores],
+  );
+
+  // US-957: as photos get grouped, score each group's cover so a low-quality
+  // cover can be reshot before the (much pricier) AI generation runs. Each pass
+  // batches the not-yet-scored covers into a single request; the edge runs the
+  // vision calls with bounded concurrency, so this never stalls the intake UI.
+  // Advisory only — failures are swallowed and a score never blocks Generate.
+  useEffect(() => {
+    if (!entitled) return;
+    const pending: { id: string; storage_path: string }[] = [];
+    const seen = new Set<string>();
+    for (const g of groups) {
+      const cover = stagedById.get(g.coverId);
+      if (!cover || seen.has(cover.id)) continue;
+      seen.add(cover.id);
+      if (cover.id in coverScores) continue;
+      if (coverInFlight.current.has(cover.id)) continue;
+      pending.push({ id: cover.id, storage_path: cover.storagePath });
+    }
+    if (pending.length === 0) return;
+    for (const p of pending) coverInFlight.current.add(p.id);
+    coverQa.mutate(
+      { covers: pending },
+      {
+        onSuccess: ({ results }) => {
+          setCoverScores((prev) => {
+            const next = { ...prev };
+            for (const r of results) next[r.cover_id] = r.score;
+            return next;
+          });
+        },
+        onSettled: () => {
+          for (const p of pending) coverInFlight.current.delete(p.id);
+        },
+      },
+    );
+    // coverQa.mutate is referentially stable (react-query); the deps below cover
+    // every input the scan reads. Including `coverQa` itself would re-run every
+    // render (useMutation returns a fresh object each time).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, stagedById, coverScores, entitled]);
 
   function patchTask(id: string, patch: Partial<UploadTask>) {
     setUploadTasks((prev) =>
@@ -1361,6 +1423,22 @@ export function FlipdeskAutolisterPage() {
         </Button>
       </div>
 
+      {/* US-957: pre-generation cover-QA advisory. Non-blocking — it never
+          disables Generate, it just nudges a reshoot to save AI quota. */}
+      {entitled && lowCoverCount > 0 && (
+        <Card className="flex items-start gap-2 border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+          <Camera className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-amber-800 dark:text-amber-200">
+            <span className="font-medium">
+              {lowCoverCount} item{lowCoverCount === 1 ? "" : "s"} could use a
+              better cover photo.
+            </span>{" "}
+            Reshoot the flagged covers below for sharper listings — or generate
+            anyway, this is only a suggestion.
+          </p>
+        </Card>
+      )}
+
       {/* Premium gate (US-323) — shown when the plan doesn't include AutoLister.
           The server also enforces this; this is the in-app upsell. */}
       {!entitled && !billingLoading && (
@@ -1844,6 +1922,24 @@ export function FlipdeskAutolisterPage() {
                   title="Your inventory SKU. If it matches an existing item, the AI draft is reconciled against it."
                 />
                 <Badge variant="secondary">{g.photoIds.length} photos</Badge>
+                {/* US-957: non-blocking reshoot nudge when the cover scores low.
+                    Advisory only — Generate is never gated on this. */}
+                {(() => {
+                  const score = coverScores[g.coverId];
+                  if (score == null || score < 0 || score >= COVER_QA_REVIEW_THRESHOLD) {
+                    return null;
+                  }
+                  return (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
+                      title={`The cover photo scored ${score}/100 for listing-readiness. A sharper, well-lit cover sells faster — reshoot it before generating if you can. (Optional — you can still generate.)`}
+                    >
+                      <Camera className="h-3 w-3" />
+                      Reshoot recommended
+                    </Badge>
+                  );
+                })()}
                 <div className="ml-auto flex items-center gap-1">
                   <Button
                     size="sm"

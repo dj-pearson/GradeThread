@@ -215,6 +215,43 @@ export interface PhotoQaItemResult {
   error?: string;
 }
 
+// US-957: pre-generation cover scan. Scores each group's cover photo by its
+// staged storage_path BEFORE any inventory item exists, so an unusable cover can
+// be reshot before AI generation quota is spent. Reuses the same /photo-qa
+// endpoint (and the same vision lib) — the `covers` body shape returns scores
+// without persisting (there's no item row yet).
+export interface CoverQaResult {
+  cover_id: string;
+  score: number; // 0-100, or -1 when the QA pass errored for that cover
+  issues: PhotoQaIssue[];
+  error?: string;
+}
+
+export interface CoverQaInput {
+  id: string;
+  storage_path: string;
+}
+
+export function useRunCoverQa() {
+  return useMutation<
+    { results: CoverQaResult[] },
+    Error,
+    { covers: CoverQaInput[] }
+  >({
+    mutationFn: async ({ covers }) => {
+      const res = await edgeFetch("/api/flipdesk/autolister/photo-qa", {
+        method: "POST",
+        json: { covers },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not check photos.");
+      return json as { results: CoverQaResult[] };
+    },
+    // Advisory only: the intake flow swallows failures so a flaky QA pass never
+    // interrupts grouping or blocks the Generate button.
+  });
+}
+
 /**
  * POST /api/flipdesk/autolister/photo-qa — score the given items' photos for
  * listing-readiness and persist the score + issues on each item.

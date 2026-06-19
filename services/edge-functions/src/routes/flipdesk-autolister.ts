@@ -692,12 +692,93 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
 flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  let body: { item_ids?: unknown };
+  let body: { item_ids?: unknown; covers?: unknown };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
+
+  // US-957: pre-generation cover scan. The AutoLister intake scores each group's
+  // cover photo BEFORE any inventory item exists — and before AI generation
+  // quota is spent — so a seller can reshoot an unusable cover early. There's no
+  // item row to persist to, so this branch scores by storage_path and returns
+  // the scores without writing anything. Tenant safety (CLAUDE.md US-268): a
+  // staged photo path is `${ownerId}/_staging/...`, so only paths under this
+  // owner's prefix are assessed — a path from another tenant is dropped.
+  if (Array.isArray(body.covers)) {
+    type CoverInput = { id: string; storage_path: string };
+    const covers = (body.covers as unknown[])
+      .filter((x): x is CoverInput =>
+        !!x && typeof x === "object" &&
+        typeof (x as { id?: unknown }).id === "string" &&
+        typeof (x as { storage_path?: unknown }).storage_path === "string"
+      )
+      .filter((x) => x.storage_path.startsWith(`${ownerId}/`));
+    const uniqueCovers = [...new Map(covers.map((x) => [x.id, x])).values()];
+    if (uniqueCovers.length === 0) {
+      return c.json(
+        { error: "covers must be a non-empty array of owned staged photos" },
+        400,
+      );
+    }
+    if (uniqueCovers.length > MAX_QA_ITEMS) {
+      return c.json({ error: `At most ${MAX_QA_ITEMS} covers per request.` }, 400);
+    }
+
+    const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+    if (gated) return gated;
+
+    type CoverResult = {
+      cover_id: string;
+      score: number;
+      issues: Array<{
+        type: string;
+        severity: string;
+        message: string;
+        photo_index: number | null;
+      }>;
+      error?: string;
+    };
+    const coverResults: CoverResult[] = [];
+    const coverQueue = [...uniqueCovers];
+    const coverWorker = async (): Promise<void> => {
+      while (coverQueue.length > 0) {
+        const cover = coverQueue.shift()!;
+        const url = supabaseAdmin.storage
+          .from("item-photos")
+          .getPublicUrl(cover.storage_path).data.publicUrl;
+        try {
+          const qa = await assessPhotoQuality([{ url, type: "front" }]);
+          await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+          coverResults.push({
+            cover_id: cover.id,
+            score: qa.score,
+            issues: qa.issues.map((i) => ({
+              type: i.type,
+              severity: i.severity,
+              message: i.message,
+              photo_index: i.photoIndex,
+            })),
+          });
+        } catch (err) {
+          console.error("[AutoLister] cover photo-qa failed for", cover.id, err);
+          coverResults.push({
+            cover_id: cover.id,
+            score: -1,
+            issues: [],
+            error: err instanceof Error ? err.message : "Photo QA failed.",
+          });
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, coverQueue.length) }, () =>
+        coverWorker()),
+    );
+    return c.json({ results: coverResults });
+  }
+
   const itemIds = Array.isArray(body.item_ids)
     ? Array.from(
       new Set(body.item_ids.filter((x): x is string => typeof x === "string")),
