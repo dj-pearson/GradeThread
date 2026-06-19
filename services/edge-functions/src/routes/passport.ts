@@ -1,6 +1,23 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { isPseudonymousLabel } from "../lib/garment-passport.ts";
+import {
+  generateClaimToken,
+  hashClaimToken,
+  isPseudonymousLabel,
+} from "../lib/garment-passport.ts";
+import { transferToNewBuyer, userIdFromBearer } from "../lib/passport-transfer.ts";
+import {
+  generateTagCode,
+  isValidTagCode,
+  normalizeTagCode,
+  tagScanUrl,
+} from "../lib/passport-tag.ts";
+import {
+  type FingerprintRecord,
+  type MatchOpts,
+  rankCandidates,
+} from "../lib/garment-match.ts";
+import { getSettingSync } from "../lib/system-settings.ts";
 
 // Garment Passport edge API (US-1092). Mounted at /api/passport.
 //
@@ -27,6 +44,14 @@ export const passportRoutes = new Hono<{
 const APPENDABLE_EVENT_TYPES = new Set(["ownership_transfer", "listed"]);
 const CONFIDENCE_VALUES = new Set(["deterministic", "probable", "unknown"]);
 
+// US-1094: ownership-claim tokens are valid for 30 days from mint.
+const CLAIM_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Public site origin (no trailing slash) for building claim links. */
+function publicSiteUrl(): string {
+  return (Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com").replace(/\/$/, "");
+}
+
 // Drop any payload key that could carry identity — defense-in-depth for the
 // public response (US-1090 AC#2). The edge only writes PII-free payloads, but a
 // public surface must never echo an id/email/handle/address even by accident.
@@ -40,6 +65,16 @@ export function sanitizePayload(payload: unknown): Record<string, unknown> {
     out[k] = v;
   }
   return out;
+}
+
+// Extract the phash map from a stored fingerprint row's payload (US-1098).
+function phashesOf(row: { payload: unknown }): Record<string, string> {
+  const p = row.payload;
+  if (p && typeof p === "object" && "phashes" in p) {
+    const ph = (p as { phashes?: unknown }).phashes;
+    if (ph && typeof ph === "object") return ph as Record<string, string>;
+  }
+  return {};
 }
 
 // GET /:slug — public passport chain. PII-free by construction.
@@ -177,4 +212,334 @@ passportRoutes.post("/garments/:id/events", async (c) => {
   }
 
   return c.json({ ok: true, event: inserted }, 201);
+});
+
+// POST /garments/:id/claim-token — authed, tenant-scoped. Mint a single-use,
+// time-bounded claim token for a (sold) garment so its buyer can take over the
+// passport. The RAW token is returned exactly once; only its hash is stored.
+passportRoutes.post("/garments/:id/claim-token", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const garmentId = c.req.param("id");
+  if (!garmentId) return c.json({ error: "garment id is required" }, 400);
+
+  // US-268: verify the garment belongs to this workspace owner BEFORE minting.
+  const { data: garment, error: gErr } = await supabaseAdmin
+    .from("garments")
+    .select("id")
+    .eq("id", garmentId)
+    .eq("created_by", ownerId)
+    .maybeSingle();
+  if (gErr) {
+    console.error("[passport] claim-token ownership lookup failed:", gErr.message);
+    return c.json({ error: "Lookup failed" }, 500);
+  }
+  if (!garment) return c.json({ error: "Garment not found" }, 404);
+
+  const token = generateClaimToken();
+  const tokenHash = await hashClaimToken(token);
+  const expiresAt = new Date(Date.now() + CLAIM_TOKEN_TTL_MS).toISOString();
+
+  const { error: insErr } = await supabaseAdmin.from("passport_claim_tokens").insert({
+    garment_id: garmentId,
+    token_hash: tokenHash,
+    created_by: ownerId,
+    expires_at: expiresAt,
+  });
+  if (insErr) {
+    console.error("[passport] claim-token insert failed:", insErr.message);
+    return c.json({ error: "Failed to create claim token" }, 500);
+  }
+
+  // The raw token is shown ONCE — it is not recoverable from the stored hash.
+  return c.json(
+    { token, claim_url: `${publicSiteUrl()}/claim/${token}`, expires_at: expiresAt },
+    201,
+  );
+});
+
+// POST /claim — ANONYMOUS (not under /garments/*, so no auth middleware). Redeem
+// a claim token: transfer the passport to a new pseudonymous buyer node and
+// append a deterministic ownership_transfer event. No account required; if a
+// valid bearer token is present the buyer node is linked to that account (a uuid
+// linkage only — never any PII). Single-use + time-bounded + replay-guarded.
+passportRoutes.post("/claim", async (c) => {
+  let body: { token?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (!token) return c.json({ error: "token is required" }, 400);
+
+  const tokenHash = await hashClaimToken(token);
+  const nowIso = new Date().toISOString();
+
+  // Atomic single-use claim: the UPDATE succeeds only if the token is still
+  // unclaimed AND unexpired. A replay / concurrent double-claim loses this race
+  // (claimed_at is already set) and matches no row → rejected below. This is the
+  // core replay guard (US-1094 AC#3).
+  const { data: claimed, error: claimErr } = await supabaseAdmin
+    .from("passport_claim_tokens")
+    .update({ claimed_at: nowIso })
+    .eq("token_hash", tokenHash)
+    .is("claimed_at", null)
+    .gt("expires_at", nowIso)
+    .select("id, garment_id")
+    .maybeSingle();
+  if (claimErr) {
+    console.error("[passport] claim update failed:", claimErr.message);
+    return c.json({ error: "Claim failed" }, 500);
+  }
+  if (!claimed) {
+    // Invalid / expired / already-used — deliberately indistinguishable so a
+    // caller can't probe which tokens exist.
+    return c.json({ error: "This claim link is invalid, expired, or already used." }, 410);
+  }
+  const garmentId = (claimed as { id: string; garment_id: string }).garment_id;
+  const tokenId = (claimed as { id: string }).id;
+
+  // Optional account association (no PII — just the auth user's uuid).
+  const linkedUserId = await userIdFromBearer(c.req.header("Authorization"));
+
+  // Shared deterministic transfer: new pseudonymous buyer node +
+  // ownership_transfer event + current-owner move.
+  const transfer = await transferToNewBuyer(garmentId, { linkedUserId, source: "claim" });
+  if (!transfer) return c.json({ error: "Claim failed" }, 500);
+
+  // Audit: record which node redeemed the token (best-effort).
+  await supabaseAdmin
+    .from("passport_claim_tokens")
+    .update({ claimed_by_node_id: transfer.nodeId })
+    .eq("id", tokenId)
+    .then(() => {}, () => {});
+
+  return c.json({ ok: true, passport_slug: transfer.slug }, 200);
+});
+
+// ── Physical tags (US-1096, Layer 2) ─────────────────────────────────────────
+
+// POST /garments/:id/tags — authed, tenant-scoped. Issue a printable QR + short
+// code bound to the garment's passport. Re-issuable (call again for a fresh
+// code); pass { revoke_existing: true } to revoke prior tags (lost-tag reissue).
+passportRoutes.post("/garments/:id/tags", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const garmentId = c.req.param("id");
+  if (!garmentId) return c.json({ error: "garment id is required" }, 400);
+
+  let body: { revoke_existing?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    /* body is optional */
+  }
+
+  // US-268: verify the garment belongs to this workspace owner BEFORE issuing.
+  const { data: garment, error: gErr } = await supabaseAdmin
+    .from("garments")
+    .select("id, public_passport_slug")
+    .eq("id", garmentId)
+    .eq("created_by", ownerId)
+    .maybeSingle();
+  if (gErr) {
+    console.error("[passport] tag issue ownership lookup failed:", gErr.message);
+    return c.json({ error: "Lookup failed" }, 500);
+  }
+  if (!garment) return c.json({ error: "Garment not found" }, 404);
+  const slug = (garment as { public_passport_slug: string }).public_passport_slug;
+
+  if (body.revoke_existing === true) {
+    await supabaseAdmin
+      .from("passport_tags")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("garment_id", garmentId)
+      .eq("created_by", ownerId)
+      .is("revoked_at", null)
+      .then(() => {}, () => {});
+  }
+
+  // Generate a unique code (retry on the rare unique-constraint collision).
+  let tagId: string | null = null;
+  let displayCode = "";
+  let storedCode = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    displayCode = generateTagCode();
+    storedCode = normalizeTagCode(displayCode);
+    const { data: inserted, error: insErr } = await supabaseAdmin
+      .from("passport_tags")
+      .insert({ garment_id: garmentId, short_code: storedCode, created_by: ownerId })
+      .select("id")
+      .maybeSingle();
+    if (!insErr && inserted) {
+      tagId = (inserted as { id: string }).id;
+      break;
+    }
+    // 23505 = unique_violation → retry with a fresh code; other errors abort.
+    if (insErr && insErr.code !== "23505") {
+      console.error("[passport] tag insert failed:", insErr.message);
+      return c.json({ error: "Failed to issue tag" }, 500);
+    }
+  }
+  if (!tagId) return c.json({ error: "Failed to issue tag" }, 500);
+
+  return c.json(
+    {
+      tag_id: tagId,
+      short_code: displayCode,
+      scan_url: tagScanUrl(publicSiteUrl(), storedCode),
+      passport_slug: slug,
+    },
+    201,
+  );
+});
+
+// POST /garments/:id/tags/:tagId/revoke — authed, tenant-scoped. Revoke a (lost)
+// tag so its code no longer resolves; issue a fresh one via POST .../tags.
+passportRoutes.post("/garments/:id/tags/:tagId/revoke", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const garmentId = c.req.param("id");
+  const tagId = c.req.param("tagId");
+  if (!garmentId || !tagId) return c.json({ error: "garment id and tag id are required" }, 400);
+
+  const { data: revoked, error } = await supabaseAdmin
+    .from("passport_tags")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", tagId)
+    .eq("garment_id", garmentId)
+    .eq("created_by", ownerId)
+    .is("revoked_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[passport] tag revoke failed:", error.message);
+    return c.json({ error: "Revoke failed" }, 500);
+  }
+  if (!revoked) return c.json({ error: "Tag not found" }, 404);
+  return c.json({ ok: true }, 200);
+});
+
+// GET /tag/:code — PUBLIC, rate-limited. Resolve a scanned tag to its passport
+// slug (so the scan can open the public timeline). Revoked/invalid → 404.
+passportRoutes.get("/tag/:code", async (c) => {
+  const code = normalizeTagCode(c.req.param("code") ?? "");
+  if (!isValidTagCode(code)) return c.json({ error: "Tag not found" }, 404);
+
+  const { data: tag } = await supabaseAdmin
+    .from("passport_tags")
+    .select("garment_id")
+    .eq("short_code", code)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (!tag) return c.json({ error: "Tag not found" }, 404);
+
+  const { data: g } = await supabaseAdmin
+    .from("garments")
+    .select("public_passport_slug, status")
+    .eq("id", (tag as { garment_id: string }).garment_id)
+    .maybeSingle();
+  if (!g) return c.json({ error: "Tag not found" }, 404);
+  const garment = g as { public_passport_slug: string; status: string };
+
+  return c.json({ passport_slug: garment.public_passport_slug, status: garment.status });
+});
+
+// POST /tag/:code/claim — PUBLIC, rate-limited. Scan-to-claim: the physical tag
+// is the bearer credential, so whoever holds it can take over the chain
+// (deterministic Layer-1 handoff). Revoked/invalid → 404.
+passportRoutes.post("/tag/:code/claim", async (c) => {
+  const code = normalizeTagCode(c.req.param("code") ?? "");
+  if (!isValidTagCode(code)) return c.json({ error: "Tag not found" }, 404);
+
+  const { data: tag } = await supabaseAdmin
+    .from("passport_tags")
+    .select("garment_id")
+    .eq("short_code", code)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (!tag) {
+    return c.json({ error: "This tag is invalid or has been revoked." }, 404);
+  }
+
+  const linkedUserId = await userIdFromBearer(c.req.header("Authorization"));
+  const transfer = await transferToNewBuyer(
+    (tag as { garment_id: string }).garment_id,
+    { linkedUserId, source: "tag-claim" },
+  );
+  if (!transfer) return c.json({ error: "Claim failed" }, 500);
+
+  return c.json({ ok: true, passport_slug: transfer.slug }, 200);
+});
+
+// ── Candidate matching (US-1098, Layer-3) ────────────────────────────────────
+
+// POST /garments/:id/match-candidates — authed, tenant-scoped. Propose PROBABLE
+// "same physical garment" matches among the OWNER's other garments, ranked by
+// visual similarity with a wear-monotonicity gate. SUGGESTIONS ONLY — this never
+// writes an ownership_transfer/link event (a human/relister must confirm via the
+// claim handoff). Thresholds are tunable via system settings.
+const MATCH_CANDIDATE_LIMIT = 500;
+passportRoutes.post("/garments/:id/match-candidates", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const garmentId = c.req.param("id");
+  if (!garmentId) return c.json({ error: "garment id is required" }, 400);
+
+  // US-268: the query garment must belong to this workspace owner.
+  const { data: garment } = await supabaseAdmin
+    .from("garments")
+    .select("id, sku_class")
+    .eq("id", garmentId)
+    .eq("created_by", ownerId)
+    .maybeSingle();
+  if (!garment) return c.json({ error: "Garment not found" }, 404);
+
+  // The query garment's most recent fingerprint.
+  const { data: queryFp } = await supabaseAdmin
+    .from("garment_fingerprints")
+    .select("payload, wear_score")
+    .eq("garment_id", garmentId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!queryFp) {
+    return c.json({ ok: true, candidates: [], reason: "no_fingerprint" }, 200);
+  }
+
+  const query: FingerprintRecord = {
+    garmentId,
+    skuClass: ((garment as { sku_class: Record<string, unknown> }).sku_class) ?? {},
+    phashes: phashesOf(queryFp),
+    wearScore: Number((queryFp as { wear_score: number }).wear_score ?? 0),
+  };
+
+  // Candidate fingerprints among the owner's OTHER garments (tenant-scoped via
+  // the joined garment's created_by). Bounded for cost.
+  const { data: rows } = await supabaseAdmin
+    .from("garment_fingerprints")
+    .select("garment_id, payload, wear_score, garments!inner(created_by, sku_class)")
+    .eq("garments.created_by", ownerId)
+    .neq("garment_id", garmentId)
+    .limit(MATCH_CANDIDATE_LIMIT);
+
+  const candidates: FingerprintRecord[] = ((rows ?? []) as Array<{
+    garment_id: string;
+    payload: unknown;
+    wear_score: number;
+    garments: { sku_class: Record<string, unknown> } | { sku_class: Record<string, unknown> }[];
+  }>).map((r) => {
+    const g = Array.isArray(r.garments) ? r.garments[0] : r.garments;
+    return {
+      garmentId: r.garment_id,
+      skuClass: g?.sku_class ?? {},
+      phashes: phashesOf(r),
+      wearScore: Number(r.wear_score ?? 0),
+    };
+  });
+
+  const opts: MatchOpts = {
+    minSimilarity: getSettingSync<number>("passport_match_min_similarity", 0.82),
+    wearTolerance: getSettingSync<number>("passport_match_wear_tolerance", 0.5),
+  };
+
+  const ranked = rankCandidates(query, candidates, opts).slice(0, 20);
+  return c.json({ ok: true, candidates: ranked }, 200);
 });

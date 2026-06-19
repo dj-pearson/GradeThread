@@ -3,6 +3,8 @@
 import { assert, assertEquals, assertNotEquals } from "@std/assert";
 import {
   chainLabel,
+  generateClaimToken,
+  hashClaimToken,
   isPseudonymousLabel,
   minimizeLinkageRef,
   pseudonymousLabel,
@@ -51,4 +53,28 @@ Deno.test("minimizeLinkageRef: deterministic, hex, irreversible-by-storage", asy
   // The raw, PII-bearing value is never present in what we store.
   assert(!a.includes("123") || a.length === 64); // digest, not the raw id
   assert(!a.toLowerCase().includes("ebay"));
+});
+
+// US-1094: ownership-claim token primitives.
+Deno.test("generateClaimToken: high-entropy 64-hex, unique per call", () => {
+  const a = generateClaimToken();
+  const b = generateClaimToken();
+  assert(/^[0-9a-f]{64}$/.test(a), "token is 32-byte hex");
+  assertNotEquals(a, b, "two tokens must differ (random)");
+});
+
+Deno.test("hashClaimToken: deterministic SHA-256 hex; raw not recoverable", async () => {
+  const raw = generateClaimToken();
+  const h1 = await hashClaimToken(raw);
+  const h2 = await hashClaimToken(raw);
+  const other = await hashClaimToken(generateClaimToken());
+  assertEquals(h1, h2); // same token → same hash (lookup works)
+  assertNotEquals(h1, other); // different tokens → different hashes
+  assert(/^[0-9a-f]{64}$/.test(h1));
+  assertNotEquals(h1, raw); // we store the digest, never the raw token
+  // Known vector pins the algorithm (SHA-256 of "abc").
+  assertEquals(
+    await hashClaimToken("abc"),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  );
 });

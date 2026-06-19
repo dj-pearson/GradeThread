@@ -1181,12 +1181,25 @@ export async function generateListing(
     const { data: report } = await supabaseAdmin
       .from("grade_reports")
       .select(
-        "overall_score, grade_tier, defects_found, detected_style_attributes, per_image_analysis, detailed_notes, certificate_id",
+        "overall_score, grade_tier, defects_found, detected_style_attributes, per_image_analysis, detailed_notes, certificate_id, garment_id",
       )
       .eq("id", gradeReportId)
       .maybeSingle();
     if (report) {
       const r = report as Record<string, unknown>;
+      // US-1095: when the grade's garment has a passport, carry its public slug
+      // into the listing description so the next buyer can claim + continue the
+      // chain. Best-effort — a missing/failed lookup just omits the passport link.
+      let passportSlug: string | null = null;
+      if (r.garment_id) {
+        const { data: garment } = await supabaseAdmin
+          .from("garments")
+          .select("public_passport_slug")
+          .eq("id", r.garment_id as string)
+          .maybeSingle();
+        passportSlug =
+          (garment as { public_passport_slug: string } | null)?.public_passport_slug ?? null;
+      }
       const disclosure = buildDisclosure({
         overall_score: Number(r.overall_score ?? 0),
         grade_tier: String(r.grade_tier ?? ""),
@@ -1200,6 +1213,7 @@ export async function generateListing(
           ? (r.per_image_analysis as PerImageAnalysisLike[])
           : [],
         certificate_id: (r.certificate_id as string | null) ?? null,
+        passport_slug: passportSlug,
         legacy_defects_summary:
           (r.detailed_notes as Record<string, string> | null)?.defects_summary ?? null,
       });

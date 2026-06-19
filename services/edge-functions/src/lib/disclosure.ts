@@ -41,6 +41,10 @@ export interface DisclosureInput {
   detected_style_attributes?: StyleAttributeLike[];
   per_image_analysis?: PerImageAnalysisLike[] | null;
   certificate_id?: string | null;
+  // US-1095: when the grade's garment has a public passport, the listing carries
+  // a link to it so the next buyer can claim the item and CONTINUE the chain
+  // (carry-forward on relist) rather than starting the history over.
+  passport_slug?: string | null;
   // Legacy fallback: detailed_notes.defects_summary for pre-00058 grades that
   // never persisted structured defects_found.
   legacy_defects_summary?: string | null;
@@ -210,6 +214,10 @@ export function buildDisclosure(input: DisclosureInput): Disclosure {
   const certUrl = input.certificate_id
     ? `${site}/cert/${input.certificate_id}`
     : null;
+  // US-1095: the garment's passport (history + claim entry point).
+  const passportUrl = input.passport_slug
+    ? `${site}/passport/${input.passport_slug}`
+    : null;
 
   const styleFeatures = (input.detected_style_attributes ?? [])
     .map((s) => (s.location ? `${s.attribute} (${s.location})` : s.attribute))
@@ -242,6 +250,12 @@ export function buildDisclosure(input: DisclosureInput): Disclosure {
       `Independently verify this condition report: ${certUrl}`,
     );
   }
+  if (passportUrl) {
+    plainLines.push("");
+    plainLines.push(
+      `Garment Passport (full history — claim it after purchase): ${passportUrl}`,
+    );
+  }
   const plain = plainLines.join("\n");
 
   // ── Markdown ────────────────────────────────────────────────────
@@ -265,6 +279,10 @@ export function buildDisclosure(input: DisclosureInput): Disclosure {
   if (certUrl) {
     mdLines.push("");
     mdLines.push(`[Verify this condition report ↗](${certUrl})`);
+  }
+  if (passportUrl) {
+    mdLines.push("");
+    mdLines.push(`[Garment Passport — full history, claim after purchase ↗](${passportUrl})`);
   }
   const markdown = mdLines.join("\n");
 
@@ -301,6 +319,11 @@ export function buildDisclosure(input: DisclosureInput): Disclosure {
   if (certUrl) {
     htmlParts.push(
       `<a href="${escapeHtml(certUrl)}" style="color:#0F3460;font-weight:600;text-decoration:none">Independently verify this condition report ↗</a>`,
+    );
+  }
+  if (passportUrl) {
+    htmlParts.push(
+      `<div style="margin-top:6px"><a href="${escapeHtml(passportUrl)}" style="color:#0F3460;font-weight:600;text-decoration:none">Garment Passport — full history, claim after purchase ↗</a></div>`,
     );
   }
   htmlParts.push(`</div>`);

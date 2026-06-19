@@ -502,3 +502,50 @@ export function certificateLd(cert: {
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
   };
 }
+
+// US-1093: Garment Passport public timeline (/passport/:slug). The passport
+// centers on a single physical garment with an append-only provenance history,
+// so it markup as a Product (the garment) carrying its latest condition grade
+// as an expert Review — the AI-citable, buyer-trust signal. PII-free: the
+// timeline's pseudonymous actors are NOT part of the markup (they're not a
+// schema.org entity and would add no machine value). Mirrored byte-for-byte by
+// the SSR Pages Function via passportProductLd() in functions/_shared (an
+// equivalence test pins them equal so crawler markup can't drift).
+export function passportLd(opts: {
+  slug: string;
+  name: string;
+  category?: string | null;
+  brand?: string | null;
+  latestGrade?: { score: number; tier: string; datePublished?: string | null } | null;
+}): JsonLd {
+  const canonical = `${SITE_URL}/passport/${opts.slug}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "@id": canonical,
+    name: opts.name,
+    ...(opts.category ? { category: opts.category } : {}),
+    ...(opts.brand ? { brand: { "@type": "Brand", name: opts.brand } } : {}),
+    itemCondition: "https://schema.org/UsedCondition",
+    ...(opts.latestGrade
+      ? {
+          review: {
+            "@type": "Review",
+            name: `Condition grade: ${opts.latestGrade.tier} (${opts.latestGrade.score.toFixed(1)}/10)`,
+            reviewRating: {
+              "@type": "Rating",
+              ratingValue: opts.latestGrade.score,
+              bestRating: 10,
+              worstRating: 1,
+              alternateName: opts.latestGrade.tier,
+            },
+            author: { "@type": "Organization", name: "GradeThread", url: SITE_URL },
+            ...(opts.latestGrade.datePublished
+              ? { datePublished: opts.latestGrade.datePublished }
+              : {}),
+          },
+        }
+      : {}),
+    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
+  };
+}

@@ -93,3 +93,24 @@ export async function minimizeLinkageRef(
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+// ── Ownership-claim tokens (US-1094) ─────────────────────────────────────────
+// A claim token is a high-entropy secret the seller hands to the buyer (link /
+// QR) to transfer the passport. We store only its SHA-256 hash, never the raw
+// value — a DB read can't redeem outstanding tokens. These two helpers are the
+// PURE crypto core (no DB, no env), so they're unit-tested directly.
+
+/** A fresh URL-safe claim token (32 random bytes → 64 hex chars). */
+export function generateClaimToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** SHA-256 hex of a raw claim token — the ONLY form ever persisted (US-1094). */
+export async function hashClaimToken(raw: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}

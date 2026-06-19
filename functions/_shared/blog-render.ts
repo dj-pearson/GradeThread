@@ -1286,6 +1286,55 @@ export function certificateProductLd(
   };
 }
 
+// US-1093: Garment Passport Product JSON-LD for the SSR Pages Function. Kept
+// byte-for-byte identical to the SPA's passportLd() (src/lib/seo/json-ld.ts) —
+// an equivalence test in json-ld.test.ts pins them equal so crawler markup
+// can't drift. Pure (no Cloudflare globals) → unit-testable from the Vite side.
+export interface PassportProductLdInput {
+  slug: string;
+  name: string;
+  category?: string | null;
+  brand?: string | null;
+  latestGrade?: { score: number; tier: string; datePublished?: string | null } | null;
+  /** Public site origin without a trailing slash, e.g. https://gradethread.com */
+  siteUrl: string;
+}
+
+export function passportProductLd(
+  input: PassportProductLdInput,
+): Record<string, unknown> {
+  const canonical = `${input.siteUrl}/passport/${input.slug}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "@id": canonical,
+    name: input.name,
+    ...(input.category ? { category: input.category } : {}),
+    ...(input.brand ? { brand: { "@type": "Brand", name: input.brand } } : {}),
+    itemCondition: "https://schema.org/UsedCondition",
+    ...(input.latestGrade
+      ? {
+          review: {
+            "@type": "Review",
+            name: `Condition grade: ${input.latestGrade.tier} (${input.latestGrade.score.toFixed(1)}/10)`,
+            reviewRating: {
+              "@type": "Rating",
+              ratingValue: input.latestGrade.score,
+              bestRating: 10,
+              worstRating: 1,
+              alternateName: input.latestGrade.tier,
+            },
+            author: { "@type": "Organization", name: "GradeThread", url: input.siteUrl },
+            ...(input.latestGrade.datePublished
+              ? { datePublished: input.latestGrade.datePublished }
+              : {}),
+          },
+        }
+      : {}),
+    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
+  };
+}
+
 /** Article author node — a Person for E-E-A-T, else the GradeThread Team org. */
 export function articleAuthorLd(
   author: string | null | undefined,

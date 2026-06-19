@@ -669,6 +669,9 @@ export interface GradeReportRow {
   // the submission is the one with superseded_at IS NULL. Null for every report
   // graded before the regrade flow existed.
   superseded_at: string | null;
+  // US-1091: the Garment Passport this report's certificate maps to. Null for
+  // non-certificated/superseded reports and pre-passport grades.
+  garment_id: string | null;
   created_at: string;
 }
 
@@ -3177,6 +3180,11 @@ export interface Database {
       // US-348: column-restricted public certificate projection.
       public_grade_reports: {
         Row: PublicGradeReportRow;
+      };
+      // US-1091: PII-free map from a public certificate_id to its Garment
+      // Passport slug (migration 00257).
+      public_passport_links: {
+        Row: { certificate_id: string; passport_slug: string };
       };
     };
     Enums: {

@@ -20,8 +20,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00256_garment_passport_core.sql)
-export const EXPECTED_SCHEMA_VERSION = "00256";
+// supabase/migrations/. (00260_garment_fingerprints.sql)
+export const EXPECTED_SCHEMA_VERSION = "00260";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Shield,
@@ -12,6 +12,8 @@ import {
   Gauge,
   UserCheck,
   Info,
+  History,
+  ArrowRight,
   Image as ImageIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -215,6 +217,9 @@ export function CertificatePage() {
   const [error, setError] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // US-1095: the garment's passport slug, if this certificate is linked to a
+  // Garment Passport. Resolved from the PII-free public_passport_links view.
+  const [passportSlug, setPassportSlug] = useState<string | null>(null);
 
   const certificateUrl =
     typeof window !== "undefined"
@@ -295,6 +300,17 @@ export function CertificatePage() {
 
       const report = reportData as PublicGradeReportRow;
       setGradeReport(report);
+
+      // US-1095: resolve the Garment Passport slug (if any) from the PII-free
+      // public view so buyers can open the garment's full history + claim it.
+      const { data: passportLink } = await supabase
+        .from("public_passport_links")
+        .select("passport_slug")
+        .eq("certificate_id", id!)
+        .maybeSingle();
+      if (passportLink) {
+        setPassportSlug((passportLink as { passport_slug: string }).passport_slug);
+      }
 
       // Set OG meta tags
       document.title = `GradeThread Certificate — Grade ${report.overall_score.toFixed(1)} (${report.grade_tier})`;
@@ -488,6 +504,21 @@ export function CertificatePage() {
             tier={gradeReport.grade_tier}
           />
         </div>
+        {/* US-1095: Garment Passport carry-forward. When this certificate is
+            linked to a passport, surface the full ownership/condition history so
+            a buyer can open it and claim the item after purchase. */}
+        {passportSlug && (
+          <Link
+            to={`/passport/${passportSlug}`}
+            className="flex items-center justify-between gap-3 rounded-lg border border-brand-navy/20 bg-brand-navy/5 px-4 py-3 transition-colors hover:bg-brand-navy/10 print:hidden dark:border-blue-400/20 dark:bg-blue-400/5"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-brand-navy dark:text-blue-300">
+              <History className="h-4 w-4" />
+              View this garment's full Passport — provenance &amp; ownership history
+            </span>
+            <ArrowRight className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-blue-300" />
+          </Link>
+        )}
         {/* Overall Score */}
         <Card>
           <CardContent className="pt-6">
