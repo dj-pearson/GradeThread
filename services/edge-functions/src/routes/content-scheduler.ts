@@ -461,6 +461,34 @@ async function ensureBankAtLeast(
   }
 }
 
+// US-977: byline autonomously-generated blog posts to a real content_authors
+// Person entity (E-E-A-T) instead of leaving author_id null — a null link makes
+// the Article render a generic Organization author, which Google/AI weight far
+// less than a credentialed Person with a dedicated /authors profile page.
+//
+// Resolution order: the CONTENT_DEFAULT_AUTHOR_SLUG env override (lets an
+// operator point the engine at a named human author) → the seeded house author
+// 'gradethread-team' (a real Person row with bio + credentials + profile page)
+// → the oldest author row. Returns null only when NO author exists at all, in
+// which case the post falls back to the legacy byline string, exactly as before.
+async function resolveDefaultAuthorId(): Promise<string | null> {
+  const preferredSlug =
+    Deno.env.get("CONTENT_DEFAULT_AUTHOR_SLUG")?.trim() || "gradethread-team";
+  const { data: bySlug } = await supabaseAdmin
+    .from("content_authors")
+    .select("id")
+    .eq("slug", preferredSlug)
+    .maybeSingle();
+  if (bySlug?.id) return bySlug.id as string;
+  const { data: anyAuthor } = await supabaseAdmin
+    .from("content_authors")
+    .select("id")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  return (anyAuthor?.id as string | undefined) ?? null;
+}
+
 async function uniqueSlug(base: string): Promise<string> {
   let candidate = base || `post-${Date.now()}`;
   for (let i = 0; i < 10; i++) {
@@ -499,6 +527,10 @@ async function runBlogTick(
       .replace(/^-+|-+$/g, "")
       .slice(0, 80) || `post-${Date.now()}`,
   );
+  // US-977: link a real Person author so the published Article carries a
+  // Person/author-page byline for E-E-A-T (set on the pre-create so it survives
+  // the generation update, which never touches author_id).
+  const authorId = await resolveDefaultAuthorId();
   const { data: draft, error: insErr } = await supabaseAdmin
     .from("blog_posts")
     .insert({
@@ -508,6 +540,7 @@ async function runBlogTick(
       topic_id: topic.id,
       primary_keyword: topic.primary_keyword,
       secondary_keywords: topic.secondary_keywords ?? [],
+      author_id: authorId,
       generated_by: "ai" as const,
       status: "draft" as const,
     })
