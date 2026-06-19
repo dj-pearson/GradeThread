@@ -1342,7 +1342,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 967,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Inventory/InventoryListView.swift (filteredItems:543, stageCounts:555), ios/GradeThread/Money/MoneyView.swift (titlesByItemId:24), ios/GradeThread/Dashboard/DashboardView.swift (trendPoints:76, used 3x in body), ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift. Audit-confirmed: these are computed properties recomputed every SwiftUI body eval. Pure performance; no API/contract change."
     },
     {

@@ -3386,3 +3386,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:42:44 AM
 ---
+## US-967: iOS: memoize per-render derived collections in list, money & dashboard views
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:48:26 AM
+---
