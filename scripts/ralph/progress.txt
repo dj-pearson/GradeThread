@@ -3402,3 +3402,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  1:02:04 AM
 ---
+## US-963: Merge reconcile and reconciliation into one guided flow
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  1:09:43 AM
+---

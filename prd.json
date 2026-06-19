@@ -1282,7 +1282,7 @@
         "Typecheck passes"
       ],
       "priority": 963,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/reconcile.tsx + reconciliation.tsx, sidebar (src/components/dashboard/sidebar.tsx), routes/index.tsx. Pure consolidation/IA; preserve US-280-287 + US-148/157 behavior."
     },
     {
