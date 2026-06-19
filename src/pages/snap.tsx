@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useSnap, type SnapBridgeState } from "@/hooks/use-snap";
+import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -59,6 +60,11 @@ export function SnapToValuePage() {
           condition-adjusted resale value range — in seconds, free.
         </p>
       </div>
+
+      {/* US-744: offer the PWA install affordance on Snap too (mobile capture is
+          a real workflow, not just a FlipDesk feature). Renders only when the
+          browser reports the app installable and the user hasn't dismissed it. */}
+      <PwaInstallBanner variant="snap" />
 
       <Card>
         <CardContent className="space-y-4 p-4">
