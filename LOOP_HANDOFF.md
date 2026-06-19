@@ -8,7 +8,7 @@
 ## ▶️ Paste this to resume the loop
 
 ```
-/loop Loop through all of our open stories in prd.json to work to build out our features. Fully complete each item. It self-resumes — prd.json tracks passes:true, so it picks up the next open story automatically. Next by priority is US-1100, then US-1101…US-1106 (rest of the Passport epic), then iOS (US-744+), then the drip epic (US-908+). Follow LOOP_HANDOFF.md "Working agreement".
+/loop Loop through all of our open stories in prd.json to work to build out our features. Fully complete each item. It self-resumes — prd.json tracks passes:true, so it picks up the next open story automatically. Next by priority is US-1103, then US-1104…US-1106 (rest of the Passport epic), then iOS (US-744+), then the drip epic (US-908+). Follow LOOP_HANDOFF.md "Working agreement".
 ```
 
 ## ✅ Done so far (Passport epic, `passes:true`)
@@ -32,22 +32,37 @@ This run (on `claude/prd-story-loop-rzz40a`):
   (on-demand server-side hashing of item_photos, candidate load from owner's
   garment fingerprints). Route `POST /api/passport/garments/detect-relist`.
   Frontend `RelistSuggestionCard` on the FlipDesk item page (suggestion-only).
-  Tests: `relist-match_test.ts` + tenant-isolation case.
+- **US-1100** eBay sale → sold-to node + claim offer (mig `00262` — `owner_nodes.linkage_hash`).
+  `passport-sale.ts` `recordEbaySale` (salted-hash pseudonymous buyer node, 'sold'
+  event, ownership move, claim-token mint), hooked into the `flipdesk-ebay.ts`
+  orders-sync new-sale branch. DI-testable; `passport-sale_test.ts` (fake DB).
+- **US-1101** Buyer Guarantee + Verified Seller on the chain (mig `00263` —
+  `guarantee_claims.garment_id`). `guarantee-public.ts` anchors claims to the
+  garment; `admin-claims.ts` surfaces `passport_slug`; `passport.ts` GET adds a
+  PII-free `origin_verified_seller`; passport SPA + SSR show the badge +
+  "guarantee transfers on claim" copy.
+- **US-1102** confidence taxonomy + badges. `src/lib/passport-confidence.ts`
+  (deterministic/probable/unknown labels+tooltips + `chainStrength()`), wired into
+  passport.tsx (per-link tooltip + "Chain strength" card) + certificate.tsx.
+  Frontend-only; vitest `passport-confidence.test.ts`.
 
-Schema version is at **`00261`** (`services/edge-functions/src/lib/schema-version.ts`).
+Schema version is at **`00263`** (`services/edge-functions/src/lib/schema-version.ts`).
 `prd.json.nextId` = **1109** (use it + bump for any NEW story; never `max(id)+1`).
+
+⚠️ **CI not yet confirmed green for this run** — the GitHub MCP tools were
+disconnected mid-session, so the edge `deno lint/check/test` lane (unrunnable
+locally) hasn't been verified. The next session should check CI on
+`claude/prd-story-loop-rzz40a` and fix any deno fallout before/while continuing.
 
 ## ⏭️ Next up (priority order)
 
-1. **US-1100** eBay sale → pseudonymous sold-to node + claim offer (`flipdesk-ebay.ts`)
-2. **US-1101** attach Buyer Guarantee + Verified Seller to the chain
-3. **US-1102** confidence model + UI badges across chain links (frontend-heavy — lower risk)
-4. **US-1103** admin integrity & fraud signals (cross-tenant fingerprint collisions → `abuse-signals.ts`).
-   NB: US-1099 added `item_photos.phash` + caches hashes there — reuse for the cross-tenant sweep.
-5. **US-1104** longitudinal resale-value & depreciation forecast (Scout)
-6. **US-1105** opt-in identity reveal (sets `owner_nodes.linked_user_id`; deferred design)
-7. **US-1106** buyer-facing "scan before you buy" public entry
-8. then **iOS** (US-744+) and **drip** (US-908+).
+1. **US-1103** admin integrity & fraud signals (cross-tenant fingerprint collisions → `abuse-signals.ts`).
+   NB: US-1099 added `item_photos.phash` + caches hashes there, and US-1100 added
+   `owner_nodes.linkage_hash` — reuse BOTH for the cross-tenant collision sweep.
+2. **US-1104** longitudinal resale-value & depreciation forecast (Scout)
+3. **US-1105** opt-in identity reveal (sets `owner_nodes.linked_user_id`; deferred design)
+4. **US-1106** buyer-facing "scan before you buy" public entry
+5. then **iOS** (US-744+) and **drip** (US-908+).
 
 ## 🔧 Working agreement (learnings from this run — follow these)
 
