@@ -2019,7 +2019,7 @@
         "No extension write uses the default (.none) protection class."
       ],
       "priority": 1015,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=low dimension=security. ios/ShareExtension/ShareExtension.entitlements; GradeThread.entitlements (~41-42)"
     },
     {
