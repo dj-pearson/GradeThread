@@ -4013,7 +4013,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
 
     const { data: photoRows } = await supabaseAdmin
       .from("item_photos")
-      .select("storage_path, photo_url, sort_order")
+      .select("storage_path, photo_url, photo_type, sort_order")
       .eq("inventory_item_id", itemId)
       .order("sort_order", { ascending: true });
     const imageUrls = toEbayImageUrls(
@@ -4021,16 +4021,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         (photoRows ?? []) as Array<{
           storage_path: string | null;
           photo_url: string | null;
+          photo_type: string | null;
         }>
-      ).map((p) => {
-        if (p.photo_url) return p.photo_url;
-        if (p.storage_path) {
-          return supabaseAdmin.storage
-            .from("item-photos")
-            .getPublicUrl(p.storage_path).data.publicUrl;
-        }
-        return null;
-      })
+      ).map(ebayPublicPhotoUrl)
     );
 
     // When the caller didn't override title/desc (e.g. a photos-only sync),
@@ -4435,6 +4428,35 @@ flipdeskEbayRoutes.get("/marketing/promoted/overview", async (c) => {
 // with the pre-flight blocker check and unit-tested in isolation.
 function toEbayImageUrls(urls: Array<string | null | undefined>): string[] {
   return dedupeAndCapImages(urls).urls;
+}
+
+// US-979: sensitive close-ups (care/size labels, second tags, grading
+// certificates) live in the PRIVATE `submission-images` bucket and have NO
+// permanent public URL. Mirror of iOS `PhotoStorageBucket.sensitiveServerTypes`.
+const SENSITIVE_ITEM_PHOTO_TYPES = new Set<string>([
+  "tag",
+  "tag_2",
+  "certificate",
+]);
+
+/// Resolves the PUBLIC URL eBay should fetch for an `item_photos` row, or null
+/// when the photo can't (and must not) be exposed publicly. Existing rows that
+/// already carry a public `photo_url` keep working; a sensitive row whose
+/// `photo_url` is empty (private bucket) is skipped rather than turned into a
+/// broken `item-photos` public URL that 404s — eBay can't fetch a short-TTL
+/// signed URL anyway, so these simply aren't pushed (US-979).
+function ebayPublicPhotoUrl(p: {
+  photo_url: string | null;
+  storage_path: string | null;
+  photo_type?: string | null;
+}): string | null {
+  if (p.photo_url) return p.photo_url;
+  if (p.storage_path && !SENSITIVE_ITEM_PHOTO_TYPES.has(p.photo_type ?? "")) {
+    return supabaseAdmin.storage
+      .from("item-photos")
+      .getPublicUrl(p.storage_path).data.publicUrl;
+  }
+  return null;
 }
 
 // US-473: HEAD-probe an image URL for the pre-publish reachability check. Short
@@ -5667,7 +5689,7 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
       if (itemIds.length > 0) {
         const { data: photoRows } = await supabaseAdmin
           .from("item_photos")
-          .select("inventory_item_id, storage_path, photo_url, sort_order")
+          .select("inventory_item_id, storage_path, photo_url, photo_type, sort_order")
           .in("inventory_item_id", itemIds)
           .order("sort_order", { ascending: true });
         for (
@@ -5675,18 +5697,13 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
             inventory_item_id: string;
             storage_path: string | null;
             photo_url: string | null;
+            photo_type: string | null;
             sort_order: number;
           }>
         ) {
           // Keep only the first (lowest sort_order) photo per item.
           if (imageByItemId.has(p.inventory_item_id)) continue;
-          let url = p.photo_url ?? null;
-          if (!url && p.storage_path) {
-            url = supabaseAdmin.storage
-              .from("item-photos")
-              .getPublicUrl(p.storage_path).data.publicUrl;
-          }
-          imageByItemId.set(p.inventory_item_id, url);
+          imageByItemId.set(p.inventory_item_id, ebayPublicPhotoUrl(p));
         }
       }
 
@@ -6424,7 +6441,7 @@ async function assemblePublishContext(
 
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
-    .select("id, storage_path, photo_url, sort_order")
+    .select("id, storage_path, photo_url, photo_type, sort_order")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
 
@@ -6432,19 +6449,14 @@ async function assemblePublishContext(
     id: string;
     storage_path: string | null;
     photo_url: string | null;
+    photo_type: string | null;
     sort_order: number;
   }>).map((p) => {
-    // Prefer the stored public URL if present (it's set at upload time);
-    // fall back to computing one from the storage_path.
-    let url = p.photo_url ?? null;
-    if (!url && p.storage_path) {
-      url = supabaseAdmin.storage
-        .from("item-photos")
-        .getPublicUrl(p.storage_path).data.publicUrl;
-    }
+    // Prefer the stored public URL; fall back to computing one from the
+    // storage_path — but never for sensitive private-bucket photos (US-979).
     return {
       id: p.id,
-      public_url: url ?? "",
+      public_url: ebayPublicPhotoUrl(p) ?? "",
       sort_order: p.sort_order,
     };
   });

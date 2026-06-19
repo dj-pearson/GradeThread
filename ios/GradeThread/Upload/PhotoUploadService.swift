@@ -9,7 +9,9 @@ import UIKit
 ///
 /// Two-phase per task:
 ///   1. **Storage upload** — JPEG bytes streamed to
-///      `/storage/v1/object/item-photos/{path}` via the background session.
+///      `/storage/v1/object/{bucket}/{path}` via the background session. The
+///      bucket is per-slot (US-979): public `item-photos` for listing imagery,
+///      private `submission-images` for sensitive PII / grading-label slots.
 ///   2. **DB insert** — once upload finishes, an `item_photos` row is
 ///      inserted via supabase-swift (regular foreground session — fine
 ///      because the row insert is cheap and the system only wakes us
@@ -22,7 +24,6 @@ import UIKit
 public final class PhotoUploadService {
     public static let backgroundSessionIdentifier = "com.gradethread.app.photo-uploads"
     public static let maxConcurrent = 3
-    private static let bucket = "item-photos"
 
     private let store: PhotoUploadStore
     private let supabaseClient: SupabaseClient
@@ -234,7 +235,7 @@ public final class PhotoUploadService {
                 return
             }
 
-            guard let url = storageURL(for: task.storagePath) else {
+            guard let url = storageURL(for: task.storagePath, bucket: task.slot.storageBucket) else {
                 store.updatePhase(task.id, to: .failed(error: "Storage isn't configured correctly"))
                 return
             }
@@ -255,10 +256,10 @@ public final class PhotoUploadService {
         }
     }
 
-    private func storageURL(for path: String) -> URL? {
+    private func storageURL(for path: String, bucket: String) -> URL? {
         // `/storage/v1/object/{bucket}/{path}` — same shape the web SDK uses.
         // nil if the base URL is misconfigured; the caller routes a `.failed`.
-        StorageURL.object(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path)
+        StorageURL.object(base: AppConfig.supabaseURL, bucket: bucket, path: path)
     }
 
     // MARK: - Delegate callbacks (entered from a non-isolated bridge)
@@ -333,7 +334,10 @@ public final class PhotoUploadService {
     /// must be kept on disk for the replay to re-upload).
     @discardableResult
     private func insertPhotoRow(for task: PhotoUploadTask, sortOrder: Int) async -> Bool {
-        let publicURL = storagePublicURL(for: task.storagePath)
+        // US-979: sensitive slots live in the PRIVATE bucket — they get NO
+        // permanent public URL. `photo_url` is left empty; display + the edge
+        // resolve a short-TTL signed URL from `storage_path` on demand.
+        let publicURL = task.slot.isSensitive ? "" : storagePublicURL(for: task.storagePath)
         let row = ItemPhotoInsert(
             id: Self.photoId(for: task),
             inventory_item_id: task.inventoryItemId,
@@ -379,7 +383,9 @@ public final class PhotoUploadService {
     }
 
     private func storagePublicURL(for path: String) -> String {
-        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path)?
+        // Only ever called for non-sensitive photos, which live in the public
+        // bucket; sensitive photos get an empty `photo_url` instead (US-979).
+        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: PhotoStorageBucket.publicBucket, path: path)?
             .absoluteString ?? ""
     }
 

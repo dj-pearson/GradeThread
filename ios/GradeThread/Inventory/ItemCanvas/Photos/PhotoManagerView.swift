@@ -279,8 +279,9 @@ private struct PhotoManagerRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            CachedThumbnail(
-                url: URL(string: photo.thumbnailURL ?? photo.photoURL),
+            // US-979: signed URL for sensitive (private-bucket) photos.
+            ItemPhotoThumbnail(
+                photo: photo,
                 maxDimension: 56
             ) {
                 Image(systemName: "photo")

@@ -13,7 +13,6 @@ import UIKit
 struct PhotoRotateService {
     private let supabase: SupabaseClient
     private let session: URLSession
-    private static let bucket = "item-photos"
 
     init(
         supabase: SupabaseClient = SupabaseShared.client,
@@ -60,7 +59,17 @@ struct PhotoRotateService {
         context: ModelContext
     ) async throws {
         guard let storagePath = photo.storagePath else { throw RotateError.noStoragePath }
-        guard let sourceURL = URL(string: photo.photoURL) else { throw RotateError.downloadFailed }
+
+        // US-979: sensitive photos live in the PRIVATE bucket and have no public
+        // URL — resolve a short-TTL signed URL to read the current bytes.
+        let bucket = PhotoStorageBucket.bucket(forServerType: photo.photoType)
+        let sourceURL: URL?
+        if bucket == PhotoStorageBucket.publicBucket {
+            sourceURL = URL(string: photo.photoURL)
+        } else {
+            sourceURL = await PhotoSignedURLProvider.shared.signedURL(bucket: bucket, path: storagePath)
+        }
+        guard let sourceURL else { throw RotateError.downloadFailed }
 
         let (data, response) = try await session.data(from: sourceURL)
         guard
@@ -78,29 +87,39 @@ struct PhotoRotateService {
             throw RotateError.encodeFailed
         }
 
-        try await upload(output.imageData, to: storagePath)
+        try await upload(output.imageData, to: storagePath, bucket: bucket)
 
-        // Cache-bust so clients and eBay's fetch see the new bytes despite the
-        // unchanged path. Point the thumbnail at the same fresh URL so it isn't
-        // left showing the pre-rotation crop.
-        let busted = "\(Self.publicURL(for: storagePath))?v=\(Int(Date.now.timeIntervalSince1970 * 1000))"
         let encoded = UIImage(data: output.imageData)
         let newWidth = encoded.map { Int($0.size.width * $0.scale) }
         let newHeight = encoded.map { Int($0.size.height * $0.scale) }
 
+        // Public photos: cache-bust the public URL so clients and eBay's fetch
+        // see the new bytes despite the unchanged path. Sensitive photos have no
+        // public URL — keep `photo_url` empty so display re-signs from the path.
+        let newPhotoURL: String
+        let newThumbnailURL: String?
+        if bucket == PhotoStorageBucket.publicBucket {
+            let busted = "\(Self.publicURL(for: storagePath))?v=\(Int(Date.now.timeIntervalSince1970 * 1000))"
+            newPhotoURL = busted
+            newThumbnailURL = photo.thumbnailURL == nil ? nil : busted
+        } else {
+            newPhotoURL = ""
+            newThumbnailURL = nil
+        }
+
         try await supabase
             .from("item_photos")
             .update(PhotoURLUpdate(
-                photo_url: busted,
-                thumbnail_url: photo.thumbnailURL == nil ? nil : busted,
+                photo_url: newPhotoURL,
+                thumbnail_url: newThumbnailURL,
                 width: newWidth,
                 height: newHeight
             ))
             .eq("id", value: photo.id)
             .execute()
 
-        photo.photoURL = busted
-        if photo.thumbnailURL != nil { photo.thumbnailURL = busted }
+        photo.photoURL = newPhotoURL
+        photo.thumbnailURL = newThumbnailURL
         photo.width = newWidth
         photo.height = newHeight
         try? context.save()
@@ -108,11 +127,11 @@ struct PhotoRotateService {
 
     // MARK: - Helpers
 
-    private func upload(_ data: Data, to path: String) async throws {
+    private func upload(_ data: Data, to path: String, bucket: String) async throws {
         guard let accessToken = await SupabaseShared.currentAccessToken() else {
             throw RotateError.uploadFailed(401)
         }
-        guard let url = StorageURL.object(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path) else {
+        guard let url = StorageURL.object(base: AppConfig.supabaseURL, bucket: bucket, path: path) else {
             throw RotateError.invalidStorageURL
         }
         var request = URLRequest(url: url)
@@ -130,7 +149,7 @@ struct PhotoRotateService {
     }
 
     private static func publicURL(for path: String) -> String {
-        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: Self.bucket, path: path)?
+        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: PhotoStorageBucket.publicBucket, path: path)?
             .absoluteString ?? ""
     }
 

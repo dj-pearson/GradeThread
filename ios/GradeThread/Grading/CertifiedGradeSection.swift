@@ -154,6 +154,9 @@ private struct ItemGradeReportSheet: View {
     @Query private var photos: [LocalItemPhoto]
     @State private var phase: Phase = .loading
     @State private var disputeTarget: DisputeTarget?
+    /// US-979: resolved asynchronously — sensitive (private-bucket) photos
+    /// need a freshly-minted signed URL rather than a permanent public one.
+    @State private var photoURLs: [URL] = []
 
     private enum Phase: Equatable {
         case loading
@@ -178,9 +181,34 @@ private struct ItemGradeReportSheet: View {
         )
     }
 
-    /// Local photo thumbnails for the submitted-photos strip.
-    private var photoURLs: [URL] {
-        photos.compactMap { URL(string: $0.thumbnailURL ?? $0.photoURL) }
+    /// Stable signature of the photo set so the resolver re-runs only when the
+    /// photos (or their storage paths) actually change.
+    private var photoSignature: String {
+        photos.map { "\($0.id)|\($0.photoType)|\($0.storagePath ?? "")|\($0.thumbnailURL ?? $0.photoURL)" }
+            .joined(separator: ",")
+    }
+
+    /// Resolves the submitted-photos strip URLs: public photos keep their
+    /// permanent URL; sensitive (private-bucket) photos get a short-TTL signed
+    /// URL so the grade report can still render the care-label close-up without
+    /// a permanent public URL (US-979).
+    private func resolvePhotoURLs() async {
+        var urls: [URL] = []
+        for photo in photos {
+            let bucket = PhotoStorageBucket.bucket(forServerType: photo.photoType)
+            let resolved: URL?
+            if bucket == PhotoStorageBucket.publicBucket {
+                resolved = URL(string: photo.thumbnailURL ?? photo.photoURL)
+            } else {
+                resolved = await PhotoSignedURLProvider.shared.displayURL(
+                    bucket: bucket,
+                    storagePath: photo.storagePath,
+                    publicURL: photo.thumbnailURL ?? photo.photoURL
+                )
+            }
+            if let resolved { urls.append(resolved) }
+        }
+        photoURLs = urls
     }
 
     var body: some View {
@@ -225,6 +253,7 @@ private struct ItemGradeReportSheet: View {
                 }
             }
             .task { await load() }
+            .task(id: photoSignature) { await resolvePhotoURLs() }
             .sheet(item: $disputeTarget) { target in
                 DisputeSheet(gradeReportId: target.gradeReportId)
             }

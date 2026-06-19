@@ -20,6 +20,13 @@ enum StorageURL {
         url(base: base, path: "/storage/v1/object/public/\(bucket)/\(path)")
     }
 
+    /// Signed-URL minting endpoint: `/storage/v1/object/sign/{bucket}/{path}`
+    /// (US-979). POST `{ "expiresIn": <seconds> }` here to mint a short-TTL
+    /// signed URL for an object in a PRIVATE bucket.
+    static func sign(base: URL?, bucket: String, path: String) -> URL? {
+        url(base: base, path: "/storage/v1/object/sign/\(bucket)/\(path)")
+    }
+
     private static func url(base: URL?, path: String) -> URL? {
         guard let base,
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false)

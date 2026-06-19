@@ -885,10 +885,10 @@ struct ItemCanvasView: View {
 
     @ViewBuilder
     private func photoCell(_ photo: LocalItemPhoto) -> some View {
-        let url = URL(string: photo.thumbnailURL ?? photo.photoURL)
         ZStack(alignment: .bottomLeading) {
             // US-635: cached + downsampled to the 84pt grid cell.
-            CachedThumbnail(url: url, maxDimension: 84) {
+            // US-979: resolves a signed URL for sensitive (private-bucket) photos.
+            ItemPhotoThumbnail(photo: photo, maxDimension: 84) {
                 Image(systemName: "photo")
                     .font(.system(size: 22, weight: .light))
                     .frame(width: 84, height: 84)

@@ -717,7 +717,13 @@ actor SyncEngine {
             throw SyncReplayError.notSignedIn
         }
 
-        guard let storageURL = Self.storageObjectURL(path: p.storage_path) else {
+        // US-979: route sensitive slots (tag/grading-label close-ups) to the
+        // PRIVATE bucket, mirroring the direct-upload path, so an offline-queued
+        // retry never lands a PII photo in the public bucket.
+        let slot = PhotoSlotType(rawValue: p.slot)
+        let photoType = slot?.serverPhotoType ?? p.slot
+        let bucket = slot?.storageBucket ?? PhotoStorageBucket.bucket(forServerType: photoType)
+        guard let storageURL = Self.storageObjectURL(path: p.storage_path, bucket: bucket) else {
             throw SyncReplayError.invalidStorageURL
         }
         var request = URLRequest(url: storageURL)
@@ -731,13 +737,16 @@ actor SyncEngine {
             throw SyncReplayError.storageUpload(status: http.statusCode)
         }
 
-        let photoType = PhotoSlotType(rawValue: p.slot)?.serverPhotoType ?? p.slot
         let bytes = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? nil
+        // Sensitive photos get NO public URL — display/edge re-sign from path.
+        let photoURL = PhotoStorageBucket.isSensitive(serverType: photoType)
+            ? ""
+            : Self.storagePublicURL(path: p.storage_path)
         var row: [String: AnyJSON] = [
             "inventory_item_id": .string(p.inventory_item_id),
             "photo_type": .string(photoType),
             "storage_path": .string(p.storage_path),
-            "photo_url": .string(Self.storagePublicURL(path: p.storage_path)),
+            "photo_url": .string(photoURL),
             "sort_order": .integer(0),
             "bytes": .integer(bytes ?? 0),
         ]
@@ -752,8 +761,6 @@ actor SyncEngine {
         // Clean up the staged bytes now that they're durably uploaded.
         try? FileManager.default.removeItem(at: fileURL)
     }
-
-    private static let storageBucket = "item-photos"
 
     /// Dedicated session for raw Storage uploads that set Authorization / apikey
     /// headers. Deliberately NOT `URLSession.shared`: the shared session is the
@@ -770,12 +777,14 @@ actor SyncEngine {
         return URLSession(configuration: config)
     }()
 
-    private static func storageObjectURL(path: String) -> URL? {
-        StorageURL.object(base: AppConfig.supabaseURL, bucket: storageBucket, path: path)
+    private static func storageObjectURL(path: String, bucket: String) -> URL? {
+        StorageURL.object(base: AppConfig.supabaseURL, bucket: bucket, path: path)
     }
 
     private static func storagePublicURL(path: String) -> String {
-        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: storageBucket, path: path)?
+        // Only called for non-sensitive photos (public bucket); sensitive ones
+        // persist an empty `photo_url` instead (US-979).
+        StorageURL.publicObject(base: AppConfig.supabaseURL, bucket: PhotoStorageBucket.publicBucket, path: path)?
             .absoluteString ?? ""
     }
 

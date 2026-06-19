@@ -154,6 +154,17 @@ memory — not a progress log (the harness records progress separately).
 - Server uploads: `validateImageUpload()` → `stripImageMetadata()` →
   `storage.upload()`. `submission-images` is PRIVATE (signed URLs ≤900s, never
   `getPublicUrl`); `item-photos` is the only public bucket.
+- iOS sensitive-photo routing (US-979): `PhotoStorageBucket` is the single
+  source of truth for which item_photos `photo_type`s are sensitive (tag/tag_2/
+  certificate) → PRIVATE `submission-images` bucket with EMPTY `photo_url`;
+  everything else → public `item-photos` with a public URL. `PhotoSlotType`
+  `.isSensitive`/`.storageBucket` wrap it. ALL four iOS write paths must honor
+  it: `PhotoUploadService`, `SyncEngine.replayUploadPhoto`, `PhotoRotateService`,
+  and reconcile. Display sensitive photos via `ItemPhotoThumbnail` (resolves a
+  signed URL through `PhotoSignedURLProvider`, TTL hard-capped ≤900s); AI extract
+  must mint a signed URL for sensitive slots so the edge can read the label. The
+  edge `ebayPublicPhotoUrl` helper in `flipdesk-ebay.ts` mirrors the sensitive
+  set so private photos are skipped (not turned into a 404 item-photos URL).
 
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects

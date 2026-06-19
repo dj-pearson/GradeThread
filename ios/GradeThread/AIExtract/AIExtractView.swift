@@ -173,11 +173,27 @@ struct AIExtractView: View {
     private func runExtract() async {
         store.beginExtract()
 
-        let extractPhotos: [ExtractPhoto] = photos.compactMap { entry in
+        var extractPhotos: [ExtractPhoto] = []
+        for entry in photos {
             guard let task = uploadStore.task(for: entry.slot, inventoryItemId: inventoryItemId),
                   case let .uploaded(publicURL) = task.phase
-            else { return nil }
-            return ExtractPhoto(url: publicURL, type: entry.slot.serverPhotoType)
+            else { continue }
+            // US-979: sensitive slots (tag/grading labels) live in the PRIVATE
+            // bucket with no public URL — mint a short-TTL signed URL so the
+            // edge (Claude Vision) can still fetch the care label to read
+            // brand/size. Public slots use their permanent URL.
+            let url: String
+            if entry.slot.isSensitive {
+                guard let signed = await PhotoSignedURLProvider.shared.signedURL(
+                    bucket: entry.slot.storageBucket,
+                    path: task.storagePath
+                ) else { continue }
+                url = signed.absoluteString
+            } else {
+                guard !publicURL.isEmpty else { continue }
+                url = publicURL
+            }
+            extractPhotos.append(ExtractPhoto(url: url, type: entry.slot.serverPhotoType))
         }
 
         guard !extractPhotos.isEmpty else {
