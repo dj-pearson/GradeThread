@@ -1771,7 +1771,7 @@
         "Manual pull-to-refresh remains immediate (not debounced)."
       ],
       "priority": 997,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Persistence/SyncEngine.swift (~74-86); Networking/NetworkMonitor.swift (~52)"
     },
     {
