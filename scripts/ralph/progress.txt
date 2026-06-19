@@ -3410,3 +3410,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  1:24:35 AM
 ---
+## US-961: Mobile bulk actions and quick-edit for listings management
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  1:39:29 AM
+---

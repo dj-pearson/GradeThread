@@ -1252,7 +1252,7 @@
         "Typecheck passes"
       ],
       "priority": 961,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Frictionless Three-Flow UX 2026-06-12 / Manage] Added 2026-06-12. Files: src/pages/flipdesk/listings.tsx (md:hidden card path), ItemCardList component. Depends on US-958/US-959 for shared state + inline-edit primitives."
     },
     {
