@@ -56,6 +56,7 @@ import {
   PhotoUpload,
   type PhotoUploadItem,
 } from "@/components/submission/photo-upload";
+import { GradePricingSummary } from "@/components/submission/grade-pricing-summary";
 
 const STEPS = [
   { label: "Garment Info", description: "Describe your garment" },
@@ -671,6 +672,19 @@ export function NewSubmissionPage() {
                   </p>
                 )}
               </div>
+              <Separator />
+              {/* US-950: persistent cost + billing-method summary up front so the
+                  seller sees each tier's price/credit cost and whether checkout
+                  will be required BEFORE uploading photos — not after. Selecting
+                  a tier here drives the same `tier` state used at review. */}
+              <GradePricingSummary
+                tier={tier}
+                onTierChange={setTier}
+                creditBalance={creditBalance}
+                includedUsed={includedUsed}
+                includedLimit={includedLimit}
+                planName={planLabel(usage.plan)}
+              />
               <Separator />
               <GarmentInfoForm
                 key={linkedItemId}
