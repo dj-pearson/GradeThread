@@ -1785,7 +1785,7 @@
         "Per-group failure reports cleanly without stalling the rest."
       ],
       "priority": 998,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance/functional. ios/GradeThread/AutoLister/AutoListerGenerator.swift (~65-80,138-145)"
     },
     {

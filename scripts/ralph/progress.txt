@@ -3262,3 +3262,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:21:09 PM
 ---
+## US-998: iOS: pipeline AutoLister uploads and warn on partial-upload timeout
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:26:03 PM
+---
