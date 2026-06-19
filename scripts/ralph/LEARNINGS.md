@@ -118,6 +118,14 @@ memory — not a progress log (the harness records progress separately).
   `MutationKind` case means updating TWO exhaustive switches or the build breaks:
   `SyncEngine.apply` AND `PendingChangesView.title`. Creates carrying a client id
   must replay via `replayUpsert` (not `replayInsert`) for exactly-once.
+- Offline-gating a network-only button (US-981): read `@Environment(NetworkMonitor.self)
+  private var networkMonitor: NetworkMonitor?` (optional — nil in previews/tests), gate with
+  `NetworkMonitor.isOffline(networkMonitor)` and show `OfflineNotice(intent:.blocked,detail:…)`
+  (both in Networking/OfflineNotice.swift). Reading `.isConnected` from `body` re-enables the
+  button automatically on reconnect (no stream needed). NetworkMonitor is injected once at
+  ContentView root, so every sheet/canvas under MainShell inherits it. DON'T gate offline-queue
+  paths (Add Expense, item create/edit, photo upload) — those durably queue (US-982); use
+  `intent:.queued` and leave the button enabled.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses
