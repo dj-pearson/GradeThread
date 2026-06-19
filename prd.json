@@ -1691,7 +1691,7 @@
         "Analytics consent state is explicit and documented; PostHog never receives a free-text item/consignor name."
       ],
       "priority": 991,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=security/privacy. ios/GradeThread/Telemetry/Telemetry.swift (~79-82,162-163)"
     },
     {

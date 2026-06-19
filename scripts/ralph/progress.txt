@@ -3290,3 +3290,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:50:16 PM
 ---
+## US-991: iOS: PostHog PII hardening (disable screen autocapture, scrub event props, consent)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:53:10 PM
+---
