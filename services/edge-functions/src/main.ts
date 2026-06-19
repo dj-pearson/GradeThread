@@ -542,6 +542,10 @@ app.use("/api/guarantee/*", rateLimiter(5, 60_000, "guarantee", undefined, { fai
 // is covered by auth + tenant scoping, not this limiter.)
 app.use("/api/passport/claim", rateLimiter(10, 60_000, "passport-claim", undefined, { failClosed: true, methods: ["POST"] }));
 app.use("/api/passport/tag/*", rateLimiter(20, 60_000, "passport-tag", undefined, { failClosed: true, methods: ["GET", "POST"] }));
+// US-1096/US-1098: authed passport writes (tag mint, claim-token mint, event
+// append) + the candidate-match service (US-1098) — capped per-IP on top of the
+// auth + tenant scoping.
+app.use("/api/passport/garments/*", rateLimiter(30, 60_000, "passport-garments", undefined, { methods: ["POST"] }));
 // US-884: the grade cap is read through the DB-backed settings registry
 // (`rate_limit_grade_per_min`) via the per-request resolver so it can be retuned
 // without a deploy. getSettingSync serves the cached value (default 60) and

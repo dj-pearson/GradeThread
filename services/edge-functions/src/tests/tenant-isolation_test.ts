@@ -1612,3 +1612,20 @@ Deno.test({
     assertDenied(res.status, "POST passport/garments/:id/tags (A's garment)");
   },
 });
+
+// US-1098: the candidate-match service is tenant-scoped — B must not run a match
+// against A's garment (ownership verified by created_by → 404).
+Deno.test({
+  name: "B cannot match-candidates against A's garment",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_GARMENT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_GARMENT_ID")!;
+    const res = await fetch(`${BASE}/api/passport/garments/${id}/match-candidates`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST passport/garments/:id/match-candidates (A's garment)");
+  },
+});

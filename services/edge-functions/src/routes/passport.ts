@@ -12,6 +12,12 @@ import {
   normalizeTagCode,
   tagScanUrl,
 } from "../lib/passport-tag.ts";
+import {
+  type FingerprintRecord,
+  type MatchOpts,
+  rankCandidates,
+} from "../lib/garment-match.ts";
+import { getSettingSync } from "../lib/system-settings.ts";
 
 // Garment Passport edge API (US-1092). Mounted at /api/passport.
 //
@@ -59,6 +65,16 @@ export function sanitizePayload(payload: unknown): Record<string, unknown> {
     out[k] = v;
   }
   return out;
+}
+
+// Extract the phash map from a stored fingerprint row's payload (US-1098).
+function phashesOf(row: { payload: unknown }): Record<string, string> {
+  const p = row.payload;
+  if (p && typeof p === "object" && "phashes" in p) {
+    const ph = (p as { phashes?: unknown }).phashes;
+    if (ph && typeof ph === "object") return ph as Record<string, string>;
+  }
+  return {};
 }
 
 // GET /:slug — public passport chain. PII-free by construction.
@@ -452,4 +468,78 @@ passportRoutes.post("/tag/:code/claim", async (c) => {
   if (!transfer) return c.json({ error: "Claim failed" }, 500);
 
   return c.json({ ok: true, passport_slug: transfer.slug }, 200);
+});
+
+// ── Candidate matching (US-1098, Layer-3) ────────────────────────────────────
+
+// POST /garments/:id/match-candidates — authed, tenant-scoped. Propose PROBABLE
+// "same physical garment" matches among the OWNER's other garments, ranked by
+// visual similarity with a wear-monotonicity gate. SUGGESTIONS ONLY — this never
+// writes an ownership_transfer/link event (a human/relister must confirm via the
+// claim handoff). Thresholds are tunable via system settings.
+const MATCH_CANDIDATE_LIMIT = 500;
+passportRoutes.post("/garments/:id/match-candidates", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const garmentId = c.req.param("id");
+  if (!garmentId) return c.json({ error: "garment id is required" }, 400);
+
+  // US-268: the query garment must belong to this workspace owner.
+  const { data: garment } = await supabaseAdmin
+    .from("garments")
+    .select("id, sku_class")
+    .eq("id", garmentId)
+    .eq("created_by", ownerId)
+    .maybeSingle();
+  if (!garment) return c.json({ error: "Garment not found" }, 404);
+
+  // The query garment's most recent fingerprint.
+  const { data: queryFp } = await supabaseAdmin
+    .from("garment_fingerprints")
+    .select("payload, wear_score")
+    .eq("garment_id", garmentId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!queryFp) {
+    return c.json({ ok: true, candidates: [], reason: "no_fingerprint" }, 200);
+  }
+
+  const query: FingerprintRecord = {
+    garmentId,
+    skuClass: ((garment as { sku_class: Record<string, unknown> }).sku_class) ?? {},
+    phashes: phashesOf(queryFp),
+    wearScore: Number((queryFp as { wear_score: number }).wear_score ?? 0),
+  };
+
+  // Candidate fingerprints among the owner's OTHER garments (tenant-scoped via
+  // the joined garment's created_by). Bounded for cost.
+  const { data: rows } = await supabaseAdmin
+    .from("garment_fingerprints")
+    .select("garment_id, payload, wear_score, garments!inner(created_by, sku_class)")
+    .eq("garments.created_by", ownerId)
+    .neq("garment_id", garmentId)
+    .limit(MATCH_CANDIDATE_LIMIT);
+
+  const candidates: FingerprintRecord[] = ((rows ?? []) as Array<{
+    garment_id: string;
+    payload: unknown;
+    wear_score: number;
+    garments: { sku_class: Record<string, unknown> } | { sku_class: Record<string, unknown> }[];
+  }>).map((r) => {
+    const g = Array.isArray(r.garments) ? r.garments[0] : r.garments;
+    return {
+      garmentId: r.garment_id,
+      skuClass: g?.sku_class ?? {},
+      phashes: phashesOf(r),
+      wearScore: Number(r.wear_score ?? 0),
+    };
+  });
+
+  const opts: MatchOpts = {
+    minSimilarity: getSettingSync<number>("passport_match_min_similarity", 0.82),
+    wearTolerance: getSettingSync<number>("passport_match_wear_tolerance", 0.5),
+  };
+
+  const ranked = rankCandidates(query, candidates, opts).slice(0, 20);
+  return c.json({ ok: true, candidates: ranked }, 200);
 });

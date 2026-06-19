@@ -2961,7 +2961,7 @@
         "Unit tests cover ranking, the monotonicity gate, and the 'improved condition = suspicious' case; deno checks pass"
       ],
       "priority": 709,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Layer3] The honest probabilistic layer — scored, not binary. Depends on [[US-1096]]. Feeds fraud signals [[US-1103]]."
     },
     {
