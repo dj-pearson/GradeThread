@@ -585,6 +585,13 @@ export function LandingPage() {
         {/* Animated WebGL "condition orb" — lazy, desktop-only, never blocks LCP. */}
         <HeroBackdrop />
 
+        {/* Readability scrim — sits above the orb, below the copy, so the
+            paragraph keeps contrast over the animated graphic. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1/2 top-1/2 -z-[5] h-[30rem] w-[46rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-background/65 blur-2xl"
+        />
+
         <Badge variant="secondary" className="mb-6 text-sm font-medium border-brand-navy/10 dark:border-white/10 glass-card px-4 py-1.5 rounded-full">
           The condition-grading standard for resellers
         </Badge>

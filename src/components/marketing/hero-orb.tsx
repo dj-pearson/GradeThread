@@ -229,7 +229,7 @@ export default function HeroOrb() {
     <div
       ref={mountRef}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 -z-10 [mask-image:radial-gradient(60%_60%_at_50%_45%,black,transparent)]"
+      className="pointer-events-none absolute inset-0 -z-10 opacity-90 [mask-image:radial-gradient(55%_55%_at_50%_34%,black,transparent_72%)]"
     />
   );
 }
