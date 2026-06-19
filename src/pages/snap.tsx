@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { useSnap } from "@/hooks/use-snap";
+import { useSnap, type SnapBridgeState } from "@/hooks/use-snap";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -159,11 +159,27 @@ export function SnapToValuePage() {
               <span>{result.disclaimer}</span>
             </div>
 
-            {/* US-614 conversion CTAs */}
+            {/* US-614 conversion CTAs. US-952: the certified-grade CTA carries
+                the exact snap photo + any AI-detected garment type/category as
+                navigation state so new-submission can pre-stage the Front photo
+                and prefill the form — zero rework to upgrade. */}
             <div className="grid gap-2 sm:grid-cols-2">
               <Button asChild variant="default">
-                <Link to="/dashboard/submissions/new">
-                  <BadgeCheck className="mr-2 h-4 w-4" /> Get a certified grade
+                <Link
+                  to="/dashboard/submissions/new"
+                  state={
+                    {
+                      snap: {
+                        imageDataUri: dataUri,
+                        brand: brand.trim() || undefined,
+                        title: keyword.trim() || undefined,
+                        garmentType: result.garment?.type ?? undefined,
+                        garmentCategory: result.garment?.category ?? undefined,
+                      },
+                    } satisfies { snap: SnapBridgeState }
+                  }
+                >
+                  <BadgeCheck className="mr-2 h-4 w-4" /> Upgrade to certified grade
                 </Link>
               </Button>
               <Button asChild variant="outline">

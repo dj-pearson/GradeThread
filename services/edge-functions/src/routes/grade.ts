@@ -14,6 +14,7 @@ import {
 import { captureException } from "../lib/observability.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
+import { classifyGarment, type GarmentClassification } from "../lib/ai-extract.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
@@ -715,11 +716,24 @@ gradeRoutes.post("/snap", async (c) => {
   }
 
   let grade;
+  // US-952: AI-detect the garment type/category alongside the grade so the
+  // certified-grade upgrade can prefill the form. Best-effort and run in
+  // parallel so it hides under the grade latency; its own failure never fails
+  // the snap (the .catch keeps Promise.all from rejecting on it).
+  let garmentClassification: GarmentClassification | null = null;
   try {
-    grade = await quickGrade({
-      images: [{ dataUri, type: "front" }],
-      garment: { brand: brand ?? null, title: keyword ?? "" },
-    });
+    const [gradeResult, classification] = await Promise.all([
+      quickGrade({
+        images: [{ dataUri, type: "front" }],
+        garment: { brand: brand ?? null, title: keyword ?? "" },
+      }),
+      classifyGarment(dataUri).catch((err) => {
+        captureException(err, { level: "warn", route: "grade.snap.classify" });
+        return null;
+      }),
+    ]);
+    grade = gradeResult;
+    garmentClassification = classification;
   } catch (err) {
     // Refund the reserved snap so a transient grading failure isn't counted.
     await supabaseAdmin.rpc("refund_snap", { p_user_id: ownerId }).then(() => {}, () => {});
@@ -752,6 +766,14 @@ gradeRoutes.post("/snap", async (c) => {
       factor_scores: grade.factorScores,
     },
     value, // { lowCents, medianCents, highCents, sampleSize, confidence, sufficient } | null
+    // US-952: best-effort AI-detected garment type/category to prefill the
+    // certified-grade form. null when the model couldn't classify it.
+    garment: garmentClassification
+      ? {
+          type: garmentClassification.garmentType,
+          category: garmentClassification.garmentCategory,
+        }
+      : null,
     estimate: true,
     disclaimer:
       "This is an AI condition + value ESTIMATE from one photo — not a certified GradeThread grade or a guaranteed sale price. Get a full certified grade to list with confidence.",

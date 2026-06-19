@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { BadgeCheck, Check, ChevronLeft, ChevronRight, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,9 @@ import { useBillingSummary, planLabel } from "@/hooks/use-billing-summary";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { track } from "@/lib/analytics";
+import { dataUriToFile } from "@/lib/image-utils";
+import type { SnapBridgeState } from "@/hooks/use-snap";
+import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 
 // Item statuses from which a submission moves the item into 'grading'.
 const PRE_GRADE_STATUSES = new Set([
@@ -131,6 +134,7 @@ function StepIndicator({
 
 export function NewSubmissionPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const [currentStep, setCurrentStep] = useState(0);
   const [garmentInfo, setGarmentInfo] = useState<GarmentInfo | null>(null);
@@ -178,6 +182,43 @@ export function NewSubmissionPage() {
       ? null
       : inventoryItems.find((i) => i.id === linkedItemId) ?? null;
 
+  // US-952: Snap-to-Value → certified-grade bridge. The snap "Upgrade to
+  // certified grade" CTA passes the exact photo + any AI-detected garment
+  // type/category as navigation state so the seller upgrades with zero rework.
+  const snapState =
+    (location.state as { snap?: SnapBridgeState } | null)?.snap ?? null;
+
+  // Re-stage the snap photo into the Front slot — converted to a File once, then
+  // re-validated/compressed through PhotoUpload's standard path (not a raw
+  // re-upload). The seeding itself happens inside PhotoUpload.
+  const snapFrontFile = useMemo(
+    () =>
+      snapState?.imageDataUri
+        ? dataUriToFile(snapState.imageDataUri, "snap-front.jpg")
+        : null,
+    [snapState?.imageDataUri]
+  );
+  const [snapSeeded, setSnapSeeded] = useState(false);
+
+  // Prefill the garment-info form from the snap. Enum fields are only carried
+  // when the classifier returned a valid value; brand/title are free text.
+  const snapGarmentDefaults: Partial<GarmentInfo> | undefined = snapState
+    ? {
+        garmentType: (GARMENT_TYPES as readonly string[]).includes(
+          snapState.garmentType ?? ""
+        )
+          ? (snapState.garmentType as GarmentInfo["garmentType"])
+          : undefined,
+        garmentCategory: (GARMENT_CATEGORIES as readonly string[]).includes(
+          snapState.garmentCategory ?? ""
+        )
+          ? (snapState.garmentCategory as GarmentInfo["garmentCategory"])
+          : undefined,
+        brand: snapState.brand ?? "",
+        title: snapState.title ?? "",
+      }
+    : undefined;
+
   // US-340: Verified Capture is only offerable when EVERY photo carries device
   // + capture-time provenance (read from the original before compression). The
   // server independently re-verifies recency/consistency/no-reuse, so this is
@@ -201,7 +242,7 @@ export function NewSubmissionPage() {
           title: linkedItem.title,
           description: linkedItem.description ?? "",
         }
-      : undefined);
+      : snapGarmentDefaults);
 
   function handleLinkedItemChange(value: string) {
     setLinkedItemId(value);
@@ -244,6 +285,11 @@ export function NewSubmissionPage() {
 
   function handlePhotosChange(items: PhotoUploadItem[]) {
     setPhotos(items);
+    // US-952: once the seeded snap photo has landed in the Front slot, stop
+    // re-seeding so navigating back to this step never clobbers user edits.
+    if (!snapSeeded && items.some((p) => p.imageType === "front")) {
+      setSnapSeeded(true);
+    }
   }
 
   function handleBack() {
@@ -506,7 +552,21 @@ export function NewSubmissionPage() {
           {/* Step 2: Photos */}
           {currentStep === 1 && (
             <div className="space-y-6">
-              <PhotoUpload onChange={handlePhotosChange} />
+              {snapFrontFile && (
+                <p className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+                  <BadgeCheck className="mr-1 inline h-3.5 w-3.5 text-brand-navy dark:text-foreground" />
+                  We carried over your Snap-to-Value photo as the Front shot. Just
+                  add the remaining required photos to continue.
+                </p>
+              )}
+              <PhotoUpload
+                onChange={handlePhotosChange}
+                initialPhotos={
+                  snapFrontFile && !snapSeeded
+                    ? [{ slotKey: "front", file: snapFrontFile }]
+                    : undefined
+                }
+              />
               {/* US-339: provenance/EXIF disclosure. We read camera metadata
                   (and location, if your photo contains it) from the original
                   file to support authenticity features. It is access-controlled

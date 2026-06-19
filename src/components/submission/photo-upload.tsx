@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
   ImagePlus,
@@ -226,9 +226,14 @@ function getSlot(slots: Map<string, SlotState>, key: string): SlotState {
 
 interface PhotoUploadProps {
   onChange: (items: PhotoUploadItem[]) => void;
+  // US-952: photos to pre-stage into specific slots on mount (e.g. the
+  // Snap-to-Value photo into "front"). Each file is run through the SAME
+  // validate → compress path as a manual upload. Seeding only fills a slot
+  // that is currently empty, so it never clobbers a user-chosen photo.
+  initialPhotos?: { slotKey: string; file: File }[];
 }
 
-export function PhotoUpload({ onChange }: PhotoUploadProps) {
+export function PhotoUpload({ onChange, initialPhotos }: PhotoUploadProps) {
   const [slots, setSlots] = useState<Map<string, SlotState>>(() => {
     const initial = new Map<string, SlotState>();
     for (const slot of UPLOAD_SLOTS) {
@@ -332,6 +337,25 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
     },
     [processFile]
   );
+
+  // US-952: pre-stage any seeded photos once, routing each through processFile
+  // (the standard validate + compress path) so the front slot fills exactly as
+  // if the user had picked it. The ref makes this run a single time even though
+  // the parent may pass a fresh `initialPhotos` array on each render.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !initialPhotos || initialPhotos.length === 0) {
+      return;
+    }
+    seededRef.current = true;
+    for (const { slotKey, file } of initialPhotos) {
+      if (!getSlot(slots, slotKey).file) {
+        processFile(slotKey, file);
+      }
+    }
+    // Mount-once seeding; slots/processFile are intentionally not deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPhotos]);
 
   const handleDrop = useCallback(
     (slotKey: string, e: React.DragEvent) => {

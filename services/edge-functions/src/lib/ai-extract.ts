@@ -1233,3 +1233,111 @@ export async function rewriteListingCopy(
     tokensOut: response.usage.output_tokens,
   };
 }
+
+// ── US-952: Snap-to-Value → certified-grade garment classifier ──────────────
+//
+// A tiny single-photo classifier that names the garment_type + garment_category
+// so the certified-grade form (new-submission) can prefill the garment-info
+// step when a seller upgrades a free Snap-to-Value. Deliberately separate from
+// extractItemFields (heavy, full catalog extraction): this is one small,
+// enum-constrained tool call. Best-effort — callers should treat any
+// thrown/null result as "no detection" and never block the snap on it.
+
+const CLASSIFY_GARMENT_TOOL: Anthropic.Tool = {
+  name: "classify_garment",
+  description:
+    "Report the garment type and clothing category visible in the photo.",
+  input_schema: {
+    type: "object",
+    properties: {
+      garment_type: {
+        type: "string",
+        enum: [...GARMENT_TYPES],
+        description:
+          "Broad garment type. Omit if it is not a wearable garment or you are unsure.",
+      },
+      garment_category: {
+        type: "string",
+        enum: [...GARMENT_CATEGORIES],
+        description:
+          "Specific clothing category, consistent with garment_type. Omit if unsure.",
+      },
+    },
+    required: [],
+  },
+};
+
+export interface GarmentClassification {
+  garmentType: string | null;
+  garmentCategory: string | null;
+}
+
+// Build an image content block from a data: URI (the Snap photo). Returns null
+// for anything that isn't a base64 image data URI we can hand to the model.
+function dataUriToImageBlock(dataUri: string): Anthropic.ContentBlockParam | null {
+  const m = dataUri.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/);
+  if (!m) return null;
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: m[1] as "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+      data: m[2],
+    },
+  };
+}
+
+/**
+ * Classify a single garment photo into the GradeThread garment_type +
+ * garment_category enums. Returns null when nothing usable is detected (or the
+ * data URI can't be parsed). Validates the model's output against the enums so a
+ * stray value can never reach the form.
+ */
+export async function classifyGarment(
+  dataUri: string,
+): Promise<GarmentClassification | null> {
+  const imageBlock = dataUriToImageBlock(dataUri);
+  if (!imageBlock) return null;
+
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
+  const response = await client.messages.create({
+    model: getSonnetModel(), // vision-capable default model
+    max_tokens: 200,
+    ...(temperature !== undefined ? { temperature } : {}),
+    tools: [CLASSIFY_GARMENT_TOOL],
+    tool_choice: { type: "tool", name: "classify_garment" },
+    messages: [
+      {
+        role: "user",
+        content: [
+          imageBlock,
+          {
+            type: "text",
+            text:
+              "Classify this garment's type and category using only the allowed enum values. Omit a field if you cannot tell.",
+          },
+        ],
+      },
+    ],
+  });
+
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") return null;
+  const raw = toolUse.input as {
+    garment_type?: unknown;
+    garment_category?: unknown;
+  };
+  const garmentType =
+    typeof raw.garment_type === "string" &&
+    (GARMENT_TYPES as readonly string[]).includes(raw.garment_type)
+      ? raw.garment_type
+      : null;
+  const garmentCategory =
+    typeof raw.garment_category === "string" &&
+    (GARMENT_CATEGORIES as readonly string[]).includes(raw.garment_category)
+      ? raw.garment_category
+      : null;
+  if (!garmentType && !garmentCategory) return null;
+  return { garmentType, garmentCategory };
+}

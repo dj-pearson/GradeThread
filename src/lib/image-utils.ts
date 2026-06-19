@@ -16,6 +16,27 @@ export interface ImageValidationResult {
   height?: number;
 }
 
+/**
+ * Convert a base64 `data:` image URI back into a File (US-952). Used to re-stage
+ * a Snap-to-Value photo into the certified-grade upload flow so it can be
+ * re-validated + compressed through the standard path. Returns null for a
+ * non-image or malformed data URI.
+ */
+export function dataUriToFile(dataUri: string, filename: string): File | null {
+  const match = dataUri.match(/^data:(image\/[\w.+-]+);base64,(.+)$/);
+  if (!match) return null;
+  const mime = match[1] ?? "image/jpeg";
+  const b64 = match[2] ?? "";
+  try {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], filename, { type: mime });
+  } catch {
+    return null;
+  }
+}
+
 export function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
