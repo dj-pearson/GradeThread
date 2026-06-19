@@ -3020,7 +3020,7 @@
         "build + tsc + eslint clean"
       ],
       "priority": 713,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][Trust] The honesty layer that differentiates us and limits liability. Depends on [[US-1093]]. Consumes confidence from [[US-1094]],[[US-1097]],[[US-1099]],[[US-1100]]."
     },
     {
