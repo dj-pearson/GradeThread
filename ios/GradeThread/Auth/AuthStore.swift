@@ -135,16 +135,34 @@ public final class AuthStore {
     /// lands on `https://gradethread.com/app/auth-callback` (or the legacy custom
     /// scheme on older builds). Best-effort: a non-auth URL is ignored.
     public func handleAuthCallback(url: URL) async {
-        let isAuthCallback: Bool = {
-            if url.scheme == "https" {
-                return url.host == "gradethread.com" && url.path.hasPrefix("/app/auth-callback")
-            }
-            // Custom scheme: com.gradethread.app://auth-callback
-            return url.host == "auth-callback" || url.path.contains("auth-callback")
-                || url.absoluteString.contains("auth-callback")
+        // US-988: a custom scheme is claimable by any installed app, so on
+        // iOS 17.4+ we accept ONLY the https Universal Link we own. Below 17.4
+        // the Universal Link isn't usable as a redirect target, so the legacy
+        // custom scheme is still honored.
+        let allowCustomScheme: Bool = {
+            if #available(iOS 17.4, *) { return false }
+            return true
         }()
-        guard isAuthCallback else { return }
+        guard Self.isAcceptableAuthCallback(url: url, allowCustomScheme: allowCustomScheme) else { return }
         _ = try? await SupabaseShared.client.auth.session(from: url)
+    }
+
+    /// Strict scheme+host+path matcher for the auth callback (US-988). Pure and
+    /// static so it can be unit-tested without the Supabase SDK.
+    ///
+    /// The https branch accepts ONLY `https://gradethread.com/app/auth-callback*`
+    /// — an exact host equality (rejecting look-alikes such as
+    /// `gradethread.com.evil.com`) plus a `/app/auth-callback` path prefix. The
+    /// claimable custom scheme (`com.gradethread.app://auth-callback`) is
+    /// accepted only when `allowCustomScheme` is true (iOS < 17.4).
+    static func isAcceptableAuthCallback(url: URL, allowCustomScheme: Bool) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        let host = url.host?.lowercased()
+        if scheme == "https" {
+            return host == "gradethread.com" && url.path.hasPrefix("/app/auth-callback")
+        }
+        guard allowCustomScheme else { return false }
+        return scheme == "com.gradethread.app" && host == "auth-callback"
     }
 
     public func signOut() async {
