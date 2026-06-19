@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
 -- Bump the upper bound to match EXPECTED_SCHEMA_VERSION on the next catch-up.
 INSERT INTO supabase_migrations.schema_migrations (version)
 SELECT lpad(g::text, 5, '0')
-FROM generate_series(232, 249) AS g
+FROM generate_series(254, 256) AS g
 ON CONFLICT (version) DO NOTHING;
 
 -- PostgREST may still be serving a stale schema cache for the columns/views the
