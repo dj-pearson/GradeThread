@@ -9,6 +9,9 @@ struct EbayAccountsView: View {
     @State private var renameText = ""
     /// US-1009: account pending a confirmed disconnect.
     @State private var disconnecting: RemoteMarketplaceConnection?
+    /// US-972: account pending a confirmed switch-to-primary. Selecting changes
+    /// the default sync/publish target, so confirm before applying.
+    @State private var makingPrimary: RemoteMarketplaceConnection?
 
     init(userId: String) {
         self.userId = userId
@@ -97,6 +100,25 @@ struct EbayAccountsView: View {
         } message: {
             Text("Disconnecting stops sync and publishing for this store. You can reconnect it later.")
         }
+        // US-972: selecting a different store changes the default sync/publish
+        // target — confirm the consequence, naming the store, before applying.
+        .confirmationDialog(
+            "Make this your primary account?",
+            isPresented: Binding(
+                get: { makingPrimary != nil },
+                set: { if !$0 { makingPrimary = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: makingPrimary
+        ) { conn in
+            Button("Make primary") {
+                Task { await store.makePrimary(conn) }
+                makingPrimary = nil
+            }
+            Button("Cancel", role: .cancel) { makingPrimary = nil }
+        } message: { conn in
+            Text("Sync and Publish will use \(conn.displayName) as the default eBay store.")
+        }
     }
 
     @ViewBuilder
@@ -126,7 +148,7 @@ struct EbayAccountsView: View {
         // swipeActions, which assistive tech can't reach — they're now also
         // exposed via `.accessibilityActions` below.
         Button {
-            if conn.isActive { Task { await store.makePrimary(conn) } }
+            if conn.isActive && !conn.isPrimary { makingPrimary = conn }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: conn.isPrimary ? "checkmark.circle.fill" : "circle")
@@ -158,7 +180,7 @@ struct EbayAccountsView: View {
         .accessibilityActions {
             if conn.isActive && !conn.isPrimary {
                 Button("Select for sync and publish") {
-                    Task { await store.makePrimary(conn) }
+                    makingPrimary = conn
                 }
             }
             Button("Rename") {
@@ -182,7 +204,7 @@ struct EbayAccountsView: View {
             .tint(.blue)
             if conn.isActive && !conn.isPrimary {
                 Button {
-                    Task { await store.makePrimary(conn) }
+                    makingPrimary = conn
                 } label: {
                     Label("Select", systemImage: "checkmark.circle")
                 }

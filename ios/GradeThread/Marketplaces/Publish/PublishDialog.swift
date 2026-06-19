@@ -433,6 +433,9 @@ private struct ComposerForm: View {
 
     // US-674: listing templates, selectable to pre-fill the draft.
     @State private var templateStore = TemplateStore()
+    /// US-972: a template the user picked that would overwrite existing content,
+    /// pending confirmation before it's applied.
+    @State private var pendingTemplate: ListingTemplate?
 
     private static let titleLimit = 80
 
@@ -555,6 +558,26 @@ private struct ComposerForm: View {
             .cardStyle(.flush)
         }
         .task { await templateStore.load() }
+        // US-972: applying a template overwrites the condition note (and adds
+        // boilerplate to the description) — confirm before replacing the user's
+        // existing content rather than silently clobbering it.
+        .confirmationDialog(
+            "Apply \(pendingTemplate?.name ?? "template")?",
+            isPresented: Binding(
+                get: { pendingTemplate != nil },
+                set: { if !$0 { pendingTemplate = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingTemplate
+        ) { template in
+            Button("Apply template") {
+                apply(template)
+                pendingTemplate = nil
+            }
+            Button("Cancel", role: .cancel) { pendingTemplate = nil }
+        } message: { _ in
+            Text("This appends the template's boilerplate to your description and replaces your condition note. Your current description text is kept above the boilerplate.")
+        }
     }
 
     // MARK: - Templates (US-674)
@@ -564,7 +587,7 @@ private struct ComposerForm: View {
             ForEach(templateStore.templates) { template in
                 Button {
                     AppRouter.haptic()
-                    apply(template)
+                    requestApply(template)
                 } label: {
                     if template.isDefault {
                         Label(template.name, systemImage: "star.fill")
@@ -586,6 +609,21 @@ private struct ComposerForm: View {
             .clipShape(Capsule())
         }
         .accessibilityLabel("Apply a saved listing template")
+    }
+
+    /// US-972: gate ``apply(_:)`` behind a confirmation when there's existing
+    /// content the template would change (a condition note, or description text
+    /// the boilerplate would be appended to). With nothing to lose, apply
+    /// straight away so the common empty-composer case stays one tap.
+    private func requestApply(_ template: ListingTemplate) {
+        let hasContentAtRisk =
+            !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !conditionDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasContentAtRisk {
+            pendingTemplate = template
+        } else {
+            apply(template)
+        }
     }
 
     /// Pre-fill the composer from a template: boilerplate is appended to the

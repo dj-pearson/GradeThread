@@ -126,6 +126,13 @@ memory — not a progress log (the harness records progress separately).
   ContentView root, so every sheet/canvas under MainShell inherits it. DON'T gate offline-queue
   paths (Add Expense, item create/edit, photo upload) — those durably queue (US-982); use
   `intent:.queued` and leave the button enabled.
+- Action feedback convention: FlipDesk `@MainActor @Observable` stores expose
+  `actionError: String?` (view shows an alert) + `actionBanner: String?` (view
+  shows a transient brandNavy capsule overlay via `.task(id: banner)` 2.5s
+  auto-dismiss). Reuse this pair for new success/error feedback instead of a new
+  toast type. `HapticFeedback` is a same-module `@MainActor` enum — call its
+  `.success()/.warning()/.error()` straight from a store method (no import); the
+  XCTest host instantiates the UIKit generators harmlessly.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

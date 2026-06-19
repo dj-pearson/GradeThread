@@ -1311,6 +1311,12 @@ struct ItemCanvasView: View {
                 }
             }
             HapticFeedback.success()
+            // US-972: when we stay on the canvas (not auto-dismissing, and the
+            // eBay revise didn't fail into `ebaySyncError`), confirm the save
+            // wasn't silent. A failed eBay push already surfaces `ebaySyncError`.
+            if !syncFailed && !dismissAfter {
+                actionToast = ebayPlan != nil ? "Saved and updated on eBay." : "Saved."
+            }
             if dismissAfter && !syncFailed { dismiss() }
             return true
         } catch {

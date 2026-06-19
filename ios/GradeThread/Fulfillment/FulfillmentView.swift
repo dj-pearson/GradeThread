@@ -34,6 +34,21 @@ struct FulfillmentView: View {
             } message: { message in
                 Text(message)
             }
+            // Brief success confirmation so a mark-shipped action isn't silent.
+            .overlay(alignment: .bottom) {
+                if let banner = store.actionBanner {
+                    Text(banner)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Color.brandNavy, in: Capsule())
+                        .padding(.bottom, 24)
+                        .task(id: banner) {
+                            try? await Task.sleep(nanoseconds: 2_500_000_000)
+                            store.actionBanner = nil
+                        }
+                }
+            }
     }
 
     @ViewBuilder

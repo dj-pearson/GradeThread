@@ -234,17 +234,15 @@ struct InventoryListView: View {
                 BulkProgressHUD(done: progress.done, total: progress.total)
             }
         }
-        // US-644: undo snackbar (auto-dismisses).
+        // US-644: undo snackbar. US-972: it now shows a live countdown and
+        // auto-dismisses itself when the window closes, so the undo window is
+        // never a silently-vanishing affordance.
         .overlay(alignment: .bottom) {
             if let undo = undoContext {
                 BulkUndoBar(context: undo) {
-                    undoContext = nil
-                }
-                .padding(.bottom, selection.isEditing ? 80 : 24)
-                .task(id: undo.id) {
-                    try? await Task.sleep(nanoseconds: 6_000_000_000)
                     withAnimation { undoContext = nil }
                 }
+                .padding(.bottom, selection.isEditing ? 80 : 24)
             }
         }
         .refreshable {
@@ -840,10 +838,16 @@ struct BulkUndoContext: Identifiable {
     let revert: () async -> Void
 }
 
-/// Bottom snackbar offering Undo after a bulk action.
+/// Bottom snackbar offering Undo after a bulk action. US-972: it owns a visible
+/// countdown so the user can see how long the undo window stays open, and
+/// auto-dismisses itself when the window closes rather than vanishing silently.
 private struct BulkUndoBar: View {
     let context: BulkUndoContext
+    /// Seconds the undo affordance stays available.
+    var duration: Int = 6
     var onDismiss: () -> Void
+
+    @State private var remaining: Int = 6
 
     var body: some View {
         HStack(spacing: 12) {
@@ -852,6 +856,20 @@ private struct BulkUndoBar: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Spacer(minLength: 8)
+            // Countdown ring + remaining seconds so the time window is visible.
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.25), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: CGFloat(remaining) / CGFloat(max(duration, 1)))
+                    .stroke(Color.brandAmber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text("\(remaining)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 22, height: 22)
+            .accessibilityHidden(true)
             Button("Undo") {
                 Task {
                     await context.revert()
@@ -861,6 +879,7 @@ private struct BulkUndoBar: View {
             }
             .font(.footnote.weight(.bold))
             .foregroundStyle(Color.brandAmber)
+            .accessibilityLabel("Undo \(context.label), \(remaining) seconds left")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -868,6 +887,16 @@ private struct BulkUndoBar: View {
         .shadow(radius: 8, y: 2)
         .padding(.horizontal, 16)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        // Restarts whenever a new bulk action replaces the context.
+        .task(id: context.id) {
+            remaining = duration
+            while remaining > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                withAnimation { remaining -= 1 }
+            }
+            onDismiss()
+        }
     }
 }
 

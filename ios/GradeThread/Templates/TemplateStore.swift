@@ -19,6 +19,9 @@ final class TemplateStore {
     private(set) var templates: [ListingTemplate] = []
     /// Surfaced when a create/update/delete fails; the view shows it in an alert.
     var actionError: String?
+    /// Brief success confirmation (e.g. "Template saved."); the view shows it in
+    /// a transient toast so a successful save isn't silent after the editor closes.
+    var actionBanner: String?
 
     init(service: TemplateProviding = TemplateService()) {
         self.service = service
@@ -51,9 +54,12 @@ final class TemplateStore {
                 saved = try await service.create(draft)
             }
             upsert(saved)
+            actionBanner = editingId == nil ? "Template saved." : "Template updated."
+            HapticFeedback.success()
             return true
         } catch {
             actionError = error.localizedDescription
+            HapticFeedback.error()
             return false
         }
     }

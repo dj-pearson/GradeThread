@@ -20,6 +20,9 @@ final class FulfillmentStore {
     private(set) var orders: [FulfillmentOrder] = []
     /// Surfaced when a mark-shipped write fails; the view shows it in an alert.
     var actionError: String?
+    /// Brief success confirmation (e.g. "Marked as shipped."); the view shows it
+    /// in a transient toast so a successful action isn't silent.
+    var actionBanner: String?
 
     init(service: FulfillmentProviding = FulfillmentService()) {
         self.service = service
@@ -58,9 +61,12 @@ final class FulfillmentStore {
                 trackingNumber: tracking,
                 shippedAt: .now
             )
+            actionBanner = "Marked as shipped."
+            HapticFeedback.success()
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
         } catch {
             actionError = error.localizedDescription
+            HapticFeedback.error()
             // Re-pull so the optimistically-removed row reappears if it really
             // didn't ship.
             await load()

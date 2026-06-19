@@ -58,9 +58,11 @@ final class NegotiationStore {
             // Optimistically drop the handled offer; reload to confirm state.
             offers.removeAll { $0.bestOfferId == offer.bestOfferId }
             actionBanner = "Offer \(action.lowercased())ed."
+            HapticFeedback.success()
             await loadOffers()
         } catch {
             actionError = error.localizedDescription
+            HapticFeedback.error()
         }
     }
 
@@ -69,6 +71,7 @@ final class NegotiationStore {
             let eligible = try await service.eligibleItems()
             guard !eligible.isEmpty else {
                 actionBanner = "No listings are currently eligible for an offer."
+                HapticFeedback.warning()
                 return
             }
             try await service.sendOffer(
@@ -77,14 +80,17 @@ final class NegotiationStore {
                 message: message
             )
             actionBanner = "Sent \(discountPercentage)% offers to interested buyers on \(eligible.count) listing\(eligible.count == 1 ? "" : "s")."
+            HapticFeedback.success()
         } catch {
             actionError = error.localizedDescription
+            HapticFeedback.error()
         }
     }
 
     func reply(to message: BuyerMessage, body: String) async -> Bool {
         guard let itemId = message.itemId, let recipient = message.senderUsername else {
             actionError = "This message can't be replied to in-app."
+            HapticFeedback.error()
             return false
         }
         do {
@@ -93,10 +99,12 @@ final class NegotiationStore {
                 recipientId: recipient, body: body
             )
             actionBanner = "Reply sent."
+            HapticFeedback.success()
             await loadMessages()
             return true
         } catch {
             actionError = error.localizedDescription
+            HapticFeedback.error()
             return false
         }
     }
