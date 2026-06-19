@@ -3338,3 +3338,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  9:51:06 PM
 ---
+## US-979: iOS: keep sensitive photos out of the public item-photos bucket (signed URLs)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:07:34 PM
+---

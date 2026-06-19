@@ -1523,7 +1523,7 @@
         "Signed URLs expire within 15 minutes."
       ],
       "priority": 979,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=high dimension=security. ios/GradeThread/Upload/PhotoUploadService.swift (bucket ~25, storagePublicURL ~324-331, photo_url persist ~292-298)"
     },
     {
