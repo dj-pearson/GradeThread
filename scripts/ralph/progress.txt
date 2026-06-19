@@ -3358,3 +3358,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026 10:44:02 PM
 ---
+## US-974: Add a mobile Lighthouse profile for mobile-first CWV reporting
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026 10:57:57 PM
+---

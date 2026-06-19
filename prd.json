@@ -1449,7 +1449,7 @@
         "npm run build is unaffected."
       ],
       "priority": 974,
-      "passes": false,
+      "passes": true,
       "notes": "[SEO / Core Web Vitals] Added 2026-06-13. Files: lighthouserc.json (or add lighthouserc.mobile.json) + .github/workflows/lighthouse.yml. Builds on PR #78 (broadened desktop coverage to 13 core pages). Mobile-first indexing makes the mobile profile the one that matters for ranking; the report-comment script already renders a score table — extend it to two labeled sections."
     },
     {
