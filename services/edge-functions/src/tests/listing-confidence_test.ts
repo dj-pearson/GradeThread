@@ -12,9 +12,12 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { listingNeedsReview, LISTING_REVIEW_CONFIDENCE } = await import(
-  "../lib/ai-listing.ts"
-);
+const {
+  listingNeedsReview,
+  LISTING_REVIEW_CONFIDENCE,
+  priceConfidenceClearsEstimated,
+  PRICE_ESTIMATED_CONFIDENCE_THRESHOLD,
+} = await import("../lib/ai-listing.ts");
 
 Deno.test("high overall + high aspects → no review", () => {
   assertEquals(listingNeedsReview(0.95, { Brand: 0.9, Size: 0.85 }), false);
@@ -42,4 +45,26 @@ Deno.test("boundary: exactly at threshold is NOT low", () => {
 
 Deno.test("threshold is a sensible default", () => {
   assert(LISTING_REVIEW_CONFIDENCE > 0.5 && LISTING_REVIEW_CONFIDENCE <= 0.8);
+});
+
+// US-956: high-confidence prices clear the estimated flag.
+Deno.test("price at/above threshold clears estimated", () => {
+  assert(priceConfidenceClearsEstimated(0.95));
+  assert(priceConfidenceClearsEstimated(PRICE_ESTIMATED_CONFIDENCE_THRESHOLD));
+});
+
+Deno.test("price below threshold stays estimated", () => {
+  assertEquals(priceConfidenceClearsEstimated(0.84), false);
+  assertEquals(priceConfidenceClearsEstimated(0.6), false);
+});
+
+Deno.test("null price confidence stays estimated", () => {
+  assertEquals(priceConfidenceClearsEstimated(null), false);
+});
+
+Deno.test("price-estimated threshold is a sensible default", () => {
+  assert(
+    PRICE_ESTIMATED_CONFIDENCE_THRESHOLD > LISTING_REVIEW_CONFIDENCE &&
+      PRICE_ESTIMATED_CONFIDENCE_THRESHOLD <= 1,
+  );
 });

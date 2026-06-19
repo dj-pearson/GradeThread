@@ -176,7 +176,10 @@ export function FlipdeskAutolisterQueuePage() {
         ) {
           const low = r.ai_field_confidence
             ? Object.entries(r.ai_field_confidence)
-              .filter(([, c]) => c < 0.7)
+              // US-956: listing_price confidence rides in ai_field_confidence to
+              // gate the "est." badge — it's not an item-specific aspect, so keep
+              // it out of the "AI is unsure about: …" aspect tooltip.
+              .filter(([name, c]) => name !== "listing_price" && c < 0.7)
               .map(([name]) => name)
             : [];
           map[r.id] = {

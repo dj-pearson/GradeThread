@@ -688,6 +688,24 @@ function suggestionsToSpecifics(
 // US-541: confidence at/below which an AutoLister draft is routed to review.
 export const LISTING_REVIEW_CONFIDENCE = 0.7;
 
+// US-956: at/above this listing_price confidence we trust the generated price
+// enough to NOT flag it as estimated (hides the "est." badge in drafts/bulk-edit
+// so sellers only review prices the AI is unsure about). Single source of truth
+// for the threshold — do not scatter the 0.85 literal.
+export const PRICE_ESTIMATED_CONFIDENCE_THRESHOLD = 0.85;
+
+/**
+ * US-956: a generated price stops being flagged "estimated" once its confidence
+ * meets the threshold. Sold-backed prices are already non-estimated; this lets a
+ * high-confidence AI/comp price clear the flag too. Pure, so it's unit-tested.
+ */
+export function priceConfidenceClearsEstimated(
+  priceConfidence: number | null,
+  threshold: number = PRICE_ESTIMATED_CONFIDENCE_THRESHOLD,
+): boolean {
+  return priceConfidence != null && priceConfidence >= threshold;
+}
+
 /**
  * US-541: a generated draft needs a human look when the model's OVERALL
  * confidence is low, or ANY refined per-aspect confidence is low. Pure, so the
@@ -1121,6 +1139,16 @@ export async function generateListing(
       console.error("[AI Listing] comp pricing failed:", err);
     }
   }
+  // US-956: the confidence we attribute to the chosen price, recorded under
+  // ai_field_confidence.listing_price. Sold/active comps carry their own
+  // confidence; a pure AI estimate inherits the model's overall confidence.
+  const listingPriceConfidence = priceConfidence ?? listing.confidence;
+  // US-956: clear the estimated flag when the price is trusted enough — either
+  // sold-backed (priceIsEstimated already false above) OR its confidence meets
+  // the threshold. Below threshold the flag (and "est." badge) is unchanged.
+  if (priceIsEstimated && priceConfidenceClearsEstimated(listingPriceConfidence)) {
+    priceIsEstimated = false;
+  }
   const priceDollars = Math.round(priceCents) / 100;
 
   // US-317: surface the per-group cover photo as listings.primary_photo_id
@@ -1188,6 +1216,11 @@ export async function generateListing(
   const needsReview =
     listingNeedsReview(listing.confidence, fieldConfidence) ||
     aspectReview.length > 0;
+
+  // US-956: record the price confidence under listing_price so the estimated-flag
+  // gate (and any future surface) can read it. Added AFTER needsReview so it does
+  // NOT alter the aspect-only review triage above.
+  fieldConfidence.listing_price = listingPriceConfidence;
 
   // US-546 (AC3): record the A/B title variants. Variant "A" is the chosen,
   // published title; "B" is the model's optional alternate (omitted when it
