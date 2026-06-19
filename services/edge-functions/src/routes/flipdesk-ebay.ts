@@ -6358,7 +6358,10 @@ async function applySlabImagePromotion(
   }
 }
 
-async function assemblePublishContext(
+// Exported so the AutoLister auto-publish path (US-955) can run the SAME publish
+// pre-flight (blockers + policies) the manual /listings/validate + publish use,
+// to decide which green drafts are clean enough to auto-publish.
+export async function assemblePublishContext(
   userId: string,
   itemId: string
 ): Promise<PublishContext> {

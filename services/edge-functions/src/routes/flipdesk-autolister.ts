@@ -2,7 +2,14 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateListing, generatePlatformVariants } from "../lib/ai-listing.ts";
-import { publishItemForOwner } from "./flipdesk-ebay.ts";
+import { assemblePublishContext, publishItemForOwner } from "./flipdesk-ebay.ts";
+import { notifyUser } from "../lib/notify.ts";
+import {
+  type AutoPublishSkips,
+  buildAutoPublishNotification,
+  emptySkips,
+  isGreenDraft,
+} from "../lib/auto-publish-green.ts";
 import {
   getMarketplaceSpec,
   type MarketplacePlatform,
@@ -200,6 +207,11 @@ async function finalizeBatch(batchId: string): Promise<void> {
   const terminal = deriveBatchStatus(succeeded, failed, open);
   if (terminal) patch.status = terminal;
   await supabaseAdmin.from("listing_generation_batches").update(patch).eq("id", batchId);
+  // US-955: once the batch terminalizes, fire the optional auto-publish of its
+  // green, clean drafts. The trigger is claim-guarded (once-only), so calling it
+  // from every finalize path — slice roll-up, worker finally, reclaim, admin
+  // cancel — is safe and ensures it isn't missed if the worker dies at the end.
+  if (terminal) await maybeAutoPublishGreen(batchId);
 }
 
 /**
@@ -368,6 +380,257 @@ async function processBatch(
   }
 }
 
+// ════════════════════════════════════════════════════════════════════
+// US-955: auto-publish green drafts on batch completion
+// ════════════════════════════════════════════════════════════════════
+//
+// When a generation batch opted in (auto_publish_green), publish ONLY its
+// high-confidence (green) + pre-flight-clean drafts as soon as generation
+// finishes — fire-and-forget. amber/red/blocked/scheduled drafts never
+// auto-publish. The clean set is handed to the SAME durable publish worker
+// (US-559) the manual "Publish green" path uses, and the plan/capacity gate is
+// the SAME as the manual bulk-publish endpoint (US-955 AC5). The publish batch
+// is tagged so its completion emits ONE notification with published-vs-skipped
+// counts (the generation-time skips are stored on it).
+
+// requireFlipdesk only ever reads c.get and (on a block/warn) calls c.json /
+// c.header. Auto-publish runs in the background with no HTTP request, so this
+// minimal stub context lets it reuse the IDENTICAL plan/capacity gate logic the
+// manual bulk-publish endpoint uses and read the decision back.
+interface GateDecision {
+  blocked: boolean;
+  body: Record<string, unknown> | null;
+}
+function evaluateGate(
+  ownerId: string,
+  opts: Parameters<typeof requireFlipdesk>[1],
+): Promise<GateDecision> {
+  let captured: Record<string, unknown> | null = null;
+  const c = {
+    get: (k: string) => (k === "userId" || k === "workspaceOwnerId" ? ownerId : undefined),
+    json: (b: unknown) => {
+      captured = b as Record<string, unknown>;
+      return {} as Response;
+    },
+    header: () => {},
+  } as unknown as Parameters<typeof requireFlipdesk>[0];
+  return requireFlipdesk(c, { ...opts, userId: ownerId }).then((res) => ({
+    blocked: res !== null,
+    body: captured,
+  }));
+}
+
+/**
+ * Claim-guarded auto-publish trigger. The conditional UPDATE stamps
+ * auto_published_at exactly once for an opted-in, terminal batch, so a repeated
+ * finalize, the reclaim sweeper, or an admin cancel can each call this without
+ * double-publishing. Restricted to completed/partial — a fully 'failed' batch
+ * produced no green drafts.
+ */
+async function maybeAutoPublishGreen(batchId: string): Promise<void> {
+  try {
+    const { data: claimed } = await supabaseAdmin
+      .from("listing_generation_batches")
+      .update({ auto_published_at: new Date().toISOString() })
+      .eq("id", batchId)
+      .eq("auto_publish_green", true)
+      .is("auto_published_at", null)
+      .in("status", ["completed", "partial"])
+      .select("id, user_id")
+      .maybeSingle();
+    if (!claimed) return;
+    await autoPublishGreenDrafts(batchId, (claimed as { user_id: string }).user_id);
+  } catch (err) {
+    console.error("[flipdesk-autolister] auto-publish trigger failed:", err);
+  }
+}
+
+/**
+ * Triage the batch's succeeded drafts, publish the green + clean + unscheduled
+ * + within-cap set via the durable publish worker, and account for everything
+ * skipped (with reasons). Tenant-scoped (US-268): every read is bound to ownerId
+ * or reached through the already-owned generation batch.
+ */
+async function autoPublishGreenDrafts(batchId: string, ownerId: string): Promise<void> {
+  const skips: AutoPublishSkips = emptySkips();
+
+  // Succeeded drafts only — failed (red) jobs never produced a draft.
+  const { data: jobRows } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .select("inventory_item_id, listing_id")
+    .eq("batch_id", batchId)
+    .eq("status", "success");
+  const jobs = ((jobRows ?? []) as Array<
+    { inventory_item_id: string; listing_id: string | null }
+  >).filter((j) => !!j.listing_id);
+  if (jobs.length === 0) {
+    await notifyAutoPublishOutcome(ownerId, { published: 0, failed: 0, skipped: skips });
+    return;
+  }
+
+  const listingIds = jobs.map((j) => j.listing_id as string);
+  const itemIds = jobs.map((j) => j.inventory_item_id);
+
+  // needs_review + scheduled_publish_at per draft (listings reached via the owned
+  // batch's jobs). photo_qa_score + status per item (tenant-scoped by user_id).
+  const { data: listingRows } = await supabaseAdmin
+    .from("listings")
+    .select("id, needs_review, scheduled_publish_at")
+    .in("id", listingIds);
+  const listingById = new Map(
+    ((listingRows ?? []) as Array<
+      { id: string; needs_review: boolean | null; scheduled_publish_at: string | null }
+    >).map((r) => [r.id, r]),
+  );
+  const { data: itemRows } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, status, photo_qa_score")
+    .eq("user_id", ownerId)
+    .in("id", itemIds);
+  const itemById = new Map(
+    ((itemRows ?? []) as Array<
+      { id: string; status: string; photo_qa_score: number | null }
+    >).map((r) => [r.id, r]),
+  );
+
+  // 1) Tier (green vs amber) + scheduling.
+  const greenUnscheduled: Array<{ itemId: string; status: string }> = [];
+  for (const job of jobs) {
+    const listing = listingById.get(job.listing_id as string);
+    const item = itemById.get(job.inventory_item_id);
+    if (!item) continue; // not owned / vanished — drop silently
+    const green = isGreenDraft({
+      needsReview: !!listing?.needs_review,
+      photoQaScore: item.photo_qa_score,
+    });
+    if (!green) {
+      skips.needs_review += 1;
+      continue;
+    }
+    // A scheduled draft waits for the scheduled-publish worker (US-322).
+    if (listing?.scheduled_publish_at) {
+      skips.scheduled += 1;
+      continue;
+    }
+    greenUnscheduled.push({ itemId: job.inventory_item_id, status: item.status });
+  }
+
+  // 2) Publish pre-flight: only drafts the manual publish would accept (no eBay
+  //    blockers / missing policies) are clean enough to auto-publish.
+  const clean: Array<{ itemId: string; status: string }> = [];
+  for (const candidate of greenUnscheduled) {
+    try {
+      const ctx = await assemblePublishContext(ownerId, candidate.itemId);
+      const blocked = !ctx.ok || ctx.blockers.length > 0 || !ctx.policies;
+      if (blocked) skips.blocked += 1;
+      else clean.push(candidate);
+    } catch (err) {
+      console.error("[flipdesk-autolister] auto-publish pre-flight failed:", err);
+      skips.blocked += 1;
+    }
+  }
+  if (clean.length === 0) {
+    await notifyAutoPublishOutcome(ownerId, { published: 0, failed: 0, skipped: skips });
+    return;
+  }
+
+  // 3) Plan/capacity gate — exactly as the manual bulk-publish endpoint. Feature
+  //    gate first; then the active-listing cap counts only NEWLY-live items
+  //    (re-publish of an already-'listed' item doesn't add to the cap). On an
+  //    over-cap result, publish up to the remaining capacity and report the rest.
+  let toPublish = clean;
+  const feature = await evaluateGate(ownerId, { feature: "autolister" });
+  if (feature.blocked) {
+    skips.plan_limit += clean.length;
+    await notifyAutoPublishOutcome(ownerId, { published: 0, failed: 0, skipped: skips });
+    return;
+  }
+  const newLive = clean.filter((c) => c.status !== "listed");
+  if (newLive.length > 0) {
+    const cap = await evaluateGate(ownerId, {
+      capacity: { kind: "activeListings", delta: newLive.length },
+    });
+    if (cap.blocked) {
+      const used = Number(cap.body?.used ?? 0);
+      const limit = Number(cap.body?.limit ?? 0);
+      const remaining = Math.max(0, limit - used);
+      // Keep already-live re-publishes (free) + as many new-live as fit.
+      const keepNewLive = newLive.slice(0, remaining).map((c) => c.itemId);
+      const keep = new Set([
+        ...clean.filter((c) => c.status === "listed").map((c) => c.itemId),
+        ...keepNewLive,
+      ]);
+      skips.plan_limit += clean.length - keep.size;
+      toPublish = clean.filter((c) => keep.has(c.itemId));
+    }
+  }
+  if (toPublish.length === 0) {
+    await notifyAutoPublishOutcome(ownerId, { published: 0, failed: 0, skipped: skips });
+    return;
+  }
+
+  // 4) Enqueue the durable publish batch. Tagged auto_published + the generation
+  //    skip breakdown so finalizePublishBatch emits ONE completion notification
+  //    folding in the live published/failed counts.
+  const { data: pubBatch, error: pubErr } = await supabaseAdmin
+    .from("listing_publish_batches")
+    .insert({
+      user_id: ownerId,
+      status: "running",
+      item_count: toPublish.length,
+      auto_published: true,
+      generation_batch_id: batchId,
+      auto_skipped: skips,
+    })
+    .select("id")
+    .single();
+  if (pubErr || !pubBatch) {
+    console.error("[flipdesk-autolister] auto-publish batch insert failed:", pubErr);
+    // Fall back to reporting the skips (nothing was published).
+    await notifyAutoPublishOutcome(ownerId, { published: 0, failed: 0, skipped: skips });
+    return;
+  }
+  const pubBatchId = (pubBatch as { id: string }).id;
+
+  const { data: pubJobRows, error: pubJobsErr } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .insert(
+      toPublish.map((c) => ({
+        batch_id: pubBatchId,
+        inventory_item_id: c.itemId,
+        status: "pending" as const,
+      })),
+    )
+    .select("id, inventory_item_id");
+  if (pubJobsErr || !pubJobRows) {
+    await supabaseAdmin
+      .from("listing_publish_batches")
+      .update({ status: "failed", error: "Failed to enqueue auto-publish jobs." })
+      .eq("id", pubBatchId);
+    await notifyAutoPublishOutcome(ownerId, { published: 0, failed: 0, skipped: skips });
+    return;
+  }
+
+  const pubJobs = pubJobRows as Array<{ id: string; inventory_item_id: string }>;
+  void processPublishBatch(pubBatchId, ownerId, pubJobs).catch((err) =>
+    console.error("[flipdesk-autolister] auto-publish worker crashed:", err)
+  );
+}
+
+/** Best-effort completion notification (never throws — notifyUser swallows). */
+async function notifyAutoPublishOutcome(
+  ownerId: string,
+  outcome: { published: number; failed: number; skipped: AutoPublishSkips },
+): Promise<void> {
+  const { title, message } = buildAutoPublishNotification(outcome);
+  await notifyUser(ownerId, {
+    type: "system",
+    title,
+    message,
+    link: "/dashboard/flipdesk/inventory?mode=listings",
+  });
+}
+
 // ── US-529: validated staging upload ────────────────────────────────
 // POST /staging/upload — multipart { session_id, full, thumb? }.
 //
@@ -484,7 +747,12 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  let body: { item_ids?: unknown; use_comps?: unknown; template_id?: unknown };
+  let body: {
+    item_ids?: unknown;
+    use_comps?: unknown;
+    template_id?: unknown;
+    auto_publish_green?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -501,6 +769,9 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
   const templateId = typeof body.template_id === "string" && body.template_id.trim()
     ? body.template_id.trim()
     : null;
+  // US-955: opt-in fire-and-forget — auto-publish the green, clean drafts when
+  // this batch finishes generating. Defaults off.
+  const autoPublishGreen = body.auto_publish_green === true;
 
   if (itemIds.length === 0) {
     return c.json({ error: "item_ids must be a non-empty array" }, 400);
@@ -569,6 +840,7 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
       item_count: itemIds.length,
       use_comps: useComps,
       template_id: templateId,
+      auto_publish_green: autoPublishGreen,
     })
     .select("id")
     .single();
@@ -1231,6 +1503,44 @@ async function finalizePublishBatch(batchId: string): Promise<void> {
   const terminal = deriveBatchStatus(succeeded, failed, open);
   if (terminal) patch.status = terminal;
   await supabaseAdmin.from("listing_publish_batches").update(patch).eq("id", batchId);
+  // US-955: an auto-published batch (from the green-drafts trigger) emits ONE
+  // completion notification reporting published vs skipped, combining its live
+  // results with the generation-time skips stored on the batch. Claim-guarded so
+  // a repeated finalize / reclaim notifies exactly once.
+  if (terminal) await maybeNotifyAutoPublishBatch(batchId, succeeded, failed);
+}
+
+/**
+ * If this terminal publish batch was created by the auto-publish trigger
+ * (US-955), claim its once-only notification and report published-vs-skipped.
+ */
+async function maybeNotifyAutoPublishBatch(
+  batchId: string,
+  succeeded: number,
+  failed: number,
+): Promise<void> {
+  try {
+    const { data: claimed } = await supabaseAdmin
+      .from("listing_publish_batches")
+      .update({ auto_notified_at: new Date().toISOString() })
+      .eq("id", batchId)
+      .eq("auto_published", true)
+      .is("auto_notified_at", null)
+      .select("user_id, auto_skipped")
+      .maybeSingle();
+    if (!claimed) return;
+    const row = claimed as { user_id: string; auto_skipped: Partial<AutoPublishSkips> | null };
+    const stored = row.auto_skipped ?? {};
+    const skipped: AutoPublishSkips = {
+      needs_review: Number(stored.needs_review ?? 0),
+      blocked: Number(stored.blocked ?? 0),
+      scheduled: Number(stored.scheduled ?? 0),
+      plan_limit: Number(stored.plan_limit ?? 0),
+    };
+    await notifyAutoPublishOutcome(row.user_id, { published: succeeded, failed, skipped });
+  } catch (err) {
+    console.error("[flipdesk-autolister] auto-publish notify failed:", err);
+  }
 }
 
 async function markPublishJobFailed(jobId: string, message: string): Promise<void> {

@@ -42,6 +42,9 @@ export interface BatchStatusResponse {
 interface StartBatchInput {
   item_ids: string[];
   use_comps?: boolean;
+  // US-955: auto-publish the green (high-confidence), pre-flight-clean drafts
+  // when generation finishes — fire-and-forget. Defaults off server-side.
+  auto_publish_green?: boolean;
 }
 
 interface StartBatchResponse {

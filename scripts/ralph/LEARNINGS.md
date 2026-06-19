@@ -44,6 +44,14 @@ memory — not a progress log (the harness records progress separately).
   request-body id without confirming ownership. See
   `services/edge-functions/src/tests/tenant-isolation_test.ts`.
 
+## Plan-gate from a background worker
+- `requireFlipdesk` only reads `c.get` and (on block/warn) `c.json`/`c.header`.
+  To reuse the IDENTICAL plan/capacity gate from a worker with no HTTP request
+  (e.g. US-955 auto-publish), build a 1-line stub Context whose `json` captures
+  the body, pass `userId`, and treat a non-null return as "blocked" — the 402
+  body carries `used`/`limit` for partial-fit math. See `evaluateGate` in
+  `flipdesk-autolister.ts`. Don't reimplement the matrix logic.
+
 ## Sync provenance epic (US-1076…1086)
 - The `listings.listing_origin` enum column is now PERSISTED (US-1077, migration
   00232): NOT NULL, default `'gradethread'`, backfilled. You may now

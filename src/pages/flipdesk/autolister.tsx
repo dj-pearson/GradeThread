@@ -328,6 +328,8 @@ export function FlipdeskAutolisterPage() {
     (t) => t.status === "queued" || t.status === "processing" || t.status === "uploading",
   ).length;
   const [busy, setBusy] = useState(false);
+  // US-955: fire-and-forget — auto-publish the green, clean drafts on completion.
+  const [autoPublishGreen, setAutoPublishGreen] = useState(false);
   const [dragging, setDragging] = useState(false);
   // Google Photos import: whether the server has it configured, and an
   // in-flight flag while the user picks photos in the Google popup.
@@ -1382,7 +1384,10 @@ export function FlipdeskAutolisterPage() {
       // "Item not found." Same applies to any inventory surface the user
       // visits next.
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      const res = await startBatch.mutateAsync({ item_ids: itemIds });
+      const res = await startBatch.mutateAsync({
+        item_ids: itemIds,
+        auto_publish_green: autoPublishGreen,
+      });
       // Clear the persisted session — the batch is now durable on the server,
       // and re-showing the staged photos on the next visit would be confusing.
       clearStoredSession();
@@ -1409,18 +1414,36 @@ export function FlipdeskAutolisterPage() {
             complete eBay listings in seconds.
           </p>
         </div>
-        <Button
-          onClick={generate}
-          disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
-          size="lg"
-        >
-          {busy ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="mr-2 h-4 w-4" />
+        <div className="flex flex-col items-end gap-2">
+          <Button
+            onClick={generate}
+            disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
+            size="lg"
+          >
+            {busy ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            Generate {groups.length > 0 ? `${groups.length} listing${groups.length === 1 ? "" : "s"}` : ""}
+          </Button>
+          {/* US-955: fire-and-forget auto-publish of the green, clean drafts. */}
+          {entitled && (
+            <label
+              className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+              title="When generation finishes, automatically publish only the high-confidence (green) drafts that pass the eBay pre-flight. Drafts that need review, are blocked, or are scheduled stay as drafts."
+            >
+              <input
+                type="checkbox"
+                checked={autoPublishGreen}
+                onChange={(e) => setAutoPublishGreen(e.target.checked)}
+                disabled={busy}
+                className="h-3.5 w-3.5 rounded border-input accent-primary"
+              />
+              Auto-publish green drafts when done
+            </label>
           )}
-          Generate {groups.length > 0 ? `${groups.length} listing${groups.length === 1 ? "" : "s"}` : ""}
-        </Button>
+        </div>
       </div>
 
       {/* US-957: pre-generation cover-QA advisory. Non-blocking — it never
