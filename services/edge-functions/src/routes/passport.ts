@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   generateClaimToken,
@@ -297,9 +298,7 @@ passportRoutes.post("/garments/:id/claim-token", async (c) => {
 
 // Best-effort, salted hash of the caller IP for the claim-attempt log (US-1103).
 // PII-minimized: we never store a raw IP, only a salted digest for clustering.
-async function sourceHashFromRequest(c: {
-  req: { header: (n: string) => string | undefined };
-}): Promise<string | null> {
+async function sourceHashFromRequest(c: Context): Promise<string | null> {
   const ip = c.req.header("CF-Connecting-IP") ??
     (c.req.header("X-Forwarded-For")?.split(",")[0]?.trim()) ?? "";
   if (!ip) return null;
