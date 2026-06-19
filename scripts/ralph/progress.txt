@@ -3382,3 +3382,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 12:40:11 AM
 ---
+## US-968: iOS: move realtime payload (de)serialization off the main actor
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 12:42:44 AM
+---

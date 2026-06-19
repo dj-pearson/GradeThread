@@ -1356,7 +1356,7 @@
         "iOS CI (Swift build + tests) passes"
       ],
       "priority": 968,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS UI/UX & Performance Audit 2026-06-13 / iOS] Added 2026-06-13. Files: ios/GradeThread/Persistence/RealtimeService.swift (@MainActor class:18, JSONEncoder().encode on main at applyUpsert:160). Distinct from US-792 (which fixed error-swallowing in poll loops). Pure performance/responsiveness."
     },
     {
