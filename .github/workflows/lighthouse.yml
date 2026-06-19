@@ -1,10 +1,12 @@
 name: Lighthouse CI
 
-# Core Web Vitals performance budget (US-305). Runs Lighthouse against the
-# PRERENDERED static build (dist/, produced by `npm run build`) and posts the
-# results as a NON-BLOCKING PR comment. Budgets (LCP < 2.5s, CLS < 0.1, TBT as
-# the INP proxy, performance >= 0.9) are configured at "warn" level in
-# lighthouserc.json, and the collect step is continue-on-error, so this workflow
+# Core Web Vitals performance budget (US-305, mobile profile US-974). Runs
+# Lighthouse against the PRERENDERED static build (dist/, produced by
+# `npm run build`) under BOTH a desktop (lighthouserc.json) and a MOBILE
+# (lighthouserc.mobile.json) profile, then posts the results side by side as a
+# NON-BLOCKING PR comment + Job Summary. Mobile-first indexing makes the mobile
+# profile the one that drives ranking. Budgets are configured at "warn" level in
+# each config, and both collect steps are continue-on-error, so this workflow
 # never blocks a merge — it's a report, not a gate (the merge gate is ci.yml).
 
 on:
@@ -39,8 +41,20 @@ jobs:
       - name: Build (prerendered)
         run: npm run build
 
-      - name: Run Lighthouse CI
-        id: lhci
+      # Mobile-first indexing makes this the profile that drives ranking, so it
+      # runs first. numberOfRuns stays at 1 in each config to keep total runtime
+      # reasonable across the two passes.
+      - name: Run Lighthouse CI (mobile)
+        id: lhci_mobile
+        continue-on-error: true
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          configPath: ./lighthouserc.mobile.json
+          temporaryPublicStorage: true
+          uploadArtifacts: true
+
+      - name: Run Lighthouse CI (desktop)
+        id: lhci_desktop
         continue-on-error: true
         uses: treosh/lighthouse-ci-action@v12
         with:
@@ -55,34 +69,62 @@ jobs:
           script: |
             // Best-effort, never throws: a reporting step must not fail CI.
             try {
-              const manifest = JSON.parse(`${{ steps.lhci.outputs.manifest || '[]' }}`);
-              const links = JSON.parse(`${{ steps.lhci.outputs.links || '{}' }}`);
-              if (!Array.isArray(manifest) || manifest.length === 0) {
+              const parse = (raw, fallback) => { try { return JSON.parse(raw); } catch { return fallback; } };
+              const mobileManifest = parse(`${{ steps.lhci_mobile.outputs.manifest || '[]' }}`, []);
+              const mobileLinks = parse(`${{ steps.lhci_mobile.outputs.links || '{}' }}`, {});
+              const desktopManifest = parse(`${{ steps.lhci_desktop.outputs.manifest || '[]' }}`, []);
+              const desktopLinks = parse(`${{ steps.lhci_desktop.outputs.links || '{}' }}`, {});
+
+              const pct = (n) => (typeof n === "number" ? Math.round(n * 100) : "—");
+              const pathOf = (u) => { try { return new URL(u).pathname; } catch { return u; } };
+
+              // Reduce a manifest to { path -> { url, summary } } using the
+              // representative (median) run per URL.
+              const byPath = (manifest) => {
+                const map = new Map();
+                if (!Array.isArray(manifest)) return map;
+                for (const r of manifest) {
+                  if (r.isRepresentativeRun === false) continue;
+                  const p = pathOf(r.url);
+                  if (map.has(p)) continue;
+                  map.set(p, { url: r.url, summary: r.summary || {} });
+                }
+                return map;
+              };
+              const mob = byPath(mobileManifest);
+              const desk = byPath(desktopManifest);
+
+              if (mob.size === 0 && desk.size === 0) {
                 core.info("No Lighthouse manifest to report.");
                 return;
               }
-              // One row per URL, using the representative (median) run.
-              const seen = new Set();
-              const rows = [];
-              for (const r of manifest) {
-                if (r.isRepresentativeRun === false) continue;
-                if (seen.has(r.url)) continue;
-                seen.add(r.url);
-                const s = r.summary || {};
-                const pct = (n) => (typeof n === "number" ? Math.round(n * 100) : "—");
-                const path = (() => { try { return new URL(r.url).pathname; } catch { return r.url; } })();
-                const report = links[r.url] ? `[report](${links[r.url]})` : "";
-                rows.push(`| \`${path}\` | ${pct(s.performance)} | ${pct(s.seo)} | ${pct(s["best-practices"])} | ${pct(s.accessibility)} | ${report} |`);
-              }
+
+              // Render one labeled section (table) for a single profile's map.
+              const section = (title, map, links) => {
+                const rows = [];
+                for (const [p, { url, summary }] of map) {
+                  const report = links[url] ? `[report](${links[url]})` : "";
+                  rows.push(`| \`${p}\` | ${pct(summary.performance)} | ${pct(summary.seo)} | ${pct(summary["best-practices"])} | ${pct(summary.accessibility)} | ${report} |`);
+                }
+                if (rows.length === 0) rows.push("| _no results_ | — | — | — | — | |");
+                return [
+                  `### ${title}`,
+                  "",
+                  "| Page | Perf | SEO | Best Practices | A11y | |",
+                  "|---|---|---|---|---|---|",
+                  ...rows,
+                ];
+              };
+
               const body = [
                 "## 🔦 Lighthouse CI (Core Web Vitals)",
                 "",
-                "Budgets (non-blocking): **LCP < 2.5s · CLS < 0.1 · TBT < 200ms · Performance ≥ 90**.",
-                "Scores below are 0–100; open a report for the per-metric numbers.",
+                "Scores are 0–100 across two profiles; the **📱 Mobile** profile is the one that drives Google's mobile-first ranking. Open a report for the per-metric numbers.",
+                "Budgets (non-blocking) — Mobile: **LCP < 4.0s · CLS < 0.1 · TBT < 300ms · Perf ≥ 90**; Desktop: **LCP < 2.5s · CLS < 0.1 · TBT < 200ms · Perf ≥ 90**.",
                 "",
-                "| Page | Perf | SEO | Best Practices | A11y | |",
-                "|---|---|---|---|---|---|",
-                ...rows,
+                ...section("📱 Mobile (mobile-first — ranking signal)", mob, mobileLinks),
+                "",
+                ...section("🖥️ Desktop", desk, desktopLinks),
                 "",
                 "_Reports expire after ~7 days (temporary public storage)._",
               ].join("\n");
