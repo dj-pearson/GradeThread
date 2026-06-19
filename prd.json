@@ -1745,7 +1745,7 @@
         "A test inserting > cap entries confirms bounded size."
       ],
       "priority": 995,
-      "passes": false,
+      "passes": true,
       "notes": "[iOS deep-dive 2026-06-13] severity=medium dimension=performance. ios/GradeThread/Networking/EdgeAPI.swift (~28,88,114)"
     },
     {

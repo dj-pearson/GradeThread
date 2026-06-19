@@ -3274,3 +3274,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 18, 2026  8:31:35 PM
 ---
+## US-995: iOS: bound and evict the EdgeAPI in-memory response cache
+- Status: COMPLETE
+- Timestamp: Thu, Jun 18, 2026  8:34:32 PM
+---
