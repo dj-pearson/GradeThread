@@ -5,7 +5,17 @@ import SwiftData
 @Model
 final class LocalItemPhoto {
     @Attribute(.unique) var id: String
+
+    /// Loose wire FK to `inventory_items.id`. Retained for PostgREST mapping
+    /// and the existing `@Query` predicates that filter photos by item id; the
+    /// authoritative in-graph link is the ``item`` relationship below.
     var inventoryItemId: String
+
+    /// US-994: inverse of ``LocalInventoryItem/photos``. The merge populates
+    /// this so photo lookups fault lazily off the item and deleting an item
+    /// cascade-deletes its photos (no orphaned rows). Optional because a photo
+    /// row can briefly exist before its owning item lands in the cache.
+    var item: LocalInventoryItem?
 
     var photoType: String     // server flipdesk_photo_type — see FlipdeskPhotoType.all
     var photoURL: String

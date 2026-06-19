@@ -30,8 +30,8 @@ struct InventoryRow: View {
                     GradeChip(score: grade, label: item.gradeLabel)
                         .padding(.top, 1)
                 }
-                // US-683: at-a-glance "ready to list" cue (primaryPhotoURL is
-                // the row's stand-in for "has photos").
+                // US-683: at-a-glance "ready to list" cue. US-994: photo
+                // presence now derives from the photos relationship.
                 if isReadyToList {
                     Label("Ready to list", systemImage: "checkmark.seal.fill")
                         .font(.caption2.weight(.semibold))
@@ -81,12 +81,12 @@ struct InventoryRow: View {
         return parts.isEmpty ? "—" : parts.joined(separator: " · ")
     }
 
-    /// US-683: ready-to-list from local signals (primaryPhotoURL stands in for
-    /// "has photos" since the row doesn't query the full photo list).
+    /// US-683/US-994: ready-to-list from local signals; photo presence comes
+    /// from the photos relationship, not the denormalized primaryPhotoURL cache.
     private var isReadyToList: Bool {
         PublishReadiness.isReady(
             title: item.title,
-            hasPhotos: item.primaryPhotoURL?.nonEmpty != nil,
+            hasPhotos: item.hasPhotos,
             targetPrice: item.targetPrice,
             status: item.status
         )

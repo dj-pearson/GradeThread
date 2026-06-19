@@ -104,9 +104,11 @@ public enum InventoryFilter {
         }
 
         switch criteria.photoState {
+        // US-994: presence from the photos relationship, not the primaryPhotoURL
+        // cache (which drifts when the cover lags the actual photo set).
         case .any:          break
-        case .withPhoto:    if item.primaryPhotoURL?.facetTrimmed == nil { return false }
-        case .missingPhoto: if item.primaryPhotoURL?.facetTrimmed != nil { return false }
+        case .withPhoto:    if !item.hasPhotos { return false }
+        case .missingPhoto: if item.hasPhotos { return false }
         }
 
         if let days = criteria.dateAdded.days {

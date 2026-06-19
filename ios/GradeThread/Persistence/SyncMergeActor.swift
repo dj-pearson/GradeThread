@@ -93,6 +93,12 @@ actor SyncMergeActor {
         var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let remoteIds = Set(remotePhotos.map(\.id))
 
+        // US-994: resolve each photo's owning item so the @Relationship (and its
+        // cascade-delete) is populated, not just the loose FK string. mergeItems
+        // runs before mergePhotos in `pull()`, so the items are already present.
+        let items = (try? modelContext.fetch(FetchDescriptor<LocalInventoryItem>())) ?? []
+        let itemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
         for remote in remotePhotos {
             if let local = existingById[remote.id] {
                 local.photoType = remote.photo_type
@@ -101,6 +107,9 @@ actor SyncMergeActor {
                 local.storagePath = remote.storage_path
                 local.sortOrder = remote.sort_order
                 local.bytes = remote.bytes
+                // Heal the relationship on rows that predate US-994 (or whose
+                // item arrived after the photo) without clobbering a good link.
+                local.item = itemsById[remote.inventory_item_id] ?? local.item
             } else {
                 let local = LocalItemPhoto(
                     id: remote.id,
@@ -114,6 +123,7 @@ actor SyncMergeActor {
                 local.storagePath = remote.storage_path
                 local.bytes = remote.bytes
                 modelContext.insert(local)
+                local.item = itemsById[remote.inventory_item_id]
                 existingById[remote.id] = local
             }
         }

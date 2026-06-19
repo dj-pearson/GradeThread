@@ -112,7 +112,14 @@ final class AdvancedInventoryFilterTests: XCTestCase {
 
     func test_matches_photoState() throws {
         let ctx = ModelContext(try makeContainer())
-        let withPhoto = makeItem(id: "w", context: ctx); withPhoto.primaryPhotoURL = "https://x/y.jpg"
+        // US-994: photo presence derives from the relationship, so attach a real
+        // photo row rather than setting the denormalized primaryPhotoURL.
+        let withPhoto = makeItem(id: "w", context: ctx)
+        let photo = LocalItemPhoto(
+            id: "ph-w", inventoryItemId: "w", photoType: "front", photoURL: "https://x/y.jpg"
+        )
+        ctx.insert(photo)
+        photo.item = withPhoto
         let without = makeItem(id: "n", context: ctx)
 
         var c = InventoryFilterCriteria(); c.photoState = .withPhoto

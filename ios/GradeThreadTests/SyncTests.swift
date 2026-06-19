@@ -366,6 +366,57 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(ids, ["a", "local-1"])
     }
 
+    // MARK: - Item<->photo relationship (US-994)
+
+    func test_deletingItem_cascadesPhotos() throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+
+        let item = LocalInventoryItem(id: "i1", userId: "u1", title: "Tee")
+        ctx.insert(item)
+        let p1 = LocalItemPhoto(id: "p1", inventoryItemId: "i1", photoType: "front", photoURL: "u1")
+        let p2 = LocalItemPhoto(id: "p2", inventoryItemId: "i1", photoType: "back", photoURL: "u2")
+        ctx.insert(p1); ctx.insert(p2)
+        p1.item = item; p2.item = item
+        try ctx.save()
+
+        XCTAssertEqual(item.photos.count, 2)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<LocalItemPhoto>()).count, 2)
+
+        // Deleting the item cascades to its photos — no orphans left behind.
+        ctx.delete(item)
+        try ctx.save()
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<LocalInventoryItem>()).count, 0)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<LocalItemPhoto>()).count, 0)
+    }
+
+    func test_mergePhotos_populatesItemRelationship() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Tee", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: [:], listingPrices: [:], prune: false
+        )
+        await actor.mergePhotos([Self.remotePhoto(id: "p1", itemId: "a")], prune: false)
+
+        let ctx = ModelContext(container)
+        let photo = try ctx.fetch(FetchDescriptor<LocalItemPhoto>()).first
+        XCTAssertEqual(photo?.item?.id, "a")
+        let item = try ctx.fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertEqual(item?.photos.count, 1)
+        XCTAssertTrue(item?.hasPhotos ?? false)
+    }
+
+    private static func remotePhoto(id: String, itemId: String) -> SyncEngine.RemoteItemPhoto {
+        let json = """
+        {"id":"\(id)","inventory_item_id":"\(itemId)","photo_type":"front",
+         "photo_url":"https://x/\(id).jpg","thumbnail_url":null,"storage_path":null,
+         "sort_order":0,"bytes":null,"created_at":"2026-01-01T00:00:00Z"}
+        """.data(using: .utf8)!
+        return try! JSONDecoder().decode(SyncEngine.RemoteItemPhoto.self, from: json)
+    }
+
     private static func remoteItem(
         id: String, title: String, updated: String
     ) -> SyncEngine.RemoteInventoryItem {

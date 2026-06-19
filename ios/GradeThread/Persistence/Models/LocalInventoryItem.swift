@@ -60,7 +60,16 @@ final class LocalInventoryItem {
     var measurementsJSON: String?  // jsonb on the server; round-tripped as raw JSON
 
     // Photo summary (full photos live in LocalItemPhoto).
+    /// Cached cover-photo URL for the grid thumbnail only — a render cache, not
+    /// a presence signal. Photo *presence* derives from ``photos`` (US-994).
     var primaryPhotoURL: String?
+
+    /// US-994: real relationship to this item's photos. Cascade delete so
+    /// removing an item drops its photo rows instead of orphaning them. The
+    /// inverse lives on ``LocalItemPhoto/item``; ``SyncMergeActor`` populates it
+    /// on merge. Faults lazily, so the grid only pays for it when read.
+    @Relationship(deleteRule: .cascade, inverse: \LocalItemPhoto.item)
+    var photos: [LocalItemPhoto] = []
 
     // Timestamps
     var createdAt: Date
@@ -89,4 +98,10 @@ final class LocalInventoryItem {
         self.updatedAt = updatedAt
         self.hasLocalChanges = hasLocalChanges
     }
+
+    /// US-994: photo presence from the relationship, not the denormalized
+    /// `primaryPhotoURL` string (which drifts when the cover cache lags the
+    /// actual photo set). Used by the grid "ready to list" cue and the
+    /// with/missing-photo filter facet.
+    var hasPhotos: Bool { !photos.isEmpty }
 }
