@@ -3,18 +3,39 @@ import PostHog
 import Sentry
 
 /// Thin facade over Sentry + PostHog so call sites instrument the same way
-/// regardless of which provider does what. Three rules baked in:
+/// regardless of which provider does what. Four rules baked in:
 ///
 ///   1. **Sentry is always on** when the DSN is configured. Crashes are
 ///      errors, not analytics — they don't respect the opt-in toggle.
-///   2. **PostHog respects the opt-in toggle.** Every `event(...)` and
-///      `setUser(...)` no-ops when `Telemetry.isAnalyticsEnabled` is
-///      false. Sentry breadcrumbs still fire because they ride along
-///      with crash reports.
+///   2. **PostHog respects the opt-in toggle.** Every `event(...)`,
+///      `screen(...)`, and `setUser(...)` no-ops when
+///      `Telemetry.isAnalyticsEnabled` is false. Sentry breadcrumbs still
+///      fire because they ride along with crash reports.
 ///   3. **Missing DSN / API key disables silently.** xcconfig
 ///      placeholders come through as empty strings; we treat that as
 ///      "this build wasn't configured for telemetry" rather than
 ///      crashing.
+///   4. **PostHog never receives free-text PII (US-991).** Unlike Sentry —
+///      which scrubs every message/breadcrumb in `beforeSend` /
+///      `beforeBreadcrumb` — PostHog has no such hook, so it would
+///      otherwise forward whatever a call site passed verbatim. Two
+///      defenses close that gap:
+///        - **No screen autocapture.** `captureScreenViews` is OFF, so a
+///          SwiftUI navigation title carrying an item title or consignor
+///          name can never become a PostHog screen name. Record screens
+///          explicitly via `screen(_:)` using a STABLE, non-PII id.
+///        - **Property scrubbing.** Every `event(...)` / `screen(...)`
+///          property value is run through `TelemetryScrubber` (emails,
+///          tokens, signed Storage URLs) before it reaches PostHog. The
+///          standing contract remains that call sites pass ids/enums/counts
+///          — never a free-text item or consignor name — and this scrub is
+///          the safety net, not a license to send PII.
+///
+/// **Consent (US-191 / US-991):** product analytics is opt-out — default ON,
+/// surfaced to the user in Settings → Analytics ("Share product analytics")
+/// where flipping it off both stops every PostHog call and `reset()`s the
+/// in-memory session. Crash reporting (Sentry) is independent and stays on;
+/// the toggle footer says so explicitly.
 @MainActor
 public enum Telemetry {
 
@@ -88,9 +109,46 @@ public enum Telemetry {
 
     /// Tracked analytics event. No-op when analytics is disabled or the
     /// PostHog SDK never initialized (missing API key).
+    ///
+    /// Every string property value is redacted via `TelemetryScrubber`
+    /// (US-991) so a token / email / signed Storage URL that slips into a
+    /// payload is stripped the same way Sentry messages are — PostHog has no
+    /// `beforeSend` hook of its own.
     public static func event(_ name: String, props: [String: Any] = [:]) {
         guard isAnalyticsEnabled, AppConfig.postHogAPIKey != nil else { return }
-        PostHogSDK.shared.capture(name, properties: props)
+        PostHogSDK.shared.capture(name, properties: redactProperties(props))
+    }
+
+    /// Explicit screen view with a STABLE, non-PII identifier. Auto
+    /// screen-view capture is disabled (`captureScreenViews = false`)
+    /// precisely so SwiftUI navigation titles — which frequently contain
+    /// free-text item titles or consignor names — never leak as PostHog
+    /// screen names. Pass a constant from `TelemetryScreen`, never a
+    /// user-derived string. Properties are scrubbed exactly like `event`.
+    public static func screen(_ name: String, props: [String: Any] = [:]) {
+        guard isAnalyticsEnabled, AppConfig.postHogAPIKey != nil else { return }
+        PostHogSDK.shared.screen(name, properties: redactProperties(props))
+    }
+
+    /// US-991: run every string property value through `TelemetryScrubber`,
+    /// recursing into nested arrays/dictionaries, before it reaches PostHog.
+    /// `nonisolated` + pure so it's trivially testable and has no main-actor
+    /// dependency.
+    nonisolated static func redactProperties(_ props: [String: Any]) -> [String: Any] {
+        props.mapValues(redactValue)
+    }
+
+    nonisolated private static func redactValue(_ value: Any) -> Any {
+        switch value {
+        case let string as String:
+            return TelemetryScrubber.redact(string)
+        case let array as [Any]:
+            return array.map(redactValue)
+        case let dict as [String: Any]:
+            return dict.mapValues(redactValue)
+        default:
+            return value
+        }
     }
 
     /// Crash-report breadcrumb. Intentionally NOT gated on the analytics
@@ -183,10 +241,15 @@ public enum Telemetry {
             apiKey: apiKey,
             host: AppConfig.postHogHost.absoluteString
         )
-        // Capture screen-views automatically — saves us instrumenting
-        // every NavigationLink push manually.
+        // Lifecycle events (app open/background/install/update) carry no
+        // user-supplied text, so autocapture is safe and useful.
         config.captureApplicationLifecycleEvents = true
-        config.captureScreenViews = true
+        // US-991: screen autocapture is OFF. SwiftUI navigation titles
+        // frequently contain free-text item titles / consignor names, and
+        // PostHog would forward them verbatim as screen names (no scrubber).
+        // Record screens explicitly via `Telemetry.screen(_:)` with a stable,
+        // non-PII id from `TelemetryScreen` instead.
+        config.captureScreenViews = false
         PostHogSDK.shared.setup(config)
     }
 }
@@ -201,4 +264,19 @@ public enum TelemetryEvent {
     public static let ebaySynced = "ebay_synced"
     public static let listingPublished = "listing_published"
     public static let saleRecorded = "sale_recorded"
+}
+
+/// Stable, non-PII screen identifiers for explicit `Telemetry.screen(_:)`
+/// calls. Auto screen-view capture is OFF (US-991) so screen names can never
+/// be derived from free-text navigation titles; these constants are the only
+/// approved screen labels and must stay stable so PostHog funnels don't split.
+public enum TelemetryScreen {
+    public static let pipeline = "pipeline"
+    public static let intake = "intake"
+    public static let aiExtract = "ai_extract"
+    public static let grading = "grading"
+    public static let marketplaces = "marketplaces"
+    public static let analytics = "analytics"
+    public static let settings = "settings"
+    public static let paywall = "paywall"
 }

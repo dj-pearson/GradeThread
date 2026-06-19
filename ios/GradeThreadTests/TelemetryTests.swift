@@ -117,6 +117,43 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(TelemetryScrubber.redact(input), input)
     }
 
+    // MARK: - Event property scrubbing (US-991)
+
+    func test_redactProperties_redactsStringValues() {
+        let out = Telemetry.redactProperties([
+            "detail": "login failed for seller@example.com",
+            "auth": "Bearer eyJhbGci.abc-DEF",
+            "url": "https://api.gradethread.com/storage/v1/object/sign/x?token=abc",
+        ])
+        XCTAssertEqual(out["detail"] as? String, "login failed for [redacted-email]")
+        XCTAssertEqual(out["auth"] as? String, "Bearer [redacted]")
+        XCTAssertEqual(out["url"] as? String, "[redacted-storage-url]")
+    }
+
+    func test_redactProperties_leavesNonStringValuesUntouched() {
+        let out = Telemetry.redactProperties([
+            "count": 42,
+            "online": true,
+            "tier": "express",
+        ])
+        XCTAssertEqual(out["count"] as? Int, 42)
+        XCTAssertEqual(out["online"] as? Bool, true)
+        // A clean string is passed through verbatim.
+        XCTAssertEqual(out["tier"] as? String, "express")
+    }
+
+    func test_redactProperties_recursesIntoNestedCollections() {
+        let out = Telemetry.redactProperties([
+            "emails": ["a@example.com", "clean"],
+            "nested": ["token": "apikey=supersecret123"],
+        ])
+        let emails = out["emails"] as? [String]
+        XCTAssertEqual(emails?.first, "[redacted-email]")
+        XCTAssertEqual(emails?.last, "clean")
+        let nested = out["nested"] as? [String: Any]
+        XCTAssertFalse((nested?["token"] as? String ?? "").contains("supersecret123"))
+    }
+
     // MARK: - Breadcrumb data scrubbing (US-695)
 
     func test_scrubBreadcrumb_redactsUrlInStructuredData() {
