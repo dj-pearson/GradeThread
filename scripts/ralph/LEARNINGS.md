@@ -111,6 +111,13 @@ memory — not a progress log (the harness records progress separately).
   ios-ci.yml after `xcodegen generate`, also locally on Windows) fails on any ATS
   relaxation key in a plist/project.yml OR a non-https SUPABASE_URL/EDGE_API_URL
   in an xcconfig. xcconfig escapes `//` in URLs as `/$()/` — the script strips it.
+- Offline writes go through `OfflineMutationQueue` (Persistence/, US-982):
+  `shouldQueue(error)` = `FriendlyErrorCopy.isOffline` (queue ONLY true network
+  failures, never 4xx/RLS — those replay forever); `enqueueCreate` injects a
+  client `id` so the SyncEngine replay UPSERTs idempotently. Adding a
+  `MutationKind` case means updating TWO exhaustive switches or the build breaks:
+  `SyncEngine.apply` AND `PendingChangesView.title`. Creates carrying a client id
+  must replay via `replayUpsert` (not `replayInsert`) for exactly-once.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

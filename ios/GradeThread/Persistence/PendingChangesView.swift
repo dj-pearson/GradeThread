@@ -97,7 +97,9 @@ struct PendingChangesView: View {
         if row.isFailed { return "exclamationmark.triangle.fill" }
         switch row.kind {
         case MutationKind.uploadPhoto.rawValue, MutationKind.deletePhoto.rawValue: return "photo"
-        case MutationKind.deleteInventoryItem.rawValue: return "trash"
+        case MutationKind.deleteInventoryItem.rawValue, MutationKind.deleteExpense.rawValue: return "trash"
+        case MutationKind.createSale.rawValue: return "dollarsign.circle"
+        case MutationKind.createExpense.rawValue: return "creditcard"
         default: return "tray.and.arrow.up"
         }
     }
@@ -111,6 +113,8 @@ struct PendingChangesView: View {
         case .deletePhoto: return "Delete photo"
         case .createListing: return "Create listing"
         case .createSale: return "Record sale"
+        case .createExpense: return "Add expense"
+        case .deleteExpense: return "Delete expense"
         case .none: return kind
         }
     }

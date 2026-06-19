@@ -6,6 +6,7 @@ import SwiftUI
 /// chart from the local cache, operating expenses (fetched + created
 /// server-side), and a recent-sales preview that pushes the full list.
 struct MoneyView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var expenseStore = ExpenseStore()
     @State private var showingAddExpense = false
     @State private var showingExport = false
@@ -165,7 +166,7 @@ struct MoneyView: View {
                     ExpenseRow(expense: expense, currency: currency)
                         .contextMenu {
                             Button(role: .destructive) {
-                                Task { _ = await expenseStore.delete(expense) }
+                                Task { _ = await expenseStore.delete(expense, queueContext: modelContext) }
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }

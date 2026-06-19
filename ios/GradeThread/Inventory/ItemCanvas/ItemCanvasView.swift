@@ -1320,6 +1320,23 @@ struct ItemCanvasView: View {
                 HapticFeedback.warning()
                 return false
             }
+            // US-982: a true network failure queues the edit for replay instead
+            // of failing the user; the change persists locally and syncs on
+            // reconnect. App-level rejections (RLS, enum mismatch) still surface.
+            if OfflineMutationQueue.shouldQueue(error) {
+                OfflineMutationQueue.enqueueUpdate(
+                    kind: .updateInventoryItem, payload: payload, targetId: item.id, in: modelContext
+                )
+                applyToLocalItem(state: state)
+                item.hasLocalChanges = true  // not yet on the server — keep it from prune
+                state.acceptDraftAsOriginal()
+                try? modelContext.save()
+                state.savePhase = .idle
+                HapticFeedback.warning()
+                actionToast = "Saved offline — will sync when you reconnect."
+                if dismissAfter { dismiss() }
+                return true
+            }
             HapticFeedback.error()
             state.failSaving(error.localizedDescription)
             return false

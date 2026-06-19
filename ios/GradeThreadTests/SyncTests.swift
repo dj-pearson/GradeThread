@@ -139,6 +139,80 @@ final class SyncTests: XCTestCase {
         XCTAssertNil(mutation.kindEnum)
     }
 
+    // MARK: - OfflineMutationQueue (US-982)
+
+    func test_offlineQueue_enqueueCreate_injectsClientIdAndPersists() throws {
+        let container = try inMemoryContainer()
+        let context = ModelContext(container)
+
+        struct ExpensePayload: Encodable {
+            let user_id: String
+            let category: String
+            let amount: Double
+        }
+        let id = OfflineMutationQueue.enqueueCreate(
+            kind: .createExpense,
+            payload: ExpensePayload(user_id: "u1", category: "other", amount: 12.5),
+            in: context
+        )
+        let clientId = try XCTUnwrap(id)
+
+        let rows = try ModelContext(container).fetch(FetchDescriptor<LocalPendingMutation>())
+        XCTAssertEqual(rows.count, 1)
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row.kindEnum, .createExpense)
+        // targetId mirrors the injected id so the inspector can name the row.
+        XCTAssertEqual(row.targetId, clientId)
+        // The payload carries the client id so replay UPSERTs idempotently.
+        let dict = try JSONSerialization.jsonObject(with: row.payload) as? [String: Any]
+        XCTAssertEqual(dict?["id"] as? String, clientId)
+        XCTAssertEqual(dict?["category"] as? String, "other")
+    }
+
+    func test_offlineQueue_enqueueDelete_carriesTargetIdOnly() throws {
+        let container = try inMemoryContainer()
+        let context = ModelContext(container)
+        OfflineMutationQueue.enqueueDelete(kind: .deleteExpense, targetId: "exp-1", in: context)
+
+        let row = try XCTUnwrap(
+            try ModelContext(container).fetch(FetchDescriptor<LocalPendingMutation>()).first
+        )
+        XCTAssertEqual(row.kindEnum, .deleteExpense)
+        XCTAssertEqual(row.targetId, "exp-1")
+        XCTAssertTrue(row.payload.isEmpty)
+    }
+
+    func test_offlineQueue_enqueueUpdate_targetsRowAndEncodesPatch() throws {
+        let container = try inMemoryContainer()
+        let context = ModelContext(container)
+        struct Patch: Encodable { let title: String }
+        let ok = OfflineMutationQueue.enqueueUpdate(
+            kind: .updateInventoryItem, payload: Patch(title: "Edited"),
+            targetId: "item-1", in: context
+        )
+        XCTAssertTrue(ok)
+        let row = try XCTUnwrap(
+            try ModelContext(container).fetch(FetchDescriptor<LocalPendingMutation>()).first
+        )
+        XCTAssertEqual(row.kindEnum, .updateInventoryItem)
+        XCTAssertEqual(row.targetId, "item-1")
+        let dict = try JSONSerialization.jsonObject(with: row.payload) as? [String: Any]
+        XCTAssertEqual(dict?["title"] as? String, "Edited")
+    }
+
+    /// AC5: only genuine connectivity failures are queued; app-level rejections
+    /// (4xx / RLS / validation) must NOT queue — they would replay forever.
+    func test_offlineQueue_shouldQueue_networkYesAppRejectionNo() {
+        let offline = URLError(.notConnectedToInternet)
+        XCTAssertTrue(OfflineMutationQueue.shouldQueue(offline))
+
+        let rejection = NSError(
+            domain: "PostgrestError", code: 400,
+            userInfo: [NSLocalizedDescriptionKey: "duplicate key value violates unique constraint"]
+        )
+        XCTAssertFalse(OfflineMutationQueue.shouldQueue(rejection))
+    }
+
     // MARK: - SyncStatusStore
 
     func test_statusStore_promotesIdleToPendingWhenQueueGrows() {

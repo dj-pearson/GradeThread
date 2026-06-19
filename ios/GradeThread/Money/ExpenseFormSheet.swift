@@ -6,6 +6,7 @@ struct ExpenseFormSheet: View {
     let store: ExpenseStore
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Environment(AuthStore.self) private var authStore
 
     @State private var category: ExpenseCategory = .shippingSupplies
@@ -76,19 +77,25 @@ struct ExpenseFormSheet: View {
         }
         isSaving = true
         defer { isSaving = false }
-        let failure = await store.create(
+        let result = await store.create(
             category: category,
             amount: amount,
             description: note,
             spentOn: spentOn,
-            userId: user.id.uuidString
+            userId: user.id.uuidString,
+            queueContext: modelContext
         )
-        if let failure {
-            errorMessage = failure
-            HapticFeedback.error()
-        } else {
+        switch result {
+        case .saved:
             HapticFeedback.success()
             dismiss()
+        case .savedOffline:
+            // US-982: durably queued — it shows in the list and syncs on reconnect.
+            HapticFeedback.warning()
+            dismiss()
+        case .failed(let message):
+            errorMessage = message
+            HapticFeedback.error()
         }
     }
 }

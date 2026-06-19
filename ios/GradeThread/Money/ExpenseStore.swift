@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftData
 
 /// Fetches + creates operating expenses (`flipdesk_expenses`). RLS scopes
 /// every read to the caller (so `refresh` needs no user filter); the INSERT
@@ -11,6 +12,14 @@ final class ExpenseStore {
     enum Phase: Equatable {
         case loading
         case ready([RemoteExpense])
+        case failed(String)
+    }
+
+    /// Outcome of a write — distinguishes a server-confirmed save from one that
+    /// was queued offline (US-982) so the UI can tell the user "will sync".
+    enum WriteResult: Equatable {
+        case saved
+        case savedOffline
         case failed(String)
     }
 
@@ -45,15 +54,17 @@ final class ExpenseStore {
         }
     }
 
-    /// Inserts a new expense, then optimistically refreshes. Returns nil on
-    /// success or an error message on failure.
+    /// Inserts a new expense, then optimistically refreshes. A true network
+    /// failure (US-982) queues a `createExpense` mutation for replay and mirrors
+    /// the row locally so it shows immediately; an app-level rejection surfaces.
     func create(
         category: ExpenseCategory,
         amount: Double,
         description: String?,
         spentOn: Date,
-        userId: String
-    ) async -> String? {
+        userId: String,
+        queueContext: ModelContext
+    ) async -> WriteResult {
         struct Insert: Encodable {
             let user_id: String
             let category: String
@@ -66,12 +77,14 @@ final class ExpenseStore {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd"
 
+        let cleanDescription = description?.isEmpty == true ? nil : description
+        let spentOnString = formatter.string(from: spentOn)
         let row = Insert(
             user_id: userId,
             category: category.rawValue,
-            description: description?.isEmpty == true ? nil : description,
+            description: cleanDescription,
             amount: amount,
-            spent_on: formatter.string(from: spentOn)
+            spent_on: spentOnString
         )
         do {
             try await SupabaseShared.client
@@ -79,13 +92,24 @@ final class ExpenseStore {
                 .insert(row)
                 .execute()
             await refresh()
-            return nil
+            return .saved
         } catch {
-            return error.localizedDescription
+            // US-982: queue genuine connectivity failures; surface real rejections.
+            guard OfflineMutationQueue.shouldQueue(error) else {
+                return .failed(error.localizedDescription)
+            }
+            let id = OfflineMutationQueue.enqueueCreate(
+                kind: .createExpense, payload: row, in: queueContext
+            ) ?? UUID().uuidString
+            mirrorCreated(
+                id: id, category: category.rawValue, description: cleanDescription,
+                amount: amount, spentOn: spentOnString
+            )
+            return .savedOffline
         }
     }
 
-    func delete(_ expense: RemoteExpense) async -> String? {
+    func delete(_ expense: RemoteExpense, queueContext: ModelContext) async -> WriteResult {
         do {
             try await SupabaseShared.client
                 .from("flipdesk_expenses")
@@ -93,13 +117,39 @@ final class ExpenseStore {
                 .eq("id", value: expense.id)
                 .execute()
             // Drop locally so the list updates without a round-trip.
-            if case var .ready(rows) = phase {
-                rows.removeAll { $0.id == expense.id }
-                phase = .ready(rows)
-            }
-            return nil
+            removeLocally(expense)
+            return .saved
         } catch {
-            return error.localizedDescription
+            guard OfflineMutationQueue.shouldQueue(error) else {
+                return .failed(error.localizedDescription)
+            }
+            OfflineMutationQueue.enqueueDelete(
+                kind: .deleteExpense, targetId: expense.id, in: queueContext
+            )
+            removeLocally(expense)  // optimistic — the queued delete replays on reconnect
+            return .savedOffline
+        }
+    }
+
+    /// Optimistically inserts an offline-created expense into the loaded list so
+    /// it appears immediately, keeping the server's newest-first `spent_on` order.
+    private func mirrorCreated(
+        id: String, category: String, description: String?, amount: Double, spentOn: String
+    ) {
+        let expense = RemoteExpense(
+            id: id, category: category, description: description, amount: amount, spentOn: spentOn
+        )
+        var rows = expenses
+        rows.append(expense)
+        // `spent_on` is "yyyy-MM-dd", so a lexical sort is chronological.
+        rows.sort { $0.spentOn > $1.spentOn }
+        phase = .ready(rows)
+    }
+
+    private func removeLocally(_ expense: RemoteExpense) {
+        if case var .ready(rows) = phase {
+            rows.removeAll { $0.id == expense.id }
+            phase = .ready(rows)
         }
     }
 

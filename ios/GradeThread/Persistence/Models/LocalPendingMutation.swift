@@ -64,4 +64,7 @@ enum MutationKind: String, Codable, CaseIterable {
     case deletePhoto
     case createListing
     case createSale
+    // US-982: operating expenses (`flipdesk_expenses`) join the offline queue.
+    case createExpense
+    case deleteExpense
 }

@@ -645,7 +645,14 @@ actor SyncEngine {
             case .createListing:
                 try await replayInsert(table: "listings", payload: mutation.payload)
             case .createSale:
-                try await replayInsert(table: "sales", payload: mutation.payload)
+                // Upsert (the offline payload carries a client-generated id) so a
+                // retry after a partial success can't double-record the sale.
+                try await replayUpsert(table: "sales", payload: mutation.payload)
+            case .createExpense:
+                // Same client-id idempotency as createSale/createInventoryItem.
+                try await replayUpsert(table: "flipdesk_expenses", payload: mutation.payload)
+            case .deleteExpense:
+                try await replayDelete(table: "flipdesk_expenses", id: mutation.targetId)
             case .updateInventoryItem:
                 try await replayUpdate(table: "inventory_items", payload: mutation.payload, id: mutation.targetId)
             case .deleteInventoryItem:
