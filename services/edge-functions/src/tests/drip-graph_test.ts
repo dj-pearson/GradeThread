@@ -614,6 +614,150 @@ Deno.test("urgency is anchored to the ACTUAL trial_end, not a fixed offset (US-9
   assertEquals(plan.send?.stepId, "urgency_today");
 });
 
+// ── US-939 Phase 1 in-trial activation sequence (days 0–6) ──
+
+// A faithful slice of the seeded activation run: welcome (day 0) → day-1
+// first-grade nudge (skipped once graded) → day-2 value email (gated on the
+// first grade) → day-3 education (with a 3-day inactivity branch) →
+// inactivity_nudge (rejoins) → day-5 social proof → recap (entry to Phase 2).
+function phase1Graph(): DripGraph {
+  const s = (id: string, over: Record<string, unknown>) =>
+    step({ id, phase: "in_trial", anchor: "enrollment", exit: false, ...over }) as unknown as
+      DripGraph["steps"][number];
+  return {
+    entryStepId: "welcome",
+    steps: [
+      s("welcome", { delayHours: 0, conditions: [], next: "day1_first_grade" }),
+      s("day1_first_grade", {
+        delayHours: 24,
+        conditions: [
+          { field: "converted", op: "is_false" },
+          { field: "gradesCount", op: "is_false" },
+        ],
+        next: "day2_value",
+      }),
+      s("day2_value", {
+        delayHours: 48,
+        conditions: [
+          { field: "converted", op: "is_false" },
+          { field: "gradesCount", op: "gte", value: 1 },
+        ],
+        next: "day3_education",
+      }),
+      s("day3_education", {
+        delayHours: 72,
+        conditions: [{ field: "converted", op: "is_false" }],
+        branches: [{
+          conditions: [{ field: "daysSinceActive", op: "gte", value: 3 }],
+          targetStepId: "inactivity_nudge",
+        }],
+        next: "day5_social",
+      }),
+      s("inactivity_nudge", {
+        delayHours: 96,
+        conditions: [
+          { field: "converted", op: "is_false" },
+          { field: "daysSinceActive", op: "gte", value: 3 },
+        ],
+        next: "day5_social",
+      }),
+      s("day5_social", {
+        delayHours: 120,
+        conditions: [{ field: "converted", op: "is_false" }],
+        next: "recap",
+      }),
+      s("recap", { delayHours: 168, conditions: [{ field: "converted", op: "is_false" }], next: null, exit: true }),
+    ],
+  };
+}
+
+Deno.test("phase-1 activation graph is structurally valid (US-939)", () => {
+  const r = validateGraph(phase1Graph());
+  assert(r.ok, r.errors.join("; "));
+});
+
+Deno.test("day-1 first-grade nudge is skipped once the user has graded (US-939)", () => {
+  // Past day 5, no activity tracked here; user has already graded → day1 gated off.
+  const r = simulateJourney(
+    phase1Graph(),
+    { userId: "u1", enrolledAtMs: 0, converted: false, gradesCount: 2, daysSinceActive: 0 },
+    1000 * HOUR,
+  );
+  const sent = r.sends.filter((x) => x.willSend).map((x) => x.stepId);
+  assert(!sent.includes("day1_first_grade"));
+  // ...and the day-2 value email DOES send (it's gated on having graded).
+  assert(sent.includes("day2_value"));
+});
+
+Deno.test("day-2 value email is gated until the first grade happens (US-939)", () => {
+  const r = simulateJourney(
+    phase1Graph(),
+    { userId: "u1", enrolledAtMs: 0, converted: false, gradesCount: 0, daysSinceActive: 0 },
+    1000 * HOUR,
+  );
+  const sent = r.sends.filter((x) => x.willSend).map((x) => x.stepId);
+  // No grade yet → day-1 nudge sends, day-2 value email is skipped.
+  assert(sent.includes("day1_first_grade"));
+  assert(!sent.includes("day2_value"));
+});
+
+Deno.test("inactivity nudge fires after 3 quiet days and rejoins the timeline (US-939)", () => {
+  const r = simulateJourney(
+    phase1Graph(),
+    { userId: "u1", enrolledAtMs: 0, converted: false, gradesCount: 0, daysSinceActive: 4 },
+    1000 * HOUR,
+  );
+  const sent = r.sends.filter((x) => x.willSend).map((x) => x.stepId);
+  assert(sent.includes("inactivity_nudge"));
+  // Inserted WITHOUT breaking the timeline — day-5 social still follows.
+  assert(sent.includes("day5_social"));
+  // ...and it sits between day-3 education and day-5 social.
+  const order = r.sends.map((x) => x.stepId);
+  assert(order.indexOf("inactivity_nudge") > order.indexOf("day3_education"));
+  assert(order.indexOf("inactivity_nudge") < order.indexOf("day5_social"));
+});
+
+Deno.test("an active trialist never sees the inactivity nudge (US-939)", () => {
+  const r = simulateJourney(
+    phase1Graph(),
+    { userId: "u1", enrolledAtMs: 0, converted: false, gradesCount: 1, daysSinceActive: 0 },
+    1000 * HOUR,
+  );
+  const stepIds = r.sends.map((x) => x.stepId);
+  // The branch routes day-3 straight to day-5; the nudge is never visited.
+  assert(!stepIds.includes("inactivity_nudge"));
+  assert(stepIds.includes("day5_social"));
+});
+
+Deno.test("daysSinceActive gates the inactivity nudge condition (US-939)", () => {
+  const cond = [{ field: "daysSinceActive", op: "gte" as const, value: 3 }];
+  assert(evaluateAll(cond, { daysSinceActive: 3 }));
+  assert(evaluateAll(cond, { daysSinceActive: 5 }));
+  assert(!evaluateAll(cond, { daysSinceActive: 1 }));
+  // Missing field defaults to 0 (treated as active today) → nudge never fires.
+  assert(!evaluateAll(cond, {}));
+});
+
+Deno.test("conversion exits the activation sequence — every later step is gated off (US-939)", () => {
+  // The engine exits a converted enrollment before planning; at the graph level
+  // every in-trial step after the welcome gates on `converted is_false`, so once
+  // welcome is sent a converted user reaches completion with no further sends.
+  const converted = {
+    userId: "u1",
+    enrolledAtMs: 0,
+    converted: true,
+    gradesCount: 0,
+    daysSinceActive: 0,
+  };
+  const plan = planTick(phase1Graph(), converted, new Set([1]), 1000 * HOUR);
+  assertEquals(plan.status, "complete");
+  assertEquals(plan.send, null);
+  // And no later step would send for a converted user.
+  const sent = simulateJourney(phase1Graph(), converted, 1000 * HOUR)
+    .sends.filter((x) => x.stepId !== "welcome" && x.willSend);
+  assertEquals(sent, []);
+});
+
 Deno.test("planTick skips a gated step and sends the next sendable one", () => {
   const g: DripGraph = {
     entryStepId: "a",

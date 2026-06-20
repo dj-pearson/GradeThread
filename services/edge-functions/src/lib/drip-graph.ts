@@ -351,6 +351,12 @@ export interface DripUserState {
   gradesUsed?: number;
   trialDaysRemaining?: number;
   daysSinceSignup?: number;
+  // US-939: whole days since the user's most recent real activity (latest
+  // grade/listing/sale). Drives the Phase-1 inactivity-nudge branch
+  // (`daysSinceActive gte 3`). For a never-active trialist the engine anchors
+  // this to signup, so it grows with the trial. Defaults to 0 (treated as
+  // "active today") when unknown, so the nudge never fires on missing data.
+  daysSinceActive?: number;
   // US-940: real per-user activity for the mid-trial recap (the "personalization
   // layer" numbers). All-time counts so the recap reflects everything they've
   // done in the trial; `totalActivity` is their sum and drives the
@@ -576,6 +582,9 @@ function fieldValue(field: string, user: DripUserState): unknown {
       return user.trialDaysRemaining ?? 0;
     case "daysSinceSignup":
       return user.daysSinceSignup ?? 0;
+    // US-939 Phase-1 inactivity-nudge branch field.
+    case "daysSinceActive":
+      return user.daysSinceActive ?? 0;
     // US-940 recap branch fields.
     case "gradesCount":
       return user.gradesCount ?? 0;

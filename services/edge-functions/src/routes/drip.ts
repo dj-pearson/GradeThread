@@ -209,6 +209,9 @@ async function loadActivity(userId: string): Promise<{
   listingsCount: number;
   salesCount: number;
   certificatesCount: number;
+  /** Epoch ms of the most recent real activity (latest grade/listing/sale), or
+   * null if the user has done nothing yet. Drives the US-939 inactivity nudge. */
+  lastActivityMs: number | null;
 }> {
   const num = (
     res: { count: number | null; error: { message: string } | null },
@@ -220,7 +223,21 @@ async function loadActivity(userId: string): Promise<{
     }
     return res.count ?? 0;
   };
-  const [grades, certs, listings, sales] = await Promise.all([
+  // US-939: most-recent created_at per activity table (one row each, cheap). The
+  // max is the user's "last_active_at" proxy — there's no such column on users,
+  // so real activity timestamps are the grounded signal. Tenant-scoped (US-268).
+  const latestMs = (
+    res: { data: Array<{ created_at: string | null }> | null; error: { message: string } | null },
+    label: string,
+  ): number | null => {
+    if (res.error) {
+      console.warn(`[drip-tick] ${label} latest failed:`, res.error.message);
+      return null;
+    }
+    const ts = res.data?.[0]?.created_at;
+    return ts ? Date.parse(ts) : null;
+  };
+  const [grades, certs, listings, sales, lastGrade, lastListing, lastSale] = await Promise.all([
     supabaseAdmin.from("grade_reports").select("id", { count: "exact", head: true })
       .eq("user_id", userId),
     supabaseAdmin.from("grade_reports").select("id", { count: "exact", head: true })
@@ -229,12 +246,24 @@ async function loadActivity(userId: string): Promise<{
       .eq("user_id", userId),
     supabaseAdmin.from("sales").select("id", { count: "exact", head: true })
       .eq("user_id", userId),
+    supabaseAdmin.from("grade_reports").select("created_at")
+      .eq("user_id", userId).order("created_at", { ascending: false }).limit(1),
+    supabaseAdmin.from("listings").select("created_at")
+      .eq("user_id", userId).order("created_at", { ascending: false }).limit(1),
+    supabaseAdmin.from("sales").select("created_at")
+      .eq("user_id", userId).order("created_at", { ascending: false }).limit(1),
   ]);
+  const lastTimes = [
+    latestMs(lastGrade, "grade_reports"),
+    latestMs(lastListing, "listings"),
+    latestMs(lastSale, "sales"),
+  ].filter((t): t is number => t !== null);
   return {
     gradesCount: num(grades, "grade_reports"),
     certificatesCount: num(certs, "certificates"),
     listingsCount: num(listings, "listings"),
     salesCount: num(sales, "sales"),
+    lastActivityMs: lastTimes.length ? Math.max(...lastTimes) : null,
   };
 }
 
@@ -536,6 +565,14 @@ async function processEnrollment(
   userState.certificatesCount = activity.certificatesCount;
   userState.totalActivity = activity.gradesCount + activity.listingsCount +
     activity.salesCount + activity.certificatesCount;
+  // US-939: whole days since last real activity. A never-active trialist is
+  // anchored to signup (enrolledAtMs), so the inactivity nudge fires once they've
+  // been silent for 3 trial days. Reactivating resets this (latest activity moves
+  // forward), so the branch re-evaluates and skips the nudge next tick.
+  userState.daysSinceActive = Math.max(
+    0,
+    Math.floor((nowMs - (activity.lastActivityMs ?? userState.enrolledAtMs)) / DAY_MS),
+  );
   userState.lostFeatures = personalization.lostFeatures;
   userState.recommendedPlan = personalization.recommendedPlan;
   userState.checkoutUrl = personalization.checkoutUrl;
