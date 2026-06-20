@@ -170,6 +170,19 @@ public final class AuthStore {
         return scheme == "com.gradethread.app" && host == "auth-callback"
     }
 
+    /// Changes the signed-in user's password (US-818). Uses the authenticated
+    /// Supabase session — GoTrue's `updateUser` requires a live session, so this
+    /// is the in-app equivalent of the web "change password" flow (no email
+    /// round-trip).
+    ///
+    /// Throws so the calling sheet can show a success vs. error state, unlike the
+    /// fire-and-forget auth actions that surface on `lastError`.
+    public func updatePassword(newPassword: String) async throws {
+        _ = try await SupabaseShared.client.auth.update(
+            user: UserAttributes(password: newPassword)
+        )
+    }
+
     public func signOut() async {
         await run {
             try await SupabaseShared.client.auth.signOut()

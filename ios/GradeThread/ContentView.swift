@@ -999,6 +999,10 @@ struct SettingsView: View {
     @State private var showingDeleteAccountSheet = false
     @State private var showingHelp = false
     @State private var showingImport = false   // US-667 CSV / Sheets import
+    // US-818 account/info surfaces
+    @State private var showingChangePassword = false
+    @State private var showingGradingGuide = false
+    @State private var legalLink: LegalLink?
     // US-648 preferences
     @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
     @State private var currencyCode: String = AppPreferences.currencyCode ?? "device"
@@ -1006,6 +1010,25 @@ struct SettingsView: View {
     @State private var workspaceContext: WorkspaceContext?
 
     private static let helpURL = URL(string: "https://gradethread.com/help")!
+
+    /// US-818: legal surfaces App Review expects to find in-app, opened via
+    /// ``SafariView``. An Identifiable wrapper drives a single `.sheet(item:)`.
+    struct LegalLink: Identifiable {
+        let id: String
+        let title: String
+        let url: URL
+
+        static let privacy = LegalLink(
+            id: "privacy",
+            title: "Privacy Policy",
+            url: URL(string: "https://gradethread.com/privacy")!
+        )
+        static let terms = LegalLink(
+            id: "terms",
+            title: "Terms of Service",
+            url: URL(string: "https://gradethread.com/terms")!
+        )
+    }
 
     var body: some View {
         List {
@@ -1020,6 +1043,13 @@ struct SettingsView: View {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
                 }
+                // US-818: in-app change password (no email round-trip).
+                Button {
+                    showingChangePassword = true
+                } label: {
+                    Label("Change password", systemImage: "key")
+                }
+                .accessibilityLabel("Change password")
                 Button(role: .destructive) {
                     Task { await authStore.signOut() }
                 } label: {
@@ -1091,9 +1121,37 @@ struct SettingsView: View {
                 } label: {
                     Label("Help & FAQ", systemImage: "questionmark.circle")
                 }
+                // US-818: native explainer of the 5 grading factors + tier scale.
+                Button {
+                    showingGradingGuide = true
+                } label: {
+                    Label("How grading works", systemImage: "checkmark.seal")
+                }
+                .accessibilityLabel("How grading works")
             }
             // DiagnosticsSection renders its own Section — keep it top-level.
             DiagnosticsSection()
+
+            // ── Legal (US-818) ───────────────────────────────────────
+            Section {
+                Button {
+                    legalLink = .privacy
+                } label: {
+                    Label("Privacy Policy", systemImage: "hand.raised")
+                }
+                .accessibilityLabel("Privacy Policy")
+                Button {
+                    legalLink = .terms
+                } label: {
+                    Label("Terms of Service", systemImage: "doc.text")
+                }
+                .accessibilityLabel("Terms of Service")
+            } header: {
+                Text("Legal")
+            } footer: {
+                Text("Opens our Privacy Policy and Terms of Service on gradethread.com.")
+                    .font(.footnote)
+            }
 
             // ── About ────────────────────────────────────────────────
             Section("About") {
@@ -1124,6 +1182,15 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingImport) {
             CSVImportView()
+        }
+        .sheet(isPresented: $showingChangePassword) {
+            ChangePasswordSheet()
+        }
+        .sheet(isPresented: $showingGradingGuide) {
+            GradingGuideSheet()
+        }
+        .sheet(item: $legalLink) { link in
+            SafariView(url: link.url).ignoresSafeArea()
         }
         .task {
             if workspaceContext == nil, case let .signedIn(user) = authStore.phase {
