@@ -3598,3 +3598,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  2:02:21 AM
 ---
+## US-921: Per-recipient personalization blocks
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  2:15:24 AM
+---
