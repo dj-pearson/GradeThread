@@ -24,9 +24,16 @@ import {
   validateRules,
 } from "../lib/segments.ts";
 import type { SegmentRules } from "../lib/segments.ts";
-import { sendBroadcastEmail } from "../lib/email.ts";
+import { buildBroadcastEmailHtml } from "../lib/email.ts";
 import { sendPushToUser } from "../lib/apns.ts";
 import { getReferralRewardConfig, grantReferralReward } from "../lib/referrals.ts";
+import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
+import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
+import { applyEmailTracking } from "../lib/email-tracking.ts";
+import { getSetting } from "../lib/system-settings.ts";
+import { captureException } from "../lib/observability.ts";
+import { normalizeEmail } from "../lib/email-suppression.ts";
+import { type ConfirmedSubscriber, partitionExtraSubscribers } from "../lib/broadcast-audience.ts";
 
 type AdminEnv = {
   Variables: {
@@ -411,13 +418,140 @@ async function rulesForCampaign(segmentId: string | null): Promise<SegmentRules>
   return (data?.rules as SegmentRules) ?? EMPTY_RULES;
 }
 
+// US-925: per-tick SES-warmup send budget (the durable batch bound). A broadcast
+// with more email recipients than this cap sends a batch, stays `sending`, and
+// resumes on the next dispatch cron tick — overflow rides the email_deliveries
+// outbox cadence rather than hammering SES at full rate. Tunable via the registry.
+const SEND_BATCH_SETTING = "marketing_send_batch_limit";
+const DEFAULT_SEND_BATCH = 1000;
+// Cap the confirmed-subscriber UNION scan (mirrors the newsletter send cap).
+const SUBSCRIBER_SCAN = 5000;
+
+function trackingBaseUrl(): string {
+  return Deno.env.get("FUNCTIONS_URL")?.trim() || "https://functions.gradethread.com";
+}
+
+interface CampaignEmailData {
+  id: string;
+  subject: string;
+  body: string;
+  cta_label: string | null;
+  cta_url: string | null;
+}
+
 /**
- * Resolve a campaign's audience and dispatch across its channels. Writes a
- * campaign_recipients ledger row per (user, channel) and skips any already
- * marked 'sent', so a retry never double-delivers. Shared by the manual-send
- * route and the scheduled-dispatch cron.
+ * Durable, tracked per-recipient broadcast email (US-925). Reserves the
+ * campaign_recipients ledger row (its uuid id = the open/click tracking token),
+ * renders the marketing HTML with click-tracking applied AT RENDER TIME, then
+ * routes the send through coordinateMarketingSend — consent (US-911) +
+ * suppression (US-914) + the per-recipient frequency cap + the email_deliveries
+ * outbox (US-498), so a transient failure is retried/dead-lettered instead of
+ * lost. A dropped (opted-out/suppressed) recipient is recorded 'skipped', never
+ * sent. Returns the recorded ledger status.
  */
-export async function dispatchCampaign(id: string): Promise<DispatchResult> {
+async function sendCampaignEmailDurable(
+  campaign: CampaignEmailData,
+  member: { userId: string; email: string; prefs?: Record<string, unknown> | null },
+): Promise<"sent" | "skipped" | "failed"> {
+  // Reserve the ledger row so its id can be the per-send tracking token.
+  const { data: row, error: resErr } = await supabaseAdmin
+    .from("campaign_recipients")
+    .upsert(
+      {
+        campaign_id: campaign.id,
+        user_id: member.userId,
+        channel: "email",
+        status: "pending",
+        error: null,
+        sent_at: null,
+      },
+      { onConflict: "campaign_id,user_id,channel" },
+    )
+    .select("id")
+    .maybeSingle();
+  if (resErr || !row) {
+    captureException(resErr ?? new Error("reserve failed"), {
+      route: "admin-growth.broadcast.reserve",
+    });
+    return "failed";
+  }
+  const token = (row as { id: string }).id;
+
+  try {
+    const unsubscribeUrl = await marketingUnsubscribeUrl(member.userId);
+    let html = buildBroadcastEmailHtml(
+      {
+        subject: campaign.subject,
+        body: campaign.body,
+        ctaLabel: campaign.cta_label,
+        ctaUrl: campaign.cta_url,
+      },
+      unsubscribeUrl,
+    );
+    // AC4: click-tracking rewrite + open pixel injected at render time (token = ledger id).
+    html = applyEmailTracking(html, trackingBaseUrl(), token);
+
+    const result = await coordinateMarketingSend({
+      to: member.email,
+      userId: member.userId,
+      prefs: member.prefs ?? null,
+      source: "weekly_newsletter",
+      category: `broadcast:${campaign.id}`,
+      subject: campaign.subject,
+      html,
+    });
+
+    if (result.action === "drop") {
+      await supabaseAdmin
+        .from("campaign_recipients")
+        .update({ status: "skipped", error: result.reason, sent_at: null })
+        .eq("id", token);
+      return "skipped";
+    }
+    // send | defer — both durably accepted (defer = re-queued in the outbox).
+    await supabaseAdmin
+      .from("campaign_recipients")
+      .update({ status: "sent", error: null, sent_at: new Date().toISOString() })
+      .eq("id", token);
+    return "sent";
+  } catch (err) {
+    captureException(err, { route: "admin-growth.broadcast.send" });
+    await supabaseAdmin
+      .from("campaign_recipients")
+      .update({ status: "failed", error: err instanceof Error ? err.message : String(err) })
+      .eq("id", token);
+    return "failed";
+  }
+}
+
+/** Confirmed newsletter subscribers — UNIONed with the segment for email sends. */
+async function loadConfirmedSubscribers(): Promise<ConfirmedSubscriber[]> {
+  const { data, error } = await supabaseAdmin
+    .from("email_subscribers")
+    .select("email, user_id")
+    .eq("status", "confirmed")
+    .limit(SUBSCRIBER_SCAN);
+  if (error) {
+    captureException(error, { route: "admin-growth.broadcast.subscribers" });
+    return [];
+  }
+  return (data ?? []) as ConfirmedSubscriber[];
+}
+
+/**
+ * Resolve a campaign's audience and dispatch across its channels. The EMAIL
+ * channel (US-925) targets the segment UNION confirmed newsletter subscribers
+ * (de-duped by email), routes every send through the durable email_deliveries
+ * outbox (consent + suppression + frequency cap), applies click-tracking, and is
+ * bounded per tick by the SES-warmup budget — overflow stays `sending` and the
+ * dispatch cron resumes it (`opts.resume`). in-app/push are direct. Writes a
+ * campaign_recipients ledger row per (user, channel); rows already 'sent' or
+ * permanently 'skipped' are not reprocessed, so a re-run never double-delivers.
+ */
+export async function dispatchCampaign(
+  id: string,
+  opts: { resume?: boolean } = {},
+): Promise<DispatchResult> {
   const { data: campaign, error } = await supabaseAdmin
     .from("growth_campaigns")
     .select("*")
@@ -425,27 +559,40 @@ export async function dispatchCampaign(id: string): Promise<DispatchResult> {
     .single();
   if (error || !campaign) return { ok: false, error: "Campaign not found", status: 404 };
   if (campaign.status === "sent") return { ok: false, error: "Already sent", status: 409 };
-  if (campaign.status === "sending") return { ok: false, error: "Already in progress", status: 409 };
+  if (campaign.status === "sending" && !opts.resume) {
+    return { ok: false, error: "Already in progress", status: 409 };
+  }
 
   const channels = (campaign.channels as ("email" | "in_app" | "push")[]) ?? [];
   if (channels.length === 0) return { ok: false, error: "No channels selected", status: 400 };
+  const hasEmail = channels.includes("email");
 
-  await supabaseAdmin.from("growth_campaigns").update({ status: "sending" }).eq("id", id);
+  if (campaign.status !== "sending") {
+    await supabaseAdmin.from("growth_campaigns").update({ status: "sending" }).eq("id", id);
+  }
 
-  // Pre-load recipients already delivered so a retry is idempotent.
-  const alreadySent = new Set<string>();
+  // Pre-load terminal rows (sent OR permanently skipped) so a re-run/resume is
+  // idempotent — only 'failed'/'pending' rows are reprocessed.
+  const done = new Set<string>();
   {
     const { data: prior } = await supabaseAdmin
       .from("campaign_recipients")
       .select("user_id, channel, status")
       .eq("campaign_id", id);
     for (const r of (prior ?? []) as Array<{ user_id: string; channel: string; status: string }>) {
-      if (r.status === "sent") alreadySent.add(`${r.user_id}:${r.channel}`);
+      if (r.status === "sent" || r.status === "skipped") done.add(`${r.user_id}:${r.channel}`);
     }
   }
 
   const rules = await rulesForCampaign(campaign.segment_id);
   const link = campaign.cta_url || `${SITE_URL}/dashboard`;
+  const emailData: CampaignEmailData = {
+    id,
+    subject: campaign.subject,
+    body: campaign.body,
+    cta_label: campaign.cta_label,
+    cta_url: campaign.cta_url,
+  };
   const stats: Record<string, number> = {
     recipients: 0,
     sent_email: 0,
@@ -455,23 +602,48 @@ export async function dispatchCampaign(id: string): Promise<DispatchResult> {
     failed: 0,
   };
 
+  // AC3: bound email sends per tick (SES warmup); overflow resumes next tick.
+  const batchLimit = Math.max(
+    1,
+    Number(await getSetting(SEND_BATCH_SETTING, DEFAULT_SEND_BATCH)) || DEFAULT_SEND_BATCH,
+  );
+  let emailSends = 0;
+  let truncated = false;
+  // Normalized emails the segment already mailed — for the subscriber UNION dedup.
+  const seenEmails = new Set<string>();
+
   try {
     for await (const page of iterateSegmentUsers(rules)) {
       for (const user of page) {
         stats.recipients++;
         for (const channel of channels) {
           const key = `${user.id}:${channel}`;
-          if (alreadySent.has(key)) {
+          if (done.has(key)) {
             stats.skipped++;
             continue;
           }
 
-          // Opt-out: email + push honor the marketing preference; in-app always.
-          if (
-            (channel === "email" || channel === "push") &&
-            marketingOptedOut(user.notification_preferences, channel)
-          ) {
-            await recordRecipient(id, user.id, channel, "skipped", "opted_out");
+          if (channel === "email") {
+            if (user.email) seenEmails.add(normalizeEmail(user.email));
+            if (emailSends >= batchLimit) {
+              truncated = true;
+              continue;
+            }
+            emailSends++;
+            const outcome = await sendCampaignEmailDurable(emailData, {
+              userId: user.id,
+              email: user.email,
+              prefs: user.notification_preferences,
+            });
+            if (outcome === "sent") stats.sent_email++;
+            else if (outcome === "skipped") stats.skipped++;
+            else stats.failed++;
+            continue;
+          }
+
+          // Push honors the marketing opt-out; in-app is always allowed.
+          if (channel === "push" && marketingOptedOut(user.notification_preferences, "push")) {
+            await recordRecipient(id, user.id, "push", "skipped", "opted_out");
             stats.skipped++;
             continue;
           }
@@ -489,15 +661,6 @@ export async function dispatchCampaign(id: string): Promise<DispatchResult> {
               });
               ok = !insErr;
               errMsg = insErr?.message ?? null;
-            } else if (channel === "email") {
-              ok = await sendBroadcastEmail(user.email, {
-                userId: user.id,
-                subject: campaign.subject,
-                body: campaign.body,
-                ctaLabel: campaign.cta_label,
-                ctaUrl: campaign.cta_url,
-              });
-              if (!ok) errMsg = "email_not_sent";
             } else if (channel === "push") {
               const r = await sendPushToUser(user.id, {
                 title: campaign.subject,
@@ -514,14 +677,40 @@ export async function dispatchCampaign(id: string): Promise<DispatchResult> {
 
           await recordRecipient(id, user.id, channel, ok ? "sent" : "failed", errMsg);
           if (ok) {
-            stats.failed += 0;
-            if (channel === "email") stats.sent_email++;
-            else if (channel === "in_app") stats.sent_in_app++;
+            if (channel === "in_app") stats.sent_in_app++;
             else stats.sent_push++;
           } else {
             stats.failed++;
           }
         }
+      }
+    }
+
+    // AC2: UNION confirmed newsletter subscribers (de-duped by email) into the
+    // email channel — but only once the segment pass fit inside this tick's budget.
+    if (hasEmail && !truncated && emailSends < batchLimit) {
+      const subs = await loadConfirmedSubscribers();
+      const { extras, skippedNoAccount } = partitionExtraSubscribers(subs, seenEmails);
+      stats.skipped += skippedNoAccount;
+      for (const ex of extras) {
+        const key = `${ex.userId}:email`;
+        if (done.has(key)) {
+          stats.skipped++;
+          continue;
+        }
+        stats.recipients++;
+        if (emailSends >= batchLimit) {
+          truncated = true;
+          break;
+        }
+        emailSends++;
+        const outcome = await sendCampaignEmailDurable(emailData, {
+          userId: ex.userId,
+          email: ex.email,
+        });
+        if (outcome === "sent") stats.sent_email++;
+        else if (outcome === "skipped") stats.skipped++;
+        else stats.failed++;
       }
     }
   } catch (err) {
@@ -532,6 +721,13 @@ export async function dispatchCampaign(id: string): Promise<DispatchResult> {
     console.error("[admin-growth] dispatch failed:", err);
     await supabaseAdmin.from("growth_campaigns").update({ status: "failed", stats }).eq("id", id);
     return { ok: false, error: "Dispatch failed", status: 500 };
+  }
+
+  if (truncated) {
+    // More email recipients than this tick's SES budget — stay `sending` so the
+    // dispatch cron resumes the rest next tick (idempotent via the `done` set).
+    await supabaseAdmin.from("growth_campaigns").update({ status: "sending", stats }).eq("id", id);
+    return { ok: true, stats: { ...stats, truncated: 1 } };
   }
 
   await supabaseAdmin
@@ -1122,11 +1318,24 @@ export async function handleGrowthDispatchCron(c: Context): Promise<Response> {
     .lte("scheduled_for", nowIso)
     .limit(20);
 
+  // US-925: also RESUME campaigns left `sending` by an earlier tick that hit the
+  // SES-warmup batch budget — they drain across ticks until fully sent.
+  const { data: resuming } = await supabaseAdmin
+    .from("growth_campaigns")
+    .select("id")
+    .eq("status", "sending")
+    .limit(20);
+
   const ids = ((due ?? []) as Array<{ id: string }>).map((r) => r.id);
+  const resumeIds = ((resuming ?? []) as Array<{ id: string }>).map((r) => r.id);
   const dispatched: Array<{ id: string; ok: boolean }> = [];
   for (const id of ids) {
     const result = await dispatchCampaign(id);
     dispatched.push({ id, ok: result.ok });
   }
-  return c.json({ checked: ids.length, dispatched });
+  for (const id of resumeIds) {
+    const result = await dispatchCampaign(id, { resume: true });
+    dispatched.push({ id, ok: result.ok });
+  }
+  return c.json({ checked: ids.length + resumeIds.length, dispatched });
 }

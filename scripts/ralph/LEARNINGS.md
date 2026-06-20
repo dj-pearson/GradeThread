@@ -136,6 +136,21 @@ memory — not a progress log (the harness records progress separately).
   the ab_phase gate. Operator override: POST `/ab/winner` sets ab_winner_source
   'operator' which finalize honors over auto-selection (migration 00282).
 
+## Durable broadcast send (US-925)
+- The US-627 growth broadcast EMAIL channel is now durable: `dispatchCampaign`
+  (admin-growth.ts) routes each email through `sendCampaignEmailDurable` →
+  `coordinateMarketingSend` (consent + suppression + email_deliveries outbox),
+  NOT `sendBroadcastEmail` (which fired an un-retried SMTP send). Audience =
+  segment `iterateSegmentUsers` UNION confirmed `email_subscribers` deduped by
+  email (pure `partitionExtraSubscribers`, lib/broadcast-audience.ts). The send
+  is bounded per tick by `marketing_send_batch_limit` (SES warmup); overflow
+  stays `status='sending'` and `handleGrowthDispatchCron` resumes it
+  (`dispatchCampaign(id,{resume:true})`). Idempotency = the `done` set now treats
+  campaign_recipients rows 'sent' OR 'skipped' as terminal. Click/open tracking
+  uses the campaign_recipients row id as token → public `/api/campaign-track/{o,c}`
+  (sibling of /api/drip-track, mirrors routes/drip-tracking.ts). No migration —
+  campaign_recipients already had opened_at/clicked_at.
+
 ## Marketing send coordinator (US-934)
 - Any NEW marketing email must route through `coordinateMarketingSend`
   (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),

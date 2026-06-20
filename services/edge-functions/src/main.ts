@@ -138,6 +138,7 @@ import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
 import { dripRoutes } from "./routes/drip.ts";
 import { dripTrackingRoutes } from "./routes/drip-tracking.ts";
+import { campaignTrackingRoutes } from "./routes/campaign-tracking.ts";
 import { workspaceRoutes } from "./routes/workspace.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { supportTicketRoutes } from "./routes/support-tickets.ts";
@@ -638,6 +639,8 @@ app.use("/api/drip/*", rateLimiter(60, 60_000, "drip-tick"));
 // US-938: public, unauthenticated open/click tracking pixels — fail-closed
 // against a flood (per-IP), but generous since one recipient can fire several.
 app.use("/api/drip-track/*", rateLimiter(120, 60_000, "drip-track", undefined, { failClosed: true }));
+// US-925: public open/click tracking for broadcast campaign emails (same shape).
+app.use("/api/campaign-track/*", rateLimiter(120, 60_000, "campaign-track", undefined, { failClosed: true }));
 app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is heavy
 app.use("/api/legal/*", rateLimiter(30, 60_000, "legal"));
 app.use("/api/announcements/*", rateLimiter(60, 60_000, "announcements"));
@@ -1105,6 +1108,8 @@ app.route("/api/drip", dripRoutes);
 // US-938: public open/click tracking pixels for drip emails. Sibling of /api/drip
 // so it stays OUTSIDE the drip job-auth — email clients are unauthenticated.
 app.route("/api/drip-track", dripTrackingRoutes);
+// US-925: public open/click tracking pixels for broadcast campaign emails.
+app.route("/api/campaign-track", campaignTrackingRoutes);
 app.route("/api/workspace", workspaceRoutes);
 app.route("/api/account", accountRoutes);
 app.route("/api/support-tickets", supportTicketRoutes);

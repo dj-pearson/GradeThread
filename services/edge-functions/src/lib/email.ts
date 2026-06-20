@@ -1918,10 +1918,18 @@ interface BroadcastEmailData {
  * footer. The send engine only calls this for users who have NOT already opted
  * out of marketing in their notification preferences.
  */
-export async function sendBroadcastEmail(
-  to: string,
-  data: BroadcastEmailData,
-): Promise<boolean> {
+/**
+ * Render a campaign broadcast email to send-ready HTML — brand marketing layout
+ * + CAN-SPAM footer/unsubscribe (US-516). Exposed (US-925) so the DURABLE
+ * broadcast send (admin-growth dispatchCampaign) can render once, apply the
+ * click-tracking rewriter, and route the result through the marketing
+ * coordinator / email_deliveries outbox instead of firing an un-retried SMTP
+ * send. `unsubscribeUrl` is the caller's per-recipient no-login link.
+ */
+export function buildBroadcastEmailHtml(
+  data: Pick<BroadcastEmailData, "subject" | "body" | "ctaLabel" | "ctaUrl">,
+  unsubscribeUrl: string,
+): string {
   const paragraphs = data.body
     .split(/\n{2,}/)
     .map(
@@ -1940,12 +1948,19 @@ export async function sendBroadcastEmail(
     ${data.ctaLabel && data.ctaUrl ? ctaButton(data.ctaLabel, data.ctaUrl) : ""}
   `;
 
+  return emailLayout(content, { unsubscribeUrl });
+}
+
+export async function sendBroadcastEmail(
+  to: string,
+  data: BroadcastEmailData,
+): Promise<boolean> {
   const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
 
   return await sendEmail({
     to,
     subject: data.subject,
-    html: emailLayout(content, { unsubscribeUrl }),
+    html: buildBroadcastEmailHtml(data, unsubscribeUrl),
   });
 }
 
