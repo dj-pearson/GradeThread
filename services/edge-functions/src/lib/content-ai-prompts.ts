@@ -554,3 +554,290 @@ export interface TopicResearchOutput {
 export interface SectionRegenOutput {
   replacement_html: string;
 }
+
+// ──────────────────────────────────────────────────────────
+// EMAIL NEWSLETTER ISSUE GENERATION (US-918)
+// ──────────────────────────────────────────────────────────
+// The autonomous weekly-newsletter copywriter. Mirrors the blog generator's
+// architecture (curated knowledge docs + distilled history context in the
+// system prompt; a per-issue JSON schema in the user prompt) but produces a
+// complete EMAIL ISSUE: subject + 2–3 subject variants, preheader, intro, the
+// teach/tip/CTA sections, and a footer note — grounded strictly in the inputs.
+//
+// The prompt builders + the validate/normalize + the grounding guard below are
+// PURE (this module imports only types), so the grounding negative test runs
+// with no env. The impure generation/persistence lives in content-ai-email.ts.
+
+export const EMAIL_ISSUE_PROMPT_VERSION = "email_issue_v1";
+
+const EMAIL_SUBJECT_MAX = 60;
+const EMAIL_PREHEADER_MAX = 110;
+const EMAIL_SUMMARY_MAX = 200;
+
+// Evergreen gradethread.com paths the copy may always link to (homepage +
+// stable product/marketing surfaces). Any OTHER link must appear verbatim in
+// the provided inputs (a changelog line), or it is treated as fabricated and
+// stripped — the model cannot invent a feature/landing page that doesn't exist.
+export const EMAIL_LINK_ALLOWLIST = [
+  "/",
+  "/dashboard",
+  "/pricing",
+  "/blog",
+  "/how-it-works",
+  "/about",
+  "/contact",
+  "/login",
+  "/signup",
+  "/flipdesk",
+  "/certificate",
+];
+
+export interface EmailIssueTopic {
+  /** Human label for the educational focus (becomes the issue's working title). */
+  label: string;
+  /** Content pillar (topic family) — stamped on the issue for tuning attribution. */
+  pillar: string;
+  /** Topic angle within the pillar. */
+  angle: string;
+}
+
+export interface EmailIssueInput {
+  topic: EmailIssueTopic;
+  /** Compact "what's new" grounding lines (may be empty → lean evergreen). */
+  changelogLines: string[];
+  /** Optional knowledge-base tip to weave into the issue. */
+  kbTip?: string;
+  productFocus: ContentProduct;
+  /** Max teach/tip/CTA sections to request (the intro is separate). */
+  maxSections: number;
+}
+
+export interface EmailIssueSection {
+  heading?: string;
+  /** Pre-sanitized AI-authored HTML for the block body. */
+  body: string;
+  /** Optional 1–2 sentence image prompt for a per-section illustration. */
+  imagePrompt?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+}
+
+export interface EmailIssueOutput {
+  subject: string;
+  /** 2–3 alternative subject lines for the A/B test (deduped, excludes subject). */
+  subjectVariants: string[];
+  preheader: string;
+  /** Short HTML lede paragraph. */
+  intro: string;
+  sections: EmailIssueSection[];
+  /** A short sign-off / footer note (above the CAN-SPAM footer). */
+  footerNote: string;
+  /** One-line distillation appended to content_history_index on send (dedup). */
+  summaryOneLine: string;
+}
+
+const PRODUCT_AUDIENCE_EMAIL: Record<string, string> = {
+  gradethread: "sellers grading pre-owned clothing condition",
+  flipdesk: "resellers running the full eBay listing lifecycle",
+  both: "pre-owned clothing sellers and resellers",
+};
+
+// Assembles the system message from the curated email knowledge docs + the
+// distilled history context + the issue's grounding inputs (changelog, topic,
+// KB tip). Mirrors buildSystemPrompt for the blog. Pure.
+export function buildEmailIssueSystemPrompt(input: {
+  emailVoice: string;
+  emailStructure: string;
+  valueProps: string;
+  historyContext: string;
+  topic: EmailIssueTopic;
+  changelogLines: string[];
+  kbTip?: string;
+  productFocus: ContentProduct;
+}): string {
+  const audience = PRODUCT_AUDIENCE_EMAIL[input.productFocus] ?? PRODUCT_AUDIENCE_EMAIL.both;
+  const whatsNew = input.changelogLines.length > 0
+    ? input.changelogLines.map((l) => `- ${l.replace(/^[-•]\s*/, "")}`).join("\n")
+    : "(no fresh product updates this week — lean fully on evergreen educational value)";
+  return [
+    "# Role",
+    `You are the email copywriter for GradeThread (AI-powered clothing condition grading) and its FlipDesk reseller surface. You write a weekly educational newsletter for ${audience}. Your task is to write ONE complete issue.`,
+    "",
+    "# Brand voice",
+    input.emailVoice || "(use plain, concrete, non-hypey English; teach first, sell second)",
+    "",
+    "# Newsletter structure",
+    input.emailStructure || "(intro → what's new → teach something → quick tip → low-pressure CTA)",
+    "",
+    "# Value props (what we may credibly claim)",
+    input.valueProps || "(standardized 1.0–10.0 condition grades, shareable certificates, fewer not-as-described disputes)",
+    "",
+    "# What we have already covered (do not repeat these topics)",
+    input.historyContext || "(no prior issues)",
+    "",
+    "# This issue's inputs (your ONLY source of facts)",
+    `Educational focus: ${input.topic.label} (pillar: ${input.topic.pillar}, angle: ${input.topic.angle})`,
+    "Recent product updates ('what's new') — the ONLY product changes you may mention:",
+    whatsNew,
+    input.kbTip?.trim() ? `Knowledge-base tip to weave in: ${input.kbTip.trim()}` : "",
+    "",
+    "# Grounding rules (strict)",
+    "- Ground every claim in the inputs above. Do NOT invent product features, prices, statistics, customer counts, or results that are not stated in the inputs.",
+    "- If there are no fresh product updates, skip the 'what's new' angle entirely and lean on evergreen education — do NOT fabricate news.",
+    "- Only include a cta_url you are certain is a real gradethread.com page (homepage or a stable surface), or a URL that appears verbatim in the inputs. Never invent a landing page or feature URL.",
+    "",
+    "# Output rules",
+    "- Respond with ONLY valid JSON matching the schema in the user message — no markdown fences, no preamble, no commentary.",
+    "- body_html is a short run of <p>/<ul>/<li>/<strong>/<em>/<a> only. No <script>, no inline style, no on* handlers.",
+    "- If an optional field has nothing to say, return an empty string or empty array — never omit the key.",
+  ].filter(Boolean).join("\n");
+}
+
+export function buildEmailIssueUserPrompt(input: EmailIssueInput): string {
+  const sections = Math.max(1, Math.min(10, Math.floor(input.maxSections)));
+  return [
+    "Write this week's newsletter issue now.",
+    "",
+    `Produce up to ${sections} focused section(s) (teach-something + a quick actionable tip + a closing CTA section). Keep it skimmable and genuinely useful.`,
+    `Subject MUST be ≤ ${EMAIL_SUBJECT_MAX} characters. Preheader MUST be ≤ ${EMAIL_PREHEADER_MAX} characters.`,
+    "Provide 2–3 distinct alternative subject lines (for an A/B test) in subject_variants — each also ≤ 60 characters and meaningfully different from the main subject.",
+    "",
+    "Return JSON matching exactly this schema:",
+    "{",
+    `  "subject": "<the email subject line, ≤${EMAIL_SUBJECT_MAX} chars>",`,
+    '  "subject_variants": ["<alt subject 1>", "<alt subject 2>", "<alt subject 3 (optional)>"],',
+    `  "preheader": "<inbox preview text, ≤${EMAIL_PREHEADER_MAX} chars>",`,
+    '  "intro": "<a short <p> lede that sets up the issue>",',
+    '  "sections": [',
+    '    {',
+    '      "heading": "<short section heading>",',
+    '      "body_html": "<short HTML body: <p>/<ul>/<li>/<strong>/<em> only>",',
+    '      "image_prompt": "<optional 1–2 sentence prompt for a section image, or empty string>",',
+    '      "cta_label": "<optional CTA label, or empty string>",',
+    '      "cta_url": "<optional REAL gradethread.com URL — omit/empty if unsure>"',
+    '    }',
+    '  ],',
+    '  "footer_note": "<a brief sign-off line above the legal footer>",',
+    `  "summary_one_line": "<single sentence, ≤140 chars, summarizing this issue for the history index>"`,
+    "}",
+  ].join("\n");
+}
+
+function stripEmailCodeFence(s: string): string {
+  return s.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+}
+
+function sanitizeEmailHtml(s: string): string {
+  return s
+    .replace(/<\s*script[\s\S]*?<\s*\/\s*script\s*>/gi, "")
+    .replace(/<\s*style[\s\S]*?<\s*\/\s*style\s*>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "")
+    .replace(/javascript:/gi, "")
+    .trim();
+}
+
+/**
+ * Grounding guard for an email link (pure). A link is grounded only when it is an
+ * https gradethread.com URL whose path is on the evergreen allowlist, OR whose
+ * exact URL appears in one of the provided changelog/input lines. Anything else
+ * (an invented feature/landing page) is rejected. This is the enforceable half of
+ * "copy is grounded strictly in the provided inputs — no fabricated links".
+ */
+export function isGroundedEmailLink(url: string, changelogLines: string[]): boolean {
+  const u = url.trim();
+  if (!u) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(u);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:") return false;
+  const host = parsed.hostname.toLowerCase();
+  if (host !== "gradethread.com" && host !== "www.gradethread.com") return false;
+  const path = (parsed.pathname.replace(/\/+$/, "") || "/");
+  if (path === "/") return true;
+  for (const p of EMAIL_LINK_ALLOWLIST) {
+    if (p === "/") continue;
+    if (path === p || path.startsWith(p + "/")) return true;
+  }
+  // Otherwise it's only grounded if the exact URL was provided as an input.
+  return changelogLines.some((l) => l.includes(u));
+}
+
+/**
+ * Validate + normalize the model's JSON into a clean, length-capped, sanitized,
+ * grounded EmailIssueOutput (pure). Throws on unusable output (no subject / no
+ * section with a body) so the caller can fall back. Caps lengths (subject ≤ 60,
+ * preheader ≤ 110), dedups subject variants, strips unsafe HTML, and removes any
+ * fabricated CTA link not grounded in the inputs.
+ */
+export function normalizeEmailIssue(
+  parsed: unknown,
+  opts: { changelogLines: string[]; maxSections: number },
+): EmailIssueOutput {
+  if (!parsed || typeof parsed !== "object") throw new Error("email issue not an object");
+  const p = parsed as Record<string, unknown>;
+
+  const subject = String(p.subject ?? "").trim().slice(0, EMAIL_SUBJECT_MAX);
+  if (!subject) throw new Error("email issue missing subject");
+  const preheader = String(p.preheader ?? "").trim().slice(0, EMAIL_PREHEADER_MAX);
+  const intro = sanitizeEmailHtml(String(p.intro ?? "").trim());
+  const footerNote = sanitizeEmailHtml(String(p.footer_note ?? "").trim());
+  const summaryOneLine = String(p.summary_one_line ?? "").trim().slice(0, EMAIL_SUMMARY_MAX);
+
+  // Subject variants: deduped (case-insensitive), exclude the main subject, ≤3.
+  const subjectVariants: string[] = [];
+  const seen = new Set<string>([subject.toLowerCase()]);
+  if (Array.isArray(p.subject_variants)) {
+    for (const v of p.subject_variants) {
+      const s = String(v ?? "").trim().slice(0, EMAIL_SUBJECT_MAX);
+      if (!s || seen.has(s.toLowerCase())) continue;
+      seen.add(s.toLowerCase());
+      subjectVariants.push(s);
+      if (subjectVariants.length >= 3) break;
+    }
+  }
+
+  const maxSections = Math.max(1, Math.min(10, Math.floor(opts.maxSections)));
+  const rawSections = Array.isArray(p.sections) ? p.sections : [];
+  const sections: EmailIssueSection[] = [];
+  for (const s of rawSections) {
+    if (!s || typeof s !== "object") continue;
+    const sec = s as Record<string, unknown>;
+    const body = sanitizeEmailHtml(String(sec.body_html ?? sec.body ?? "").trim());
+    if (!body) continue;
+    const out: EmailIssueSection = { body };
+    const heading = String(sec.heading ?? "").trim();
+    if (heading) out.heading = heading;
+    const imagePrompt = String(sec.image_prompt ?? "").trim();
+    if (imagePrompt) out.imagePrompt = imagePrompt;
+    const ctaLabel = String(sec.cta_label ?? "").trim();
+    const ctaUrl = String(sec.cta_url ?? "").trim();
+    if (ctaLabel && ctaUrl && isGroundedEmailLink(ctaUrl, opts.changelogLines)) {
+      out.ctaLabel = ctaLabel;
+      out.ctaUrl = ctaUrl;
+    }
+    sections.push(out);
+    if (sections.length >= maxSections) break;
+  }
+  if (sections.length === 0) throw new Error("email issue produced no usable sections");
+
+  return { subject, subjectVariants, preheader, intro, sections, footerNote, summaryOneLine };
+}
+
+// Exposed for the generator (content-ai-email.ts) so the fence-strip lives with
+// the parser it feeds.
+export function parseEmailIssue(
+  raw: string,
+  opts: { changelogLines: string[]; maxSections: number },
+): EmailIssueOutput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripEmailCodeFence(raw));
+  } catch {
+    throw new Error("email issue JSON parse failed");
+  }
+  return normalizeEmailIssue(parsed, opts);
+}

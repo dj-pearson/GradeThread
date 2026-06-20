@@ -103,6 +103,24 @@ memory — not a progress log (the harness records progress separately).
   `personalization` param → dispatch cron + A/B start/finalize) and the console
   `/send` inline loop. No AI is re-run per user (O(1) AI per issue).
 
+## Newsletter copywriter (US-918 content-ai-email)
+- `lib/content-ai-email.ts` is the canonical AI issue copywriter mirroring
+  content-ai-blog.ts (impure: supabase + anthropic). The PURE prompt builders +
+  validate/normalize/grounding live in `content-ai-prompts.ts`
+  (`buildEmailIssue{System,User}Prompt`, `normalizeEmailIssue`/`parseEmailIssue`,
+  `isGroundedEmailLink`, `EMAIL_LINK_ALLOWLIST`, version `email_issue_v1`) so the
+  grounding negative test runs with no env. Grounding = a CTA link is kept only if
+  it's an https gradethread.com URL on the evergreen allowlist OR appears verbatim
+  in the changelog inputs — invented feature links are stripped.
+- AC5 dedup-on-send is a DB TRIGGER (00289 `newsletter_issue_history_on_send`),
+  not app code — fires on status→sent for EVERY send path (plain dispatch + A/B
+  finalize), appends topic+summary to content_history_index. So
+  `content_surface` enum gained `'email'`: `ALTER TYPE ... ADD VALUE IF NOT EXISTS`
+  MUST sit OUTSIDE the migration's BEGIN/COMMIT (the value must be committed
+  before the trigger fn that references `'email'::content_surface` is created +
+  validated by check_function_bodies). The trigger's INSERT is wrapped in a
+  plpgsql EXCEPTION block so history bookkeeping can never block a send.
+
 ## Newsletter program (US-930 console)
 - The autonomous newsletter has NO dedicated issue/engine table before US-930 —
   US-931's `email_subscribers` + `newsletter_analytics` RPC was analytics only.

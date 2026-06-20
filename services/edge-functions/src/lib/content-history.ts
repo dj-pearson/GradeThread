@@ -12,7 +12,7 @@ import { supabaseAdmin } from "./supabase.ts";
 // here (or in content_topics) is rejected before it ever reaches the
 // generator.
 
-export type ContentSurface = "blog" | "social";
+export type ContentSurface = "blog" | "social" | "email";
 export type ContentProduct = "gradethread" | "flipdesk" | "both";
 
 export interface HistoryEntry {
