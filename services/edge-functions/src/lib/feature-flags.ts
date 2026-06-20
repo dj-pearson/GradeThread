@@ -40,7 +40,11 @@ export type FeatureKey =
   // US-943: autonomous trial-conversion drip engine. The /api/drip/tick cron
   // gates on this; the admin builder's "kill" flips it off so every replica
   // hard-stops within the flag cache TTL.
-  | "trial_conversion_drip";
+  | "trial_conversion_drip"
+  // US-930: autonomous newsletter program. The newsletter sender checks this;
+  // the admin console's master kill-switch flips it off to halt all newsletter
+  // sends instantly platform-wide (within the flag cache TTL).
+  | "newsletter";
 
 // The full targeting rule for one flag (one feature_flags row).
 export interface FeatureFlagRule {

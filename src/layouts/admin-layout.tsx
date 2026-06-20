@@ -131,6 +131,8 @@ const growthNavItems = [
   { to: "/admin/growth/drip/builder", icon: GitMerge, label: "Drip Builder", end: false },
   // US-931 newsletter program analytics & deliverability health.
   { to: "/admin/growth/newsletter", icon: MailCheck, label: "Newsletter Health", end: false },
+  // US-930 newsletter admin console — program oversight + per-issue lifecycle.
+  { to: "/admin/growth/newsletter-console", icon: Newspaper, label: "Newsletter Console", end: false },
 ];
 
 // Operations console (US-881) — platform automation surface. Same admin +

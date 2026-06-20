@@ -181,6 +181,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // (lib/user-events.ts); the SPA never touches it. user_id is the acting tenant,
   // not a client read key (this is analytics, not user-facing content).
   "user_events",
+  // US-930: newsletter console program tables (migration 00279). RLS enabled with
+  // an explicit `revoke all from anon, authenticated` and zero policies by design
+  // — read/written ONLY via the role-gated /api/admin/newsletter endpoints on the
+  // service-role client; the SPA never reads the raw rows. These are an operator
+  // program surface (created_by/approved_by/subscriber_user_id are not tenant
+  // read keys), not user-owned data.
+  "newsletter_issues",
+  "newsletter_issue_recipients",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

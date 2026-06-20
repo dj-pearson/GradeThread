@@ -79,6 +79,28 @@ memory — not a progress log (the harness records progress separately).
   send to its enrollment's attribution. `graph.autotuneEnabled` (optional, off by
   default) is the autonomous gate the future engine tick reads.
 
+## Newsletter program (US-930 console)
+- The autonomous newsletter has NO dedicated issue/engine table before US-930 —
+  US-931's `email_subscribers` + `newsletter_analytics` RPC was analytics only.
+  US-930 (migration 00279) added the durable substrate the engine stories
+  (US-918 copywriter, etc.) populate: `newsletter_issues` (full lifecycle enum
+  draft→ready_for_qa→awaiting_review→approved→sending→sent + `blocked`) and
+  `newsletter_issue_recipients` (per-issue resolved/skipped-with-reason ledger).
+  Both service-role-only (in rls-guard SERVICE_ROLE_ONLY); cols are created_by/
+  approved_by/subscriber_user_id (NOT `user_id`) since it's an operator surface.
+- Pure lifecycle/render/QA/schedule helpers live in `lib/newsletter-issue.ts`
+  (no supabase/env → unit-testable): `canTransition`/`isEditable`/`runIssueQa`/
+  `renderNewsletterHtml`/`nextScheduledRun`. The console route
+  (`routes/admin-newsletter.ts`, /api/admin/newsletter/{program,issues/*}) owns
+  the DB/email side. Master controls: pause = `newsletter_send_paused` setting,
+  approval = `newsletter_require_approval` setting, kill-switch = the `newsletter`
+  feature flag (FeatureKey). Approve/reject/send/program-toggles are super_admin +
+  requireStepUp + audited; send routes each recipient through coordinateMarketingSend.
+- `supabaseAdmin.from("newsletter_issues").select(cols).maybeSingle()` returns
+  `data` typed as `GenericStringError` (unknown table to the generated Database
+  type) → `data as NewsletterIssueRow` fails `deno check`; cast through
+  `as unknown as NewsletterIssueRow` (same `tsc -b never` trap on the web side).
+
 ## Marketing send coordinator (US-934)
 - Any NEW marketing email must route through `coordinateMarketingSend`
   (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),
