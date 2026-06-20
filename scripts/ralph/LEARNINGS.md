@@ -138,6 +138,15 @@ memory — not a progress log (the harness records progress separately).
 - Issue assembly now lives in `lib/newsletter-assembler.ts` (`assembleNextIssue` +
   `NEWSLETTER_ISSUE_COLS`), shared by the console build-next button AND the kickoff
   tick — edit the assembler, not the route, so they never drift.
+- US-922 made `assembleNextIssue` the FULL autonomous orchestrator (no longer a bare
+  scaffold): changelog→topic→copy→imagery→render→finalize, persisting status
+  `ready_for_qa`. Idempotent per `newsletter_issues.period_key` (partial UNIQUE, 00286)
+  + resumable via the `build_steps` jsonb ledger (reuses done copy/imagery on a retry
+  so AI isn't re-spent). "What's new" = recent `content_history_index` rows minus every
+  prior issue's `featured_content_ids` (no dedicated changelog table). Copy =
+  `lib/newsletter-copy.ts` (pure builders/parse + impure `generateNewsletterCopy` that
+  NEVER throws — degrades to `evergreenCopy` so AC3 "lean evergreen" holds). Config =
+  `lib/newsletter-settings.ts` singleton (reads the seeded `newsletter_assembler_*` keys).
 - Lifecycle webhook (`lib/newsletter-webhook.ts`): HMAC-signed
   (NEWSLETTER_WEBHOOK_SIGNING_SECRET, X-Newsletter-Signature), retried 0/5/30s,
   per-attempt logged to `newsletter_webhook_log`, target = settings key

@@ -1,27 +1,67 @@
-// US-923: newsletter issue assembler — DB-touching, shared by the admin console's
+// US-922: Autonomous weekly issue ASSEMBLER — the single orchestrator that builds
+// the week's issue end-to-end with zero human input. Shared by the admin console's
 // "build next" button (admin-newsletter.ts) and the autonomous kickoff tick
 // (routes/newsletter-scheduler.ts) so the two NEVER drift on how an issue is born.
 //
-// It scaffolds the next editable draft, biasing topic / subject-style / send-hour by
-// the self-tuning weights (US-928) and stamping the chosen dimensions on the issue so
-// the next analysis pass can attribute engagement. The autonomous copywriter (sibling
-// story) overwrites the placeholder subject/sections with real content into the same
-// shape — the assembler only guarantees a well-formed, schedulable draft exists.
+// Pipeline (each sub-step's status is recorded on the issue's build_steps ledger):
+//   changelog → pick deduped educational topic → generate copy (content-ai-email)
+//   → generate imagery → render HTML+plaintext → persist a complete
+//   newsletter_issues row (status='ready_for_qa').
+//
+// Guarantees:
+//   • IDEMPOTENT — one issue per cadence period (period_key + partial UNIQUE
+//     index); a re-trigger within the same period returns the existing issue.
+//   • RESUMABLE — a sub-step failure leaves a draft shell whose build_steps say
+//     what's done; the next tick reuses completed copy/imagery instead of
+//     re-spending on AI.
+//   • GRACEFUL — no fresh "what's new" ⇒ the issue leans on evergreen educational
+//     content (never skips, never invents news).
+//   • METERED — all AI calls route through the ai-limiter (via getAnthropicClient
+//     in newsletter-copy / the image model), counting toward AI spend/budget.
+//   • CONFIGURABLE — cadence / audiences / max-images / max-sections live in the
+//     newsletter assembler settings singleton (lib/newsletter-settings.ts).
 
 import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
-import { type NewsletterSection, runIssueQa } from "./newsletter-issue.ts";
+import {
+  escapeHtml,
+  isEditable,
+  isNewsletterStatus,
+  type NewsletterSection,
+  type NewsletterStatus,
+  renderNewsletterHtml,
+  renderNewsletterText,
+  runIssueQa,
+} from "./newsletter-issue.ts";
 import { type SubjectVariant } from "./newsletter-ab.ts";
 import {
   NEWSLETTER_TOPICS,
+  type NewsletterTopic,
   selectWeightedKey,
+  type SubjectStyle,
   SUBJECT_STYLES,
   subjectStyleById,
+  topicByPillarAngle,
   topicById,
 } from "./newsletter-tuning.ts";
+import { loadNewsletterSettings } from "./newsletter-settings.ts";
+import {
+  type ChangelogEntry,
+  changelogToLines,
+  fetchChangelogPool,
+  loadFeaturedContentIds,
+  loadRecentProductFocus,
+  pickProductFocus,
+  selectChangelogEntries,
+} from "./newsletter-changelog.ts";
+import { generateNewsletterCopy } from "./newsletter-copy.ts";
+import { generateHeroImage, uploadHeroImage } from "./openai-images.ts";
+import { validateImageUpload } from "./upload-validation.ts";
+import { stripImageMetadata } from "./image-metadata.ts";
+import type { ContentProduct } from "./content-history.ts";
 
-// The full column projection the console returns for an issue. Kept here (with the
-// assembler that inserts the row) so both callers select the identical shape.
+// The full column projection both callers select for an issue. Kept here (with the
+// assembler that writes the row) so the console + tick select the identical shape.
 export const NEWSLETTER_ISSUE_COLS =
   "id, title, subject, preheader, sections, status, audience, segment_id, " +
   "scheduled_for, qa_results, recipients_total, sent_count, skipped_count, " +
@@ -29,15 +69,54 @@ export const NEWSLETTER_ISSUE_COLS =
   "send_started_at, sent_at, created_at, updated_at, " +
   "pillar, angle, subject_style, send_hour, " +
   "subject_variants, ab_metric, ab_test_fraction, ab_measurement_hours, " +
-  "ab_phase, ab_test_started_at, ab_winner_variant, ab_winner_source";
+  "ab_phase, ab_test_started_at, ab_winner_variant, ab_winner_source, " +
+  "period_key, build_steps, featured_content_ids, product_focus, " +
+  "hero_image_url, body_text, body_html";
 
-// Uniform-weight fallback (cold start, before any engagement is recorded) so the
-// assembler still rotates across the catalog instead of always picking the first.
-function uniformWeights(ids: string[]): Record<string, number> {
-  return Object.fromEntries(ids.map((id) => [id, 1]));
+// At most this many "what's new" entries are featured per issue.
+const MAX_WHATS_NEW = 4;
+
+// ── Build-step ledger (resumability) ─────────────────────────────────────────
+
+export const ASSEMBLY_STEPS = ["changelog", "copy", "imagery", "render", "finalize"] as const;
+export type AssemblyStep = (typeof ASSEMBLY_STEPS)[number];
+export type StepStatus = "pending" | "done" | "failed" | "skipped";
+export interface StepRecord {
+  status: StepStatus;
+  at?: string;
+  detail?: string;
+}
+export type BuildSteps = Record<string, StepRecord>;
+
+export function initBuildSteps(): BuildSteps {
+  const s: BuildSteps = {};
+  for (const step of ASSEMBLY_STEPS) s[step] = { status: "pending" };
+  return s;
 }
 
-// The next future UTC datetime whose hour == `hour`. Pure given `nowMs`.
+function markStep(
+  steps: BuildSteps,
+  step: AssemblyStep,
+  status: StepStatus,
+  nowMs: number,
+  detail?: string,
+): void {
+  steps[step] = { status, at: new Date(nowMs).toISOString(), ...(detail ? { detail } : {}) };
+}
+
+function stepDone(steps: BuildSteps, step: AssemblyStep): boolean {
+  return steps[step]?.status === "done";
+}
+
+// ── Pure helpers ─────────────────────────────────────────────────────────────
+
+/** Deterministic cadence-period key — the same for every instant within a period. */
+export function computePeriodKey(nowMs: number, cadenceDays: number): string {
+  const periodMs = Math.max(1, Math.floor(cadenceDays)) * 86_400_000;
+  return `p${Math.floor(nowMs / periodMs)}`;
+}
+
+/** The next future UTC datetime whose hour == `hour`. Pure given `nowMs`. */
 export function nextSendAt(hour: number, nowMs: number): string {
   const d = new Date(nowMs);
   d.setUTCMinutes(0, 0, 0);
@@ -46,10 +125,24 @@ export function nextSendAt(hour: number, nowMs: number): string {
   return d.toISOString();
 }
 
-// US-928: the self-tuning bias the assembler reads. Topic + subject-style selection
-// are weighted by the computed stores (favoring higher-engaging, away from paused),
-// and the send time consumes the per-hour stats. All data-driven — the cron populates
-// the stores from engagement; this just consumes them.
+/** The deterministic "What's new" block from the featured changelog entries. Pure. */
+export function buildWhatsNewSection(entries: ChangelogEntry[]): NewsletterSection | null {
+  if (entries.length === 0) return null;
+  const items = entries
+    .map((e) => {
+      const summary = e.summary ? `: ${escapeHtml(e.summary)}` : "";
+      return `<li><strong>${escapeHtml(e.title)}</strong>${summary}</li>`;
+    })
+    .join("");
+  return { heading: "What's new at GradeThread", body: `<ul>${items}</ul>` };
+}
+
+function uniformWeights(ids: string[]): Record<string, number> {
+  return Object.fromEntries(ids.map((id) => [id, 1]));
+}
+
+// US-928: the self-tuning bias the assembler reads (topic + subject-style + send
+// hour). The tuning cron populates these stores from engagement; this consumes them.
 export async function loadAssemblerBias(): Promise<{
   topicWeights: Record<string, number>;
   styleWeights: Record<string, number>;
@@ -67,6 +160,8 @@ export async function loadAssemblerBias(): Promise<{
   };
 }
 
+// ── Result types (stable for the callers) ────────────────────────────────────
+
 export interface AssembledIssue {
   id: string;
   title: string;
@@ -77,113 +172,429 @@ export interface AssembledIssue {
   angle: string | null;
   subject_style: string | null;
   send_hour: number | null;
-  /** The full row (NEWSLETTER_ISSUE_COLS projection) so the console can return it as-is. */
+  /** The full row (NEWSLETTER_ISSUE_COLS projection) so the console can return it. */
   row: unknown;
 }
 
 export interface AssembleResult {
-  /** The inserted draft, or null when the insert failed. */
+  /** The assembled issue, or null when assembly could not produce a usable row. */
   issue: AssembledIssue | null;
   /** Audit/log detail: which catalog dimensions were chosen. */
   chosen: { topicId: string; styleId: string; sendHour: number };
+  /** True when this period's issue already existed (idempotent no-op). */
+  idempotent?: boolean;
+  /** True when one or more sub-steps failed and the build is resumable. */
+  resumable?: boolean;
   error?: string;
 }
 
+// The working-row shape the assembler reads/writes.
+interface IssueRow {
+  id: string;
+  title: string;
+  subject: string;
+  preheader: string | null;
+  sections: unknown;
+  status: string;
+  pillar: string | null;
+  angle: string | null;
+  subject_style: string | null;
+  send_hour: number | null;
+  product_focus: string | null;
+  audience: string | null;
+  hero_image_url: string | null;
+  featured_content_ids: unknown;
+  build_steps: unknown;
+}
+
+const ISSUE_WORK_COLS =
+  "id, title, subject, preheader, sections, status, pillar, angle, subject_style, " +
+  "send_hour, product_focus, audience, hero_image_url, featured_content_ids, build_steps";
+
+async function loadIssueByPeriodKey(periodKey: string): Promise<IssueRow | null> {
+  const { data } = await supabaseAdmin
+    .from("newsletter_issues")
+    .select(ISSUE_WORK_COLS)
+    .eq("period_key", periodKey)
+    .maybeSingle();
+  return (data ?? null) as unknown as IssueRow | null;
+}
+
+function asSections(v: unknown): NewsletterSection[] {
+  return Array.isArray(v) ? (v as NewsletterSection[]) : [];
+}
+function asStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function asBuildSteps(v: unknown): BuildSteps {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as BuildSteps) : initBuildSteps();
+}
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function idempotentResult(row: IssueRow): Promise<AssembleResult> {
+  const { data: full } = await supabaseAdmin
+    .from("newsletter_issues")
+    .select(NEWSLETTER_ISSUE_COLS)
+    .eq("id", row.id)
+    .maybeSingle();
+  return {
+    issue: rowToAssembled(row, row.subject ?? "", row.status, full ?? row),
+    chosen: {
+      topicId: topicByPillarAngle(row.pillar, row.angle)?.id ?? "",
+      styleId: row.subject_style ?? "",
+      sendHour: typeof row.send_hour === "number" ? row.send_hour : 14,
+    },
+    idempotent: true,
+  };
+}
+
+function rowToAssembled(row: { id: string; title?: string }, subject: string, status: string, full?: unknown): AssembledIssue {
+  const r = row as Record<string, unknown>;
+  return {
+    id: row.id,
+    title: typeof row.title === "string" ? row.title : "",
+    subject,
+    status,
+    scheduled_for: (r.scheduled_for as string | null) ?? null,
+    pillar: (r.pillar as string | null) ?? null,
+    angle: (r.angle as string | null) ?? null,
+    subject_style: (r.subject_style as string | null) ?? null,
+    send_hour: typeof r.send_hour === "number" ? (r.send_hour as number) : null,
+    row: full ?? row,
+  };
+}
+
+// ── Imagery (best-effort, never throws) ──────────────────────────────────────
+
+async function generateIssueHero(
+  issueId: string,
+  topic: NewsletterTopic,
+): Promise<{ url: string | null; detail: string }> {
+  try {
+    const prompt =
+      `Editorial photograph for a newsletter about ${topic.label}. ` +
+      `Photographic realism, clean composition, natural light, no text in the image.`;
+    const gen = await generateHeroImage({ prompt, size: "1536x1024", quality: "medium" });
+    const verdict = validateImageUpload(gen.bytes, { allow: ["jpeg", "png", "webp"] });
+    let bytes = gen.bytes;
+    let contentType = "image/png";
+    let ext = "png";
+    if (verdict.ok) {
+      const stripped = stripImageMetadata(gen.bytes, verdict.format);
+      bytes = stripped.bytes;
+      contentType = verdict.contentType;
+      ext = verdict.ext;
+    }
+    const up = await uploadHeroImage({
+      postId: issueId,
+      bytes,
+      contentType,
+      ext,
+      surface: "blog",
+      slug: `newsletter-${topic.id}`,
+    });
+    return { url: up.url, detail: "generated" };
+  } catch (e) {
+    return { url: null, detail: errMsg(e) };
+  }
+}
+
+// ── Dimension selection ──────────────────────────────────────────────────────
+
+interface Dimensions {
+  topic: NewsletterTopic;
+  style: SubjectStyle;
+  sendHour: number;
+  productFocus: ContentProduct;
+  audience: string;
+}
+
+async function chooseDimensions(
+  periodKey: string,
+  recentFocuses: string[],
+  audiences: string[],
+): Promise<Dimensions> {
+  const bias = await loadAssemblerBias();
+  const seed = `nl-${periodKey}`;
+
+  const topic =
+    topicById(selectWeightedKey(bias.topicWeights, seed) ?? "") ??
+    topicById(selectWeightedKey(uniformWeights(NEWSLETTER_TOPICS.map((t) => t.id)), seed)!)!;
+  const style =
+    subjectStyleById(selectWeightedKey(bias.styleWeights, `${seed}:style`) ?? "") ??
+    subjectStyleById(selectWeightedKey(uniformWeights(SUBJECT_STYLES.map((s) => s.id)), `${seed}:style`)!)!;
+  const sendHour = bias.bestHour ?? 14;
+  const productFocus = pickProductFocus(recentFocuses);
+  const periodNum = Number.parseInt(periodKey.slice(1), 10);
+  const idx = Number.isFinite(periodNum) ? Math.abs(periodNum) % audiences.length : 0;
+  const audience = audiences[idx] ?? "all_confirmed";
+
+  return { topic, style, sendHour, productFocus, audience };
+}
+
+function dimensionsFromRow(row: IssueRow, fallback: Dimensions): Dimensions {
+  const topic = topicByPillarAngle(row.pillar, row.angle) ?? fallback.topic;
+  const style = subjectStyleById(row.subject_style ?? "") ?? fallback.style;
+  const sendHour = typeof row.send_hour === "number" ? row.send_hour : fallback.sendHour;
+  const productFocus = (["gradethread", "flipdesk", "both"] as const).includes(
+    row.product_focus as ContentProduct,
+  )
+    ? (row.product_focus as ContentProduct)
+    : fallback.productFocus;
+  const audience = row.audience?.trim() || fallback.audience;
+  return { topic, style, sendHour, productFocus, audience };
+}
+
+// ── Orchestrator ─────────────────────────────────────────────────────────────
+
 /**
- * Build (insert) the next editable draft issue. Returns the inserted row plus the
- * chosen dimensions for the caller's audit log. Pure-input via `nowMs` so the
- * scheduled-for instant is deterministic in tests.
+ * Build the next issue. Idempotent per cadence period (returns the existing issue
+ * if one already exists), resumable on sub-step failure. `nowMs` is injected so
+ * the period key + scheduled instant are deterministic in tests.
  */
 export async function assembleNextIssue(
   createdBy: string | null,
   nowMs: number,
 ): Promise<AssembleResult> {
-  const bias = await loadAssemblerBias();
-  const seed = `nl-${nowMs}`;
+  const settings = await loadNewsletterSettings();
+  const periodKey = computePeriodKey(nowMs, settings.cadencePeriodDays);
 
-  // A weighted pick that can't resolve to a catalog entry (empty/stale weights)
-  // falls back to a uniform pick over the live catalog — always resolvable.
-  const topic =
-    topicById(selectWeightedKey(bias.topicWeights, seed) ?? "") ??
-    topicById(selectWeightedKey(uniformWeights(NEWSLETTER_TOPICS.map((t) => t.id)), seed)!)!;
+  // ── Idempotency / resume ──
+  let row = await loadIssueByPeriodKey(periodKey);
+  if (row) {
+    const status = (isNewsletterStatus(row.status) ? row.status : "draft") as NewsletterStatus;
+    const steps = asBuildSteps(row.build_steps);
+    // Already fully built this period, or already advanced past editing → no-op.
+    if (stepDone(steps, "finalize") || !isEditable(status)) {
+      return await idempotentResult(row);
+    }
+  } else if (!settings.enabled) {
+    // Disabled + nothing to resume → scaffold nothing (existing issues still flow).
+    return { issue: null, chosen: { topicId: "", styleId: "", sendHour: 14 }, error: "assembler disabled" };
+  }
 
-  const style =
-    subjectStyleById(selectWeightedKey(bias.styleWeights, `${seed}:style`) ?? "") ??
-    subjectStyleById(
-      selectWeightedKey(uniformWeights(SUBJECT_STYLES.map((s) => s.id)), `${seed}:style`)!,
-    )!;
+  // ── Choose (or reconstruct) the issue dimensions ──
+  const recentFocuses = await loadRecentProductFocus();
+  const freshDims = await chooseDimensions(periodKey, recentFocuses, settings.audiences);
+  const dims = row ? dimensionsFromRow(row, freshDims) : freshDims;
 
-  // Send-time optimization: use the learned best hour, else a sensible default.
-  const sendHour = bias.bestHour ?? 14;
-  const scheduledFor = nextSendAt(sendHour, nowMs);
+  // ── Insert the shell row if this is a fresh period ──
+  if (!row) {
+    const steps = initBuildSteps();
+    const { data, error } = await supabaseAdmin
+      .from("newsletter_issues")
+      .insert({
+        title: dims.topic.label,
+        subject: "",
+        sections: [],
+        status: "draft",
+        period_key: periodKey,
+        build_steps: steps,
+        product_focus: dims.productFocus,
+        audience: dims.audience,
+        pillar: dims.topic.pillar,
+        angle: dims.topic.angle,
+        subject_style: dims.style.id,
+        send_hour: dims.sendHour,
+        created_by: createdBy,
+      })
+      .select(ISSUE_WORK_COLS)
+      .maybeSingle();
+    if (error || !data) {
+      // A concurrent run may have won the period_key race — try to resume theirs.
+      const raced = await loadIssueByPeriodKey(periodKey);
+      if (raced) {
+        row = raced;
+      } else {
+        return {
+          issue: null,
+          chosen: { topicId: dims.topic.id, styleId: dims.style.id, sendHour: dims.sendHour },
+          error: error?.message ?? "shell insert returned no row",
+        };
+      }
+    } else {
+      row = data as unknown as IssueRow;
+    }
+  }
 
-  const sections: NewsletterSection[] = [
-    {
-      heading: topic.label,
-      body:
-        `<p>Draft issue on <strong>${topic.label}</strong> (pillar: ${topic.pillar}). ` +
-        `Suggested subject style: <em>${style.label}</em> — ${style.guidance} ` +
-        `Edit these sections before sending.</p>`,
-    },
-  ];
-  const qa = runIssueQa({ subject: "", sections });
+  const issueId = row.id;
+  const steps = asBuildSteps(row.build_steps);
+  const chosen = { topicId: dims.topic.id, styleId: dims.style.id, sendHour: dims.sendHour };
 
-  // US-927: seed two starter subject variants so the issue can run an A/B test out
-  // of the box. The copywriter (sibling story) overwrites these with real variants.
+  // ── Step 1: changelog ("what's new") ──
+  let entries: ChangelogEntry[] = [];
+  let featuredIds: string[] = [];
+  const reuseCopy = stepDone(steps, "copy") && !!row.subject && asSections(row.sections).length > 0;
+  if (reuseCopy) {
+    featuredIds = asStringArray(row.featured_content_ids);
+  } else {
+    try {
+      const [pool, alreadyFeatured] = await Promise.all([
+        fetchChangelogPool(settings.changelogLookbackDays, nowMs),
+        loadFeaturedContentIds(),
+      ]);
+      entries = selectChangelogEntries(pool, alreadyFeatured, dims.productFocus, MAX_WHATS_NEW);
+      featuredIds = entries.map((e) => e.id);
+      markStep(steps, "changelog", "done", nowMs, `${entries.length} featured`);
+    } catch (e) {
+      // Non-fatal: no "what's new" ⇒ evergreen lean (AC3).
+      markStep(steps, "changelog", "failed", nowMs, errMsg(e));
+      entries = [];
+      featuredIds = [];
+    }
+  }
+
+  // ── Step 2: copy (content-ai-email) ──
+  let subject: string;
+  let preheader: string;
+  let finalSections: NewsletterSection[];
+  if (reuseCopy) {
+    subject = row.subject;
+    preheader = row.preheader ?? "";
+    finalSections = asSections(row.sections);
+  } else {
+    const brandVoice = await loadBrandVoice();
+    const copy = await generateNewsletterCopy({
+      topic: dims.topic,
+      style: dims.style,
+      changelogLines: changelogToLines(entries),
+      productFocus: dims.productFocus,
+      maxSections: settings.maxSections,
+      brandVoice,
+    });
+    subject = copy.subject;
+    preheader = copy.preheader;
+    const whatsNew = buildWhatsNewSection(entries);
+    finalSections = whatsNew ? [whatsNew, ...copy.sections] : copy.sections;
+    markStep(steps, "copy", "done", nowMs, copy.degraded ? "evergreen-fallback" : "ai");
+
+    // Persist copy + featured ids so a later sub-step failure resumes without
+    // re-spending on the model.
+    await patchIssue(issueId, {
+      subject,
+      preheader,
+      sections: finalSections,
+      featured_content_ids: featuredIds,
+      product_focus: dims.productFocus,
+      audience: dims.audience,
+      build_steps: steps,
+    });
+  }
+
+  // ── Step 3: imagery (best-effort, skip if already generated) ──
+  let heroUrl: string | null = row.hero_image_url ?? null;
+  if (heroUrl) {
+    markStep(steps, "imagery", "done", nowMs, "reused");
+  } else if (settings.maxImages <= 0) {
+    markStep(steps, "imagery", "skipped", nowMs, "disabled");
+  } else {
+    const hero = await generateIssueHero(issueId, dims.topic);
+    heroUrl = hero.url;
+    markStep(steps, "imagery", hero.url ? "done" : "failed", nowMs, hero.detail);
+    await patchIssue(issueId, { hero_image_url: heroUrl, build_steps: steps });
+  }
+
+  // ── Step 4: render HTML + plaintext ──
+  let bodyHtml: string;
+  let bodyText: string;
+  try {
+    const heroSection: NewsletterSection | null = heroUrl
+      ? { body: `<img src="${escapeHtml(heroUrl)}" alt="${escapeHtml(dims.topic.label)}" style="width:100%;border-radius:8px;display:block;" />` }
+      : null;
+    const renderSections = heroSection ? [heroSection, ...finalSections] : finalSections;
+    bodyHtml = renderNewsletterHtml({ subject, preheader, sections: renderSections });
+    bodyText = renderNewsletterText({ subject, sections: finalSections });
+    markStep(steps, "render", "done", nowMs);
+  } catch (e) {
+    markStep(steps, "render", "failed", nowMs, errMsg(e));
+    await patchIssue(issueId, { build_steps: steps });
+    return {
+      issue: null,
+      chosen,
+      resumable: true,
+      error: `render failed: ${errMsg(e)}`,
+    };
+  }
+
+  // ── Step 5: finalize → ready_for_qa ──
+  const qa = runIssueQa({ subject, sections: finalSections });
+  const scheduledFor = nextSendAt(dims.sendHour, nowMs);
   const subjectVariants: SubjectVariant[] = [
-    { id: "a", subject: topic.label, label: "Variant A" },
-    { id: "b", subject: `${topic.label}: what most resellers miss`, label: "Variant B" },
+    { id: "a", subject, label: "Variant A" },
+    { id: "b", subject: `${dims.topic.label}: what most resellers miss`, label: "Variant B" },
   ];
+  markStep(steps, "finalize", "done", nowMs);
 
-  const { data, error } = await supabaseAdmin
+  const { data: finalData, error: finalErr } = await supabaseAdmin
     .from("newsletter_issues")
-    .insert({
-      title: topic.label,
-      subject: "",
-      sections,
+    .update({
+      title: dims.topic.label,
+      subject,
+      preheader,
+      sections: finalSections,
       subject_variants: subjectVariants,
-      status: "draft",
+      body_html: bodyHtml,
+      body_text: bodyText,
+      hero_image_url: heroUrl,
+      featured_content_ids: featuredIds,
+      product_focus: dims.productFocus,
+      audience: dims.audience,
+      status: "ready_for_qa",
       qa_results: qa,
-      pillar: topic.pillar,
-      angle: topic.angle,
-      subject_style: style.id,
-      send_hour: sendHour,
+      pillar: dims.topic.pillar,
+      angle: dims.topic.angle,
+      subject_style: dims.style.id,
+      send_hour: dims.sendHour,
       scheduled_for: scheduledFor,
-      created_by: createdBy,
+      build_steps: steps,
     })
+    .eq("id", issueId)
     .select(NEWSLETTER_ISSUE_COLS)
     .maybeSingle();
 
-  const chosen = { topicId: topic.id, styleId: style.id, sendHour };
-  if (error || !data) {
-    return { issue: null, chosen, error: error?.message ?? "insert returned no row" };
+  if (finalErr || !finalData) {
+    // Persist the failed-finalize marker so the next tick retries just this step.
+    markStep(steps, "finalize", "failed", nowMs, finalErr?.message ?? "no row");
+    await patchIssue(issueId, { build_steps: steps });
+    return {
+      issue: null,
+      chosen,
+      resumable: true,
+      error: finalErr?.message ?? "finalize returned no row",
+    };
   }
-
-  const row = data as unknown as {
-    id: string;
-    title: string;
-    subject: string;
-    status: string;
-    scheduled_for: string | null;
-    pillar: string | null;
-    angle: string | null;
-    subject_style: string | null;
-    send_hour: number | null;
-  };
 
   return {
     issue: {
-      id: row.id,
-      title: row.title,
-      subject: row.subject,
-      status: row.status,
-      scheduled_for: row.scheduled_for,
-      pillar: row.pillar,
-      angle: row.angle,
-      subject_style: row.subject_style,
-      send_hour: row.send_hour,
-      row: data,
+      id: issueId,
+      title: dims.topic.label,
+      subject,
+      status: "ready_for_qa",
+      scheduled_for: scheduledFor,
+      pillar: dims.topic.pillar,
+      angle: dims.topic.angle,
+      subject_style: dims.style.id,
+      send_hour: dims.sendHour,
+      row: finalData,
     },
     chosen,
   };
+}
+
+// Single-field patch helper (best-effort). Used for the resumability checkpoints.
+async function patchIssue(id: string, patch: Record<string, unknown>): Promise<void> {
+  const { error } = await supabaseAdmin.from("newsletter_issues").update(patch).eq("id", id);
+  if (error) console.error(`[newsletter-assembler] patch failed (${id}): ${error.message}`);
+}
+
+// Brand-voice knowledge doc for the copywriter (best-effort, empty when absent).
+async function loadBrandVoice(): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from("content_knowledge")
+    .select("body_md")
+    .eq("key", "brand.voice")
+    .maybeSingle();
+  return ((data as { body_md?: string } | null)?.body_md ?? "").toString();
 }
