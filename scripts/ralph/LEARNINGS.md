@@ -439,6 +439,15 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- Plan-gate UX is centralized (US-805): `EdgeAPI.interceptPlanSignals` decodes a
+  402 `PlanGateError` body + the `X-Plan-Warning` header on EVERY response and
+  publishes to `PlanGateNotifier.shared` (`nonisolated static let publish*`
+  bridges hop to MainActor), which the shell renders via `.planGatePresentation()`
+  (UpgradePromptView sheet + soft banner). So any call through `EdgeAPI.shared`
+  gets the upgrade prompt for free. The eBay publish path uses its OWN client
+  (`EbayPublishService`, not EdgeAPI), so it publishes to the notifier itself in
+  the 402 branch — don't assume EdgeAPI's interceptor covers it. Soft-banner
+  sensitivity = `AppPreferences.usageAlertThreshold` (50/80/95).
 - Adding a case to `PublishOutcome` (EbayPublishTypes.swift) breaks every
   EXHAUSTIVE switch: `BulkActionExecutor` (×4: validate/push/end/price),
   `PublishDialog` (×2), and `DraftsBulkEditStore` + `DraftsLibraryStore`

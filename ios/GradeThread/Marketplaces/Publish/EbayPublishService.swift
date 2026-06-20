@@ -169,7 +169,14 @@ public final class EbayPublishService {
         case 402:
             // Plan/usage cap (US-805/US-820) — surface friendly upgrade copy so
             // bulk callers can stop the run and prompt an upgrade instead of
-            // hammering the same cap for every remaining draft.
+            // hammering the same cap for every remaining draft. This client
+            // doesn't flow through EdgeAPI's interceptor, so publish the decoded
+            // cap to the shared notifier here too (US-805) — the root shell's
+            // upgrade-prompt sheet de-dups, so the bulk banner + global prompt
+            // coexist without double-presenting.
+            if let gate = PlanGateError.decode(from: error.body) {
+                PlanGateNotifier.shared.present(gate)
+            }
             return .planLimit(message: PlanGateBody.planLimitMessage(from: error.body))
         case 422:
             // Blockers payload — caller renders them inline.

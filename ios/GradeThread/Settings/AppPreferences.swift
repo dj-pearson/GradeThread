@@ -26,6 +26,18 @@ enum AppPreferences {
     private static let unitKey = "com.gradethread.app.pref.measurementUnit"
     private static let currencyKey = "com.gradethread.app.pref.currencyCode"
     private static let budgetKey = "com.gradethread.app.pref.sourcingBudget"
+    private static let usageThresholdKey = "com.gradethread.app.pref.usageAlertThreshold"
+
+    /// US-805: at what cap-usage percentage the soft warning banner appears
+    /// (mirrors web US-209: 50 / 80 / 95). The edge only emits the warning header
+    /// at ≥80%, so this can only make the banner stricter, never looser. Default 80%.
+    static var usageAlertThreshold: UsageAlertThreshold {
+        get {
+            let raw = UserDefaults.standard.object(forKey: usageThresholdKey) as? Int
+            return raw.flatMap(UsageAlertThreshold.init(rawValue:)) ?? .eighty
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: usageThresholdKey) }
+    }
 
     static var measurementUnit: MeasurementUnit {
         get { MeasurementUnit(rawValue: UserDefaults.standard.string(forKey: unitKey) ?? "") ?? .inches }

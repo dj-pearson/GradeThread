@@ -21,6 +21,12 @@ public actor EdgeAPI {
     private let tokenProvider: @Sendable () async -> String?
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    /// US-805: centralized plan-gate interception. A decoded 402 cap body and an
+    /// 80% `X-Plan-Warning` header are published here so every flipdesk / grading
+    /// / AI call surfaces an upgrade path without per-call wiring. Injectable so
+    /// tests can capture the signal; defaults route to ``PlanGateNotifier``.
+    private let onPlanGate: @Sendable (PlanGateError) -> Void
+    private let onPlanWarning: @Sendable (PlanWarning) -> Void
 
     /// US-638: bounded retry budget for transient failures (network / 5xx).
     private static let maxRetries = 2
@@ -54,13 +60,30 @@ public actor EdgeAPI {
         session: URLSession,
         tokenProvider: @Sendable @escaping () async -> String?,
         decoder: JSONDecoder = .iso8601,
-        encoder: JSONEncoder = .iso8601
+        encoder: JSONEncoder = .iso8601,
+        onPlanGate: @escaping @Sendable (PlanGateError) -> Void = PlanGateNotifier.publish,
+        onPlanWarning: @escaping @Sendable (PlanWarning) -> Void = PlanGateNotifier.publishWarning
     ) {
         self.baseURL = baseURL
         self.session = session
         self.tokenProvider = tokenProvider
         self.decoder = decoder
         self.encoder = encoder
+        self.onPlanGate = onPlanGate
+        self.onPlanWarning = onPlanWarning
+    }
+
+    /// US-805: inspect a response for plan-gate signals — an 80% soft-warn
+    /// header (any status) and a hard 402 cap body — and publish whatever's
+    /// present. Pure side-effect; the caller still maps the status to its error.
+    private func interceptPlanSignals(_ http: HTTPURLResponse, data: Data) {
+        if let raw = http.value(forHTTPHeaderField: "X-Plan-Warning"),
+           let warning = PlanWarning(header: raw) {
+            onPlanWarning(warning)
+        }
+        if http.statusCode == 402, let gate = PlanGateError.decode(from: data) {
+            onPlanGate(gate)
+        }
     }
 
     // MARK: - Public
@@ -148,6 +171,7 @@ public actor EdgeAPI {
         guard let http = response as? HTTPURLResponse else {
             throw EdgeAPIError.network("Non-HTTP response")
         }
+        interceptPlanSignals(http, data: respData)
         guard (200..<300).contains(http.statusCode) else {
             throw EdgeAPIError.from(statusCode: http.statusCode, body: respData)
         }
@@ -193,6 +217,7 @@ public actor EdgeAPI {
                 guard let http = response as? HTTPURLResponse else {
                     throw EdgeAPIError.network("Non-HTTP response")
                 }
+                interceptPlanSignals(http, data: data)
                 guard (200..<300).contains(http.statusCode) else {
                     throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
                 }

@@ -438,6 +438,9 @@ struct MainShell: View {
                 drainSharedInboxIfNeeded()
             }
         }
+        // US-805: shell-level upgrade prompt (402 hard cap) + soft warning banner
+        // (80% X-Plan-Warning), fed by EdgeAPI's centralized plan-gate interceptor.
+        .planGatePresentation()
     }
 
     /// Pulls the next Share Extension batch off the inbox + presents the
@@ -1106,6 +1109,8 @@ struct SettingsView: View {
 
             // ── Preferences ──────────────────────────────────────────
             preferencesSection
+            // US-805: usage-alert sensitivity for the soft plan-limit banner.
+            UsageAlertThresholdSection()
             // These each render their own Section, so they sit at the top level
             // of the List rather than nested inside another Section.
             realtimeSection
@@ -1338,6 +1343,33 @@ private struct RealtimeToggleSection: View {
             }
         } footer: {
             Text("Streams sale + listing edits as they happen on the server. Turn off to save battery if you prefer pulling-to-refresh.")
+                .font(.footnote)
+        }
+    }
+}
+
+/// US-805: usage-alert sensitivity. Picks the cap-usage percentage at which the
+/// non-blocking soft banner appears (50 / 80 / 95, mirroring web US-209).
+/// UserDefaults-backed via ``AppPreferences``; default 80%.
+private struct UsageAlertThresholdSection: View {
+    @State private var threshold: UsageAlertThreshold = AppPreferences.usageAlertThreshold
+
+    var body: some View {
+        Section {
+            Picker(selection: $threshold) {
+                ForEach(UsageAlertThreshold.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            } label: {
+                Label("Warn me at", systemImage: "gauge.with.dots.needle.67percent")
+            }
+            .onChange(of: threshold) { _, newValue in
+                AppPreferences.usageAlertThreshold = newValue
+            }
+        } header: {
+            Text("Usage alerts")
+        } footer: {
+            Text("Show a heads-up banner when you cross this share of a plan limit (active listings, AI actions, monthly grades). You'll always be prompted to upgrade when a limit is reached.")
                 .font(.footnote)
         }
     }
