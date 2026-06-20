@@ -640,7 +640,7 @@
         "Config (cadence, audiences, max images, sections) lives in a newsletter settings singleton (mirrors content_settings)."
       ],
       "priority": 922,
-      "passes": false,
+      "passes": true,
       "notes": "[Autonomous Email Marketing Engine / Orchestration] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
     },
     {
