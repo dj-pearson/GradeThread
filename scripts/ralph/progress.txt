@@ -3550,3 +3550,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  9:51:55 PM
 ---
+## US-933: Trigger & condition engine
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  9:59:05 PM
+---

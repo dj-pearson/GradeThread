@@ -816,7 +816,7 @@
         "No external calls in the evaluator; it operates on a loaded user/enrollment snapshot."
       ],
       "priority": 933,
-      "passes": false,
+      "passes": true,
       "notes": "[Trial Conversion Drip Engine / Trigger Foundation] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
     },
     {
