@@ -166,6 +166,11 @@ public final class EbayPublishService {
 
     private func outcome(from error: PublishHTTPError) -> PublishOutcome {
         switch error.statusCode {
+        case 402:
+            // Plan/usage cap (US-805/US-820) — surface friendly upgrade copy so
+            // bulk callers can stop the run and prompt an upgrade instead of
+            // hammering the same cap for every remaining draft.
+            return .planLimit(message: PlanGateBody.planLimitMessage(from: error.body))
         case 422:
             // Blockers payload — caller renders them inline.
             if let parsed = try? JSONDecoder().decode(PushBlockersResponse.self, from: error.body) {

@@ -167,6 +167,9 @@ public struct BulkActionExecutor {
             case .noOfferId:
                 failures.append(.init(itemId: item.id, message: "No active eBay offer linked. Sync from Marketplaces, then try again."))
                 continue
+            case .planLimit(let message):
+                failures.append(.init(itemId: item.id, message: message))
+                continue
             case .failed(let message):
                 failures.append(.init(itemId: item.id, message: message))
                 continue
@@ -188,6 +191,8 @@ public struct BulkActionExecutor {
                 failures.append(.init(itemId: item.id, message: blockers.joined(separator: "; ")))
             case .noOfferId:
                 failures.append(.init(itemId: item.id, message: "No active eBay offer linked. Sync from Marketplaces, then try again."))
+            case .planLimit(let message):
+                failures.append(.init(itemId: item.id, message: message))
             case .failed(let message):
                 failures.append(.init(itemId: item.id, message: message))
             case .validated, .priceUpdated, .ended:
@@ -238,7 +243,7 @@ public struct BulkActionExecutor {
                 failures.append(.init(itemId: item.id, message: "Listing isn't linked to an eBay offer."))
             case .failed(let message):
                 failures.append(.init(itemId: item.id, message: message))
-            case .validated, .pushed, .priceUpdated, .blockers:
+            case .validated, .pushed, .priceUpdated, .blockers, .planLimit:
                 failures.append(.init(itemId: item.id, message: "Unexpected response from server."))
             }
         }
@@ -284,7 +289,7 @@ public struct BulkActionExecutor {
                 failures.append(.init(itemId: item.id, message: "Listing isn't linked to an eBay offer."))
             case .failed(let message):
                 failures.append(.init(itemId: item.id, message: message))
-            case .validated, .pushed, .ended, .blockers:
+            case .validated, .pushed, .ended, .blockers, .planLimit:
                 failures.append(.init(itemId: item.id, message: "Unexpected response from server."))
             }
         }

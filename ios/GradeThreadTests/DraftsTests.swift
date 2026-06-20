@@ -13,6 +13,9 @@ final class DraftsTests: XCTestCase {
         var titles: [String: String]
         var fetchError: Error?
         var saveError: Error?
+        /// US-820: ids whose save throws, so per-item failure reporting is
+        /// testable (the global `saveError` fails every row).
+        var saveErrorIds: Set<String> = []
         private(set) var saved: [DraftEdit] = []
 
         init(drafts: [DraftListing], titles: [String: String] = [:]) {
@@ -26,6 +29,7 @@ final class DraftsTests: XCTestCase {
         }
         func fetchItemTitles(ids: [String]) async throws -> [String: String] { titles }
         func save(_ edit: DraftEdit) async throws {
+            if saveErrorIds.contains(edit.id) { throw EdgeAPIError.rateLimited }
             if let saveError { throw saveError }
             saved.append(edit)
         }
@@ -348,5 +352,125 @@ final class DraftsTests: XCTestCase {
         XCTAssertTrue(publisher.pushed.isEmpty)
         XCTAssertEqual(store.publishSummary,
                        "Published 0 of 1; 1 skipped:\nJacket: eBay-originated — edit on eBay")
+    }
+
+    // MARK: - Bulk mutation helpers (US-820)
+
+    func test_newPrice_absolutePercentRound() {
+        XCTAssertEqual(DraftBulkMutation.newPrice(for: 10, change: .absolute(24.5)) ?? .nan, 24.5, accuracy: 0.001)
+        // Absolute ignores the (missing) base price entirely.
+        XCTAssertEqual(DraftBulkMutation.newPrice(for: nil, change: .absolute(9.99)) ?? .nan, 9.99, accuracy: 0.001)
+        XCTAssertEqual(DraftBulkMutation.newPrice(for: 10, change: .percent(10)) ?? .nan, 11, accuracy: 0.001)
+        XCTAssertEqual(DraftBulkMutation.newPrice(for: 20, change: .percent(-25)) ?? .nan, 15, accuracy: 0.001)
+        XCTAssertEqual(DraftBulkMutation.newPrice(for: 12.34, change: .round99) ?? .nan, 12.99, accuracy: 0.001)
+        // Percent / round need a base; a blank price yields nil (no change).
+        XCTAssertNil(DraftBulkMutation.newPrice(for: nil, change: .percent(10)))
+        XCTAssertNil(DraftBulkMutation.newPrice(for: nil, change: .round99))
+        // A negative absolute floors at 0 (never seed a sub-zero listing).
+        XCTAssertEqual(DraftBulkMutation.newPrice(for: 5, change: .absolute(-3)) ?? .nan, 0, accuracy: 0.001)
+    }
+
+    func test_apply_priceConditionTemplate() {
+        var row = DraftEditRow(from: draft("a", price: 10))
+        DraftBulkMutation.apply(.price(.absolute(19.99)), to: &row)
+        XCTAssertEqual(row.price, "19.99")
+        DraftBulkMutation.apply(.condition("USED_GOOD"), to: &row)
+        XCTAssertEqual(row.condition, "USED_GOOD")
+        let t = ListingTemplate(
+            id: "t", name: "T", ebayCondition: "USED_VERY_GOOD",
+            ebayCategoryId: "57988", shippingPolicyId: "sp"
+        )
+        DraftBulkMutation.apply(.template(t), to: &row)
+        XCTAssertEqual(row.condition, "USED_VERY_GOOD")  // template overrides
+        XCTAssertEqual(row.categoryId, "57988")
+        XCTAssertEqual(row.shippingPolicyId, "sp")
+    }
+
+    // MARK: - Plan-gate 402 parsing (US-820 / US-805)
+
+    func test_planGateBody_upgradeMessage() {
+        let cap = PlanGateBody(
+            error: "CAP_REACHED", cap: "activeListings", used: 50, limit: 50,
+            plan: "starter", requiredPlan: "pro", feature: nil
+        )
+        XCTAssertTrue(cap.upgradeMessage.contains("active-listing limit (50)"))
+        XCTAssertTrue(cap.upgradeMessage.contains("Pro"))
+
+        let locked = PlanGateBody(
+            error: "FEATURE_LOCKED", cap: nil, used: nil, limit: nil,
+            plan: "free", requiredPlan: "business_plus", feature: "autolister"
+        )
+        XCTAssertTrue(locked.upgradeMessage.contains("isn't available"))
+        XCTAssertTrue(locked.upgradeMessage.contains("Business Plus"))
+    }
+
+    func test_planLimitMessage_parseAndFallback() {
+        let body = Data(#"{"error":"CAP_REACHED","cap":"activeListings","limit":10,"requiredPlan":"pro"}"#.utf8)
+        XCTAssertTrue(PlanGateBody.planLimitMessage(from: body).contains("(10)"))
+        // Unparseable body still yields a friendly upgrade line, never a raw 402.
+        let msg = PlanGateBody.planLimitMessage(from: Data("not json".utf8))
+        XCTAssertTrue(msg.lowercased().contains("plan"))
+        XCTAssertTrue(msg.contains("Upgrade"))
+    }
+
+    // MARK: - Library bulk field apply (US-820)
+
+    @MainActor
+    func test_library_applyBulk_writesPerDraftAndReportsPerItemFailure() async {
+        let fake = FakeService(drafts: [ready("a", item: "i1"), ready("b", item: "i2")],
+                               titles: ["i1": "A", "i2": "B"])
+        fake.saveErrorIds = ["b"]   // only b fails — no all-or-nothing
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+        store.toggle("a")
+        store.toggle("b")
+
+        await store.applyBulk(.price(.absolute(25)))
+
+        // a persisted with the new price; b failed but didn't sink the batch.
+        XCTAssertEqual(fake.saved.map(\.id), ["a"])
+        XCTAssertEqual(fake.saved.first?.price ?? -1, 25, accuracy: 0.001)
+        XCTAssertNotNil(store.bulkSummary)
+        XCTAssertTrue(store.bulkSummary?.contains("Updated 1 of 2") ?? false)
+        XCTAssertTrue(store.bulkSummary?.contains("B:") ?? false)
+        XCTAssertNil(store.bulkProgress)  // cleared after the run
+    }
+
+    @MainActor
+    func test_library_applyBulk_skipsEbayOriginated() async {
+        let ebay = DraftListing(
+            id: "e", inventoryItemId: "i9", listingTitle: "Jacket", listingPrice: 20,
+            ebayCondition: "USED_GOOD", platformCategoryId: "1", batchId: "b1",
+            listingOrigin: "ebay"
+        )
+        let fake = FakeService(drafts: [ebay], titles: ["i9": "Jacket"])
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+        store.toggle("e")
+
+        await store.applyBulk(.condition("NEW"))
+
+        XCTAssertTrue(fake.saved.isEmpty)
+        XCTAssertTrue(store.bulkSummary?.contains("eBay-originated") ?? false)
+    }
+
+    @MainActor
+    func test_library_publishSelected_planLimitStopsRun() async {
+        let fake = FakeService(drafts: [ready("a", item: "i1"), ready("c", item: "i3")],
+                               titles: ["i1": "Coat", "i3": "Shirt"])
+        let store = DraftsLibraryStore(service: fake)
+        await store.load()
+        store.toggle("a")
+        store.toggle("c")
+
+        let publisher = FakePublisher()
+        // The first push hits the plan cap — the run must stop, not attempt c.
+        publisher.pushOutcomes["i1"] = .planLimit(message: "Upgrade to publish more.")
+        let published = await store.publishSelected(using: publisher)
+
+        XCTAssertTrue(published.isEmpty)
+        XCTAssertNotNil(store.planLimitMessage)
+        XCTAssertNil(store.publishSummary)  // plan-limit path doesn't also set the result alert
+        XCTAssertEqual(publisher.pushed, ["i1"])  // stopped before the second draft
     }
 }

@@ -7,12 +7,28 @@ import SwiftData
 /// batch can be finished from the phone without opening each draft.
 struct DraftsLibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthStore.self) private var authStore
     @State private var store = DraftsLibraryStore()
+    // US-820: templates for the "Apply template" bulk action.
+    @State private var templateStore = TemplateStore()
     @State private var search = ""
     @State private var editMode: EditMode = .inactive
     // US-745: the drafted item whose cross-marketplace Listing Kit is presented.
     @State private var kitTarget: ListingKitTarget?
+    // US-820: bulk price-entry alert (absolute set or +/- %) + paywall route.
+    @State private var priceKind: BulkPriceKind?
+    @State private var priceText = ""
+    @State private var showPaywall = false
     private let currency = CurrencyFormatter()
+
+    /// Which bulk price prompt is showing (drives one shared `.alert`).
+    private enum BulkPriceKind: Identifiable, Equatable { case absolute, percent; var id: Self { self } }
+
+    /// Signed-in user id for the paywall (nil in previews / signed-out).
+    private var currentUserId: UUID? {
+        if case let .signedIn(user) = authStore.phase { return user.id }
+        return nil
+    }
 
     var body: some View {
         content
@@ -20,8 +36,11 @@ struct DraftsLibraryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .environment(\.editMode, $editMode)
             .toolbar { toolbarContent }
-            .safeAreaInset(edge: .bottom) { publishBar }
-            .task { await store.load() }
+            .safeAreaInset(edge: .bottom) { bulkActionBar }
+            .task {
+                await store.load()
+                await templateStore.load()
+            }
             .refreshable { await store.load() }
             // US-745: present the cross-marketplace Listing Kit for a drafted item.
             .sheet(item: $kitTarget) { target in
@@ -46,6 +65,70 @@ struct DraftsLibraryView: View {
             ) { _ in
                 Button("OK", role: .cancel) { store.publishSummary = nil }
             } message: { Text($0) }
+            // US-820: bulk field-apply result (per-item failures included).
+            .alert(
+                "Bulk update",
+                isPresented: Binding(
+                    get: { store.bulkSummary != nil },
+                    set: { if !$0 { store.bulkSummary = nil } }
+                ),
+                presenting: store.bulkSummary
+            ) { _ in
+                Button("OK", role: .cancel) { store.bulkSummary = nil }
+            } message: { Text($0) }
+            // US-820 / US-805: a bulk publish that hit a plan cap routes here with
+            // an Upgrade affordance instead of a generic failure.
+            .alert(
+                "Plan limit reached",
+                isPresented: Binding(
+                    get: { store.planLimitMessage != nil },
+                    set: { if !$0 { store.planLimitMessage = nil } }
+                ),
+                presenting: store.planLimitMessage
+            ) { _ in
+                if currentUserId != nil {
+                    Button("Upgrade") { showPaywall = true }
+                }
+                Button("OK", role: .cancel) { store.planLimitMessage = nil }
+            } message: { Text($0) }
+            // US-820: shared price-entry prompt (absolute set or +/- %).
+            .alert(
+                priceKind == .percent ? "Adjust price by %" : "Set price",
+                isPresented: Binding(
+                    get: { priceKind != nil },
+                    set: { if !$0 { priceKind = nil; priceText = "" } }
+                ),
+                presenting: priceKind
+            ) { kind in
+                TextField(kind == .percent ? "e.g. -10 or 15" : "0.00", text: $priceText)
+                    .keyboardType(kind == .percent ? .numbersAndPunctuation : .decimalPad)
+                Button("Cancel", role: .cancel) { priceKind = nil; priceText = "" }
+                Button("Apply") { applyPriceEntry(kind) }
+            } message: { kind in
+                Text(kind == .percent
+                     ? "Positive marks up, negative marks down. Applies to \(store.selected.count) selected."
+                     : "Applies to \(store.selected.count) selected draft\(store.selected.count == 1 ? "" : "s").")
+            }
+            // US-820 / US-805: in-app paywall when the user opts to upgrade.
+            .sheet(isPresented: $showPaywall) {
+                if let userId = currentUserId {
+                    NavigationStack { PaywallView(userId: userId) }
+                }
+            }
+    }
+
+    /// Parses the price-entry text and runs the matching bulk price edit.
+    private func applyPriceEntry(_ kind: BulkPriceKind) {
+        let text = priceText.trimmingCharacters(in: .whitespaces)
+        priceText = ""
+        priceKind = nil
+        guard let value = Double(text) else { return }
+        Task {
+            switch kind {
+            case .absolute: await store.applyBulk(.price(.absolute(value)))
+            case .percent:  await store.applyBulk(.price(.percent(value)))
+            }
+        }
     }
 
     @ToolbarContentBuilder
@@ -66,36 +149,98 @@ struct DraftsLibraryView: View {
         }
     }
 
-    /// US-964: the bulk-publish action, shown only while selecting drafts.
+    /// US-820: the multi-select bulk action bar (matches the Inventory
+    /// multi-select pattern) — a bulk-edit menu (price / condition / template)
+    /// plus the US-964 bulk-publish action. Shown only while selecting drafts.
     @ViewBuilder
-    private var publishBar: some View {
+    private var bulkActionBar: some View {
         if editMode == .active && !store.selected.isEmpty {
-            Button {
-                Task {
-                    let published = await store.publishSelected()
-                    applyOptimisticPublish(listingIds: published)
-                    if !published.isEmpty { editMode = .inactive }
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    if store.isPublishing {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: "paperplane.fill")
-                    }
-                    Text("Publish \(store.selected.count)")
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(Color.brandNavy)
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
+            HStack(spacing: 12) {
+                editMenu
+                Spacer(minLength: 8)
+                publishButton
             }
-            .disabled(store.isPublishing)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(.bar)
+            .overlay(alignment: .top) { applyingProgress }
+        }
+    }
+
+    /// Bulk field-apply menu: price (absolute / %, round-to-.99), condition, and
+    /// "apply template" — each writes through the drafts service per draft.
+    private var editMenu: some View {
+        Menu {
+            Section("Price") {
+                Button { priceKind = .absolute } label: { Label("Set price…", systemImage: "dollarsign.circle") }
+                Button { priceKind = .percent } label: { Label("Adjust by %…", systemImage: "percent") }
+                Button { Task { await store.applyBulk(.price(.round99)) } } label: {
+                    Label("Round to .99", systemImage: "tag")
+                }
+            }
+            Menu {
+                ForEach(EbayCondition.allCases) { c in
+                    Button(c.label) { Task { await store.applyBulk(.condition(c.rawValue)) } }
+                }
+            } label: {
+                Label("Set condition", systemImage: "checkmark.seal")
+            }
+            if !templateStore.templates.isEmpty {
+                Menu {
+                    ForEach(templateStore.templates) { t in
+                        Button(t.name) { Task { await store.applyBulk(.template(t)) } }
+                    }
+                } label: {
+                    Label("Apply template", systemImage: "doc.on.doc")
+                }
+            }
+        } label: {
+            if store.isApplying {
+                ProgressView()
+            } else {
+                Label("Edit \(store.selected.count)", systemImage: "slider.horizontal.3")
+                    .fontWeight(.semibold)
+            }
+        }
+        .disabled(store.isApplying || store.isPublishing)
+    }
+
+    private var publishButton: some View {
+        Button {
+            Task {
+                let published = await store.publishSelected()
+                applyOptimisticPublish(listingIds: published)
+                if !published.isEmpty { editMode = .inactive }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if store.isPublishing {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: "paperplane.fill")
+                }
+                Text("Publish \(store.selected.count)")
+                    .fontWeight(.semibold)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(Color.brandNavy)
+            .foregroundStyle(.white)
+            .clipShape(Capsule())
+        }
+        .disabled(store.isPublishing || store.isApplying)
+    }
+
+    /// Transient "Updating n/N…" pill above the bar during a bulk field-apply.
+    @ViewBuilder
+    private var applyingProgress: some View {
+        if let p = store.bulkProgress {
+            Text("Updating \(p.done)/\(p.total)…")
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.bar, in: Capsule())
+                .offset(y: -30)
         }
     }
 

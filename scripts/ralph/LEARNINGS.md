@@ -439,6 +439,14 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- Adding a case to `PublishOutcome` (EbayPublishTypes.swift) breaks every
+  EXHAUSTIVE switch: `BulkActionExecutor` (×4: validate/push/end/price),
+  `PublishDialog` (×2), and `DraftsBulkEditStore` + `DraftsLibraryStore`
+  `publishSelected`. The `ReviseOutcome` switches (ItemCanvasView/
+  PhotoManagerView) and the grading-result enum are SEPARATE — don't touch them.
+  Edge plan-gate (plan-gate.ts) returns 402 with `{error:"CAP_REACHED"|
+  "FEATURE_LOCKED", cap, used, limit, requiredPlan}`; parse it via `PlanGateBody`
+  (US-820) and stop the bulk loop on `.planLimit` (every further publish 402s).
 - SwiftData's `#Index` / `#Unique` macros are **iOS 18.0+** only (they carry
   `@available(iOS 18, *)`); they cannot live in a `@Model` body compiled for a
   lower deployment target. US-985 raised the floor to iOS 18 in `project.yml`

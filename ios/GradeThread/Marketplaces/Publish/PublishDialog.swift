@@ -306,6 +306,8 @@ struct PublishDialog: View {
                 message: "No active eBay offer linked. Sync from Marketplaces, then try again.",
                 retry: .revalidate
             )
+        case .planLimit(let message):
+            phase = .failed(message: message, retry: .revalidate)
         case .failed(let message):
             phase = .failed(message: message, retry: .revalidate)
         case .pushed, .priceUpdated, .ended:
@@ -384,6 +386,11 @@ struct PublishDialog: View {
                 retry: resume
             )
             HapticFeedback.error()
+        case .planLimit(let message):
+            // Plan/usage cap (US-805) — surface the upgrade copy; "Try again"
+            // resumes the composer so edits aren't lost if they upgrade.
+            phase = .failed(message: message, retry: resume)
+            HapticFeedback.warning()
         case .failed(let message):
             phase = .failed(message: message, retry: resume)
             HapticFeedback.error()

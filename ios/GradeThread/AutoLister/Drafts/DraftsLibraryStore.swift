@@ -38,6 +38,16 @@ final class DraftsLibraryStore {
     /// (reuses the bulk-edit publish result UI shape).
     var isPublishing = false
     var publishSummary: String?
+    /// US-820: bulk field-apply (price / condition / template) state.
+    var isApplying = false
+    var bulkProgress: BulkProgress?
+    var bulkSummary: String?
+    /// US-820 / US-805: set when a bulk publish hit a plan cap (402). The view
+    /// surfaces the upgrade prompt + a paywall route instead of a generic error.
+    var planLimitMessage: String?
+
+    /// Per-item progress for a bulk field-apply run (so the UI can show "n/N").
+    struct BulkProgress: Equatable { let done: Int; let total: Int }
 
     init(service: DraftsProviding = DraftsService()) {
         self.service = service
@@ -85,6 +95,48 @@ final class DraftsLibraryStore {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
     }
 
+    // MARK: - Bulk field apply (US-820)
+
+    /// Applies one bulk field edit (price absolute/%/round, condition, or a
+    /// template) to every SELECTED draft, persisting each through the drafts
+    /// service one at a time. Per-draft failures are collected (no all-or-nothing
+    /// silent failure): a single bad write doesn't sink the batch, and the
+    /// summary names what didn't save. eBay-originated drafts are skipped (their
+    /// fields are owned by eBay, US-1086). Reloads from server truth at the end
+    /// so the rows reflect what actually persisted.
+    func applyBulk(_ change: DraftBulkMutation.FieldChange) async {
+        let targets = drafts.filter { selected.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        isApplying = true
+        bulkProgress = BulkProgress(done: 0, total: targets.count)
+        defer { isApplying = false; bulkProgress = nil }
+
+        var ok = 0
+        var fails: [String] = []
+        for (index, draft) in targets.enumerated() {
+            defer { bulkProgress = BulkProgress(done: index + 1, total: targets.count) }
+            var row = DraftEditRow(from: draft)
+            if row.isEbayOriginated {
+                fails.append("\(title(for: draft)): eBay-originated — edit on eBay")
+                continue
+            }
+            DraftBulkMutation.apply(change, to: &row)
+            do {
+                try await service.save(row.toEdit())
+                ok += 1
+            } catch {
+                fails.append("\(title(for: draft)): \(error.localizedDescription)")
+            }
+        }
+
+        bulkSummary = fails.isEmpty
+            ? "Updated \(ok) draft\(ok == 1 ? "" : "s")."
+            : "Updated \(ok) of \(targets.count); \(fails.count) failed:\n" + fails.joined(separator: "\n")
+        // Refresh from server truth so prices/conditions show what persisted; the
+        // selection is preserved (load only prunes ids that no longer exist).
+        await load()
+    }
+
     // MARK: - Bulk publish (US-964)
 
     /// Validates + pushes each SELECTED draft to eBay, one at a time, so a single
@@ -108,7 +160,10 @@ final class DraftsLibraryStore {
         var published: Set<String> = []
         var ok = 0
         var fails: [String] = []
-        for draft in targets {
+        var planLimit: String?
+        // Labeled so a plan-cap 402 stops the whole run — every remaining publish
+        // would hit the same cap (US-820 / US-805).
+        publishLoop: for draft in targets {
             let row = DraftEditRow(from: draft)
             if row.isEbayOriginated {
                 fails.append("\(title(for: draft)): eBay-originated — edit on eBay")
@@ -126,6 +181,7 @@ final class DraftsLibraryStore {
                     published.insert(draft.id)
                 case .blockers(let b): fails.append("\(title(for: draft)): \(b.joined(separator: ", "))")
                 case .noOfferId:       fails.append("\(title(for: draft)): no eBay offer — sync first")
+                case .planLimit(let m): planLimit = m; break publishLoop
                 case .failed(let m):   fails.append("\(title(for: draft)): \(m)")
                 case .validated, .priceUpdated, .ended:
                     fails.append("\(title(for: draft)): unexpected response")
@@ -133,15 +189,24 @@ final class DraftsLibraryStore {
             case .validated(let r): fails.append("\(title(for: draft)): \(r.blockers.joined(separator: ", "))")
             case .blockers(let b):  fails.append("\(title(for: draft)): \(b.joined(separator: ", "))")
             case .noOfferId:        fails.append("\(title(for: draft)): no eBay offer — sync first")
+            case .planLimit(let m): planLimit = m; break publishLoop
             case .failed(let m):    fails.append("\(title(for: draft)): \(m)")
             case .pushed, .priceUpdated, .ended:
                 fails.append("\(title(for: draft)): unexpected response")
             }
         }
 
-        publishSummary = fails.isEmpty
-            ? "Published \(ok) draft\(ok == 1 ? "" : "s") to eBay."
-            : "Published \(ok) of \(targets.count); \(fails.count) skipped:\n" + fails.joined(separator: "\n")
+        if let planLimit {
+            // Plan cap reached — route to the paywall via planLimitMessage instead
+            // of a generic result alert. Note any that published before the cap.
+            planLimitMessage = ok > 0
+                ? "Published \(ok) before reaching your plan limit.\n\n\(planLimit)"
+                : planLimit
+        } else {
+            publishSummary = fails.isEmpty
+                ? "Published \(ok) draft\(ok == 1 ? "" : "s") to eBay."
+                : "Published \(ok) of \(targets.count); \(fails.count) skipped:\n" + fails.joined(separator: "\n")
+        }
         // Deselect what published; leave skipped drafts selected so the user can
         // retry after fixing them. Published drafts leave the pool — refresh from
         // server truth (which also prunes the now-stale selection via `load`).

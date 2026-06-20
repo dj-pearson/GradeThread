@@ -8,6 +8,7 @@ struct DraftsBulkEditView: View {
     @State private var store: DraftsBulkEditStore
     @State private var templateStore = TemplateStore()
     @State private var markupPct: String = ""
+    @State private var absolutePrice: String = ""
     @State private var bulkCategory: String = ""
 
     init(batchId: String? = nil) {
@@ -133,7 +134,7 @@ struct DraftsBulkEditView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            // Price
+            // Price — markup % / round-to-.99
             HStack {
                 TextField("Markup %", text: $markupPct)
                     .keyboardType(.numbersAndPunctuation)
@@ -143,6 +144,17 @@ struct DraftsBulkEditView: View {
                     .disabled(Double(markupPct.trimmingCharacters(in: .whitespaces)) == nil)
                 Button("Round .99") { store.applyRound99() }
                     .buttonStyle(.bordered)
+            }
+
+            // Price — set one absolute price across the targets (US-820)
+            HStack {
+                Text("$").foregroundStyle(.secondary)
+                TextField("Set price", text: $absolutePrice)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                Button("Apply") { store.applyAbsolutePrice(absolutePrice) }
+                    .buttonStyle(.bordered)
+                    .disabled(Double(absolutePrice.trimmingCharacters(in: .whitespaces)) == nil)
             }
 
             // Condition

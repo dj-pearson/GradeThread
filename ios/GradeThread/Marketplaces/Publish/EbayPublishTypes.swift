@@ -110,6 +110,51 @@ struct EndListingResponse: Decodable, Equatable {
     }
 }
 
+/// `402 PAYMENT_REQUIRED` body emitted by the edge plan gate (plan-gate.ts):
+/// either a capacity cap (`CAP_REACHED`, e.g. the active-listings limit) or a
+/// locked feature (`FEATURE_LOCKED`). Decoded so a bulk publish can surface a
+/// friendly upgrade prompt instead of a raw error code, and stop the run early
+/// because every further publish would hit the same cap (US-805 / US-820).
+struct PlanGateBody: Decodable, Equatable {
+    let error: String?
+    let cap: String?
+    let used: Int?
+    let limit: Int?
+    let plan: String?
+    let requiredPlan: String?
+    let feature: String?
+
+    /// User-facing upgrade copy. Falls back to a generic line when the body
+    /// doesn't carry the discriminator so the caller never shows a bare 402.
+    var upgradeMessage: String {
+        let upgrade = requiredPlan.map { " Upgrade to \(Self.prettyPlan($0)) to publish more." }
+            ?? " Upgrade your plan to publish more."
+        if error == "CAP_REACHED" {
+            let what = cap == "activeListings" ? "active-listing" : (cap ?? "plan")
+            if let limit {
+                return "You've reached your \(what) limit (\(limit))." + upgrade
+            }
+            return "You've reached your \(what) limit." + upgrade
+        }
+        if error == "FEATURE_LOCKED" {
+            return "This feature isn't available on your plan." + upgrade
+        }
+        return "You've reached your plan's limit." + upgrade
+    }
+
+    /// Best-effort decode of a 402 body into the upgrade message.
+    static func planLimitMessage(from data: Data) -> String {
+        (try? JSONDecoder().decode(PlanGateBody.self, from: data))?.upgradeMessage
+            ?? "You've reached your plan's limit. Upgrade your plan to publish more."
+    }
+
+    private static func prettyPlan(_ raw: String) -> String {
+        raw.split(separator: "_")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+}
+
 /// Generic error body the edge handlers emit. `detail` carries the
 /// eBay-side message when one's available.
 struct EdgeErrorBody: Decodable, Equatable {
@@ -134,6 +179,10 @@ enum PublishOutcome: Equatable {
     /// HTTP 409 — listing has no platform_offer_id. iOS falls back to
     /// local-only behaviour with a toast.
     case noOfferId
+    /// HTTP 402 — a plan/usage cap blocks the publish (active-listings cap or a
+    /// locked feature, US-805/US-820). Carries friendly upgrade copy; bulk
+    /// callers stop the run because every further publish hits the same cap.
+    case planLimit(message: String)
     case failed(message: String)
 }
 

@@ -160,16 +160,25 @@ final class DraftsBulkEditStore {
 
     func applyMarkup(_ pctText: String) {
         guard let pct = Double(pctText.trimmingCharacters(in: .whitespaces)) else { return }
-        applyToTargets { row in
-            guard let base = Double(row.price) else { return }
-            row.price = String(format: "%.2f", base * (1 + pct / 100))
-        }
+        applyPrice(.percent(pct))
+    }
+
+    /// US-820: set every target draft to one absolute price.
+    func applyAbsolutePrice(_ priceText: String) {
+        guard let price = Double(priceText.trimmingCharacters(in: .whitespaces)) else { return }
+        applyPrice(.absolute(price))
     }
 
     func applyRound99() {
+        applyPrice(.round99)
+    }
+
+    /// Shared price-edit path: math via the pure ``DraftBulkMutation``, formatted
+    /// in the grid's always-2dp convention so the inline field reads cleanly.
+    private func applyPrice(_ change: DraftBulkMutation.PriceChange) {
         applyToTargets { row in
-            guard let base = Double(row.price) else { return }
-            row.price = String(format: "%.2f", Self.roundTo99(base))
+            guard let p = DraftBulkMutation.newPrice(for: Double(row.price), change: change) else { return }
+            row.price = String(format: "%.2f", p)
         }
     }
 
@@ -204,9 +213,9 @@ final class DraftsBulkEditStore {
     }
 
     /// Mirrors the web's roundTo99: sub-$1 rounds to cents; otherwise floor + .99.
+    /// Delegates to the shared pure helper (kept as a static for existing tests).
     nonisolated static func roundTo99(_ p: Double) -> Double {
-        if p < 1 { return (p * 100).rounded() / 100 }
-        return p.rounded(.down) + 0.99
+        DraftBulkMutation.roundTo99(p)
     }
 
     // MARK: - Save
@@ -262,7 +271,10 @@ final class DraftsBulkEditStore {
 
         var ok = 0
         var fails: [String] = []
-        for row in targets {
+        var planLimit: String?
+        // Labeled so a plan-cap 402 can stop the whole run — every remaining
+        // publish would hit the same cap (US-820 / US-805).
+        publishLoop: for row in targets {
             if !row.issues.isEmpty {
                 fails.append("\(displayTitle(row)): \(row.issues.joined(separator: ", "))")
                 continue
@@ -273,6 +285,7 @@ final class DraftsBulkEditStore {
                 case .pushed:          ok += 1
                 case .blockers(let b): fails.append("\(displayTitle(row)): \(b.joined(separator: ", "))")
                 case .noOfferId:       fails.append("\(displayTitle(row)): no eBay offer — sync first")
+                case .planLimit(let m): planLimit = m; break publishLoop
                 case .failed(let m):   fails.append("\(displayTitle(row)): \(m)")
                 case .validated, .priceUpdated, .ended:
                     fails.append("\(displayTitle(row)): unexpected response")
@@ -280,15 +293,24 @@ final class DraftsBulkEditStore {
             case .validated(let r): fails.append("\(displayTitle(row)): \(r.blockers.joined(separator: ", "))")
             case .blockers(let b):  fails.append("\(displayTitle(row)): \(b.joined(separator: ", "))")
             case .noOfferId:        fails.append("\(displayTitle(row)): no eBay offer — sync first")
+            case .planLimit(let m): planLimit = m; break publishLoop
             case .failed(let m):    fails.append("\(displayTitle(row)): \(m)")
             case .pushed, .priceUpdated, .ended:
                 fails.append("\(displayTitle(row)): unexpected response")
             }
         }
 
-        publishSummary = fails.isEmpty
-            ? "Published \(ok) draft\(ok == 1 ? "" : "s") to eBay."
-            : "Published \(ok) of \(targets.count); \(fails.count) failed:\n" + fails.joined(separator: "\n")
+        if let planLimit {
+            // Plan cap reached — headline the upgrade prompt, noting any that
+            // published before the cap was hit.
+            publishSummary = ok > 0
+                ? "Published \(ok) before reaching your plan limit.\n\n\(planLimit)"
+                : planLimit
+        } else {
+            publishSummary = fails.isEmpty
+                ? "Published \(ok) draft\(ok == 1 ? "" : "s") to eBay."
+                : "Published \(ok) of \(targets.count); \(fails.count) failed:\n" + fails.joined(separator: "\n")
+        }
         // Published items leave the drafts pool — refresh from server truth.
         if ok > 0 { await load() }
     }
