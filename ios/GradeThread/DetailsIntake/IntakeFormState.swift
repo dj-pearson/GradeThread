@@ -46,6 +46,37 @@ public final class IntakeFormState {
     /// Helper copy shown beneath the required Title field while it's empty.
     public static let titleRequiredHelp = "A title is required to save"
 
+    /// US-754: soft cap on the intake title so a runaway paste / dictation
+    /// doesn't silently balloon the title into something no downstream surface
+    /// (listing draft, certificate) can show. Generous — the lone required
+    /// field stays effortless for normal entry.
+    static let titleLimit = 140
+
+    /// US-754: live length feedback for the Title field (counter + at-cap note),
+    /// reusing the shared `TitleLimitFeedback` helper (US-970) so the capped-
+    /// input behavior reads identically wherever it appears.
+    var titleFeedback: TitleLimitFeedback {
+        TitleLimitFeedback(count: title.count, limit: Self.titleLimit)
+    }
+
+    /// US-754: enforce the title cap as the user types — truncates the overflow
+    /// rather than silently accepting characters that would be dropped later.
+    /// No-op until the field exceeds the cap, so it can be called from `onChange`
+    /// without fighting normal typing.
+    func clampTitleToLimit() {
+        if title.count > Self.titleLimit {
+            title = String(title.prefix(Self.titleLimit))
+        }
+    }
+
+    /// US-754: the inline validation message for the Title field, or nil when
+    /// valid. Single source of truth for BOTH the on-screen `FieldError` and the
+    /// VoiceOver announcement so the two can never drift. Mirrors the web
+    /// FieldError/error-summary pattern.
+    var titleValidationMessage: String? {
+        isTitleMissing ? Self.titleRequiredHelp : nil
+    }
+
     public init() {}
 
     /// "Save & Add another" reset: clears item-identity fields and

@@ -637,12 +637,12 @@ struct ItemCanvasView: View {
         Section {
             ForEach(itemListings) { listing in
                 HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(listing.platform == "ebay" ? "eBay" : listing.platform.capitalized)
                             .font(.subheadline.weight(.medium))
-                        Text(listing.listingStatus.capitalized)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        // US-753: shared StatusBadge so a listing's status reads
+                        // with the same tone/shape as item status everywhere else.
+                        StatusBadge(status: listing.listingStatus)
                     }
                     Spacer()
                     if listing.id == activeEbayListing?.id && listingPriceUnsynced {
@@ -1126,12 +1126,13 @@ struct ItemCanvasView: View {
         Section {
             if let measurements, !measurements.isEmpty {
                 ForEach(Array(measurements.keys.sorted()), id: \.self) { key in
-                    HStack {
-                        Text(key.capitalized)
-                        Spacer()
-                        Text(String(format: "%.1f in", measurements[key] ?? 0))
-                            .foregroundStyle(.secondary)
-                    }
+                    // US-753: shared DataRow — figures align down the column via
+                    // the brand tabular-data font, and the pair reads as one
+                    // element to VoiceOver.
+                    DataRow(
+                        label: key.capitalized,
+                        value: String(format: "%.1f in", measurements[key] ?? 0)
+                    )
                 }
             } else {
                 Text("No measurements recorded. Run AI extract or add manually from the web.")

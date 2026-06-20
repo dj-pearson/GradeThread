@@ -147,6 +147,35 @@ final class BulkActionTests: XCTestCase {
         XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 50, percent: 100), 1.0, accuracy: 0.001)
     }
 
+    // MARK: - US-756 retry-only-failed
+
+    func test_failedItemIdsToRetry_isExactlyTheFailedSet() {
+        let result = BulkActionResult(
+            action: .publish,
+            succeeded: 2,
+            failures: [.init(itemId: "x", message: "boom"),
+                       .init(itemId: "y", message: "nope")]
+        )
+        // Only the failed ids — the 2 that succeeded are never re-run.
+        XCTAssertEqual(InventoryListView.failedItemIdsToRetry(result), ["x", "y"])
+    }
+
+    func test_failedItemIdsToRetry_emptyWhenNoFailures() {
+        let result = BulkActionResult(action: .createDraft, succeeded: 3, failures: [])
+        XCTAssertTrue(InventoryListView.failedItemIdsToRetry(result).isEmpty)
+    }
+
+    func test_isRetryable_excludesExportAndGrade() {
+        // Export can't fail and grade runs in its own sheet, so neither offers
+        // a retry; the server-backed actions all do.
+        XCTAssertFalse(InventoryListView.isRetryable(.exportCSV))
+        XCTAssertFalse(InventoryListView.isRetryable(.grade))
+        XCTAssertTrue(InventoryListView.isRetryable(.publish))
+        XCTAssertTrue(InventoryListView.isRetryable(.endListing))
+        XCTAssertTrue(InventoryListView.isRetryable(.dropPrice(percent: 10)))
+        XCTAssertTrue(InventoryListView.isRetryable(.markShipped))
+    }
+
     // MARK: - BulkSelectionStore
 
     func test_selectionStore_toggleEditing_clearsSelectionOnDisable() {

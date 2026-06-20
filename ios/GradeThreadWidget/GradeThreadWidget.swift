@@ -117,6 +117,10 @@ private struct SmallView: View {
             Spacer(minLength: 0)
             UpdatedFootnote(date: snapshot.generatedAt)
         }
+        // US-752: the small widget shows the sold-today + payout numbers, so a
+        // tap anywhere on it lands on the Money/Sales surface instead of just
+        // unlocking the app. systemSmall can carry only one widgetURL.
+        .widgetURL(WidgetDeepLink.money.url)
     }
 }
 
@@ -128,11 +132,17 @@ private struct MediumView: View {
         VStack(alignment: .leading, spacing: 10) {
             BrandHeader()
             HStack(alignment: .top, spacing: 16) {
-                Metric(
-                    label: "Active",
-                    value: "\(snapshot.activeListings)",
-                    detail: "listings"
-                )
+                // US-752: the medium widget can host per-region links, so the
+                // Active-listings metric drills into the Marketplaces hub while
+                // the rest of the widget (sold/payout) falls through to the
+                // container widgetURL → Money/Sales.
+                Link(destination: WidgetDeepLink.marketplaces.url) {
+                    Metric(
+                        label: "Active",
+                        value: "\(snapshot.activeListings)",
+                        detail: "listings"
+                    )
+                }
                 Divider()
                 Metric(
                     label: "Sold today",
@@ -151,6 +161,8 @@ private struct MediumView: View {
             Spacer(minLength: 0)
             UpdatedFootnote(date: snapshot.generatedAt)
         }
+        // Sold-today + payout (and any non-Active tap) → Money/Sales.
+        .widgetURL(WidgetDeepLink.money.url)
     }
 }
 

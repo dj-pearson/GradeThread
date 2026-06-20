@@ -78,6 +78,44 @@ final class DetailsIntakeTests: XCTestCase {
         XCTAssertEqual(IntakeFormState.titleRequiredHelp, "A title is required to save")
     }
 
+    // MARK: - US-754 inline validation
+
+    func test_titleValidationMessage_mirrorsMissingState() {
+        let form = IntakeFormState()
+        // Empty → the same copy the on-screen FieldError + VoiceOver use.
+        XCTAssertEqual(form.titleValidationMessage, IntakeFormState.titleRequiredHelp)
+        form.title = "Wool coat"
+        XCTAssertNil(form.titleValidationMessage, "message clears once a title is entered")
+        // Single source of truth: it tracks isTitleMissing exactly.
+        form.title = "   "
+        XCTAssertEqual(form.titleValidationMessage != nil, form.isTitleMissing)
+    }
+
+    func test_clampTitleToLimit_truncatesOverflowOnly() {
+        let form = IntakeFormState()
+        form.title = String(repeating: "a", count: IntakeFormState.titleLimit + 25)
+        form.clampTitleToLimit()
+        XCTAssertEqual(form.title.count, IntakeFormState.titleLimit)
+
+        // A normal-length title is left untouched (no fighting normal typing).
+        form.title = "Vintage Levi's 501"
+        form.clampTitleToLimit()
+        XCTAssertEqual(form.title, "Vintage Levi's 501")
+    }
+
+    func test_titleFeedback_levelsTrackLength() {
+        let form = IntakeFormState()
+        form.title = "short"
+        XCTAssertEqual(form.titleFeedback.level, .normal)
+        XCTAssertNil(form.titleFeedback.atLimitNote)
+
+        form.title = String(repeating: "a", count: IntakeFormState.titleLimit)
+        XCTAssertEqual(form.titleFeedback.level, .atLimit)
+        XCTAssertEqual(
+            form.titleFeedback.atLimitNote,
+            "Maximum \(IntakeFormState.titleLimit) characters")
+    }
+
     func test_resetForBatchAddAnother_preservesSourcingContext() {
         let form = IntakeFormState()
         // Fill everything.

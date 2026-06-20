@@ -66,8 +66,14 @@ struct SyncStatusBar: View {
                 foreground: Color.brandAmber
             )
         case .offline:
+            // US-755: reassure the user nothing's lost — their edits are saved
+            // locally and flush on reconnect. Name the pending count when there
+            // is one (and the row becomes tappable to inspect them).
+            let offlineLabel = status.pendingCount > 0
+                ? "Offline — \(status.pendingCount) change\(status.pendingCount == 1 ? "" : "s") saved locally"
+                : "Offline — changes saved locally"
             return Descriptor(
-                label: "Offline — changes will sync when you reconnect",
+                label: offlineLabel,
                 icon: AnyView(Image(systemName: "wifi.slash")),
                 background: Color.secondary.opacity(0.15),
                 foreground: .secondary
