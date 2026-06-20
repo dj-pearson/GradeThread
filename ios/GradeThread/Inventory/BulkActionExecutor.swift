@@ -85,6 +85,36 @@ public struct BulkActionExecutor {
         }
     }
 
+    /// US-813: moves one item to a new pipeline status with an optimistic local
+    /// write (kanban board "Move to…"). Mirrors the bulk ``updateStatus`` contract
+    /// for a single row: writes the new status locally first so the board
+    /// re-buckets immediately, then to the server; on failure it reverts the local
+    /// row and returns an error message for the caller to surface. Returns nil on
+    /// success. A no-op move (same/unknown target, per ``PipelineBoard/planMove``)
+    /// returns nil without a network call.
+    func moveStatus(_ item: LocalInventoryItem, to status: String) async -> String? {
+        guard let move = PipelineBoard.planMove(from: item.status, to: status) else { return nil }
+        struct StatusUpdate: Encodable { let status: String }
+
+        // Optimistic local apply first so the board reflects the move instantly.
+        let priorUpdatedAt = item.updatedAt
+        item.status = move.to
+        item.updatedAt = .now
+        do {
+            try await supabase
+                .from("inventory_items")
+                .update(StatusUpdate(status: move.to))
+                .eq("id", value: item.id)
+                .execute()
+            return nil
+        } catch {
+            // Revert the optimistic write on failure.
+            item.status = move.from
+            item.updatedAt = priorUpdatedAt
+            return error.localizedDescription
+        }
+    }
+
     /// Restores items to their prior status (US-644 undo) on the server +
     /// locally. Used to reverse a status-changing bulk action within the undo
     /// window.

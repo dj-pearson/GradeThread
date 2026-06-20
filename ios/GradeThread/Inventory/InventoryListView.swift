@@ -26,6 +26,9 @@ struct InventoryListView: View {
     @Environment(\.syncEngine) private var syncEngine
 
     @State private var selectedStage: InventoryStage = .all
+    /// US-813: list vs. kanban-board layout. The board ignores the stage tabs
+    /// (it shows every pipeline column) but still honors search + filters.
+    @State private var viewMode: InventoryViewMode = .list
     @State private var searchQuery: String = ""
     /// Debounced mirror of `searchQuery` (US-639) — the filter re-runs against
     /// this, not on every keystroke, so typing on a large inventory stays
@@ -108,13 +111,22 @@ struct InventoryListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            tabRow
+            // The board shows every pipeline column at once, so the per-stage tab
+            // bar would only confuse it — hide it in board mode.
+            if viewMode == .list {
+                tabRow
+            }
             ActiveFilterBar(criteria: $criteria, sourceNames: sourceNames)
-            list
+            if viewMode == .board {
+                board
+            } else {
+                list
+            }
         }
         .navigationTitle("Inventory")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            viewModeToolbarItem
             sortToolbarItem
             filterToolbarItem
             selectToolbarItem
@@ -441,6 +453,58 @@ struct InventoryListView: View {
         }
     }
 
+    // MARK: - Board (US-813)
+
+    /// Kanban board layout. Shows every pipeline column; tap a card to open the
+    /// canvas, long-press for "Move to…". Honors search + facet filters but not
+    /// the stage tabs (it renders all stages as columns).
+    private var board: some View {
+        InventoryBoardView(items: boardItems) { item, status in
+            await moveItem(item, to: status)
+        }
+    }
+
+    /// Search/criteria-filtered items across ALL stages, for the board. Routed
+    /// through the same memoized derivation as ``filteredItems`` (only one mode
+    /// renders at a time, so they don't thrash the single cache slot); the
+    /// `stage: .all` key keeps every pipeline status populated.
+    private var boardItems: [LocalInventoryItem] {
+        let key = InventoryDerivation.filterKey(
+            itemsSignature: itemsSignature,
+            stage: .all,
+            query: debouncedQuery,
+            sort: sortOption,
+            criteria: criteria,
+            soldDates: soldDates,
+            serverSearchIds: searchService.matchedItemIds
+        )
+        return derivation.filteredItems(key: key) {
+            InventoryFilter.apply(
+                allItems,
+                stage: .all,
+                search: debouncedQuery,
+                sort: sortOption,
+                criteria: criteria,
+                soldDates: soldDates,
+                serverSearchIds: searchService.matchedItemIds
+            )
+        }
+    }
+
+    /// Optimistic stage move from the board (US-813). The executor writes locally
+    /// first, pushes to the server, and reverts the local row on failure; here we
+    /// surface that failure via the existing error banner and a pull so a success
+    /// reconciles with the server.
+    private func moveItem(_ item: LocalInventoryItem, to status: String) async {
+        if let error = await executor.moveStatus(item, to: status) {
+            withAnimation { refreshError = "Move failed: \(error)" }
+            HapticFeedback.error()
+        } else {
+            HapticFeedback.success()
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        }
+    }
+
     private func handleDroppedImages(_ images: [UIImage]) {
         // US-636: compression now runs off-main; do the staging in a Task.
         Task {
@@ -537,12 +601,35 @@ struct InventoryListView: View {
 
     @ToolbarContentBuilder
     private var selectToolbarItem: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button(selection.isEditing ? "Done" : "Select") {
-                AppRouter.haptic()
-                selection.toggleEditing()
+        // Multi-select bulk actions live on the list; the board uses per-card
+        // "Move to…" instead, so the Select toggle is list-only.
+        if viewMode == .list {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(selection.isEditing ? "Done" : "Select") {
+                    AppRouter.haptic()
+                    selection.toggleEditing()
+                }
+                .font(.subheadline.weight(.semibold))
             }
-            .font(.subheadline.weight(.semibold))
+        }
+    }
+
+    /// US-813: list ↔ board layout toggle. Shows the icon of the mode it switches
+    /// TO so the affordance reads as an action.
+    @ToolbarContentBuilder
+    private var viewModeToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                AppRouter.haptic()
+                let next: InventoryViewMode = viewMode == .list ? .board : .list
+                // Leaving the list: drop any in-progress multi-selection so the
+                // board doesn't inherit a stale edit mode.
+                if next == .board, selection.isEditing { selection.toggleEditing() }
+                withAnimation { viewMode = next }
+            } label: {
+                Image(systemName: viewMode == .list ? InventoryViewMode.board.systemImage : InventoryViewMode.list.systemImage)
+                    .accessibilityLabel(viewMode == .list ? "Switch to board view" : "Switch to list view")
+            }
         }
     }
 
