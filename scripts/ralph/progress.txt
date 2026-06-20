@@ -3710,3 +3710,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  2:48:17 PM
 ---
+## US-804: iOS onboarding plan selection (post-signup paywall step)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  3:00:53 PM
+---

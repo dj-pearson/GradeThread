@@ -197,7 +197,7 @@
         "Unit tests cover the show-once gating logic; ios CI build + tests pass"
       ],
       "priority": 804,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Verified: PaywallView.swift + PaywallStore.swift + StoreKitService.swift exist and work; onboarding (Onboarding/OnboardingView.swift) has no plan step; no paywall prompt anywhere outside Settings."
     },
     {
