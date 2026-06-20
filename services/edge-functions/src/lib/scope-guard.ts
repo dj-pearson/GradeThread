@@ -57,9 +57,11 @@ async function fetchRoleScopes(): Promise<Partial<Record<UserRole, ScopeKey[]>>>
 }
 
 // Cached role→scopes map. Concurrent callers share one in-flight load.
-export async function getRoleScopes(): Promise<Partial<Record<UserRole, ScopeKey[]>>> {
+// Not `async` (it does no `await` — it manages raw promises for the shared
+// in-flight load), so `deno lint`'s require-await rule stays satisfied.
+export function getRoleScopes(): Promise<Partial<Record<UserRole, ScopeKey[]>>> {
   const now = Date.now();
-  if (cache && now - cache.loadedAt < CACHE_TTL_MS) return cache.map;
+  if (cache && now - cache.loadedAt < CACHE_TTL_MS) return Promise.resolve(cache.map);
   if (inFlight) return inFlight;
   inFlight = fetchRoleScopes()
     .then((map) => {
