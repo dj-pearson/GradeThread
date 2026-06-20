@@ -3630,3 +3630,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 10:57:20 AM
 ---
+## US-913: Email engagement tracking: open pixel + click redirect
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 11:08:24 AM
+---
