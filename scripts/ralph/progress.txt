@@ -3622,3 +3622,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 10:19:34 AM
 ---
+## US-915: Email deliverability hardening (SES config set, auth, warmup)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 10:36:24 AM
+---
