@@ -13,6 +13,10 @@ struct MoneyView: View {
 
     @Query(sort: \LocalSale.saleDate, order: .reverse) private var sales: [LocalSale]
     @Query private var items: [LocalInventoryItem]
+    // US-750: expenses now read from the SAME shared SwiftData cache as sales /
+    // listings (populated by the sync engine), instead of ExpenseStore making a
+    // separate RemoteExpense server fetch that could drift from the cache.
+    @Query(sort: \LocalExpense.spentOn, order: .reverse) private var expenses: [LocalExpense]
 
     private let currency = CurrencyFormatter()
 
@@ -20,7 +24,17 @@ struct MoneyView: View {
         MoneyRollup.compute(items: items, sales: sales, now: .now)
     }
     private var netProfit: Double {
-        metrics.grossProfitThisMonth - expenseStore.thisMonthTotal()
+        metrics.grossProfitThisMonth - expensesThisMonthTotal()
+    }
+
+    /// Sum of cached expenses dated in the current calendar month. Mirrors the
+    /// old `ExpenseStore.thisMonthTotal` but reads the shared cache so the figure
+    /// can't drift from the list shown below it.
+    private func expensesThisMonthTotal(now: Date = .now, calendar: Calendar = .current) -> Double {
+        guard let startOfMonth = calendar.date(
+            from: calendar.dateComponents([.year, .month], from: now)
+        ) else { return 0 }
+        return Money.sum(expenses.filter { $0.spentOn >= startOfMonth }) { $0.amount }
     }
 
     /// US-967: id→title lookup for the sales preview, memoized in `@State` and
@@ -79,10 +93,11 @@ struct MoneyView: View {
         .sheet(isPresented: $showingExport) {
             FinancialExportSheet()
         }
-        .task { await expenseStore.refresh() }
+        // US-750: pull-to-refresh fires the same full sync pull as Inventory /
+        // Sales, which repopulates the shared cache (sales + expenses). No
+        // separate ExpenseStore.refresh — the @Query reflects the cache.
         .refreshable {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-            await expenseStore.refresh()
         }
         .sheet(isPresented: $showingAddExpense) {
             ExpenseFormSheet(store: expenseStore)
@@ -156,7 +171,7 @@ struct MoneyView: View {
                 Label("Expenses", systemImage: "tray.and.arrow.down")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                Text("\(currency.formatDisplay(expenseStore.thisMonthTotal())) this month")
+                Text("\(currency.formatDisplay(expensesThisMonthTotal())) this month")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button {
@@ -174,39 +189,18 @@ struct MoneyView: View {
 
             Divider().padding(.leading, 14)
 
-            switch expenseStore.phase {
-            case .loading:
-                // US-656: shimmer skeleton rows instead of a bare spinner.
-                SkeletonRows(count: 3, showsLeadingBlock: false)
-            case .failed(let message):
-                // US-971: a failed expenses load gets an explicit retry instead
-                // of stranding the user on a dead message. `refresh()` flips the
-                // phase back to `.loading` (skeleton rows) and clears the error.
-                rowMessage {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(message).font(.footnote).foregroundStyle(.secondary)
-                        Button {
-                            Task { await expenseStore.refresh() }
-                        } label: {
-                            Label("Retry", systemImage: "arrow.clockwise")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .tint(Color.brandNavy)
-                    }
-                }
-            case .ready(let rows) where rows.isEmpty:
+            // US-750: read straight from the shared cache (instant + offline).
+            if expenses.isEmpty {
                 rowMessage {
                     Text("No expenses logged yet.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-            case .ready(let rows):
-                ForEach(Array(rows.prefix(5))) { expense in
+            } else {
+                ForEach(Array(expenses.prefix(5))) { expense in
                     ExpenseRow(expense: expense, currency: currency)
                         .contextMenu {
                             Button(role: .destructive) {
-                                Task { _ = await expenseStore.delete(expense, queueContext: modelContext) }
+                                Task { _ = await expenseStore.delete(id: expense.id, queueContext: modelContext) }
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -409,7 +403,7 @@ private struct MoneyStatTile: View {
 }
 
 private struct ExpenseRow: View {
-    let expense: RemoteExpense
+    let expense: LocalExpense
     let currency: CurrencyFormatter
 
     var body: some View {
@@ -421,11 +415,18 @@ private struct ExpenseRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(expense.categoryValue.label)
                     .font(.subheadline)
-                Text(expense.date, format: .dateTime.month().day().year())
+                Text(expense.spentOn, format: .dateTime.month().day().year())
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if expense.inventoryItemId != nil {
+                // US-750: signal this cost is attributed to a specific item.
+                Image(systemName: "link")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Linked to an item")
+            }
             Text("-\(currency.formatDisplay(expense.amount))")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)

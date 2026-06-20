@@ -18,7 +18,61 @@
 > (PR #91, merged). The CURRENT loop branch is
 > **`claude/prd-story-loop-continued-ghuqm5`**.
 
-### Session 2026-06-19 (on `claude/prd-story-loop-continued-ghuqm5`)
+### Session 2026-06-19 (on `claude/prd-story-loop-continued-ydaege`)
+- **US-751** iOS reconciliation link/create refreshes the cache. **Root cause:**
+  the item canvas reads `listings` (`LocalListing`), but iOS
+  `ReconciliationService.createItem`/`link` only flipped
+  `flipdesk_ebay_listings.matched_item_id` and never wrote a `listings` row — so
+  the canvas showed 0 listings (the **web** reconciliation DOES upsert a listings
+  row on create+link; iOS didn't). **Fix:** `ReconciliationService` now mirrors the
+  live eBay listing into `listings` on create (best-effort) AND link (failure →
+  `.failed`, retry-safe select-then-insert/update) via `upsertEbayListingRow` + a
+  pure, tested `ebayListingMirrorFields(from:)`. `ReconciliationView.applyOutcome`
+  now drops the orphan optimistically [AC2], `HapticFeedback.success()` confirms
+  it, then `await syncEngine.sync()` (fallback `.inventoryPullRequested`) lands the
+  `LocalListing` so the canvas shows it [AC1]. AC3 already met by the sheets' inline
+  error alerts; Create's redundant post removed (centralized). Test:
+  `ReconcileListingMirrorTests`. ⚠️ iOS UNVERIFIABLE here; `no-ungated-print` passed.
+  No migration (schema stays 00266). **NEXT iOS: US-752** (precise notification +
+  widget deep links).
+- **US-750** iOS single source of truth for Sales + Expenses — **EXPENSES half**
+  (Sales half shipped 2026-06-08). New **`LocalExpense`** `@Model` (registered in
+  `ModelStoreProvider.schema`) mirrors `flipdesk_expenses`; **SyncEngine** pulls it
+  (`RemoteExpenseRow` + `expenseColumns` incl. the new link cols +
+  `decodeExpensesResiliently`, ownerId-scoped) → **`SyncMergeActor.mergeExpenses`**
+  (delta upsert by id; date-only `spent_on` parse) → **`SyncWatermark .expenses`**
+  cursor (schemaVersion **2→3** forces a one-time backfill on existing installs).
+  **MoneyView** now reads `@Query<LocalExpense>` for the list + net-profit
+  (`expensesThisMonthTotal`), no `ExpenseStore.refresh` — single source,
+  offline-instant, no double-fetch. **`ExpenseStore.create/delete`** rewritten to
+  send a client-id row to the server (idempotent) AND mirror into the shared cache
+  (online + offline-queue), carrying optional `inventoryItemId`/`listingId`.
+  **ExpenseFormSheet** gained an optional "attribute to item" picker. **`LocalExpense`
+  added to BOTH `ContentView` sign-out + workspace-switch wipes** (tenant isolation).
+  AC3 link backed by **migration `00266`** (`flipdesk_expenses.inventory_item_id` +
+  `listing_id`, nullable FK `ON DELETE SET NULL`, partial indexes) — applied +
+  idempotent + FK-set-null verified on throwaway PG16; **`EXPECTED_SCHEMA_VERSION`
+  bumped 00265→00266 same commit**. Tests: `ExpenseSyncTests`. ⚠️ iOS UNVERIFIABLE
+  here (no macOS/xcodebuild); `no-ungated-print.py` passed. **Schema → 00266.**
+  **NEXT iOS story: US-751** (reconciliation link/create refreshes the local cache).
+- **US-749** iOS: surface the buried power modules. New **Tools hub**
+  (`ios/.../Tools/ToolsHubView.swift`) groups Scout/Snap/Prospect (nested sheets)
+  + AutoLister/Grades/Reconciliation/Reconcile-photo-dump/Referrals/Verified
+  (push), reachable from a stable **`ToolsButton`** (`square.grid.2x2`) on the
+  Home toolbar + iPad sidebar — **no change to the 5-tab spine** (AC4). **AC3:**
+  shell-level **`ReconcileBanner`** under `SyncStatusBar` surfaces the
+  unmatched-listing count on EVERY tab (`ReconcileBadgeStore` +
+  `ReconciliationService.countOrphans`, refreshed on appear/foreground; tap →
+  `ReconciliationView`). **AC2** was already met by existing bulk actions
+  (`.grade` "Send to grading" + `.createDraft` on the to-list stage —
+  `BulkActionTests`). New `router.showingToolsHub`/`showingReconciliation` flags.
+  Tests: `ReconcileBadgeStoreTests` (count / hide-on-zero / preserve-on-failure /
+  reset). ⚠️ **iOS UNVERIFIABLE here** — only `no-ungated-print.py` ran (passed);
+  pattern-fidelity + self-review only. XcodeGen globs the dir (no pbxproj edit).
+  **NEXT iOS story: US-750** (single source of truth for Sales+Expenses — retire
+  the Remote* shadow stores).
+
+### Prior session (on `claude/prd-story-loop-continued-ghuqm5`, merged via PR #92)
 - **US-1105** opt-in identity reveal — **Garment Passport epic (US-1089→1106) DONE.**
   Mig `00265` (`owner_nodes.identity_revealed` + `identity_revealed_at`, OFF by
   default). Pure double-opt-in gate `effectiveRevealedIdentity()` (per-hop consent
@@ -114,7 +168,7 @@ This run (on `claude/prd-story-loop-rzz40a`):
   passport.tsx (per-link tooltip + "Chain strength" card) + certificate.tsx.
   Frontend-only; vitest `passport-confidence.test.ts`.
 
-Schema version is at **`00264`** (`services/edge-functions/src/lib/schema-version.ts`).
+Schema version is at **`00266`** (`services/edge-functions/src/lib/schema-version.ts`).
 `prd.json.nextId` = **1109** (use it + bump for any NEW story; never `max(id)+1`).
 
 ## ⏭️ Next up (priority order)

@@ -1,9 +1,13 @@
+import SwiftData
 import SwiftUI
 
 /// Add-expense form presented from the Money tab. Writes through
 /// ``ExpenseStore`` (which carries `user_id` for the RLS INSERT).
 struct ExpenseFormSheet: View {
     let store: ExpenseStore
+    /// US-750: pre-select an item to attribute the cost to (e.g. opened from an
+    /// item canvas). nil = the general Money-tab path with a manual picker.
+    var presetInventoryItemId: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -12,10 +16,16 @@ struct ExpenseFormSheet: View {
     /// Save — we just reassure the user it'll sync on reconnect.
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
 
+    /// US-750: cached items for the optional "attribute to item" picker.
+    @Query(sort: \LocalInventoryItem.updatedAt, order: .reverse)
+    private var items: [LocalInventoryItem]
+
     @State private var category: ExpenseCategory = .shippingSupplies
     @State private var amountText: String = ""
     @State private var spentOn: Date = .now
     @State private var note: String = ""
+    /// US-750: optional inventory-item attribution (00266 link).
+    @State private var linkedItemId: String?
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -55,6 +65,22 @@ struct ExpenseFormSheet: View {
                     TextField("Optional", text: $note, axis: .vertical)
                         .lineLimit(1...3)
                 }
+                // US-750: optionally attribute this cost to one item so per-item
+                // P&L reflects it. Default "Not tied to an item" = general overhead.
+                Section {
+                    Picker("Item", selection: $linkedItemId) {
+                        Text("Not tied to an item").tag(String?.none)
+                        ForEach(items) { item in
+                            Text(item.title.isEmpty ? "Untitled item" : item.title)
+                                .tag(String?.some(item.id))
+                        }
+                    }
+                } header: {
+                    Text("Attribute to item")
+                } footer: {
+                    Text("Linking an expense to an item counts it against that item's profit. Leave unset for general business overhead.")
+                        .font(.footnote)
+                }
                 if NetworkMonitor.isOffline(networkMonitor) {
                     Section {
                         OfflineNotice(intent: .queued)
@@ -87,6 +113,12 @@ struct ExpenseFormSheet: View {
                     .disabled(parsedAmount == nil || isSaving)
                 }
             }
+            .onAppear {
+                // US-750: honor a preset attribution (e.g. opened from an item).
+                if linkedItemId == nil, let presetInventoryItemId {
+                    linkedItemId = presetInventoryItemId
+                }
+            }
         }
     }
 
@@ -103,6 +135,7 @@ struct ExpenseFormSheet: View {
             amount: amount,
             description: note,
             spentOn: spentOn,
+            inventoryItemId: linkedItemId,
             userId: user.id.uuidString,
             queueContext: modelContext
         )

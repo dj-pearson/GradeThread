@@ -1,0 +1,242 @@
+import SwiftUI
+
+/// US-749: a single, discoverable home for the power modules that were
+/// previously reachable only from a Dashboard button (Scout, Snap, Prospect),
+/// a Dashboard nav link (Grades), the Add sheet (AutoLister), buried in Settings
+/// (Referrals, Verified), or only inside Marketplaces (Reconcile).
+///
+/// Presented as a sheet from the shell toolbar (``MainShell``) so it's reachable
+/// from a stable surface on every tab without touching the 5-tab spine. Modules
+/// that own their own `NavigationStack` (Scout/Snap/Prospect) are presented as
+/// nested sheets; the rest push onto this hub's stack.
+struct ToolsHubView: View {
+    let router: AppRouter
+    /// Live orphan-listing count so the Reconcile row mirrors the shell banner.
+    var orphanCount: Int = 0
+
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    // Sheet-owning modules (each wraps its own NavigationStack).
+    @State private var showingScout = false
+    @State private var showingSnap = false
+    @State private var showingProspect = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                sourcingSection
+                captureSection
+                listGradeSection
+                reconcileSection
+                growSection
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Tools")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            // Push destinations for the non-sheet modules.
+            .navigationDestination(for: ToolRoute.self) { route in
+                destination(for: route)
+            }
+        }
+        .sheet(isPresented: $showingScout) { ScoutView() }
+        .sheet(isPresented: $showingSnap) { SnapView(router: router) }
+        .sheet(isPresented: $showingProspect) { ProspectView(router: router) }
+    }
+
+    // MARK: - Sections
+
+    private var sourcingSection: some View {
+        Section {
+            Button { present { showingScout = true } } label: {
+                ToolRow(
+                    icon: "binoculars",
+                    title: "Scout deals",
+                    subtitle: "Find underpriced eBay listings to flip"
+                )
+            }
+            .buttonStyle(.plain)
+            Button { present { showingProspect = true } } label: {
+                ToolRow(
+                    icon: "viewfinder.circle",
+                    title: "Prospect an item",
+                    subtitle: "Snap an item in-store, get instant comps"
+                )
+            }
+            .buttonStyle(.plain)
+        } header: {
+            Text("Sourcing")
+        }
+    }
+
+    private var captureSection: some View {
+        Section {
+            Button { present { showingSnap = true } } label: {
+                ToolRow(
+                    icon: "sparkles",
+                    title: "What's it worth?",
+                    subtitle: "Snap-to-Value — a free condition + price read"
+                )
+            }
+            .buttonStyle(.plain)
+        } header: {
+            Text("Capture & value")
+        }
+    }
+
+    private var listGradeSection: some View {
+        Section {
+            NavigationLink(value: ToolRoute.autoLister) {
+                ToolRow(
+                    icon: "wand.and.stars",
+                    title: "AutoLister",
+                    subtitle: "Batch photos → AI-drafted listings"
+                )
+            }
+            NavigationLink(value: ToolRoute.grades) {
+                ToolRow(
+                    icon: "checkmark.seal.fill",
+                    title: "Certified grades",
+                    subtitle: "Review every graded item in one place"
+                )
+            }
+        } header: {
+            Text("List & grade")
+        }
+    }
+
+    private var reconcileSection: some View {
+        Section {
+            NavigationLink(value: ToolRoute.reconciliation) {
+                ToolRow(
+                    icon: "arrow.left.arrow.right",
+                    title: "Reconciliation",
+                    subtitle: orphanCount > 0
+                        ? "\(orphanCount) unmatched eBay listing\(orphanCount == 1 ? "" : "s")"
+                        : "Match eBay listings to your inventory",
+                    badgeCount: orphanCount,
+                    tint: orphanCount > 0 ? .brandAmber : .brandNavy
+                )
+            }
+            NavigationLink(value: ToolRoute.reconcileIntake) {
+                ToolRow(
+                    icon: "rectangle.stack.badge.plus",
+                    title: "Reconcile photo dump",
+                    subtitle: "Send a batch of photos to a reconcile session"
+                )
+            }
+        } header: {
+            Text("Marketplace cleanup")
+        }
+    }
+
+    private var growSection: some View {
+        Section {
+            NavigationLink(value: ToolRoute.referrals) {
+                ToolRow(
+                    icon: "gift",
+                    title: "Referrals",
+                    subtitle: "Invite resellers, earn credit"
+                )
+            }
+            NavigationLink(value: ToolRoute.verified) {
+                ToolRow(
+                    icon: "checkmark.shield",
+                    title: "Verified seller",
+                    subtitle: "Claim your public handle + trust badge"
+                )
+            }
+        } header: {
+            Text("Grow your shop")
+        }
+    }
+
+    // MARK: - Push destinations
+
+    @ViewBuilder
+    private func destination(for route: ToolRoute) -> some View {
+        switch route {
+        case .autoLister:
+            AutoListerView()
+        case .grades:
+            GradesListView()
+        case .reconciliation:
+            ReconciliationView()
+        case .reconcileIntake:
+            ReconcileIntakeView(ownerId: WorkspaceScope.tenantOwnerId(selfId: currentUserId() ?? ""))
+        case .referrals:
+            ReferralsView()
+        case .verified:
+            VerifiedView()
+        }
+    }
+
+    /// Fire a haptic, then flip the module's presentation flag. The module sheet
+    /// stacks over the hub (SwiftUI sheet-on-sheet); dismissing returns here.
+    private func present(_ action: () -> Void) {
+        AppRouter.haptic()
+        action()
+    }
+
+    private func currentUserId() -> String? {
+        if case let .signedIn(user) = authStore.phase {
+            return user.id.uuidString
+        }
+        return nil
+    }
+}
+
+/// Value-based routes for the hub's push destinations.
+private enum ToolRoute: Hashable {
+    case autoLister
+    case grades
+    case reconciliation
+    case reconcileIntake
+    case referrals
+    case verified
+}
+
+/// One row in the Tools hub. Mirrors the icon/title/subtitle/chevron card rows
+/// used across Marketplaces + Dashboard, adapted for a `List`.
+private struct ToolRow: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    var badgeCount: Int = 0
+    var tint: Color = .brandNavy
+
+    var body: some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(tint)
+                .frame(width: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            if badgeCount > 0 {
+                Text("\(badgeCount)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Color.brandAmber, in: Capsule())
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}

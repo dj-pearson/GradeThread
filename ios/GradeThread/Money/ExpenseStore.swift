@@ -54,102 +54,131 @@ final class ExpenseStore {
         }
     }
 
-    /// Inserts a new expense, then optimistically refreshes. A true network
-    /// failure (US-982) queues a `createExpense` mutation for replay and mirrors
-    /// the row locally so it shows immediately; an app-level rejection surfaces.
+    /// Inserts a new expense and mirrors it into the shared SwiftData cache so
+    /// the Money tab's `@Query<LocalExpense>` updates immediately (US-750) — no
+    /// separate server re-fetch. A true network failure (US-982) queues a
+    /// `createExpense` mutation for replay; an app-level rejection surfaces.
+    ///
+    /// `inventoryItemId` / `listingId` are the optional 00266 attribution links
+    /// (nil = general overhead). A client-generated `id` is sent so a queued
+    /// replay upserts idempotently and the local mirror matches the server row.
     func create(
         category: ExpenseCategory,
         amount: Double,
         description: String?,
         spentOn: Date,
+        inventoryItemId: String? = nil,
+        listingId: String? = nil,
         userId: String,
         queueContext: ModelContext
     ) async -> WriteResult {
         struct Insert: Encodable {
+            let id: String
             let user_id: String
             let category: String
             let description: String?
             let amount: Double
             let spent_on: String
+            let inventory_item_id: String?
+            let listing_id: String?
         }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd"
 
+        let id = UUID().uuidString
         let cleanDescription = description?.isEmpty == true ? nil : description
         let spentOnString = formatter.string(from: spentOn)
         let row = Insert(
+            id: id,
             user_id: userId,
             category: category.rawValue,
             description: cleanDescription,
             amount: amount,
-            spent_on: spentOnString
+            spent_on: spentOnString,
+            inventory_item_id: inventoryItemId,
+            listing_id: listingId
         )
         do {
             try await SupabaseShared.client
                 .from("flipdesk_expenses")
                 .insert(row)
                 .execute()
-            await refresh()
+            mirrorCreated(
+                id: id, category: category.rawValue, description: cleanDescription,
+                amount: amount, spentOn: spentOn, inventoryItemId: inventoryItemId,
+                listingId: listingId, queueContext: queueContext
+            )
             return .saved
         } catch {
             // US-982: queue genuine connectivity failures; surface real rejections.
             guard OfflineMutationQueue.shouldQueue(error) else {
                 return .failed(error.localizedDescription)
             }
-            let id = OfflineMutationQueue.enqueueCreate(
+            _ = OfflineMutationQueue.enqueueCreate(
                 kind: .createExpense, payload: row, in: queueContext
-            ) ?? UUID().uuidString
+            )
             mirrorCreated(
                 id: id, category: category.rawValue, description: cleanDescription,
-                amount: amount, spentOn: spentOnString
+                amount: amount, spentOn: spentOn, inventoryItemId: inventoryItemId,
+                listingId: listingId, queueContext: queueContext
             )
             return .savedOffline
         }
     }
 
-    func delete(_ expense: RemoteExpense, queueContext: ModelContext) async -> WriteResult {
+    func delete(id: String, queueContext: ModelContext) async -> WriteResult {
         do {
             try await SupabaseShared.client
                 .from("flipdesk_expenses")
                 .delete()
-                .eq("id", value: expense.id)
+                .eq("id", value: id)
                 .execute()
-            // Drop locally so the list updates without a round-trip.
-            removeLocally(expense)
+            removeLocally(id: id, in: queueContext)
             return .saved
         } catch {
             guard OfflineMutationQueue.shouldQueue(error) else {
                 return .failed(error.localizedDescription)
             }
             OfflineMutationQueue.enqueueDelete(
-                kind: .deleteExpense, targetId: expense.id, in: queueContext
+                kind: .deleteExpense, targetId: id, in: queueContext
             )
-            removeLocally(expense)  // optimistic — the queued delete replays on reconnect
+            removeLocally(id: id, in: queueContext)  // optimistic — replays on reconnect
             return .savedOffline
         }
     }
 
-    /// Optimistically inserts an offline-created expense into the loaded list so
-    /// it appears immediately, keeping the server's newest-first `spent_on` order.
+    /// Inserts the new expense into the shared SwiftData cache (idempotent by id)
+    /// so it appears immediately and the next sync reconciles it server-side.
     private func mirrorCreated(
-        id: String, category: String, description: String?, amount: Double, spentOn: String
+        id: String, category: String, description: String?, amount: Double,
+        spentOn: Date, inventoryItemId: String?, listingId: String?,
+        queueContext: ModelContext
     ) {
-        let expense = RemoteExpense(
-            id: id, category: category, description: description, amount: amount, spentOn: spentOn
-        )
-        var rows = expenses
-        rows.append(expense)
-        // `spent_on` is "yyyy-MM-dd", so a lexical sort is chronological.
-        rows.sort { $0.spentOn > $1.spentOn }
-        phase = .ready(rows)
+        let predicate = #Predicate<LocalExpense> { $0.id == id }
+        if let existing = try? queueContext.fetch(FetchDescriptor<LocalExpense>(predicate: predicate)).first {
+            existing.category = category
+            existing.amount = amount
+            existing.spentOn = spentOn
+            existing.expenseDescription = description
+            existing.inventoryItemId = inventoryItemId
+            existing.listingId = listingId
+        } else {
+            queueContext.insert(LocalExpense(
+                id: id, category: category, amount: amount, spentOn: spentOn,
+                expenseDescription: description, inventoryItemId: inventoryItemId,
+                listingId: listingId
+            ))
+        }
+        try? queueContext.save()
     }
 
-    private func removeLocally(_ expense: RemoteExpense) {
-        if case var .ready(rows) = phase {
-            rows.removeAll { $0.id == expense.id }
-            phase = .ready(rows)
+    private func removeLocally(id: String, in queueContext: ModelContext) {
+        let predicate = #Predicate<LocalExpense> { $0.id == id }
+        if let row = try? queueContext.fetch(FetchDescriptor<LocalExpense>(predicate: predicate)).first {
+            queueContext.delete(row)
+            try? queueContext.save()
         }
     }
 

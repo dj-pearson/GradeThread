@@ -5,6 +5,9 @@ import SwiftUI
 /// MarketplacesView when the orphan count is > 0.
 struct ReconciliationView: View {
     @Environment(AuthStore.self) private var authStore
+    /// US-751: refresh the shared cache after a link/create so the item's canvas
+    /// shows the now-mirrored listing (the merge lands the LocalListing row).
+    @Environment(\.syncEngine) private var syncEngine
     @State private var store = ReconciliationStore()
     @State private var creating: OrphanEbayListing?
     @State private var linking: OrphanEbayListing?
@@ -201,16 +204,28 @@ struct ReconciliationView: View {
     }
 
     private func applyOutcome(_ outcome: ReconciliationOutcome) async {
-        // The Create + Link sheets each return an outcome already
-        // applied server-side. We just remove the row from the local
-        // view if successful; failed outcomes stay so the user can
-        // retry.
+        // The Create + Link sheets each return an outcome already applied
+        // server-side (and they surface their own failures inline), so we only
+        // see successes here. Failed outcomes never reach this path.
         guard outcome.isSuccess else { return }
+        // 1. Optimistically drop the resolved orphan from the queue (AC2) — no
+        //    full manual re-sync needed for the list to update.
         switch store.phase {
         case .ready(let orphans):
             store.phase = .ready(orphans: orphans.filter { $0.id != outcome.orphanId })
         default:
             break
+        }
+        // 2. Confirm the action worked (the row vanishing + a success haptic).
+        HapticFeedback.success()
+        // 3. Targeted cache refresh (AC1): pull the now-linked item + its mirrored
+        //    listing into the shared SwiftData cache so the item's canvas shows
+        //    the listing instead of a dead-end "0 listings". Prefer the awaitable
+        //    engine; fall back to the notification channel if it isn't wired yet.
+        if let syncEngine {
+            await syncEngine.sync()
+        } else {
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
         }
     }
 
