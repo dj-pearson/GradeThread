@@ -10,6 +10,7 @@ import {
   sendWelcomeEmail,
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { emitEvent } from "../lib/user-events.ts";
 import { verifyUnsubscribeToken } from "../lib/unsubscribe.ts";
 
 // Insert an in-app notification (service role bypasses RLS). Best-effort.
@@ -610,6 +611,9 @@ notificationRoutes.post("/trial-check", async (c) => {
 
   for (const u of expired ?? []) {
     void captureServer(u.id, "trial.expired_to_free", {});
+    // US-932: internal event stream (drip substrate) — drives the post-trial
+    // win-back trigger. Not an activity event, so it does not touch last_active_at.
+    void emitEvent(u.id, "trial_expired", {});
   }
 
   const expiredCount = expired?.length ?? 0;

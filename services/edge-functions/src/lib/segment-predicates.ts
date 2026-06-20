@@ -50,6 +50,10 @@ export const SEGMENT_USER_FIELDS: Record<string, FieldDef> = {
   created_at: { kind: "date" },
   onboarded_at: { kind: "date_nullable" },
   trial_ends_at: { kind: "date_nullable" },
+  // US-932: cheap activity-recency signal maintained by lib/user-events.ts from
+  // the internal behavioral event stream (app_open/grade/listing/sale). Lets
+  // inactivity segments + drip triggers read recency without joining events.
+  last_active_at: { kind: "date_nullable" },
 };
 
 export const OPS_BY_KIND: Record<FieldKind, string[]> = {

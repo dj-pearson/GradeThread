@@ -18,6 +18,7 @@ import {
   sendSubscriptionRenewalReceiptEmail,
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { emitEvent } from "../lib/user-events.ts";
 import { recordMetric } from "../lib/observability.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
 import { getPlanMatrix } from "../lib/pricing-config.ts";
@@ -573,6 +574,13 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     user.subscription_status === "trialing"
   ) {
     void captureServer(user.id, "trial.converted", { to_plan: plan, interval });
+  }
+
+  // US-932: record subscription creation to the internal event stream (drip
+  // trigger substrate) so a conversion exit-condition can fire off it. Emitted
+  // for ALL subscription.created (trial conversion or fresh paid). Fire-and-forget.
+  if (event.type === "customer.subscription.created") {
+    void emitEvent(user.id, "subscription_created", { properties: { plan, interval } });
   }
 
   // US-937: attribute this conversion to the trial-conversion drip step/email

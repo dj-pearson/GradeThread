@@ -96,8 +96,8 @@ export interface TriggerSnapshot {
  */
 export const TRIGGER_FIELDS: Record<string, FieldDef> = {
   ...SEGMENT_USER_FIELDS,
+  // last_active_at now lives in SEGMENT_USER_FIELDS (US-932), inherited above.
   converted: { kind: "bool" },
-  last_active_at: { kind: "date_nullable" },
   grades_count: { kind: "number" },
 };
 

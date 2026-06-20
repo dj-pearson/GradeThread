@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isProduction } from "../lib/env.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { emitEvent } from "../lib/user-events.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 import { appstoreSubscriptionBlocksStripe } from "../lib/appstore/precedence.ts";
@@ -439,6 +440,11 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
     // can't block a legitimate distinct purchase the way it would for packs).
     const session = await stripe.checkout.sessions.create(sessionParams, {
       idempotencyKey: `flipdesk-subscribe:${userId}:${plan}:${interval}`,
+    });
+    // US-932: record checkout intent to the internal event stream (drip trigger
+    // substrate) — drives a "started but didn't convert" nudge. Fire-and-forget.
+    void emitEvent(userId, "checkout_started", {
+      properties: { kind: "subscribe", plan, interval },
     });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {

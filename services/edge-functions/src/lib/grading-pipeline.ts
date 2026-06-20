@@ -33,6 +33,7 @@ import {
 import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { withImageBufferSlot } from "./grading-capacity.ts";
 import { captureServer } from "./posthog.ts";
+import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import {
   notifyGradingFailed,
@@ -1357,6 +1358,19 @@ export async function processSubmission(submissionId: string) {
     if (reportError || !gradeReport) {
       console.error("[Pipeline] Failed to create grade report:", reportError);
       throw new Error("Failed to create grade report record");
+    }
+
+    // US-932: record the completed grade to the internal event stream (the drip
+    // trigger substrate), alongside the existing PostHog captures. Fire-and-forget
+    // — never blocks/fails a paid grade. first_grade is once-per-user (idempotent
+    // via dedupe_key) so an activation trigger fires exactly once.
+    if (submission.user_id) {
+      void emitEvent(submission.user_id, "grade_completed", {
+        properties: { grade_report_id: gradeReport.id, overall_score: compositeResult.overall_score },
+      });
+      void emitEvent(submission.user_id, "first_grade", {
+        dedupeKey: firstOccurrenceKey("first_grade", submission.user_id),
+      });
     }
 
     // US-1091: seed this certificate's single-hop Garment Passport (garment +

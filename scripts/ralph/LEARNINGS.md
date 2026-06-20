@@ -311,6 +311,13 @@ memory — not a progress log (the harness records progress separately).
   edge `ebayPublicPhotoUrl` helper in `flipdesk-ebay.ts` mirrors the sensitive
   set so private photos are skipped (not turned into a 404 item-photos URL).
 
+## DB schema ownership gotchas
+- `grade_reports` has NO `user_id` column — ownership flows through
+  `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A
+  migration/backfill that does `grade_reports.user_id` fails with `column
+  gr.user_id does not exist`; JOIN submissions instead. (`listings`/`sales` DID
+  gain `user_id` in 00146, so those are fine to scope directly.)
+
 ## prd.json / Ralph workflow
 - Never read or edit `prd.json` from inside an iteration — the harness selects
   the story (`current-story.json`) and flips `passes:true` for you.

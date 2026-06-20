@@ -77,6 +77,7 @@ import {
   type EligibleEnrichment,
 } from "../lib/negotiation-enrich.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
+import { emitEvent, firstOccurrenceKey } from "../lib/user-events.ts";
 import { autoEndCrossListings } from "../lib/cross-listings.ts";
 import { recordEbaySale } from "../lib/passport-sale.ts";
 import {
@@ -2248,6 +2249,10 @@ async function doListingsPull(
                 itemTitle: li.title,
                 price: itemCost,
                 itemId,
+              });
+              // US-932: feed the internal event stream (drip trigger substrate).
+              void emitEvent(userId, "sale_recorded", {
+                properties: { inventory_item_id: itemId, sale_price: itemCost },
               });
               // US-1100: capture "who it sold to" on the Garment Passport —
               // a 'sold' event + a pseudonymous sold-to node keyed by a salted
@@ -4840,6 +4845,16 @@ export async function publishItemForOwner(
       },
     });
 
+    // US-932: the listing is live → record it to the internal event stream (the
+    // drip trigger substrate), alongside existing analytics. Fire-and-forget;
+    // first_listing is once-per-user (idempotent via dedupe_key).
+    void emitEvent(ownerId, "listing_published", {
+      properties: { listing_id: listingId, sku },
+    });
+    void emitEvent(ownerId, "first_listing", {
+      dedupeKey: firstOccurrenceKey("first_listing", ownerId),
+    });
+
     // US-561: attach an eBay Promoted Listings ad at the resolved rate (the
     // seller's accepted/adjusted rate, or the category suggestion) unless they
     // opted out. BEST-EFFORT — the listing is already live, so a Marketing API
@@ -5133,6 +5148,14 @@ async function publishVariationListing(args: {
           `failed — recorded reconcile marker; pull-sync will adopt it`,
       );
     },
+  });
+
+  // US-932: variation group is live → internal event stream (drip substrate).
+  void emitEvent(ownerId, "listing_published", {
+    properties: { listing_id: listingId, sku: baseSku },
+  });
+  void emitEvent(ownerId, "first_listing", {
+    dedupeKey: firstOccurrenceKey("first_listing", ownerId),
   });
 
   if (ctx.summary.promotedAdRate != null && ctx.summary.promotedAdRate > 0) {

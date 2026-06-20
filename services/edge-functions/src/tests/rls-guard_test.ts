@@ -168,6 +168,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // read key. (drip_sends has no user_id, so it isn't auto-discovered.)
   "drip_enrollments",
   "drip_attributions",
+  // US-932: internal behavioral event stream (migration 00277). RLS enabled with
+  // an explicit `revoke all from anon, authenticated` and zero policies by design
+  // — written + read ONLY by the edge via the service-role client
+  // (lib/user-events.ts); the SPA never touches it. user_id is the acting tenant,
+  // not a client read key (this is analytics, not user-facing content).
+  "user_events",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
