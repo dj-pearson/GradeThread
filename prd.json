@@ -3090,8 +3090,8 @@
         "Mobile nav (hamburger/sheet) includes the same links; build + tsc + eslint clean"
       ],
       "priority": 1099,
-      "passes": false,
-      "notes": "[P1][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] From platform-wide audit. marketing-layout.tsx header (~L73-86) only links 4 pages; footer (~L125-150) misses /verified, /leaderboard, /whats-it-worth, and /buyer-guarantee (only reachable via /about today). These are trust/SEO assets reachable only by direct URL. Verify exact line numbers when implementing.",
+      "passes": true,
+      "notes": "[P1][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] From platform-wide audit. marketing-layout.tsx header (~L73-86) only links 4 pages; footer (~L125-150) misses /verified, /leaderboard, /whats-it-worth, and /buyer-guarantee (only reachable via /about today). These are trust/SEO assets reachable only by direct URL. Verify exact line numbers when implementing. [DONE 2026-06-20] Promoted /whats-it-worth into the marketing header nav; restructured the footer into grouped Product/Sellers/Trust columns (FooterColumn/FooterLink helpers) linking /verified, /leaderboard, /buyer-guarantee + existing trust pages. All targets already in PUBLIC_ROUTES. No marketing hamburger exists (landing+layout both rely on the responsive footer on mobile, which now carries every link). tsc/eslint/build/prerender clean.",
       "relevantPaths": [
         "src/components/marketing/marketing-layout.tsx",
         "src/lib/seo/public-routes.ts",
@@ -3130,8 +3130,8 @@
         "build + tsc + eslint clean"
       ],
       "priority": 1097,
-      "passes": false,
-      "notes": "[P1][Web/Conversion][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: certificate.tsx has passport/share/badge/buyer-guarantee links but ZERO grade-your-own or list-on-flipdesk CTA (grep confirmed). CrossSurfaceNudge currently imported only by submission-detail.tsx and flipdesk/item.tsx — extend its use here. Relates to done US-1075 (cross-surface activation) but that did not cover the public certificate page.",
+      "passes": true,
+      "notes": "[P1][Web/Conversion][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: certificate.tsx has passport/share/badge/buyer-guarantee links but ZERO grade-your-own or list-on-flipdesk CTA (grep confirmed). CrossSurfaceNudge currently imported only by submission-detail.tsx and flipdesk/item.tsx — extend its use here. Relates to done US-1075 (cross-surface activation) but that did not cover the public certificate page. [DONE 2026-06-20] Added two CrossSurfaceNudge instances near the certificate footer: cert-grade-your-own (buyer → /whats-it-worth) and cert-list-on-flipdesk (seller → /for-resellers). crossSurfacePromosEnabled defaults true so anonymous visitors see them; dismissable + measurable via track(). tsc/eslint/build/cross-surface tests clean.",
       "relevantPaths": [
         "src/pages/certificate.tsx",
         "src/components/cross-surface/cross-surface-nudge.tsx"
@@ -3320,8 +3320,8 @@
         "Nav labels match the canonical feature names; build + tsc + eslint clean"
       ],
       "priority": 1086,
-      "passes": false,
-      "notes": "[P2][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] sidebar.tsx navGroups (L79-163) omit several existing routes (autolister queue/bulk-edit, marketplaces/google, submissions/bulk). Bulk submission is currently undiscoverable.",
+      "passes": true,
+      "notes": "[P2][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] sidebar.tsx navGroups (L79-163) omit several existing routes (autolister queue/bulk-edit, marketplaces/google, submissions/bulk). Bulk submission is currently undiscoverable. [DONE 2026-06-20] Audited every /dashboard route vs sidebar. No genuine orphans: the four flagged routes (submissions/bulk, autolister/queue, autolister/bulk-edit, marketplaces/google) are all reachable contextually from their parent pages (verified via grep); queue/bulk-edit are ?batch-scoped so a global nav link would be wrong. Documented the nav contract (contextual sub-flows, account-hub deep-links, legacy redirect aliases) in a comment block above navGroups in sidebar.tsx. No redundant nav items added.",
       "relevantPaths": [
         "src/components/dashboard/sidebar.tsx",
         "src/routes/index.tsx"
@@ -3523,8 +3523,8 @@
         "No code change required beyond the doc unless a wired-but-unsurfaced feature is found, in which case file a follow-up"
       ],
       "priority": 1075,
-      "passes": false,
-      "notes": "[P2][Docs/Honesty][EPIC: Web↔iOS Gaps & Polish 2026-06-20] FLIPDESK_RESELLER_GAPS.md (2026-06-12) lists shipped features as out-of-scope: flipdesk-ebay.ts now registers /negotiation/offers, /negotiation/send-offer, /returns/:id/decide|refund, /cancellations/:id/approve|reject; ebay-marketing.ts has real rate push; offers.tsx + post-sale.tsx routed. CLAUDE.md treats this doc as the honesty contract.",
+      "passes": true,
+      "notes": "[P2][Docs/Honesty][EPIC: Web↔iOS Gaps & Polish 2026-06-20] FLIPDESK_RESELLER_GAPS.md (2026-06-12) lists shipped features as out-of-scope: flipdesk-ebay.ts now registers /negotiation/offers, /negotiation/send-offer, /returns/:id/decide|refund, /cancellations/:id/approve|reject; ebay-marketing.ts has real rate push; offers.tsx + post-sale.tsx routed. CLAUDE.md treats this doc as the honesty contract. [DONE 2026-06-20] Re-baselined FLIPDESK_RESELLER_GAPS.md: verified gaps #1-5 (Best Offer respond, returns/cancellations+disputes, buyer messages, send-offer, Promoted rate push) all shipped (US-561/US-673; /negotiation/*, /returns/*, /cancellations/*, /messages/*, ebay-marketing.ts) with file refs; only #6 combined-shipping/order-discounts remains deferred. Captured the nuance that the automation set_promo_rate_pct action is still local-only (flipdesk-automations.ts ~L288) so the automations.tsx inline note stays accurate — left that copy unchanged.",
       "relevantPaths": [
         "FLIPDESK_RESELLER_GAPS.md",
         "services/edge-functions/src/routes/flipdesk-ebay.ts",

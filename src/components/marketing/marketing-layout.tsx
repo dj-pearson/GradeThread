@@ -83,6 +83,10 @@ export function MarketingLayout({
           <Link to="/condition-grading" className="hover:text-foreground">
             Condition Grading
           </Link>
+          {/* US-1109: top-of-funnel lead magnet, promoted into the primary nav. */}
+          <Link to="/whats-it-worth" className="hover:text-foreground">
+            What's It Worth?
+          </Link>
         </nav>
         <div className="flex items-center gap-3">
           <Link to="/login">
@@ -113,7 +117,11 @@ export function MarketingLayout({
       {/* Footer — matches the landing page */}
       <footer className="border-t px-6 py-10 lg:px-12">
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          {/* US-1109: grouped footer so every public surface is discoverable —
+              the trust/social-proof pages (Verified, Leaderboard, Buyer
+              Guarantee, What's It Worth) were previously reachable only by
+              direct URL. */}
+          <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
             <Image
               src="/logo_primary.png"
               alt="GradeThread"
@@ -121,34 +129,28 @@ export function MarketingLayout({
               height={24}
               className="h-6 w-auto"
             />
-            <nav className="flex flex-wrap gap-4 text-sm text-muted-foreground sm:gap-6">
-              <Link to="/how-it-works" className="hover:text-foreground">
-                How It Works
-              </Link>
-              <Link to="/pricing" className="hover:text-foreground">
-                Pricing
-              </Link>
-              <Link to="/for-resellers" className="hover:text-foreground">
-                For Resellers
-              </Link>
-              <Link to="/condition-grading" className="hover:text-foreground">
-                Condition Grading
-              </Link>
-              <Link to="/faq" className="hover:text-foreground">
-                FAQ
-              </Link>
-              <Link to="/transparency" className="hover:text-foreground">
-                Transparency
-              </Link>
-              {/* US-593: buyer-facing verify entry point, not just seller pages. */}
-              <Link to="/verify" className="hover:text-foreground">
-                Verify a Grade
-              </Link>
-              {/* US-1106: buyer-facing "scan before you buy" passport lookup. */}
-              <Link to="/scan" className="hover:text-foreground">
-                Scan a Passport
-              </Link>
-            </nav>
+            <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
+              <FooterColumn title="Product">
+                <FooterLink to="/how-it-works">How It Works</FooterLink>
+                <FooterLink to="/pricing">Pricing</FooterLink>
+                <FooterLink to="/for-resellers">For Resellers</FooterLink>
+                <FooterLink to="/condition-grading">Condition Grading</FooterLink>
+              </FooterColumn>
+              <FooterColumn title="Sellers">
+                <FooterLink to="/whats-it-worth">What's It Worth?</FooterLink>
+                <FooterLink to="/verified">Verified Directory</FooterLink>
+                <FooterLink to="/leaderboard">Top Referrers</FooterLink>
+                <FooterLink to="/faq">FAQ</FooterLink>
+              </FooterColumn>
+              <FooterColumn title="Trust">
+                {/* US-593: buyer-facing verify entry point, not just seller pages. */}
+                <FooterLink to="/verify">Verify a Grade</FooterLink>
+                {/* US-1106: buyer-facing "scan before you buy" passport lookup. */}
+                <FooterLink to="/scan">Scan a Passport</FooterLink>
+                <FooterLink to="/buyer-guarantee">Buyer Guarantee</FooterLink>
+                <FooterLink to="/transparency">Transparency</FooterLink>
+              </FooterColumn>
+            </div>
           </div>
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
             <nav className="flex flex-wrap gap-4 text-xs text-muted-foreground sm:gap-6">
@@ -191,6 +193,35 @@ export function MarketingLayout({
         </div>
       </footer>
     </div>
+  );
+}
+
+// US-1109: small footer building blocks so the grouped link columns stay
+// consistent (label + vertical list) without repeating markup per column.
+function FooterColumn({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+        {title}
+      </p>
+      <nav className="flex flex-col gap-2 text-sm text-muted-foreground">
+        {children}
+      </nav>
+    </div>
+  );
+}
+
+function FooterLink({ to, children }: { to: string; children: React.ReactNode }) {
+  return (
+    <Link to={to} className="hover:text-foreground">
+      {children}
+    </Link>
   );
 }
 
