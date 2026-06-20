@@ -548,6 +548,12 @@ memory — not a progress log (the harness records progress separately).
   column and an all-nil body is a no-op. To clear/restore a column to NULL, give
   the payload a custom `encode(to:)` that `encodeNil(forKey:)` for that field
   (see `SourceStore.setArchived`/`updateSource`, US-814).
+- Money-tab financial analytics (US-812: inventory-aging, time-on-market,
+  cash-flow, per-item P&L) live in PURE `Money/MoneyAnalyticsRollup.swift`
+  (unit-tested, no view math); ROI-by-source reuses `SourceROIRollup` (shared
+  with `AnalyticsView`). The Money tab and the Home→Analytics tab are SEPARATE
+  surfaces that both render rollups over the same `@Query` arrays — extend the
+  rollup, don't duplicate the arithmetic in a view.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

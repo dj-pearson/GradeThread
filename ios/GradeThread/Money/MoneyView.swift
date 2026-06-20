@@ -17,6 +17,8 @@ struct MoneyView: View {
     // listings (populated by the sync engine), instead of ExpenseStore making a
     // separate RemoteExpense server fetch that could drift from the cache.
     @Query(sort: \LocalExpense.spentOn, order: .reverse) private var expenses: [LocalExpense]
+    // US-812: acquisition sources back the ROI-by-source panel.
+    @Query private var sources: [LocalSource]
 
     private let currency = CurrencyFormatter()
 
@@ -25,6 +27,27 @@ struct MoneyView: View {
     }
     private var netProfit: Double {
         metrics.grossProfitThisMonth - expensesThisMonthTotal()
+    }
+
+    // US-812: web `/finances`-parity analytics, all pure rollups over the local
+    // cache so the Money tab matches the dashboard figure-for-figure.
+    private var agingBrackets: [AgingBracket] {
+        MoneyAnalyticsRollup.inventoryAging(items: items, now: .now)
+    }
+    private var timeOnMarket: TimeOnMarketStats {
+        MoneyAnalyticsRollup.timeOnMarket(items: items, sales: sales, now: .now)
+    }
+    private var cashFlow: [CashFlowMonth] {
+        MoneyAnalyticsRollup.cashFlow(items: items, sales: sales, expenses: expenses, now: .now)
+    }
+    /// ROI grouped by acquisition source (all-time — a source's payback is a
+    /// lifetime question). Reuses the rollup that powers the Analytics tab.
+    private var sourceROI: [SourceROIRow] {
+        SourceROIRollup.bySource(items: items, sales: sales, sources: sources)
+    }
+    /// Count of completed sales — gates the per-item P&L navigation link.
+    private var soldCount: Int {
+        sales.lazy.filter { SalePnL.isCompleted($0) }.count
     }
 
     /// Sum of cached expenses dated in the current calendar month. Mirrors the
@@ -61,6 +84,37 @@ struct MoneyView: View {
         Dictionary(items.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
     }
 
+    // US-812: chart helpers.
+
+    /// Flatten one cash-flow month into the three plotted series (long format
+    /// for grouped/positioned ``BarMark``s).
+    static func cashFlowSeries(_ month: CashFlowMonth) -> [CashFlowSeriesPoint] {
+        [
+            CashFlowSeriesPoint(id: "\(month.id)-rev", kind: "Revenue", amount: month.revenue),
+            CashFlowSeriesPoint(id: "\(month.id)-exp", kind: "Expenses", amount: month.expenses),
+            CashFlowSeriesPoint(id: "\(month.id)-cogs", kind: "Cost basis", amount: month.costBasis),
+        ]
+    }
+
+    /// Aging-bracket bar colour, keyed by label (mirrors the web palette:
+    /// fresh → green, oldest → red).
+    static func agingColor(_ label: String) -> Color {
+        switch label {
+        case "0-14 days": return .brandEmerald
+        case "15-30 days": return .brandNavy
+        case "31-60 days": return .brandAmber
+        case "60+ days": return .brandRed
+        default: return .brandNavy
+        }
+    }
+
+    /// "12 days" / "1 day" / "—" for an average days figure.
+    static func daysLabel(_ days: Double?) -> String {
+        guard let days else { return "—" }
+        let rounded = Int(days.rounded())
+        return "\(rounded) day\(rounded == 1 ? "" : "s")"
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -68,6 +122,12 @@ struct MoneyView: View {
                 if metrics.monthlyRevenue.contains(where: { $0.revenue > 0 }) {
                     revenueChart
                 }
+                // US-812: financial analytics parity with web /finances.
+                cashFlowCard
+                inventoryAgingCard
+                timeOnMarketCard
+                roiBySourceCard
+                profitListCard
                 fulfillmentCard
                 repricingCard
                 priceSuggestionsCard
@@ -162,6 +222,191 @@ struct MoneyView: View {
         }
         .padding(16)
         .cardStyle(.flush)
+    }
+
+    // MARK: - Analytics panels (US-812)
+
+    /// Shared titled-card chrome for the analytics panels.
+    @ViewBuilder
+    private func analyticsCard<Content: View>(
+        _ title: String,
+        subtitle: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                if let subtitle {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .cardStyle(.flush)
+    }
+
+    private func analyticsEmpty(_ message: String) -> some View {
+        Text(message)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+    }
+
+    /// Cash in vs out over the last 6 months — revenue against operating
+    /// expenses + cost basis of goods sold.
+    private var cashFlowCard: some View {
+        let flow = cashFlow
+        let hasData = flow.contains { $0.revenue > 0 || $0.expenses > 0 || $0.costBasis > 0 }
+        return analyticsCard("Cash flow", subtitle: "Revenue vs expenses vs cost basis · 6 months") {
+            if hasData {
+                Chart {
+                    ForEach(flow) { month in
+                        ForEach(MoneyView.cashFlowSeries(month)) { point in
+                            BarMark(
+                                x: .value("Month", month.label),
+                                y: .value("Amount", point.amount)
+                            )
+                            .position(by: .value("Kind", point.kind))
+                            .foregroundStyle(by: .value("Kind", point.kind))
+                            .accessibilityLabel("\(month.label) \(point.kind)")
+                            .accessibilityValue(currency.formatDisplay(point.amount))
+                        }
+                    }
+                }
+                .chartForegroundStyleScale([
+                    "Revenue": Color.brandEmerald,
+                    "Expenses": Color.brandRed,
+                    "Cost basis": Color.brandNavy,
+                ])
+                .chartLegend(position: .bottom, spacing: 8)
+                .frame(height: 180)
+            } else {
+                analyticsEmpty("Record sales and expenses to see your cash flow.")
+            }
+        }
+    }
+
+    /// On-hand capital bucketed by how long it's been held.
+    private var inventoryAgingCard: some View {
+        let brackets = agingBrackets
+        let hasData = brackets.contains { $0.count > 0 }
+        return analyticsCard("Inventory aging", subtitle: "Cost basis tied up by age") {
+            if hasData {
+                Chart(brackets) { bracket in
+                    BarMark(
+                        x: .value("Age", bracket.label),
+                        y: .value("Value", bracket.value)
+                    )
+                    .foregroundStyle(MoneyView.agingColor(bracket.label))
+                    .annotation(position: .top) {
+                        if bracket.count > 0 {
+                            Text("\(bracket.count)")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityLabel(bracket.label)
+                    .accessibilityValue("\(bracket.count) items, \(currency.formatDisplay(bracket.value)) tied up")
+                }
+                .frame(height: 170)
+            } else {
+                analyticsEmpty("No unsold inventory on hand.")
+            }
+        }
+    }
+
+    /// Days-to-sell average + distribution histogram.
+    private var timeOnMarketCard: some View {
+        let stats = timeOnMarket
+        return analyticsCard(
+            "Time on market",
+            subtitle: stats.hasData
+                ? "Avg \(MoneyView.daysLabel(stats.averageDays)) to sell · \(stats.soldCount) sold"
+                : "How long items take to sell"
+        ) {
+            if stats.hasData {
+                Chart(stats.distribution) { bucket in
+                    BarMark(
+                        x: .value("Days", bucket.label),
+                        y: .value("Count", bucket.count)
+                    )
+                    .foregroundStyle(Color.brandNavy)
+                    .annotation(position: .top) {
+                        if bucket.count > 0 {
+                            Text("\(bucket.count)")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityLabel(bucket.label)
+                    .accessibilityValue("\(bucket.count) sold")
+                }
+                .frame(height: 170)
+            } else {
+                analyticsEmpty("Sold items will show how long they took to move.")
+            }
+        }
+    }
+
+    /// Net profit grouped by acquisition source (reuses ``SourceROIRollup``).
+    private var roiBySourceCard: some View {
+        let rows = Array(sourceROI.prefix(8))
+        return analyticsCard("ROI by source", subtitle: "Realized net profit by where you sourced") {
+            if rows.isEmpty {
+                analyticsEmpty("Attribute items to a source to see ROI by source.")
+            } else {
+                Chart(rows) { row in
+                    BarMark(
+                        x: .value("Profit", row.netProfit),
+                        y: .value("Source", row.sourceName)
+                    )
+                    .foregroundStyle(row.netProfit < 0 ? Color.brandRed : Color.brandNavy)
+                    .annotation(position: .trailing, alignment: .leading) {
+                        Text(row.roi.map { "\(Int(($0 * 100).rounded()))% ROI" } ?? currency.formatDisplay(row.netProfit))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel(row.sourceName)
+                    .accessibilityValue(
+                        "\(currency.formatDisplay(row.netProfit)) net profit"
+                        + (row.roi.map { ", \(Int(($0 * 100).rounded())) percent ROI" } ?? "")
+                    )
+                }
+                .chartXAxis(.hidden)
+                .frame(height: CGFloat(rows.count) * 34 + 24)
+            }
+        }
+    }
+
+    /// Navigation into the per-item profit & loss list.
+    private var profitListCard: some View {
+        NavigationLink {
+            MoneyProfitListView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "list.bullet.rectangle.portrait")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Profit by item")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(soldCount > 0
+                        ? "Per-item sale price, fees, cost basis, profit and ROI"
+                        : "Per-item P&L appears once items sell")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Expenses
@@ -412,6 +657,13 @@ struct MoneyView: View {
 }
 
 // MARK: - Subviews
+
+/// US-812: one plotted point in the cash-flow grouped bar chart.
+struct CashFlowSeriesPoint: Identifiable, Equatable {
+    let id: String
+    let kind: String
+    let amount: Double
+}
 
 private struct MoneyStatTile: View {
     let label: String
