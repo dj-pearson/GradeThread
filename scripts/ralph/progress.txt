@@ -3534,3 +3534,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  9:24:23 PM
 ---
+## US-937: Conversion attribution & goal tracking
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  9:30:13 PM
+---
