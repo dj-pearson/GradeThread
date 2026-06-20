@@ -43,6 +43,7 @@ import {
   Coins,
   PlugZap,
   GitMerge,
+  MailCheck,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -128,6 +129,8 @@ const growthNavItems = [
   { to: "/admin/growth/drip", icon: Filter, label: "Trial Conversion", end: true },
   // US-945 visual drip / journey builder.
   { to: "/admin/growth/drip/builder", icon: GitMerge, label: "Drip Builder", end: false },
+  // US-931 newsletter program analytics & deliverability health.
+  { to: "/admin/growth/newsletter", icon: MailCheck, label: "Newsletter Health", end: false },
 ];
 
 // Operations console (US-881) — platform automation surface. Same admin +

@@ -168,6 +168,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // read key. (drip_sends has no user_id, so it isn't auto-discovered.)
   "drip_enrollments",
   "drip_attributions",
+  // US-931: newsletter confirmed-subscriber registry (migration 00278). RLS
+  // enabled with an explicit `revoke all from anon, authenticated` and zero
+  // policies by design — written by the edge consent/subscriber paths and read
+  // ONLY through the aggregating newsletter_analytics RPC via the service-role
+  // client; the SPA never reads the raw rows. user_id links a subscriber to a
+  // platform account but is not a client read key.
+  "email_subscribers",
   // US-932: internal behavioral event stream (migration 00277). RLS enabled with
   // an explicit `revoke all from anon, authenticated` and zero policies by design
   // — written + read ONLY by the edge via the service-role client

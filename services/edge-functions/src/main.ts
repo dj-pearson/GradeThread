@@ -83,6 +83,7 @@ import { adminPassportIntegrityRoutes } from "./routes/admin-passport-integrity.
 import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAnalyticsRoutes } from "./routes/admin-analytics.ts";
 import { adminDripRoutes } from "./routes/admin-drip.ts";
+import { adminNewsletterRoutes } from "./routes/admin-newsletter.ts";
 import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
 import { adminMarketplaceConnectionsRoutes } from "./routes/admin-marketplace-connections.ts";
@@ -900,6 +901,12 @@ app.route("/api/admin/analytics", adminAnalyticsRoutes);
 // A/B splits, attention flags) from the drip_analytics RPC. Admin JWT + AAL2
 // via the /api/admin/* group; no writes, so no step-up.
 app.route("/api/admin/drip", adminDripRoutes);
+// US-931 Newsletter program analytics & deliverability — read-only per-issue +
+// program-level open/CTR/bounce/complaint/unsub rates + list size/growth from the
+// newsletter_analytics RPC, plus a super_admin + step-up deliverability-guard
+// enforce action (ops alert + auto-pause on a critical bounce/complaint breach).
+// Admin JWT + AAL2 via the /api/admin/* group.
+app.route("/api/admin/newsletter", adminNewsletterRoutes);
 // US-894 AI spend & token-usage dashboard — token/cost rollups by
 // model/feature/day from the ai_usage_events ledger (re-priced from the
 // config-driven price table). Admin JWT + AAL2 via the /api/admin/* group;
