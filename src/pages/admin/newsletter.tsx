@@ -46,6 +46,10 @@ import {
   RefreshCw,
   Loader2,
   AlertTriangle,
+  Sparkles,
+  Ban,
+  Star,
+  Clock,
 } from "lucide-react";
 
 // ── Types (mirror the /api/admin/newsletter console payloads) ────────────────
@@ -122,6 +126,44 @@ interface IssueDetail {
     pending: number;
     sending: boolean;
     skipReasons: Record<string, number>;
+  };
+}
+
+// ── Self-tuning (US-928) ─────────────────────────────────────────────────────
+
+interface DimScore {
+  key: string;
+  sent: number;
+  openRate: number;
+  clickRate: number;
+  unsubRate: number;
+  trusted: boolean;
+  paused: boolean;
+  isWinner: boolean;
+  weight: number;
+}
+
+interface TuningRecommendations {
+  computedAt?: string;
+  topicWinner?: string | null;
+  pausedTopics?: string[];
+  topics?: DimScore[];
+  subjectStyles?: DimScore[];
+  subjectWinner?: string | null;
+  sendHour?: { bestHour: number | null };
+  topicSent?: number;
+}
+
+interface TuningState {
+  enabled: boolean;
+  config: { minSample: number; explorationFloor: number; unsubCeiling: number };
+  topicWeights: Record<string, number>;
+  subjectStyleWeights: Record<string, number>;
+  sendHourStats: { bestHour?: number | null };
+  recommendations: TuningRecommendations;
+  catalog: {
+    topics: Array<{ id: string; pillar: string; angle: string; label: string }>;
+    subjectStyles: Array<{ id: string; label: string }>;
   };
 }
 
@@ -445,6 +487,8 @@ export function AdminNewsletterConsolePage() {
         </CardContent>
       </Card>
 
+      <TuningPanel run={run} />
+
       <IssueDrawer
         issueId={selectedId}
         onClose={() => setSelectedId(null)}
@@ -458,6 +502,196 @@ export function AdminNewsletterConsolePage() {
         onVerified={() => retry?.()}
       />
     </div>
+  );
+}
+
+// ── Self-tuning transparency panel (US-928) ────────────────────────────────────
+
+function pct(n: number): string {
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function TuningPanel({
+  run,
+}: {
+  run: (doFetch: () => Promise<Response>) => Promise<unknown | null>;
+}) {
+  const qc = useQueryClient();
+
+  const tuning = useQuery({
+    queryKey: ["newsletter-tuning"],
+    queryFn: async (): Promise<TuningState> => {
+      const res = await edgeFetch("/api/admin/newsletter/tuning");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Failed to load tuning state");
+      return json as TuningState;
+    },
+    staleTime: 30_000,
+  });
+
+  const recompute = useMutation({
+    mutationFn: () =>
+      run(() => edgeFetch("/api/admin/newsletter/tuning/recompute", { method: "POST", json: {} })),
+    onSuccess: (r) => {
+      if (r) {
+        toast.success("Self-tuning recomputed from engagement");
+        void qc.invalidateQueries({ queryKey: ["newsletter-tuning"] });
+      }
+    },
+  });
+
+  const t = tuning.data;
+  const labelFor = (id: string) =>
+    t?.catalog.topics.find((x) => x.id === id)?.label ?? id;
+
+  // Topics sorted by current weight (desc) for the at-a-glance view.
+  const topicRows = t
+    ? t.catalog.topics
+        .map((topic) => ({
+          id: topic.id,
+          label: topic.label,
+          weight: t.topicWeights[topic.id] ?? 0,
+          score: t.recommendations.topics?.find((s) => s.key === topic.id),
+        }))
+        .sort((a, b) => b.weight - a.weight)
+    : [];
+
+  const rec = t?.recommendations;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-brand-red-text" />
+            <CardTitle className="text-base">Self-tuning</CardTitle>
+            {t && (
+              <Badge variant={t.enabled ? "default" : "outline"}>
+                {t.enabled ? "On" : "Frozen"}
+              </Badge>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={recompute.isPending}
+            onClick={() => recompute.mutate()}
+          >
+            {recompute.isPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Recompute now
+          </Button>
+        </div>
+        <CardDescription>
+          Topic, subject-style, and send-time selection are biased toward what
+          engages — learned from open / click / unsubscribe signals. Override the
+          weights from the system settings registry.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {tuning.isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : !t ? (
+          <p className="text-sm text-red-600">Failed to load tuning state.</p>
+        ) : (
+          <>
+            {/* Summary line */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                Best send hour:{" "}
+                <strong className="text-foreground">
+                  {typeof t.sendHourStats?.bestHour === "number"
+                    ? `${String(t.sendHourStats.bestHour).padStart(2, "0")}:00 UTC`
+                    : "—"}
+                </strong>
+              </span>
+              <span>
+                Winning style:{" "}
+                <strong className="text-foreground">
+                  {rec?.subjectWinner
+                    ? t.catalog.subjectStyles.find((s) => s.id === rec.subjectWinner)?.label ??
+                      rec.subjectWinner
+                    : "—"}
+                </strong>
+              </span>
+              <span>
+                Sampled sends:{" "}
+                <strong className="text-foreground">{rec?.topicSent ?? 0}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {rec?.computedAt ? `Updated ${fmtDate(rec.computedAt)}` : "Not yet computed"}
+              </span>
+            </div>
+
+            {/* Topic weights table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="py-2 pr-3 font-medium">Topic</th>
+                    <th className="py-2 pr-3 font-medium">Weight</th>
+                    <th className="py-2 pr-3 font-medium">Sent</th>
+                    <th className="py-2 pr-3 font-medium">Open</th>
+                    <th className="py-2 pr-3 font-medium">CTR</th>
+                    <th className="py-2 font-medium">Unsub</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topicRows.map((row) => (
+                    <tr key={row.id} className="border-b last:border-0">
+                      <td className="py-1.5 pr-3">
+                        <span className="inline-flex items-center gap-1.5">
+                          {row.score?.isWinner && (
+                            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />
+                          )}
+                          {row.score?.paused && <Ban className="h-3.5 w-3.5 text-red-500" />}
+                          {row.label}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={`h-full ${row.score?.paused ? "bg-red-400" : "bg-brand-red"}`}
+                              style={{ width: `${row.weight}%` }}
+                            />
+                          </div>
+                          <span className="tabular-nums">{row.weight}</span>
+                        </div>
+                      </td>
+                      <td className="py-1.5 pr-3 tabular-nums text-muted-foreground">
+                        {row.score?.sent ?? 0}
+                      </td>
+                      <td className="py-1.5 pr-3 tabular-nums text-muted-foreground">
+                        {row.score ? pct(row.score.openRate) : "—"}
+                      </td>
+                      <td className="py-1.5 pr-3 tabular-nums text-muted-foreground">
+                        {row.score ? pct(row.score.clickRate) : "—"}
+                      </td>
+                      <td className="py-1.5 tabular-nums text-muted-foreground">
+                        {row.score ? pct(row.score.unsubRate) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {(rec?.pausedTopics?.length ?? 0) > 0 && (
+              <p className="flex items-center gap-1.5 text-xs text-red-600">
+                <Ban className="h-3.5 w-3.5" />
+                Paused (high unsubscribe rate):{" "}
+                {rec!.pausedTopics!.map(labelFor).join(", ")}
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

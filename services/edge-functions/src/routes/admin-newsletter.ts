@@ -27,6 +27,14 @@ import {
   type DeliverabilityThresholds,
   evaluateDeliverability,
 } from "../lib/newsletter-thresholds.ts";
+import {
+  NEWSLETTER_TOPICS,
+  selectWeightedKey,
+  SUBJECT_STYLES,
+  subjectStyleById,
+  topicById,
+} from "../lib/newsletter-tuning.ts";
+import { recomputeNewsletterTuning } from "../lib/newsletter-tuning-job.ts";
 
 // US-931: Email program analytics & deliverability dashboard (read-only) + a
 // deliverability-guard enforcement action.
@@ -222,7 +230,8 @@ const ISSUE_COLS =
   "id, title, subject, preheader, sections, status, audience, segment_id, " +
   "scheduled_for, qa_results, recipients_total, sent_count, skipped_count, " +
   "failed_count, block_reason, created_by, approved_by, approved_at, " +
-  "send_started_at, sent_at, created_at, updated_at";
+  "send_started_at, sent_at, created_at, updated_at, " +
+  "pillar, angle, subject_style, send_hour";
 
 // Cap a single synchronous send so the request stays bounded. The autonomous
 // engine (sibling story) sends larger lists in durable batches; the console's
@@ -252,6 +261,10 @@ interface NewsletterIssueRow {
   sent_at: string | null;
   created_at: string;
   updated_at: string;
+  pillar: string | null;
+  angle: string | null;
+  subject_style: string | null;
+  send_hour: number | null;
 }
 
 function toRenderable(row: NewsletterIssueRow): RenderableIssue {
@@ -448,14 +461,78 @@ adminNewsletterRoutes.get("/issues/:id", async (c) => {
 
 // ── Issue creation + editing ─────────────────────────────────────────────────
 
+// Uniform-weight fallback (cold start, before any engagement is recorded) so the
+// assembler still rotates across the catalog instead of always picking the first.
+function uniformWeights(ids: string[]): Record<string, number> {
+  return Object.fromEntries(ids.map((id) => [id, 1]));
+}
+
+// The next future UTC datetime whose hour == `hour`. Pure given `nowMs`.
+function nextSendAt(hour: number, nowMs: number): string {
+  const d = new Date(nowMs);
+  d.setUTCMinutes(0, 0, 0);
+  d.setUTCHours(hour);
+  if (d.getTime() <= nowMs) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString();
+}
+
+// US-928: the self-tuning bias the assembler reads. Topic + subject-style
+// selection are weighted by the computed stores (favoring higher-engaging, away
+// from paused), and the send time consumes the per-hour stats. All data-driven —
+// the cron populates the stores from engagement; this just consumes them.
+async function loadAssemblerBias(): Promise<{
+  topicWeights: Record<string, number>;
+  styleWeights: Record<string, number>;
+  bestHour: number | null;
+}> {
+  const [topicWeights, styleWeights, hourStats] = await Promise.all([
+    getSetting<Record<string, number>>("newsletter_topic_weights", {}),
+    getSetting<Record<string, number>>("newsletter_subject_style_weights", {}),
+    getSetting<{ bestHour: number | null }>("newsletter_send_hour_stats", { bestHour: null }),
+  ]);
+  return {
+    topicWeights: topicWeights ?? {},
+    styleWeights: styleWeights ?? {},
+    bestHour: typeof hourStats?.bestHour === "number" ? hourStats.bestHour : null,
+  };
+}
+
 // POST /api/admin/newsletter/issues/build-next — build the next issue now. With
 // no autonomous content engine wired yet this scaffolds an editable draft; the
 // engine (sibling story) will populate richer AI content into the same shape.
+//
+// US-928: topic, subject style, and send hour are now chosen by the self-tuning
+// weights (engagement-biased, with the exploration floor keeping under-tested
+// topics in rotation and paused topics excluded). The chosen dimensions are
+// stamped on the issue so the next analysis pass can attribute its engagement.
 adminNewsletterRoutes.post("/issues/build-next", async (c) => {
+  const bias = await loadAssemblerBias();
+  const nowMs = Date.now();
+  const seed = `nl-${nowMs}`;
+
+  // A weighted pick that can't resolve to a catalog entry (empty/stale weights)
+  // falls back to a uniform pick over the live catalog — always resolvable.
+  const topic =
+    topicById(selectWeightedKey(bias.topicWeights, seed) ?? "") ??
+    topicById(selectWeightedKey(uniformWeights(NEWSLETTER_TOPICS.map((t) => t.id)), seed)!)!;
+
+  const style =
+    subjectStyleById(selectWeightedKey(bias.styleWeights, `${seed}:style`) ?? "") ??
+    subjectStyleById(
+      selectWeightedKey(uniformWeights(SUBJECT_STYLES.map((s) => s.id)), `${seed}:style`)!,
+    )!;
+
+  // Send-time optimization: use the learned best hour, else a sensible default.
+  const sendHour = bias.bestHour ?? 14;
+  const scheduledFor = nextSendAt(sendHour, nowMs);
+
   const sections: NewsletterSection[] = [
     {
-      heading: "This week at GradeThread",
-      body: "<p>Draft issue — edit these sections before sending.</p>",
+      heading: topic.label,
+      body:
+        `<p>Draft issue on <strong>${topic.label}</strong> (pillar: ${topic.pillar}). ` +
+        `Suggested subject style: <em>${style.label}</em> — ${style.guidance} ` +
+        `Edit these sections before sending.</p>`,
     },
   ];
   const qa = runIssueQa({ subject: "", sections });
@@ -463,11 +540,16 @@ adminNewsletterRoutes.post("/issues/build-next", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("newsletter_issues")
     .insert({
-      title: "New issue",
+      title: topic.label,
       subject: "",
       sections,
       status: "draft",
       qa_results: qa,
+      pillar: topic.pillar,
+      angle: topic.angle,
+      subject_style: style.id,
+      send_hour: sendHour,
+      scheduled_for: scheduledFor,
       created_by: c.get("userId"),
     })
     .select(ISSUE_COLS)
@@ -483,9 +565,71 @@ adminNewsletterRoutes.post("/issues/build-next", async (c) => {
     action: "newsletter.issue.build",
     targetType: "newsletter_issue",
     targetId: (data as unknown as NewsletterIssueRow).id,
+    details: { topic: topic.id, subjectStyle: style.id, sendHour },
   });
 
   return c.json({ issue: data as unknown as NewsletterIssueRow }, 201);
+});
+
+// ── Self-tuning transparency + override (US-928) ─────────────────────────────
+
+// GET /api/admin/newsletter/tuning — the current learned weights, the config, the
+// latest recommendations snapshot, and the catalog labels. Read-only surface so
+// the console can show WHAT the program learned and WHY (AC4). Override is via the
+// settings registry editor (/admin/ops/settings) — the keys are registered there.
+adminNewsletterRoutes.get("/tuning", async (c) => {
+  const [enabled, topicWeights, styleWeights, hourStats, recommendations, minSample, floor, ceiling] =
+    await Promise.all([
+      getSetting<boolean>("newsletter_tuning_enabled", true),
+      getSetting<Record<string, number>>("newsletter_topic_weights", {}),
+      getSetting<Record<string, number>>("newsletter_subject_style_weights", {}),
+      getSetting<unknown>("newsletter_send_hour_stats", {}),
+      getSetting<unknown>("newsletter_tuning_recommendations", {}),
+      getSetting<number>("newsletter_tuning_min_sample", 50),
+      getSetting<number>("newsletter_tuning_exploration_floor", 0.15),
+      getSetting<number>("newsletter_tuning_unsub_ceiling", 0.005),
+    ]);
+
+  return c.json({
+    enabled: Boolean(enabled),
+    config: { minSample, explorationFloor: floor, unsubCeiling: ceiling },
+    topicWeights: topicWeights ?? {},
+    subjectStyleWeights: styleWeights ?? {},
+    sendHourStats: hourStats ?? {},
+    recommendations: recommendations ?? {},
+    catalog: {
+      topics: NEWSLETTER_TOPICS,
+      subjectStyles: SUBJECT_STYLES.map((s) => ({ id: s.id, label: s.label })),
+    },
+  });
+});
+
+// POST /api/admin/newsletter/tuning/recompute — run the analysis pass now (the
+// same logic the scheduled cron runs). Lets an operator force a refresh from the
+// console instead of waiting for the daily cron. Audited.
+adminNewsletterRoutes.post("/tuning/recompute", async (c) => {
+  try {
+    const nowMs = Date.now();
+    const result = await recomputeNewsletterTuning(
+      nowMs,
+      new Date(nowMs).toISOString(),
+      c.get("userId"),
+    );
+    await writeAuditLog(c, {
+      action: "newsletter.tuning.recompute",
+      targetType: "newsletter_program",
+      targetId: "tuning",
+      details: {
+        topicWinner: result.recommendations.topicWinner,
+        pausedTopics: result.recommendations.pausedTopics,
+        topicSent: result.recommendations.topicSent,
+      },
+    });
+    return c.json({ ok: true, recommendations: result.recommendations });
+  } catch (err) {
+    captureException(err, { tags: { area: "admin-newsletter.tuning" } });
+    return c.json({ error: "Failed to recompute tuning" }, 500);
+  }
 });
 
 // PATCH /api/admin/newsletter/issues/:id — edit subject/sections/schedule before

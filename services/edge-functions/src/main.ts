@@ -108,6 +108,7 @@ import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleJourneyTickCron } from "./routes/jobs-journey-tick.ts";
+import { handleNewsletterTuningCron } from "./routes/jobs-newsletter-tuning.ts";
 import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
@@ -997,6 +998,9 @@ app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
 // OUTSIDE /api/* JWT groups; the handler enforces X-Internal-Job-Secret itself.
 // The /api/jobs/* middleware records the run to cron_runs automatically.
 app.post("/api/jobs/journey-tick", (c) => handleJourneyTickCron(c));
+// US-928 newsletter self-tuning: recompute topic/subject/send-hour weights from
+// engagement so the assembler biases the next issue. Handler enforces the secret.
+app.post("/api/jobs/newsletter-tuning", (c) => handleNewsletterTuningCron(c));
 // US-888 abuse-signal scan — populates the Trust & Safety queue with
 // cross-account phash photo-reuse + submission-velocity signals. Idempotent
 // (dedupe_key); the handler enforces X-Internal-Job-Secret itself.

@@ -101,6 +101,21 @@ memory — not a progress log (the harness records progress separately).
   type) → `data as NewsletterIssueRow` fails `deno check`; cast through
   `as unknown as NewsletterIssueRow` (same `tsc -b never` trap on the web side).
 
+## Newsletter self-tuning (US-928)
+- Closed loop = PURE `lib/newsletter-tuning.ts` (catalog + `computeWeights`
+  [CTR-first winner, exploration floor, unsub-ceiling PAUSE→weight 0] +
+  `selectWeightedKey` [FNV, never picks a 0-weight key] + `recommendSendHour`)
+  feeding the analysis pass `lib/newsletter-tuning-job.ts` (DB) → settings stores
+  `newsletter_{topic_weights,subject_style_weights,send_hour_stats,tuning_recommendations}`
+  (migration 00281). Cron `/api/jobs/newsletter-tuning` (job-secret, recorded by
+  the /api/jobs middleware). `build-next` reads the stores to bias topic/style/
+  send-hour and STAMPS `newsletter_issues.{pillar,angle,subject_style,send_hour}`
+  (00281) so the next pass can attribute engagement. Console card + GET
+  `/api/admin/newsletter/tuning` for transparency; override via settings registry.
+- Engagement source = `newsletter_issue_recipients.{opened_at,clicked_at,
+  unsubscribed_at}` (00281). Pixel/unsub POPULATION is a sibling; the column home
+  + aggregation are this story's substrate (cold start ⇒ uniform weights, correct).
+
 ## Marketing send coordinator (US-934)
 - Any NEW marketing email must route through `coordinateMarketingSend`
   (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),

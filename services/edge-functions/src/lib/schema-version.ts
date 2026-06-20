@@ -20,8 +20,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00280_email_journeys.sql)
-export const EXPECTED_SCHEMA_VERSION = "00280";
+// supabase/migrations/. (00281_newsletter_self_tuning.sql)
+export const EXPECTED_SCHEMA_VERSION = "00281";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 
