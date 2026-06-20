@@ -38,6 +38,7 @@ import {
   type DripStep,
   type DripUserState,
   isIncentiveEligible,
+  marketingOptedOutEmail,
   planTick,
   renderStep,
 } from "../lib/drip-graph.ts";
@@ -110,15 +111,9 @@ interface CampaignDef {
   graph: DripGraph;
 }
 
-// US-911 marketing consent: the drip is marketing mail, so a recipient who has
-// opted out of marketing email must not receive it. Mirrors marketingOptedOut in
-// admin-growth.ts (notification_preferences.marketing.email === false).
-function marketingOptedOutEmail(prefs: Record<string, unknown> | null): boolean {
-  if (!prefs) return false;
-  const m = prefs["marketing"];
-  if (!m || typeof m !== "object") return false;
-  return (m as Record<string, unknown>)["email"] === false;
-}
+// US-911 marketing consent: `marketingOptedOutEmail` (drip-graph.ts) is the pure
+// predicate — a recipient who opted out of marketing email must not enter or
+// receive the drip. Used at enrollment (entry filter, US-941) and dispatch (exit).
 
 interface UserRow {
   id: string;
@@ -187,14 +182,22 @@ async function enrollNewTrialists(
 
   const { data: trialists } = await supabaseAdmin
     .from("users")
-    .select("id, created_at, trial_ends_at")
+    .select("id, created_at, trial_ends_at, notification_preferences")
     .eq("subscription_status", "trialing")
     .not("trial_ends_at", "is", null)
     .order("created_at", { ascending: true })
     .limit(ENROLL_BATCH);
-  const candidates = (trialists ?? []) as Array<
-    { id: string; created_at: string | null; trial_ends_at: string | null }
-  >;
+  const candidates = ((trialists ?? []) as Array<
+    {
+      id: string;
+      created_at: string | null;
+      trial_ends_at: string | null;
+      notification_preferences: Record<string, unknown> | null;
+    }
+  >)
+    // US-941 entry condition: never enrol a marketing-opted-out user — the drip
+    // (incl. the win-back tail) is marketing mail, so they must receive none.
+    .filter((t) => !marketingOptedOutEmail(t.notification_preferences));
   if (candidates.length === 0) return 0;
 
   // Exclude anyone who already has an enrollment for this campaign (idempotent —
@@ -265,6 +268,13 @@ async function recordAttribution(
   }
 }
 
+// Exit an enrollment: stamps exited_at + exit_reason and clears
+// next_evaluation_at so it falls out of the due query. US-941: exiting IS the
+// hand-back to the standard cadence — while an enrollment is active the user is
+// in the focused trial-conversion drip; once it exits (day-28 `completed` or
+// `converted`/opt-out) the drip no longer holds them and they're back in the
+// general (occasional) newsletter audience. No separate pause flag to flip: the
+// active enrollment is the "pause", and exit un-pauses it.
 async function exitEnrollment(
   enrollmentId: string,
   reason: "converted" | "trial_expired" | "unsubscribed" | "completed" | "suppressed",

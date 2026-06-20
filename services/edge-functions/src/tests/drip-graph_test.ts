@@ -5,6 +5,8 @@ import {
   type DripUserState,
   evaluateAll,
   isIncentiveEligible,
+  isWinBackEligible,
+  marketingOptedOutEmail,
   nextTickIso,
   pickVariant,
   planTick,
@@ -324,6 +326,87 @@ Deno.test("planTick completes when all steps are sent", () => {
   const plan = planTick(twoStepGraph(), tickUser(), new Set([1, 2]), 100 * HOUR);
   assertEquals(plan.status, "complete");
   assertEquals(plan.nextEvaluationMs, null);
+});
+
+// ── US-941 post-trial win-back sequence (days 16/20/24/28) ──
+
+// A faithful slice of the seeded win-back tail: four steps anchored to trial_end,
+// every one gated on converted=is_false, the day-24 step incentive-enabled, the
+// day-28 step terminal.
+function winBackGraph(): DripGraph {
+  const wb = (id: string, delayHours: number, over: Record<string, unknown> = {}) =>
+    step({
+      id,
+      phase: "win_back",
+      anchor: "trial_end",
+      delayHours,
+      conditions: [{ field: "converted", op: "is_false" }],
+      exit: false,
+      ...over,
+    }) as unknown as DripGraph["steps"][number];
+  return {
+    entryStepId: "win_back_free",
+    steps: [
+      wb("win_back_free", 48, { next: "win_back_value" }),
+      wb("win_back_value", 144, { next: "win_back_offer" }),
+      wb("win_back_offer", 240, { next: "win_back_final", incentiveEnabled: true }),
+      wb("win_back_final", 336, { next: null, exit: true, incentiveEnabled: true }),
+    ],
+  };
+}
+
+Deno.test("win-back graph is structurally valid (days 16/20/24/28)", () => {
+  const r = validateGraph(winBackGraph());
+  assert(r.ok, r.errors.join("; "));
+});
+
+Deno.test("win-back: a converted user is excluded — receives no win-back send", () => {
+  const g = winBackGraph();
+  // trial_end anchored; well past day 28 so every step would otherwise be due.
+  const trialEnd = "2026-01-01T00:00:00.000Z";
+  const trialEndMs = Date.parse(trialEnd);
+  const nowMs = trialEndMs + 400 * HOUR;
+  const converted = tickUser({ converted: true, trialEndsAt: trialEnd });
+
+  // The pure planner skips every converted-gated step → completes with no send.
+  const plan = planTick(g, converted, new Set(), nowMs);
+  assertEquals(plan.status, "complete");
+  assertEquals(plan.send, null);
+
+  // simulateJourney exits a converted user immediately with no projected sends.
+  const sim = simulateJourney(g, converted, nowMs);
+  assertEquals(sim.campaignWouldEnroll, false);
+  assertEquals(sim.sends.length, 0);
+
+  // A NOT-converted user, by contrast, does have the day-16 step due.
+  const lapsed = tickUser({ converted: false, trialEndsAt: trialEnd });
+  const lapsedPlan = planTick(g, lapsed, new Set(), nowMs);
+  assertEquals(lapsedPlan.status, "send");
+  assertEquals(lapsedPlan.send?.stepId, "win_back_free");
+});
+
+Deno.test("win-back: an opted-out user is ineligible — receives none (US-941)", () => {
+  const optedOut = { marketing: { email: false } };
+  assert(marketingOptedOutEmail(optedOut));
+  // Not converted, but marketing-opted-out → not eligible to enter/receive.
+  assert(!isWinBackEligible({ converted: false }, optedOut));
+  // No marketing prefs at all → eligible (default opt-in).
+  assert(isWinBackEligible({ converted: false }, null));
+  assert(isWinBackEligible({ converted: false }, { marketing: { email: true } }));
+  // Converted always excluded, regardless of consent.
+  assert(!isWinBackEligible({ converted: true }, { marketing: { email: true } }));
+});
+
+Deno.test("win-back: only the day-24/28 steps surface the incentive (US-941/942)", () => {
+  const g = winBackGraph();
+  const byId = Object.fromEntries(g.steps.map((s) => [s.id, s]));
+  const u = { converted: false };
+  // Earlier win-back touches are value-only (no code exposed).
+  assert(!isIncentiveEligible(byId["win_back_free"]!, u));
+  assert(!isIncentiveEligible(byId["win_back_value"]!, u));
+  // The offer + final touches may surface the (config-gated) incentive.
+  assert(isIncentiveEligible(byId["win_back_offer"]!, u));
+  assert(isIncentiveEligible(byId["win_back_final"]!, u));
 });
 
 Deno.test("planTick skips a gated step and sends the next sendable one", () => {

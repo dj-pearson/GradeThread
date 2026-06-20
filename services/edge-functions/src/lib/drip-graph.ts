@@ -408,6 +408,35 @@ function tokenValues(
 }
 
 /**
+ * US-911 marketing consent: the drip is marketing mail, so a recipient who has
+ * opted out of marketing email must not enter or receive it. Mirrors
+ * `marketingOptedOut` in admin-growth.ts (notification_preferences.marketing.email
+ * === false). Pure (prefs blob in → boolean out) so both the engine (entry filter
+ * + dispatch exit, routes/drip.ts) and its tests can use it without supabase/env.
+ */
+export function marketingOptedOutEmail(
+  prefs: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!prefs) return false;
+  const m = prefs["marketing"];
+  if (!m || typeof m !== "object") return false;
+  return (m as Record<string, unknown>)["email"] === false;
+}
+
+/**
+ * US-941: may this user ENTER (or remain in) the post-trial win-back? Gated on
+ * NOT converted and NOT marketing-opted-out — a converted trialist never enters
+ * win-back, and an opted-out recipient receives none. Suppression (hard bounce /
+ * complaint) is enforced separately by deliverEmail at send time (US-914).
+ */
+export function isWinBackEligible(
+  user: Pick<DripUserState, "converted">,
+  prefs: Record<string, unknown> | null | undefined,
+): boolean {
+  return user.converted !== true && !marketingOptedOutEmail(prefs);
+}
+
+/**
  * US-942: server-side eligibility for surfacing the incentive on a given
  * step+user. Win-back (post-trial) phase only — never in-trial, never to an
  * already-paid user — so a code is never exposed outside the win-back.
