@@ -125,6 +125,20 @@ memory — not a progress log (the harness records progress separately).
   type) → `data as NewsletterIssueRow` fails `deno check`; cast through
   `as unknown as NewsletterIssueRow` (same `tsc -b never` trap on the web side).
 
+## Newsletter imagery (US-920)
+- AI-image cost is invisible in the spend dashboard UNLESS the model is priced in
+  `system_settings.ai_model_prices` AND you log token counts: `ai_spend`/
+  `ai_budget_status` RPCs re-price from tokens × that table and IGNORE the stored
+  `cost_usd`. So `recordAiCall` for gpt-image-1 (cost 0 via computeCostUsd) only
+  surfaces $ after 00288 seeds `gpt-image-1` AND we log estimated image-output
+  tokens (`estimateImageTokens`, lib/newsletter-imagery.ts).
+- Email-safe imagery split: PURE `buildEmailImageHtml`/`brandedCardUrl`/
+  `resolveImageFromUrl`/`estimateImageTokens` + impure `resolveIssueImage`
+  (photo via openai-images → branded Satori card on failure, never throws).
+  Branded card = an absolute URL to the public `/og/social/card` Pages Function
+  (Satori), NOT rendered in the Deno edge (workers-og is CF-only). Assets tracked
+  in `newsletter_issue_assets` (00288, cascade-deletes with the issue).
+
 ## Newsletter pre-send QA gate (US-924)
 - The autonomous guardrail gate is split: PURE `lib/newsletter-qa.ts`
   (`runGuardrailQa` structural/compliance checks over issue+rendered ctx +

@@ -189,6 +189,10 @@ const SERVICE_ROLE_ONLY = new Set([
   // read keys), not user-owned data.
   "newsletter_issues",
   "newsletter_issue_recipients",
+  // US-920: generated/selected newsletter imagery registry (migration 00288). A
+  // child of the operator-only newsletter_issues — RLS enabled, deny-all, written
+  // only by the edge service-role client. No tenant owner column.
+  "newsletter_issue_assets",
   // US-929: lifecycle email-journey engine tables (migration 00280). RLS enabled
   // with an explicit `revoke all from anon, authenticated` and zero policies by
   // design — read/written ONLY by the edge journey engine + the role-gated

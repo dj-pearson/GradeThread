@@ -55,9 +55,11 @@ import {
   selectChangelogEntries,
 } from "./newsletter-changelog.ts";
 import { generateNewsletterCopy } from "./newsletter-copy.ts";
-import { generateHeroImage, uploadHeroImage } from "./openai-images.ts";
-import { validateImageUpload } from "./upload-validation.ts";
-import { stripImageMetadata } from "./image-metadata.ts";
+import {
+  resolveImageFromUrl,
+  resolveIssueImage,
+  type ResolvedIssueImage,
+} from "./newsletter-imagery.ts";
 import type { ContentProduct } from "./content-history.ts";
 
 // The full column projection both callers select for an issue. Kept here (with the
@@ -266,41 +268,6 @@ function rowToAssembled(row: { id: string; title?: string }, subject: string, st
   };
 }
 
-// ── Imagery (best-effort, never throws) ──────────────────────────────────────
-
-async function generateIssueHero(
-  issueId: string,
-  topic: NewsletterTopic,
-): Promise<{ url: string | null; detail: string }> {
-  try {
-    const prompt =
-      `Editorial photograph for a newsletter about ${topic.label}. ` +
-      `Photographic realism, clean composition, natural light, no text in the image.`;
-    const gen = await generateHeroImage({ prompt, size: "1536x1024", quality: "medium" });
-    const verdict = validateImageUpload(gen.bytes, { allow: ["jpeg", "png", "webp"] });
-    let bytes = gen.bytes;
-    let contentType = "image/png";
-    let ext = "png";
-    if (verdict.ok) {
-      const stripped = stripImageMetadata(gen.bytes, verdict.format);
-      bytes = stripped.bytes;
-      contentType = verdict.contentType;
-      ext = verdict.ext;
-    }
-    const up = await uploadHeroImage({
-      postId: issueId,
-      bytes,
-      contentType,
-      ext,
-      surface: "blog",
-      slug: `newsletter-${topic.id}`,
-    });
-    return { url: up.url, detail: "generated" };
-  } catch (e) {
-    return { url: null, detail: errMsg(e) };
-  }
-}
-
 // ── Dimension selection ──────────────────────────────────────────────────────
 
 interface Dimensions {
@@ -483,25 +450,33 @@ export async function assembleNextIssue(
     });
   }
 
-  // ── Step 3: imagery (best-effort, skip if already generated) ──
-  let heroUrl: string | null = row.hero_image_url ?? null;
-  if (heroUrl) {
+  // ── Step 3: imagery (best-effort, never throws; reuses if already built) ──
+  // An AI photo (gpt-image-1) when imagery is enabled, else/on failure a
+  // deterministic branded banner card — so an issue is never blocked on imagery.
+  let image: ResolvedIssueImage | null = null;
+  if (row.hero_image_url) {
+    image = resolveImageFromUrl(row.hero_image_url, dims.topic.label);
     markStep(steps, "imagery", "done", nowMs, "reused");
-  } else if (settings.maxImages <= 0) {
-    markStep(steps, "imagery", "skipped", nowMs, "disabled");
   } else {
-    const hero = await generateIssueHero(issueId, dims.topic);
-    heroUrl = hero.url;
-    markStep(steps, "imagery", hero.url ? "done" : "failed", nowMs, hero.detail);
-    await patchIssue(issueId, { hero_image_url: heroUrl, build_steps: steps });
+    const resolved = await resolveIssueImage({
+      issueId,
+      title: subject || dims.topic.label,
+      topicLabel: dims.topic.label,
+      product: dims.productFocus,
+      maxImages: settings.maxImages,
+    });
+    image = resolved.image;
+    markStep(steps, "imagery", "done", nowMs, resolved.detail);
+    await patchIssue(issueId, { hero_image_url: image.url, build_steps: steps });
   }
+  const heroUrl: string | null = image?.url ?? null;
 
   // ── Step 4: render HTML + plaintext ──
   let bodyHtml: string;
   let bodyText: string;
   try {
-    const heroSection: NewsletterSection | null = heroUrl
-      ? { body: `<img src="${escapeHtml(heroUrl)}" alt="${escapeHtml(dims.topic.label)}" style="width:100%;border-radius:8px;display:block;" />` }
+    const heroSection: NewsletterSection | null = image
+      ? { body: image.html }
       : null;
     const renderSections = heroSection ? [heroSection, ...finalSections] : finalSections;
     bodyHtml = renderNewsletterHtml({ subject, preheader, sections: renderSections });
