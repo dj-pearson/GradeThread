@@ -20,9 +20,10 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import {
-  sendNorthStarMilestoneEmail,
-  sendNorthStarWeeklyEmail,
+  buildNorthStarMilestoneEmail,
+  buildNorthStarWeeklyEmail,
 } from "../lib/email.ts";
+import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
 
 // Keep in sync with src/lib/constants.ts (NORTH_STAR_WEEKLY_GOAL / _MILESTONES).
 const WEEKLY_GOAL = 10;
@@ -41,13 +42,6 @@ function startOfWeekUTC(d: Date): Date {
 
 function dateKey(d: Date): string {
   return d.toISOString().slice(0, 10); // YYYY-MM-DD
-}
-
-function marketingOptedOut(prefs: unknown): boolean {
-  if (!prefs || typeof prefs !== "object") return false;
-  const m = (prefs as Record<string, unknown>)["marketing"];
-  if (!m || typeof m !== "object") return false;
-  return (m as Record<string, unknown>)["email"] === false;
 }
 
 interface WeeklyCount {
@@ -195,12 +189,17 @@ export async function handleNorthStarDigestCron(c: Context): Promise<Response> {
         continue;
       }
 
-      const optedOut = marketingOptedOut(user?.notification_preferences);
+      const prefs =
+        (user?.notification_preferences as Record<string, unknown> | null) ?? null;
       const lifetimeListed = lifetimeById.get(w.user_id) ?? itemsListed;
 
-      // ── Weekly encouragement email.
-      if (user?.email && !optedOut) {
-        const ok = await sendNorthStarWeeklyEmail(user.email, {
+      // ── Weekly encouragement email — routed through the marketing coordinator
+      //    (US-934), the single cross-program chokepoint enforcing consent,
+      //    suppression, the per-recipient daily cap, quiet hours, and the
+      //    drip-precedence pause (the newsletter is held while a recipient is in
+      //    the trial drip). A capped/paused send is deferred, not dropped.
+      if (user?.email) {
+        const built = await buildNorthStarWeeklyEmail({
           userId: w.user_id,
           userName: user.full_name || "there",
           itemsListed,
@@ -208,7 +207,16 @@ export async function handleNorthStarDigestCron(c: Context): Promise<Response> {
           streakWeeks: streak,
           lifetimeListed,
         });
-        if (ok) weeklySent++;
+        const res = await coordinateMarketingSend({
+          to: user.email,
+          userId: w.user_id,
+          prefs,
+          source: "weekly_newsletter",
+          category: "north_star_weekly",
+          subject: built.subject,
+          html: built.html,
+        });
+        if (res.sent) weeklySent++;
       }
 
       // ── Milestone: celebrate the highest newly-crossed threshold once,
@@ -224,14 +232,23 @@ export async function handleNorthStarDigestCron(c: Context): Promise<Response> {
           .insert(rows);
         if (!mErr) {
           const top = crossed[crossed.length - 1];
-          if (user?.email && !optedOut && top != null) {
-            const ok = await sendNorthStarMilestoneEmail(user.email, {
+          if (user?.email && top != null) {
+            const built = await buildNorthStarMilestoneEmail({
               userId: w.user_id,
               userName: user.full_name || "there",
               milestone: top,
               lifetimeListed,
             });
-            if (ok) milestoneSent++;
+            const res = await coordinateMarketingSend({
+              to: user.email,
+              userId: w.user_id,
+              prefs,
+              source: "weekly_newsletter",
+              category: "north_star_milestone",
+              subject: built.subject,
+              html: built.html,
+            });
+            if (res.sent) milestoneSent++;
           }
         } else if (mErr.code !== "23505") {
           console.error(

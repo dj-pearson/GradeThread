@@ -875,12 +875,13 @@ interface NorthStarWeeklyData {
   lifetimeListed: number;
 }
 
-// Weekly encouragement digest tied to listing activity. Marketing-class
-// (carries an unsubscribe link). Sent by the north-star digest cron.
-export async function sendNorthStarWeeklyEmail(
-  to: string,
+// US-934: build the weekly digest's {subject, html} WITHOUT sending, so the
+// marketing coordinator (the single cross-program chokepoint) can gate/defer it.
+// The returned html already carries the branded layout + CAN-SPAM footer +
+// one-click unsubscribe, so the coordinator only delivers/defers it.
+export async function buildNorthStarWeeklyEmail(
   data: NorthStarWeeklyData,
-): Promise<boolean> {
+): Promise<{ subject: string; html: string }> {
   const goalMet = data.itemsListed >= data.goal;
   const headline = goalMet
     ? `🎉 You hit your weekly goal — ${data.itemsListed} listed!`
@@ -923,12 +924,25 @@ export async function sendNorthStarWeeklyEmail(
     ${ctaButton("List an item", `${SITE_URL}/dashboard/flipdesk/intake`)}
   `;
   const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
-  return await sendEmail({
-    to,
+  return {
     subject: goalMet
       ? `🎉 Weekly goal hit — ${data.itemsListed} items listed`
       : `Your week in listings: ${data.itemsListed} item${data.itemsListed === 1 ? "" : "s"}`,
     html: emailLayout(content, { unsubscribeUrl }),
+  };
+}
+
+// Weekly encouragement digest tied to listing activity. Marketing-class
+// (carries an unsubscribe link). Sent by the north-star digest cron.
+export async function sendNorthStarWeeklyEmail(
+  to: string,
+  data: NorthStarWeeklyData,
+): Promise<boolean> {
+  const { subject, html } = await buildNorthStarWeeklyEmail(data);
+  return await sendEmail({
+    to,
+    subject,
+    html,
     category: "north_star_weekly",
   });
 }
@@ -942,11 +956,12 @@ interface NorthStarMilestoneData {
   lifetimeListed: number;
 }
 
-// Celebrates crossing a lifetime items-listed milestone. Marketing-class.
-export async function sendNorthStarMilestoneEmail(
-  to: string,
+// US-934: build the milestone email's {subject, html} WITHOUT sending, so the
+// marketing coordinator can gate/defer it (the html already carries the layout +
+// CAN-SPAM footer + one-click unsubscribe).
+export async function buildNorthStarMilestoneEmail(
   data: NorthStarMilestoneData,
-): Promise<boolean> {
+): Promise<{ subject: string; html: string }> {
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 22px;">
       🏆 ${data.milestone} items listed — what a milestone!
@@ -960,10 +975,22 @@ export async function sendNorthStarMilestoneEmail(
     ${ctaButton("Keep listing", `${SITE_URL}/dashboard/flipdesk/intake`)}
   `;
   const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
-  return await sendEmail({
-    to,
+  return {
     subject: `🏆 You've listed ${data.milestone} items on FlipDesk`,
     html: emailLayout(content, { unsubscribeUrl }),
+  };
+}
+
+// Celebrates crossing a lifetime items-listed milestone. Marketing-class.
+export async function sendNorthStarMilestoneEmail(
+  to: string,
+  data: NorthStarMilestoneData,
+): Promise<boolean> {
+  const { subject, html } = await buildNorthStarMilestoneEmail(data);
+  return await sendEmail({
+    to,
+    subject,
+    html,
     category: "north_star_milestone",
   });
 }

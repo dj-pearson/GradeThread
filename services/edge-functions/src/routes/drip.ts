@@ -32,6 +32,7 @@ import { acquireJobLock } from "../lib/job-lock.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { recordCronRun } from "../lib/cron-runs.ts";
 import { sendDripStepEmail } from "../lib/email.ts";
+import { recordMarketingSend } from "../lib/marketing-coordinator.ts";
 import { isEmailSuppressed } from "../lib/email-suppression.ts";
 import { qaCheckEmail } from "../lib/email-tracking.ts";
 import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
@@ -578,6 +579,17 @@ async function dispatchStep(
   if (stampErr) {
     console.warn("[drip-tick] drip_sends stamp failed:", stampErr.message);
   }
+
+  // US-934: record this drip send in the unified cross-program marketing ledger
+  // so the per-recipient daily cap counts drip mail alongside the newsletter /
+  // journeys (the coordinator reads marketing_send_log). Best-effort; the drip's
+  // own per-enrollment frequency gap above still bounds its own cadence.
+  await recordMarketingSend(
+    user.email!,
+    step.phase === "win_back" ? "win_back" : "trial_drip",
+    `drip:${campaign}:${ordinal}`,
+    user.id,
+  );
 
   // US-942: the incentive just went out → (1) stash a time-boxed pending coupon
   // on the user so the next checkout pre-applies it (one-click conversion,
