@@ -227,7 +227,7 @@
         "Unit tests for the billing_source branching; ios CI passes"
       ],
       "priority": 806,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. NOTE for implementer: StoreKit 2 DOES expose AppStore.showManageSubscriptions(in:) and upgrade/downgrade-within-group via purchase — no server pause/cancel RPC needed for appstore subs (the App Store Server Notification webhook at /api/webhooks/appstore already reconciles the resulting state changes)."
     },
     {

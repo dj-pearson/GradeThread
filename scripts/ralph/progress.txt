@@ -3702,3 +3702,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  2:25:15 PM
 ---
+## US-806: iOS native subscription management for App Store-billed subs
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  2:36:45 PM
+---
