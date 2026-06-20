@@ -360,7 +360,7 @@
         "All new rows are accessibility-labeled; ios CI passes"
       ],
       "priority": 818,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 parity audit. Usage-alert thresholds intentionally live in US-805 (they're part of the plan-warning UX), not here."
     },
     {

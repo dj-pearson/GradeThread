@@ -3666,3 +3666,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:14:07 PM
 ---
+## US-818: iOS settings completeness: change password, legal links, grading guide
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:18:38 PM
+---
