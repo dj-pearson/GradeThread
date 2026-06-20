@@ -3506,3 +3506,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  8:30:18 PM
 ---
+## US-941: Phase 3 post-trial win-back sequence (days 15-28)
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  8:30:55 PM
+---
