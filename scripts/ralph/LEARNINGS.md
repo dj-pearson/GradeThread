@@ -126,6 +126,23 @@ memory — not a progress log (the harness records progress separately).
   `newsletter_qa_{spam_score_max,subject_max_length,preheader_max_length,
   require_preference_center,ai_editor_enabled,link_check_enabled}`.
 
+## Newsletter kickoff trigger (US-923)
+- The ONE external touchpoint is `POST /api/newsletter/scheduler/tick`
+  (routes/newsletter-scheduler.ts) — own auth (NEWSLETTER_INTERNAL_JOB_SECRET /
+  signed / admin JWT), job-lock "newsletter-kickoff", records cron_runs itself
+  (in CRON_REGISTRY, NOT under /api/jobs). Each tick: create (cadence-gated via
+  pure `kickoffDue` in newsletter-webhook.ts) → advance gateable issues through
+  `runIssueGuardrailGate` → `runNewsletterDispatch`. It SUPERSEDES the standalone
+  `/api/jobs/newsletter-dispatch` cron (calls the same dispatcher) — don't run both
+  or issue.sent can fire from the cron path unnoticed.
+- Issue assembly now lives in `lib/newsletter-assembler.ts` (`assembleNextIssue` +
+  `NEWSLETTER_ISSUE_COLS`), shared by the console build-next button AND the kickoff
+  tick — edit the assembler, not the route, so they never drift.
+- Lifecycle webhook (`lib/newsletter-webhook.ts`): HMAC-signed
+  (NEWSLETTER_WEBHOOK_SIGNING_SECRET, X-Newsletter-Signature), retried 0/5/30s,
+  per-attempt logged to `newsletter_webhook_log`, target = settings key
+  `newsletter_make_webhook_url` (empty = disabled). Mirrors content-webhook.ts.
+
 ## Newsletter self-tuning (US-928)
 - Closed loop = PURE `lib/newsletter-tuning.ts` (catalog + `computeWeights`
   [CTR-first winner, exploration floor, unsub-ceiling PAUSE→weight 0] +
