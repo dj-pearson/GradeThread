@@ -86,7 +86,10 @@ final class PayoutReconciliationStore {
     }
 
     /// Human summary of an import: imported count plus duplicate/skipped notes.
-    static func importSummary(_ r: PayoutImportResult) -> String {
+    /// `nonisolated` (it's a pure function of its argument) so it stays callable
+    /// from the synchronous, non-MainActor unit tests despite the enclosing
+    /// `@MainActor` store.
+    nonisolated static func importSummary(_ r: PayoutImportResult) -> String {
         var parts = ["Imported \(r.imported) payout\(r.imported == 1 ? "" : "s")"]
         if r.duplicates > 0 {
             parts.append("\(r.duplicates) duplicate\(r.duplicates == 1 ? "" : "s") skipped")
