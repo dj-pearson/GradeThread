@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 import {
   remainingFraction as prorationRemainingFraction,
   unusedProrationCents,
@@ -34,6 +35,12 @@ type AdminEnv = {
 };
 
 export const adminBillingRoutes = new Hono<AdminEnv>();
+
+// US-908: every billing endpoint additionally requires the billing:write scope
+// (on top of the inherited admin role + AAL2 + per-action step-up). admin and
+// super_admin both hold it in the seed, so this is no behavior change at launch;
+// it lets a scoped admin be granted/denied billing without changing their role.
+adminBillingRoutes.use("*", requireScope("billing:write"));
 
 // US-587: FlipDesk price IDs are data-driven (DB pricing_plans + env fallback),
 // loaded via getFlipdeskPriceIds() so a price-ID change in admin needs no deploy.

@@ -71,6 +71,7 @@ import { adminNotificationsRoutes } from "./routes/admin-notifications.ts";
 import { adminViewsRoutes } from "./routes/admin-views.ts";
 import { adminKnowledgeBaseRoutes } from "./routes/admin-knowledge-base.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
+import { adminScopesRoutes } from "./routes/admin-scopes.ts";
 import { adminSearchRoutes } from "./routes/admin-search.ts";
 import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminMessagesRoutes } from "./routes/admin-messages.ts";
@@ -879,6 +880,10 @@ app.route("/api/admin/notifications", adminNotificationsRoutes);
 // AAL2 MFA via the /api/admin/* group.
 app.route("/api/admin/knowledge-base", adminKnowledgeBaseRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
+// US-908 granular RBAC scope management: view/edit which permission scopes each
+// role holds + per-admin additive grants. Reads are admin; mutations are
+// super_admin + users:role scope + fresh MFA step-up + audited.
+app.route("/api/admin/scopes", adminScopesRoutes);
 // US-901 global admin search / command palette: unified, ranked lookup across
 // users, submissions, certificates, listings, sales and tickets. Read-only;
 // admin JWT + AAL2 via the /api/admin/* group is the authorization boundary.

@@ -227,6 +227,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // the edge route), an operator surface, not user-owned tenant data.
   "admin_saved_views",
   "admin_notifications",
+  // US-908 granular RBAC scope tables (migration 00298). All RLS enabled,
+  // deny-all — read/written ONLY via the role-gated /api/admin/scopes endpoints
+  // + the requireScope guard on the service-role client; the SPA never reads the
+  // raw rows. permission_scopes/role_scopes are reference config (no ownership);
+  // admin_scope_grants.admin_user_id is the targeted operator, not a tenant key.
+  "permission_scopes",
+  "role_scopes",
+  "admin_scope_grants",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

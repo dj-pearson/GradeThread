@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 import { notifyUser } from "../lib/notify.ts";
 import {
   closeFlagForContent,
@@ -36,6 +37,11 @@ type AdminEnv = {
 };
 
 export const adminModerationRoutes = new Hono<AdminEnv>();
+
+// US-908: moderation actions additionally require the moderation:write scope (on
+// top of the inherited admin role + AAL2 + per-action step-up). admin and
+// super_admin both hold it in the seed → no behavior change at launch.
+adminModerationRoutes.use("*", requireScope("moderation:write"));
 
 interface FlaggedSubmissionRow {
   id: string;

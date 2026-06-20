@@ -193,6 +193,7 @@ const AdminOpsActivityPage = lazy(() => import("@/pages/admin/ops-activity").the
 const AdminOpsRunbooksPage = lazy(() => import("@/pages/admin/ops-runbooks").then(m => ({ default: m.AdminOpsRunbooksPage })));
 const AdminSettingsRegistryPage = lazy(() => import("@/pages/admin/settings-registry").then(m => ({ default: m.AdminSettingsRegistryPage })));
 const AdminConfigPricingPage = lazy(() => import("@/pages/admin/config-pricing").then(m => ({ default: m.AdminConfigPricingPage })));
+const AdminRolesPage = lazy(() => import("@/pages/admin/roles").then(m => ({ default: m.AdminRolesPage })));
 const AdminMaintenancePage = lazy(() => import("@/pages/admin/maintenance").then(m => ({ default: m.AdminMaintenancePage })));
 const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags").then(m => ({ default: m.AdminFeatureFlagsPage })));
 const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log").then(m => ({ default: m.AdminAuditLogPage })));
@@ -538,6 +539,8 @@ export const router = createBrowserRouter([
               { path: "/admin/ops/jobs", element: <SuspenseWrapper><AdminOpsJobsPage /></SuspenseWrapper> },
               { path: "/admin/ops/dead-letters", element: <SuspenseWrapper><AdminOpsDeadLettersPage /></SuspenseWrapper> },
               { path: "/admin/ops/settings", element: <SuspenseWrapper><AdminSettingsRegistryPage /></SuspenseWrapper> },
+              // US-908 granular RBAC scope management (admin read; super_admin + step-up to edit).
+              { path: "/admin/ops/roles", element: <SuspenseWrapper><AdminRolesPage /></SuspenseWrapper> },
               // US-1058 notification event catalog (admin + super_admin; read-only).
               { path: "/admin/ops/notifications", element: <SuspenseWrapper><AdminNotificationsPage /></SuspenseWrapper> },
               { path: "/admin/ops/pricing", element: <SuspenseWrapper><AdminConfigPricingPage /></SuspenseWrapper> },

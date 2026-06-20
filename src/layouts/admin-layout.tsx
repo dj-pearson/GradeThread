@@ -43,6 +43,7 @@ import {
   Coins,
   PlugZap,
   GitMerge,
+  KeyRound,
   MailCheck,
   MailWarning,
   Mailbox,
@@ -157,6 +158,9 @@ const opsNavItems = [
   // US-884 settings registry. Reads are admin; the PUT mutation is super_admin +
   // MFA step-up gated server-side.
   { to: "/admin/ops/settings", icon: SlidersHorizontal, label: "Settings Registry", end: false },
+  // US-908 granular RBAC scopes. Reads are admin; editing role/admin scopes is
+  // super_admin + users:role scope + MFA step-up gated server-side.
+  { to: "/admin/ops/roles", icon: KeyRound, label: "Roles & Permissions", end: false },
   // US-1058 notification event catalog — read-only event/channel/volume map.
   { to: "/admin/ops/notifications", icon: Bell, label: "Notification Catalog", end: false },
   { to: "/admin/ops/pricing", icon: DollarSign, label: "Pricing & Tiers", end: false },

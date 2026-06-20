@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { requireScope } from "../lib/scope-guard.ts";
 
 // Admin user-management (US-270). Role grant/revoke is a destructive
 // super-admin action, so it runs server-side here (not via a client-side
@@ -472,7 +473,9 @@ adminUsersRoutes.get("/:id/timeline", async (c: Context<AdminEnv>) => {
 });
 
 // POST /:id/role — change a user's role. super_admin only + fresh step-up.
-adminUsersRoutes.post("/:id/role", async (c: Context<AdminEnv>) => {
+// US-908: also requires the users:role scope (held only by super_admin in the
+// seed → no behavior change; a scoped admin could be granted it explicitly).
+adminUsersRoutes.post("/:id/role", requireScope("users:role"), async (c: Context<AdminEnv>) => {
   // Only super-admins manage roles.
   if (c.get("adminRole") !== "super_admin") {
     return c.json({ error: "Super-admin access required" }, 403);
