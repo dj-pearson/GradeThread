@@ -3566,3 +3566,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 11:44:05 PM
 ---
+## US-929: Lifecycle drip series (welcome, trial-nurture, win-back)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 12:11:26 AM
+---
