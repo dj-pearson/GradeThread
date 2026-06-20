@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   BadgeCheck,
-  AlertTriangle,
   ExternalLink,
   ImageOff,
   Share2,
@@ -16,6 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { SEO } from "@/components/seo";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
@@ -153,6 +154,10 @@ export function VerifiedSellerPage() {
   const [data, setData] = useState<SellerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // US-1131: distinguish a 404 (not-found → EmptyState) from a fetch failure
+  // (→ retryable ErrorState); `attempt` re-runs the load on retry.
+  const [notFound, setNotFound] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!handle) return;
@@ -161,6 +166,7 @@ export function VerifiedSellerPage() {
     async function load() {
       setLoading(true);
       setError(null);
+      setNotFound(false);
       try {
         const res = await fetch(
           `${edgeApiUrl()}/api/content/public/sellers/${encodeURIComponent(handle!)}`,
@@ -172,7 +178,7 @@ export function VerifiedSellerPage() {
           // alongside the error (US-798).
           if (!cancelled) {
             setData(null);
-            setError("Profile not found");
+            setNotFound(true);
           }
           return;
         }
@@ -192,7 +198,7 @@ export function VerifiedSellerPage() {
     return () => {
       cancelled = true;
     };
-  }, [handle]);
+  }, [handle, attempt]);
 
   if (loading) {
     return (
@@ -204,20 +210,26 @@ export function VerifiedSellerPage() {
     );
   }
 
-  if (error || !data) {
+  if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <Card className="w-full max-w-md">
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <AlertTriangle className="h-12 w-12 text-muted-foreground/50" />
-            <h3 className="mt-4 text-lg font-medium">
-              {error ?? "Profile not found"}
-            </h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              This seller profile may be private or the link is invalid.
-            </p>
-          </CardContent>
-        </Card>
+      <div className="mx-auto flex min-h-[60vh] w-full max-w-md items-center justify-center p-6">
+        <ErrorState
+          title="Couldn't load this profile"
+          onRetry={() => setAttempt((a) => a + 1)}
+        />
+      </div>
+    );
+  }
+
+  if (notFound || !data) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] w-full max-w-md items-center justify-center p-6">
+        <EmptyState
+          icon={BadgeCheck}
+          title="Profile not found"
+          description="This seller profile may be private or the link is invalid."
+          action={{ label: "Browse verified sellers", to: "/verified" }}
+        />
       </div>
     );
   }

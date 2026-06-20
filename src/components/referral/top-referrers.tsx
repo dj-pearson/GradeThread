@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Trophy } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { cn } from "@/lib/utils";
 
@@ -32,9 +33,13 @@ interface TopReferrersProps {
 export function TopReferrers({ limit, className }: TopReferrersProps) {
   const [rows, setRows] = useState<LeaderboardReferrer[] | null>(null);
   const [error, setError] = useState(false);
+  // US-1131: bump to re-run the fetch from the standardized ErrorState retry.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setError(false);
+    setRows(null);
     (async () => {
       try {
         const res = await fetch(
@@ -54,15 +59,15 @@ export function TopReferrers({ limit, className }: TopReferrersProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   if (error) {
     return (
-      <Card className={className}>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Couldn't load the leaderboard. Please try again later.
-        </CardContent>
-      </Card>
+      <ErrorState
+        className={className}
+        title="Couldn't load the leaderboard"
+        onRetry={() => setAttempt((a) => a + 1)}
+      />
     );
   }
 
@@ -78,11 +83,12 @@ export function TopReferrers({ limit, className }: TopReferrersProps) {
 
   if (rows.length === 0) {
     return (
-      <Card className={className}>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          No ranked referrers yet — be the first to make the board.
-        </CardContent>
-      </Card>
+      <EmptyState
+        className={className}
+        icon={Trophy}
+        title="No ranked referrers yet"
+        description="Be the first to make the board — share your referral link and earn grade credits when friends join."
+      />
     );
   }
 

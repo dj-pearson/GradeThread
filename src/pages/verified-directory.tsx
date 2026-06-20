@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { BadgeCheck, Trophy, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { SEO } from "@/components/seo";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { cn } from "@/lib/utils";
@@ -105,9 +106,13 @@ export function VerifiedDirectoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("volume");
   const [query, setQuery] = useState("");
+  // US-1131: bump to re-run the fetch from the standardized ErrorState retry.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setError(null);
+    setSellers(null);
     async function load() {
       try {
         const res = await fetch(`${edgeApiUrl()}/api/content/public/sellers.json`, {
@@ -127,7 +132,7 @@ export function VerifiedDirectoryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   const ranked = useMemo(() => {
     if (!sellers) return [];
@@ -195,11 +200,10 @@ export function VerifiedDirectoryPage() {
 
         {/* List */}
         {error ? (
-          <Card>
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              {error}. Please try again later.
-            </CardContent>
-          </Card>
+          <ErrorState
+            title={error}
+            onRetry={() => setAttempt((a) => a + 1)}
+          />
         ) : !sellers ? (
           <div className="space-y-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -207,13 +211,19 @@ export function VerifiedDirectoryPage() {
             ))}
           </div>
         ) : ranked.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              {query
-                ? "No verified sellers match your search."
-                : "No verified sellers yet. Be the first to get verified."}
-            </CardContent>
-          </Card>
+          <EmptyState
+            icon={query ? Search : BadgeCheck}
+            title={
+              query
+                ? "No verified sellers match your search"
+                : "No verified sellers yet"
+            }
+            description={
+              query
+                ? "Try a different name or clear your search."
+                : "Be the first to get verified — grade your inventory and turn on your public profile."
+            }
+          />
         ) : (
           <>
             <div className="flex items-center justify-between">

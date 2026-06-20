@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   useEbayBestOffers,
   useEbayConnection,
@@ -78,7 +79,13 @@ export function FlipdeskOffersPage() {
 
 // ── Best Offers ─────────────────────────────────────────────────────
 function BestOffersCard() {
-  const { data: offers = [], isLoading, error } = useEbayBestOffers();
+  const {
+    data: offers = [],
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+  } = useEbayBestOffers();
   return (
     <Card>
       <CardHeader>
@@ -96,9 +103,14 @@ function BestOffersCard() {
         {isLoading ? (
           <Skeleton className="h-20 w-full" />
         ) : error ? (
-          <p className="text-sm text-destructive">
-            {(error as Error).message}
-          </p>
+          <ErrorState
+            className="py-6"
+            hideSupport
+            title="Couldn't load offers"
+            description={(error as Error).message}
+            onRetry={() => refetch()}
+            retrying={isFetching}
+          />
         ) : offers.length === 0 ? (
           <p className="text-sm text-muted-foreground">No open offers.</p>
         ) : (
@@ -380,7 +392,13 @@ function SendOfferCard() {
 
 // ── Buyer messages ──────────────────────────────────────────────────
 function MessagesCard() {
-  const { data: messages = [], isLoading, error } = useEbayMessages();
+  const {
+    data: messages = [],
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+  } = useEbayMessages();
   return (
     <Card>
       <CardHeader>
@@ -393,7 +411,14 @@ function MessagesCard() {
         {isLoading ? (
           <Skeleton className="h-20 w-full" />
         ) : error ? (
-          <p className="text-sm text-destructive">{(error as Error).message}</p>
+          <ErrorState
+            className="py-6"
+            hideSupport
+            title="Couldn't load messages"
+            description={(error as Error).message}
+            onRetry={() => refetch()}
+            retrying={isFetching}
+          />
         ) : messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">No recent messages.</p>
         ) : (

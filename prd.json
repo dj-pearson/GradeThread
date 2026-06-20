@@ -3502,8 +3502,8 @@
         "build + tsc + eslint clean"
       ],
       "priority": 1076,
-      "passes": false,
-      "notes": "[P2][Web/UX][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Audit found referrals.tsx (~L249), repricing.tsx (~L137/165), scheduled-drops.tsx (~L89/267) with no error branch; referral-leaderboard.tsx bare shell; autolister.tsx (~2100 lines) toast-only. Primitives exist (components/ui/error-state.tsx). Verify exact lines.",
+      "passes": true,
+      "notes": "[P2][Web/UX][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Audit found referrals.tsx (~L249), repricing.tsx (~L137/165), scheduled-drops.tsx (~L89/267) with no error branch; referral-leaderboard.tsx bare shell; autolister.tsx (~2100 lines) toast-only. Primitives exist (components/ui/error-state.tsx). Verify exact lines. [DONE 2026-06-20] Standardized data-surface states on the shared primitives. Added retryable ErrorState branches (wired to refetch + isFetching) to referrals.tsx, flipdesk/repricing.tsx, and flipdesk/scheduled-drops.tsx where isError was previously unhandled (silent failures). referral-leaderboard.tsx delegates to TopReferrers, which was standardized: its raw-Card error -> ErrorState with a working retry (attempt counter re-runs the fetch), raw-Card empty -> EmptyState. verified-directory.tsx: error -> ErrorState (retry), empty -> EmptyState (search-aware). verified-seller.tsx: split the combined error/not-found block into a retryable ErrorState (fetch failure) vs an EmptyState with a 'Browse verified sellers' CTA (404); removed now-unused AlertTriangle/Card imports. flipdesk/offers.tsx: BestOffersCard + MessagesCard error text-destructive -> compact ErrorState with retry. autolister.tsx left as-is by design: it's an interactive staging editor (not a data-list surface) whose action failures are correctly surfaced via toasts (mutations) and whose staged-photo empty state already exists, so a QueryBoundary/ErrorState wrapper doesn't apply. tsc -b, eslint, build+prerender, full vitest (888) all clean.",
       "relevantPaths": [
         "src/pages/referrals.tsx",
         "src/pages/flipdesk/repricing.tsx",

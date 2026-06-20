@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { COMMON_TIMEZONES, detectTimezone, formatInZone } from "@/lib/scheduling";
@@ -86,7 +87,13 @@ export function FlipdeskScheduledDropsPage() {
     return { y: Number(parts[0]), m: Number(parts[1]) - 1 };
   });
 
-  const { data: drops = [], isLoading } = useQuery({
+  const {
+    data: drops = [],
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ["scheduled_drops", user?.id],
     enabled: !!user,
     staleTime: 30_000,
@@ -264,7 +271,13 @@ export function FlipdeskScheduledDropsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isError ? (
+            <ErrorState
+              title="Couldn't load scheduled drops"
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
+          ) : isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>
