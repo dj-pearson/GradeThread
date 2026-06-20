@@ -301,7 +301,7 @@
         "ios CI passes"
       ],
       "priority": 814,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 parity audit. Grep-verified: no sources list/edit UI exists in ios/."
     },
     {

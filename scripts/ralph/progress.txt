@@ -3682,3 +3682,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:44:30 PM
 ---
+## US-814: iOS sources management surface
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:54:42 PM
+---
