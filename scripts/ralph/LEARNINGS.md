@@ -94,6 +94,22 @@ memory — not a progress log (the harness records progress separately).
 - /api/drip/tick is NOT under /api/jobs/*, so the cron_runs MIDDLEWARE doesn't
   record it; the handler calls `recordCronRun({jobName:"drip-tick", …})` itself.
 
+## Trial-conversion drip INCENTIVE (US-942)
+- The conversion incentive is config-gated on `graph.incentive` (DripIncentive,
+  off by default — validated in drip-graph.ts). The `{{incentive}}` token has NO
+  hardcoded fallback anymore: renderStep injects it ONLY when step.incentiveEnabled
+  AND a resolved RenderableIncentive is passed; otherwise empty (value-only email).
+- Server-side eligibility is `isIncentiveEligible` (drip-graph.ts, pure):
+  win_back phase + step.incentiveEnabled + !converted. In-trial steps NEVER
+  surface a code even if their toggle is on (AC: never expose outside win-back).
+- `lib/drip-incentive.ts` (Stripe-touching) resolves the live coupon → label +
+  enforces the maxPercentOff guardrail; engine calls it ONCE per tick. On an
+  eligible send the engine stamps `users.pending_drip_coupon(+_expires_at)` (00268,
+  mirrors pending_referral_coupon) so payments.ts flipdesk/subscribe pre-applies
+  it as `discounts:[{coupon}]`, and flips `drip_enrollments.incentive_enabled`
+  (the existing incentiveSplit analytics + attribution pick it up). Webhook
+  clears the pending coupon on subscription.created.
+
 ## Sync provenance epic (US-1076…1086)
 - The `listings.listing_origin` enum column is now PERSISTED (US-1077, migration
   00232): NOT NULL, default `'gradethread'`, backfilled. You may now

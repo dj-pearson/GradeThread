@@ -536,8 +536,14 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       // reason left over from a prior cancellation.
       // US-1070: also consume any referral free-month coupon now that it's been
       // applied to this newly-created subscription (one-time offer).
+      // US-942: likewise consume any win-back drip incentive coupon (one-time).
       ...(event.type === "customer.subscription.created"
-        ? { cancellation_reason: null, pending_referral_coupon: null }
+        ? {
+            cancellation_reason: null,
+            pending_referral_coupon: null,
+            pending_drip_coupon: null,
+            pending_drip_coupon_expires_at: null,
+          }
         : {}),
       ...(trialEndsAtUpdate ? { trial_ends_at: trialEndsAtUpdate } : {}),
       ...(pendingCleared

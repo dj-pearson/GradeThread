@@ -4,6 +4,7 @@ import {
   type DripGraph,
   type DripUserState,
   evaluateAll,
+  isIncentiveEligible,
   nextTickIso,
   pickVariant,
   planTick,
@@ -97,7 +98,7 @@ Deno.test("applyTokens substitutes known tokens and blanks unknown", () => {
   assertEquals(applyTokens("a {{nope}} b", {}), "a  b");
 });
 
-Deno.test("renderStep fills firstName + incentive", () => {
+Deno.test("renderStep fills firstName + resolved incentive (US-942)", () => {
   const rendered = renderStep(
     {
       incentiveEnabled: true,
@@ -105,21 +106,93 @@ Deno.test("renderStep fills firstName + incentive", () => {
     },
     { firstName: "Dana" },
     "A",
+    { promoCode: "WELCOME15", label: "15% off your first month", expiresAt: null },
   );
   assert(rendered);
   assertEquals(rendered!.subject, "Hi Dana");
-  assert(rendered!.html.includes("TRIAL20"));
+  // Code + discount come from the resolved incentive — never hardcoded.
+  assert(rendered!.html.includes("WELCOME15"));
+  assert(rendered!.html.includes("15% off your first month"));
 });
 
-Deno.test("renderStep omits incentive when disabled", () => {
+Deno.test("renderStep omits incentive when no resolved offer passed (US-942)", () => {
+  // incentiveEnabled but NO resolved incentive → token collapses (no leak).
+  const rendered = renderStep(
+    {
+      incentiveEnabled: true,
+      variants: [{ id: "A", weight: 1, subject: "s", html: "x{{incentive}}y" }],
+    },
+    {},
+  );
+  assertEquals(rendered!.html, "xy");
+});
+
+Deno.test("renderStep omits incentive when step disabled even if offer passed (US-942)", () => {
   const rendered = renderStep(
     {
       incentiveEnabled: false,
       variants: [{ id: "A", weight: 1, subject: "s", html: "x{{incentive}}y" }],
     },
     {},
+    "A",
+    { promoCode: "NOPE", label: "20% off", expiresAt: null },
   );
   assertEquals(rendered!.html, "xy");
+});
+
+Deno.test("isIncentiveEligible: win-back, not converted only (US-942)", () => {
+  assert(isIncentiveEligible({ phase: "win_back", incentiveEnabled: true }, { converted: false }));
+  // in-trial never exposes a code, even when enabled.
+  assert(!isIncentiveEligible({ phase: "in_trial", incentiveEnabled: true }, { converted: false }));
+  // already-paid never gets an incentive.
+  assert(!isIncentiveEligible({ phase: "win_back", incentiveEnabled: true }, { converted: true }));
+  // step-level toggle off → no incentive.
+  assert(!isIncentiveEligible({ phase: "win_back", incentiveEnabled: false }, { converted: false }));
+});
+
+Deno.test("validateGraph accepts a disabled/absent incentive (US-942)", () => {
+  const base = {
+    entryStepId: "a",
+    steps: [step({ id: "a", next: null, exit: true })],
+  };
+  assert(validateGraph(base).ok);
+  assert(validateGraph({ ...base, incentive: { enabled: false } }).ok);
+});
+
+Deno.test("validateGraph requires full incentive shape when enabled (US-942)", () => {
+  const base = {
+    entryStepId: "a",
+    steps: [step({ id: "a", next: null, exit: true })],
+  };
+  const bad = validateGraph({ ...base, incentive: { enabled: true } });
+  assert(!bad.ok);
+  assert(bad.errors.some((e) => /couponId/.test(e)), bad.errors.join("; "));
+  assert(bad.errors.some((e) => /promoCode/.test(e)), bad.errors.join("; "));
+
+  const good = validateGraph({
+    ...base,
+    incentive: {
+      enabled: true,
+      couponId: "co_123",
+      promoCode: "WINBACK20",
+      maxPercentOff: 25,
+      expiryHours: 168,
+    },
+  });
+  assert(good.ok, good.errors.join("; "));
+
+  const overMax = validateGraph({
+    ...base,
+    incentive: {
+      enabled: true,
+      couponId: "co_123",
+      promoCode: "WINBACK20",
+      maxPercentOff: 150,
+      expiryHours: 168,
+    },
+  });
+  assert(!overMax.ok);
+  assert(overMax.errors.some((e) => /maxPercentOff/.test(e)), overMax.errors.join("; "));
 });
 
 Deno.test("evaluateAll gates on converted=is_false", () => {

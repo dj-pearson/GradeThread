@@ -37,9 +37,11 @@ import {
   type DripGraph,
   type DripStep,
   type DripUserState,
+  isIncentiveEligible,
   planTick,
   renderStep,
 } from "../lib/drip-graph.ts";
+import { resolveIncentive, type ResolvedIncentive } from "../lib/drip-incentive.ts";
 
 type DripEnv = { Variables: { userId?: string } };
 
@@ -309,6 +311,7 @@ async function dispatchStep(
   ordinal: number,
   variantId: string,
   nowIso: string,
+  resolved: ResolvedIncentive | null,
 ): Promise<SendOutcome> {
   // US-911 consent: a marketing opt-out ends the drip (CAN-SPAM honor opt-out).
   if (marketingOptedOutEmail(user.notification_preferences)) {
@@ -319,7 +322,18 @@ async function dispatchStep(
     return { sent: false, exitReason: "suppressed" };
   }
 
-  const rendered = renderStep(step, userState, variantId);
+  // US-942: surface the conversion incentive ONLY when the campaign incentive is
+  // configured/on AND this step+user passes the server-side eligibility gate
+  // (win-back/post-trial, never already-paid). Otherwise the {{incentive}} token
+  // renders empty (value-only variant) and no code is exposed.
+  const incentiveEligible = !!resolved && isIncentiveEligible(step, userState);
+
+  const rendered = renderStep(
+    step,
+    userState,
+    variantId,
+    incentiveEligible ? resolved!.incentive : null,
+  );
   if (!rendered) {
     console.warn(`[drip-tick] step '${step.id}' rendered empty — skipping send`);
     return { sent: false };
@@ -352,6 +366,33 @@ async function dispatchStep(
   if (error) {
     console.warn("[drip-tick] drip_sends insert failed:", error.message);
   }
+
+  // US-942: the incentive just went out → (1) stash a time-boxed pending coupon
+  // on the user so the next checkout pre-applies it (one-click conversion,
+  // payments.ts), and (2) mark the enrollment incentive-on so the conversion
+  // attribution ledger (and the incentive-lift analytics) credit this arm. The
+  // webhook clears the pending coupon once the subscription lands.
+  if (incentiveEligible) {
+    const { error: couponErr } = await supabaseAdmin
+      .from("users")
+      .update({
+        pending_drip_coupon: resolved!.couponId,
+        pending_drip_coupon_expires_at: resolved!.expiresAt,
+      })
+      .eq("id", user.id);
+    if (couponErr) {
+      console.warn("[drip-tick] pending coupon stamp failed:", couponErr.message);
+    }
+    if (!enrollment.incentive_enabled) {
+      const { error: enrollErr } = await supabaseAdmin
+        .from("drip_enrollments")
+        .update({ incentive_enabled: true })
+        .eq("id", enrollment.id);
+      if (enrollErr) {
+        console.warn("[drip-tick] incentive flag update failed:", enrollErr.message);
+      }
+    }
+  }
   return { sent: true };
 }
 
@@ -364,6 +405,7 @@ async function processEnrollment(
   nowIso: string,
   dryRun: boolean,
   counts: TickCounts,
+  resolvedIncentive: ResolvedIncentive | null,
 ): Promise<void> {
   const { data: u } = await supabaseAdmin
     .from("users")
@@ -419,6 +461,7 @@ async function processEnrollment(
       plan.send.ordinal,
       plan.send.variantId,
       nowIso,
+      resolvedIncentive,
     );
     if (outcome.exitReason) {
       await exitEnrollment(enrollment.id, outcome.exitReason, nowIso);
@@ -529,6 +572,12 @@ dripRoutes.post("/tick", async (c) => {
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
 
+    // US-942: resolve the campaign's conversion incentive once per tick (one
+    // Stripe coupon lookup, shared across the batch). null when the incentive is
+    // off, misconfigured, or the coupon fails the max-discount guardrail — in
+    // which case every send falls back to the value-only email.
+    const resolvedIncentive = await resolveIncentive(def.graph.incentive, nowMs);
+
     // 1. Enroll new trialists (skipped in dry-run — enrolling is itself a write).
     if (!dryRun) {
       counts.enrolled = await enrollNewTrialists(campaign, nowIso);
@@ -559,7 +608,7 @@ dripRoutes.post("/tick", async (c) => {
 
     for (const row of (due ?? []) as EnrollmentRow[]) {
       try {
-        await processEnrollment(def, row, nowMs, nowIso, dryRun, counts);
+        await processEnrollment(def, row, nowMs, nowIso, dryRun, counts, resolvedIncentive);
       } catch (e) {
         // One bad enrollment must not abort the batch.
         counts.skipped++;

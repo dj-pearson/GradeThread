@@ -7,6 +7,8 @@ import { clearFeatureFlagCache } from "../lib/feature-flags.ts";
 import { deliverEmail } from "../lib/email.ts";
 import {
   type DripGraph,
+  type DripIncentive,
+  isIncentiveEligible,
   type DripStep,
   type DripUserState,
   nextTickIso,
@@ -14,6 +16,7 @@ import {
   simulateJourney,
   validateGraph,
 } from "../lib/drip-graph.ts";
+import { resolveIncentive } from "../lib/drip-incentive.ts";
 import {
   applyOptimizationToGraph,
   DEFAULT_OPTIMIZER_CONFIG,
@@ -345,7 +348,12 @@ adminDripRoutes.post("/campaigns/:campaign/status", async (c) => {
 // the preview reflects UNSAVED edits.
 adminDripRoutes.post("/campaigns/:campaign/preview", async (c) => {
   const campaign = c.req.param("campaign");
-  let body: { step?: unknown; variantId?: string; sampleUserId?: string };
+  let body: {
+    step?: unknown;
+    variantId?: string;
+    sampleUserId?: string;
+    incentive?: DripIncentive;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -362,7 +370,15 @@ adminDripRoutes.post("/campaigns/:campaign/preview", async (c) => {
     if (loaded) user = loaded;
   }
 
-  const rendered = renderStep(step, user, body.variantId);
+  // US-942: reflect the incentive in the preview EXACTLY as a real recipient
+  // would see it — only when eligible (win-back step, not already-paid) and the
+  // campaign incentive resolves against a valid Stripe coupon. `incentive` is
+  // taken from the request so unsaved builder edits preview correctly.
+  const incentive = isIncentiveEligible(step, user)
+    ? (await resolveIncentive(body.incentive ?? null, Date.now()))?.incentive ?? null
+    : null;
+
+  const rendered = renderStep(step, user, body.variantId, incentive);
   if (!rendered) return jsonError(c, 400, "Could not render step");
   return c.json(rendered);
 });
@@ -373,7 +389,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Body: { step, variantId?, to }. Audited.
 adminDripRoutes.post("/campaigns/:campaign/test-send", async (c) => {
   const campaign = c.req.param("campaign");
-  let body: { step?: unknown; variantId?: string; to?: string };
+  let body: { step?: unknown; variantId?: string; to?: string; incentive?: DripIncentive };
   try {
     body = await c.req.json();
   } catch {
@@ -386,11 +402,17 @@ adminDripRoutes.post("/campaigns/:campaign/test-send", async (c) => {
     return jsonError(c, 400, "step with at least one variant is required");
   }
 
-  const rendered = renderStep(
-    step,
-    { firstName: "Alex", trialEndsAt: new Date(Date.now() + 3 * DAY_MS).toISOString() },
-    body.variantId,
-  );
+  const sampleUser: DripUserState = {
+    firstName: "Alex",
+    trialEndsAt: new Date(Date.now() + 3 * DAY_MS).toISOString(),
+  };
+  // US-942: surface the incentive in the test send exactly as a real recipient
+  // would (eligible win-back step + valid coupon), so QA sees the real offer.
+  const incentive = isIncentiveEligible(step, sampleUser)
+    ? (await resolveIncentive(body.incentive ?? null, Date.now()))?.incentive ?? null
+    : null;
+
+  const rendered = renderStep(step, sampleUser, body.variantId, incentive);
   if (!rendered) return jsonError(c, 400, "Could not render step");
 
   const ok = await deliverEmail({

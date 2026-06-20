@@ -28,10 +28,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertTriangle,
   CheckCircle2,
   Clock,
   Eye,
+  Gift,
   Loader2,
   Pause,
   Play,
@@ -83,10 +91,20 @@ interface DripStep {
   exit: boolean;
   variants: DripVariant[];
 }
+// US-942: campaign-level conversion incentive (off by default). Mirrors
+// DripIncentive in services/edge-functions/src/lib/drip-graph.ts.
+interface DripIncentive {
+  enabled: boolean;
+  couponId: string;
+  promoCode: string;
+  maxPercentOff: number;
+  expiryHours: number;
+}
 interface DripGraph {
   entryStepId: string | null;
   steps: DripStep[];
   autotuneEnabled?: boolean;
+  incentive?: DripIncentive;
 }
 
 // US-944: optimizer payload (mirrors services/edge-functions/src/lib/drip-optimizer.ts).
@@ -269,6 +287,23 @@ export function AdminDripBuilderPage() {
     } finally {
       setWorking(false);
     }
+  }
+
+  // US-942: edit the campaign-level incentive config. Persisted by saveGraph
+  // (PUT graph) like any other graph change — super-admin + step-up + audited.
+  function patchIncentive(patch: Partial<DripIncentive>) {
+    setDirty(true);
+    setDraft((g) => {
+      if (!g) return g;
+      const current: DripIncentive = g.incentive ?? {
+        enabled: false,
+        couponId: "",
+        promoCode: "",
+        maxPercentOff: 25,
+        expiryHours: 168,
+      };
+      return { ...g, incentive: { ...current, ...patch } };
+    });
   }
 
   function patchStep(stepId: string, patch: Partial<DripStep>) {
@@ -487,6 +522,12 @@ export function AdminDripBuilderPage() {
         onApply={applyOptimizer}
       />
 
+      <IncentivePanel
+        incentive={draft?.incentive}
+        disabled={!isSuperAdmin}
+        onPatch={patchIncentive}
+      />
+
       {/* Step graph */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -512,6 +553,7 @@ export function AdminDripBuilderPage() {
             step={step}
             isEntry={draft?.entryStepId === step.id}
             campaign={campaign}
+            incentive={draft?.incentive}
             disabled={!isSuperAdmin}
             onPatch={(patch) => patchStep(step.id, patch)}
             onPatchVariant={(vid, patch) => patchVariant(step.id, vid, patch)}
@@ -548,6 +590,7 @@ function StepCard({
   step,
   isEntry,
   campaign,
+  incentive,
   disabled,
   onPatch,
   onPatchVariant,
@@ -557,6 +600,7 @@ function StepCard({
   step: DripStep;
   isEntry: boolean;
   campaign: string;
+  incentive?: DripIncentive;
   disabled: boolean;
   onPatch: (patch: Partial<DripStep>) => void;
   onPatchVariant: (variantId: string, patch: Partial<DripVariant>) => void;
@@ -573,7 +617,7 @@ function StepCard({
     try {
       const res = await edgeFetch(`/api/admin/drip/campaigns/${campaign}/preview`, {
         method: "POST",
-        json: { step, variantId },
+        json: { step, variantId, incentive },
         silentGate: true,
       });
       const json = await res.json().catch(() => ({}));
@@ -596,7 +640,7 @@ function StepCard({
     try {
       const res = await edgeFetch(`/api/admin/drip/campaigns/${campaign}/test-send`, {
         method: "POST",
-        json: { step, variantId, to: testTo.trim() },
+        json: { step, variantId, to: testTo.trim(), incentive },
         silentGate: true,
       });
       const json = await res.json().catch(() => ({}));
@@ -1122,6 +1166,165 @@ function OptimizerPanel({
               </div>
             )}
           </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// US-942: campaign-level conversion incentive config. References an EXISTING
+// Stripe coupon / promo code (the admin coupons system) — no discount is
+// hardcoded here. Off by default. When on, the engine surfaces a time-boxed,
+// pre-applied offer ONLY on eligible win-back steps (whose own "Incentive"
+// toggle is set). Edits save with the journey's "Save graph" button
+// (super-admin + step-up + audited).
+function IncentivePanel({
+  incentive,
+  disabled,
+  onPatch,
+}: {
+  incentive?: DripIncentive;
+  disabled: boolean;
+  onPatch: (patch: Partial<DripIncentive>) => void;
+}) {
+  const coupons = useQuery({
+    queryKey: ["admin-coupons"],
+    queryFn: async () => {
+      const res = await edgeFetch("/api/admin/coupons");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load coupons.");
+      return json as {
+        coupons: Array<{ id: string; name: string | null; percent_off: number | null; valid: boolean }>;
+        promotion_codes: Array<{ id: string; code: string; coupon_id: string; active: boolean }>;
+      };
+    },
+    staleTime: 60_000,
+  });
+
+  const enabled = incentive?.enabled ?? false;
+  const promoCodes = coupons.data?.promotion_codes ?? [];
+  const couponById = new Map((coupons.data?.coupons ?? []).map((c) => [c.id, c]));
+
+  // Selecting a promotion code wires BOTH the user-facing code (shown in the
+  // email) and the coupon id (pre-applied at checkout) in one move.
+  function selectPromo(code: string) {
+    const pc = promoCodes.find((p) => p.code === code);
+    if (!pc) return;
+    onPatch({ promoCode: pc.code, couponId: pc.coupon_id });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Gift className="h-4 w-4" /> Conversion incentive (win-back)
+        </CardTitle>
+        <CardDescription>
+          Optional, off by default. References an existing Stripe coupon + promo
+          code (manage them under{" "}
+          <span className="font-medium">Coupons &amp; Promo Codes</span>). When on,
+          eligible win-back steps (with their own “Incentive” toggle set) surface a
+          time-boxed, pre-applied offer — one-click conversion, tracked for ROI.
+          Never shown in-trial or to already-paid users. Save with “Save graph”.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2 rounded-md border p-3">
+          <Switch
+            id="incentive-enabled"
+            checked={enabled}
+            disabled={disabled}
+            onCheckedChange={(v) => onPatch({ enabled: v })}
+          />
+          <Label htmlFor="incentive-enabled" className="text-sm">
+            Incentive enabled{" "}
+            <span className="text-xs text-muted-foreground">
+              (off reverts win-back emails to the value-only variant)
+            </span>
+          </Label>
+        </div>
+
+        {coupons.error && (
+          <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
+            <AlertTriangle className="h-4 w-4" /> {(coupons.error as Error).message}
+          </div>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Promotion code</Label>
+            <Select
+              value={incentive?.promoCode || ""}
+              disabled={disabled || coupons.isLoading}
+              onValueChange={selectPromo}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={coupons.isLoading ? "Loading…" : "Select a promo code"} />
+              </SelectTrigger>
+              <SelectContent>
+                {promoCodes.filter((p) => p.active).length === 0 ? (
+                  <SelectItem value="__none" disabled>
+                    No active promo codes
+                  </SelectItem>
+                ) : (
+                  promoCodes
+                    .filter((p) => p.active)
+                    .map((p) => {
+                      const coupon = couponById.get(p.coupon_id);
+                      const valueLabel = coupon?.percent_off != null
+                        ? ` · ${coupon.percent_off}% off`
+                        : "";
+                      return (
+                        <SelectItem key={p.id} value={p.code}>
+                          {p.code}{valueLabel}
+                        </SelectItem>
+                      );
+                    })
+                )}
+              </SelectContent>
+            </Select>
+            {incentive?.couponId && (
+              <p className="font-mono text-[11px] text-muted-foreground">
+                coupon: {incentive.couponId}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Max discount guardrail (%)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              disabled={disabled}
+              value={incentive?.maxPercentOff ?? 25}
+              onChange={(e) => onPatch({ maxPercentOff: Number(e.target.value) })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              A coupon discounting more than this is refused server-side (never sent).
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Offer window (hours)</Label>
+            <Input
+              type="number"
+              min={1}
+              disabled={disabled}
+              value={incentive?.expiryHours ?? 168}
+              onChange={(e) => onPatch({ expiryHours: Number(e.target.value) })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Time-box from when the offer is shown (e.g. 168 = 7 days).
+            </p>
+          </div>
+        </div>
+
+        {enabled && !incentive?.couponId && (
+          <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            <AlertTriangle className="h-4 w-4" /> Select a promotion code before saving — an enabled
+            incentive needs a coupon.
+          </div>
         )}
       </CardContent>
     </Card>

@@ -78,6 +78,47 @@ export interface DripGraph {
    * validateGraph/simulateJourney — it only gates self-tuning.
    */
   autotuneEnabled?: boolean;
+  /**
+   * US-942: campaign-level conversion incentive. OFF by default. References an
+   * existing Stripe coupon (admin coupons system) + a shared, time-boxed promo
+   * code that the engine surfaces ONLY on eligible win-back (post-trial) steps
+   * whose own `incentiveEnabled` is set. Resolved against the live Stripe coupon
+   * at send time (lib/drip-incentive.ts) into a RenderableIncentive — that is
+   * what renderStep injects for the {{incentive}} token. Optional; absent or
+   * `{enabled:false}` means the {{incentive}} token always renders empty (the
+   * value-only email variant).
+   */
+  incentive?: DripIncentive;
+}
+
+/**
+ * US-942: campaign-level conversion incentive config (off by default). The
+ * discount itself lives in Stripe (referenced by `couponId`); `maxPercentOff`
+ * is a server-side guardrail re-checked at send time against the live coupon,
+ * and `expiryHours` time-boxes the surfaced offer from the moment it is shown.
+ */
+export interface DripIncentive {
+  enabled: boolean;
+  /** Existing Stripe coupon id (admin coupons system). */
+  couponId: string;
+  /** Shared, user-facing promo code mapped to the coupon. */
+  promoCode: string;
+  /** Guardrail: refuse a coupon discounting more than this percent (1–100). */
+  maxPercentOff: number;
+  /** Time-box: hours the surfaced offer remains valid from when it's shown. */
+  expiryHours: number;
+}
+
+/**
+ * The offer resolved for rendering, built from a DripIncentive + the live Stripe
+ * coupon at send time. Pure data so renderStep stays env/Stripe-free.
+ */
+export interface RenderableIncentive {
+  promoCode: string;
+  /** Human label for the discount, e.g. "20% off your first month". */
+  label: string;
+  /** ISO expiry for the time-box, or null when open-ended. */
+  expiresAt: string | null;
 }
 
 // ── Validation ──
@@ -93,6 +134,41 @@ const VALID_OPS = new Set<DripConditionOp>([
   "eq", "neq", "gt", "gte", "lt", "lte", "is_true", "is_false",
 ]);
 const STEP_ID_RE = /^[a-z0-9_]{1,64}$/i;
+
+function validateIncentive(raw: unknown, errors: string[]): void {
+  if (typeof raw !== "object" || raw === null) {
+    errors.push("incentive must be an object");
+    return;
+  }
+  const inc = raw as Partial<DripIncentive>;
+  if (typeof inc.enabled !== "boolean") {
+    errors.push("incentive.enabled must be a boolean");
+  }
+  // The discount references are only required once the incentive is enabled.
+  if (inc.enabled === true) {
+    if (typeof inc.couponId !== "string" || !inc.couponId.trim()) {
+      errors.push("incentive.couponId is required when the incentive is enabled");
+    }
+    if (typeof inc.promoCode !== "string" || !inc.promoCode.trim()) {
+      errors.push("incentive.promoCode is required when the incentive is enabled");
+    }
+    if (
+      typeof inc.maxPercentOff !== "number" ||
+      !Number.isFinite(inc.maxPercentOff) ||
+      inc.maxPercentOff <= 0 ||
+      inc.maxPercentOff > 100
+    ) {
+      errors.push("incentive.maxPercentOff must be a number between 1 and 100");
+    }
+    if (
+      typeof inc.expiryHours !== "number" ||
+      !Number.isFinite(inc.expiryHours) ||
+      inc.expiryHours <= 0
+    ) {
+      errors.push("incentive.expiryHours must be a positive number");
+    }
+  }
+}
 
 function validateConditions(
   conds: unknown,
@@ -194,6 +270,12 @@ export function validateGraph(graph: unknown): GraphValidation {
     }
   }
 
+  // US-942: campaign-level incentive (optional). Only enforce the full shape
+  // when it's enabled — a disabled/absent incentive is always valid.
+  if (g.incentive !== undefined && g.incentive !== null) {
+    validateIncentive(g.incentive, errors);
+  }
+
   // Reachability + cycle detection only when the skeleton is sound.
   if (errors.length === 0 && typeof g.entryStepId === "string") {
     const byId = new Map(steps.map((s) => [s.id, s]));
@@ -271,14 +353,47 @@ export interface DripUserState {
   daysSinceSignup?: number;
 }
 
-const INCENTIVE_HTML =
-  '<p style="margin:16px 0;padding:12px;border:1px dashed #E94560;border-radius:8px">' +
-  "🎁 Use code <strong>TRIAL20</strong> for 20% off your first month." +
-  "</p>";
+/** Minimal HTML-escape for values interpolated into the incentive block. */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) =>
+    ch === "&"
+      ? "&amp;"
+      : ch === "<"
+      ? "&lt;"
+      : ch === ">"
+      ? "&gt;"
+      : ch === '"'
+      ? "&quot;"
+      : "&#39;");
+}
+
+/**
+ * US-942: render the {{incentive}} block from a resolved offer. No hardcoded
+ * code/discount — everything comes from the resolved RenderableIncentive (which
+ * the engine builds from the live Stripe coupon), so a code is never leaked.
+ */
+export function buildIncentiveHtml(inc: RenderableIncentive): string {
+  const expiry = inc.expiresAt
+    ? '<br><span style="color:#888;font-size:12px">Offer expires ' +
+      escapeHtml(
+        new Date(inc.expiresAt).toLocaleDateString("en-US", {
+          month: "long",
+          day: "numeric",
+        }),
+      ) +
+      ".</span>"
+    : "";
+  return (
+    '<p style="margin:16px 0;padding:12px;border:1px dashed #E94560;border-radius:8px">' +
+    `🎁 Use code <strong>${escapeHtml(inc.promoCode)}</strong> for ${escapeHtml(inc.label)}.` +
+    expiry +
+    "</p>"
+  );
+}
 
 function tokenValues(
   user: DripUserState,
-  incentiveEnabled: boolean,
+  incentive: RenderableIncentive | null,
 ): Record<string, string> {
   return {
     firstName: (user.firstName ?? "there").toString(),
@@ -288,8 +403,22 @@ function tokenValues(
         day: "numeric",
       })
       : "soon",
-    incentive: incentiveEnabled ? INCENTIVE_HTML : "",
+    incentive: incentive ? buildIncentiveHtml(incentive) : "",
   };
+}
+
+/**
+ * US-942: server-side eligibility for surfacing the incentive on a given
+ * step+user. Win-back (post-trial) phase only — never in-trial, never to an
+ * already-paid user — so a code is never exposed outside the win-back.
+ */
+export function isIncentiveEligible(
+  step: Pick<DripStep, "phase" | "incentiveEnabled">,
+  user: Pick<DripUserState, "converted">,
+): boolean {
+  return step.incentiveEnabled === true &&
+    step.phase === "win_back" &&
+    user.converted !== true;
 }
 
 /** Replace `{{token}}` placeholders. Unknown tokens collapse to empty string. */
@@ -308,19 +437,24 @@ export interface RenderedStep {
 }
 
 /**
- * Render a step's chosen variant for a sample user (preview / test-send). When
- * `variantId` is omitted the first variant is used.
+ * Render a step's chosen variant for a sample user (preview / test-send / live
+ * send). When `variantId` is omitted the first variant is used. The {{incentive}}
+ * token only renders when the step has `incentiveEnabled` AND a resolved
+ * `incentive` is supplied (US-942) — otherwise it collapses to empty, giving the
+ * value-only variant. The caller (engine / preview) is responsible for passing a
+ * resolved incentive ONLY for eligible recipients (see `isIncentiveEligible`).
  */
 export function renderStep(
   step: Pick<DripStep, "variants" | "incentiveEnabled">,
   user: DripUserState = {},
   variantId?: string,
+  incentive?: RenderableIncentive | null,
 ): RenderedStep | null {
   const variants = Array.isArray(step.variants) ? step.variants : [];
   if (variants.length === 0) return null;
   const variant = (variantId && variants.find((v) => v.id === variantId)) ||
     variants[0]!;
-  const values = tokenValues(user, !!step.incentiveEnabled);
+  const values = tokenValues(user, step.incentiveEnabled ? (incentive ?? null) : null);
   return {
     variantId: variant.id,
     subject: applyTokens(variant.subject ?? "", values),

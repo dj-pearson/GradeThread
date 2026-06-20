@@ -106,7 +106,7 @@ async function loadUser(userId: string) {
   return await supabaseAdmin
     .from("users")
     .select(
-      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id, billing_source, pending_referral_coupon",
+      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id, billing_source, pending_referral_coupon, pending_drip_coupon, pending_drip_coupon_expires_at",
     )
     .eq("id", userId)
     .single();
@@ -406,6 +406,27 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
     if (pendingCoupon) {
       delete sessionParams.allow_promotion_codes;
       sessionParams.discounts = [{ coupon: pendingCoupon }];
+    }
+
+    // US-942: a win-back drip recipient may carry a time-boxed conversion
+    // incentive coupon. Pre-apply it for one-click conversion — but only if the
+    // referral incentive didn't already claim the single discount slot, the
+    // offer hasn't expired, and the user isn't already paid (the same
+    // post-trial-only / never-already-paid guardrail the engine enforces). The
+    // webhook clears it once the subscription is created (one-time offer).
+    if (!sessionParams.discounts) {
+      const dripUser = user as {
+        pending_drip_coupon?: string | null;
+        pending_drip_coupon_expires_at?: string | null;
+      };
+      const dripCoupon = dripUser.pending_drip_coupon;
+      const dripExpiry = dripUser.pending_drip_coupon_expires_at;
+      const notExpired = !dripExpiry || new Date(dripExpiry).getTime() > Date.now();
+      const notAlreadyPaid = user.subscription_status !== "active";
+      if (dripCoupon && notExpired && notAlreadyPaid) {
+        delete sessionParams.allow_promotion_codes;
+        sessionParams.discounts = [{ coupon: dripCoupon }];
+      }
     }
 
     // US-391: always bind the session to the user's single Stripe customer
