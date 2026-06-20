@@ -3678,3 +3678,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:33:34 PM
 ---
+## US-815: iOS prep checklist on item canvas + 'measured' status wiring
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:44:30 PM
+---

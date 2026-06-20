@@ -316,7 +316,7 @@
         "ios CI passes"
       ],
       "priority": 815,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 parity audit. Web /flipdesk/prep is the reference. Coordinate with US-827 (measurements->aspects) which also touches the measured-status write."
     },
     {
