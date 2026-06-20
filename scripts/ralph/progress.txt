@@ -3570,3 +3570,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 12:11:26 AM
 ---
+## US-928: Closed-loop self-tuning from engagement
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 12:30:41 AM
+---
