@@ -3558,3 +3558,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 10:13:31 PM
 ---
+## US-931: Email program analytics & deliverability dashboard
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 11:11:40 PM
+---
