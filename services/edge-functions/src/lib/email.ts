@@ -15,6 +15,15 @@ import { captureException, recordMetric } from "./observability.ts";
 import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
 import { isEmailSuppressed } from "./email-suppression.ts";
 import { applyEmailTracking } from "./email-tracking.ts";
+import {
+  buildListUnsubscribeHeaders,
+  resolveConfigurationSet,
+  resolveIdentity,
+  resolveIsMarketing,
+  resolveTransportKind,
+  unsubscribeMailto,
+} from "./email-transport.ts";
+import { htmlToPlainText, sendViaSesApi } from "./ses-api.ts";
 
 const BRAND_NAVY = "#0F3460";
 const BRAND_RED = "#E94560";
@@ -34,6 +43,16 @@ interface EmailOptions {
   // and retried with backoff (use for CRITICAL mail — grade-ready, payment-
   // failed). Omit for nice-to-have mail that doesn't warrant durable retry.
   category?: string;
+  // US-915: marketing sends route through the dedicated marketing identity +
+  // SES Configuration Set + one-click List-Unsubscribe headers. A KNOWN-
+  // transactional category is force-classified transactional regardless of this
+  // flag (see resolveIsMarketing) so account mail can never use the marketing
+  // identity. The marketing coordinator is the canonical setter of these.
+  marketing?: boolean;
+  /** One-click (https) unsubscribe URL for the List-Unsubscribe header. */
+  unsubscribeUrl?: string;
+  /** Reply-To override (else the resolved identity's reply-to). */
+  replyTo?: string;
 }
 
 interface GradeCompleteData {
@@ -100,12 +119,47 @@ export async function deliverEmail(options: EmailOptions): Promise<boolean> {
     return true;
   }
 
+  // US-915: resolve transport (SES API vs SMTP), sender identity (marketing vs
+  // transactional — hard-guarded so transactional mail never uses the marketing
+  // identity), the SES Configuration Set, and the one-click List-Unsubscribe
+  // headers. The env getter is Deno.env throughout; the decision logic is pure
+  // (email-transport.ts) so it's unit-tested independently.
+  const get = (k: string) => Deno.env.get(k);
+  const isMarketing = resolveIsMarketing({ marketing: options.marketing, category: options.category });
+  const identity = resolveIdentity(isMarketing, get);
+  const configurationSet = resolveConfigurationSet(isMarketing, get);
+  const replyTo = options.replyTo?.trim() || identity.replyTo;
+  const headers = isMarketing
+    ? buildListUnsubscribeHeaders({
+      unsubscribeUrl: options.unsubscribeUrl,
+      mailto: unsubscribeMailto(get),
+    })
+    : {};
+  if (configurationSet) headers["X-SES-CONFIGURATION-SET"] = configurationSet;
+
+  // SES v2 HTTP API path (preferred for marketing volume). Falls back to SMTP on
+  // any failure so a bug here can never drop mail.
+  if (resolveTransportKind(isMarketing, get) === "ses_api" && identity.fromEmail) {
+    const sent = await sendViaSesApi({
+      from: `${identity.fromName} <${identity.fromEmail}>`,
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
+      text: htmlToPlainText(options.html),
+      replyTo,
+      configurationSet,
+      headers,
+    });
+    if (sent) return true;
+    // else: fall through to SMTP below.
+  }
+
   const host = Deno.env.get("SMTP_HOST");
   const port = Number(Deno.env.get("SMTP_PORT") ?? "587") || 587;
   const user = Deno.env.get("SMTP_USER");
   const pass = Deno.env.get("SMTP_PASS");
-  const fromEmail = Deno.env.get("SMTP_ADMIN_EMAIL");
-  const fromName = Deno.env.get("SMTP_SENDER_NAME") || "GradeThread";
+  const fromEmail = identity.fromEmail || Deno.env.get("SMTP_ADMIN_EMAIL");
+  const fromName = identity.fromName || "GradeThread";
 
   if (!host || !user || !pass || !fromEmail) {
     console.warn(
@@ -130,6 +184,10 @@ export async function deliverEmail(options: EmailOptions): Promise<boolean> {
     await client.send({
       from: `${fromName} <${fromEmail}>`,
       to: options.to,
+      // US-915: marketing reply-to + List-Unsubscribe/-Post + SES config-set
+      // header carry over the SMTP path too (only set when present).
+      ...(replyTo ? { replyTo } : {}),
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
       subject: options.subject,
       // "auto" generates a plaintext part from the HTML so we send multipart.
       content: "auto",

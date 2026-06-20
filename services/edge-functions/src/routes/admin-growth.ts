@@ -33,6 +33,19 @@ import { applyEmailTracking } from "../lib/email-tracking.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { captureException } from "../lib/observability.ts";
 import { normalizeEmail } from "../lib/email-suppression.ts";
+import {
+  DEFAULT_MAX_SEND_RATE_PER_SEC,
+  DEFAULT_WARMUP_SCHEDULE,
+  effectiveBatchLimit,
+  MAX_SEND_RATE_SETTING,
+  parseWarmupSchedule,
+  remainingWarmupBudget,
+  WARMUP_ENABLED_SETTING,
+  WARMUP_SCHEDULE_SETTING,
+  WARMUP_START_DATE_SETTING,
+  warmupDailyCap,
+  warmupDayIndex,
+} from "../lib/email-warmup.ts";
 import { type ConfirmedSubscriber, partitionExtraSubscribers } from "../lib/broadcast-audience.ts";
 
 type AdminEnv = {
@@ -427,6 +440,42 @@ const DEFAULT_SEND_BATCH = 1000;
 // Cap the confirmed-subscriber UNION scan (mirrors the newsletter send cap).
 const SUBSCRIBER_SCAN = 5000;
 
+// US-915: resolve the remaining daily SES-warmup budget. During the ramp the
+// per-day ceiling (settings: marketing_warmup_*) bounds total marketing volume
+// across ALL ticks for the day; the per-tick batch limit still bounds burst. When
+// warmup is off / completed the cap is null (unlimited) and behaviour is
+// unchanged. Returns `null` for "no daily cap".
+async function remainingDailyWarmupBudget(nowMs: number): Promise<number | null> {
+  const enabled = Boolean(await getSetting(WARMUP_ENABLED_SETTING, false));
+  if (!enabled) return null;
+  const schedule = parseWarmupSchedule(
+    await getSetting<unknown>(WARMUP_SCHEDULE_SETTING, DEFAULT_WARMUP_SCHEDULE),
+  );
+  const startDate = String(await getSetting(WARMUP_START_DATE_SETTING, ""));
+  const maxRate = Number(await getSetting(MAX_SEND_RATE_SETTING, DEFAULT_MAX_SEND_RATE_PER_SEC)) ||
+    DEFAULT_MAX_SEND_RATE_PER_SEC;
+  const dailyCap = warmupDailyCap({
+    enabled,
+    schedule,
+    dayIndex: warmupDayIndex(startDate, nowMs),
+    maxRatePerSec: maxRate,
+  });
+  if (dailyCap === null) return null;
+  // Count marketing sends already logged today (UTC day, matching warmupDayIndex)
+  // across every program so the cap is a true global daily ceiling.
+  const since = new Date(Math.floor(nowMs / 86_400_000) * 86_400_000).toISOString();
+  const { count, error } = await supabaseAdmin
+    .from("marketing_send_log")
+    .select("id", { count: "exact", head: true })
+    .gte("sent_at", since);
+  if (error) {
+    // Fail OPEN on the read — the per-tick batch limit still bounds the burst.
+    captureException(error, { route: "admin-growth.warmup-count" });
+    return null;
+  }
+  return remainingWarmupBudget(dailyCap, count ?? 0);
+}
+
 function trackingBaseUrl(): string {
   return Deno.env.get("FUNCTIONS_URL")?.trim() || "https://functions.gradethread.com";
 }
@@ -603,10 +652,14 @@ export async function dispatchCampaign(
   };
 
   // AC3: bound email sends per tick (SES warmup); overflow resumes next tick.
-  const batchLimit = Math.max(
+  const perTickLimit = Math.max(
     1,
     Number(await getSetting(SEND_BATCH_SETTING, DEFAULT_SEND_BATCH)) || DEFAULT_SEND_BATCH,
   );
+  // US-915: fold in the remaining daily warmup-ramp budget so a large list paces
+  // up over days, not a burst. `null` = no ramp cap → per-tick limit unchanged.
+  const remainingDaily = await remainingDailyWarmupBudget(Date.now());
+  const batchLimit = effectiveBatchLimit(perTickLimit, remainingDaily);
   let emailSends = 0;
   let truncated = false;
   // Normalized emails the segment already mailed — for the subscriber UNION dedup.

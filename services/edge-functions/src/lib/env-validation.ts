@@ -12,6 +12,7 @@
 // Pure + injectable (env getter + env name) so every branch is unit-testable.
 
 import { edgeEnv } from "./env.ts";
+import { deliverabilityWarnings } from "./email-transport.ts";
 
 type EnvGetter = (k: string) => string | undefined;
 const realEnv: EnvGetter = (k) => Deno.env.get(k);
@@ -151,5 +152,22 @@ export function warnMissingFeatureGroups(get: EnvGetter = realEnv): void {
     if (miss.length > 0) {
       console.warn(`[BOOT] feature '${g.name}' is not fully configured — missing: ${miss.join(", ")}`);
     }
+  }
+}
+
+// US-915: deliverability pre-flight. Warn at boot when the email-deliverability
+// posture is incomplete — no SES Configuration Set (bounce/complaint events
+// won't publish), no dedicated marketing identity, or the SPF/DKIM/DMARC
+// attestation flags are unset. Non-fatal (SMTP still works), but surfaced loudly
+// so a deploy whose autonomous marketing sends would land in spam is visible. The
+// per-warning detail lives in the pure `deliverabilityWarnings` (email-transport).
+export function warnDeliverability(get: EnvGetter = realEnv): void {
+  // Only nag once SMTP is at least partially configured (a deploy that sends no
+  // mail at all needn't hear about deliverability).
+  const smtpConfigured = has(get, "SMTP_HOST") || has(get, "SES_AWS_ACCESS_KEY_ID") ||
+    has(get, "AWS_ACCESS_KEY_ID");
+  if (!smtpConfigured) return;
+  for (const w of deliverabilityWarnings(get)) {
+    console.warn(`[BOOT] deliverability: ${w.message}`);
   }
 }

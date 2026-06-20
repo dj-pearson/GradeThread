@@ -275,6 +275,20 @@ memory — not a progress log (the harness records progress separately).
   (sibling of /api/drip-track, mirrors routes/drip-tracking.ts). No migration —
   campaign_recipients already had opened_at/clicked_at.
 
+## Email transport / SES deliverability (US-915)
+- `deliverEmail` (email.ts) now picks transport per send via pure
+  `lib/email-transport.ts`: marketing → SES v2 HTTP API (`lib/ses-api.ts`,
+  SigV4 via `aws4fetch` — already in deno.json import map) when AWS creds are
+  set, else SMTP; transactional ALWAYS SMTP. SES API failure falls back to SMTP
+  (never drops mail). `resolveIsMarketing` HARD-GUARDS `TRANSACTIONAL_CATEGORIES`
+  so account mail can never use the marketing identity (AC6 test asserts this) —
+  if you add a new transactional `send*Email`, add its category to that set.
+- denomailer 1.6.0 `client.send` DOES accept `replyTo` + `headers` (used for the
+  SES config-set `X-SES-CONFIGURATION-SET` + List-Unsubscribe headers on SMTP).
+- Warmup ramp = pure `lib/email-warmup.ts` (daily caps in settings, seeded 00292,
+  `marketing_warmup_*`, off by default) folded into the broadcast batch limit via
+  `effectiveBatchLimit`. Runbook: `DELIVERABILITY.md`.
+
 ## Marketing send coordinator (US-934)
 - Any NEW marketing email must route through `coordinateMarketingSend`
   (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),

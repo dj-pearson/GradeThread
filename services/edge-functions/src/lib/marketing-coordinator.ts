@@ -20,6 +20,7 @@ import { isEmailSuppressed, normalizeEmail } from "./email-suppression.ts";
 import { marketingOptedOutEmail } from "./drip-graph.ts";
 import { getSetting } from "./system-settings.ts";
 import { deliverEmail } from "./email.ts";
+import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
 import {
   DEFAULT_FREQUENCY_CAP_PER_DAY,
   DEFAULT_QUIET_HOURS,
@@ -251,11 +252,22 @@ export async function coordinateMarketingSend(
   // SEND: deliver now; on a transient SMTP failure persist to the outbox so the
   // retry cron re-attempts (the message is durable either way). Both count as a
   // send for the cap ledger.
+  //
+  // US-915: this is the single marketing chokepoint, so it routes the send on the
+  // dedicated marketing identity + SES Configuration Set and stamps the one-click
+  // List-Unsubscribe header. Mint the no-login unsubscribe URL from the userId
+  // (the same link the rendered footer already carries) so Gmail/Apple Mail show
+  // the native unsubscribe affordance (RFC 8058).
+  const unsubscribeUrl = input.userId
+    ? await marketingUnsubscribeUrl(input.userId).catch(() => undefined)
+    : undefined;
   const delivered = await deliverEmail({
     to: addr,
     subject: input.subject,
     html: input.html,
     category: input.category,
+    marketing: true,
+    unsubscribeUrl: unsubscribeUrl ?? undefined,
   });
   if (!delivered) {
     await enqueueDeferred(addr, input.subject, input.html, input.category, 60_000, "smtp_retry");

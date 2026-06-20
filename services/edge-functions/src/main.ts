@@ -167,7 +167,7 @@ import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
-import { assertRequiredEnv, warnMissingFeatureGroups } from "./lib/env-validation.ts";
+import { assertRequiredEnv, warnDeliverability, warnMissingFeatureGroups } from "./lib/env-validation.ts";
 import { assertSchemaVersion } from "./lib/schema-version.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
@@ -1179,6 +1179,9 @@ assertAdminMfaConfig();
 // half-configured deploy is loud, not latent. Dev/test stay permissive.
 assertRequiredEnv();
 warnMissingFeatureGroups();
+// US-915: deliverability pre-flight (SES config set / marketing identity /
+// SPF-DKIM-DMARC attestation) — non-fatal, surfaced so spam-prone sends are loud.
+warnDeliverability();
 
 // US-778: refuse to start against a STALE DB in production (a build expecting a
 // migration the DB hasn't applied corrupts data). Fail-open on an unreadable

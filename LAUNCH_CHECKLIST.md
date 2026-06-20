@@ -51,6 +51,7 @@ Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
 | `observability` | `SENTRY_DSN` | `/health` → `errorTracking:"enabled"`; hit `/health/_throw` in staging → event in Sentry | ☐ |
 | (also) | `COMPANY_POSTAL_ADDRESS` | a sent email footer shows the real address (CAN-SPAM) | ☐ |
 | (also) | `MONITOR_ALERT_EMAIL`, `DISPUTE_ALERT_EMAIL` | grading-monitor / dispute alerts route correctly | ☐ |
+| `email_deliverability` (US-915) | `SES_CONFIGURATION_SET`, `SES_MARKETING_FROM_EMAIL/NAME`, `SES_AWS_REGION/ACCESS_KEY_ID/SECRET_ACCESS_KEY`, `SES_DKIM_VERIFIED`, `SES_SPF_ALIGNED`, `SES_DMARC_POLICY`, `MARKETING_UNSUBSCRIBE_MAILTO` | boot log shows NO `[BOOT] deliverability:` warnings; a marketing send arrives from `news.gradethread.com` with a Gmail/Apple-Mail one-click unsubscribe. **Full runbook: [`DELIVERABILITY.md`](DELIVERABILITY.md).** | ☐ |
 
 ### 1c. Frontend (Cloudflare Pages → Settings → Environment variables → Production)
 
@@ -80,6 +81,7 @@ Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
 | eBay app keys promoted to production + Marketplace Account Deletion endpoint registered | eBay Developer | OAuth connect + a test notification verify | ☐ |
 | DNS: `functions.gradethread.com` → Coolify; `api.gradethread.com` → Supabase Kong; apex → Pages | Cloudflare DNS | `/health` on functions.*, REST on api.* | ☐ |
 | IndexNow key file hosted at `/<INDEXNOW_KEY>.txt` | `public/` + Pages | the file resolves 200 | ☐ |
+| **Email deliverability (US-915)** — SES domain identity verified; DKIM CNAMEs, SPF/MAIL FROM, and a DMARC `p=` record published for the **dedicated marketing subdomain** (`news.gradethread.com`), separate from transactional; SES Configuration Set with an SNS event destination (bounce/complaint → `/api/webhooks/ses`) | Amazon SES + Cloudflare DNS | follow **[`DELIVERABILITY.md`](DELIVERABILITY.md)**; SES "Verified identities" all green; `dig TXT _dmarc.news.gradethread.com` resolves | ☐ |
 
 ---
 
