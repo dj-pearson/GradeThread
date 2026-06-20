@@ -20,6 +20,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { bustSettingCache, getSetting } from "./system-settings.ts";
 import { marketingOptedOutEmail } from "./drip-graph.ts";
+import { subscriberStatusForSuppression } from "./email-subscribers.ts";
 
 // US-914 suppression reasons. 'hard_bounce' + 'complaint' come from SES;
 // 'manual' is an operator add; 'unsubscribe_all' is a global opt-out.
@@ -167,6 +168,47 @@ export async function suppressEmail(
     captureException(error, { route: "email-suppression.suppress", tags: { reason } });
   } else {
     recordMetric("email.suppressed", 1, { reason });
+  }
+
+  // US-912: keep a standalone subscriber's row in lock-step with suppression so
+  // bounce/complaint handling applies to email_subscribers identically to users.
+  await markSubscriberSuppressed(addr, reason);
+}
+
+/**
+ * US-912: reflect a suppression on the matching email_subscribers lead so the
+ * subscriber list mirrors deliverability (a hard-bounced lead reads 'bounced',
+ * an opt-out reads 'unsubscribed'). Best-effort — the send-side suppression
+ * check already protects the address regardless of this row's status. A
+ * 'confirmed' row that bounces/unsubscribes is downgraded; we never resurrect an
+ * already-unsubscribed row to 'bounced'.
+ */
+async function markSubscriberSuppressed(
+  addr: string,
+  reason: SuppressionReason,
+): Promise<void> {
+  const status = subscriberStatusForSuppression(reason);
+  if (!status) return;
+  try {
+    const patch: Record<string, unknown> = {
+      status,
+      updated_at: new Date().toISOString(),
+    };
+    if (status === "unsubscribed") patch.unsubscribed_at = new Date().toISOString();
+    const { error } = await supabaseAdmin
+      .from("email_subscribers")
+      .update(patch)
+      .eq("email", addr)
+      .neq("status", "unsubscribed");
+    if (error) {
+      captureException(error, {
+        route: "email-suppression.subscriber_sync",
+        level: "warn",
+        tags: { reason },
+      });
+    }
+  } catch (err) {
+    captureException(err, { route: "email-suppression.subscriber_sync", level: "warn" });
   }
 }
 

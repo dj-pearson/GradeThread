@@ -588,6 +588,53 @@ export async function sendWelcomeEmail(
   });
 }
 
+// ─── Newsletter double-opt-in confirmation (US-912) ─────────────────
+
+/**
+ * Confirm-your-subscription email for a standalone landing-page lead. This is a
+ * TRANSACTIONAL double-opt-in confirmation (the recipient just asked to
+ * subscribe) — it must NOT carry the marketing identity or be frequency-capped,
+ * so it goes through the plain transactional send path. The single CTA links to
+ * the public GET confirm endpoint carrying the opaque consent token. No durable
+ * retry: an un-clicked confirm simply leaves the lead 'pending' (they can
+ * re-subscribe), so a one-shot best-effort send is correct.
+ */
+export async function sendNewsletterConfirmationEmail(
+  to: string,
+  confirmUrl: string,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Confirm your subscription
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Thanks for signing up for the GradeThread newsletter — resale grading tips,
+      market trends, and product updates. Please confirm your email address to
+      start receiving it.
+    </p>
+
+    ${ctaButton("Confirm subscription", confirmUrl)}
+
+    <p style="margin: 16px 0 0; color: #999; font-size: 13px; line-height: 1.5;">
+      If the button doesn't work, copy and paste this link into your browser:<br>
+      <a href="${confirmUrl}" style="color: ${BRAND_NAVY}; word-break: break-all;">${escapeHtml(confirmUrl)}</a>
+    </p>
+    <p style="margin: 16px 0 0; color: #999; font-size: 13px; line-height: 1.5;">
+      You received this because someone entered this address on gradethread.com.
+      If that wasn't you, just ignore this email — you won't be subscribed and we
+      won't email you again.
+    </p>
+  `;
+
+  return await sendEmail({
+    to,
+    subject: "Confirm your GradeThread newsletter subscription",
+    html: emailLayout(content),
+    // Transactional double-opt-in — never the marketing identity.
+    category: "newsletter-confirm",
+  });
+}
+
 // ─── Waitlist invite (US-585) ───────────────────────────────────────
 
 /**

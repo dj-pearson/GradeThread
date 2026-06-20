@@ -87,6 +87,7 @@ import { adminAnalyticsRoutes } from "./routes/admin-analytics.ts";
 import { adminDripRoutes } from "./routes/admin-drip.ts";
 import { adminNewsletterRoutes } from "./routes/admin-newsletter.ts";
 import { adminSuppressionsRoutes } from "./routes/admin-suppressions.ts";
+import { adminSubscribersRoutes } from "./routes/admin-subscribers.ts";
 import { adminChangelogRoutes } from "./routes/admin-changelog.ts";
 import { changelogPublicRoutes } from "./routes/changelog.ts";
 import { adminJourneyRoutes } from "./routes/admin-journeys.ts";
@@ -143,6 +144,7 @@ import { contentSettingsRoutes } from "./routes/content-settings.ts";
 import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
 import { newsletterSchedulerRoutes } from "./routes/newsletter-scheduler.ts";
+import { newsletterSubscribeRoutes } from "./routes/newsletter-subscribe.ts";
 import { dripRoutes } from "./routes/drip.ts";
 import { dripTrackingRoutes } from "./routes/drip-tracking.ts";
 import { campaignTrackingRoutes } from "./routes/campaign-tracking.ts";
@@ -644,6 +646,10 @@ app.use("/api/flipdesk/google/sheet/*", rateLimiter(15, 60_000, "google-sheet"))
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
 // US-923: autonomous newsletter kickoff trigger (own auth baked in, like /scheduler).
 app.use("/api/newsletter/scheduler/*", rateLimiter(60, 60_000, "newsletter-kickoff"));
+// US-912: public double-opt-in newsletter capture. Tight per-IP limit so the
+// confirmation send can't be weaponized to blast arbitrary inboxes.
+app.use("/api/newsletter/subscribe", rateLimiter(5, 60_000, "newsletter-subscribe"));
+app.use("/api/newsletter/confirm", rateLimiter(30, 60_000, "newsletter-confirm"));
 app.use("/api/drip/*", rateLimiter(60, 60_000, "drip-tick"));
 // US-938: public, unauthenticated open/click tracking pixels — fail-closed
 // against a flood (per-IP), but generous since one recipient can fire several.
@@ -934,6 +940,9 @@ app.route("/api/admin/drip", adminDripRoutes);
 // Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/newsletter", adminNewsletterRoutes);
 app.route("/api/admin/suppressions", adminSuppressionsRoutes);
+// US-912 standalone newsletter subscriber list — admin view + CSV export of the
+// double-opt-in lead registry. Admin JWT + AAL2 via the /api/admin/* group.
+app.route("/api/admin/subscribers", adminSubscribersRoutes);
 // US-916 product "What's New" changelog — admin CRUD + manual auto-capture
 // trigger. Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/changelog", adminChangelogRoutes);
@@ -1134,6 +1143,10 @@ app.route("/api/content/scheduler", contentSchedulerRoutes);
 // scheduler/* has its own auth baked in (NEWSLETTER_INTERNAL_JOB_SECRET / signed
 // request / admin JWT) — don't add it to the /api/* use() lines above.
 app.route("/api/newsletter/scheduler", newsletterSchedulerRoutes);
+// US-912 public double-opt-in newsletter capture (POST /subscribe + GET /confirm).
+// Unauthenticated by design; rate-limited per IP via the use() lines above. The
+// concrete /subscribe + /confirm paths don't collide with /scheduler/*.
+app.route("/api/newsletter", newsletterSubscribeRoutes);
 // US-943 autonomous drip orchestration tick. Like /scheduler, /api/drip/* has
 // its own auth baked in (DRIP_INTERNAL_JOB_SECRET / signed request / admin JWT) —
 // don't add it to the /api/* use() lines above.

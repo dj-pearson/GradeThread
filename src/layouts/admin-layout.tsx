@@ -135,6 +135,8 @@ const growthNavItems = [
   { to: "/admin/growth/newsletter", icon: MailCheck, label: "Newsletter Health", end: false },
   // US-930 newsletter admin console — program oversight + per-issue lifecycle.
   { to: "/admin/growth/newsletter-console", icon: Newspaper, label: "Newsletter Console", end: false },
+  // US-912 standalone subscriber list (non-user leads, double opt-in).
+  { to: "/admin/growth/subscribers", icon: Users, label: "Subscribers", end: false },
   // US-914 email suppression list (bounces/complaints) + manual removal.
   { to: "/admin/growth/suppressions", icon: MailWarning, label: "Suppressions", end: false },
   // US-929 lifecycle email journeys — welcome / trial-nurture / win-back.

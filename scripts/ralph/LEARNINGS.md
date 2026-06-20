@@ -55,6 +55,20 @@ memory — not a progress log (the harness records progress separately).
   request-body id without confirming ownership. See
   `services/edge-functions/src/tests/tenant-isolation_test.ts`.
 
+## Email subscriber registry (US-912 / US-931)
+- `email_subscribers` (00278) is the shared newsletter list (used by
+  broadcast-audience union + newsletter_analytics). Its status set is
+  pending/confirmed/unsubscribed/bounced/cleaned; only `confirmed` is emailable.
+  Public double-opt-in capture = `routes/newsletter-subscribe.ts`
+  (`/api/newsletter/{subscribe,confirm}`, unauthenticated, rate-limited in
+  main.ts). `suppressEmail` (email-suppression.ts) mirrors a bounce/complaint
+  onto the matching subscriber row, so suppression applies to leads identically
+  to users. A trigger on public.users links a lead's row to the new account by
+  email on signup (dedup by email).
+- Two Hono routers can share a prefix (`/api/newsletter` + the more-specific
+  `/api/newsletter/scheduler`) because `app.route` registers CONCRETE paths, not
+  greedy prefixes — `/subscribe` + `/confirm` never shadow `/scheduler/*`.
+
 ## Plan-gate from a background worker
 - `requireFlipdesk` only reads `c.get` and (on block/warn) `c.json`/`c.header`.
   To reuse the IDENTICAL plan/capacity gate from a worker with no HTTP request

@@ -36,6 +36,7 @@ import { LaunchBanner } from "@/components/launch-banner";
 import { StatCounters } from "@/components/marketing/stat-counters";
 import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
 import { WaitlistForm } from "@/components/waitlist-form";
+import { NewsletterSignup } from "@/components/newsletter-signup";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import {
   CREDIT_PACKS,
@@ -873,6 +874,20 @@ export function LandingPage() {
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </Link>
+        </div>
+      </section>
+
+      {/* US-912: newsletter signup — capture leads before signup (double opt-in). */}
+      <section className="border-t bg-card/50 px-6 py-16 text-center">
+        <h2 className="text-2xl font-extrabold font-display">
+          Resale grading tips in your inbox
+        </h2>
+        <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
+          Join our newsletter for condition-grading guidance, resale market
+          trends, and product updates. No account required — unsubscribe anytime.
+        </p>
+        <div className="mx-auto mt-8 max-w-xl">
+          <NewsletterSignup source="landing-newsletter" />
         </div>
       </section>
 
