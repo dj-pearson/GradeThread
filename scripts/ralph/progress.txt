@@ -3686,3 +3686,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:54:42 PM
 ---
+## US-813: iOS inventory pipeline (kanban) stage view
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  2:02:34 PM
+---
