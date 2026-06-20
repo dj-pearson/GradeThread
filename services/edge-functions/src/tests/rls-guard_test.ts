@@ -193,6 +193,11 @@ const SERVICE_ROLE_ONLY = new Set([
   // child of the operator-only newsletter_issues — RLS enabled, deny-all, written
   // only by the edge service-role client. No tenant owner column.
   "newsletter_issue_assets",
+  // US-917: evergreen educational topic bank (migration 00290). RLS enabled,
+  // deny-all, read/written ONLY by the edge service-role client (the assembler's
+  // topic selection + the refill cron); the SPA never reads it. No tenant owner
+  // column — operator-curated reference data, not user-owned tenant data.
+  "email_topic_bank",
   // US-929: lifecycle email-journey engine tables (migration 00280). RLS enabled
   // with an explicit `revoke all from anon, authenticated` and zero policies by
   // design — read/written ONLY by the edge journey engine + the role-gated

@@ -121,6 +121,19 @@ memory — not a progress log (the harness records progress separately).
   validated by check_function_bodies). The trigger's INSERT is wrapped in a
   plpgsql EXCEPTION block so history bookkeeping can never block a send.
 
+## Newsletter topic bank (US-917)
+- The assembler's educational angle now comes from the DB `email_topic_bank`
+  (evergreen, reusable) via `selectEmailTopic` (newsletter-topic-bank-job.ts), NOT
+  the static `NEWSLETTER_TOPICS` catalog — that catalog is only the FALLBACK (empty
+  bank) + the tuning-attribution key map (`topicByPillarAngle`). Pure select/dedup/
+  refill-parse logic = `newsletter-topic-bank.ts` (no env, unit-tested). Dedup =
+  bank `last_used_at` + recently-sent issues (`topic_bank_id`/pillar+angle) +
+  `content_history_index` email titles, within `newsletter_topic_dedup_window_days`.
+  Refill cron = `/api/jobs/newsletter-topic-bank-refill` (Haiku, tops up below
+  `newsletter_topic_bank_min` → target). The angle is marked used at SHELL INSERT
+  (once per period), not on send. New (pillar,angle) pairs not in the tuning catalog
+  are un-biased until they earn data — graceful, by design.
+
 ## Newsletter program (US-930 console)
 - The autonomous newsletter has NO dedicated issue/engine table before US-930 —
   US-931's `email_subscribers` + `newsletter_analytics` RPC was analytics only.

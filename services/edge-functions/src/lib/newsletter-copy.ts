@@ -23,6 +23,12 @@ export interface NewsletterCopyInput {
   maxSections: number;
   /** Optional brand-voice knowledge doc (empty string when unavailable). */
   brandVoice?: string;
+  /** US-917: approved value-props/capabilities the copy may cite (email.value_props). */
+  valueProps?: string;
+  /** US-917: one-line lesson summary for the chosen evergreen topic. */
+  topicSummary?: string;
+  /** US-917: real-capability hints for the topic — grounds claims, prevents invention. */
+  topicKeyPoints?: string[];
 }
 
 export interface NewsletterCopy {
@@ -46,18 +52,26 @@ const PRODUCT_AUDIENCE: Record<string, string> = {
 
 export function buildCopySystemPrompt(input: {
   brandVoice?: string;
+  valueProps?: string;
   productFocus: NewsletterCopyInput["productFocus"];
 }): string {
   const audience = PRODUCT_AUDIENCE[input.productFocus] ?? PRODUCT_AUDIENCE.both;
   const voice = input.brandVoice?.trim()
     ? `\n\nBrand voice:\n${input.brandVoice.trim()}`
     : "";
+  const claims = input.valueProps?.trim()
+    ? `\n\nApproved capabilities you may cite (do NOT claim anything beyond these or ` +
+      `the inputs):\n${input.valueProps.trim()}`
+    : "";
   return (
     `You are the email copywriter for GradeThread, an AI-powered clothing ` +
     `condition grading platform (gradethread.com). You write a weekly educational ` +
     `newsletter for ${audience}. Be concise, concrete, and genuinely useful — no ` +
     `hype, no fabricated statistics, no fake urgency. Never invent product ` +
-    `features, prices, or facts you weren't given.${voice}\n\n` +
+    `features, prices, or facts you weren't given. Every educational claim must ` +
+    `reference a REAL GradeThread capability from the approved list or the inputs — ` +
+    `when in doubt, teach the general principle instead of asserting a feature.` +
+    `${voice}${claims}\n\n` +
     `Respond with ONLY a JSON object (no markdown fences) of the form:\n` +
     `{"subject": string, "preheader": string, "sections": ` +
     `[{"heading": string, "body_html": string, "cta_label"?: string, "cta_url"?: string}]}\n` +
@@ -73,11 +87,21 @@ export function buildCopyUserPrompt(input: NewsletterCopyInput): string {
       input.changelogLines.join("\n") + "\n\n"
     : `There are no fresh product updates this week — lean fully on evergreen ` +
       `educational value.\n\n`;
+  const summary = input.topicSummary?.trim()
+    ? `Lesson summary: ${input.topicSummary.trim()}\n`
+    : "";
+  const points = (input.topicKeyPoints ?? []).map((p) => p.trim()).filter(Boolean);
+  const grounding = points.length
+    ? `Grounding facts (only cite real capabilities — these or the approved list):\n` +
+      points.map((p) => `- ${p}`).join("\n") + "\n\n"
+    : "";
   return (
     `Write this week's issue.\n\n` +
     `Educational focus: ${input.topic.label} (pillar: ${input.topic.pillar}, ` +
     `angle: ${input.topic.angle}).\n` +
+    summary +
     `Subject-line style: ${input.style.label} — ${input.style.guidance}\n\n` +
+    grounding +
     whatsNew +
     `Produce up to ${sections} focused educational section(s) teaching something ` +
     `actionable about the focus topic. Keep the subject under ${SUBJECT_MAX} ` +
@@ -188,7 +212,11 @@ export async function generateNewsletterCopy(input: NewsletterCopyInput): Promis
     const { enterAiFeature } = await import("./ai-feature-context.ts");
     enterAiFeature("content"); // US-894 spend attribution (counts toward AI budget)
 
-    const system = buildCopySystemPrompt({ brandVoice: input.brandVoice, productFocus: input.productFocus });
+    const system = buildCopySystemPrompt({
+      brandVoice: input.brandVoice,
+      valueProps: input.valueProps,
+      productFocus: input.productFocus,
+    });
     const user = buildCopyUserPrompt(input);
     const temperature = getAiTemperature();
 

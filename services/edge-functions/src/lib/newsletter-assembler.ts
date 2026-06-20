@@ -61,6 +61,7 @@ import {
   type ResolvedIssueImage,
 } from "./newsletter-imagery.ts";
 import type { ContentProduct } from "./content-history.ts";
+import { markEmailTopicUsed, selectEmailTopic } from "./newsletter-topic-bank-job.ts";
 
 // The full column projection both callers select for an issue. Kept here (with the
 // assembler that writes the row) so the console + tick select the identical shape.
@@ -207,11 +208,13 @@ interface IssueRow {
   hero_image_url: string | null;
   featured_content_ids: unknown;
   build_steps: unknown;
+  topic_bank_id: string | null;
 }
 
 const ISSUE_WORK_COLS =
   "id, title, subject, preheader, sections, status, pillar, angle, subject_style, " +
-  "send_hour, product_focus, audience, hero_image_url, featured_content_ids, build_steps";
+  "send_hour, product_focus, audience, hero_image_url, featured_content_ids, build_steps, " +
+  "topic_bank_id";
 
 async function loadIssueByPeriodKey(periodKey: string): Promise<IssueRow | null> {
   const { data } = await supabaseAdmin
@@ -276,19 +279,23 @@ interface Dimensions {
   sendHour: number;
   productFocus: ContentProduct;
   audience: string;
+  /** US-917: the evergreen bank row this angle came from (null on static fallback). */
+  bankId: string | null;
+  /** US-917: one-line lesson summary + real-capability hints fed to the copy prompt. */
+  topicSummary: string;
+  topicKeyPoints: string[];
 }
 
 async function chooseDimensions(
   periodKey: string,
   recentFocuses: string[],
   audiences: string[],
+  dedupWindowDays: number,
+  nowMs: number,
 ): Promise<Dimensions> {
   const bias = await loadAssemblerBias();
   const seed = `nl-${periodKey}`;
 
-  const topic =
-    topicById(selectWeightedKey(bias.topicWeights, seed) ?? "") ??
-    topicById(selectWeightedKey(uniformWeights(NEWSLETTER_TOPICS.map((t) => t.id)), seed)!)!;
   const style =
     subjectStyleById(selectWeightedKey(bias.styleWeights, `${seed}:style`) ?? "") ??
     subjectStyleById(selectWeightedKey(uniformWeights(SUBJECT_STYLES.map((s) => s.id)), `${seed}:style`)!)!;
@@ -298,11 +305,38 @@ async function chooseDimensions(
   const idx = Number.isFinite(periodNum) ? Math.abs(periodNum) % audiences.length : 0;
   const audience = audiences[idx] ?? "all_confirmed";
 
-  return { topic, style, sendHour, productFocus, audience };
+  // US-917: pick a deduped evergreen educational angle from the topic bank. Falls
+  // back to the static tuning catalog when the bank is empty (e.g. unseeded).
+  const bankSel = await selectEmailTopic({
+    nowMs,
+    productFocus,
+    windowDays: dedupWindowDays,
+    biasTopicWeights: bias.topicWeights,
+    seed,
+  });
+  let topic: NewsletterTopic;
+  let bankId: string | null = null;
+  let topicSummary = "";
+  let topicKeyPoints: string[] = [];
+  if (bankSel) {
+    topic = bankSel.topic;
+    bankId = bankSel.bankId;
+    topicSummary = bankSel.summary;
+    topicKeyPoints = bankSel.keyPoints;
+  } else {
+    topic =
+      topicById(selectWeightedKey(bias.topicWeights, seed) ?? "") ??
+      topicById(selectWeightedKey(uniformWeights(NEWSLETTER_TOPICS.map((t) => t.id)), seed)!)!;
+  }
+
+  return { topic, style, sendHour, productFocus, audience, bankId, topicSummary, topicKeyPoints };
 }
 
 function dimensionsFromRow(row: IssueRow, fallback: Dimensions): Dimensions {
-  const topic = topicByPillarAngle(row.pillar, row.angle) ?? fallback.topic;
+  const topic = topicByPillarAngle(row.pillar, row.angle) ??
+    (row.pillar && row.angle
+      ? { id: `${row.pillar}:${row.angle}`, pillar: row.pillar, angle: row.angle, label: row.title }
+      : fallback.topic);
   const style = subjectStyleById(row.subject_style ?? "") ?? fallback.style;
   const sendHour = typeof row.send_hour === "number" ? row.send_hour : fallback.sendHour;
   const productFocus = (["gradethread", "flipdesk", "both"] as const).includes(
@@ -311,7 +345,17 @@ function dimensionsFromRow(row: IssueRow, fallback: Dimensions): Dimensions {
     ? (row.product_focus as ContentProduct)
     : fallback.productFocus;
   const audience = row.audience?.trim() || fallback.audience;
-  return { topic, style, sendHour, productFocus, audience };
+  // Resume reuses persisted copy, so topic summary/hints aren't needed again.
+  return {
+    topic,
+    style,
+    sendHour,
+    productFocus,
+    audience,
+    bankId: row.topic_bank_id ?? fallback.bankId,
+    topicSummary: "",
+    topicKeyPoints: [],
+  };
 }
 
 // ── Orchestrator ─────────────────────────────────────────────────────────────
@@ -344,7 +388,13 @@ export async function assembleNextIssue(
 
   // ── Choose (or reconstruct) the issue dimensions ──
   const recentFocuses = await loadRecentProductFocus();
-  const freshDims = await chooseDimensions(periodKey, recentFocuses, settings.audiences);
+  const freshDims = await chooseDimensions(
+    periodKey,
+    recentFocuses,
+    settings.audiences,
+    settings.topicDedupWindowDays,
+    nowMs,
+  );
   const dims = row ? dimensionsFromRow(row, freshDims) : freshDims;
 
   // ── Insert the shell row if this is a fresh period ──
@@ -365,6 +415,7 @@ export async function assembleNextIssue(
         angle: dims.topic.angle,
         subject_style: dims.style.id,
         send_hour: dims.sendHour,
+        topic_bank_id: dims.bankId,
         created_by: createdBy,
       })
       .select(ISSUE_WORK_COLS)
@@ -383,6 +434,8 @@ export async function assembleNextIssue(
       }
     } else {
       row = data as unknown as IssueRow;
+      // US-917: advance the evergreen dedup window — this period claimed the angle.
+      if (dims.bankId) await markEmailTopicUsed(dims.bankId, nowMs);
     }
   }
 
@@ -422,7 +475,7 @@ export async function assembleNextIssue(
     preheader = row.preheader ?? "";
     finalSections = asSections(row.sections);
   } else {
-    const brandVoice = await loadBrandVoice();
+    const { brandVoice, valueProps } = await loadCopyKnowledge();
     const copy = await generateNewsletterCopy({
       topic: dims.topic,
       style: dims.style,
@@ -430,6 +483,9 @@ export async function assembleNextIssue(
       productFocus: dims.productFocus,
       maxSections: settings.maxSections,
       brandVoice,
+      valueProps,
+      topicSummary: dims.topicSummary,
+      topicKeyPoints: dims.topicKeyPoints,
     });
     subject = copy.subject;
     preheader = copy.preheader;
@@ -522,6 +578,7 @@ export async function assembleNextIssue(
       angle: dims.topic.angle,
       subject_style: dims.style.id,
       send_hour: dims.sendHour,
+      topic_bank_id: dims.bankId,
       scheduled_for: scheduledFor,
       build_steps: steps,
     })
@@ -564,12 +621,17 @@ async function patchIssue(id: string, patch: Record<string, unknown>): Promise<v
   if (error) console.error(`[newsletter-assembler] patch failed (${id}): ${error.message}`);
 }
 
-// Brand-voice knowledge doc for the copywriter (best-effort, empty when absent).
-async function loadBrandVoice(): Promise<string> {
+// US-917: knowledge docs for the copywriter — brand voice + the approved
+// value-props the copy may cite (grounds AC6: cite real capabilities, no
+// invented claims). Best-effort: empty strings when a doc is absent.
+async function loadCopyKnowledge(): Promise<{ brandVoice: string; valueProps: string }> {
   const { data } = await supabaseAdmin
     .from("content_knowledge")
-    .select("body_md")
-    .eq("key", "brand.voice")
-    .maybeSingle();
-  return ((data as { body_md?: string } | null)?.body_md ?? "").toString();
+    .select("key, body_md")
+    .in("key", ["brand.voice", "email.value_props"]);
+  const map = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{ key?: string; body_md?: string }>) {
+    map.set(String(row.key ?? ""), String(row.body_md ?? ""));
+  }
+  return { brandVoice: map.get("brand.voice") ?? "", valueProps: map.get("email.value_props") ?? "" };
 }

@@ -21,6 +21,9 @@ export interface NewsletterAssemblerSettings {
   audiences: string[];
   /** How far back (days) to scan content_history_index for unsent "what's new". */
   changelogLookbackDays: number;
+  /** US-917: how recently (days) an evergreen topic may have been used before it's
+   * excluded from selection (bank last_used_at / sent issue / history index). */
+  topicDedupWindowDays: number;
 }
 
 function clampInt(v: unknown, fallback: number, min: number, max: number): number {
@@ -45,13 +48,14 @@ function normalizeAudiences(v: unknown): string[] {
 }
 
 export async function loadNewsletterSettings(): Promise<NewsletterAssemblerSettings> {
-  const [enabled, cadence, maxImages, maxSections, audiences, lookback] = await Promise.all([
+  const [enabled, cadence, maxImages, maxSections, audiences, lookback, dedupWindow] = await Promise.all([
     getSetting<boolean>("newsletter_assembler_enabled", true),
     getSetting<number>("newsletter_cadence_period_days", 7),
     getSetting<number>("newsletter_assembler_max_images", 1),
     getSetting<number>("newsletter_assembler_max_sections", 5),
     getSetting<string[]>("newsletter_assembler_audiences", ["all_confirmed"]),
     getSetting<number>("newsletter_assembler_changelog_lookback_days", 45),
+    getSetting<number>("newsletter_topic_dedup_window_days", 60),
   ]);
   return {
     enabled: Boolean(enabled),
@@ -60,5 +64,6 @@ export async function loadNewsletterSettings(): Promise<NewsletterAssemblerSetti
     maxSections: clampInt(maxSections, 5, 1, 10),
     audiences: normalizeAudiences(audiences),
     changelogLookbackDays: clampInt(lookback, 45, 1, 365),
+    topicDedupWindowDays: clampInt(dedupWindow, 60, 1, 365),
   };
 }

@@ -85,6 +85,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "journey-tick", label: "Lifecycle email-journey tick", schedule: "30 13 * * *", category: "growth", endpoint: "/api/jobs/journey-tick", recorded: true },
   // US-928: daily newsletter self-tuning — recompute topic/subject/send-hour weights from engagement.
   { name: "newsletter-tuning", label: "Newsletter self-tuning", schedule: "45 12 * * *", category: "growth", endpoint: "/api/jobs/newsletter-tuning", recorded: true },
+  // US-917: weekly evergreen topic-bank refill — top the email topic bank up toward target when low.
+  { name: "newsletter-topic-bank-refill", label: "Newsletter topic-bank refill", schedule: "0 5 * * 1", category: "growth", endpoint: "/api/jobs/newsletter-topic-bank-refill", recorded: true },
   // US-927: finalize A/B subject tests whose measurement window elapsed (pick winner → send remainder).
   { name: "newsletter-ab-finalize", label: "Newsletter A/B finalize", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/newsletter-ab-finalize", recorded: true },
   // US-926: weekly dispatch — assign send windows + release due issues (cadence guard + send-time optimization). Hourly so STO can stagger.
