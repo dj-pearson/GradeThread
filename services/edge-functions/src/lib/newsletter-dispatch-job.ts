@@ -37,6 +37,7 @@ import {
   stoSpanEndMs,
   withinCadence,
 } from "./newsletter-schedule.ts";
+import { resolvePersonalizationForBatch } from "./newsletter-personalization-job.ts";
 
 const MAX_SEND_RECIPIENTS = 1000;
 // Cap the engagement-history scan that powers per-recipient send-time optimization.
@@ -47,7 +48,7 @@ const STO_HISTORY_WINDOW_DAYS = 180;
 const DISPATCH_ISSUE_COLS =
   "id, title, subject, preheader, sections, status, scheduled_for, send_started_at, " +
   "subject_variants, ab_metric, ab_test_fraction, ab_measurement_hours, ab_phase, " +
-  "ab_test_started_at, ab_winner_variant, ab_winner_source";
+  "ab_test_started_at, ab_winner_variant, ab_winner_source, personalize";
 
 interface DispatchIssueRow extends AbIssueRow {
   scheduled_for: string | null;
@@ -243,10 +244,12 @@ async function dispatchPlainIssue(
       .eq("status", "approved");
   }
 
-  const [cadence, bestHours, alreadyRecorded] = await Promise.all([
+  const [cadence, bestHours, alreadyRecorded, pctx] = await Promise.all([
     loadCadenceBlocked(config, nowMs, issue.id),
     config.stoEnabled ? loadBestOpenHours(nowMs) : Promise.resolve(new Map<string, number>()),
     loadLedgerEmails(issue.id),
+    // US-921: resolve every recipient's activity ONCE per batch (no N+1).
+    resolvePersonalizationForBatch(recipients, issue.personalize !== false, nowMs),
   ]);
 
   let deferred = 0;
@@ -283,6 +286,13 @@ async function dispatchPlainIssue(
       subjectLine: issue.subject || issue.title,
       variantId: null,
       isHoldout: false,
+      personalization: pctx.enabled
+        ? {
+          activity: r.user_id ? pctx.activity.get(r.user_id) ?? null : null,
+          siteUrl: pctx.siteUrl,
+          trialSoonDays: pctx.trialSoonDays,
+        }
+        : null,
     });
   }
 

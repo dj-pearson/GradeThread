@@ -39,6 +39,11 @@ import {
 } from "../lib/newsletter-ab-job.ts";
 import { loadScheduleConfig } from "../lib/newsletter-dispatch-job.ts";
 import { assembleNextIssue } from "../lib/newsletter-assembler.ts";
+import {
+  personalizeIssueSections,
+  substituteTokens,
+} from "../lib/newsletter-personalization.ts";
+import { resolvePersonalizationForBatch } from "../lib/newsletter-personalization-job.ts";
 import { isQuietPeriod, nextSendWindow } from "../lib/newsletter-schedule.ts";
 import {
   type AbMetric,
@@ -244,7 +249,7 @@ const ISSUE_COLS =
   "send_started_at, sent_at, created_at, updated_at, " +
   "pillar, angle, subject_style, send_hour, " +
   "subject_variants, ab_metric, ab_test_fraction, ab_measurement_hours, " +
-  "ab_phase, ab_test_started_at, ab_winner_variant, ab_winner_source";
+  "ab_phase, ab_test_started_at, ab_winner_variant, ab_winner_source, personalize";
 
 // Cap a single synchronous send so the request stays bounded. The autonomous
 // engine (sibling story) sends larger lists in durable batches; the console's
@@ -286,6 +291,7 @@ interface NewsletterIssueRow {
   ab_test_started_at: string | null;
   ab_winner_variant: string | null;
   ab_winner_source: "auto" | "operator" | "fallback" | null;
+  personalize: boolean | null;
 }
 
 function toRenderable(row: NewsletterIssueRow): RenderableIssue {
@@ -633,9 +639,12 @@ adminNewsletterRoutes.patch("/issues/:id", async (c) => {
     abMetric?: AbMetric;
     abTestFraction?: number | null;
     abMeasurementHours?: number | null;
+    personalize?: boolean;
   };
 
   const patch: Record<string, unknown> = {};
+  // US-921: per-issue personalization toggle (some broadcasts are non-personalized).
+  if (typeof body.personalize === "boolean") patch.personalize = body.personalize;
   if (typeof body.title === "string") patch.title = body.title;
   if (typeof body.subject === "string") patch.subject = body.subject;
   if ("preheader" in body) patch.preheader = body.preheader ?? null;
@@ -981,6 +990,12 @@ adminNewsletterRoutes.post("/issues/:id/send", async (c) => {
   let skipped = 0;
   let failed = 0;
   const renderable = toRenderable(issue);
+  // US-921: resolve every recipient's activity ONCE for the batch (no N+1).
+  const pctx = await resolvePersonalizationForBatch(
+    recipients,
+    issue.personalize !== false,
+    Date.now(),
+  );
 
   for (const r of recipients) {
     // Standalone leads with no linked account can't get a consent check or a
@@ -998,7 +1013,18 @@ adminNewsletterRoutes.post("/issues/:id/send", async (c) => {
 
     try {
       const unsubscribeUrl = await marketingUnsubscribeUrl(r.user_id);
-      const html = renderNewsletterHtml(renderable, {
+      let renderableForRecipient = renderable;
+      let subjectForRecipient = issue.subject || issue.title;
+      if (pctx.enabled) {
+        const activity = r.user_id ? pctx.activity.get(r.user_id) ?? null : null;
+        const p = personalizeIssueSections(renderable.sections, activity, {
+          siteUrl: pctx.siteUrl,
+          trialSoonDays: pctx.trialSoonDays,
+        });
+        renderableForRecipient = { ...renderable, sections: p.sections };
+        subjectForRecipient = substituteTokens(subjectForRecipient, p.tokens);
+      }
+      const html = renderNewsletterHtml(renderableForRecipient, {
         unsubscribeUrl,
         preferenceCenterUrl: marketingPreferenceCenterUrl(),
         postalAddress: Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
@@ -1009,7 +1035,7 @@ adminNewsletterRoutes.post("/issues/:id/send", async (c) => {
         userId: r.user_id,
         source: "weekly_newsletter",
         category: `newsletter:${issue.id}`,
-        subject: issue.subject || issue.title,
+        subject: subjectForRecipient,
         html,
       });
 

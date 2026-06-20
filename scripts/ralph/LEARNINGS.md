@@ -85,6 +85,24 @@ memory — not a progress log (the harness records progress separately).
   send to its enrollment's attribution. `graph.autotuneEnabled` (optional, off by
   default) is the autonomous gate the future engine tick reads.
 
+## system_settings seed gotcha
+- A `system_settings` seed row's `value_type` must be one of `'number' | 'bool' |
+  'string' | 'json'` (00208 check constraint) — `'boolean'` is REJECTED at apply
+  time (`system_settings_value_type_check`), only caught by `verify:db`. Use `'bool'`.
+
+## Newsletter per-recipient personalization (US-921)
+- Per-recipient dynamic blocks: PURE `lib/newsletter-personalization.ts`
+  (`personalizeIssueSections` = recap "your week" + tailored CTA prepended, then
+  `substituteTokens` over the issue copy — unknown/missing `{{token}}` collapses to
+  "" so "undefined" never renders; zero/null activity ⇒ evergreen CTA + no recap)
+  + IMPURE `lib/newsletter-personalization-job.ts` (`resolveActivityBatch` =
+  chunked `.in(user_id,…)` over users/submissions/listings/sales/inventory_items,
+  O(chunks) not N+1; `resolvePersonalizationForBatch` folds the per-issue
+  `newsletter_issues.personalize` toggle (00287) AND `newsletter_personalization_*`
+  settings). Wired into EVERY send path: `deliverIssueRecipient` (new optional
+  `personalization` param → dispatch cron + A/B start/finalize) and the console
+  `/send` inline loop. No AI is re-run per user (O(1) AI per issue).
+
 ## Newsletter program (US-930 console)
 - The autonomous newsletter has NO dedicated issue/engine table before US-930 —
   US-931's `email_subscribers` + `newsletter_analytics` RPC was analytics only.

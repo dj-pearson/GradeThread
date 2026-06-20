@@ -23,6 +23,12 @@ import {
   renderNewsletterHtml,
 } from "./newsletter-issue.ts";
 import {
+  personalizeIssueSections,
+  type RecipientActivity,
+  substituteTokens,
+} from "./newsletter-personalization.ts";
+import { resolvePersonalizationForBatch } from "./newsletter-personalization-job.ts";
+import {
   type AbConfig,
   type AbMetric,
   aggregateVariantStats,
@@ -49,7 +55,7 @@ function postalAddress(): string {
 const AB_ISSUE_COLS =
   "id, title, subject, preheader, sections, status, subject_variants, ab_metric, " +
   "ab_test_fraction, ab_measurement_hours, ab_phase, ab_test_started_at, " +
-  "ab_winner_variant, ab_winner_source";
+  "ab_winner_variant, ab_winner_source, personalize";
 
 export interface AbIssueRow {
   id: string;
@@ -66,6 +72,8 @@ export interface AbIssueRow {
   ab_test_started_at: string | null;
   ab_winner_variant: string | null;
   ab_winner_source: "auto" | "operator" | "fallback" | null;
+  /** US-921: per-issue personalization toggle (default true). */
+  personalize?: boolean | null;
 }
 
 export async function loadAbIssue(id: string): Promise<AbIssueRow | null> {
@@ -122,8 +130,15 @@ export async function deliverIssueRecipient(params: {
   subjectLine: string;
   variantId: string | null;
   isHoldout: boolean;
+  /** US-921: when set, inject the per-recipient recap + tailored CTA and
+   *  token-substitute the copy. Omit / null ⇒ the issue's plain body is sent. */
+  personalization?: {
+    activity: RecipientActivity | null;
+    siteUrl?: string;
+    trialSoonDays?: number;
+  } | null;
 }): Promise<DeliverResult> {
-  const { issue, recipient, subjectLine, variantId, isHoldout } = params;
+  const { issue, recipient, subjectLine, variantId, isHoldout, personalization } = params;
 
   // Standalone leads with no linked account can't get a consent check or a signed
   // unsubscribe link — skip with a recorded reason.
@@ -141,8 +156,19 @@ export async function deliverIssueRecipient(params: {
 
   try {
     const unsubscribeUrl = await marketingUnsubscribeUrl(recipient.user_id);
+    const baseSections = Array.isArray(issue.sections) ? issue.sections : [];
+    let renderSections = baseSections;
+    let renderSubject = subjectLine;
+    if (personalization) {
+      const p = personalizeIssueSections(baseSections, personalization.activity, {
+        siteUrl: personalization.siteUrl,
+        trialSoonDays: personalization.trialSoonDays,
+      });
+      renderSections = p.sections;
+      renderSubject = substituteTokens(subjectLine, p.tokens);
+    }
     const html = renderNewsletterHtml(
-      { subject: subjectLine, preheader: issue.preheader, sections: Array.isArray(issue.sections) ? issue.sections : [] },
+      { subject: renderSubject, preheader: issue.preheader, sections: renderSections },
       { unsubscribeUrl, postalAddress: postalAddress() },
     );
     const result = await coordinateMarketingSend({
@@ -150,7 +176,7 @@ export async function deliverIssueRecipient(params: {
       userId: recipient.user_id,
       source: "weekly_newsletter",
       category: `newsletter:${issue.id}`,
-      subject: subjectLine || issue.title,
+      subject: renderSubject || issue.title,
       html,
     });
 
@@ -190,6 +216,17 @@ export async function deliverIssueRecipient(params: {
     }, { onConflict: "issue_id,email", ignoreDuplicates: true });
     return { outcome: "failed" };
   }
+}
+
+// US-921: per-recipient personalization param from a resolved batch context.
+type PersonalizationCtx = Awaited<ReturnType<typeof resolvePersonalizationForBatch>>;
+function personalizationFor(ctx: PersonalizationCtx, userId: string | null) {
+  if (!ctx.enabled) return null;
+  return {
+    activity: userId ? ctx.activity.get(userId) ?? null : null,
+    siteUrl: ctx.siteUrl,
+    trialSoonDays: ctx.trialSoonDays,
+  };
 }
 
 async function resolveConfirmed(): Promise<{ email: string; user_id: string | null }[]> {
@@ -254,6 +291,7 @@ export async function startAbTest(issue: AbIssueRow, config: AbConfig): Promise<
   }
 
   const holdout = recipients.slice(0, plan.holdoutSize);
+  const pctx = await resolvePersonalizationForBatch(holdout, issue.personalize !== false, Date.now());
 
   // Lock the issue + clear any prior ledger (fresh, idempotent test start).
   await supabaseAdmin
@@ -283,6 +321,7 @@ export async function startAbTest(issue: AbIssueRow, config: AbConfig): Promise<
         subjectLine: variant.subject,
         variantId: variant.id,
         isHoldout: true,
+        personalization: personalizationFor(pctx, r.user_id),
       }),
     );
   }
@@ -375,6 +414,7 @@ export async function finalizeAbTest(
 
   const confirmed = await resolveConfirmed();
   const remainder = confirmed.filter((r) => !alreadySent.has(r.email.toLowerCase()));
+  const pctx = await resolvePersonalizationForBatch(remainder, issue.personalize !== false, nowMs);
 
   const results: DeliverResult[] = [];
   for (const r of remainder) {
@@ -385,6 +425,7 @@ export async function finalizeAbTest(
         subjectLine: winner.subject,
         variantId: winner.id,
         isHoldout: false,
+        personalization: personalizationFor(pctx, r.user_id),
       }),
     );
   }
