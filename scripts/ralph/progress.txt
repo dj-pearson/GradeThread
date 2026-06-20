@@ -3674,3 +3674,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:23:21 PM
 ---
+## US-816: iOS price suggestions surface (comps-based bulk repricing aid)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:33:34 PM
+---
