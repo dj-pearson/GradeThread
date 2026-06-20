@@ -4,6 +4,37 @@ Schema migrations must be applied to production **reliably and in order**, so th
 deployed code never runs against a schema that's missing a column/table (the root
 cause of the `/verified/*` + `/flipdesk/pricing/*` 500s).
 
+## 🚨 Fast recovery: edge crash-looping on a stale DB (`npm run catchup`)
+
+**Symptom** — the edge container won't boot and the site is down; logs repeat:
+
+```
+[schema-version] DB is STALE: applied=00256, this build expects 00282. Refusing to start.
+```
+
+This means prod's DB is behind the deployed edge build (a push redeployed edge
+before the migrations were pasted into Studio). To recover, apply every migration
+above `applied=NNNNN`. **One command builds that paste for you:**
+
+```bash
+npm run catchup -- 00256     # use the applied=NNNNN number straight from the log
+```
+
+It bundles every migration after `00256` into `scripts/prod-catchup-<today>.sql`,
+**copies the SQL to your clipboard** (Windows), and prints the target version. Then:
+
+1. Back up prod first (`BACKUPS.md`).
+2. Supabase Studio → SQL editor → **paste** (clipboard) → Run.
+3. Confirm the final `SELECT public.latest_schema_migration()` prints the target
+   version. The edge boots clean on the next restart.
+
+The bundle is idempotent and self-recording, so it's safe to re-run. You can pass
+the number any way the log shows it — `00256`, `256`, or `applied=00256`.
+
+> **Stop the bleeding for good:** run `npm run catchup`, paste into Studio, **then**
+> `git push`. Applying migrations *before* the push means the edge never redeploys
+> ahead of the DB, so it never crash-loops. (`generate the bundle` = `make-catchup.mjs`.)
+
 ## Where migrations live
 
 `supabase/migrations/NNNNN_description.sql`, applied in lexical order. Each file
@@ -30,7 +61,9 @@ curl -fsS https://functions.gradethread.com/api/grading/public | jq .
 
 Pasting into the Studio SQL editor also works for a one-off: every migration
 **self-records its own version** (footer below), so the guard stays in sync
-without a manual catchup either way.
+without a manual catchup either way — **as long as the paste happens before the
+edge redeploys.** When a push redeploys edge first (the common case), use the
+`npm run catchup` recovery at the top of this doc.
 
 Record each production apply (date, migrations applied, operator) in the deploy
 log / incident channel.
@@ -42,7 +75,9 @@ Every migration `00255+` MUST end with this footer, so applying it by ANY method
 version into `public.applied_migrations` — the table `latest_schema_migration()`
 reads alongside the CLI's `supabase_migrations.schema_migrations`. This is what
 stops the edge refusing to boot against a "stale" DB when the apply path didn't
-write a tracker row (the recurring `prod-catchup-*.sql` chore — now retired).
+write a tracker row. The footer makes the catchup *correct* without a separate
+backfill; `npm run catchup` (top of this doc) is still how you *recover* when a
+deploy outpaces the Studio paste.
 
 ```sql
 -- self-record (US-1108): keeps the edge schema-version guard (US-778) in sync no

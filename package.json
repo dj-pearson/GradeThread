@@ -21,6 +21,7 @@
     "verify:edge": "node scripts/verify.mjs --edge",
     "verify:db": "node scripts/verify.mjs --db",
     "verify:security": "node scripts/verify.mjs --security",
+    "catchup": "node scripts/make-catchup.mjs",
     "smoke:functions": "node scripts/smoke-functions.mjs",
     "smoke:staging": "node scripts/smoke-staging.mjs",
     "setup:stripe": "node scripts/setup-stripe-pricing.mjs",
