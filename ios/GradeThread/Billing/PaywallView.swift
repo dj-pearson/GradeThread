@@ -15,8 +15,32 @@ struct PaywallView: View {
 
     private static let billingURL = URL(string: "https://gradethread.com/dashboard/billing")!
 
+    /// US-804: when set, the paywall is embedded as the final onboarding step. It
+    /// pins an always-visible "Continue with Free" action, hides the dismiss
+    /// toolbar, and reports purchase completion so the host can advance into the
+    /// app. `nil` = the normal Settings paywall (behavior unchanged).
+    private let onboarding: OnboardingConfig?
+
+    /// US-804: callbacks the onboarding host injects to drive advancement. Kept on
+    /// the view (not the store) so the store's purchase flow stays UI-agnostic.
+    struct OnboardingConfig {
+        /// Skip choosing a plan and start on the free tier.
+        var onContinueFree: () -> Void
+        /// A purchase verified successfully — the host decides whether to advance
+        /// (it does for a subscription; a credit pack leaves the step open).
+        var onPurchased: (IAPCatalogEntry) -> Void
+    }
+
     init(userId: UUID) {
         _store = State(initialValue: PaywallStore(userId: userId))
+        onboarding = nil
+    }
+
+    /// US-804: onboarding entry point — inject the store (so the host can build it
+    /// once and reuse the live fetchers) plus the advance callbacks.
+    init(store: PaywallStore, onboarding: OnboardingConfig) {
+        _store = State(initialValue: store)
+        self.onboarding = onboarding
     }
 
     var body: some View {
@@ -36,11 +60,20 @@ struct PaywallView: View {
                 restoreSection
             }
         }
-        .navigationTitle("Plans")
+        // US-804: pin "Continue with Free" so it's reachable without scrolling
+        // the plan list — and visible during loading/failure too, so it can never
+        // block entry to the app. No-op (EmptyView) in the normal Settings paywall.
+        .safeAreaInset(edge: .bottom) { onboardingContinueBar }
+        .navigationTitle(onboarding == nil ? "Plans" : "Choose your plan")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+            // The onboarding step has no dismiss affordance — the only exits are
+            // "Continue with Free" or a purchase, both of which record the
+            // show-once flag, so the step can't be skipped without being marked.
+            if onboarding == nil {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
         .alert("Purchase failed", isPresented: Binding(
@@ -140,6 +173,34 @@ struct PaywallView: View {
             Text("Your subscription")
         } footer: {
             Text("Cancel or change auto-renew in the App Store. To upgrade or downgrade, pick another plan below.")
+        }
+    }
+
+    // MARK: - Onboarding (US-804)
+
+    /// Pinned bottom bar shown only in the onboarding step. Always visible —
+    /// independent of the load/failure phase — so the user can always start on
+    /// the free tier and is never blocked from entering the app.
+    @ViewBuilder
+    private var onboardingContinueBar: some View {
+        if let onboarding {
+            VStack(spacing: 0) {
+                Divider()
+                Button {
+                    onboarding.onContinueFree()
+                } label: {
+                    Text("Continue with Free")
+                        .font(.brandHeadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.brandNavy)
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .accessibilityHint("Skip choosing a plan and start on the free tier")
+            }
+            .background(.bar)
         }
     }
 
@@ -263,6 +324,10 @@ struct PaywallView: View {
         if ok {
             HapticFeedback.success()
             Telemetry.event("paywall_purchased", props: ["product": entry.productId])
+            // US-804: the store already refreshed the billing snapshot inside
+            // buy(); let the onboarding host advance (subscriptions) or stay
+            // (credit packs).
+            onboarding?.onPurchased(entry)
         } else if store.purchaseError != nil {
             HapticFeedback.error()
         }

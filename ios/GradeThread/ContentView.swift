@@ -323,6 +323,18 @@ struct MainShell: View {
     /// sheet would.
     @State private var sharedIntakeBatch: ShareInboxConsumer.DrainedBatch?
 
+    /// US-804: the one-time post-signup plan-selection step. Set on first
+    /// sign-in when ``PlanSelectionState`` says this fresh account hasn't been
+    /// offered yet; cleared (and marked offered) when the user picks a plan or
+    /// continues on Free.
+    @State private var planStep: PlanStepPresentation?
+
+    /// Identifiable wrapper so the plan step drives a single `.fullScreenCover(item:)`.
+    private struct PlanStepPresentation: Identifiable {
+        let userId: UUID
+        var id: UUID { userId }
+    }
+
     var body: some View {
         // Shadowing-binding pattern: `@State` owns the Observable, then a
         // local `@Bindable` exposes write-bindings to its properties for
@@ -401,6 +413,8 @@ struct MainShell: View {
             drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.
             refreshReconcileBadge()
+            // US-804: offer the one-time post-signup plan step to a fresh account.
+            offerPlanSelectionIfNeeded()
             // US-696: cold-launch / first-render unlock prompt.
             if appLock.state == .locked { await appLock.authenticate() }
         }
@@ -438,9 +452,29 @@ struct MainShell: View {
                 drainSharedInboxIfNeeded()
             }
         }
+        // US-804: one-time post-signup plan-selection step. Presented over the
+        // shell so it gates entry visually; "Continue with Free" always dismisses.
+        .fullScreenCover(item: $planStep) { step in
+            OnboardingPlanStepView(userId: step.userId) {
+                planStep = nil
+            }
+        }
         // US-805: shell-level upgrade prompt (402 hard cap) + soft warning banner
         // (80% X-Plan-Warning), fed by EdgeAPI's centralized plan-gate interceptor.
         .planGatePresentation()
+    }
+
+    /// US-804: present the one-time plan step to a freshly-signed-up account.
+    /// Resolves the pending signup flag to the now-known user id, then offers the
+    /// step only when this account is eligible and hasn't already been shown it.
+    /// Existing users (no pending signup) are never eligible, so never prompted.
+    private func offerPlanSelectionIfNeeded() {
+        guard case let .signedIn(user) = authStore.phase else { return }
+        let state = PlanSelectionState()
+        state.resolvePending(userId: user.id)
+        if state.shouldOffer(userId: user.id) {
+            planStep = PlanStepPresentation(userId: user.id)
+        }
     }
 
     /// Pulls the next Share Extension batch off the inbox + presents the

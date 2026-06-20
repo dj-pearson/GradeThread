@@ -73,6 +73,11 @@ public final class AuthStore {
                 data: data.isEmpty ? nil : data,
                 captchaToken: captchaToken
             )
+            // US-804: a successful signup makes this device eligible for the
+            // one-time post-signup plan step. The flag carries no id yet (email
+            // confirmation may not have signed the user in); it's attached to the
+            // user id at first sign-in. Only runs when signUp didn't throw.
+            PlanSelectionState().markPendingEligibility()
         }
     }
 
@@ -117,6 +122,13 @@ public final class AuthStore {
                 _ = try? await SupabaseShared.client.auth.update(
                     user: UserAttributes(data: ["full_name": .string(name)])
                 )
+            }
+            // US-804: a first-time Apple grant supplies the name, which is our
+            // reliable signal that this is a brand-new account — mark the device
+            // eligible for the one-time post-signup plan step (resolved to the
+            // user id at the signed-in transition, like the email signup path).
+            if fullName != nil {
+                PlanSelectionState().markPendingEligibility()
             }
         }
     }
