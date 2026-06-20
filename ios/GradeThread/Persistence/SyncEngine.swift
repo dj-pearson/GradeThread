@@ -150,6 +150,10 @@ actor SyncEngine {
             await mergeActor.mergeSales(payload.sales)
             await mergeActor.mergeExpenses(payload.expenses)
             await mergeActor.mergeListings(payload.listings)
+            // US-819: stamp each item's dispute status from the changed disputes.
+            // Runs after mergeItems so the items (and their grade_report_id) are
+            // already present for the grade_report_id → item mapping.
+            await mergeActor.mergeDisputes(payload.disputes)
 
             // Advance watermarks ONLY after a successful merge (US-633) so a
             // dropped pass re-fetches the missed rows next time.
@@ -157,6 +161,7 @@ actor SyncEngine {
             watermark.advance(.itemPhotos, to: payload.photos.map(\.created_at).max())
             watermark.advance(.sales, to: payload.sales.map(\.created_at).max())
             watermark.advance(.expenses, to: payload.expenses.map(\.created_at).max())
+            watermark.advance(.disputes, to: payload.disputes.compactMap(\.updated_at).max())
             lastPullError = nil
         case .failure(let error):
             // Connection errors are expected on the road; the banner flips to
@@ -206,6 +211,9 @@ actor SyncEngine {
         /// Full listing rows, mirrored into LocalListing so the item canvas can
         /// offer in-place revise (Sell offer present) or an Edit-on-eBay link.
         let listings: [RemoteListing]
+        /// US-819: changed dispute rows (delta), stamped onto their items'
+        /// `disputeStatus` so the Grades list can badge them.
+        let disputes: [RemoteDispute]
 
         /// Map of inventoryItemId → first photo (sort_order ascending). In
         /// delta mode this only covers items whose photos changed this pass.
@@ -241,6 +249,9 @@ actor SyncEngine {
         let grade_value: Double?
         let grade_label: String?
         let certificate_url: String?
+        /// US-819: linked grade report id, so the dispute sync can map a
+        /// `disputes` row (keyed by grade_report_id) onto its item.
+        let grade_report_id: String?
         let condition_notes: String?
         let measurements: [String: Double]?
         let created_at: String
@@ -252,7 +263,8 @@ actor SyncEngine {
             case source_id
             case location_bin, consignor_id, consignment_split_pct
             case target_price, acquired_price, grade_value, grade_label
-            case certificate_url, condition_notes, measurements, created_at, updated_at
+            case certificate_url, grade_report_id
+            case condition_notes, measurements, created_at, updated_at
         }
 
         init(from decoder: Decoder) throws {
@@ -276,6 +288,7 @@ actor SyncEngine {
             grade_value = try c.decodeIfPresent(Double.self, forKey: .grade_value)
             grade_label = try c.decodeIfPresent(String.self, forKey: .grade_label)
             certificate_url = try c.decodeIfPresent(String.self, forKey: .certificate_url)
+            grade_report_id = try c.decodeIfPresent(String.self, forKey: .grade_report_id)
             condition_notes = try c.decodeIfPresent(String.self, forKey: .condition_notes)
             created_at = try c.decode(String.self, forKey: .created_at)
             updated_at = try c.decode(String.self, forKey: .updated_at)
@@ -514,13 +527,29 @@ actor SyncEngine {
                 listingPrices[row.inventory_item_id] = price
             }
 
+            // US-819: disputes — best-effort + delta-scoped on updated_at. A
+            // dispute's `user_id` is the FILER (the signed-in user), not the
+            // workspace owner — and RLS only returns `user_id = auth.uid()` rows
+            // — so scope by `selfId`, NOT `ownerId`. One bounded query, NOT a
+            // per-row fetch: the merge maps each row onto its item by
+            // grade_report_id.
+            let disputes = (try? await paginatedFetch(
+                table: "disputes",
+                columns: Self.disputeColumns,
+                cursor: SyncWatermark.Table.disputes.cursorColumn,
+                watermark: watermark.value(for: .disputes),
+                scopeUserId: selfId,
+                decode: Self.decodeDisputesResiliently
+            )) ?? []
+
             return .success(PullPayload(
                 items: items, photos: photos, sales: sales,
                 expenses: expenses,
                 isFullPhotoSync: isFullPhotoSync,
                 isFullItemSync: isFullItemSync,
                 listingPrices: listingPrices,
-                listings: listingRows
+                listings: listingRows,
+                disputes: disputes
             ))
         } catch {
             return .failure(error)
@@ -565,7 +594,7 @@ actor SyncEngine {
     }
 
     private static let itemColumns =
-        "id,user_id,title,brand,sku,size,color,material,status,item_category,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
+        "id,user_id,title,brand,sku,size,color,material,status,item_category,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,grade_report_id,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"
@@ -607,6 +636,27 @@ actor SyncEngine {
     static func decodeListingsResiliently(_ data: Data) -> [RemoteListing] {
         guard let rows = try? JSONDecoder().decode(
             [Failable<RemoteListing>].self, from: data
+        ) else { return [] }
+        return rows.compactMap(\.value)
+    }
+
+    // US-819: minimal `disputes` projection — just enough to badge a grade row
+    // and pick the latest dispute per report.
+    private static let disputeColumns =
+        "id,grade_report_id,status,updated_at,created_at"
+
+    /// Wire-shape `disputes` row. Owner-scoped via RLS (`user_id = auth.uid()`).
+    struct RemoteDispute: Decodable, Sendable {
+        let id: String
+        let grade_report_id: String
+        let status: String
+        let updated_at: String?
+        let created_at: String?
+    }
+
+    static func decodeDisputesResiliently(_ data: Data) -> [RemoteDispute] {
+        guard let rows = try? JSONDecoder().decode(
+            [Failable<RemoteDispute>].self, from: data
         ) else { return [] }
         return rows.compactMap(\.value)
     }

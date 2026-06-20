@@ -539,6 +539,10 @@ memory — not a progress log (the harness records progress separately).
   inside a SwiftUI `.alert` can't take a keyboard toolbar — it's already
   dismissable via the alert's buttons, so skip it. Pair scrollable forms with
   `.scrollDismissesKeyboard(.interactively)`.
+- A SwiftData `#Predicate` comparing an OPTIONAL column to a value needs both
+  sides optional, or the macro's `==` can't type-match: bind the target as
+  `let target: String? = value` then `#Predicate { $0.optCol == target }` (not a
+  bare non-optional literal). See `mergeDisputes` (US-819, SyncMergeActor).
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

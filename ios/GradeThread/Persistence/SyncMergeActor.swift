@@ -311,6 +311,41 @@ actor SyncMergeActor {
         try? modelContext.save()
     }
 
+    /// US-819: stamps each item's `disputeStatus` from the synced `disputes`
+    /// delta so the Grades list can badge a disputed grade. Disputes are keyed
+    /// by `grade_report_id`; we reduce to the latest dispute per report (by
+    /// updated_at, created_at fallback), then write its status onto the matching
+    /// item — looked up by the indexed `gradeReportId`. Bounded by the number of
+    /// CHANGED disputes in this delta (usually 0), never by the grades-list size,
+    /// so there is no per-row N+1.
+    func mergeDisputes(_ remoteDisputes: [SyncEngine.RemoteDispute]) {
+        guard !remoteDisputes.isEmpty else { return }
+        lastMergeFetchedRowCount = 0
+
+        // Latest status per grade_report_id within this delta. A report can carry
+        // more than one dispute over its life (00150 supersede); the most-recent
+        // activity is what the badge should reflect.
+        var latestByReport: [String: (date: Date, status: String)] = [:]
+        for dispute in remoteDisputes {
+            let ts = SyncEngine.parseDate(dispute.updated_at ?? dispute.created_at ?? "")
+            if let prev = latestByReport[dispute.grade_report_id], prev.date >= ts { continue }
+            latestByReport[dispute.grade_report_id] = (ts, dispute.status)
+        }
+
+        for (reportId, latest) in latestByReport {
+            // Optional on both sides so the predicate macro's `==` type-matches
+            // the optional `gradeReportId` column cleanly.
+            let target: String? = reportId
+            let descriptor = FetchDescriptor<LocalInventoryItem>(
+                predicate: #Predicate { $0.gradeReportId == target }
+            )
+            for item in fetchCounting(descriptor) {
+                item.disputeStatus = latest.status
+            }
+        }
+        try? modelContext.save()
+    }
+
     // MARK: - Realtime single-row apply (US-198, reuses this shared context)
 
     func mergeSingleInventory(_ remote: SyncEngine.RemoteInventoryItem) {
@@ -386,6 +421,9 @@ actor SyncMergeActor {
         local.gradeValue = remote.grade_value
         local.gradeLabel = remote.grade_label
         local.certificateURL = remote.certificate_url
+        // US-819: server-owned link; powers the disputes → item mapping. Don't
+        // touch `disputeStatus` here — that's owned by `mergeDisputes`.
+        local.gradeReportId = remote.grade_report_id
         local.status = ConflictPolicy.resolveServerOwned(local: local.status, server: remote.status)
     }
 

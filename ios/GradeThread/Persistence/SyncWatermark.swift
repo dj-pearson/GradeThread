@@ -25,11 +25,15 @@ struct SyncWatermark {
         /// US-750: operating expenses now mirror into the shared cache too. Like
         /// sales they have no `updated_at`, so they delta on `created_at`.
         case expenses = "flipdesk_expenses"
+        /// US-819: grade disputes mirror into the cache so the Grades list can
+        /// show a per-row dispute badge. `disputes` HAS an `updated_at` column
+        /// (a status change bumps it), so they delta on `updated_at`.
+        case disputes = "disputes"
 
         /// The timestamp column the delta filter compares against.
         var cursorColumn: String {
             switch self {
-            case .inventoryItems: return "updated_at"
+            case .inventoryItems, .disputes: return "updated_at"
             case .itemPhotos, .sales, .expenses: return "created_at"
             }
         }
@@ -47,7 +51,10 @@ struct SyncWatermark {
     ///   status / cost columns.
     ///   v3 (US-750): expenses now sync into the shared cache — force a one-time
     ///   full backfill so existing installs populate `LocalExpense`.
-    private static let currentSchemaVersion = 3
+    ///   v4 (US-819): items now sync `grade_report_id` and disputes sync into the
+    ///   cache — force a one-time full backfill so existing installs populate the
+    ///   linkage + dispute badges.
+    private static let currentSchemaVersion = 4
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

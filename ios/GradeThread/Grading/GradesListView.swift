@@ -26,6 +26,11 @@ struct GradesListView: View {
     @Environment(\.syncEngine) private var syncEngine
     @State private var refreshError: String?
 
+    /// US-819: the report sheet (which carries the dispute affordance) opened via
+    /// a row's "Report" swipe action — so the dispute entry is reachable straight
+    /// from the Grades list instead of only through the item canvas.
+    @State private var reportItem: LocalInventoryItem?
+
     enum GradeSort: String, CaseIterable, Identifiable {
         case recent, highest, lowest
         var id: String { rawValue }
@@ -72,6 +77,9 @@ struct GradesListView: View {
         }
         .refreshable { await refreshFromServer() }
         .overlay(alignment: .bottom) { refreshErrorBanner }
+        .sheet(item: $reportItem) { item in
+            ItemGradeReportSheet(item: item)
+        }
     }
 
     /// US-1026: pull-to-refresh awaits a real ``SyncEngine.sync()`` so the
@@ -120,6 +128,17 @@ struct GradesListView: View {
                 ForEach(sorted) { item in
                     NavigationLink(value: item) {
                         GradeListRow(item: item)
+                    }
+                    // US-819: open the full report (with its dispute affordance)
+                    // straight from the list — no need to dig through the canvas.
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            AppRouter.haptic()
+                            reportItem = item
+                        } label: {
+                            Label("Report", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .tint(.brandNavy)
                     }
                 }
             }
@@ -196,6 +215,12 @@ private struct GradeListRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            // US-819: surface dispute state per row, mirroring the web's
+            // per-submission dispute indicator. Synced into the local store, so
+            // no per-row fetch.
+            if let status = item.disputeStatus, DisputeStatusDisplay.isDisputed(status) {
+                DisputeBadge(status: status)
+            }
         }
         .padding(.vertical, 2)
     }

@@ -142,7 +142,7 @@ Two channels:
 | Bulk grading | ✅ Grade a multi-selection from the inventory action bar (`BulkGradeSheet`): batch readiness + tier + credits, submits the ready items. |
 | Onboarding | ✅ First-run welcome carousel (`Onboarding/`), shown once at launch. |
 | Plan & credits | ✅ Settings shows FlipDesk plan, grade credit balance, included grades left this month, and a link to manage billing on the web (`Settings/PlanSection`). |
-| Grade disputes | ✅ File a dispute on a certified grade from the report view, within the 7-day window (`Grading/DisputeSheet`); mirrors the web's reasons + record. |
+| Grade disputes | ✅ File a dispute on a certified grade from the report view, within the 7-day window (`Grading/DisputeSheet`); mirrors the web's reasons + record. The Grades list badges each row with its dispute state (open / under review / resolved) synced into the local store, and a row's "Report" swipe opens the report + dispute affordance directly (US-819). |
 | Grade-ready notification | ✅ Local notification when a freshly-graded item lands during background refresh (`Background/NewGradeNotifier`); tapping deep-links straight to that item's canvas + report. Also wires the background container so the existing new-sale detection finally fires. |
 | Deep-link to item | ✅ Notification taps (grade-ready, item-review) resolve the `LocalInventoryItem` and push its canvas, instead of dropping the user on a list (finishes the long-standing routing TODO). |
 | Skeleton loaders | ✅ Reusable shimmer skeletons (`Components/SkeletonView`) replace bare spinners on the grade report (`GradeReportSkeleton`) and Settings plan section; respect Reduce Motion. |

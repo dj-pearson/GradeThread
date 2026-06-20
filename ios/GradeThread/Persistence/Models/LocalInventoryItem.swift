@@ -19,7 +19,10 @@ final class LocalInventoryItem {
     // the stage facets; the `gradeValue`/`(gradeValue, updatedAt)` pair backs the
     // Grades list (filter `gradeValue != nil`, sort by `updatedAt`).
     #Index<LocalInventoryItem>(
-        [\.updatedAt], [\.status], [\.gradeValue], [\.gradeValue, \.updatedAt]
+        [\.updatedAt], [\.status], [\.gradeValue], [\.gradeValue, \.updatedAt],
+        // US-819: the dispute sync maps `disputes` rows (keyed by
+        // grade_report_id) onto items by this column, so index it.
+        [\.gradeReportId]
     )
 
     @Attribute(.unique) var id: String
@@ -63,6 +66,18 @@ final class LocalInventoryItem {
     var gradeValue: Double?
     var gradeLabel: String?
     var certificateURL: String?
+
+    /// US-819: linked `grade_reports.id` (server `inventory_items.grade_report_id`),
+    /// when graded. Lets the dispute sync map a `disputes` row (keyed by
+    /// grade_report_id) onto its item without an N+1 per-row fetch. Server-owned.
+    var gradeReportId: String?
+
+    /// US-819: latest dispute status for this item's grade report
+    /// (`open`/`under_review`/`resolved`/`rejected`), or nil when undisputed.
+    /// Stamped by ``SyncMergeActor/mergeDisputes(_:)`` from the synced `disputes`
+    /// delta so the Grades list shows a per-row dispute badge with no per-row
+    /// fetch. Server-owned.
+    var disputeStatus: String?
 
     // Free-form fields the user owns. Conflict resolution treats these as
     // client-wins on sync — see SyncEngine.merge(...).

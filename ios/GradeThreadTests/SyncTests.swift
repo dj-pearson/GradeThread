@@ -339,6 +339,8 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(SyncWatermark.Table.inventoryItems.cursorColumn, "updated_at")
         XCTAssertEqual(SyncWatermark.Table.itemPhotos.cursorColumn, "created_at")
         XCTAssertEqual(SyncWatermark.Table.sales.cursorColumn, "created_at")
+        // US-819: disputes carry an updated_at (status change bumps it).
+        XCTAssertEqual(SyncWatermark.Table.disputes.cursorColumn, "updated_at")
     }
 
     // MARK: - WidgetSnapshot diff (US-637)
@@ -485,6 +487,57 @@ final class SyncTests: XCTestCase {
         XCTAssertLessThanOrEqual(deltaFetched, 5, "photo delta should fetch only the touched photo + owner")
     }
 
+    // MARK: - Dispute status sync (US-819)
+
+    func test_mergeDisputes_stampsLatestStatusOntoItemByGradeReport() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "i1", title: "Disputed tee",
+                             updated: "2026-06-01T00:00:00Z", gradeReportId: "gr-1")],
+            primaryPhotos: [:], listingPrices: [:], prune: false
+        )
+
+        // Two disputes for the same report → the latest (by updated_at) wins.
+        await actor.mergeDisputes([
+            Self.remoteDispute(id: "d1", reportId: "gr-1", status: "open",
+                               updated: "2026-06-02T00:00:00Z"),
+            Self.remoteDispute(id: "d2", reportId: "gr-1", status: "under_review",
+                               updated: "2026-06-03T00:00:00Z"),
+        ])
+
+        let item = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertEqual(item?.gradeReportId, "gr-1")
+        XCTAssertEqual(item?.disputeStatus, "under_review")
+    }
+
+    func test_mergeDisputes_touchesOnlyMatchingItem() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        // Large graded store — proves the badge sync isn't a per-row N+1 / full
+        // scan: a single changed dispute fetches only its one item.
+        let seed = (0..<40).map {
+            Self.remoteItem(id: "i\($0)", title: "Item \($0)",
+                            updated: "2026-06-01T00:00:00Z", gradeReportId: "gr-\($0)")
+        }
+        await actor.mergeItems(seed, primaryPhotos: [:], listingPrices: [:], prune: false)
+
+        await actor.mergeDisputes([
+            Self.remoteDispute(id: "d1", reportId: "gr-7", status: "resolved",
+                               updated: "2026-06-04T00:00:00Z"),
+        ])
+        let fetched = await actor.lastMergeFetchedRowCount
+        XCTAssertLessThanOrEqual(fetched, 5, "dispute merge should fetch only the matching item")
+
+        let disputed = try ModelContext(container)
+            .fetch(FetchDescriptor<LocalInventoryItem>())
+            .filter { $0.disputeStatus != nil }
+        XCTAssertEqual(disputed.map(\.id), ["i7"])
+        XCTAssertEqual(disputed.first?.disputeStatus, "resolved")
+    }
+
     // MARK: - Item<->photo relationship (US-994)
 
     func test_deletingItem_cascadesPhotos() throws {
@@ -537,13 +590,25 @@ final class SyncTests: XCTestCase {
     }
 
     private static func remoteItem(
-        id: String, title: String, updated: String
+        id: String, title: String, updated: String, gradeReportId: String? = nil
     ) -> SyncEngine.RemoteInventoryItem {
+        let reportField = gradeReportId.map { "\"grade_report_id\":\"\($0)\"," } ?? ""
         let json = """
         {"id":"\(id)","user_id":"u1","title":"\(title)","status":"cataloged",
+         \(reportField)
          "created_at":"2026-01-01T00:00:00Z","updated_at":"\(updated)"}
         """.data(using: .utf8)!
         return try! JSONDecoder().decode(SyncEngine.RemoteInventoryItem.self, from: json)
+    }
+
+    private static func remoteDispute(
+        id: String, reportId: String, status: String, updated: String
+    ) -> SyncEngine.RemoteDispute {
+        let json = """
+        {"id":"\(id)","grade_report_id":"\(reportId)","status":"\(status)",
+         "updated_at":"\(updated)","created_at":"2026-01-01T00:00:00Z"}
+        """.data(using: .utf8)!
+        return try! JSONDecoder().decode(SyncEngine.RemoteDispute.self, from: json)
     }
 
     private func freshDefaults() -> UserDefaults {

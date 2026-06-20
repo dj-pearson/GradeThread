@@ -64,4 +64,26 @@ final class DisputeTests: XCTestCase {
         XCTAssertEqual(DisputeReason.other.rawValue, "other")
         XCTAssertEqual(DisputeReason.allCases.count, 7)
     }
+
+    // MARK: - Status badge (US-819)
+
+    func test_disputeStatus_knownValues_haveLabels() {
+        XCTAssertEqual(DisputeStatusDisplay.label(for: "open"), "Disputed")
+        XCTAssertEqual(DisputeStatusDisplay.label(for: "under_review"), "Under review")
+        XCTAssertEqual(DisputeStatusDisplay.label(for: "resolved"), "Dispute resolved")
+        XCTAssertEqual(DisputeStatusDisplay.label(for: "rejected"), "Dispute declined")
+    }
+
+    func test_disputeStatus_unknownOrNil_isNotDisputed() {
+        XCTAssertNil(DisputeStatusDisplay.label(for: "frobnicated"))
+        XCTAssertFalse(DisputeStatusDisplay.isDisputed(nil))
+        XCTAssertFalse(DisputeStatusDisplay.isDisputed(""))
+        XCTAssertFalse(DisputeStatusDisplay.isDisputed("frobnicated"))
+    }
+
+    func test_disputeStatus_knownValues_areDisputed() {
+        for status in ["open", "under_review", "resolved", "rejected"] {
+            XCTAssertTrue(DisputeStatusDisplay.isDisputed(status), "expected \(status) disputed")
+        }
+    }
 }

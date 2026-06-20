@@ -146,8 +146,11 @@ struct CertifiedGradeSection: View {
     }
 }
 
-/// Loads + displays the stored report for a previously-graded item.
-private struct ItemGradeReportSheet: View {
+/// Loads + displays the stored report for a previously-graded item. Presented
+/// from the item canvas ("View full report") and, since US-819, directly from
+/// the Grades list so its dispute affordance is reachable without spelunking
+/// through the canvas.
+struct ItemGradeReportSheet: View {
     @Environment(\.dismiss) private var dismiss
     let item: LocalInventoryItem
 
