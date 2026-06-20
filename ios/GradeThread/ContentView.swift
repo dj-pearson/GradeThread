@@ -1090,10 +1090,17 @@ struct SettingsView: View {
                 } label: {
                     Label("Consignors", systemImage: "person.2.badge.gearshape")
                 }
+                // US-814: sourcing locations — list with item counts + spend,
+                // create/edit/archive, tap-through to filtered inventory.
+                NavigationLink {
+                    SourcesView()
+                } label: {
+                    Label("Sources", systemImage: "mappin.and.ellipse")
+                }
             } header: {
                 Text("Data")
             } footer: {
-                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, save listing templates to reuse description, condition, and policies, or manage consignors and their payout splits.")
+                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, save listing templates to reuse description, condition, and policies, manage consignors and their payout splits, or organize where your inventory comes from.")
                     .font(.footnote)
             }
 

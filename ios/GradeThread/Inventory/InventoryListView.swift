@@ -40,12 +40,18 @@ struct InventoryListView: View {
     @State private var criteria = InventoryFilterCriteria()
 
     /// US-1064: community-insights recommendations deep-link here pre-filtered to
-    /// a single brand. Default (`nil`) keeps the unfiltered list every other call
-    /// site expects.
-    init(initialBrand: String? = nil) {
+    /// a single brand. US-814: the Sources manager deep-links here pre-filtered to
+    /// a single acquisition source. Default (`nil`) keeps the unfiltered list
+    /// every other call site expects.
+    init(initialBrand: String? = nil, initialSourceId: String? = nil) {
+        var seeded = InventoryFilterCriteria()
         if let brand = initialBrand, !brand.isEmpty {
-            var seeded = InventoryFilterCriteria()
             seeded.brands = [brand]
+        }
+        if let sourceId = initialSourceId, !sourceId.isEmpty {
+            seeded.sources = [sourceId]
+        }
+        if seeded.isActive {
             _criteria = State(initialValue: seeded)
         }
     }

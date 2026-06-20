@@ -543,6 +543,11 @@ memory — not a progress log (the harness records progress separately).
   sides optional, or the macro's `==` can't type-match: bind the target as
   `let target: String? = value` then `#Predicate { $0.optCol == target }` (not a
   bare non-optional literal). See `mergeDisputes` (US-819, SyncMergeActor).
+- supabase-swift `.update(payload)` with an `Encodable` struct OMITS nil optional
+  fields (synthesized Codable uses `encodeIfPresent`), so a nil never clears a
+  column and an all-nil body is a no-op. To clear/restore a column to NULL, give
+  the payload a custom `encode(to:)` that `encodeNil(forKey:)` for that field
+  (see `SourceStore.setArchived`/`updateSource`, US-814).
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

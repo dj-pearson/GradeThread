@@ -326,7 +326,10 @@ struct DetailsIntakeView: View {
     private var sourcePicker: some View {
         Picker("Source", selection: $form.sourceId) {
             Text("None").tag(String?.none)
-            ForEach(sources, id: \.id) { source in
+            // US-814: archived sources stay linked to their historical items but
+            // are hidden from the intake picker. Keep a still-selected source
+            // visible so an edited item doesn't silently lose its attribution.
+            ForEach(sources.filter { !$0.isArchived || $0.id == form.sourceId }, id: \.id) { source in
                 Text(source.name).tag(Optional(source.id))
             }
             // Sentinel value so we can detect the "Add new" tap without

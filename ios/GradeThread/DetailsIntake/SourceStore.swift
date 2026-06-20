@@ -31,7 +31,7 @@ public final class SourceStore {
         do {
             let rows: [RemoteSource] = try await supabase
                 .from("sources")
-                .select("id, user_id, name, source_type, notes, created_at, updated_at")
+                .select("id, user_id, name, source_type, notes, archived_at, created_at, updated_at")
                 .eq("user_id", value: userId)
                 .order("name", ascending: true)
                 .execute()
@@ -79,6 +79,76 @@ public final class SourceStore {
         return row.id
     }
 
+    /// Updates an existing source's editable fields. Scoped to the signed-in
+    /// user (the RLS-enforced user JWT client) AND filtered by `user_id` so a
+    /// stray id can never touch another tenant's row.
+    public func updateSource(
+        id: String,
+        userId: String,
+        name: String,
+        type: FlipdeskSourceType,
+        notes: String?
+    ) async throws {
+        // Custom `encode` so a nil `notes` serializes as JSON `null` (clearing
+        // the column) rather than being omitted — the synthesized Encodable for
+        // an optional uses `encodeIfPresent`, which would skip it and silently
+        // keep the old value on the server.
+        struct Update: Encodable {
+            let name: String
+            let source_type: String
+            let notes: String?
+            enum CodingKeys: String, CodingKey { case name, source_type, notes }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(name, forKey: .name)
+                try c.encode(source_type, forKey: .source_type)
+                if let notes { try c.encode(notes, forKey: .notes) }
+                else { try c.encodeNil(forKey: .notes) }
+            }
+        }
+        let payload = Update(name: name, source_type: type.rawValue, notes: notes)
+        let rows: [RemoteSource] = try await supabase
+            .from("sources")
+            .update(payload, returning: .representation)
+            .eq("id", value: id)
+            .eq("user_id", value: userId)
+            .select("id, user_id, name, source_type, notes, archived_at, created_at, updated_at")
+            .execute()
+            .value
+        mergeIntoCache(rows)
+    }
+
+    /// Archives or restores a source. Archiving preserves every historical
+    /// `inventory_items.source_id` link (unlike delete, which SET-NULLs them);
+    /// it only hides the source from the intake pickers. Scoped to the user.
+    public func setArchived(
+        id: String,
+        userId: String,
+        archived: Bool
+    ) async throws {
+        // Explicit-null encode so a restore (nil stamp) writes `archived_at:
+        // null` instead of omitting the field (which would no-op the update).
+        struct ArchiveUpdate: Encodable {
+            let archived_at: String?
+            enum CodingKeys: String, CodingKey { case archived_at }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                if let archived_at { try c.encode(archived_at, forKey: .archived_at) }
+                else { try c.encodeNil(forKey: .archived_at) }
+            }
+        }
+        let stamp = archived ? ISO8601DateFormatter().string(from: .now) : nil
+        let rows: [RemoteSource] = try await supabase
+            .from("sources")
+            .update(ArchiveUpdate(archived_at: stamp), returning: .representation)
+            .eq("id", value: id)
+            .eq("user_id", value: userId)
+            .select("id, user_id, name, source_type, notes, archived_at, created_at, updated_at")
+            .execute()
+            .value
+        mergeIntoCache(rows)
+    }
+
     // MARK: - Private
 
     private func mergeIntoCache(_ rows: [RemoteSource]) {
@@ -97,10 +167,14 @@ public final class SourceStore {
             let updatedAt = isoFormatter.date(from: row.updated_at)
                 ?? ISO8601DateFormatter().date(from: row.updated_at)
                 ?? .now
+            let archivedAt = row.archived_at.flatMap { raw in
+                isoFormatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+            }
             if let local = existingById[row.id] {
                 local.name = row.name
                 local.sourceType = row.source_type
                 local.notes = row.notes
+                local.archivedAt = archivedAt
                 local.updatedAt = updatedAt
             } else {
                 let local = LocalSource(
@@ -108,6 +182,7 @@ public final class SourceStore {
                     userId: row.user_id,
                     name: row.name,
                     sourceType: row.source_type,
+                    archivedAt: archivedAt,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -126,6 +201,7 @@ public final class SourceStore {
         let name: String
         let source_type: String
         let notes: String?
+        let archived_at: String?
         let created_at: String
         let updated_at: String
     }
