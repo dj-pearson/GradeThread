@@ -3670,3 +3670,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:18:38 PM
 ---
+## US-817: iOS payout CSV import for reconciliation
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:23:21 PM
+---

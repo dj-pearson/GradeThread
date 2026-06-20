@@ -346,7 +346,7 @@
         "ios CI passes"
       ],
       "priority": 817,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 parity audit. PayoutReconciliation{View,Store,Service,Types}.swift exist under Money/ — verify before building; the gap is believed to be the import entry point only."
     },
     {
