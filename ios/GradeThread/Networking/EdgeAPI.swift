@@ -55,7 +55,12 @@ public actor EdgeAPI {
     /// without relying on wall-clock time.
     private var cacheClock: UInt64 = 0
 
-    public init(
+    // `internal` (not `public`): the `onPlanGate` / `onPlanWarning` parameters and
+    // their `PlanGateNotifier` default values are app-internal types, which a
+    // public initializer may not expose or reference in default args. This is a
+    // single app module, so nothing outside it constructs `EdgeAPI` (the Tests
+    // target uses `@testable import`), and `shared` stays the public entry point.
+    init(
         baseURL: URL,
         session: URLSession,
         tokenProvider: @Sendable @escaping () async -> String?,
