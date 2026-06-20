@@ -3642,3 +3642,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 11:38:42 AM
 ---
+## US-910: Admin runbook / internal operations docs surface
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 11:51:06 AM
+---
