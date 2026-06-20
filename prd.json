@@ -271,7 +271,7 @@
         "ios CI build + tests pass"
       ],
       "priority": 812,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 parity audit. Grade-price correlation panel is optional (needs graded+sold overlap to be meaningful) — include if the rollup is cheap, otherwise note it out."
     },
     {

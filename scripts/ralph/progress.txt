@@ -3690,3 +3690,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  2:02:34 PM
 ---
+## US-812: iOS Money tab analytics parity (charts + per-item P&L)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  2:10:35 PM
+---
