@@ -3658,3 +3658,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 12:43:28 PM
 ---
+## US-820: iOS AutoLister drafts bulk edit
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:02:16 PM
+---

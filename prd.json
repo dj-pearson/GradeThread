@@ -388,7 +388,7 @@
         "Pure helpers for the bulk mutations are unit-tested; ios CI passes"
       ],
       "priority": 820,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 parity audit. Verify current Drafts/* capabilities first — the generation pipeline itself (AutoListerGenerator -> batch endpoints) is fully wired; only bulk editing is missing."
     },
     {
