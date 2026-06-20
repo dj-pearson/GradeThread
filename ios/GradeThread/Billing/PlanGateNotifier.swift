@@ -46,7 +46,10 @@ final class PlanGateNotifier {
     /// Pure gating decision (testable without the MainActor singleton): show the
     /// banner only when the cap crossed the user's threshold and we haven't
     /// already warned about this cap kind.
-    static func shouldSurface(
+    /// `nonisolated` so the pure decision is callable from any context (the
+    /// `@MainActor` class would otherwise isolate this static method, blocking
+    /// the synchronous unit tests that exercise it off the main actor).
+    nonisolated static func shouldSurface(
         warning: PlanWarning,
         threshold: UsageAlertThreshold,
         alreadyWarnedKinds: Set<String>
