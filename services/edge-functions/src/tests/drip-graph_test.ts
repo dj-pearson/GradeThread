@@ -1,11 +1,13 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   applyTokens,
+  buildLostFeaturesHtml,
   type DripGraph,
   type DripUserState,
   evaluateAll,
   isIncentiveEligible,
   isWinBackEligible,
+  lostProFeatures,
   marketingOptedOutEmail,
   nextTickIso,
   pickVariant,
@@ -407,6 +409,209 @@ Deno.test("win-back: only the day-24/28 steps surface the incentive (US-941/942)
   // The offer + final touches may surface the (config-gated) incentive.
   assert(isIncentiveEligible(byId["win_back_offer"]!, u));
   assert(isIncentiveEligible(byId["win_back_final"]!, u));
+});
+
+// ── US-940 Phase 2 conversion-push (days 7–14) ──
+
+Deno.test("recap renders the user's REAL activity numbers (US-940)", () => {
+  const rendered = renderStep(
+    {
+      incentiveEnabled: false,
+      variants: [{
+        id: "A",
+        weight: 1,
+        subject: "{{firstName}} recap",
+        html:
+          "g={{gradesCount}} c={{certificatesCount}} l={{listingsCount}} s={{salesCount}} " +
+          "<a href=\"{{checkoutUrl}}\">{{recommendedPlan}}</a>",
+      }],
+    },
+    {
+      firstName: "Dana",
+      gradesCount: 4,
+      certificatesCount: 2,
+      listingsCount: 7,
+      salesCount: 1,
+      checkoutUrl: "https://gradethread.com/dashboard/billing?upgrade=pro",
+      recommendedPlan: "Pro",
+    },
+  );
+  assert(rendered);
+  assertEquals(
+    rendered!.html,
+    "g=4 c=2 l=7 s=1 " +
+      "<a href=\"https://gradethread.com/dashboard/billing?upgrade=pro\">Pro</a>",
+  );
+});
+
+Deno.test("recap counts default to 0, checkout/plan have safe fallbacks (US-940)", () => {
+  const rendered = renderStep(
+    {
+      incentiveEnabled: false,
+      variants: [{
+        id: "A",
+        weight: 1,
+        subject: "s",
+        html: "g={{gradesCount}} url={{checkoutUrl}} plan={{recommendedPlan}}",
+      }],
+    },
+    {},
+  );
+  assertEquals(
+    rendered!.html,
+    "g=0 url=https://gradethread.com/dashboard/billing?upgrade=pro plan=Pro",
+  );
+});
+
+Deno.test("lostProFeatures lists only Pro-and-not-Free gates; renders a <ul> (US-940)", () => {
+  const pro = {
+    bulkActions: true, compPulls: true, autolister: true, apiAccess: false,
+  };
+  const free = {
+    bulkActions: false, compPulls: false, autolister: false, apiAccess: false,
+  };
+  const labels = lostProFeatures(pro, free);
+  // apiAccess is off in BOTH → not lost; the three Pro-only gates are.
+  assert(labels.includes("Bulk listing actions"));
+  assert(labels.includes("Sold-comp pricing research"));
+  assert(labels.includes("AI AutoLister (photos → listings)"));
+  assert(!labels.some((l) => /API access/.test(l)));
+
+  const html = buildLostFeaturesHtml(labels);
+  assert(html.startsWith("<ul"));
+  assert(html.includes("<li>Bulk listing actions</li>"));
+  // Empty list → empty string (token collapses, no stray <ul>).
+  assertEquals(buildLostFeaturesHtml([]), "");
+});
+
+// A faithful slice of the seeded Phase-2 in-trial sequence: a day-7 recap that
+// only sends to active users (+ a zero-activity re-activation branch), a day-10
+// certificate deep-dive skipped if already used, and trial_end-anchored urgency.
+function phase2Graph(): DripGraph {
+  const s = (id: string, over: Record<string, unknown>) =>
+    step({ id, phase: "in_trial", exit: false, ...over }) as unknown as
+      DripGraph["steps"][number];
+  return {
+    entryStepId: "recap",
+    steps: [
+      s("recap", {
+        anchor: "enrollment",
+        delayHours: 168,
+        conditions: [
+          { field: "converted", op: "is_false" },
+          { field: "totalActivity", op: "gt", value: 0 },
+        ],
+        branches: [{
+          conditions: [{ field: "totalActivity", op: "is_false" }],
+          targetStepId: "recap_reactivate",
+        }],
+        next: "feature_deepdive",
+      }),
+      s("recap_reactivate", {
+        anchor: "enrollment",
+        delayHours: 168,
+        conditions: [{ field: "converted", op: "is_false" }],
+        next: "feature_deepdive",
+      }),
+      s("feature_deepdive", {
+        anchor: "enrollment",
+        delayHours: 240,
+        conditions: [
+          { field: "converted", op: "is_false" },
+          { field: "certificatesCount", op: "is_false" },
+        ],
+        branches: [{
+          conditions: [{ field: "certificatesCount", op: "gt", value: 0 }],
+          targetStepId: "urgency_today",
+        }],
+        next: "urgency_today",
+      }),
+      s("urgency_today", {
+        anchor: "trial_end",
+        delayHours: 0,
+        conditions: [{ field: "converted", op: "is_false" }],
+        next: null,
+        exit: true,
+      }),
+    ],
+  };
+}
+
+Deno.test("phase-2 in-trial graph is structurally valid (US-940)", () => {
+  const r = validateGraph(phase2Graph());
+  assert(r.ok, r.errors.join("; "));
+});
+
+Deno.test("recap: an ACTIVE trialist gets the recap (US-940)", () => {
+  // Past day 7 so recap is due; has activity → conditions pass → send recap.
+  const plan = simulateJourney(
+    phase2Graph(),
+    { userId: "u1", enrolledAtMs: 0, converted: false, totalActivity: 5, certificatesCount: 0 },
+    1000 * HOUR,
+  );
+  const sent = plan.sends.filter((x) => x.willSend).map((x) => x.stepId);
+  assert(sent.includes("recap"));
+  assert(!sent.includes("recap_reactivate"));
+});
+
+Deno.test("recap: a ZERO-activity trialist gets the re-activation variant instead (US-940)", () => {
+  const r = simulateJourney(
+    phase2Graph(),
+    { userId: "u1", enrolledAtMs: 0, converted: false, totalActivity: 0, certificatesCount: 0 },
+    1000 * HOUR,
+  );
+  const sent = r.sends.filter((x) => x.willSend).map((x) => x.stepId);
+  // recap is gated off (no activity); the branch routes to recap_reactivate.
+  assert(!sent.includes("recap"));
+  assert(sent.includes("recap_reactivate"));
+});
+
+Deno.test("feature deep-dive is skipped for a user who already made a certificate (US-940)", () => {
+  const r = simulateJourney(
+    phase2Graph(),
+    { userId: "u1", enrolledAtMs: 0, converted: false, totalActivity: 3, certificatesCount: 2 },
+    1000 * HOUR,
+  );
+  const sent = r.sends.filter((x) => x.willSend).map((x) => x.stepId);
+  assert(!sent.includes("feature_deepdive"));
+  // Skipping the deep-dive still lands on the urgency step.
+  assert(sent.includes("urgency_today"));
+});
+
+Deno.test("conversion at any point exits the in-trial push — no further sends (US-940)", () => {
+  const converted = { userId: "u1", enrolledAtMs: 0, converted: true, totalActivity: 5 };
+  const plan = planTick(phase2Graph(), converted, new Set(), 1000 * HOUR);
+  assertEquals(plan.status, "complete");
+  assertEquals(plan.send, null);
+});
+
+Deno.test("urgency is anchored to the ACTUAL trial_end, not a fixed offset (US-940)", () => {
+  // Admin-shortened trial: trial_end well before enrollment+14d. The urgency
+  // step must schedule off trial_end, so it's due immediately here.
+  const trialEnd = "2026-02-01T00:00:00.000Z";
+  const trialEndMs = Date.parse(trialEnd);
+  const g: DripGraph = {
+    entryStepId: "urgency_today",
+    steps: [
+      step({
+        id: "urgency_today",
+        phase: "in_trial",
+        anchor: "trial_end",
+        delayHours: 0,
+        conditions: [{ field: "converted", op: "is_false" }],
+        next: null,
+        exit: true,
+      }) as unknown as DripGraph["steps"][number],
+    ],
+  };
+  const plan = planTick(
+    g,
+    { userId: "u1", enrolledAtMs: trialEndMs - 200 * HOUR, converted: false, trialEndsAt: trialEnd },
+    new Set(),
+    trialEndMs,
+  );
+  assertEquals(plan.status, "send");
+  assertEquals(plan.send?.stepId, "urgency_today");
 });
 
 Deno.test("planTick skips a gated step and sends the next sendable one", () => {

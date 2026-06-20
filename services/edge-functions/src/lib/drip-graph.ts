@@ -351,6 +351,21 @@ export interface DripUserState {
   gradesUsed?: number;
   trialDaysRemaining?: number;
   daysSinceSignup?: number;
+  // US-940: real per-user activity for the mid-trial recap (the "personalization
+  // layer" numbers). All-time counts so the recap reflects everything they've
+  // done in the trial; `totalActivity` is their sum and drives the
+  // zero-activity → re-activation branch (`totalActivity is_false`).
+  gradesCount?: number;
+  listingsCount?: number;
+  salesCount?: number;
+  certificatesCount?: number;
+  totalActivity?: number;
+  /** Deep-link to the subscribe / add-a-card flow for the recommended plan. */
+  checkoutUrl?: string;
+  /** Recommended plan label (e.g. "Pro") for copy. */
+  recommendedPlan?: string;
+  /** Pre-rendered HTML list of Pro features paused on downgrade (AC5). */
+  lostFeatures?: string;
 }
 
 /** Minimal HTML-escape for values interpolated into the incentive block. */
@@ -404,7 +419,61 @@ function tokenValues(
       })
       : "soon",
     incentive: incentive ? buildIncentiveHtml(incentive) : "",
+    // US-940 recap personalization tokens — real per-user numbers, surfaced in
+    // the day-7 recap copy. Counts default to "0" so a missing count never leaks
+    // an empty token into the sentence.
+    gradesCount: String(user.gradesCount ?? 0),
+    listingsCount: String(user.listingsCount ?? 0),
+    salesCount: String(user.salesCount ?? 0),
+    certificatesCount: String(user.certificatesCount ?? 0),
+    trialDaysRemaining: String(user.trialDaysRemaining ?? 0),
+    checkoutUrl: user.checkoutUrl ?? "https://gradethread.com/dashboard/billing?upgrade=pro",
+    recommendedPlan: user.recommendedPlan ?? "Pro",
+    lostFeatures: user.lostFeatures ?? "",
   };
+}
+
+// ── Pro-feature loss copy (US-940, grounded in plan-gate entitlements) ──
+
+/**
+ * Human labels for the gated Pro capabilities (mirrors `GateFlags` keys in
+ * pricing-config.ts) + the headline metered caps. The engine reads the live
+ * plan matrix and calls `lostProFeatures` / `buildLostFeaturesHtml` so the
+ * "what you lose on downgrade" copy stays grounded in the actual entitlements
+ * rather than a hand-maintained marketing list. Pure (no env/Stripe) so it's
+ * unit-testable.
+ */
+export const PRO_FEATURE_LABELS: Record<string, string> = {
+  bulkActions: "Bulk listing actions",
+  scheduledActions: "Scheduled actions",
+  compPulls: "Sold-comp pricing research",
+  autoRelist: "Automatic relisting",
+  subAccounts: "Team sub-accounts",
+  apiAccess: "API access",
+  reconciliation: "Payout reconciliation",
+  prioritySupport: "Priority support",
+  autolister: "AI AutoLister (photos → listings)",
+};
+
+/**
+ * The Pro capabilities a trialist loses when they drop to Free: every gate that
+ * Pro enables and Free does not, in `PRO_FEATURE_LABELS` order. Extra free-form
+ * lines (e.g. the metered grade/listing caps) can be appended by the caller.
+ */
+export function lostProFeatures(
+  proFlags: Record<string, boolean>,
+  freeFlags: Record<string, boolean>,
+): string[] {
+  return Object.keys(PRO_FEATURE_LABELS)
+    .filter((k) => proFlags[k] === true && freeFlags[k] !== true)
+    .map((k) => PRO_FEATURE_LABELS[k]!);
+}
+
+/** Render a `<ul>` of paused-on-downgrade items for the {{lostFeatures}} token. */
+export function buildLostFeaturesHtml(labels: string[]): string {
+  if (labels.length === 0) return "";
+  const items = labels.map((l) => `<li>${escapeHtml(l)}</li>`).join("");
+  return `<ul style="margin:12px 0;padding-left:20px">${items}</ul>`;
 }
 
 /**
@@ -507,6 +576,17 @@ function fieldValue(field: string, user: DripUserState): unknown {
       return user.trialDaysRemaining ?? 0;
     case "daysSinceSignup":
       return user.daysSinceSignup ?? 0;
+    // US-940 recap branch fields.
+    case "gradesCount":
+      return user.gradesCount ?? 0;
+    case "listingsCount":
+      return user.listingsCount ?? 0;
+    case "salesCount":
+      return user.salesCount ?? 0;
+    case "certificatesCount":
+      return user.certificatesCount ?? 0;
+    case "totalActivity":
+      return user.totalActivity ?? 0;
     default:
       return undefined;
   }

@@ -129,6 +129,23 @@ export function BillingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // US-940: a `?upgrade=<plan>` deep-link (from the trial-conversion drip's
+  // subscribe CTA) lands here and auto-opens the plan picker on the recommended
+  // plan, so the email's "subscribe" button leads straight into checkout. Wait
+  // for the summary so the picker dialog is mounted, then strip the param.
+  useEffect(() => {
+    const upgrade = searchParams.get("upgrade");
+    if (!upgrade || !summary) return;
+    const key = upgrade as FlipdeskPlanKey;
+    if (key !== "free" && key in FLIPDESK_PLANS) {
+      openPlanPicker(key);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("upgrade");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary]);
+
   if (isLoading || !summary) {
     return (
       <div className="space-y-6">

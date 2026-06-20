@@ -34,15 +34,18 @@ import { recordCronRun } from "../lib/cron-runs.ts";
 import { deliverEmail } from "../lib/email.ts";
 import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
 import {
+  buildLostFeaturesHtml,
   type DripGraph,
   type DripStep,
   type DripUserState,
   isIncentiveEligible,
+  lostProFeatures,
   marketingOptedOutEmail,
   planTick,
   renderStep,
 } from "../lib/drip-graph.ts";
 import { resolveIncentive, type ResolvedIncentive } from "../lib/drip-incentive.ts";
+import { getPlanMatrix } from "../lib/pricing-config.ts";
 
 type DripEnv = { Variables: { userId?: string } };
 
@@ -159,6 +162,79 @@ function buildUserState(
     trialDaysRemaining: trialEndMs ? Math.ceil((trialEndMs - nowMs) / DAY_MS) : 0,
     daysSinceSignup: Math.floor((nowMs - enrolledAtMs) / DAY_MS),
     enrolledAtMs,
+  };
+}
+
+// US-940: campaign-wide recap personalization computed ONCE per tick (the same
+// for every recipient): the grounded "what you lose on Free" copy (derived from
+// the live plan matrix, AC5), the recommended plan, and the subscribe deep-link.
+interface Personalization {
+  lostFeatures: string;
+  recommendedPlan: string;
+  checkoutUrl: string;
+}
+
+async function buildPersonalization(): Promise<Personalization> {
+  let lostFeatures = "";
+  try {
+    const matrix = await getPlanMatrix();
+    const labels = lostProFeatures(
+      matrix.pro.gateFlags as unknown as Record<string, boolean>,
+      matrix.free.gateFlags as unknown as Record<string, boolean>,
+    );
+    // Headline metered caps the recap should also name (grounded in the matrix).
+    labels.push(
+      `Unlimited grading (Free includes only ${matrix.free.includedStandardGradesPerMonth}/month)`,
+      "Shareable condition certificates & full reports",
+    );
+    lostFeatures = buildLostFeaturesHtml(labels);
+  } catch (e) {
+    console.warn(
+      "[drip-tick] lost-features copy build failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+  return {
+    lostFeatures,
+    recommendedPlan: "Pro",
+    checkoutUrl: "https://gradethread.com/dashboard/billing?upgrade=pro",
+  };
+}
+
+// US-940: real per-user activity for the mid-trial recap. All-time counts so the
+// recap reflects everything done in the trial; head-only count queries are cheap.
+// Tenant-scoped by user_id (US-268 — the service-role client bypasses RLS).
+async function loadActivity(userId: string): Promise<{
+  gradesCount: number;
+  listingsCount: number;
+  salesCount: number;
+  certificatesCount: number;
+}> {
+  const num = (
+    res: { count: number | null; error: { message: string } | null },
+    label: string,
+  ): number => {
+    if (res.error) {
+      console.warn(`[drip-tick] ${label} count failed:`, res.error.message);
+      return 0;
+    }
+    return res.count ?? 0;
+  };
+  const [grades, certs, listings, sales] = await Promise.all([
+    supabaseAdmin.from("grade_reports").select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+    supabaseAdmin.from("grade_reports").select("id", { count: "exact", head: true })
+      .eq("user_id", userId).not("certificate_id", "is", null),
+    supabaseAdmin.from("listings").select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+    supabaseAdmin.from("sales").select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+  ]);
+  return {
+    gradesCount: num(grades, "grade_reports"),
+    certificatesCount: num(certs, "certificates"),
+    listingsCount: num(listings, "listings"),
+    salesCount: num(sales, "sales"),
   };
 }
 
@@ -416,6 +492,7 @@ async function processEnrollment(
   dryRun: boolean,
   counts: TickCounts,
   resolvedIncentive: ResolvedIncentive | null,
+  personalization: Personalization,
 ): Promise<void> {
   const { data: u } = await supabaseAdmin
     .from("users")
@@ -447,6 +524,21 @@ async function processEnrollment(
     counts.exited++;
     return;
   }
+
+  // US-940: hydrate the recap personalization (real per-user activity + the
+  // grounded loss copy / subscribe deep-link) BEFORE planTick — the day-7 recap
+  // branches on `totalActivity` (zero-activity → re-activation variant) and the
+  // day-10 deep-dive branches on `certificatesCount` (skip if used).
+  const activity = await loadActivity(enrollment.user_id);
+  userState.gradesCount = activity.gradesCount;
+  userState.listingsCount = activity.listingsCount;
+  userState.salesCount = activity.salesCount;
+  userState.certificatesCount = activity.certificatesCount;
+  userState.totalActivity = activity.gradesCount + activity.listingsCount +
+    activity.salesCount + activity.certificatesCount;
+  userState.lostFeatures = personalization.lostFeatures;
+  userState.recommendedPlan = personalization.recommendedPlan;
+  userState.checkoutUrl = personalization.checkoutUrl;
 
   const sentOrdinals = await loadSentOrdinals(enrollment.id);
   let plan = planTick(def.graph, userState, sentOrdinals, nowMs);
@@ -588,6 +680,10 @@ dripRoutes.post("/tick", async (c) => {
     // which case every send falls back to the value-only email.
     const resolvedIncentive = await resolveIncentive(def.graph.incentive, nowMs);
 
+    // US-940: campaign-wide recap personalization (grounded loss copy + subscribe
+    // deep-link), resolved once and shared across the batch.
+    const personalization = await buildPersonalization();
+
     // 1. Enroll new trialists (skipped in dry-run — enrolling is itself a write).
     if (!dryRun) {
       counts.enrolled = await enrollNewTrialists(campaign, nowIso);
@@ -618,7 +714,9 @@ dripRoutes.post("/tick", async (c) => {
 
     for (const row of (due ?? []) as EnrollmentRow[]) {
       try {
-        await processEnrollment(def, row, nowMs, nowIso, dryRun, counts, resolvedIncentive);
+        await processEnrollment(
+          def, row, nowMs, nowIso, dryRun, counts, resolvedIncentive, personalization,
+        );
       } catch (e) {
         // One bad enrollment must not abort the batch.
         counts.skipped++;
