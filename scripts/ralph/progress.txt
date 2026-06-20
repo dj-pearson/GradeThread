@@ -3618,3 +3618,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 10:04:08 AM
 ---
+## US-916: Product 'What's New' changelog feed
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 10:19:34 AM
+---
