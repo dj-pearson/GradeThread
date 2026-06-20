@@ -3662,3 +3662,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:02:16 PM
 ---
+## US-819: iOS disputes visibility from the grades list
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:14:07 PM
+---

@@ -374,7 +374,7 @@
         "ios CI passes"
       ],
       "priority": 819,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 parity audit."
     },
     {
