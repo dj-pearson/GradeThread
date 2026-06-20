@@ -1,5 +1,12 @@
 import { Link } from "react-router-dom";
-import { ShieldCheck, TrendingDown, Clock, BadgeCheck } from "lucide-react";
+import {
+  ShieldCheck,
+  TrendingDown,
+  Clock,
+  BadgeCheck,
+  History,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   MarketingLayout,
@@ -26,7 +33,17 @@ const BENEFITS = [
   {
     icon: BadgeCheck,
     title: "Stand out in search",
-    body: "A verified condition grade and certificate is a differentiator on crowded marketplaces where most listings just say 'good, see photos.'",
+    body: "A verified condition grade and certificate is a differentiator on crowded marketplaces where most listings just say 'good, see photos.' Build a Verified Seller profile and embed the badge to win even more trust.",
+  },
+  {
+    icon: History,
+    title: "Provenance that travels",
+    body: "Attach a Garment Passport to each item — a buyer-scannable history that carries forward on every relist — and back your grades with a condition-backed Buyer Guarantee.",
+  },
+  {
+    icon: Sparkles,
+    title: "A full reseller workflow",
+    body: "FlipDesk runs your whole pipeline: ScoutAI buy decisions from real sold comps, bulk AI AutoLister drafts, scheduled drops, automatic repricing, and consignment with payouts.",
   },
 ];
 
@@ -139,6 +156,20 @@ export function ForResellersPage() {
               className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               condition-grading guide
+            </Link>
+            . Browse the{" "}
+            <Link
+              to="/verified"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              Verified Seller directory
+            </Link>{" "}
+            for top graders, and earn grade credits by{" "}
+            <Link
+              to="/leaderboard"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              referring other sellers
             </Link>
             .
           </p>

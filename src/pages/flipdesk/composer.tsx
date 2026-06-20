@@ -80,6 +80,8 @@ import {
   EBAY_CONDITION_OPTIONS,
   EXTENSION_CROSS_LISTING_PLATFORMS,
   MARKETPLACE_LABELS,
+  MARKETPLACE_TIER,
+  MARKETPLACE_TIER_LABEL,
   type CrossListingPlatform,
 } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
@@ -739,6 +741,9 @@ export function FlipdeskComposerPage() {
   }
 
   function togglePushPlatform(platform: CrossListingPlatform) {
+    // US-1114: never select a channel awaiting platform approval — publishing it
+    // would 503. The UI disables it too; this guards persisted/programmatic state.
+    if (MARKETPLACE_TIER[platform] === "api_pending") return;
     setPushPlatforms((prev) => {
       const next = new Set(prev);
       if (next.has(platform)) next.delete(platform);
@@ -755,7 +760,11 @@ export function FlipdeskComposerPage() {
     const listingId = await saveDraft();
     if (!listingId) return;
 
-    const platforms = [...pushPlatforms];
+    // US-1114: drop any channel awaiting platform approval (tier api_pending)
+    // before dispatch — it has no live publish path and would 503.
+    const platforms = [...pushPlatforms].filter(
+      (p) => MARKETPLACE_TIER[p] !== "api_pending",
+    );
     if (platforms.length === 1 && platforms[0] === "ebay") {
       setPublishOpen(true);
       return;
@@ -1422,24 +1431,44 @@ export function FlipdeskComposerPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {API_CROSS_LISTING_PLATFORMS.map((p) => {
-                const checked = pushPlatforms.has(p);
+                // US-1114: a channel whose connector is built but awaiting
+                // platform approval (tier "api_pending", e.g. Depop) has no
+                // connect/publish path yet — publishing would 503. Show it
+                // disabled with honest copy instead of a live "Connected via
+                // API" checkbox that fails on click.
+                const pending = MARKETPLACE_TIER[p] === "api_pending";
+                const checked = pushPlatforms.has(p) && !pending;
                 return (
                   <div
                     key={p}
-                    className="flex items-center justify-between gap-3 rounded-md border p-2.5"
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-md border p-2.5",
+                      pending && "opacity-60",
+                    )}
                   >
-                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <label
+                      className={cn(
+                        "flex items-center gap-2 text-sm",
+                        pending ? "cursor-not-allowed" : "cursor-pointer",
+                      )}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={pending}
                         onChange={() => togglePushPlatform(p)}
-                        className="h-3.5 w-3.5 cursor-pointer"
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          pending ? "cursor-not-allowed" : "cursor-pointer",
+                        )}
                       />
                       <span className="font-medium">
                         {MARKETPLACE_LABELS[p]}
                       </span>
                       <Badge variant="outline" className="text-[10px]">
-                        Connected via API
+                        {pending
+                          ? MARKETPLACE_TIER_LABEL.api_pending
+                          : "Connected via API"}
                       </Badge>
                     </label>
                     {checked && (

@@ -28,6 +28,14 @@ type ImagesEnv = {
 
 export const flipdeskImageRoutes = new Hono<ImagesEnv>();
 
+// US-1114: capability probe so the UI only offers server-backed image tools
+// that are actually configured (avoids a control that 503s on click). Exposes
+// no secret — only whether an optional integration is wired. remove_bg reflects
+// REMOVE_BG_API_KEY presence (the /remove-bg route 503s without it).
+flipdeskImageRoutes.get("/capabilities", (c) => {
+  return c.json({ remove_bg: !!Deno.env.get("REMOVE_BG_API_KEY") });
+});
+
 // /process and /remove-bg are intentionally stubbed — we generate
 // thumbnails + strip EXIF client-side in PhotoUploader instead, which is
 // faster, free, and works offline. Re-enable if you need server-side

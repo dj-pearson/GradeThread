@@ -40,4 +40,28 @@ export const LANDING_FAQS = [
     q: "Do you offer an API?",
     a: "Yes, the Business plan includes programmatic API access. You can integrate GradeThread grading directly into your own applications, inventory management systems, or listing tools.",
   },
+  {
+    q: "What is a Garment Passport?",
+    a: "Every grade can carry a Garment Passport — a shareable, privacy-safe provenance timeline for the item. It records the grade, the listing, and ownership hand-offs over time, so a buyer can scan it before they buy and see the item's history. It carries forward when the garment is relisted or resold.",
+  },
+  {
+    q: "What is a Verified Seller?",
+    a: "Sellers who grade their inventory with GradeThread can build a public Verified Seller profile — ranked by graded volume and average condition grade and listed in our Verified Directory. The verified badge and stats can be embedded in your marketplace listings to build buyer trust.",
+  },
+  {
+    q: "What does the Buyer Guarantee cover?",
+    a: "The condition-backed Buyer Guarantee lets a buyer who receives an item materially not as graded file a mediation claim against the certificate. It's our commitment that a GradeThread grade means what it says — read the full terms on the Buyer Guarantee page.",
+  },
+  {
+    q: "Can GradeThread help me list and price faster?",
+    a: "Yes. FlipDesk's AutoLister turns photos into ready-to-publish, AI-written listings in bulk; ScoutAI pulls real sold comps so you price with data; and repricing rules plus scheduled drops keep prices moving and time your launches — all from one place.",
+  },
+  {
+    q: "Does GradeThread support consignment?",
+    a: "Yes. FlipDesk includes a consignment workflow — track consignors, calculate each consignor's split, and pay them out via Stripe Connect, reconciled against your real marketplace payouts.",
+  },
+  {
+    q: "Is there a referral program?",
+    a: "Yes. Share your referral link and earn grade credits when friends join and qualify. Top referrers appear on our public leaderboard.",
+  },
 ] as const;

@@ -3109,8 +3109,8 @@
         "JSON-LD/structured data for any changed marketing pages stays valid (no aggregateRating/SearchAction placeholders per CLAUDE.md); build + tsc + eslint clean"
       ],
       "priority": 1098,
-      "passes": false,
-      "notes": "[P1][Web/Copy][EPIC: Web↔iOS Gaps & Polish 2026-06-20] The product has outgrown its own marketing. landing.tsx features (~L51-70), FlipDesk section (~L768-804), for-resellers.tsx (~L121-128), pricing.tsx (~L112-146), landing-faqs.ts (L6-43). Keep prices/features sourced from constants.ts to avoid drift.",
+      "passes": true,
+      "notes": "[P1][Web/Copy][EPIC: Web↔iOS Gaps & Polish 2026-06-20] The product has outgrown its own marketing. landing.tsx features (~L51-70), FlipDesk section (~L768-804), for-resellers.tsx (~L121-128), pricing.tsx (~L112-146), landing-faqs.ts (L6-43). Keep prices/features sourced from constants.ts to avoid drift. [DONE 2026-06-20] Marketing copy refreshed: landing.tsx features grid expanded with Garment Passport / Verified Sellers / Buyer Guarantee; landing FlipDesk section rebuilt to 6 cards naming ScoutAI, AutoLister, scheduled drops, cross-list, automatic repricing, consignment splits. for-resellers.tsx BENEFITS gained Provenance (Passport+Buyer Guarantee) and full-workflow (ScoutAI/AutoLister/repricing/consignment) cards + Verified Directory & referral leaderboard links. landing-faqs.ts added 6 Q&A (Passport, Verified Seller, Buyer Guarantee, AutoLister/ScoutAI, consignment, referrals) which flow into the landing FAQPage JSON-LD AND marketing /faq via ALL_FAQS. pricing.tsx now renders the full FLIPDESK_PLANS features[] (single source of truth) instead of slice(0,3), so Pro vs Business differentiators (AutoLister/comp pulls/scheduled actions/API/sub-accounts/reconciliation) are visible. tsc/eslint/build+prerender/full vitest (888) clean; landing JSON-LD still 4 blocks.",
       "relevantPaths": [
         "src/pages/landing.tsx",
         "src/pages/marketing/pricing.tsx",
@@ -3189,8 +3189,8 @@
         "All three use a capability/feature-flag check; build + tsc + eslint + deno checks clean"
       ],
       "priority": 1094,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Honesty][EPIC: Web↔iOS Gaps & Polish 2026-06-20] CLAUDE.md treats UI honesty as a contract. constants.ts already defines an 'api_pending' tier (~L965) and LIVE_CROSS_LISTING_PLATFORMS includes depop (L934) — composer treats Depop as live (~L1424). flipdesk-images.ts /remove-bg 503s w/o REMOVE_BG_API_KEY; flipdesk-google-sync.ts 503s when !isGoogleSheetsConfigured(). iOS already treats these honestly (listingKit tier). Small but launch-risk-reducing.",
+      "passes": true,
+      "notes": "[P1][FlipDesk/Honesty][EPIC: Web↔iOS Gaps & Polish 2026-06-20] CLAUDE.md treats UI honesty as a contract. constants.ts already defines an 'api_pending' tier (~L965) and LIVE_CROSS_LISTING_PLATFORMS includes depop (L934) — composer treats Depop as live (~L1424). flipdesk-images.ts /remove-bg 503s w/o REMOVE_BG_API_KEY; flipdesk-google-sync.ts 503s when !isGoogleSheetsConfigured(). iOS already treats these honestly (listingKit tier). Small but launch-risk-reducing. [DONE 2026-06-20] Cross-listing UI honesty. composer.tsx: Depop (tier api_pending) now renders disabled with the 'API coming once approved' badge instead of a live 'Connected via API' checkbox; togglePushPlatform + the publish dispatch both filter api_pending channels so a persisted selection cannot 503. remove-bg: added GET /api/flipdesk/images/capabilities returning remove_bg=!!REMOVE_BG_API_KEY + useRemoveBgCapability() hook; photo-manager hides the Remove-background button when unconfigured (mirrors the existing Google /config pattern). Google Sheets sync gating was ALREADY implemented (useGoogleConfig -> /api/flipdesk/google/config; marketplaces-google.tsx shows 'Not available yet' when not configured) so verified, no change needed. Web tsc/eslint/build/tests clean; edge capabilities route is a trivial GET (deno not runnable in this container -- edge CI is the gate).",
       "relevantPaths": [
         "src/pages/flipdesk/composer.tsx",
         "src/lib/constants.ts",
@@ -3285,8 +3285,8 @@
         "Links resolve to the correct public/owner views; build + tsc + eslint clean"
       ],
       "priority": 1088,
-      "passes": false,
-      "notes": "[P2][Web/Integration][EPIC: Web↔iOS Gaps & Polish 2026-06-20] flipdesk/item.tsx (~L135-158) nudges grading/ROI but for graded items shows no link to the certificate or passport it created. Auto-Disclosure ref at ~L203.",
+      "passes": true,
+      "notes": "[P2][Web/Integration][EPIC: Web↔iOS Gaps & Polish 2026-06-20] flipdesk/item.tsx (~L135-158) nudges grading/ROI but for graded items shows no link to the certificate or passport it created. Auto-Disclosure ref at ~L203. [DONE 2026-06-20] FlipDesk item to grade/cert/passport cross-links. The certificate link already existed in GradeThisItemCard State 1 (rendered via ItemCanvas). Enhanced that graded state to also resolve + link the Garment Passport (parse cert id from certificate_url -> query public_passport_links -> /passport/:slug) and added a buyer-facing trust line linking the Buyer Guarantee + Verified Seller profile. tsc/eslint/build/tests clean.",
       "relevantPaths": [
         "src/pages/flipdesk/item.tsx"
       ]

@@ -1,7 +1,30 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
+
+// US-1114: whether server-backed background removal is configured (REMOVE_BG_API_KEY
+// present). The UI hides the control when false so it never offers an action that
+// 503s on click. Cached for the session — it doesn't change between deploys.
+export function useRemoveBgCapability() {
+  return useQuery({
+    queryKey: ["flipdesk_image_capabilities"],
+    staleTime: Infinity,
+    gcTime: Infinity,
+    queryFn: async (): Promise<{ remove_bg: boolean }> => {
+      try {
+        const res = await fetch(`${edgeApiUrl()}/api/flipdesk/images/capabilities`, {
+          headers: await edgeAuthHeaders(),
+        });
+        if (!res.ok) return { remove_bg: false };
+        const json = (await res.json().catch(() => ({}))) as { remove_bg?: boolean };
+        return { remove_bg: !!json.remove_bg };
+      } catch {
+        return { remove_bg: false };
+      }
+    },
+  });
+}
 
 export interface RemoveBgResponse {
   ok: true;

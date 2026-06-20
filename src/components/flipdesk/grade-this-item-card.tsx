@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Award,
@@ -7,6 +9,8 @@ import {
   Loader2,
   AlertTriangle,
   ExternalLink,
+  History,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Card,
@@ -35,9 +39,17 @@ import {
   type ValidationItem,
 } from "@/hooks/use-grading";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 import type { ItemFullRow } from "@/types/database";
 
 const TIER_OPTIONS: GradingTier[] = ["standard", "premium", "express"];
+
+// An item's certificate_url is "<site>/cert/<id>" (see slab-image.ts). Pull the
+// certificate id back out so we can resolve its Garment Passport link (US-1119).
+function certIdFromUrl(url: string | null | undefined): string | null {
+  if (!url || !url.includes("/cert/")) return null;
+  return url.split("/cert/")[1]?.split(/[?#]/)[0] || null;
+}
 
 function fmtMoney(n: number | null | undefined): string {
   if (n == null) return "—";
@@ -77,6 +89,24 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
     null,
   );
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
+
+  // US-1119: resolve the Garment Passport slug (if any) for a graded item from
+  // the PII-free public view, so the graded card links the full provenance
+  // timeline right next to the certificate.
+  const certId = certIdFromUrl(item.certificate_url);
+  const { data: passportSlug } = useQuery({
+    queryKey: ["item_passport_link", certId],
+    enabled: !!certId && item.grade_value != null,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<string | null> => {
+      const { data } = await supabase
+        .from("public_passport_links")
+        .select("passport_slug")
+        .eq("certificate_id", certId!)
+        .maybeSingle();
+      return (data as { passport_slug: string } | null)?.passport_slug ?? null;
+    },
+  });
 
   const latest = submissions[0] ?? null;
   const inflight =
@@ -172,17 +202,52 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
               <Badge variant="secondary">{item.grade_label}</Badge>
             )}
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {item.certificate_url && (
+              <Button asChild variant="outline" size="sm">
+                <a
+                  href={item.certificate_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                  Open certificate
+                </a>
+              </Button>
+            )}
+            {/* US-1119: link the garment's provenance timeline when a passport
+                exists, so the artifacts the grade created aren't lost. */}
+            {passportSlug && (
+              <Button asChild variant="outline" size="sm">
+                <Link to={`/passport/${passportSlug}`}>
+                  <History className="mr-2 h-3.5 w-3.5" />
+                  View Garment Passport
+                </Link>
+              </Button>
+            )}
+          </div>
+          {/* US-1119: surface the buyer-facing trust this grade unlocks. */}
           {item.certificate_url && (
-            <Button asChild variant="outline" size="sm">
-              <a
-                href={item.certificate_url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <ExternalLink className="mr-2 h-3.5 w-3.5" />
-                Open certificate
-              </a>
-            </Button>
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span>
+                Buyers can verify this grade, and it&apos;s covered by the{" "}
+                <Link
+                  to="/buyer-guarantee"
+                  className="font-medium text-foreground hover:underline"
+                >
+                  Buyer Guarantee
+                </Link>
+                . Build your{" "}
+                <Link
+                  to="/dashboard/flipdesk/verified"
+                  className="font-medium text-foreground hover:underline"
+                >
+                  Verified Seller
+                </Link>{" "}
+                profile to show it off in every listing.
+              </span>
+            </p>
           )}
         </CardContent>
       </Card>
