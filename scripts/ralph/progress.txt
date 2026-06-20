@@ -3562,3 +3562,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026 11:11:40 PM
 ---
+## US-930: Newsletter admin console
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 11:44:05 PM
+---
