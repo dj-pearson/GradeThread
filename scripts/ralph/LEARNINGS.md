@@ -289,6 +289,30 @@ memory — not a progress log (the harness records progress separately).
   `marketing_warmup_*`, off by default) folded into the broadcast batch limit via
   `effectiveBatchLimit`. Runbook: `DELIVERABILITY.md`.
 
+## SES suppression loop (US-914)
+- `email_suppressions` already existed (US-1057, 00245) with a DIFFERENT shape;
+  00293 migrates it to the US-914 enum (`hard_bounce|complaint|manual|
+  unsubscribe_all`, NOT `bounce`) + adds `source`/`notes`. parseSesNotification
+  now returns `hard_bounce` for permanent bounces. Canonical signature-verified
+  ingest = public `POST /api/email/ses-notifications` (routes/email-sns.ts);
+  the legacy `/api/webhooks/ses` stays for back-compat and shares applySesFeedback.
+- SNS signature verify (`lib/sns-verify.ts`) is REAL (RSA-SHA1/256 over the
+  documented string-to-sign, cert host pinned to `sns.<region>.amazonaws.com`),
+  fail-closed, with an `SES_SNS_SKIP_VERIFICATION=true` opt-out. X.509→SPKI is a
+  manual DER walk (find rsaEncryption OID, rebuild the enclosing SEQUENCE). Pass
+  crypto.subtle args as a fresh `ArrayBuffer` (toArrayBuffer/base64ToArrayBuffer)
+  — strict Deno lib rejects `Uint8Array<ArrayBufferLike>` as BufferSource.
+- `email_deliveries` gained a `skipped` status + `skip_reason` (00293). Skips
+  are recorded by `recordSkippedDelivery` (email.ts, exported) from the live send
+  path (deliverEmail) + marketing coordinator; the retry cron marks its own row
+  skipped and pre-checks BEFORE deliverEmail so there's no double-record (pass
+  `skipSuppressionRecord` to suppress deliverEmail's insert if you add a path).
+- A complaint flips `notification_preferences.marketing.email=false` (the flag
+  the coordinator's consent gate reads, via marketingOptedOutEmail) AND runs
+  `evaluateComplaintRate` (rolling complaints/sends over a settings window →
+  ops alert + optional newsletter_send_paused). ops-events is dynamic-imported
+  inside it to avoid the email→email-suppression→ops-events→email cycle.
+
 ## Marketing send coordinator (US-934)
 - Any NEW marketing email must route through `coordinateMarketingSend`
   (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),

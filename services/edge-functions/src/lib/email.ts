@@ -13,7 +13,7 @@ import { SMTPClient } from "denomailer";
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
-import { isEmailSuppressed } from "./email-suppression.ts";
+import { getSuppression } from "./email-suppression.ts";
 import { applyEmailTracking } from "./email-tracking.ts";
 import {
   buildListUnsubscribeHeaders,
@@ -53,6 +53,10 @@ interface EmailOptions {
   unsubscribeUrl?: string;
   /** Reply-To override (else the resolved identity's reply-to). */
   replyTo?: string;
+  // US-914: skip writing a status='skipped' email_deliveries audit row when the
+  // recipient is suppressed. Set by callers that own/record the skip themselves
+  // (the outbox retry cron, the marketing coordinator) to avoid a duplicate row.
+  skipSuppressionRecord?: boolean;
 }
 
 interface GradeCompleteData {
@@ -111,11 +115,20 @@ export async function deliverEmail(options: EmailOptions): Promise<boolean> {
   // suppressed recipient is a TERMINAL no-op, not a transient failure: return
   // `true` so neither the live enqueue (sendEmail) nor the retry cron treats it
   // as a failure worth retrying. (isEmailSuppressed fails OPEN on a DB error.)
-  if (await isEmailSuppressed(options.to)) {
+  const suppression = await getSuppression(options.to);
+  if (suppression) {
+    const category = options.category ?? "uncategorized";
     console.warn(
-      `[Email] Recipient is suppressed (bounce/complaint) — skipping send (category=${options.category ?? "uncategorized"})`,
+      `[Email] Recipient is suppressed (${suppression.reason}) — skipping send (category=${category})`,
     );
-    recordMetric("email.suppressed_skip", 1, { category: options.category ?? "uncategorized" });
+    recordMetric("email.suppressed_skip", 1, { category, reason: suppression.reason });
+    // US-914: record the skip (with reason) so it's auditable, not silently
+    // dropped. Send paths that own an outbox row (the retry cron) and the
+    // marketing coordinator pre-check suppression themselves, so this records
+    // only the direct/live sends that reach deliverEmail while suppressed.
+    if (!options.skipSuppressionRecord) {
+      await recordSkippedDelivery(options, category, `suppressed:${suppression.reason}`);
+    }
     return true;
   }
 
@@ -213,6 +226,34 @@ export async function deliverEmail(options: EmailOptions): Promise<boolean> {
     } catch {
       // Ignore close errors — the message was already accepted (or failed) above.
     }
+  }
+}
+
+// US-914: record a send skipped because the recipient is suppressed. Writes a
+// terminal status='skipped' row (with the skip reason) to the email_deliveries
+// outbox so the skip is auditable rather than silently dropped. Best-effort.
+export async function recordSkippedDelivery(
+  options: { to: string; subject: string; html: string },
+  category: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.from("email_deliveries").insert({
+      recipient: options.to,
+      subject: options.subject,
+      html: options.html,
+      category,
+      status: "skipped",
+      attempts: 0,
+      skip_reason: reason,
+    });
+    if (error) {
+      captureException(error, { route: "email.record_skipped", tags: { category }, level: "warn" });
+    } else {
+      recordMetric("email.skipped_recorded", 1, { category });
+    }
+  } catch (err) {
+    captureException(err, { route: "email.record_skipped", tags: { category }, level: "warn" });
   }
 }
 

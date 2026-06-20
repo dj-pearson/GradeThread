@@ -19,7 +19,7 @@ import { captureException, recordMetric } from "./observability.ts";
 import { isEmailSuppressed, normalizeEmail } from "./email-suppression.ts";
 import { marketingOptedOutEmail } from "./drip-graph.ts";
 import { getSetting } from "./system-settings.ts";
-import { deliverEmail } from "./email.ts";
+import { deliverEmail, recordSkippedDelivery } from "./email.ts";
 import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
 import {
   DEFAULT_FREQUENCY_CAP_PER_DAY,
@@ -234,6 +234,15 @@ export async function coordinateMarketingSend(
 
   if (decision.action === "drop") {
     recordMetric("marketing.dropped", 1, { reason: decision.reason, source: input.source });
+    // US-914: a suppressed recipient is a terminal skip — record it (with the
+    // reason) so the skip is auditable, not silently dropped.
+    if (decision.reason === "suppressed") {
+      await recordSkippedDelivery(
+        { to: addr, subject: input.subject, html: input.html },
+        input.category,
+        "suppressed",
+      );
+    }
     return { action: "drop", reason: decision.reason, sent: false, deferred: false };
   }
 

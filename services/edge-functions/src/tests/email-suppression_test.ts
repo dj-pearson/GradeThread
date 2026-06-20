@@ -23,7 +23,7 @@ Deno.test("permanent (hard) bounce suppresses its recipients", () => {
     },
   });
   assert(result, "expected a suppression decision for a permanent bounce");
-  assertEquals(result.reason, "bounce");
+  assertEquals(result.reason, "hard_bounce");
   // Recipients are normalized (lowercased/trimmed).
   assertEquals(result.emails, ["hard.bounce@example.com"]);
   assertEquals(result.detail, "Permanent/General");

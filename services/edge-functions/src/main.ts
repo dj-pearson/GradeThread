@@ -4,6 +4,7 @@ import { accessLogger } from "./middleware/access-log.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
+import { emailSnsRoutes } from "./routes/email-sns.ts";
 import { paymentRoutes } from "./routes/payments.ts";
 import { appstoreVerifyRoutes, appstoreWebhookRoutes } from "./routes/appstore.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
@@ -84,6 +85,7 @@ import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAnalyticsRoutes } from "./routes/admin-analytics.ts";
 import { adminDripRoutes } from "./routes/admin-drip.ts";
 import { adminNewsletterRoutes } from "./routes/admin-newsletter.ts";
+import { adminSuppressionsRoutes } from "./routes/admin-suppressions.ts";
 import { adminChangelogRoutes } from "./routes/admin-changelog.ts";
 import { changelogPublicRoutes } from "./routes/changelog.ts";
 import { adminJourneyRoutes } from "./routes/admin-journeys.ts";
@@ -746,6 +748,8 @@ app.route("/api/payments", paymentRoutes);
 // Server Notifications webhook is unauthed (verified by Apple's JWS signature).
 app.route("/api/payments/appstore", appstoreVerifyRoutes);
 app.route("/api/webhooks", webhookRoutes);
+// US-914: SES bounce/complaint feedback via SNS (public, signature-verified).
+app.route("/api/email", emailSnsRoutes);
 app.route("/api/webhooks/appstore", appstoreWebhookRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/passport", passportRoutes);
@@ -921,6 +925,7 @@ app.route("/api/admin/drip", adminDripRoutes);
 // enforce action (ops alert + auto-pause on a critical bounce/complaint breach).
 // Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/newsletter", adminNewsletterRoutes);
+app.route("/api/admin/suppressions", adminSuppressionsRoutes);
 // US-916 product "What's New" changelog — admin CRUD + manual auto-capture
 // trigger. Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/changelog", adminChangelogRoutes);

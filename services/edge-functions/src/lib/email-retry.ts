@@ -9,6 +9,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { deliverEmail } from "./email.ts";
+import { getSuppression } from "./email-suppression.ts";
 import { acquireJobLock } from "./job-lock.ts";
 import { captureException, logEvent, recordMetric } from "./observability.ts";
 
@@ -35,6 +36,7 @@ export interface EmailRetryResult {
   sent: number;
   retried: number;
   dead_lettered: number;
+  skipped: number;
 }
 
 export async function retryPendingEmails(): Promise<EmailRetryResult> {
@@ -56,8 +58,22 @@ export async function retryPendingEmails(): Promise<EmailRetryResult> {
   let sent = 0;
   let retried = 0;
   let deadLettered = 0;
+  let skipped = 0;
 
   for (const row of due) {
+    // US-914: don't retry a queued send to a now-suppressed address — mark the
+    // outbox row terminal (status='skipped' with the reason) and move on.
+    const suppression = await getSuppression(row.recipient);
+    if (suppression) {
+      await supabaseAdmin
+        .from("email_deliveries")
+        .update({ status: "skipped", skip_reason: `suppressed:${suppression.reason}` })
+        .eq("id", row.id);
+      skipped += 1;
+      recordMetric("email.retry_skipped_suppressed", 1, { category: row.category });
+      continue;
+    }
+
     const ok = await deliverEmail({
       to: row.recipient,
       subject: row.subject,
@@ -103,9 +119,9 @@ export async function retryPendingEmails(): Promise<EmailRetryResult> {
   }
 
   if (due.length > 0) {
-    logEvent("info", "email.retry_sweep", { scanned: due.length, sent, retried, deadLettered });
+    logEvent("info", "email.retry_sweep", { scanned: due.length, sent, retried, deadLettered, skipped });
   }
-  return { scanned: due.length, sent, retried, dead_lettered: deadLettered };
+  return { scanned: due.length, sent, retried, dead_lettered: deadLettered, skipped };
 }
 
 // Cron entry point. OUTSIDE /api/* JWT groups; guards with the shared job secret
