@@ -2,9 +2,11 @@ import { assert, assertEquals } from "@std/assert";
 import {
   applyTokens,
   type DripGraph,
+  type DripUserState,
   evaluateAll,
   nextTickIso,
   pickVariant,
+  planTick,
   renderStep,
   simulateJourney,
   validateGraph,
@@ -186,4 +188,96 @@ Deno.test("simulateJourney projects a timeline and respects branches", () => {
 Deno.test("nextTickIso returns a future top-of-hour", () => {
   const now = Date.parse("2026-06-19T10:15:00.000Z");
   assertEquals(nextTickIso(now), "2026-06-19T11:00:00.000Z");
+});
+
+// ── planTick (US-943 autonomous tick planner) ──
+
+const HOUR = 60 * 60 * 1000;
+
+function tickUser(
+  over: Partial<DripUserState> = {},
+): DripUserState & { userId: string; enrolledAtMs: number } {
+  return { userId: "u1", enrolledAtMs: 0, converted: false, ...over };
+}
+
+function twoStepGraph(): DripGraph {
+  return {
+    entryStepId: "welcome",
+    steps: [
+      step({
+        id: "welcome",
+        anchor: "enrollment",
+        delayHours: 0,
+        conditions: [{ field: "converted", op: "is_false" }],
+        next: "tips",
+        exit: false,
+      }) as unknown as DripGraph["steps"][number],
+      step({
+        id: "tips",
+        anchor: "previous",
+        delayHours: 72,
+        conditions: [{ field: "converted", op: "is_false" }],
+        next: null,
+        exit: true,
+      }) as unknown as DripGraph["steps"][number],
+    ],
+  };
+}
+
+Deno.test("planTick sends the first due unsent step (ordinal = graph index)", () => {
+  const plan = planTick(twoStepGraph(), tickUser(), new Set(), HOUR);
+  assertEquals(plan.status, "send");
+  assertEquals(plan.send?.stepId, "welcome");
+  assertEquals(plan.send?.ordinal, 1); // 1-based index in graph.steps
+});
+
+Deno.test("planTick waits when the next unsent step isn't due yet", () => {
+  // welcome (ordinal 1) already sent; tips is +72h from welcome's schedule (t=0).
+  const plan = planTick(twoStepGraph(), tickUser(), new Set([1]), HOUR);
+  assertEquals(plan.status, "wait");
+  assertEquals(plan.send, null);
+  assertEquals(plan.nextEvaluationMs, 72 * HOUR);
+});
+
+Deno.test("planTick sends the next step once its window arrives (catch-up)", () => {
+  // welcome sent; now well past the +72h window → tips is due.
+  const plan = planTick(twoStepGraph(), tickUser(), new Set([1]), 100 * HOUR);
+  assertEquals(plan.status, "send");
+  assertEquals(plan.send?.stepId, "tips");
+  assertEquals(plan.send?.ordinal, 2);
+});
+
+Deno.test("planTick completes when all steps are sent", () => {
+  const plan = planTick(twoStepGraph(), tickUser(), new Set([1, 2]), 100 * HOUR);
+  assertEquals(plan.status, "complete");
+  assertEquals(plan.nextEvaluationMs, null);
+});
+
+Deno.test("planTick skips a gated step and sends the next sendable one", () => {
+  const g: DripGraph = {
+    entryStepId: "a",
+    steps: [
+      step({
+        id: "a",
+        anchor: "enrollment",
+        delayHours: 0,
+        conditions: [{ field: "gradesUsed", op: "gte", value: 1 }],
+        next: "b",
+        exit: false,
+      }) as unknown as DripGraph["steps"][number],
+      step({
+        id: "b",
+        anchor: "enrollment",
+        delayHours: 0,
+        conditions: [],
+        next: null,
+        exit: true,
+      }) as unknown as DripGraph["steps"][number],
+    ],
+  };
+  // gradesUsed 0 → step "a" is due but gated, so it's skipped and "b" sends.
+  const plan = planTick(g, tickUser({ gradesUsed: 0 }), new Set(), HOUR);
+  assertEquals(plan.status, "send");
+  assertEquals(plan.send?.stepId, "b");
+  assertEquals(plan.skipped, [1]);
 });

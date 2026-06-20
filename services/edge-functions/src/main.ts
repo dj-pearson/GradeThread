@@ -130,6 +130,7 @@ import { contentImagesRoutes } from "./routes/content-images.ts";
 import { contentSettingsRoutes } from "./routes/content-settings.ts";
 import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
+import { dripRoutes } from "./routes/drip.ts";
 import { workspaceRoutes } from "./routes/workspace.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { supportTicketRoutes } from "./routes/support-tickets.ts";
@@ -626,6 +627,7 @@ app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
 app.use("/api/flipdesk/google/oauth/start", rateLimiter(10, 60_000, "google-oauth"));
 app.use("/api/flipdesk/google/sheet/*", rateLimiter(15, 60_000, "google-sheet"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
+app.use("/api/drip/*", rateLimiter(60, 60_000, "drip-tick"));
 app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is heavy
 app.use("/api/legal/*", rateLimiter(30, 60_000, "legal"));
 app.use("/api/announcements/*", rateLimiter(60, 60_000, "announcements"));
@@ -1063,6 +1065,10 @@ app.route("/api/content/public", contentPublicRoutes);
 // route module short-circuits on X-Internal-Job-Secret OR falls back
 // to admin JWT). Don't add /scheduler/* to the use() lines above.
 app.route("/api/content/scheduler", contentSchedulerRoutes);
+// US-943 autonomous drip orchestration tick. Like /scheduler, /api/drip/* has
+// its own auth baked in (DRIP_INTERNAL_JOB_SECRET / signed request / admin JWT) —
+// don't add it to the /api/* use() lines above.
+app.route("/api/drip", dripRoutes);
 app.route("/api/workspace", workspaceRoutes);
 app.route("/api/account", accountRoutes);
 app.route("/api/support-tickets", supportTicketRoutes);

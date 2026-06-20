@@ -36,7 +36,11 @@ export type FeatureKey =
   | "support_assistant"
   // US-1104: Garment Passport resale-value & depreciation forecast (Scout). An
   // ops kill-switch on top of the compPulls plan gate; fail-open (default on).
-  | "passport_forecast";
+  | "passport_forecast"
+  // US-943: autonomous trial-conversion drip engine. The /api/drip/tick cron
+  // gates on this; the admin builder's "kill" flips it off so every replica
+  // hard-stops within the flag cache TTL.
+  | "trial_conversion_drip";
 
 // The full targeting rule for one flag (one feature_flags row).
 export interface FeatureFlagRule {

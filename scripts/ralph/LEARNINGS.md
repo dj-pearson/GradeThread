@@ -58,14 +58,14 @@ memory — not a progress log (the harness records progress separately).
   `flipdesk-autolister.ts`. Don't reimplement the matrix logic.
 
 ## Trial-conversion drip (US-945/946)
-- The drip is split across THREE pieces and the SENDING ENGINE IS NOT WIRED YET:
-  analytics tables (00253: drip_enrollments/sends/attributions) record what the
-  engine did; the editable step-graph DEFINITION lives in `drip_campaigns`
-  (00255, service-role only, no user_id so rls-guard doesn't auto-discover it);
-  the admin BUILDER (`src/pages/admin/drip.tsx` + builder routes in
-  `admin-drip.ts`) edits/validates/simulates it. There is NO tick/cron loop that
-  actually sends — a future engine story reads `drip_campaigns.graph` + the pure
-  evaluator in `lib/drip-graph.ts` (`simulateJourney`/`validateGraph`/`renderStep`).
+- The drip is split across pieces: analytics tables (00253: drip_enrollments/
+  sends/attributions) record what the engine did; the editable step-graph
+  DEFINITION lives in `drip_campaigns` (00255, service-role only, no user_id so
+  rls-guard doesn't auto-discover it); the admin BUILDER (`src/pages/admin/
+  drip.tsx` + builder routes in `admin-drip.ts`) edits/validates/simulates it; and
+  the SENDING ENGINE is now wired (US-943, see below) — it reads
+  `drip_campaigns.graph` + the pure evaluator in `lib/drip-graph.ts`
+  (`planTick`/`simulateJourney`/`validateGraph`/`renderStep`).
 - `lib/drip-graph.ts` is dependency-free (no supabase/env) so its test imports
   without the env dance; keep AI/supabase/email imports in the route file only.
 - US-944 added the per-step A/B optimizer (`lib/drip-optimizer.ts`, also pure):
@@ -78,6 +78,21 @@ memory — not a progress log (the harness records progress separately).
   `drip_sends.step`. Conversion is attributed per (step,variant) by joining each
   send to its enrollment's attribution. `graph.autotuneEnabled` (optional, off by
   default) is the autonomous gate the future engine tick reads.
+
+## Trial-conversion drip ENGINE (US-943)
+- The autonomous sending loop IS now wired: `POST /api/drip/tick` (routes/drip.ts,
+  mounted at /api/drip with its OWN auth — DRIP_INTERNAL_JOB_SECRET / signed
+  request / admin JWT — NOT under any /api/* JWT group). It enrolls trialists,
+  evaluates active enrollments via the PURE `planTick` (drip-graph.ts), sends the
+  ONE due step per enrollment per tick (catch-up safe, frequent-safe), and exits
+  on conversion/completion/opt-out. Job-locked ("drip-tick"), self-gates on
+  `drip_enrollments.next_evaluation_at` (00267). Records to cron_runs as
+  "drip-tick" (added to CRON_REGISTRY). Honors the campaign kill via
+  `isFeatureEnabled("trial_conversion_drip")`.
+- `drip_sends.step` is the 1-based index of the step in `graph.steps` (matches the
+  optimizer's ordinal) — NOT the path position. The engine stamps it that way.
+- /api/drip/tick is NOT under /api/jobs/*, so the cron_runs MIDDLEWARE doesn't
+  record it; the handler calls `recordCronRun({jobName:"drip-tick", …})` itself.
 
 ## Sync provenance epic (US-1076…1086)
 - The `listings.listing_origin` enum column is now PERSISTED (US-1077, migration

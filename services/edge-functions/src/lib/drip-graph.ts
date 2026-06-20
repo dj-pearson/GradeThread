@@ -518,3 +518,118 @@ export function simulateJourney(
 export function nextTickIso(nowMs: number): string {
   return new Date(Math.ceil((nowMs + 1) / HOUR_MS) * HOUR_MS).toISOString();
 }
+
+// ── Autonomous tick planner (US-943) ──
+
+export interface PlannedSend {
+  stepId: string;
+  /** 1-based index of the step in graph.steps — matches drip_sends.step (the
+   * ordinal the optimizer keys on). NOT the path position. */
+  ordinal: number;
+  phase: DripPhase;
+  variantId: string;
+  /** When this step became due (anchor + delay), ms epoch. */
+  scheduledMs: number;
+}
+
+export interface TickPlan {
+  /** send: one step is due now; wait: nothing due yet; complete: journey done. */
+  status: "send" | "wait" | "complete";
+  send: PlannedSend | null;
+  /** When the enrollment should next be evaluated (ms epoch), or null when the
+   * journey is complete. The engine stores this in next_evaluation_at. */
+  nextEvaluationMs: number | null;
+  /** Ordinals of due steps skipped because their send-gating conditions failed
+   * (skips the step, NOT the journey — mirrors simulateJourney). */
+  skipped: number[];
+}
+
+/**
+ * Decide what the autonomous tick should do for ONE enrollment, given the set of
+ * step ordinals already sent. Walks the graph from the entry exactly like
+ * `simulateJourney`, but stops at the FIRST unsent step and returns a single
+ * decision so the engine sends at most one email per enrollment per tick (so a
+ * long downtime catch-up trickles, not floods):
+ *
+ *   • A step already sent (its ordinal in `sentOrdinals`) is stepped over, with
+ *     its scheduled time threaded forward so `previous`-anchored steps still
+ *     compute correctly.
+ *   • The first unsent step NOT yet due → status "wait" with nextEvaluationMs set
+ *     to its scheduled time (the tick self-gates on this).
+ *   • The first unsent step that IS due and whose conditions pass → status
+ *     "send".
+ *   • A due step whose send-gating conditions fail is skipped (recorded in
+ *     `skipped`) and the walk continues — the journey is not aborted.
+ *   • Reaching a terminal/dead-end step → status "complete".
+ *
+ * Pure: callers handle conversion-exit (which short-circuits the whole journey)
+ * before calling this — a converted user should exit, not be planned.
+ */
+export function planTick(
+  graph: DripGraph,
+  user: DripUserState & { userId: string; enrolledAtMs: number },
+  sentOrdinals: Set<number>,
+  nowMs: number,
+): TickPlan {
+  const byId = new Map(graph.steps.map((s) => [s.id, s]));
+  const ordinalById = new Map(graph.steps.map((s, i) => [s.id, i + 1]));
+  const skipped: number[] = [];
+
+  if (!graph.entryStepId || !byId.has(graph.entryStepId)) {
+    return { status: "complete", send: null, nextEvaluationMs: null, skipped };
+  }
+
+  const trialEndMs = user.trialEndsAt ? Date.parse(user.trialEndsAt) : null;
+  let currentId: string | null = graph.entryStepId;
+  let prevMs = user.enrolledAtMs;
+  const hops = graph.steps.length + 1;
+
+  for (let i = 0; i < hops && currentId; i++) {
+    const step: DripStep | undefined = byId.get(currentId);
+    if (!step) break;
+    const ordinal = ordinalById.get(step.id)!;
+    const scheduledMs =
+      anchorTime(step.anchor, user.enrolledAtMs, prevMs, trialEndMs) +
+      step.delayHours * HOUR_MS;
+
+    if (!sentOrdinals.has(ordinal)) {
+      if (scheduledMs > nowMs) {
+        return { status: "wait", send: null, nextEvaluationMs: scheduledMs, skipped };
+      }
+      if (evaluateAll(step.conditions, user)) {
+        return {
+          status: "send",
+          send: {
+            stepId: step.id,
+            ordinal,
+            phase: step.phase,
+            variantId: pickVariant(step, user.userId).id,
+            scheduledMs,
+          },
+          nextEvaluationMs: scheduledMs,
+          skipped,
+        };
+      }
+      // Due but gated — skip this step, keep walking.
+      skipped.push(ordinal);
+    }
+    prevMs = scheduledMs;
+
+    if (step.exit) {
+      return { status: "complete", send: null, nextEvaluationMs: null, skipped };
+    }
+    let nextId: string | null = step.next;
+    for (const b of step.branches) {
+      if (evaluateAll(b.conditions, user)) {
+        nextId = b.targetStepId;
+        break;
+      }
+    }
+    if (!nextId) {
+      return { status: "complete", send: null, nextEvaluationMs: null, skipped };
+    }
+    currentId = nextId;
+  }
+
+  return { status: "complete", send: null, nextEvaluationMs: null, skipped };
+}
