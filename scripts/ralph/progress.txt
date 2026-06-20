@@ -3706,3 +3706,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  2:36:45 PM
 ---
+## US-805: iOS plan-limit handling: 402 upgrade prompt + X-Plan-Warning soft banner
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  2:48:17 PM
+---

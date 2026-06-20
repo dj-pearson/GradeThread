@@ -212,7 +212,7 @@
         "Unit tests cover 402 decode + threshold logic; ios CI passes"
       ],
       "priority": 805,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Grep-verified absence of X-Plan-Warning / 402 handling in ios/. Server already emits everything needed — this is client-only except confirming the 402 body shape matches what plan-gate.ts sends."
     },
     {
