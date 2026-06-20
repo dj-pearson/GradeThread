@@ -3530,3 +3530,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  9:22:18 PM
 ---
+## US-938: Durable per-step send with personalization & tracking
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  9:24:23 PM
+---
