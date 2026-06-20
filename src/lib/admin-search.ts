@@ -7,7 +7,9 @@ export type AdminSearchResultType =
   | "certificate"
   | "listing"
   | "sale"
-  | "ticket";
+  | "ticket"
+  // US-910: client-side bundled operational runbooks (not a server result type).
+  | "runbook";
 
 export interface AdminSearchResult {
   type: AdminSearchResultType;
@@ -27,6 +29,8 @@ export interface AdminSearchGroups {
   listings: AdminSearchResult[];
   sales: AdminSearchResult[];
   tickets: AdminSearchResult[];
+  // US-910: operational runbooks, matched client-side from the bundled set.
+  runbooks: AdminSearchResult[];
 }
 
 export interface AdminSearchResponse {
@@ -47,6 +51,7 @@ export const ADMIN_SEARCH_GROUP_ORDER: Array<{
   { key: "listings", label: "Listings" },
   { key: "sales", label: "Sales" },
   { key: "tickets", label: "Tickets" },
+  { key: "runbooks", label: "Runbooks" },
 ];
 
 const EMPTY_GROUPS: AdminSearchGroups = {
@@ -56,6 +61,7 @@ const EMPTY_GROUPS: AdminSearchGroups = {
   listings: [],
   sales: [],
   tickets: [],
+  runbooks: [],
 };
 
 /**

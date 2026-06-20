@@ -9,6 +9,7 @@ import {
   Tag,
   DollarSign,
   Ticket,
+  BookOpen,
   CornerDownLeft,
   type LucideIcon,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import {
   emptyAdminSearchGroups,
   flattenAdminSearch,
 } from "@/lib/admin-search";
+import { searchRunbooks } from "@/lib/admin/runbooks";
 
 const TYPE_ICONS: Record<AdminSearchResultType, LucideIcon> = {
   user: Users,
@@ -32,6 +34,7 @@ const TYPE_ICONS: Record<AdminSearchResultType, LucideIcon> = {
   listing: Tag,
   sale: DollarSign,
   ticket: Ticket,
+  runbook: BookOpen,
 };
 
 interface CommandPaletteProps {
@@ -42,17 +45,37 @@ interface CommandPaletteProps {
 // US-901: global admin search. Cmd/Ctrl-K opens this; type to search across
 // users, submissions, certificates, listings, sales and tickets, arrow-key to
 // move, Enter to jump. The query is debounced and the lookup is admin-gated +
-// cross-tenant on the server (/api/admin/search).
+// cross-tenant on the server (/api/admin/search). US-910 also merges the
+// build-time-bundled operational runbooks (matched client-side, instantly).
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [groups, setGroups] = useState<AdminSearchGroups>(
+  const [serverGroups, setServerGroups] = useState<AdminSearchGroups>(
     emptyAdminSearchGroups(),
   );
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // US-910: runbooks are bundled in the client, so match them locally (no
+  // request) and fold them into the same grouped result set.
+  const runbookResults = useMemo<AdminSearchResult[]>(() => {
+    if (debounced.length < 2) return [];
+    return searchRunbooks(debounced).map((rb) => ({
+      type: "runbook" as const,
+      id: rb.slug,
+      title: rb.title,
+      subtitle: rb.summary,
+      href: `/admin/ops/runbooks/${rb.slug}`,
+      matched_on: rb.category,
+    }));
+  }, [debounced]);
+
+  const groups = useMemo<AdminSearchGroups>(
+    () => ({ ...serverGroups, runbooks: runbookResults }),
+    [serverGroups, runbookResults],
+  );
 
   const flat = useMemo(() => flattenAdminSearch(groups), [groups]);
 
@@ -61,7 +84,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     if (!open) {
       setQuery("");
       setDebounced("");
-      setGroups(emptyAdminSearchGroups());
+      setServerGroups(emptyAdminSearchGroups());
       setActiveIndex(0);
       setLoading(false);
     }
@@ -78,7 +101,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   useEffect(() => {
     if (!open) return;
     if (debounced.length < 2) {
-      setGroups(emptyAdminSearchGroups());
+      setServerGroups(emptyAdminSearchGroups());
       setLoading(false);
       return;
     }
@@ -91,15 +114,15 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           { signal: controller.signal },
         );
         if (!res.ok) {
-          setGroups(emptyAdminSearchGroups());
+          setServerGroups(emptyAdminSearchGroups());
           return;
         }
         const json = (await res.json()) as AdminSearchResponse;
-        setGroups(json.results ?? emptyAdminSearchGroups());
+        setServerGroups(json.results ?? emptyAdminSearchGroups());
         setActiveIndex(0);
       } catch (err) {
         if ((err as Error)?.name !== "AbortError") {
-          setGroups(emptyAdminSearchGroups());
+          setServerGroups(emptyAdminSearchGroups());
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false);
@@ -163,7 +186,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search users, submissions, certificates, listings, sales, tickets…"
+            placeholder="Search users, submissions, certificates, listings, sales, tickets, runbooks…"
             className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             aria-label="Global admin search"
           />
@@ -173,7 +196,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           {debounced.length < 2 && (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">
               Type at least 2 characters to search. Try an email, SKU,
-              certificate id, or a name.
+              certificate id, a name, or a runbook (e.g. “rollback”).
             </p>
           )}
 

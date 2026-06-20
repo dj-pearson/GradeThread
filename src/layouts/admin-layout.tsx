@@ -165,6 +165,9 @@ const opsNavItems = [
   // US-887 maintenance mode + scheduled windows. List is admin; create/edit/end
   // is super_admin + MFA step-up gated server-side.
   { to: "/admin/ops/maintenance", icon: Wrench, label: "Maintenance", end: false },
+  // US-910 operational runbooks — the on-call playbook in-app, deep-linked to
+  // the controls. Read-only, build-time bundled (no secrets).
+  { to: "/admin/ops/runbooks", icon: BookOpen, label: "Runbooks", end: false },
 ];
 
 // Compliance (US-903) — GDPR/CCPA data-subject request queue. Same admin +

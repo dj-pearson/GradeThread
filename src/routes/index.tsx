@@ -190,6 +190,7 @@ const AdminOpsHealthPage = lazy(() => import("@/pages/admin/ops-health").then(m 
 const AdminOpsJobsPage = lazy(() => import("@/pages/admin/ops-jobs").then(m => ({ default: m.AdminOpsJobsPage })));
 const AdminOpsDeadLettersPage = lazy(() => import("@/pages/admin/ops-dead-letters").then(m => ({ default: m.AdminOpsDeadLettersPage })));
 const AdminOpsActivityPage = lazy(() => import("@/pages/admin/ops-activity").then(m => ({ default: m.AdminOpsActivityPage })));
+const AdminOpsRunbooksPage = lazy(() => import("@/pages/admin/ops-runbooks").then(m => ({ default: m.AdminOpsRunbooksPage })));
 const AdminSettingsRegistryPage = lazy(() => import("@/pages/admin/settings-registry").then(m => ({ default: m.AdminSettingsRegistryPage })));
 const AdminConfigPricingPage = lazy(() => import("@/pages/admin/config-pricing").then(m => ({ default: m.AdminConfigPricingPage })));
 const AdminMaintenancePage = lazy(() => import("@/pages/admin/maintenance").then(m => ({ default: m.AdminMaintenancePage })));
@@ -542,6 +543,9 @@ export const router = createBrowserRouter([
               { path: "/admin/ops/pricing", element: <SuspenseWrapper><AdminConfigPricingPage /></SuspenseWrapper> },
               { path: "/admin/ops/feature-flags", element: <SuspenseWrapper><AdminFeatureFlagsPage /></SuspenseWrapper> },
               { path: "/admin/ops/maintenance", element: <SuspenseWrapper><AdminMaintenancePage /></SuspenseWrapper> },
+              // US-910 operational runbooks (admin + super_admin; read-only). Index + per-slug detail.
+              { path: "/admin/ops/runbooks", element: <SuspenseWrapper><AdminOpsRunbooksPage /></SuspenseWrapper> },
+              { path: "/admin/ops/runbooks/:slug", element: <SuspenseWrapper><AdminOpsRunbooksPage /></SuspenseWrapper> },
               { path: "/admin/audit-log", element: <SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper> },
               { path: "/admin/coupons", element: <SuspenseWrapper><AdminCouponsPage /></SuspenseWrapper> },
               { path: "/admin/pricing", element: <SuspenseWrapper><AdminPricingPage /></SuspenseWrapper> },

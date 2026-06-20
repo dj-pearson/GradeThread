@@ -16,10 +16,10 @@ function result(
 }
 
 describe("admin-search helpers", () => {
-  it("emptyAdminSearchGroups has all six groups empty", () => {
+  it("emptyAdminSearchGroups has all groups empty", () => {
     const g = emptyAdminSearchGroups();
     expect(Object.keys(g).sort()).toEqual(
-      ["certificates", "listings", "sales", "submissions", "tickets", "users"],
+      ["certificates", "listings", "runbooks", "sales", "submissions", "tickets", "users"],
     );
     expect(countAdminSearch(g)).toBe(0);
     expect(flattenAdminSearch(g)).toEqual([]);
@@ -33,10 +33,11 @@ describe("admin-search helpers", () => {
       listings: [result("listing", "l1"), result("listing", "l2")],
       sales: [],
       tickets: [result("ticket", "t1")],
+      runbooks: [result("runbook", "rb1")],
     };
     const flat = flattenAdminSearch(groups);
-    expect(flat.map((r) => r.id)).toEqual(["u1", "s1", "l1", "l2", "t1"]);
-    expect(countAdminSearch(groups)).toBe(5);
+    expect(flat.map((r) => r.id)).toEqual(["u1", "s1", "l1", "l2", "t1", "rb1"]);
+    expect(countAdminSearch(groups)).toBe(6);
   });
 
   it("tolerates null/undefined input", () => {
@@ -48,7 +49,7 @@ describe("admin-search helpers", () => {
   it("group order keys match the groups shape", () => {
     const keys = ADMIN_SEARCH_GROUP_ORDER.map((g) => g.key).sort();
     expect(keys).toEqual(
-      ["certificates", "listings", "sales", "submissions", "tickets", "users"],
+      ["certificates", "listings", "runbooks", "sales", "submissions", "tickets", "users"],
     );
   });
 });

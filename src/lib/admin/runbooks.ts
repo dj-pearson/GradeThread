@@ -1,0 +1,378 @@
+// US-910: in-app operational runbooks for on-call / operators.
+//
+// Curated, BUILD-TIME-BUNDLED operational playbooks distilled from the repo
+// markdown (DEPLOY.md, LAUNCH_CHECKLIST.md, COOLIFY.md, ROLLBACK.md,
+// INCIDENT_RESPONSE.md, BACKUPS.md) and the cron/jobs registry
+// (services/edge-functions/src/lib/cron-runs.ts → CRON_REGISTRY). The point is
+// that on-call has the playbook WHERE THE CONTROLS ARE, not buried in the repo:
+// each runbook deep-links to the relevant admin control (`controls`).
+//
+// React-free so the search/lookup logic stays unit-testable and so a content
+// check (src/lib/admin/__tests__/runbooks.test.ts) can statically prove no
+// secrets/credentials are rendered here — only env-var NAMES, never values.
+
+/** A deep link from a runbook to the admin control it describes. */
+export interface RunbookControl {
+  /** Button label. */
+  label: string;
+  /** In-app admin route (must stay inside /admin or /dashboard). */
+  to: string;
+  /** One-line "why you'd jump here". */
+  description: string;
+}
+
+export interface Runbook {
+  /** URL slug (also the stable id). */
+  slug: string;
+  title: string;
+  /** Grouping label for the index. */
+  category: string;
+  /** One-line summary shown in the index + command palette subtitle. */
+  summary: string;
+  /** Extra search terms beyond the title/summary/body. */
+  keywords: string[];
+  /** Deep links to the live admin controls this runbook governs. */
+  controls: RunbookControl[];
+  /** Markdown body, rendered by MarkdownPreview. */
+  body: string;
+}
+
+export const RUNBOOKS: Runbook[] = [
+  {
+    slug: "deploy-order",
+    title: "Production deploy order",
+    category: "Deploy",
+    summary:
+      "Ship a change to prod in the load-bearing order: migrations → edge → frontend.",
+    keywords: ["deploy", "release", "migration", "coolify", "cloudflare", "edge", "ship"],
+    controls: [
+      {
+        label: "System Health",
+        to: "/admin/ops/health",
+        description: "Confirm readiness + schema version after each layer.",
+      },
+      {
+        label: "Background Jobs",
+        to: "/admin/ops/jobs",
+        description: "Spot-check a scheduled task with Run-now post-deploy.",
+      },
+    ],
+    body: [
+      "GradeThread has **three independently-deployed layers**, and the deploy order is load-bearing, not stylistic:",
+      "",
+      "1. **Apply DB migrations first.** The edge asserts its schema version at boot and refuses to start in production against a DB behind its `EXPECTED_SCHEMA_VERSION` — deploy edge before migrations and the new container crash-loops by design. Migrations are forward-only and backward-compatible with the currently-running edge, so applying them early never breaks the old code.",
+      "2. **Deploy the edge service second** (Deno/Hono on Coolify, `functions.gradethread.com`). New endpoints/fields must exist server-side before the frontend calls them — the edge is the contract.",
+      "3. **Deploy the frontend last** (Cloudflare Pages, apex `gradethread.com`). The SPA may rely on new edge endpoints; shipping it first would 404 those calls for live users.",
+      "",
+      "## How each layer deploys",
+      "",
+      "- **Database** — manual apply (CLI / `psql`) against self-hosted Supabase. Back up prod FIRST. Apply pending files in order (each is idempotent), then record the applied versions into `supabase_migrations.schema_migrations` so the edge boot assertion stays active.",
+      "- **Edge** — Coolify auto-deploys on push to `main` via its deploy webhook; a manual **Redeploy** builds from the latest commit. Coolify Scheduled Tasks live on the service, so they survive a redeploy.",
+      "- **Frontend** — Cloudflare Pages auto-deploys on push to `main`. Build command runs the TypeScript check → Vite build → prerender. Pages env-var changes only take effect on the next build.",
+      "",
+      "## Post-deploy verification",
+      "",
+      "A deploy is \"done\" only when the smoke checks are green:",
+      "",
+      "- `GET /health/ready` reports `status: \"ready\"` and edge logs show the schema-version OK line.",
+      "- A Stripe webhook trigger, a certificate page render, and the SEO endpoints all succeed.",
+      "- For a release that touches the money/grade path, also run the Playwright critical-path e2e.",
+      "",
+      "If readiness is `not_ready` or a feature shows missing, fix the env/migration and redeploy that layer — don't leave a half-green deploy in rotation.",
+    ].join("\n"),
+  },
+  {
+    slug: "rollback",
+    title: "Roll back a bad deploy",
+    category: "Deploy",
+    summary:
+      "Reverse the deploy order to recover: frontend → edge; schema is forward-only.",
+    keywords: ["rollback", "revert", "recover", "regression", "bad deploy", "pages"],
+    controls: [
+      {
+        label: "System Health",
+        to: "/admin/ops/health",
+        description: "Confirm readiness recovers after the rollback.",
+      },
+      {
+        label: "Feature Flags",
+        to: "/admin/ops/feature-flags",
+        description: "Kill a feature instantly instead of a full rollback when the blast radius is one feature.",
+      },
+    ],
+    body: [
+      "Roll **back** in the reverse of the deploy order: frontend first, then edge. Schema is forward-only — never drop a column to roll back; compensate with a new migration or restore from backup.",
+      "",
+      "## Decide the smallest reversible unit",
+      "",
+      "Before a full layer rollback, ask whether the blast radius is a single feature. If so, **disable the feature flag** (instant, fleet-wide within the cache TTL) instead — see the kill-switches runbook.",
+      "",
+      "## Frontend (Cloudflare Pages)",
+      "",
+      "- Pages → Deployments → **Rollback** to a previous deployment. Instant, no rebuild.",
+      "",
+      "## Edge service (Coolify)",
+      "",
+      "- Coolify → Deployments → redeploy the previous successful commit, or revert the commit on `main` and let the webhook redeploy.",
+      "- The edge is backward-compatible with the prior frontend, so an edge rollback is safe to do on its own.",
+      "",
+      "## Database",
+      "",
+      "- **Forward-only.** For a catastrophic migration, restore from backup (see the restore-drill runbook). Otherwise write a compensating migration — do not `DROP`.",
+      "",
+      "After any rollback, re-run the post-deploy smoke checks and watch System Health until readiness is green.",
+    ].join("\n"),
+  },
+  {
+    slug: "restore-drill",
+    title: "Backup & restore drill",
+    category: "Resilience",
+    summary:
+      "Prove the database backup is restorable end-to-end before you need it for real.",
+    keywords: ["backup", "restore", "drill", "disaster recovery", "dr", "pitr", "snapshot"],
+    controls: [
+      {
+        label: "System Health",
+        to: "/admin/ops/health",
+        description: "Use table sizes + DB latency as the before/after sanity check for a restore.",
+      },
+    ],
+    body: [
+      "A backup you have never restored is a hope, not a backup. Run this drill on the cadence in the launch checklist so a real restore is muscle memory.",
+      "",
+      "## Drill steps",
+      "",
+      "1. **Take a fresh backup** of prod Postgres using the documented backup procedure. Note the timestamp and size.",
+      "2. **Restore into a throwaway target** (a scratch database / staging instance), never over prod.",
+      "3. **Verify integrity** — row counts on the high-value tables (users, submissions, grade_reports, listings, sales) are in the expected range, and a spot-checked certificate row resolves.",
+      "4. **Time it.** Record how long the restore took end-to-end; that number is your real RTO.",
+      "5. **Tear down** the throwaway target.",
+      "",
+      "## What to watch",
+      "",
+      "- Compare table sizes and DB latency on **System Health** before and after a real restore — a large unexplained delta is a red flag.",
+      "- If the restore fails or the numbers look wrong, treat it as an incident and follow the incident-response runbook.",
+      "",
+      "Schema is forward-only, so a restore is the only true rollback for a catastrophic migration — keep this drill green.",
+    ].join("\n"),
+  },
+  {
+    slug: "cron-jobs",
+    title: "Scheduled jobs reference",
+    category: "Operations",
+    summary:
+      "What each recurring job does, when it runs, and where to watch it. Live schedule + last-run is on Background Jobs.",
+    keywords: ["cron", "jobs", "scheduled", "coolify tasks", "queue", "ledger", "reprice", "newsletter", "drip"],
+    controls: [
+      {
+        label: "Background Jobs",
+        to: "/admin/ops/jobs",
+        description: "Live schedule, last-run outcome, next-due, and Run-now for every cron.",
+      },
+      {
+        label: "Dead Letters",
+        to: "/admin/ops/dead-letters",
+        description: "Replay or discard webhook/email work a job couldn't process.",
+      },
+    ],
+    body: [
+      "Recurring work runs as **Coolify Scheduled Tasks** that POST to job endpoints on the edge. Every `/api/jobs/*` hit appends a row to the `cron_runs` ledger, so the Background Jobs page shows each job's last run, outcome, duration, and next-due. The table below is the curated map; the **live** registry (and Run-now) lives on Background Jobs.",
+      "",
+      "## Maintenance & integrity",
+      "",
+      "- **Email outbox retry** (`*/5 * * * *`) — backoff + dead-letter for failed sends.",
+      "- **DB integrity scan** (`0 7 * * *`) and **Data-retention purge** (`0 4 * * *`).",
+      "- **Push-token prune** (`0 3 * * *`).",
+      "",
+      "## Grading & sync",
+      "",
+      "- **Stuck-submission recovery** (`*/10 * * * *`) and **Grading regression monitor** (`0 */12 * * *`).",
+      "- **eBay sync reaper** (`*/15 * * * *`), **eBay token refresh** (hourly), **eBay listings/orders sync** (`*/30 * * * *`).",
+      "",
+      "## Listings, repricing & publish",
+      "",
+      "- **Repricing scan / rules** (`0 */6 * * *`), **Listing automation rules** (hourly).",
+      "- **AutoLister reclaim** and **Publish-batch reclaim** (`*/5 * * * *`).",
+      "",
+      "## Growth & lifecycle email",
+      "",
+      "- **Newsletter kickoff trigger** + **weekly dispatch** (hourly, self-gating on cadence), **A/B finalize** (`*/15 * * * *`), **self-tuning** and **topic-bank refill**.",
+      "- **Trial-drip orchestration tick** (hourly), **Lifecycle email-journey tick** (daily), **Scheduled-campaign dispatch** (`*/15 * * * *`), **Trial-expiry downgrade** (daily).",
+      "",
+      "## Safety, SEO & billing",
+      "",
+      "- **Abuse-signal scan** (`0 */6 * * *`), **Search Console sync** (daily), **Condition Index refresh** (daily), **North Star weekly digest** (Mondays).",
+      "",
+      "> Schedules are interpreted in **UTC** (Coolify cron runs UTC). Some sync crons are served outside `/api/jobs/*` so their last-run isn't in the ledger — their schedule and next-run still show on Background Jobs. If a job is failing repeatedly, check its detail there and the Dead Letters queue for unprocessed work.",
+    ].join("\n"),
+  },
+  {
+    slug: "kill-switches",
+    title: "Kill-switches & feature flags",
+    category: "Operations",
+    summary:
+      "Disable a feature fleet-wide in seconds when it misbehaves — no deploy required.",
+    keywords: ["kill switch", "feature flag", "flag", "disable", "toggle", "rollout", "canary"],
+    controls: [
+      {
+        label: "Feature Flags",
+        to: "/admin/ops/feature-flags",
+        description: "Toggle a flag, set rollout %, or allow/deny specific accounts.",
+      },
+      {
+        label: "Maintenance",
+        to: "/admin/ops/maintenance",
+        description: "Put the whole app into a maintenance window when a flag isn't enough.",
+      },
+    ],
+    body: [
+      "When a feature misbehaves in prod, the fastest safe lever is its **feature flag** — not a rollback. A flag change propagates fleet-wide within the flag cache TTL (~30s), with no deploy.",
+      "",
+      "## How flags resolve",
+      "",
+      "Each flag has a global enable, a rollout percentage, plan targets, per-account allow/deny lists, and an optional schedule window. Precedence is: **global kill → schedule → deny → allow → plan → percentage**. Flags fail **open** by default (a missing row is treated as enabled), so an explicit `enabled: false` is what actually kills a feature.",
+      "",
+      "## Kill a feature now",
+      "",
+      "1. Open **Feature Flags** and find the key (e.g. grading, autolister, repricing, content_ai, newsletter, trial_conversion_drip, lifecycle_journeys, support_assistant).",
+      "2. Set the global toggle to **off** (super-admin + MFA step-up; the change is written to the admin audit log).",
+      "3. Confirm the blast radius shrank on **System Health** / the relevant dashboard within ~30s.",
+      "",
+      "## When a flag isn't enough",
+      "",
+      "If the problem spans the whole app (DB, auth, edge boot), use a **Maintenance** window instead, and follow the incident-response runbook.",
+      "",
+      "To re-enable, flip the flag back on — or ramp it with the rollout percentage / allow-list to canary the fix before full exposure.",
+    ].join("\n"),
+  },
+  {
+    slug: "incident-response",
+    title: "Incident response",
+    category: "Resilience",
+    summary:
+      "First moves when prod is on fire: assess, contain, communicate, recover, review.",
+    keywords: ["incident", "outage", "on-call", "p1", "sev", "alert", "escalation", "postmortem"],
+    controls: [
+      {
+        label: "Activity Feed",
+        to: "/admin/ops/activity",
+        description: "Live critical-event feed — start here to see what fired and acknowledge it.",
+      },
+      {
+        label: "System Health",
+        to: "/admin/ops/health",
+        description: "Readiness, DB latency, storage, and the slowest recent jobs at a glance.",
+      },
+      {
+        label: "Dead Letters",
+        to: "/admin/ops/dead-letters",
+        description: "Find and replay work that failed during the incident.",
+      },
+    ],
+    body: [
+      "Work the incident in order. Don't skip to a fix before you've contained the blast radius.",
+      "",
+      "## 1. Assess",
+      "",
+      "- Open the **Activity Feed** and acknowledge the firing event(s). Check **System Health** for readiness, DB latency, and storage.",
+      "- Establish scope: one feature, one tenant, or the whole platform?",
+      "",
+      "## 2. Contain",
+      "",
+      "- One feature → disable its **feature flag** (kill-switches runbook).",
+      "- Whole app / data layer → open a **Maintenance** window.",
+      "- A bad release → roll back the offending layer (rollback runbook).",
+      "",
+      "## 3. Communicate",
+      "",
+      "- Post status to the team channel and the public status surface if customers are affected. Keep a running timeline of what you changed and when.",
+      "",
+      "## 4. Recover",
+      "",
+      "- Apply the fix or rollback. Replay stuck work from **Dead Letters**. For a catastrophic DB issue, restore from backup (restore-drill runbook).",
+      "- Re-run the post-deploy smoke checks; watch readiness return to green.",
+      "",
+      "## 5. Review",
+      "",
+      "- Write a blameless postmortem: timeline, root cause, what detected it, and the follow-up actions to prevent recurrence.",
+    ].join("\n"),
+  },
+  {
+    slug: "launch-readiness",
+    title: "Launch readiness gate",
+    category: "Deploy",
+    summary:
+      "The is-everything-configured gate: env vars, scheduled tasks, backups, and smoke.",
+    keywords: ["launch", "checklist", "readiness", "env", "config", "go-live", "pre-flight"],
+    controls: [
+      {
+        label: "System Health",
+        to: "/admin/ops/health",
+        description: "Readiness endpoint surfaces any missing feature/config as not_ready.",
+      },
+      {
+        label: "Settings Registry",
+        to: "/admin/ops/settings",
+        description: "Review the tunable system settings the platform reads at runtime.",
+      },
+      {
+        label: "Feature Flags",
+        to: "/admin/ops/feature-flags",
+        description: "Confirm the launch set of features is enabled at the intended rollout.",
+      },
+    ],
+    body: [
+      "This is the **is-everything-configured** gate to clear before (and after) go-live. It complements the deploy-order runbook, which covers the mechanics of shipping.",
+      "",
+      "## 1. Environment",
+      "",
+      "- Edge service has every required variable set in Coolify (Supabase URL + service-role key, Anthropic key, Stripe secret + webhook secret, `PORT`). **Names only** — never paste a value into a runbook, ticket, or chat.",
+      "- Frontend has its `VITE_*` set in Cloudflare Pages → Production. Pages env changes only take effect on the **next** build.",
+      "",
+      "## 2. Scheduled tasks",
+      "",
+      "- All Coolify Scheduled Tasks exist and point at the right job endpoints. After recreating the service, re-add every task. Spot-check one with **Run-now** from Background Jobs.",
+      "",
+      "## 3. Backups & resilience",
+      "",
+      "- Automated backups are running and a restore drill has passed recently (restore-drill runbook).",
+      "",
+      "## 4. Smoke",
+      "",
+      "- `GET /health/ready` is `ready`; a Stripe webhook trigger, a certificate render, and the SEO endpoints succeed.",
+      "- Feature flags for the launch set are enabled at the intended rollout.",
+      "",
+      "If readiness reports `not_ready` or any feature shows missing, fix the env/migration and redeploy that layer — do not launch on a half-green gate.",
+    ].join("\n"),
+  },
+];
+
+/** Distinct categories in registry order (first-seen). */
+export const RUNBOOK_CATEGORIES: string[] = Array.from(
+  new Set(RUNBOOKS.map((r) => r.category)),
+);
+
+/** Look a runbook up by slug. */
+export function getRunbook(slug: string): Runbook | undefined {
+  return RUNBOOKS.find((r) => r.slug === slug);
+}
+
+/**
+ * Case-insensitive search across title, summary, category, keywords and body.
+ * Returns all runbooks for a blank query; ranks title/summary/keyword hits
+ * ahead of body-only hits so the most relevant runbook leads.
+ */
+export function searchRunbooks(query: string): Runbook[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...RUNBOOKS];
+  const scored: Array<{ rb: Runbook; score: number }> = [];
+  for (const rb of RUNBOOKS) {
+    const strong =
+      `${rb.title} ${rb.summary} ${rb.category} ${rb.keywords.join(" ")}`.toLowerCase();
+    let score = 0;
+    if (strong.includes(q)) score = 2;
+    else if (rb.body.toLowerCase().includes(q)) score = 1;
+    if (score > 0) scored.push({ rb, score });
+  }
+  return scored.sort((a, b) => b.score - a.score).map((s) => s.rb);
+}
