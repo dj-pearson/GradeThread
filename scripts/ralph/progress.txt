@@ -3638,3 +3638,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 11:22:08 AM
 ---
+## US-911: Dedicated newsletter consent + self-serve preference center
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 11:38:42 AM
+---
