@@ -15,6 +15,9 @@ struct BulkGradeSheet: View {
     @State private var store: BulkGradeStore?
     /// Presents the in-app StoreKit paywall (credit packs + plans).
     @State private var showCreditPaywall = false
+    /// US-809: presents the focused credit-pack purchase sheet from the blocked
+    /// banner (no plans) so credits can be bought without leaving this sheet.
+    @State private var showCreditPacks = false
     /// US-980: confirm before a tap spends paid grade credits for the batch.
     @State private var showSpendConfirm = false
 
@@ -50,6 +53,13 @@ struct BulkGradeSheet: View {
                 NavigationStack { PaywallView(userId: userId) }
             }
         }
+        .sheet(isPresented: $showCreditPacks) {
+            if let userId = currentUserId {
+                CreditPackSheet(userId: userId) {
+                    Task { await store?.creditsPurchased() }
+                }
+            }
+        }
     }
 
     private var closeTitle: String {
@@ -82,7 +92,7 @@ struct BulkGradeSheet: View {
                     readinessSummary(store)
                     tierPicker(store)
                     planSummary(store, user: validation.user)
-                    if validation.limitExceeded { creditsBanner }
+                    if validation.limitExceeded { creditsBanner(store) }
                     if !store.blockedItems.isEmpty { blockedList(store) }
                     submitButton(store)
                 }
@@ -187,12 +197,59 @@ struct BulkGradeSheet: View {
         .tint(Color.brandNavy)
     }
 
-    private var creditsBanner: some View {
-        Label("Not enough grading credits for this batch at this tier. Buy a grade credit pack below, or pick a cheaper tier.", systemImage: "creditcard.trianglebadge.exclamationmark")
-            .font(.caption)
+    private func creditsBanner(_ store: BulkGradeStore) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Not enough grading credits for this batch at this tier. Buy a grade credit pack, or pick a cheaper tier.", systemImage: "creditcard.trianglebadge.exclamationmark")
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            creditTopUpControl(store)
+        }
+        .padding(12)
+        .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+    }
+
+    /// US-809: the buy/poll/retry affordance inside the blocked banner. Buying
+    /// opens the focused credit-pack sheet; after a purchase the store polls the
+    /// async grant ("Applying your credits…") and, on timeout, offers a recheck.
+    @ViewBuilder
+    private func creditTopUpControl(_ store: BulkGradeStore) -> some View {
+        switch store.creditTopUp.state {
+        case .awaitingGrant:
+            HStack(spacing: 8) {
+                ProgressView().tint(Color.brandNavy)
+                Text("Applying your credits…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+        case .timedOut:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your credits are taking a moment to apply. They'll arrive shortly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    buyCreditsBannerButton
+                    Button("Check again") { Task { await store.recheckCredits() } }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .tint(Color.brandNavy)
+                }
+            }
+        default:
+            buyCreditsBannerButton
+        }
+    }
+
+    private var buyCreditsBannerButton: some View {
+        Button {
+            AppRouter.haptic()
+            showCreditPacks = true
+        } label: {
+            Label("Buy credits", systemImage: "cart.badge.plus")
+                .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.brandNavy)
     }
 
     private func blockedList(_ store: BulkGradeStore) -> some View {

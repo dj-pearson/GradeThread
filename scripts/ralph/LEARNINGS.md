@@ -554,6 +554,17 @@ memory — not a progress log (the harness records progress separately).
   with `AnalyticsView`). The Money tab and the Home→Analytics tab are SEPARATE
   surfaces that both render rollups over the same `@Query` arrays — extend the
   rollup, don't duplicate the arithmetic in a view.
+- In-flow grade-credit top-up (US-809): both grading stores own a shared
+  `CreditTopUpFlow` (`Grading/CreditTopUpFlow.swift`, `@Observable @MainActor`) —
+  a poll/re-validate machine that, after an inline `CreditPackSheet` purchase,
+  polls `PaywallStore.liveBillingFetcher()?.credits` with bounded backoff until
+  the async grant (`/appstore/verify` → `grant_appstore_credits`) lifts the
+  balance > baseline, then re-validates so submit unblocks. `fetchBalance`/`sleep`
+  are injected (no-op sleep in tests) and `revalidate` is passed per-call, so the
+  machine is unit-tested with no StoreKit/Supabase (CreditTopUpFlowTests). Funnel
+  events: `grade.credits_blocked` → `grade.credits_topup_started` →
+  `grade.credits_topup_{granted,timeout}` → existing submit events. It NEVER
+  submits (only unblocks the button) so no double-grant.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

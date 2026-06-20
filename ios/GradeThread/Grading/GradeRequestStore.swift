@@ -39,6 +39,11 @@ final class GradeRequestStore {
     private(set) var report: GradeReportDTO?
     private(set) var certificateURL: URL?
 
+    /// US-809: in-flow credit top-up (poll the async grant → re-validate →
+    /// unblock submit) after the seller buys a credit pack from the blocked
+    /// banner. Observable so the sheet reflects awaitingGrant/timedOut.
+    let creditTopUp: CreditTopUpFlow
+
     /// The bridge submission id we poll on after submit.
     private var submissionRef: String?
 
@@ -52,9 +57,11 @@ final class GradeRequestStore {
     // `service` defaults to nil (not `GradingService()`): a default argument is
     // evaluated in a nonisolated context, but GradingService is @MainActor.
     // Construct it in the init body, which is main-actor-isolated.
-    init(inventoryItemId: String, service: GradingService? = nil) {
+    init(inventoryItemId: String, service: GradingService? = nil, creditTopUp: CreditTopUpFlow? = nil) {
         self.inventoryItemId = inventoryItemId
         self.service = service ?? GradingService()
+        self.creditTopUp = creditTopUp ?? CreditTopUpFlow(
+            fetchBalance: { await PaywallStore.liveBillingFetcher()?.credits })
     }
 
     /// The validated item for the current request, if loaded.
@@ -71,6 +78,7 @@ final class GradeRequestStore {
     /// Run (or re-run) validation for the current tier.
     func load() async {
         phase = .loading
+        creditTopUp.reset()
         await runValidation()
     }
 
@@ -85,11 +93,53 @@ final class GradeRequestStore {
 
     private func runValidation() async {
         do {
+            let wasBlocked = validation?.limitExceeded ?? false
             let result = try await service.validate(inventoryItemId: inventoryItemId, tier: tier)
             validation = result
             phase = .ready
+            // Funnel step 1 (blocked): emit only on the transition into the
+            // limit-exceeded state so a tier re-validate doesn't double-count.
+            if result.limitExceeded && !wasBlocked {
+                Telemetry.event("grade.credits_blocked", props: [
+                    "surface": "single",
+                    "credits_required": result.creditsRequired,
+                ])
+            }
         } catch {
             phase = .failed(message(from: error))
+        }
+    }
+
+    // MARK: - In-flow credit top-up (US-809)
+
+    /// Funnel step 2 (purchased): the inline credit-pack purchase succeeded —
+    /// poll the billing snapshot until the async grant lands, then re-validate
+    /// so `canSubmit` reflects the new balance.
+    func creditsPurchased() async {
+        Telemetry.event("grade.credits_topup_started", props: [
+            "surface": "single",
+            "baseline": validation?.user.creditBalance ?? 0,
+        ])
+        await pollForGrant()
+    }
+
+    /// Retry the grant poll from the "Check again" affordance after a timeout.
+    func recheckCredits() async {
+        await pollForGrant()
+    }
+
+    private func pollForGrant() async {
+        let baseline = validation?.user.creditBalance ?? 0
+        await creditTopUp.awaitGrant(baseline: baseline) { [weak self] in
+            await self?.runValidation()
+        }
+        switch creditTopUp.state {
+        case let .granted(balance):
+            Telemetry.event("grade.credits_topup_granted", props: ["surface": "single", "balance": balance])
+        case .timedOut:
+            Telemetry.event("grade.credits_topup_timeout", props: ["surface": "single"])
+        default:
+            break
         }
     }
 

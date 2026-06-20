@@ -23,6 +23,9 @@ struct GradeRequestSheet: View {
     /// Presents the in-app StoreKit paywall (credit packs + plans) so the
     /// seller can top up grade credits without leaving the app.
     @State private var showCreditPaywall = false
+    /// US-809: presents the focused credit-pack purchase sheet from the blocked
+    /// banner (no plans) so credits can be bought without leaving this sheet.
+    @State private var showCreditPacks = false
     /// US-980: confirm before a tap spends paid grade credits, so a mis-tap
     /// can't charge real money with no undo. Free/Included grades skip this.
     @State private var showSpendConfirm = false
@@ -57,6 +60,13 @@ struct GradeRequestSheet: View {
         .sheet(isPresented: $showCreditPaywall, onDismiss: { Task { await store?.load() } }) {
             if let userId = currentUserId {
                 NavigationStack { PaywallView(userId: userId) }
+            }
+        }
+        .sheet(isPresented: $showCreditPacks) {
+            if let userId = currentUserId {
+                CreditPackSheet(userId: userId) {
+                    Task { await store?.creditsPurchased() }
+                }
             }
         }
     }
@@ -115,7 +125,7 @@ struct GradeRequestSheet: View {
                     planSummary(store, user: validation.user)
 
                     if validation.limitExceeded {
-                        creditsBanner
+                        creditsBanner(store)
                     }
 
                     if NetworkMonitor.isOffline(networkMonitor) {
@@ -265,13 +275,60 @@ struct GradeRequestSheet: View {
         return "\(credits) credit\(credits == 1 ? "" : "s")"
     }
 
-    private var creditsBanner: some View {
-        Label("Not enough grading credits for this tier. Buy a grade credit pack below, or pick a cheaper tier.", systemImage: "creditcard.trianglebadge.exclamationmark")
-            .font(.caption)
-            .foregroundStyle(.primary)
+    private func creditsBanner(_ store: GradeRequestStore) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Not enough grading credits for this tier. Buy a grade credit pack, or pick a cheaper tier.", systemImage: "creditcard.trianglebadge.exclamationmark")
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            creditTopUpControl(store)
+        }
+        .padding(12)
+        .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+    }
+
+    /// US-809: the buy/poll/retry affordance inside the blocked banner. Buying
+    /// opens the focused credit-pack sheet; after a purchase the store polls the
+    /// async grant ("Applying your credits…") and, on timeout, offers a recheck.
+    @ViewBuilder
+    private func creditTopUpControl(_ store: GradeRequestStore) -> some View {
+        switch store.creditTopUp.state {
+        case .awaitingGrant:
+            HStack(spacing: 8) {
+                ProgressView().tint(Color.brandNavy)
+                Text("Applying your credits…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+        case .timedOut:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your credits are taking a moment to apply. They'll arrive shortly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    buyCreditsBannerButton
+                    Button("Check again") { Task { await store.recheckCredits() } }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .tint(Color.brandNavy)
+                }
+            }
+        default:
+            buyCreditsBannerButton
+        }
+    }
+
+    private var buyCreditsBannerButton: some View {
+        Button {
+            AppRouter.haptic()
+            showCreditPacks = true
+        } label: {
+            Label("Buy credits", systemImage: "cart.badge.plus")
+                .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.brandNavy)
     }
 
     private func submitButton(_ store: GradeRequestStore, user: GradingUserInfo) -> some View {
