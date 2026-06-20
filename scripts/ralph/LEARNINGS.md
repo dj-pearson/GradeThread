@@ -79,6 +79,19 @@ memory — not a progress log (the harness records progress separately).
   send to its enrollment's attribution. `graph.autotuneEnabled` (optional, off by
   default) is the autonomous gate the future engine tick reads.
 
+## Marketing send coordinator (US-934)
+- Any NEW marketing email must route through `coordinateMarketingSend`
+  (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),
+  suppression (US-914), the per-recipient daily cap, quiet hours, and the
+  drip-precedence pause. Don't re-implement those gates per sender. Pass a
+  fully-rendered `html` (layout + unsubscribe + tracking already applied); a
+  capped/paused send is DEFERRED to the email_deliveries outbox, not dropped.
+  Pure decision lives in `lib/marketing-frequency.ts` (no supabase → test it
+  directly). The drip records its sends via `recordMarketingSend` so the cap
+  counts cross-program. Cap/quiet-hours config = settings registry keys
+  `marketing_frequency_cap_per_day` / `marketing_quiet_hours` (seeded 00276).
+  Transactional mail must NOT route through it (never capped).
+
 ## Trial-conversion drip ENGINE (US-943)
 - The autonomous sending loop IS now wired: `POST /api/drip/tick` (routes/drip.ts,
   mounted at /api/drip with its OWN auth — DRIP_INTERNAL_JOB_SECRET / signed
