@@ -75,6 +75,17 @@ struct PayoutDismissResult: Decodable, Equatable {
     let ok: Bool
 }
 
+/// POST /api/flipdesk/ebay/payouts/import-csv summary counts (US-817). Mirrors
+/// the web `ImportPayoutsCsvResponse`. The iOS importer posts the raw CSV to the
+/// SAME edge endpoint the web Reconciliation page uses, so parsing/dedup never
+/// diverges between platforms — the device only reads the file and uploads its
+/// text.
+struct PayoutImportResult: Decodable, Equatable {
+    let imported: Int
+    let skipped: Int
+    let duplicates: Int
+}
+
 // MARK: - Display helpers
 
 enum PayoutDateFormat {

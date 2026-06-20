@@ -13,8 +13,11 @@ final class PayoutReconciliationTests: XCTestCase {
         var runResult = PayoutRunResult(autoMatched: 2, ambiguous: 1, noCandidates: 0, scanned: 3)
         var matchError: Error?
         var dismissError: Error?
+        var importError: Error?
+        var importResult = PayoutImportResult(imported: 3, skipped: 0, duplicates: 1)
         private(set) var matched: [(String, String)] = []
         private(set) var dismissed: [String] = []
+        private(set) var importedCsv: [String] = []
 
         init(entries: [PayoutQueueEntry]) { self.entries = entries }
 
@@ -27,6 +30,11 @@ final class PayoutReconciliationTests: XCTestCase {
         func dismiss(payoutImportId: String) async throws {
             if let dismissError { throw dismissError }
             dismissed.append(payoutImportId)
+        }
+        func importCsv(_ csv: String) async throws -> PayoutImportResult {
+            if let importError { throw importError }
+            importedCsv.append(csv)
+            return importResult
         }
     }
 
@@ -94,6 +102,52 @@ final class PayoutReconciliationTests: XCTestCase {
         await store.dismiss(e)
         XCTAssertTrue(store.entries.isEmpty)
         XCTAssertEqual(fake.dismissed, ["p1"])
+    }
+
+    @MainActor
+    func test_importCsv_uploadsTextAndReloadsQueue() async {
+        let fake = FakeService(entries: [])
+        fake.importResult = PayoutImportResult(imported: 2, skipped: 0, duplicates: 1)
+        let store = PayoutReconciliationStore(service: fake)
+        // After import the server returns the newly-imported unreconciled rows.
+        let pending = entry("p1", candidates: [candidate("s1", score: 0.9)])
+        await store.importCsv("payout id,date,amount\nx,2024-01-05,42")
+        // Reload happens inside importCsv; simulate the server now returning rows.
+        fake.entries = [pending]
+        await store.load()
+        XCTAssertEqual(fake.importedCsv.count, 1)
+        XCTAssertEqual(store.lastImport?.imported, 2)
+        XCTAssertEqual(store.lastImport?.duplicates, 1)
+        XCTAssertNotNil(store.actionBanner)
+        XCTAssertEqual(store.unreconciledCount, 1)
+    }
+
+    @MainActor
+    func test_importCsv_emptyFileSurfacesActionableError() async {
+        let fake = FakeService(entries: [])
+        let store = PayoutReconciliationStore(service: fake)
+        await store.importCsv("   \n  ")
+        XCTAssertTrue(fake.importedCsv.isEmpty)
+        XCTAssertNotNil(store.actionError)
+    }
+
+    @MainActor
+    func test_importCsv_badCsvSurfacesServerMessage() async {
+        let fake = FakeService(entries: [])
+        fake.importError = EdgeAPIError.badRequest(
+            detail: "Could not find a payouts table in this CSV.")
+        let store = PayoutReconciliationStore(service: fake)
+        await store.importCsv("not,a,payout,file")
+        XCTAssertNil(store.lastImport)
+        XCTAssertEqual(store.actionError, "Could not find a payouts table in this CSV.")
+    }
+
+    func test_importSummary_formatsCounts() {
+        let r = PayoutImportResult(imported: 1, skipped: 2, duplicates: 1)
+        let s = PayoutReconciliationStore.importSummary(r)
+        XCTAssertTrue(s.contains("Imported 1 payout"))
+        XCTAssertTrue(s.contains("1 duplicate skipped"))
+        XCTAssertTrue(s.contains("2 rows skipped"))
     }
 
     func test_topCandidate_picksHighestScore() {

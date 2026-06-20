@@ -9,6 +9,8 @@ protocol PayoutReconciliationProviding {
     func run() async throws -> PayoutRunResult
     func match(payoutImportId: String, saleId: String) async throws
     func dismiss(payoutImportId: String) async throws
+    /// US-817: upload an eBay payouts CSV's raw text to the shared edge importer.
+    func importCsv(_ csv: String) async throws -> PayoutImportResult
 }
 
 struct PayoutReconciliationService: PayoutReconciliationProviding {
@@ -36,5 +38,14 @@ struct PayoutReconciliationService: PayoutReconciliationProviding {
         struct Empty: Encodable {}
         let _: PayoutDismissResult = try await api.postJSON(
             "/api/flipdesk/reconciliation/dismiss/\(payoutImportId)", body: Empty())
+    }
+
+    func importCsv(_ csv: String) async throws -> PayoutImportResult {
+        // US-817: same endpoint + body shape the web uses (see use-payouts.ts).
+        // Server-side parse/dedup keeps both clients in lockstep — a 400 carries
+        // an actionable message (e.g. "Could not find a payouts table…").
+        struct Body: Encodable { let csv: String }
+        return try await api.postJSON(
+            "/api/flipdesk/ebay/payouts/import-csv", body: Body(csv: csv))
     }
 }

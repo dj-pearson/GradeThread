@@ -25,6 +25,13 @@ final class PayoutReconciliationStore {
 
     /// Row-level error surfaced from match/dismiss (e.g. a 409 conflict).
     var actionError: String?
+    /// Transient success confirmation (e.g. after a CSV import) shown as a
+    /// brandNavy capsule — mirrors the FlipDesk store convention.
+    var actionBanner: String?
+    /// Set after a CSV import so the UI can surface imported/duplicate counts.
+    var lastImport: PayoutImportResult?
+    /// True while a payout CSV is uploading (disables the import button).
+    var isImporting = false
     /// payout ids currently mid-action (disables their buttons + shows a spinner).
     private(set) var busyIds: Set<String> = []
 
@@ -54,6 +61,40 @@ final class PayoutReconciliationStore {
         } catch {
             actionError = message(error)
         }
+    }
+
+    /// US-817: upload a payout CSV's text through the shared edge importer, then
+    /// reload so the freshly-imported unreconciled rows appear in the review
+    /// queue. A bad/wrong-columns CSV comes back as an actionable error string.
+    func importCsv(_ csv: String) async {
+        let trimmed = csv.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            actionError = "That file looks empty. Export the report from eBay Seller Hub → Payments → Payouts → Download."
+            return
+        }
+        isImporting = true
+        defer { isImporting = false }
+        do {
+            let result = try await service.importCsv(csv)
+            lastImport = result
+            actionBanner = Self.importSummary(result)
+            // New rows land unreconciled — reload so they show in the queue.
+            await load()
+        } catch {
+            actionError = message(error)
+        }
+    }
+
+    /// Human summary of an import: imported count plus duplicate/skipped notes.
+    static func importSummary(_ r: PayoutImportResult) -> String {
+        var parts = ["Imported \(r.imported) payout\(r.imported == 1 ? "" : "s")"]
+        if r.duplicates > 0 {
+            parts.append("\(r.duplicates) duplicate\(r.duplicates == 1 ? "" : "s") skipped")
+        }
+        if r.skipped > 0 {
+            parts.append("\(r.skipped) row\(r.skipped == 1 ? "" : "s") skipped")
+        }
+        return parts.joined(separator: " · ")
     }
 
     func match(_ entry: PayoutQueueEntry, to candidate: PayoutCandidate) async {
