@@ -120,9 +120,10 @@ struct CreateItemFromListingSheet: View {
         )
         switch outcome.kind {
         case .created:
+            // US-751: the parent (ReconciliationView.applyOutcome) drops the
+            // resolved orphan AND triggers the targeted cache refresh that lands
+            // the mirrored listing — no separate post needed here.
             onComplete(outcome)
-            // Refresh the list view in the background.
-            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
             dismiss()
         case .failed(let message):
             errorMessage = message

@@ -19,6 +19,22 @@
 > **`claude/prd-story-loop-continued-ghuqm5`**.
 
 ### Session 2026-06-19 (on `claude/prd-story-loop-continued-ydaege`)
+- **US-751** iOS reconciliation link/create refreshes the cache. **Root cause:**
+  the item canvas reads `listings` (`LocalListing`), but iOS
+  `ReconciliationService.createItem`/`link` only flipped
+  `flipdesk_ebay_listings.matched_item_id` and never wrote a `listings` row — so
+  the canvas showed 0 listings (the **web** reconciliation DOES upsert a listings
+  row on create+link; iOS didn't). **Fix:** `ReconciliationService` now mirrors the
+  live eBay listing into `listings` on create (best-effort) AND link (failure →
+  `.failed`, retry-safe select-then-insert/update) via `upsertEbayListingRow` + a
+  pure, tested `ebayListingMirrorFields(from:)`. `ReconciliationView.applyOutcome`
+  now drops the orphan optimistically [AC2], `HapticFeedback.success()` confirms
+  it, then `await syncEngine.sync()` (fallback `.inventoryPullRequested`) lands the
+  `LocalListing` so the canvas shows it [AC1]. AC3 already met by the sheets' inline
+  error alerts; Create's redundant post removed (centralized). Test:
+  `ReconcileListingMirrorTests`. ⚠️ iOS UNVERIFIABLE here; `no-ungated-print` passed.
+  No migration (schema stays 00266). **NEXT iOS: US-752** (precise notification +
+  widget deep links).
 - **US-750** iOS single source of truth for Sales + Expenses — **EXPENSES half**
   (Sales half shipped 2026-06-08). New **`LocalExpense`** `@Model` (registered in
   `ModelStoreProvider.schema`) mirrors `flipdesk_expenses`; **SyncEngine** pulls it
