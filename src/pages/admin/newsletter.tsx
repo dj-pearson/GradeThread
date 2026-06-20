@@ -75,10 +75,20 @@ interface QaCheck {
   label: string;
   passed: boolean;
   detail?: string;
+  severity?: "hard" | "soft";
 }
 interface QaReport {
   passed?: boolean;
   checks?: QaCheck[];
+  spamScore?: number;
+  outcome?: NewsletterStatus;
+  decisionReasons?: string[];
+  aiEditor?: {
+    ran?: boolean;
+    hardFlag?: boolean;
+    summary?: string;
+    flags?: Array<{ type: string; severity: string; detail: string }>;
+  };
 }
 
 interface NewsletterIssue {
@@ -810,6 +820,23 @@ function IssueDrawer({
     }
   }
 
+  async function runQaGate() {
+    const r = await run(() =>
+      edgeFetch(`/api/admin/newsletter/issues/${issueId}/qa-gate`, { method: "POST", json: {} }),
+    );
+    if (r && typeof r === "object" && "outcome" in r) {
+      const outcome = (r as { outcome: NewsletterStatus }).outcome;
+      if (outcome === "blocked") {
+        toast.error("QA gate blocked the issue — see the failed checks");
+      } else if (outcome === "awaiting_review") {
+        toast.success("QA gate passed — awaiting human review");
+      } else {
+        toast.success("QA gate passed — issue approved for send");
+      }
+      refresh();
+    }
+  }
+
   async function sendNow() {
     const r = await run(() =>
       edgeFetch(`/api/admin/newsletter/issues/${issueId}/send`, { method: "POST", json: {} }),
@@ -839,22 +866,44 @@ function IssueDrawer({
             </div>
           ) : (
             <div className="mt-4 space-y-5">
-              {/* QA results */}
+              {/* QA results — the pre-send guardrail gate (US-924) */}
               {issue.qa_results?.checks && issue.qa_results.checks.length > 0 && (
                 <div className="rounded-lg border border-border p-3 text-sm">
-                  <div className="mb-2 font-medium">QA checks</div>
+                  <div className="mb-2 flex items-center justify-between font-medium">
+                    <span>QA gate</span>
+                    {typeof issue.qa_results.spamScore === "number" && (
+                      <span className="text-xs font-normal text-muted-foreground">
+                        spam score {issue.qa_results.spamScore}
+                      </span>
+                    )}
+                  </div>
                   <ul className="space-y-1">
                     {issue.qa_results.checks.map((ch) => (
-                      <li key={ch.id} className="flex items-center gap-2">
+                      <li key={ch.id} className="flex items-start gap-2">
                         {ch.passed ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
+                        ) : ch.severity === "soft" ? (
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                         ) : (
-                          <XCircle className="h-3.5 w-3.5 text-red-500" />
+                          <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
                         )}
-                        <span className={ch.passed ? "" : "text-red-600"}>{ch.label}</span>
+                        <span>
+                          <span className={ch.passed ? "" : ch.severity === "soft" ? "text-amber-600" : "text-red-600"}>
+                            {ch.label}
+                          </span>
+                          {!ch.passed && ch.detail && (
+                            <span className="block text-xs text-muted-foreground">{ch.detail}</span>
+                          )}
+                        </span>
                       </li>
                     ))}
                   </ul>
+                  {issue.qa_results.aiEditor?.summary && (
+                    <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
+                      <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-brand-red-text" />
+                      AI editor: {issue.qa_results.aiEditor.summary}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -938,6 +987,11 @@ function IssueDrawer({
               <div className="space-y-2">
                 <div className="text-sm font-medium">Lifecycle</div>
                 <div className="flex flex-wrap gap-2">
+                  {editable && (
+                    <Button size="sm" variant="outline" onClick={runQaGate}>
+                      <ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> Run QA gate
+                    </Button>
+                  )}
                   {issue.status === "draft" && (
                     <Button size="sm" variant="outline" onClick={() => transition("ready_for_qa")}>
                       Run QA → Ready

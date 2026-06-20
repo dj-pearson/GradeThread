@@ -8,7 +8,8 @@ import { requireStepUp } from "../lib/step-up.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { deliverEmail } from "../lib/email.ts";
 import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
-import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
+import { marketingPreferenceCenterUrl, marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
+import { runIssueGuardrailGate } from "../lib/newsletter-qa-job.ts";
 import { clearFeatureFlagCache, isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   canTransition,
@@ -791,6 +792,7 @@ adminNewsletterRoutes.post("/issues/:id/preview", async (c) => {
 
   const html = renderNewsletterHtml(toRenderable(issue), {
     unsubscribeUrl: "https://gradethread.com/unsubscribe?preview=1",
+    preferenceCenterUrl: marketingPreferenceCenterUrl(),
     postalAddress: Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
       "Pearson Media LLC, Iowa, USA",
   });
@@ -812,6 +814,7 @@ adminNewsletterRoutes.post("/issues/:id/test-send", async (c) => {
 
   const html = renderNewsletterHtml(toRenderable(issue), {
     unsubscribeUrl: "https://gradethread.com/unsubscribe?preview=1",
+    preferenceCenterUrl: marketingPreferenceCenterUrl(),
     postalAddress: Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
       "Pearson Media LLC, Iowa, USA",
   });
@@ -918,6 +921,61 @@ adminNewsletterRoutes.post("/issues/:id/transition", async (c) => {
   });
 
   return c.json({ issue: data as unknown as NewsletterIssueRow });
+});
+
+// ── Autonomous pre-send QA / guardrail gate (US-924) ─────────────────────────
+
+// POST /api/admin/newsletter/issues/:id/qa-gate — run the full automated
+// guardrail gate (structural compliance QA + AI editor brand-voice/factual pass)
+// and transition the issue accordingly: pass → approved (or awaiting_review when
+// require-approval is on) / fail → blocked (with reasons + an ops alert). This is
+// the same gate the autonomous engine runs unattended; the console exposes it so
+// an operator can trigger + inspect it. Auto-approving is destructive →
+// super_admin + step-up; audited.
+adminNewsletterRoutes.post("/issues/:id/qa-gate", async (c) => {
+  const gate = requireSensitive(c);
+  if (gate) return gate;
+
+  const issue = await loadIssue(c.req.param("id"));
+  if (!issue) return c.json({ error: "Issue not found" }, 404);
+  if (!isEditable(issue.status)) {
+    return c.json(
+      { error: `An issue in '${issue.status}' cannot be re-gated` },
+      409,
+    );
+  }
+
+  let result;
+  try {
+    result = await runIssueGuardrailGate(issue.id, { actorUserId: c.get("userId") });
+  } catch (err) {
+    captureException(err, { tags: { area: "admin-newsletter.qa-gate" } });
+    return c.json({ error: "QA gate failed to run" }, 500);
+  }
+  if (!result) {
+    return c.json({ error: "Issue could not be gated (not in a gateable state)" }, 409);
+  }
+
+  await writeAuditLog(c, {
+    action: "newsletter.issue.qa_gate",
+    targetType: "newsletter_issue",
+    targetId: issue.id,
+    before: { status: issue.status },
+    after: { status: result.outcome },
+    details: {
+      outcome: result.outcome,
+      reasons: result.reasons,
+      spamScore: result.qaReport.spamScore,
+      aiHardFlag: result.aiEditor.hardFlag,
+    },
+  });
+
+  return c.json({
+    ok: true,
+    outcome: result.outcome,
+    reasons: result.reasons,
+    issue: (await loadIssue(issue.id)) ?? null,
+  });
 });
 
 // ── Send ─────────────────────────────────────────────────────────────────────
@@ -1034,6 +1092,7 @@ adminNewsletterRoutes.post("/issues/:id/send", async (c) => {
       const unsubscribeUrl = await marketingUnsubscribeUrl(r.user_id);
       const html = renderNewsletterHtml(renderable, {
         unsubscribeUrl,
+        preferenceCenterUrl: marketingPreferenceCenterUrl(),
         postalAddress: Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
           "Pearson Media LLC, Iowa, USA",
       });

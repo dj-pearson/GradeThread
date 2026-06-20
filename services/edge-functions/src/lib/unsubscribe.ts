@@ -57,4 +57,11 @@ export async function marketingUnsubscribeUrl(userId: string): Promise<string> {
   return `${base}/api/notifications/unsubscribe?u=${encodeURIComponent(userId)}&t=${token}`;
 }
 
+// The email-preference center (manage cadence / topics without fully
+// unsubscribing). US-924: every marketing send must offer this alongside the
+// one-click unsubscribe. Points at the authenticated account page.
+export function marketingPreferenceCenterUrl(): string {
+  return `${SITE_URL}/dashboard/account#email-preferences`;
+}
+
 export { SITE_URL };

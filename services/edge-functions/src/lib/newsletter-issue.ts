@@ -64,6 +64,8 @@ export interface RenderableIssue {
 export interface RenderOptions {
   /** Footer unsubscribe link (one-click, no-login). Omitted for raw previews. */
   unsubscribeUrl?: string;
+  /** Email-preference-center link (manage cadence/topics) — US-924 compliance. */
+  preferenceCenterUrl?: string;
   /** CAN-SPAM physical postal address. */
   postalAddress?: string;
   siteUrl?: string;
@@ -121,12 +123,15 @@ export function renderNewsletterHtml(issue: RenderableIssue, opts: RenderOptions
   const postal = opts.postalAddress
     ? `<p style="margin: 8px 0 0; color: rgba(255,255,255,0.4); font-size: 11px;">${escapeHtml(opts.postalAddress)}</p>`
     : "";
+  const prefLink = opts.preferenceCenterUrl
+    ? ` &nbsp;·&nbsp; <a href="${escapeHtml(opts.preferenceCenterUrl)}" style="color: #999; font-size: 12px; text-decoration: underline;">Manage email preferences</a>`
+    : "";
   const unsubscribe = opts.unsubscribeUrl
     ? `<tr>
         <td style="padding: 16px 32px; text-align: center;">
           <a href="${escapeHtml(opts.unsubscribeUrl)}" style="color: #999; font-size: 12px; text-decoration: underline;">
             Unsubscribe from this newsletter
-          </a>
+          </a>${prefLink}
         </td>
       </tr>`
     : "";
@@ -170,6 +175,36 @@ export function renderNewsletterHtml(issue: RenderableIssue, opts: RenderOptions
   </table>
 </body>
 </html>`;
+}
+
+/**
+ * Render a plaintext alternative of the issue (pure). The SMTP layer auto-builds
+ * a text part from the HTML, but the pre-send gate (US-924) needs to confirm a
+ * meaningful plaintext body can be produced, so this strips tags + flattens the
+ * sections to readable text.
+ */
+export function renderNewsletterText(issue: RenderableIssue): string {
+  const stripped = (html: string): string =>
+    html
+      .replace(/<br\s*\/?>(?=)/gi, "\n")
+      .replace(/<\/(p|div|h[1-6]|li)>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+  const lines: string[] = [];
+  if (issue.subject?.trim()) lines.push(issue.subject.trim());
+  for (const s of issue.sections ?? []) {
+    if (s.heading) lines.push(`\n${s.heading.trim()}`);
+    if (s.body) lines.push(stripped(s.body));
+    if (s.ctaLabel && s.ctaUrl) lines.push(`${s.ctaLabel.trim()}: ${s.ctaUrl.trim()}`);
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // ── QA ───────────────────────────────────────────────────────────────────────

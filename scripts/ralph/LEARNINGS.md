@@ -107,6 +107,25 @@ memory — not a progress log (the harness records progress separately).
   type) → `data as NewsletterIssueRow` fails `deno check`; cast through
   `as unknown as NewsletterIssueRow` (same `tsc -b never` trap on the web side).
 
+## Newsletter pre-send QA gate (US-924)
+- The autonomous guardrail gate is split: PURE `lib/newsletter-qa.ts`
+  (`runGuardrailQa` structural/compliance checks over issue+rendered ctx +
+  `computeSpamScore`/`findPlaceholders`/`isAbsoluteLink` + `decideGateOutcome`
+  routing) + `lib/newsletter-ai-editor.ts` (cheap-model brand-voice/factual pass;
+  pure `parseEditorResult`/`buildEditor*`, impure `runAiEditorPass`) glued by the
+  impure `lib/newsletter-qa-job.ts` (`runIssueGuardrailGate` renders → scans →
+  AI → `decideGateOutcome` → persists qa_results + status + ops alert). Reusable
+  from the console route AND the sibling autonomous engine.
+- `newsletter-ai-editor.ts` DYNAMIC-imports ai-config.ts/ai-feature-context.ts
+  inside `runAiEditorPass` (both chain into lib/supabase.ts → throw on unset
+  SUPABASE_URL) so the pure parser/prompt builders unit-test with no env dance.
+- Fail-safe: AI editor model error ⇒ `ran:false` ⇒ gate routes to
+  `awaiting_review` (never auto-approve an unverified issue). Outcome: hard QA/AI
+  fail → blocked+alert; inconclusive OR `newsletter_require_approval` →
+  awaiting_review; else approved. Thresholds are settings keys (seeded 00284):
+  `newsletter_qa_{spam_score_max,subject_max_length,preheader_max_length,
+  require_preference_center,ai_editor_enabled,link_check_enabled}`.
+
 ## Newsletter self-tuning (US-928)
 - Closed loop = PURE `lib/newsletter-tuning.ts` (catalog + `computeWeights`
   [CTR-first winner, exploration floor, unsub-ceiling PAUSE→weight 0] +
