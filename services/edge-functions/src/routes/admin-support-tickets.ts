@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { emitOpsEvent } from "../lib/ops-events.ts";
 import { notifyUser } from "../lib/notify.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
 import {
@@ -232,12 +233,13 @@ adminSupportTicketsRoutes.patch("/:id", async (c) => {
 
   const { data: existing } = await supabaseAdmin
     .from("support_tickets")
-    .select("id, user_id, status, priority, assigned_admin_id")
+    .select("id, user_id, subject, status, priority, assigned_admin_id")
     .eq("id", id)
     .maybeSingle();
   if (!existing) return c.json({ error: "Ticket not found" }, 404);
   const before = existing as {
     user_id: string;
+    subject: string;
     status: string;
     priority: string;
     assigned_admin_id: string | null;
@@ -299,6 +301,25 @@ adminSupportTicketsRoutes.patch("/:id", async (c) => {
     },
     after: updates,
   });
+
+  // US-909: a (re)assignment to a DIFFERENT admin notifies that admin via the
+  // notification center. Routed through emitOpsEvent (the single pipeline) — no
+  // alert fan-out at info severity, just the per-admin notification. Skip a
+  // self-assignment (no point pinging yourself).
+  const newAssignee = updates.assigned_admin_id;
+  if (
+    typeof newAssignee === "string" &&
+    newAssignee !== before.assigned_admin_id &&
+    newAssignee !== c.get("userId")
+  ) {
+    void emitOpsEvent("ticket.assigned", "info", {
+      title: `Support ticket assigned to you: ${before.subject}`,
+      source: "support-tickets",
+      actorUserId: c.get("userId"),
+      data: { link: `/admin/support-tickets/${id}`, ticket_id: id },
+      notifyAdminIds: [newAssignee],
+    });
+  }
 
   return c.json({ ok: true });
 });

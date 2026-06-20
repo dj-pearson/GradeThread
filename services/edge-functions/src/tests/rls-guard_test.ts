@@ -220,6 +220,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // endpoints on the service-role client; the SPA never reads it. subscriber_user_id
   // links the row to an account but is a forensic reference, not a tenant read key.
   "email_consent_audit",
+  // US-909: admin saved views + admin notification center (migration 00297). RLS
+  // enabled, deny-all — read/written ONLY via the role-gated /api/admin/views +
+  // /api/admin/notifications endpoints on the service-role client; the SPA never
+  // reads the raw rows. admin_user_id is the owning operator (scoped per-admin in
+  // the edge route), an operator surface, not user-owned tenant data.
+  "admin_saved_views",
+  "admin_notifications",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

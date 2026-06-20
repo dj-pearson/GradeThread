@@ -27,7 +27,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Users, Search, Loader2, Crosshair } from "lucide-react";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { AdminSavedViews } from "@/components/admin/admin-saved-views";
 import { toast } from "sonner";
+
+function asString(v: unknown, fallback: string): string {
+  return typeof v === "string" ? v : fallback;
+}
 
 const ROLE_COLORS: Record<string, string> = {
   user: "bg-muted text-muted-foreground",
@@ -255,8 +260,20 @@ export function AdminUsersPage() {
 
       {/* Search and Filters */}
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
           <CardTitle className="text-sm font-medium">Search & Filter</CardTitle>
+          <AdminSavedViews
+            surface="users"
+            currentFilter={{ search, planFilter, roleFilter, dateFrom, dateTo }}
+            onApply={(f) => {
+              setSearch(asString(f.search, ""));
+              setPlanFilter(asString(f.planFilter, "all"));
+              setRoleFilter(asString(f.roleFilter, "all"));
+              setDateFrom(asString(f.dateFrom, ""));
+              setDateTo(asString(f.dateTo, ""));
+              setPage(1);
+            }}
+          />
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

@@ -39,6 +39,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AdminSavedViews } from "@/components/admin/admin-saved-views";
 
 // US-900: admin triage queue for user-opened support tickets. List by status,
 // filter to "mine"; open a ticket to read the full thread (incl. operator-only
@@ -258,6 +259,14 @@ export function AdminSupportTicketsPage() {
               ))}
             </SelectContent>
           </Select>
+          <AdminSavedViews
+            surface="tickets"
+            currentFilter={{ filter, mineOnly }}
+            onApply={(f) => {
+              if (typeof f.filter === "string") setFilter(f.filter as StatusFilter);
+              setMineOnly(f.mineOnly === true);
+            }}
+          />
         </div>
       </div>
 

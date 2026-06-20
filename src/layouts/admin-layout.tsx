@@ -54,6 +54,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
+import { AdminNotificationBell } from "@/components/admin/admin-notification-bell";
 import { CommandPalette } from "@/components/admin/command-palette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
@@ -556,6 +557,8 @@ export function AdminLayout() {
                 ⌘K
               </kbd>
             </button>
+            {/* US-909 admin notification center. */}
+            <AdminNotificationBell />
             <span className="text-sm text-muted-foreground">
               {profile?.full_name ?? user?.email}
             </span>

@@ -18,6 +18,7 @@ import { getSetting } from "./system-settings.ts";
 import { sendOpsAlertEmail } from "./email.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
 import { captureException, recordMetric } from "./observability.ts";
+import { routeOpsEventToAdmins } from "./admin-notifications.ts";
 
 export type OpsEventSeverity = "info" | "warning" | "critical";
 
@@ -115,6 +116,12 @@ export interface OpsEventInput {
   actorUserId?: string | null;
   /** Structured context (ids, counts, names). */
   data?: Record<string, unknown>;
+  /**
+   * US-909: explicit per-admin notification-center recipients (e.g. the assignee
+   * of a ticket). When omitted, a critical event / job failure broadcasts to all
+   * admins and any other event notifies no one (it stays in the activity feed).
+   */
+  notifyAdminIds?: string[];
 }
 
 export interface OpsAlertOutcome {
@@ -274,7 +281,18 @@ export async function emitOpsEvent(
     }
     const eventId = (inserted as { id: string }).id;
 
-    // 2. Fan out if the routing config says so.
+    // 2. US-909: fan the event into the admin notification center (same
+    // pipeline, not a parallel notifier). Self-contained / never throws.
+    await routeOpsEventToAdmins({
+      type,
+      severity,
+      title: payload.title,
+      link: typeof data.link === "string" ? data.link : null,
+      opsEventId: eventId,
+      notifyAdminIds: payload.notifyAdminIds,
+    });
+
+    // 3. Fan out to alert channels if the routing config says so.
     const config = await loadOpsAlertConfig();
     if (!shouldFanOut(severity, type, config)) return;
 

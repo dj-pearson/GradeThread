@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { AdminSavedViews } from "@/components/admin/admin-saved-views";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -292,6 +293,18 @@ export function AdminSafetySignalsPage() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="ml-auto">
+          <AdminSavedViews
+            surface="signals"
+            currentFilter={{ type, severity, status }}
+            onApply={(f) => {
+              setType(typeof f.type === "string" ? f.type : "all");
+              setSeverity(typeof f.severity === "string" ? f.severity : "all");
+              setStatus(typeof f.status === "string" ? f.status : "open");
+              setPage(1);
+            }}
+          />
         </div>
       </div>
 

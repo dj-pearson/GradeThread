@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { AdminSavedViews } from "@/components/admin/admin-saved-views";
 import {
   Card,
   CardContent,
@@ -198,6 +199,11 @@ export function AdminReconciliationPage() {
               Last scan: {fmtDate(data.lastScanAt)}
             </span>
           )}
+          <AdminSavedViews
+            surface="reconciliation"
+            currentFilter={{}}
+            onApply={() => setOffset(0)}
+          />
           <Button size="sm" variant="outline" onClick={() => void refetch()} disabled={isFetching}>
             {isFetching ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
