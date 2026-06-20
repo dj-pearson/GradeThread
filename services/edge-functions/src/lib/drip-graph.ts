@@ -819,6 +819,118 @@ export function nextTickIso(nowMs: number): string {
   return new Date(Math.ceil((nowMs + 1) / HOUR_MS) * HOUR_MS).toISOString();
 }
 
+// ── Conversion attribution (US-937) ──
+//
+// When a trialist converts (customer.subscription.created), the engine resolves
+// which drip step/email drove it. PURE so the webhook (lib/drip-conversion.ts)
+// and its test share one source of truth: feed it the (enrollment, step) send
+// ledger + the conversion timing, get back first/last-touch attribution.
+//
+// Model:
+//   • last-touch  → the LAST drip email the user opened/clicked before
+//     converting. This is the canonical `step` (matches the US-946 funnel which
+//     groups conversions by step).
+//   • first-touch → the FIRST drip email they engaged with (for the same-row
+//     first/last comparison).
+//   • organic     → they converted without engaging ANY drip email (AC4). We
+//     still record the last step actually SENT before conversion (so the row
+//     names which message was in flight), with model = 'organic' and no
+//     first/last-touch step.
+
+export interface DripSendRecord {
+  /** 1-based step ordinal (drip_sends.step). */
+  ordinal: number;
+  phase: DripPhase;
+  variant: string | null;
+  /** Epoch ms the email was actually sent, or null if never sent (skip row). */
+  sentAtMs: number | null;
+  /** Epoch ms of the open pixel hit (US-913), or null. */
+  openedAtMs: number | null;
+  /** Epoch ms of the first tracked click (US-913), or null. */
+  clickedAtMs: number | null;
+}
+
+export type AttributionModel = "last_touch" | "first_touch" | "organic";
+
+export interface ConversionAttribution {
+  model: AttributionModel;
+  /** Canonical attributed step: the last-touch step, or (organic) the last step
+   * sent before conversion, or null when nothing was sent. */
+  step: number | null;
+  phase: DripPhase;
+  variant: string | null;
+  /** First drip email engaged before conversion (null when organic). */
+  firstTouchStep: number | null;
+  /** Last drip email engaged before conversion (null when organic). */
+  lastTouchStep: number | null;
+  /** Engagement time of the last-touch email (ms epoch), or null when organic. */
+  lastTouchAtMs: number | null;
+  /** Days from the trial clock start to conversion (fractional, ≥ 0). */
+  daysToConvert: number;
+}
+
+/** Latest open/click of a send that happened at-or-before conversion, else null. */
+function engagementMs(s: DripSendRecord, convertedAtMs: number): number | null {
+  const times = [s.openedAtMs, s.clickedAtMs].filter(
+    (t): t is number => t != null && t <= convertedAtMs,
+  );
+  return times.length ? Math.max(...times) : null;
+}
+
+export function computeConversionAttribution(
+  sends: DripSendRecord[],
+  clockStartMs: number,
+  convertedAtMs: number,
+): ConversionAttribution {
+  const daysToConvert = Math.max(
+    0,
+    Math.round(((convertedAtMs - clockStartMs) / DAY_MS) * 100) / 100,
+  );
+
+  // Only steps actually sent at-or-before the conversion can be credited.
+  const sentBefore = sends.filter(
+    (s) => s.sentAtMs != null && s.sentAtMs <= convertedAtMs,
+  );
+
+  // Engaged = opened or clicked before converting.
+  const engaged = sentBefore
+    .map((s) => ({ s, eng: engagementMs(s, convertedAtMs) }))
+    .filter((x): x is { s: DripSendRecord; eng: number } => x.eng != null)
+    .sort((a, b) => a.eng - b.eng);
+
+  if (engaged.length > 0) {
+    const first = engaged[0]!;
+    const last = engaged[engaged.length - 1]!;
+    return {
+      model: "last_touch",
+      step: last.s.ordinal,
+      phase: last.s.phase,
+      variant: last.s.variant,
+      firstTouchStep: first.s.ordinal,
+      lastTouchStep: last.s.ordinal,
+      lastTouchAtMs: last.eng,
+      daysToConvert,
+    };
+  }
+
+  // Organic: converted without engaging any drip email. Still name the last step
+  // that was in flight (greatest sent time) so the row isn't blind.
+  const lastSent = sentBefore.reduce<DripSendRecord | null>(
+    (acc, s) => (acc == null || (s.sentAtMs ?? 0) > (acc.sentAtMs ?? 0) ? s : acc),
+    null,
+  );
+  return {
+    model: "organic",
+    step: lastSent?.ordinal ?? null,
+    phase: lastSent?.phase ?? "in_trial",
+    variant: lastSent?.variant ?? null,
+    firstTouchStep: null,
+    lastTouchStep: null,
+    lastTouchAtMs: null,
+    daysToConvert,
+  };
+}
+
 // ── Autonomous tick planner (US-943) ──
 
 export interface PlannedSend {

@@ -28,6 +28,7 @@ import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
+import { recordDripConversion } from "../lib/drip-conversion.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -572,6 +573,26 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     user.subscription_status === "trialing"
   ) {
     void captureServer(user.id, "trial.converted", { to_plan: plan, interval });
+  }
+
+  // US-937: attribute this conversion to the trial-conversion drip step/email
+  // that drove it (first/last touch, days-to-convert, plan MRR), then exit the
+  // enrollment — which pauses all remaining win-back/nurture. No-ops when the
+  // user was never in the drip; idempotent on the enrollment so a duplicate
+  // webhook never double-counts. Best-effort (analytics must not fail billing).
+  // The 'Welcome to Pro' confirmation email is the subscription-started send above.
+  if (event.type === "customer.subscription.created") {
+    recordDripConversion({
+      userId: user.id,
+      stripeSubscriptionId: sub.id,
+      mrrCents: subscriptionMrrCents(sub),
+      convertedAtMs: Date.now(),
+    }).catch((err) => {
+      console.error(
+        "[Webhook] drip conversion attribution failed:",
+        err instanceof Error ? err.message : err,
+      );
+    });
   }
 
   // Emails (best-effort, never fail the webhook).
@@ -1207,6 +1228,32 @@ export function mapSubscriptionToFlipdeskPlan(sub: Stripe.Subscription): Flipdes
 export function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly" {
   const intvl = sub.items?.data?.[0]?.price?.recurring?.interval;
   return intvl === "year" ? "yearly" : "monthly";
+}
+
+// US-937: monthly recurring value of the subscription, in cents — the ROI figure
+// the drip attribution ledger associates with a conversion (US-946). A yearly
+// price is normalized to a monthly amount so MRR is comparable across intervals.
+export function subscriptionMrrCents(sub: Stripe.Subscription): number {
+  const item = sub.items?.data?.[0];
+  const unit = item?.price?.unit_amount ?? 0;
+  const qty = item?.quantity ?? 1;
+  const gross = unit * qty;
+  if (gross <= 0) return 0;
+  const recurring = item?.price?.recurring;
+  const count = recurring?.interval_count && recurring.interval_count > 0
+    ? recurring.interval_count
+    : 1;
+  switch (recurring?.interval) {
+    case "year":
+      return Math.round(gross / (12 * count));
+    case "week":
+      return Math.round((gross * 52) / (12 * count));
+    case "day":
+      return Math.round((gross * 365) / (12 * count));
+    case "month":
+    default:
+      return Math.round(gross / count);
+  }
 }
 
 export function mapSubscriptionStatus(
