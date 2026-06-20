@@ -94,6 +94,29 @@ memory — not a progress log (the harness records progress separately).
 - /api/drip/tick is NOT under /api/jobs/*, so the cron_runs MIDDLEWARE doesn't
   record it; the handler calls `recordCronRun({jobName:"drip-tick", …})` itself.
 
+## Trial-conversion drip DURABLE/TRACKED send (US-938)
+- The engine no longer calls `deliverEmail` directly — it uses
+  `sendDripStepEmail` (email.ts): wraps the rendered fragment in `emailLayout`
+  (CAN-SPAM postal + one-click unsubscribe footer), applies the open/click
+  tracking rewriter (`applyEmailTracking`, email-tracking.ts), and on a live SMTP
+  failure enqueues to `email_deliveries` (category `drip:<campaign>:<step>`) so
+  the US-498 retry cron does backoff + dead-letter. delivered||enqueued ⇒ "sent".
+- Per-(enrollment, step) idempotency = a UNIQUE index on `drip_sends
+  (enrollment_id, step)` (00272) + `upsertSend` (onConflict that pair). Skips are
+  recorded on the SAME row via `skip_reason` (sent_at stays null → not counted as
+  sent → planTick re-evaluates next tick). A SEND reserves the row (sent_at null)
+  to mint the tracking token (= drip_sends.id), then stamps sent_at.
+- The dispatch gate is the PURE `evaluateSendGate` (drip-graph.ts): consent
+  (opt-out) / no-address / suppression EXIT the journey; frequency-cap / QA-gate
+  failure only SKIP (retry next tick). The engine resolves the booleans
+  (isEmailSuppressed, lastSentMs vs FREQUENCY_GAP_MS, qaCheckEmail) and feeds them
+  in — keep the policy pure so the AC6 "suppressed/opted-out is not sent" test
+  needs no DB.
+- Open/click pixels are PUBLIC + unauthenticated → mounted at `/api/drip-track`
+  (a SIBLING of /api/drip, NOT nested) so the drip job-auth `/*` middleware never
+  applies. A `Uint8Array<ArrayBufferLike>` is not a valid `BodyInit` under Deno's
+  strict lib — back the pixel `Response` with a concrete `ArrayBuffer` (`.buffer.slice(...)`).
+
 ## Trial-conversion drip INCENTIVE (US-942)
 - The conversion incentive is config-gated on `graph.incentive` (DripIncentive,
   off by default — validated in drip-graph.ts). The `{{incentive}}` token has NO

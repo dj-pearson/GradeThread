@@ -498,6 +498,54 @@ export function marketingOptedOutEmail(
   return (m as Record<string, unknown>)["email"] === false;
 }
 
+// ── Per-send dispatch gate (US-938) ──
+//
+// The pure decision the engine makes for ONE due step before it sends: honor
+// marketing consent (US-911), a missing address, hard-bounce/complaint
+// suppression (US-914), a frequency cap, and the QA gate (US-924). Pure so the
+// engine (routes/drip.ts) and its test share one source of truth — the engine
+// supplies the (already-resolved) booleans; this maps them to send/skip/exit +
+// the recorded reason, and which terminal exit a hard stop triggers.
+
+export type SendGateAction = "send" | "skip" | "exit";
+
+export interface SendGateInput {
+  /** notification_preferences.marketing.email === false (US-911). */
+  optedOut: boolean;
+  /** No deliverable email address on file. */
+  noAddress: boolean;
+  /** On the bounce/complaint suppression list (US-914). */
+  suppressed: boolean;
+  /** A marketing email already went out inside the min-gap window. */
+  frequencyCapped: boolean;
+  /** The rendered email passed the pre-send QA gate (US-924). */
+  qaOk: boolean;
+}
+
+export interface SendGateDecision {
+  action: SendGateAction;
+  /** Recorded on drip_sends.skip_reason (or the enrollment exit) for analytics. */
+  reason: string | null;
+  /** Set when the decision is a TERMINAL exit (hand the user back to the
+   * standard cadence) rather than a retry-later skip. */
+  exitReason?: "unsubscribed" | "suppressed";
+}
+
+/**
+ * Decide whether a due step is sent, skipped (retry later), or exits the
+ * journey. Order matters: a permanent stop (opt-out, no address, suppression)
+ * exits the journey; a transient block (frequency cap, QA failure) only skips
+ * this tick and is re-evaluated on the next one.
+ */
+export function evaluateSendGate(i: SendGateInput): SendGateDecision {
+  if (i.optedOut) return { action: "exit", reason: "opted_out", exitReason: "unsubscribed" };
+  if (i.noAddress) return { action: "exit", reason: "no_address", exitReason: "suppressed" };
+  if (i.suppressed) return { action: "exit", reason: "suppressed", exitReason: "suppressed" };
+  if (i.frequencyCapped) return { action: "skip", reason: "frequency_capped" };
+  if (!i.qaOk) return { action: "skip", reason: "qa_failed" };
+  return { action: "send", reason: null };
+}
+
 /**
  * US-941: may this user ENTER (or remain in) the post-trial win-back? Gated on
  * NOT converted and NOT marketing-opted-out — a converted trialist never enters

@@ -31,13 +31,16 @@ import { verifyJobSecret, verifySignedJobRequest } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { recordCronRun } from "../lib/cron-runs.ts";
-import { deliverEmail } from "../lib/email.ts";
+import { sendDripStepEmail } from "../lib/email.ts";
+import { isEmailSuppressed } from "../lib/email-suppression.ts";
+import { qaCheckEmail } from "../lib/email-tracking.ts";
 import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
 import {
   buildLostFeaturesHtml,
   type DripGraph,
   type DripStep,
   type DripUserState,
+  evaluateSendGate,
   isIncentiveEligible,
   lostProFeatures,
   marketingOptedOutEmail,
@@ -97,6 +100,18 @@ const ENROLL_BATCH = 500;
 const EVAL_BATCH = 200;
 const LOCK_LEASE_SECONDS = 600;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// US-938 frequency coordinator: never send a second drip email to the same
+// enrollment inside this window. The sequence spaces steps ≥24h apart, so this
+// mainly guards a catch-up burst (a backlog of due steps) from stacking two
+// emails on the same day — the engine already sends one step per tick, this
+// caps consecutive ticks. A capped step is re-evaluated on the next tick.
+const FREQUENCY_GAP_MS = 20 * 60 * 60 * 1000;
+
+// Base URL the open/click tracking pixels point back at (the edge service).
+function trackingBaseUrl(): string {
+  return Deno.env.get("FUNCTIONS_URL")?.trim() || "https://functions.gradethread.com";
+}
 
 interface TickCounts {
   enrolled: number;
@@ -407,16 +422,68 @@ async function loadSentOrdinals(enrollmentId: string): Promise<Set<number>> {
   return new Set((data ?? []).map((r) => (r as { step: number }).step));
 }
 
+// US-938: most recent actual send time for an enrollment (drives the frequency
+// cap). Null when nothing has been sent yet. Tenant-scoped via enrollment_id.
+async function lastSentMs(enrollmentId: string): Promise<number | null> {
+  const { data } = await supabaseAdmin
+    .from("drip_sends")
+    .select("sent_at")
+    .eq("enrollment_id", enrollmentId)
+    .not("sent_at", "is", null)
+    .order("sent_at", { ascending: false })
+    .limit(1);
+  const ts = (data as Array<{ sent_at: string | null }> | null)?.[0]?.sent_at;
+  return ts ? Date.parse(ts) : null;
+}
+
+// US-938: upsert the ONE drip_sends row for (enrollment, step) — the idempotency
+// grain (unique index, 00272). Returns the row id, which doubles as the open/
+// click tracking token. `sentAtIso` null + a `skipReason` records a skip; a real
+// send reserves the row (sent_at null) first to mint the token, then stamps it.
+async function upsertSend(
+  enrollment: EnrollmentRow,
+  campaign: string,
+  ordinal: number,
+  phase: DripStep["phase"],
+  variantId: string,
+  sentAtIso: string | null,
+  skipReason: string | null,
+): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from("drip_sends")
+    .upsert(
+      {
+        enrollment_id: enrollment.id,
+        campaign,
+        step: ordinal,
+        phase,
+        variant: variantId,
+        sent_at: sentAtIso,
+        skip_reason: skipReason,
+      },
+      { onConflict: "enrollment_id,step" },
+    )
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.warn("[drip-tick] drip_sends upsert failed:", error.message);
+    return null;
+  }
+  return (data as { id: string } | null)?.id ?? null;
+}
+
 interface SendOutcome {
-  /** Did an email actually go out (and a drip_sends row get recorded)? */
+  /** Did an email actually go out (live-delivered or durably enqueued)? */
   sent: boolean;
   /** A terminal exit was triggered instead of a send (opt-out / suppressed). */
   exitReason?: "unsubscribed" | "suppressed";
 }
 
-// Render + deliver one due step, honoring consent + suppression, and record the
-// send. Returns whether mail went out, or an exit reason when the recipient
-// should leave the journey (marketing opt-out).
+// Render + deliver one due step. Gates on consent (US-911), suppression
+// (US-914) and a frequency cap before dispatch; passes the rendered copy through
+// the QA gate (US-924); then sends durably through the email_deliveries outbox
+// with the open/click tracking rewriter (US-913) — recording either the send or
+// the skip (with reason) on the idempotent (enrollment, step) row.
 async function dispatchStep(
   campaign: string,
   enrollment: EnrollmentRow,
@@ -425,16 +492,21 @@ async function dispatchStep(
   step: DripStep,
   ordinal: number,
   variantId: string,
+  nowMs: number,
   nowIso: string,
   resolved: ResolvedIncentive | null,
 ): Promise<SendOutcome> {
-  // US-911 consent: a marketing opt-out ends the drip (CAN-SPAM honor opt-out).
-  if (marketingOptedOutEmail(user.notification_preferences)) {
-    return { sent: false, exitReason: "unsubscribed" };
-  }
-  if (!user.email) {
-    // No address to reach — treat as suppressed so we stop re-trying forever.
-    return { sent: false, exitReason: "suppressed" };
+  // Resolve the gate inputs (US-938). Suppression + frequency are only worth a
+  // round-trip once consent + a deliverable address are established.
+  const optedOut = marketingOptedOutEmail(user.notification_preferences);
+  const noAddress = !user.email;
+  const suppressed = !optedOut && !noAddress
+    ? await isEmailSuppressed(user.email!)
+    : false;
+  let frequencyCapped = false;
+  if (!optedOut && !noAddress && !suppressed) {
+    const last = await lastSentMs(enrollment.id);
+    frequencyCapped = last !== null && (nowMs - last) < FREQUENCY_GAP_MS;
   }
 
   // US-942: surface the conversion incentive ONLY when the campaign incentive is
@@ -443,43 +515,64 @@ async function dispatchStep(
   // renders empty (value-only variant) and no code is exposed.
   const incentiveEligible = !!resolved && isIncentiveEligible(step, userState);
 
-  const rendered = renderStep(
-    step,
-    userState,
-    variantId,
-    incentiveEligible ? resolved!.incentive : null,
-  );
+  // Render up-front only when a send is still possible — the QA gate needs it.
+  const rendered = optedOut || noAddress || suppressed || frequencyCapped
+    ? null
+    : renderStep(step, userState, variantId, incentiveEligible ? resolved!.incentive : null);
+  // QA n/a (true) when an earlier gate already blocked the send (no render).
+  const qaOk = rendered
+    ? qaCheckEmail({ subject: rendered.subject, html: rendered.html }).ok
+    : true;
+
+  const decision = evaluateSendGate({
+    optedOut,
+    noAddress,
+    suppressed,
+    frequencyCapped,
+    qaOk,
+  });
+
+  if (decision.action !== "send") {
+    // Record the skip on the (enrollment, step) row for analytics (AC3). A
+    // terminal exit also leaves the enrollment exit_reason; a retry-later skip
+    // (frequency/qa) keeps the cursor so the next tick re-evaluates.
+    await upsertSend(enrollment, campaign, ordinal, step.phase, variantId, null, decision.reason);
+    if (decision.exitReason) return { sent: false, exitReason: decision.exitReason };
+    return { sent: false };
+  }
   if (!rendered) {
+    // Defensive: action==="send" implies rendered, but guard the non-null below.
     console.warn(`[drip-tick] step '${step.id}' rendered empty — skipping send`);
     return { sent: false };
   }
 
+  // Reserve the row (sent_at null) to mint the tracking token (its id), then send
+  // durably + tracked, then stamp the send.
+  const token = await upsertSend(
+    enrollment, campaign, ordinal, step.phase, variantId, null, null,
+  );
   const unsubscribeUrl = await marketingUnsubscribeUrl(user.id).catch(() => "");
-  const html = unsubscribeUrl
-    ? `${rendered.html}<p style="margin-top:24px;color:#999;font-size:12px">` +
-      `<a href="${unsubscribeUrl}" style="color:#999">Unsubscribe</a></p>`
-    : rendered.html;
-
-  // deliverEmail already short-circuits hard-bounced/complained recipients
-  // (US-914 suppression) and returns true for that terminal no-op.
-  const ok = await deliverEmail({
-    to: user.email,
+  const result = await sendDripStepEmail({
+    to: user.email!,
     subject: rendered.subject,
-    html,
-    category: "marketing",
+    contentHtml: rendered.html,
+    category: `drip:${campaign}:${ordinal}`,
+    unsubscribeUrl: unsubscribeUrl || undefined,
+    tracking: token ? { baseUrl: trackingBaseUrl(), token } : undefined,
   });
-  if (!ok) return { sent: false };
+  if (!result.delivered && !result.enqueued) {
+    // Truly transient with no durable fallback — retry next tick (cursor stays).
+    return { sent: false };
+  }
 
-  const { error } = await supabaseAdmin.from("drip_sends").insert({
-    enrollment_id: enrollment.id,
-    campaign,
-    step: ordinal,
-    phase: step.phase,
-    variant: variantId,
-    sent_at: nowIso,
-  });
-  if (error) {
-    console.warn("[drip-tick] drip_sends insert failed:", error.message);
+  // Stamp the send (live-delivered or durably enqueued both count as sent).
+  const { error: stampErr } = await supabaseAdmin
+    .from("drip_sends")
+    .update({ sent_at: nowIso, skip_reason: null })
+    .eq("enrollment_id", enrollment.id)
+    .eq("step", ordinal);
+  if (stampErr) {
+    console.warn("[drip-tick] drip_sends stamp failed:", stampErr.message);
   }
 
   // US-942: the incentive just went out → (1) stash a time-boxed pending coupon
@@ -599,6 +692,7 @@ async function processEnrollment(
       step,
       plan.send.ordinal,
       plan.send.variantId,
+      nowMs,
       nowIso,
       resolvedIncentive,
     );
