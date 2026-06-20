@@ -3698,3 +3698,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  2:14:22 PM
 ---
+## US-809: iOS in-flow credit purchase when grading is blocked
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  2:25:15 PM
+---

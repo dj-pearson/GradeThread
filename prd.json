@@ -242,7 +242,7 @@
         "Unit tests for the poll/re-validate state machine; ios CI passes"
       ],
       "priority": 809,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit. Verified BulkGradeSheet.swift exists with phases load/ready/submitting/done + creditsBanner on limitExceeded; server grant path (appstore_processed_transactions + grant_appstore_credits) already idempotent."
     },
     {
