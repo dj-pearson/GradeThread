@@ -2,6 +2,13 @@
 // env / network imports) so the admin console's status machine, HTML render, and
 // next-scheduled-run computation are unit-testable without a DB and reusable from
 // both the route handlers and the (future) autonomous engine.
+//
+// US-919: the HTML/plaintext rendering now delegates to the bulletproof,
+// email-client-safe modular engine in `email-render.ts` (table layout, inline
+// CSS, MSO/Outlook buttons, dark-mode + responsive, absolute links). This file
+// keeps the issue lifecycle / QA / scheduling helpers + the legacy render API.
+
+import { renderNewsletterEmail, renderNewsletterEmailText } from "./email-render.ts";
 
 export const NEWSLETTER_STATUSES = [
   "draft",
@@ -72,139 +79,29 @@ export interface RenderOptions {
   year?: number;
 }
 
-const BRAND_NAVY = "#0F3460";
-const BRAND_RED = "#E94560";
-const BRAND_NIGHT = "#1A1A2E";
-const BRAND_GRAY = "#F5F5F5";
-
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function ctaButton(label: string, url: string): string {
-  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 20px auto;">
-    <tr>
-      <td style="background-color: ${BRAND_RED}; border-radius: 8px;">
-        <a href="${escapeHtml(url)}" style="display: inline-block; padding: 12px 28px; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600;">
-          ${escapeHtml(label)}
-        </a>
-      </td>
-    </tr>
-  </table>`;
-}
-
-function renderSection(s: NewsletterSection): string {
-  const heading = s.heading
-    ? `<h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 18px; font-weight: 700;">${escapeHtml(s.heading)}</h2>`
-    : "";
-  const body = `<div style="margin: 0 0 8px; color: #333333; font-size: 15px; line-height: 1.6;">${s.body ?? ""}</div>`;
-  const cta = s.ctaLabel && s.ctaUrl ? ctaButton(s.ctaLabel, s.ctaUrl) : "";
-  return `<div style="margin-bottom: 24px;">${heading}${body}${cta}</div>`;
-}
+// escapeHtml now lives in the render engine; re-exported here so the modules that
+// already import it from this file keep their single import surface.
+export { escapeHtml } from "./email-render.ts";
 
 /**
- * Render a newsletter issue to a complete, send-ready HTML document — brand
- * layout + every section + a CAN-SPAM footer (postal address) + the unsubscribe
- * link when supplied. The marketing coordinator expects fully-rendered HTML, so
- * everything is baked in here.
+ * Render a newsletter issue to a complete, send-ready HTML document using the
+ * bulletproof, email-client-safe modular components in `email-render.ts`
+ * (US-919) — branded table layout, all base CSS inline, MSO/Outlook buttons,
+ * dark-mode + responsive, absolute links, plus a CAN-SPAM footer + unsubscribe +
+ * preference-center when supplied. The marketing coordinator expects
+ * fully-rendered HTML, so everything is baked in.
  */
 export function renderNewsletterHtml(issue: RenderableIssue, opts: RenderOptions = {}): string {
-  const site = opts.siteUrl ?? "https://gradethread.com";
-  const year = opts.year ?? 2026;
-  const preheader = issue.preheader
-    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(issue.preheader)}</div>`
-    : "";
-  const content = (issue.sections ?? []).map(renderSection).join("");
-  const postal = opts.postalAddress
-    ? `<p style="margin: 8px 0 0; color: rgba(255,255,255,0.4); font-size: 11px;">${escapeHtml(opts.postalAddress)}</p>`
-    : "";
-  const prefLink = opts.preferenceCenterUrl
-    ? ` &nbsp;·&nbsp; <a href="${escapeHtml(opts.preferenceCenterUrl)}" style="color: #999; font-size: 12px; text-decoration: underline;">Manage email preferences</a>`
-    : "";
-  const unsubscribe = opts.unsubscribeUrl
-    ? `<tr>
-        <td style="padding: 16px 32px; text-align: center;">
-          <a href="${escapeHtml(opts.unsubscribeUrl)}" style="color: #999; font-size: 12px; text-decoration: underline;">
-            Unsubscribe from this newsletter
-          </a>${prefLink}
-        </td>
-      </tr>`
-    : "";
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; background-color: ${BRAND_GRAY}; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  ${preheader}
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${BRAND_GRAY};">
-    <tr>
-      <td style="padding: 32px 16px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; max-width: 600px;">
-          <tr>
-            <td style="background-color: ${BRAND_NAVY}; padding: 24px 32px; border-radius: 12px 12px 0 0; text-align: center;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">GradeThread</h1>
-              <p style="margin: 4px 0 0; color: rgba(255,255,255,0.7); font-size: 13px;">AI-Powered Clothing Condition Grading</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: #ffffff; padding: 32px;">
-              ${content}
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color: ${BRAND_NIGHT}; padding: 20px 32px; border-radius: 0 0 12px 12px; text-align: center;">
-              <p style="margin: 0; color: rgba(255,255,255,0.6); font-size: 12px;">&copy; ${year} Pearson Media LLC. All rights reserved.</p>
-              <p style="margin: 8px 0 0; color: rgba(255,255,255,0.4); font-size: 11px;">
-                <a href="${escapeHtml(site)}" style="color: rgba(255,255,255,0.6); text-decoration: none;">gradethread.com</a>
-              </p>
-              ${postal}
-            </td>
-          </tr>
-          ${unsubscribe}
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return renderNewsletterEmail(issue, opts);
 }
 
 /**
- * Render a plaintext alternative of the issue (pure). The SMTP layer auto-builds
- * a text part from the HTML, but the pre-send gate (US-924) needs to confirm a
- * meaningful plaintext body can be produced, so this strips tags + flattens the
- * sections to readable text.
+ * Render a plaintext alternative of the issue (pure). The pre-send gate (US-924)
+ * needs to confirm a meaningful plaintext body can be produced; the engine
+ * auto-generates it from the issue's sections.
  */
 export function renderNewsletterText(issue: RenderableIssue): string {
-  const stripped = (html: string): string =>
-    html
-      .replace(/<br\s*\/?>(?=)/gi, "\n")
-      .replace(/<\/(p|div|h[1-6]|li)>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-
-  const lines: string[] = [];
-  if (issue.subject?.trim()) lines.push(issue.subject.trim());
-  for (const s of issue.sections ?? []) {
-    if (s.heading) lines.push(`\n${s.heading.trim()}`);
-    if (s.body) lines.push(stripped(s.body));
-    if (s.ctaLabel && s.ctaUrl) lines.push(`${s.ctaLabel.trim()}: ${s.ctaUrl.trim()}`);
-  }
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return renderNewsletterEmailText(issue);
 }
 
 // ── QA ───────────────────────────────────────────────────────────────────────
