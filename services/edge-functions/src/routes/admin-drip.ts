@@ -133,6 +133,9 @@ interface CampaignRow {
   name: string;
   status: "active" | "paused" | "killed";
   feature_flag_key: string | null;
+  // US-935: the campaign declares its conversion goal + target audience.
+  goal_event: string;
+  audience: string | null;
   graph: DripGraph;
   updated_at: string;
 }
@@ -140,7 +143,7 @@ interface CampaignRow {
 async function loadCampaign(campaign: string): Promise<CampaignRow | null> {
   const { data } = await supabaseAdmin
     .from("drip_campaigns")
-    .select("campaign, name, status, feature_flag_key, graph, updated_at")
+    .select("campaign, name, status, feature_flag_key, goal_event, audience, graph, updated_at")
     .eq("campaign", campaign)
     .maybeSingle();
   return (data as CampaignRow | null) ?? null;
@@ -205,7 +208,7 @@ async function loadUserState(
 adminDripRoutes.get("/campaigns", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("drip_campaigns")
-    .select("campaign, name, status, feature_flag_key, updated_at")
+    .select("campaign, name, status, feature_flag_key, goal_event, audience, updated_at")
     .order("campaign");
   if (error) return jsonError(c, 500, "Failed to load campaigns");
   return c.json({ campaigns: data ?? [], nextTick: nextTickIso(Date.now()) });
