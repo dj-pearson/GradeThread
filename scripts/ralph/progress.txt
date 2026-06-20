@@ -3694,3 +3694,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  2:10:35 PM
 ---
+## US-810: iOS email-confirmation UX: detect unconfirmed sign-in + resend
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  2:14:22 PM
+---

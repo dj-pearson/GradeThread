@@ -256,7 +256,7 @@
         "Unit test for the error-classification helper; ios CI passes"
       ],
       "priority": 810,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: iOS Standalone 2026-06-11] From 2026-06-11 iOS standalone audit (LoginView.swift:217-219 shows post-signup copy only; no resend anywhere)."
     },
     {
