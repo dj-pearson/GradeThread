@@ -346,9 +346,13 @@ async function enrollNewTrialists(
     }));
   if (rows.length === 0) return 0;
 
+  // US-936: the UNIQUE (user_id, campaign) index (00274) makes "one enrollment
+  // per campaign" a DB invariant. Upsert ON CONFLICT (ignoreDuplicates) so a
+  // racing/retried enroll path is a no-op instead of failing the whole batch
+  // insert — the entry trigger stays idempotent even under concurrency.
   const { data: inserted, error } = await supabaseAdmin
     .from("drip_enrollments")
-    .insert(rows)
+    .upsert(rows, { onConflict: "user_id,campaign", ignoreDuplicates: true })
     .select("id");
   if (error) {
     console.error("[drip-tick] enroll insert failed:", error.message);
