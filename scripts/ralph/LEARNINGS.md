@@ -116,6 +116,20 @@ memory — not a progress log (the harness records progress separately).
   unsubscribed_at}` (00281). Pixel/unsub POPULATION is a sibling; the column home
   + aggregation are this story's substrate (cold start ⇒ uniform weights, correct).
 
+## Newsletter subject A/B test (US-927)
+- PURE logic = `lib/newsletter-ab.ts` (normalizeVariants/planHoldout/assignVariant
+  [FNV]/aggregateVariantStats/selectAbWinner [min-sample → fallback default]/
+  isMeasurementWindowElapsed). Two-phase send in `lib/newsletter-ab-job.ts`:
+  `startAbTest` (console `/send` branches here when issue has ≥2 `subject_variants`
+  + `newsletter_ab_test_enabled`) sends the holdout with variants assigned + leaves
+  status `sending`/ab_phase `testing`; the `newsletter-ab-finalize` cron (or console
+  POST `/issues/:id/ab/finalize`) picks the winner from holdout opens/clicks and
+  sends it to the remainder → status `sent`/ab_phase `completed`. Variant + holdout
+  flag live on `newsletter_issue_recipients` (NOT campaign_recipients — that's the
+  growth-broadcast surface). Idempotent via upsert onConflict (issue_id,email) +
+  the ab_phase gate. Operator override: POST `/ab/winner` sets ab_winner_source
+  'operator' which finalize honors over auto-selection (migration 00282).
+
 ## Marketing send coordinator (US-934)
 - Any NEW marketing email must route through `coordinateMarketingSend`
   (lib/marketing-coordinator.ts) — the single chokepoint for consent (US-911),
