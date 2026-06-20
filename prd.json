@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1109,
+  "nextId": 1142,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3078,6 +3078,616 @@
       "priority": 717,
       "passes": true,
       "notes": "[P3][Passport][Growth] Demand-side wedge that grows coverage. Depends on [[US-1093]], [[US-1095]]. Follow SEO registry rules (public-routes.ts + entry-server.tsx + head-builder.ts)."
+    },
+    {
+      "id": "US-1109",
+      "title": "Web: surface newer public features in marketing nav + footer",
+      "description": "As a prospective customer browsing the marketing site, I want the navigation and footer to expose all our public trust/social-proof pages so that I can actually discover features like the Verified Directory, Referral Leaderboard, Buyer Guarantee, and What's-It-Worth instead of only reaching them by direct URL.",
+      "acceptanceCriteria": [
+        "marketing-layout.tsx header nav and footer link every live public route: /verified (Verified Directory), /leaderboard, /whats-it-worth, /buyer-guarantee, /transparency, /verify, /scan, plus existing How It Works / Pricing / For Resellers / Condition Grading",
+        "Footer groups them sensibly (e.g. a 'Sellers/Community' group for Verified + Leaderboard + Referrals; trust links near Verify/Scan/Buyer Guarantee)",
+        "Any newly-linked page that is a static public page is already in the SEO public-routes registry; if not, add it per CLAUDE.md (public-routes.ts + entry-server.tsx + head-builder.ts)",
+        "Mobile nav (hamburger/sheet) includes the same links; build + tsc + eslint clean"
+      ],
+      "priority": 1099,
+      "passes": false,
+      "notes": "[P1][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] From platform-wide audit. marketing-layout.tsx header (~L73-86) only links 4 pages; footer (~L125-150) misses /verified, /leaderboard, /whats-it-worth, and /buyer-guarantee (only reachable via /about today). These are trust/SEO assets reachable only by direct URL. Verify exact line numbers when implementing.",
+      "relevantPaths": [
+        "src/components/marketing/marketing-layout.tsx",
+        "src/lib/seo/public-routes.ts",
+        "src/routes/index.tsx"
+      ]
+    },
+    {
+      "id": "US-1110",
+      "title": "Web: refresh marketing copy (landing/pricing/FAQ) to cover newer features",
+      "description": "As a visitor evaluating GradeThread, I want the homepage, pricing, and FAQ to actually describe our newest differentiating features so that the marketing reflects what the product can do today.",
+      "acceptanceCriteria": [
+        "landing.tsx features + FlipDesk sections and marketing/for-resellers.tsx mention Garment Passport, Verified Sellers, Buyer Guarantee, ScoutAI, AutoLister, Consignment, Repricing, and Referrals where relevant",
+        "marketing/pricing.tsx clearly differentiates Pro vs Business by the features that actually gate them (AutoLister, comp/Scout pulls, scheduled actions); plan feature lists stay in sync with src/lib/constants.ts FLIPDESK_PLANS",
+        "landing-faqs.ts and the marketing FAQ set add Q&A entries for Passport, Verified status, Buyer Guarantee, AutoLister, ScoutAI, Consignment, and Referrals",
+        "JSON-LD/structured data for any changed marketing pages stays valid (no aggregateRating/SearchAction placeholders per CLAUDE.md); build + tsc + eslint clean"
+      ],
+      "priority": 1098,
+      "passes": false,
+      "notes": "[P1][Web/Copy][EPIC: Web↔iOS Gaps & Polish 2026-06-20] The product has outgrown its own marketing. landing.tsx features (~L51-70), FlipDesk section (~L768-804), for-resellers.tsx (~L121-128), pricing.tsx (~L112-146), landing-faqs.ts (L6-43). Keep prices/features sourced from constants.ts to avoid drift.",
+      "relevantPaths": [
+        "src/pages/landing.tsx",
+        "src/pages/marketing/pricing.tsx",
+        "src/pages/marketing/for-resellers.tsx",
+        "src/pages/landing-faqs.ts",
+        "src/lib/constants.ts"
+      ]
+    },
+    {
+      "id": "US-1111",
+      "title": "Web: certificate page conversion CTAs (grade-your-own / list / cross-surface)",
+      "description": "As a buyer or seller landing on a shared public grade certificate, I want clear next-step CTAs so that the most-shared public surface actually converts visitors into graders/sellers instead of dead-ending.",
+      "acceptanceCriteria": [
+        "certificate.tsx adds a buyer-facing 'Grade your own garment' CTA (→ new-submission / what's-it-worth) and a seller-facing 'List this on FlipDesk' path for the owner",
+        "Reuse the existing CrossSurfaceNudge component on the certificate page rather than bespoke markup",
+        "CTAs are visible to anonymous visitors (no auth required to see the grade-your-own path); no PII exposed",
+        "build + tsc + eslint clean"
+      ],
+      "priority": 1097,
+      "passes": false,
+      "notes": "[P1][Web/Conversion][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: certificate.tsx has passport/share/badge/buyer-guarantee links but ZERO grade-your-own or list-on-flipdesk CTA (grep confirmed). CrossSurfaceNudge currently imported only by submission-detail.tsx and flipdesk/item.tsx — extend its use here. Relates to done US-1075 (cross-surface activation) but that did not cover the public certificate page.",
+      "relevantPaths": [
+        "src/pages/certificate.tsx",
+        "src/components/cross-surface/cross-surface-nudge.tsx"
+      ]
+    },
+    {
+      "id": "US-1112",
+      "title": "FlipDesk: automatic consignor payout when a consigned item sells",
+      "description": "As a reseller running consignment, I want a recorded sale of a consigned item to automatically compute the consignor's share and create the payout (Stripe transfer) so that I don't have to remember to fire each payout manually.",
+      "acceptanceCriteria": [
+        "When a sale is ingested for an item linked to a consignor, a consignor_payouts ledger row is computed from the agreed split on the net proceeds (reusing existing split math / consignor_pnl logic in flipdesk-consignment.ts)",
+        "The Stripe transfer fires automatically (immediate or batched per a config flag) using the existing idempotencyKey pattern (consignor_payout_<id>); manual POST /payouts remains available as an override",
+        "Payout is gated on consignor Stripe Connect onboarding being complete; if not onboarded, the payout is queued/flagged rather than failing silently",
+        "Tenant-scoped per CLAUDE.md (service-role bypasses RLS); deno check/lint/test pass; no duplicate payout on re-ingest (idempotent)"
+      ],
+      "priority": 1096,
+      "passes": false,
+      "hard": true,
+      "notes": "[P1][FlipDesk/Money][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: Stripe Connect onboarding, consignor_payouts ledger, split math, and transfer code all exist in flipdesk-consignment.ts (~L286-392) but a payout fires ONLY on manual POST /payouts — no job/trigger references 'consignor' (grep of jobs-*.ts empty). Build a sale-ingest hook → compute share → ledger → transfer. Pairs with US-1123 (reconciled payout truth).",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-consignment.ts",
+        "services/edge-functions/src/routes/flipdesk-reconciliation.ts",
+        "services/edge-functions/src/routes/webhooks.ts"
+      ]
+    },
+    {
+      "id": "US-1113",
+      "title": "Buyer-guarantee claim → grader calibration feedback loop",
+      "description": "As the grading team, I want an approved buyer-guarantee claim to feed our grading accuracy/calibration system so that confirmed 'the grade was wrong' cases actually improve future grading instead of ending at a status flip.",
+      "acceptanceCriteria": [
+        "When a claim with a grade_report_id is approved in admin-claims, the structured claimed_issues + outcome are written into the accuracy-tracking pipeline (lib/accuracy-tracking.ts) as ground-truth signal",
+        "The admin grading-calibration panel reflects claim-derived accuracy deltas (per factor where claimed_issues map to factors)",
+        "No double-counting: a claim contributes once; reversing/rejecting a claim removes/neutralizes its signal",
+        "Tenant-scoping and audit logging preserved; deno check/lint/test pass; document the loop briefly in code comments"
+      ],
+      "priority": 1095,
+      "passes": false,
+      "hard": true,
+      "notes": "[P1][Grading/Trust][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: guarantee-public.ts captures claims with grade_report_id + claimed_issues; admin-claims.ts is review-only ('No payout in v1' ~L235) ending at a status flip + audit log. accuracy infra exists (lib/accuracy-tracking.ts, components/admin/grading-calibration-panel.tsx) but claims never feed it. Accuracy + a buyer guarantee is the core pitch — close the loop. (Claim→refund money movement is intentionally out of scope here.)",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/guarantee-public.ts",
+        "services/edge-functions/src/routes/admin-claims.ts",
+        "services/edge-functions/src/lib/accuracy-tracking.ts",
+        "src/components/admin/grading-calibration-panel.tsx"
+      ]
+    },
+    {
+      "id": "US-1114",
+      "title": "Cross-listing UI honesty: gate Depop / remove-bg / Sheets sync on real capability",
+      "description": "As a reseller, I don't want to be offered actions that will fail after I click them, so channels and tools that aren't actually available in my environment should be disabled with a clear explanation rather than 503/erroring post-click.",
+      "acceptanceCriteria": [
+        "In flipdesk/composer.tsx, Depop respects the 'api_pending' tier (disabled with 'coming once approved' messaging) instead of rendering as a normal API checkbox identical to eBay/Shopify while the backend 503s on DEPOP_ENABLED=off",
+        "The remove-bg control (photo-manager.tsx / use-remove-bg.ts) is gated on a server capability flag (REMOVE_BG configured, or the on-device path) so it isn't offered when it will 503; confirm whether on-device @imgly segmentation (US-535) supersedes the server path",
+        "marketplaces-google.tsx gates the 'Sync now' surface on a server capability probe so users don't connect-OAuth then fail the sync when Sheets is unconfigured",
+        "All three use a capability/feature-flag check; build + tsc + eslint + deno checks clean"
+      ],
+      "priority": 1094,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Honesty][EPIC: Web↔iOS Gaps & Polish 2026-06-20] CLAUDE.md treats UI honesty as a contract. constants.ts already defines an 'api_pending' tier (~L965) and LIVE_CROSS_LISTING_PLATFORMS includes depop (L934) — composer treats Depop as live (~L1424). flipdesk-images.ts /remove-bg 503s w/o REMOVE_BG_API_KEY; flipdesk-google-sync.ts 503s when !isGoogleSheetsConfigured(). iOS already treats these honestly (listingKit tier). Small but launch-risk-reducing.",
+      "relevantPaths": [
+        "src/pages/flipdesk/composer.tsx",
+        "src/lib/constants.ts",
+        "src/components/flipdesk/photo-manager.tsx",
+        "src/pages/flipdesk/marketplaces-google.tsx"
+      ]
+    },
+    {
+      "id": "US-1115",
+      "title": "iOS: Garment Passport timeline viewer + share/claim",
+      "description": "As a seller using the iOS app, I want to view, share, and claim a garment's Passport (provenance timeline) so that I have parity with the web trust surface instead of having no passport access on mobile at all.",
+      "acceptanceCriteria": [
+        "A native passport timeline view renders the public chain (confidence-scored, pseudonymous) for an item/garment, reading the edge passport API",
+        "Share affordance produces the public passport URL (mirroring the existing certificate ShareLink in GradeReportView.swift)",
+        "Where applicable, the ownership claim/handoff flow is reachable from the viewer",
+        "Empty/loading/error states present; no PII exposed; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1093,
+      "passes": false,
+      "notes": "[P1][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: grep for 'passport' across ios/GradeThread/*.swift returns ZERO matches — iOS has no passport viewer at all, while web has passport.tsx/passport-claim.tsx and the chain API (passport.ts, passport-identity.ts) is live. NOTE: iOS already shares the public CERTIFICATE (GradeReportView.swift ShareLink) — this story is the PASSPORT timeline only. Depends on done US-1089..US-1095.",
+      "relevantPaths": [
+        "ios/GradeThread/Grading/GradeReportView.swift",
+        "services/edge-functions/src/routes/passport.ts",
+        "src/pages/passport.tsx"
+      ]
+    },
+    {
+      "id": "US-1116",
+      "title": "iOS: top-level error + retry states for PriceSuggestions, AutoLister, Snap",
+      "description": "As an iOS user, when a comps scan, AutoLister import, or Snap valuation fails, I want a clear failure state with a retry button so that the screen doesn't silently look empty/idle and leave me stuck.",
+      "acceptanceCriteria": [
+        "PriceSuggestionsView gains a .failed phase with a top-level error view + Retry (today failures only surface as buried per-row Text(error) ~L190-194)",
+        "AutoListerView surfaces import/grouping/rotate failures with an explicit error state + retry instead of falling back to the empty state",
+        "SnapView shows a dedicated error state with an obvious Retry (today errors are plain Text ~L46-50) — this is the free top-of-funnel hook",
+        "Existing loading/empty states preserved; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1092,
+      "passes": false,
+      "notes": "[P1][iOS/UX][EPIC: Web↔iOS Gaps & Polish 2026-06-20] From iOS audit. Three money/activation-critical surfaces dead-end on failure. Use the existing ErrorStateView component pattern.",
+      "relevantPaths": [
+        "ios/GradeThread/Money/PriceSuggestions/PriceSuggestionsView.swift",
+        "ios/GradeThread/AutoLister/AutoListerView.swift",
+        "ios/GradeThread/Snap/SnapView.swift",
+        "ios/GradeThread/Components/ErrorStateView.swift"
+      ]
+    },
+    {
+      "id": "US-1117",
+      "title": "iOS: activation 'Connect eBay' launches the real connect flow",
+      "description": "As a new iOS user working the activation checklist, I want the 'Connect eBay' step to actually start the eBay connect/OAuth flow so that I can complete the step in-app instead of being dumped on a tab that says to use the web dashboard.",
+      "acceptanceCriteria": [
+        "ActivationChecklist.swift step 2 launches the eBay OAuth connect flow (or, if connect is genuinely web-only, presents an in-app web-auth session that completes the connection and returns) rather than just setting router.selection = .marketplaces",
+        "On success the checklist step marks complete; on failure a clear error + retry is shown",
+        "If connection truly cannot be completed on mobile, the step copy is honest and offers a 'send me a link' / open-in-Safari path that round-trips back",
+        "python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1091,
+      "passes": false,
+      "notes": "[P1][iOS/Activation][EPIC: Web↔iOS Gaps & Polish 2026-06-20] ActivationChecklist.swift step 2 (L83) only switches tabs; MarketplacesView.swift (~L99) says eBay is managed on web — so 1 of 3 activation steps can't be completed in-app. Check whether EbayConnectionService / OAuthWebSession already supports a mobile connect path to reuse.",
+      "relevantPaths": [
+        "ios/GradeThread/Onboarding/ActivationChecklist.swift",
+        "ios/GradeThread/Marketplaces/EbayConnectionService.swift",
+        "ios/GradeThread/Networking/OAuthWebSession.swift",
+        "ios/GradeThread/Marketplaces/MarketplacesView.swift"
+      ]
+    },
+    {
+      "id": "US-1118",
+      "title": "Web: persona-aware dashboard + surface Passport/Verified/Referrals/Guarantee",
+      "description": "As a logged-in user, I want my dashboard quick actions and cards to match my use case and to surface our newest features so that the primary authenticated surface is relevant and discoverable instead of FlipDesk-centric for everyone.",
+      "acceptanceCriteria": [
+        "dashboard.tsx quick actions are tailored to profile.use_case (buyer/grader/reseller/developer) instead of three unconditional reseller cards + an always-on FlipDesk promo",
+        "Dashboard adds entry points to the user's Garment Passport(s), Verified Seller profile, Referrals, and Buyer Guarantee status where relevant to the persona",
+        "Zero-data first run shows a relevant empty state/CTA per persona",
+        "build + tsc + eslint clean"
+      ],
+      "priority": 1089,
+      "passes": false,
+      "notes": "[P2][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] dashboard.tsx (L200-242) renders unconditional New Submission / Add Inventory / View Finances + FlipdeskPromoCard (L251) regardless of use_case; never surfaces Passport/Verified/Referrals/Guarantee. use_case is already captured in onboarding.",
+      "relevantPaths": [
+        "src/pages/dashboard.tsx",
+        "src/components/flipdesk/flipdesk-promo-card.tsx"
+      ]
+    },
+    {
+      "id": "US-1119",
+      "title": "Web: cross-link FlipDesk item ↔ its grade, certificate, and passport",
+      "description": "As a reseller who graded an item inside FlipDesk, I want the item page to link to the grade's certificate and passport so that I don't lose the trust artifacts I just created.",
+      "acceptanceCriteria": [
+        "For an already-graded item, flipdesk/item.tsx links to the item's certificate and (if present) its Garment Passport, plus verified-seller/buyer-guarantee surfacing where relevant",
+        "Keep the existing grade-this-item nudge for ungraded items",
+        "Links resolve to the correct public/owner views; build + tsc + eslint clean"
+      ],
+      "priority": 1088,
+      "passes": false,
+      "notes": "[P2][Web/Integration][EPIC: Web↔iOS Gaps & Polish 2026-06-20] flipdesk/item.tsx (~L135-158) nudges grading/ROI but for graded items shows no link to the certificate or passport it created. Auto-Disclosure ref at ~L203.",
+      "relevantPaths": [
+        "src/pages/flipdesk/item.tsx"
+      ]
+    },
+    {
+      "id": "US-1120",
+      "title": "Web: submission-detail & passport conversion + claim CTAs",
+      "description": "As a seller viewing a fresh grade, and as a visitor viewing a passport, I want clear next-step CTAs (create passport, claim passport, view latest certificate, grade-your-own/sell) so that these surfaces convert and connect.",
+      "acceptanceCriteria": [
+        "submission-detail.tsx offers a 'Create a Garment Passport' path from a fresh grade (not only the tag panel when garment_id already exists), plus verified-seller/buyer-guarantee hints",
+        "passport.tsx renders a prominent link to the latest certificate, a 'Claim this passport' CTA, and a 'grade your own / sell on FlipDesk' path",
+        "Reuse CrossSurfaceNudge where appropriate (extend its usage beyond the current 2 call sites); no PII exposed",
+        "build + tsc + eslint clean"
+      ],
+      "priority": 1087,
+      "passes": false,
+      "notes": "[P2][Web/Conversion][EPIC: Web↔iOS Gaps & Polish 2026-06-20] submission-detail.tsx passport tag panel only when garment_id exists (~L1304); passport.tsx (~L368-389) shows timeline + guarantee + origin badge but converts nothing and the certificate link in the payload isn't rendered (see US-1125).",
+      "relevantPaths": [
+        "src/pages/submission-detail.tsx",
+        "src/pages/passport.tsx",
+        "src/components/cross-surface/cross-surface-nudge.tsx"
+      ]
+    },
+    {
+      "id": "US-1121",
+      "title": "Web: nav/sidebar audit — surface orphaned routes",
+      "description": "As a user, I want every shipped feature page to be reachable from navigation so that features aren't undiscoverable behind direct URLs.",
+      "acceptanceCriteria": [
+        "Audit src/routes/index.tsx against components/dashboard/sidebar.tsx navGroups; every route is either linked from nav or intentionally hidden (documented)",
+        "Specifically surface or intentionally hide: autolister/queue, autolister/bulk-edit, flipdesk/marketplaces/google, and submissions/bulk (bulk submission)",
+        "Nav labels match the canonical feature names; build + tsc + eslint clean"
+      ],
+      "priority": 1086,
+      "passes": false,
+      "notes": "[P2][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] sidebar.tsx navGroups (L79-163) omit several existing routes (autolister queue/bulk-edit, marketplaces/google, submissions/bulk). Bulk submission is currently undiscoverable.",
+      "relevantPaths": [
+        "src/components/dashboard/sidebar.tsx",
+        "src/routes/index.tsx"
+      ]
+    },
+    {
+      "id": "US-1122",
+      "title": "Web: app-wide post-signup activation checklist + persona capture at signup",
+      "description": "As a new web user, I want a persona-aware activation checklist (like iOS) and to be asked my use case during signup so that I get relevant first-run guidance instead of only a FlipDesk-specific checklist.",
+      "acceptanceCriteria": [
+        "An app-wide activation checklist (per persona: e.g. first grade / connect eBay / add inventory / enable notifications) is shown post-signup, generalizing the existing FlipDesk-only flipdesk-onboarding checklist",
+        "signup.tsx captures use_case (or confirms it immediately post-signup) so the dashboard can personalize on first paint",
+        "Checklist is dismissible and tracks completion per step; build + tsc + eslint clean"
+      ],
+      "priority": 1085,
+      "passes": false,
+      "notes": "[P2][Web/Activation][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Web has OnboardingFlow modal + FlipDesk-only checklist (components/flipdesk/flipdesk-onboarding.tsx, mounted in dashboard-layout.tsx) but no app-wide activation checklist; iOS has ActivationChecklist.swift (US-647) and OnboardingPlanStepView. signup.tsx doesn't capture use_case. Mirrors done US-742/US-747 on iOS.",
+      "relevantPaths": [
+        "src/pages/signup.tsx",
+        "src/components/flipdesk/flipdesk-onboarding.tsx",
+        "src/layouts/dashboard-layout.tsx",
+        "ios/GradeThread/Onboarding/ActivationChecklist.swift"
+      ]
+    },
+    {
+      "id": "US-1123",
+      "title": "FlipDesk: feed reconciled payout truth into consignor P&L",
+      "description": "As a reseller paying consignors, I want consignor shares computed from the actual reconciled marketplace payout (not sale-price estimates) and the reconciled match to back-fill the payout reference so that consignors are paid on real numbers with an audit trail.",
+      "acceptanceCriteria": [
+        "consignor_pnl share computation uses reconciled payout_imports.amount when a sale has been matched, falling back to the sale_price-minus-fees estimate only when unreconciled",
+        "When reconciliation matches a payout to a sale of a consigned item, consignor_payouts.payout_reference is back-filled to link the ledger to the real payout",
+        "Estimate-vs-actual discrepancies are visible (e.g. a delta column/flag) so over/under-payments can be corrected",
+        "Tenant-scoped; deno check/lint/test pass"
+      ],
+      "priority": 1084,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Money][EPIC: Web↔iOS Gaps & Polish 2026-06-20] flipdesk-reconciliation.ts matches payout_imports↔sales accurately, but consignor_pnl computes from estimates and never back-fills consignor_payouts.payout_reference. Pairs with US-1112.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/flipdesk-reconciliation.ts",
+        "services/edge-functions/src/routes/flipdesk-consignment.ts"
+      ]
+    },
+    {
+      "id": "US-1124",
+      "title": "Garment Passport: guarantee seeding before listing/cert + reliable relist event",
+      "description": "As a seller, I want a garment's passport to exist before its listing/certificate are built and relist events to be reliably recorded so that provenance is never silently missing due to a race.",
+      "acceptanceCriteria": [
+        "Passport seed (garment_id + public_passport_slug on grade_reports) is guaranteed before the listing builder / certificate read it — make it synchronous in the grading pipeline, or block listing/cert build until it exists",
+        "recordRelist's 'listed' event is reliably persisted (not fire-and-forget) so the next buyer's passport claim includes the relist",
+        "Backfill/repair path for any grade_reports with NULL garment_id created during the race window",
+        "Tenant-scoped; deno check/lint/test pass"
+      ],
+      "priority": 1083,
+      "passes": false,
+      "notes": "[P2][Passport][EPIC: Web↔iOS Gaps & Polish 2026-06-20] grading-pipeline.ts (~L1376-1393) seeds passport fire-and-forget after grade_reports insert; recordRelist in flipdesk-listings.ts (L333) is void-ed; ai-listing.ts reads garment_id (~L2700) which can be NULL. Provenance is a marketing pillar.",
+      "relevantPaths": [
+        "services/edge-functions/src/lib/grading-pipeline.ts",
+        "services/edge-functions/src/routes/flipdesk-listings.ts",
+        "services/edge-functions/src/lib/ai-listing.ts",
+        "services/edge-functions/src/routes/passport.ts"
+      ]
+    },
+    {
+      "id": "US-1125",
+      "title": "Passport: render certificate cross-link + link origin node to verified grader",
+      "description": "As a passport viewer, I want a link to the underlying certificate, and as a seller who later reveals identity I want my verified badge to appear at the passport origin, so the two trust artifacts connect and provenance ties to a real verified grader.",
+      "acceptanceCriteria": [
+        "passport.tsx renders a link to the certificate already present in the 'graded' event payload (data exists post-sanitization; just not rendered)",
+        "passport-write.ts sets owner_nodes.linked_user_id on the origin node from createdByUserId so a seller who reveals identity can show their verified badge (passport.ts already returns it but it's NULL today)",
+        "No PII leaked for pseudonymous nodes; existing privacy/retention model preserved; deno check/lint/test + web build clean"
+      ],
+      "priority": 1082,
+      "passes": false,
+      "notes": "[P2][Passport/Trust][EPIC: Web↔iOS Gaps & Polish 2026-06-20] graded event payload carries 'certificate' (passport-write.ts ~L90-104) but passport.tsx doesn't render the link. passport-write.ts (~L62-72) never sets linked_user_id though createdByUserId is available; passport.ts (~L114-137) returns it as NULL. Small, high-leverage; connects to US-1126.",
+      "relevantPaths": [
+        "src/pages/passport.tsx",
+        "services/edge-functions/src/lib/passport-write.ts",
+        "services/edge-functions/src/routes/passport.ts"
+      ]
+    },
+    {
+      "id": "US-1126",
+      "title": "FlipDesk: embed verified-seller credentials in listing descriptions",
+      "description": "As a verified grader/seller, I want my verified credentials (total graded, average grade, verified badge/link) embedded in my marketplace listing descriptions so that the trust signal that differentiates me from a plain eBay seller actually reaches buyers.",
+      "acceptanceCriteria": [
+        "The listing/description/disclosure builder optionally includes a seller-credential block sourced from verified.ts ownStats() (total graded, average grade) plus a link to the public verified profile",
+        "Inclusion is opt-in/configurable per seller and only shown when the seller is actually verified",
+        "Works across the cross-listing description path (eBay + others); no PII beyond the public verified profile; deno check/lint/test pass"
+      ],
+      "priority": 1081,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Trust][EPIC: Web↔iOS Gaps & Polish 2026-06-20] verified.ts ownStats() (~L60-77) computes the stats and pages/flipdesk/verified.tsx exists, but none is queried into listing descriptions. Surfacing it in the listing is the payoff of being verified.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/verified.ts",
+        "services/edge-functions/src/lib/ai-listing.ts",
+        "services/edge-functions/src/routes/flipdesk-disclosure.ts"
+      ]
+    },
+    {
+      "id": "US-1127",
+      "title": "iOS: Scheduled Drops",
+      "description": "As a reseller on iOS, I want to schedule timed listing publishes so that I have parity with the web Scheduled Drops feature for timing revenue.",
+      "acceptanceCriteria": [
+        "A native Scheduled Drops surface lets the user schedule a listing/batch to publish at a chosen time (timezone-aware), reusing the same edge endpoints as web scheduled-drops",
+        "List/edit/cancel scheduled drops with loading/empty/error states",
+        "Discoverable from the Tools hub or Marketplaces; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1080,
+      "passes": false,
+      "notes": "[P2][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: zero scheduled-drop code in ios/ (only Repricing rules). Web has flipdesk/scheduled-drops.tsx; backend timezone-aware drops shipped (done US-563).",
+      "relevantPaths": [
+        "src/pages/flipdesk/scheduled-drops.tsx",
+        "ios/GradeThread/Tools/ToolsHubView.swift"
+      ]
+    },
+    {
+      "id": "US-1128",
+      "title": "iOS: per-listing performance metrics (impressions/clicks/watchers/sell-through)",
+      "description": "As a reseller on iOS, I want per-listing eBay performance metrics so that I have parity with the web listing-performance dashboard instead of only aggregate analytics.",
+      "acceptanceCriteria": [
+        "A native view shows per-listing impressions, CTR, watchers, and sell-through from the same edge performance data web uses (sell.analytics)",
+        "Graceful degradation + reconnect prompt when analytics scope is denied (mirrors web behavior)",
+        "Loading/empty/error states; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1079,
+      "passes": false,
+      "notes": "[P2][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] iOS AnalyticsView covers aggregate (grade dist/top brands/sell-through) but grep for impressions/CTR/listingPerformance in ios/ = none. Web flipdesk/listing-performance.tsx + backend perf cron shipped (done US-565 + analytics performance work).",
+      "relevantPaths": [
+        "src/pages/flipdesk/listing-performance.tsx",
+        "ios/GradeThread/Analytics/AnalyticsView.swift"
+      ]
+    },
+    {
+      "id": "US-1129",
+      "title": "iOS: Tools hub completeness + Verified/Referrals empty states",
+      "description": "As an iOS user, I want every secondary feature reachable from one place and trust/referral screens to explain themselves before I've set anything up, so the app is discoverable and not confusing on first view.",
+      "acceptanceCriteria": [
+        "ToolsHubView adds a 'Manage' section (or equivalent) so Listing Templates, Consignors, Sources, Repricing, and Community Insights are reachable from the hub, not only buried in Settings>Data or inside the Money tab",
+        "VerifiedView shows an 'unclaimed' empty state explaining the value before rendering the edit form (instead of 0s/'—')",
+        "ReferralsView shows a 'join the program / no referrals yet' empty state instead of nil-coalesced '—'/0",
+        "python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1078,
+      "passes": false,
+      "notes": "[P2][iOS/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Templates/Consignors/Sources only via Settings>Data (ContentView.swift ~L1152-1169); Repricing/Insights only inside Money tab. ToolsHub (US-749) was meant to make secondary modules discoverable but is incomplete. VerifiedView (~L12-25,192) and ReferralsView (~L59-100) lack empty states.",
+      "relevantPaths": [
+        "ios/GradeThread/Tools/ToolsHubView.swift",
+        "ios/GradeThread/Verified/VerifiedView.swift",
+        "ios/GradeThread/Referrals/ReferralsView.swift",
+        "ios/GradeThread/ContentView.swift"
+      ]
+    },
+    {
+      "id": "US-1130",
+      "title": "iOS: wire or remove the aiEnrich bulk action",
+      "description": "As an iOS user, I want the AI bulk-enrich action to either work or not appear so that the app doesn't carry a dead, half-advertised AI capability.",
+      "acceptanceCriteria": [
+        "Either implement the .aiEnrich bulk action executor (AI pass over selected items, matching the web AI-enrich behavior) and add it to the visible action sets, OR remove the dead enum case and its references",
+        "If implemented: loading/progress + error handling for the batch; tenant-safe edge calls",
+        "python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1077,
+      "passes": false,
+      "notes": "[P2][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] BulkAction.swift (~L9-12,97-101): .aiEnrich exists but is omitted from all visible action sets because the executor is a stub. AI enrich exists on web; iOS markets AI heavily, so the absence is a parity gap. Decide build-vs-remove.",
+      "relevantPaths": [
+        "ios/GradeThread/Inventory/BulkAction.swift",
+        "ios/GradeThread/Inventory/BulkActionExecutor.swift"
+      ]
+    },
+    {
+      "id": "US-1131",
+      "title": "Web: standardize loading/error/empty state primitives across feature pages",
+      "description": "As a user, I want consistent loading, error (with retry), and empty states across the app so that failures are visible and recoverable instead of silently swallowed.",
+      "acceptanceCriteria": [
+        "Add missing error states (with retry, using components/ui/error-state.tsx) to referrals.tsx, flipdesk/repricing.tsx, and flipdesk/scheduled-drops.tsx where isError is currently unhandled",
+        "Add page-level loading/error/empty wrappers to referral-leaderboard.tsx and structured loading/error states to flipdesk/autolister.tsx (flagship Pro flow currently toast-only)",
+        "Standardize off-pattern states in verified-seller.tsx, verified-directory.tsx, and flipdesk/offers.tsx onto the shared EmptyState/ErrorState/LoadingRegion primitives",
+        "build + tsc + eslint clean"
+      ],
+      "priority": 1076,
+      "passes": false,
+      "notes": "[P2][Web/UX][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Audit found referrals.tsx (~L249), repricing.tsx (~L137/165), scheduled-drops.tsx (~L89/267) with no error branch; referral-leaderboard.tsx bare shell; autolister.tsx (~2100 lines) toast-only. Primitives exist (components/ui/error-state.tsx). Verify exact lines.",
+      "relevantPaths": [
+        "src/pages/referrals.tsx",
+        "src/pages/flipdesk/repricing.tsx",
+        "src/pages/flipdesk/scheduled-drops.tsx",
+        "src/pages/referral-leaderboard.tsx",
+        "src/pages/flipdesk/autolister.tsx",
+        "src/components/ui/error-state.tsx"
+      ]
+    },
+    {
+      "id": "US-1132",
+      "title": "Docs: re-baseline FLIPDESK_RESELLER_GAPS.md against shipped code",
+      "description": "As a contributor relying on the UI-honesty contract, I want FLIPDESK_RESELLER_GAPS.md to reflect what's actually shipped so that the standing 'what's out of scope' contract isn't dangerously wrong.",
+      "acceptanceCriteria": [
+        "Each gap in FLIPDESK_RESELLER_GAPS.md is re-triaged against current code; items now shipped (Best Offer responses, returns/cancellations, buyer messages, Promoted-Listings rate push, Send-Offer-to-Watchers — US-1040/1041/1043/1049) are marked done with file refs",
+        "Genuinely-remaining gaps are restated accurately; the doc's 'last reviewed' date is updated",
+        "No code change required beyond the doc unless a wired-but-unsurfaced feature is found, in which case file a follow-up"
+      ],
+      "priority": 1075,
+      "passes": false,
+      "notes": "[P2][Docs/Honesty][EPIC: Web↔iOS Gaps & Polish 2026-06-20] FLIPDESK_RESELLER_GAPS.md (2026-06-12) lists shipped features as out-of-scope: flipdesk-ebay.ts now registers /negotiation/offers, /negotiation/send-offer, /returns/:id/decide|refund, /cancellations/:id/approve|reject; ebay-marketing.ts has real rate push; offers.tsx + post-sale.tsx routed. CLAUDE.md treats this doc as the honesty contract.",
+      "relevantPaths": [
+        "FLIPDESK_RESELLER_GAPS.md",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts",
+        "services/edge-functions/src/lib/ebay-marketing.ts"
+      ]
+    },
+    {
+      "id": "US-1133",
+      "title": "iOS: actionable notification buttons (accept offer / mark shipped / reconnect)",
+      "description": "As an iOS user, I want time-sensitive notifications to carry inline actions so that I can act (accept/counter an offer, mark shipped, reconnect eBay) without opening the app and navigating.",
+      "acceptanceCriteria": [
+        "NotificationCategories.swift registers relevant inline actions: Accept/Counter on offer notifications, Mark shipped on shipping notifications, Reconnect on eBay token-expiry notifications",
+        "NotificationDelegate handles each action (calling the appropriate edge endpoint), with auth/foreground handling as needed",
+        "Actions are no-ops/hidden for categories where the backend send isn't live yet (see US about APNs sends); python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1059,
+      "passes": false,
+      "notes": "[P3][iOS/Notifications][EPIC: Web↔iOS Gaps & Polish 2026-06-20] NotificationCategories.swift registers every category with actions:[] (~L71-78); tap-routing is solid but no inline actions. Offers/shipping/token-expiry are exactly what notification actions exist for. Note ~L14-21: several categories depend on backend APNs sends that may not be live yet — confirm before relying on them.",
+      "relevantPaths": [
+        "ios/GradeThread/Notifications/NotificationCategories.swift",
+        "ios/GradeThread/Notifications/NotificationDelegate.swift"
+      ]
+    },
+    {
+      "id": "US-1134",
+      "title": "iOS: Siri/App Intents/Shortcuts + Lock Screen widgets",
+      "description": "As an iOS power user, I want Shortcuts/Siri intents and Lock Screen/StandBy widgets for key reseller actions so that I get fast, glanceable access that differentiates the app.",
+      "acceptanceCriteria": [
+        "App Intents/AppShortcuts for high-value intents (e.g. 'Snap to value', 'Add an item', 'What sold today') with Spotlight/Siri exposure",
+        "GradeThreadWidget adds Lock Screen accessory families (.accessoryRectangular/.accessoryInline/.accessoryCircular) and a StandBy treatment using the existing WidgetSnapshot data",
+        "python3 ios/Scripts/no-ungated-print.py passes; no secrets in intents/widget code"
+      ],
+      "priority": 1058,
+      "passes": false,
+      "hard": true,
+      "notes": "[P3][iOS/Platform][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Greenfield: grep AppIntent/AppShortcut/SiriKit in ios/ = 0. GradeThreadWidget declares only .systemSmall/.systemMedium (~L28); Shared/WidgetSnapshot.swift data already exists. Cheap activation/retention win.",
+      "relevantPaths": [
+        "ios/GradeThreadWidget/GradeThreadWidget.swift",
+        "ios/Shared/WidgetSnapshot.swift",
+        "ios/GradeThread/App.swift"
+      ]
+    },
+    {
+      "id": "US-1135",
+      "title": "iOS: general Automations/rules surface (beyond repricing)",
+      "description": "As a power reseller on iOS, I want a general automations surface (triggers → actions) so that I have parity with the web Automations page rather than only repricing rules.",
+      "acceptanceCriteria": [
+        "A native automations surface lists/creates/edits/toggles trigger→action rules using the same edge automations endpoints web uses",
+        "Reuses the existing repricing-rules UX patterns where sensible; loading/empty/error states",
+        "Discoverable from Tools hub; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1057,
+      "passes": false,
+      "notes": "[P3][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Web flipdesk/automations.tsx (triggers, A/B, actions). iOS has Repricing rules only — no general automations. Confirm the edge automations API surface (flipdesk-automations.ts) before building.",
+      "relevantPaths": [
+        "src/pages/flipdesk/automations.tsx",
+        "services/edge-functions/src/routes/flipdesk-automations.ts",
+        "ios/GradeThread/Pricing/RepricingRulesView.swift"
+      ]
+    },
+    {
+      "id": "US-1136",
+      "title": "iOS: native support ticket inbox + threads",
+      "description": "As an iOS user, I want a native support ticket inbox with threaded replies so that I can get help in-app instead of only a feedback sheet and a Safari link to /help.",
+      "acceptanceCriteria": [
+        "A native ticket list + thread view backed by the existing support-tickets edge endpoints (create, list, reply)",
+        "Keeps the existing FeedbackSheet as a quick-capture entry that can open/attach to a ticket",
+        "Loading/empty/error states; push/notification routing to a ticket where applicable; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1056,
+      "passes": false,
+      "notes": "[P3][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Web support-tickets.tsx (full threads via edge, done US-900). iOS Settings has only FeedbackSheet + Safari link to /help — no native ticket inbox.",
+      "relevantPaths": [
+        "src/pages/support-tickets.tsx",
+        "services/edge-functions/src/routes/support-tickets.ts",
+        "ios/GradeThread/Feedback/FeedbackSheet.swift"
+      ]
+    },
+    {
+      "id": "US-1137",
+      "title": "Passport: implement or remove the orphaned 'fingerprinted' event",
+      "description": "As a maintainer, I want the 'fingerprinted' garment event to either be emitted by a real image-fingerprint pipeline or removed so that the data model has no dead, misleading enum value.",
+      "acceptanceCriteria": [
+        "Decide: implement image-fingerprinting (emit 'fingerprinted' garment_events for anti-fraud/dedup) OR remove the enum value and the passport.ts claim that it's written",
+        "If implemented: a migration-safe path, tenant-scoping, and the event surfaces appropriately (without leaking PII) on the public timeline",
+        "If removed: update passport.ts (~L47) comment and any references; deno check/lint/test pass"
+      ],
+      "priority": 1055,
+      "passes": false,
+      "notes": "[P3][Passport][EPIC: Web↔iOS Gaps & Polish 2026-06-20] garment_events enum (00256_garment_passport_core.sql) defines 'fingerprinted' and passport.ts (~L47) claims it's written, but nothing inserts it — only 'graded' and 'sold' are emitted. If touching DB enum, follow migration conventions (idempotent + EXPECTED_SCHEMA_VERSION bump + applied_migrations footer).",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/passport.ts",
+        "supabase/migrations/00256_garment_passport_core.sql"
+      ]
+    },
+    {
+      "id": "US-1138",
+      "title": "Web: unify feature naming ('Snap to Value' vs 'What's it worth?')",
+      "description": "As a user, I want one consistent public name for the snap-valuation feature so that nav, routes, and marketing don't contradict each other.",
+      "acceptanceCriteria": [
+        "Pick one canonical public name and apply it across sidebar label, page component name/comments, marketing route copy, and any in-app references (currently SnapToValuePage / route /dashboard/snap / sidebar 'What's it worth?' / marketing /whats-it-worth)",
+        "Keep existing route URLs stable (or add redirects) to avoid breaking SEO/links",
+        "build + tsc + eslint clean"
+      ],
+      "priority": 1054,
+      "passes": false,
+      "notes": "[P3][Web/Copy][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Same feature is named inconsistently: SnapToValuePage, sidebar 'What's it worth?' (sidebar.tsx ~L84), marketing /whats-it-worth, comment 'Snap-to-Value' in new-submission.tsx.",
+      "relevantPaths": [
+        "src/pages/snap.tsx",
+        "src/pages/marketing/whats-it-worth.tsx",
+        "src/components/dashboard/sidebar.tsx"
+      ]
+    },
+    {
+      "id": "US-1139",
+      "title": "FlipDesk: make Shopify a first-class cross-listing target in the composer",
+      "description": "As a reseller, I want Shopify to be a selectable cross-listing target in the composer fan-out so that the fully-built Shopify connector isn't sitting dark.",
+      "acceptanceCriteria": [
+        "Confirm Shopify is exposed and selectable in composer.tsx's API_CROSS_LISTING_PLATFORMS fan-out and dispatched in flipdesk-listings.ts (not just registered in the adapter index)",
+        "Publish/update/delist round-trips through marketplace-adapters/shopify.ts; honest gating if Shopify install isn't connected",
+        "build + tsc + eslint + deno checks clean"
+      ],
+      "priority": 1053,
+      "passes": false,
+      "notes": "[P3][FlipDesk/Marketplaces][EPIC: Web↔iOS Gaps & Polish 2026-06-20] flipdesk-shopify.ts + marketplace-adapters/shopify.ts fully wired (OAuth/publish/orders, done US-709/710/711) and registry includes shopify, but composer comments still say 'eBay publishes; others stay local drafts'. Verify it's truly first-class in the fan-out; Cross_Listing.md ranks Shopify the top second marketplace.",
+      "relevantPaths": [
+        "src/pages/flipdesk/composer.tsx",
+        "services/edge-functions/src/routes/flipdesk-listings.ts",
+        "services/edge-functions/src/lib/marketplace-adapters/shopify.ts"
+      ]
+    },
+    {
+      "id": "US-1140",
+      "title": "iOS: in-place retry buttons on Negotiation & PostSale error states",
+      "description": "As an iOS user, I want an explicit 'Try again' button on Negotiation and PostSale error states so that I can recover without relying on undiscoverable pull-to-refresh.",
+      "acceptanceCriteria": [
+        "NegotiationInboxView and PostSaleView error states show an explicit Retry button (in addition to .refreshable)",
+        "Retry re-runs the failed load and clears the error on success; python3 ios/Scripts/no-ungated-print.py passes"
+      ],
+      "priority": 1052,
+      "passes": false,
+      "notes": "[P3][iOS/UX][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Both show full-screen error ContentUnavailableViews but rely on pull-to-refresh, which is undiscoverable from an error state that fills the screen.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
+        "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift"
+      ]
+    },
+    {
+      "id": "US-1141",
+      "title": "Referrals/affiliate: decision spike on cash payouts vs credits-only",
+      "description": "As the product owner, I want a deliberate decision (with a spike) on whether the affiliate/referral program should pay cash so that we either build it correctly (Stripe Connect, payout ledger) or document credits-only as intentional.",
+      "acceptanceCriteria": [
+        "Document the current state: referrals.ts + affiliate.ts route all rewards through grant_grade_credits() (credits only); no affiliate_payouts ledger or Stripe Connect for referrers",
+        "Produce a go/no-go recommendation; if go, outline the ledger + Stripe Connect design (mirroring the consignor pattern) and file follow-up stories; if no-go, document credits-only as intentional and ensure marketing/copy matches",
+        "No production code change required to close this spike beyond the decision doc"
+      ],
+      "priority": 1051,
+      "passes": false,
+      "notes": "[P3][Growth/Decision][EPIC: Web↔iOS Gaps & Polish 2026-06-20] A real affiliate program (vs in-app credit) needs money movement; mirror the consignor Stripe Connect pattern. Decide scope before building.",
+      "relevantPaths": [
+        "services/edge-functions/src/routes/referrals.ts",
+        "services/edge-functions/src/routes/affiliate.ts"
+      ]
     }
   ]
 }
