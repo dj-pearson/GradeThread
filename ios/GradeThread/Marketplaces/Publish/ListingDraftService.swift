@@ -124,6 +124,33 @@ struct ListingDraftService {
                 .execute()
         }
     }
+
+    /// US-816 — push a new price onto the item's most-recent eBay *draft*
+    /// listing, if one exists, so a bulk price suggestion flows through to the
+    /// pending listing. Returns true when a draft was found and updated. Only
+    /// touches `draft` rows — an active/published listing reprices via eBay
+    /// revise, never a direct write. RLS scopes the update to the caller.
+    @discardableResult
+    func updateDraftPrice(inventoryItemId: String, price: Double) async throws -> Bool {
+        let existing: [ListingIdRow] = try await supabase
+            .from("listings")
+            .select("id")
+            .eq("inventory_item_id", value: inventoryItemId)
+            .eq("platform", value: "ebay")
+            .eq("listing_status", value: "draft")
+            .order("created_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+        guard let row = existing.first else { return false }
+        struct PriceUpdate: Encodable { let listing_price: Double }
+        try await supabase
+            .from("listings")
+            .update(PriceUpdate(listing_price: price))
+            .eq("id", value: row.id)
+            .execute()
+        return true
+    }
 }
 
 /// The editable fields the composer collects before publishing.

@@ -70,6 +70,7 @@ struct MoneyView: View {
                 }
                 fulfillmentCard
                 repricingCard
+                priceSuggestionsCard
                 insightsCard
                 reconciliationCard
                 expensesCard
@@ -257,6 +258,36 @@ struct MoneyView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("Condition-aware price suggestions for your active listings")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Price suggestions (US-816)
+
+    private var priceSuggestionsCard: some View {
+        NavigationLink {
+            PriceSuggestionsView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "wand.and.stars")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Price suggestions")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Bulk eBay-comp prices for items with no price or stale listings")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
