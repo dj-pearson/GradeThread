@@ -403,7 +403,7 @@
         "ios CI passes; edge test covers partial-failure persistence"
       ],
       "priority": 826,
-      "passes": false,
+      "passes": true,
       "notes": "[EPIC: Aspect Autofill 2026-06-11] From 2026-06-11 photo-AI audit. Depends on US-821 (attributes store + extended schema). The one-call prep mechanism already exists in flipdesk-ai.ts (two-pass extract -> suggestCategories -> getCategoryAspects -> extractEbayAspects); this story hardens when it runs and what survives failure."
     },
     {

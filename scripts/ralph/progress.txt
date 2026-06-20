@@ -3654,3 +3654,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 12:24:55 PM
 ---
+## US-826: iOS capture: high-value attribute confirm chips + guaranteed one-call eBay prep
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 12:43:28 PM
+---
