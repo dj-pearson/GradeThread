@@ -583,6 +583,21 @@ memory — not a progress log (the harness records progress separately).
   edge `ebayPublicPhotoUrl` helper in `flipdesk-ebay.ts` mirrors the sensitive
   set so private photos are skipped (not turned into a 404 item-photos URL).
 
+## One-call eBay prep / aspects (US-826)
+- `runEbayAspectsPhase` (flipdesk-ai.ts /extract) persistence is now routed
+  through the PURE `buildEbayPrepUpdate` (lib/ebay-prep.ts): a PARTIAL prep
+  (category resolved but aspects unfilled — AI budget exhausted OR extraction
+  threw) sets `inventory_items.ebay_aspects_refill_needed=true` (00299) so the
+  deterministic NO-AI refill (`deriveAspectsFromItem` in publish-prep /
+  `/category/:id/derive-aspects`, US-824) recovers it; a filled/no-specs prep
+  clears the flag. Never re-invoke AI to recover a partial prep.
+- iOS `AIItemFieldWriter.write` (auto-apply) REPLACES the whole
+  `ai_field_sources` column. So the US-826 attribute-confirm write
+  (`writeAttributes`, read-modify-merge of attributes + ai_field_sources jsonb
+  via `[String: AnyJSON]`) MUST run AFTER auto-apply, or the core-field sources
+  clobber the attribute sources. Only `/extract` is called from iOS (always with
+  a required `item_id`); AutoLister does its eBay prep server-side (ai-listing.ts).
+
 ## DB schema ownership gotchas
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A

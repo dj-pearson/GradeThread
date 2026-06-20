@@ -24,6 +24,11 @@ struct AIExtractView: View {
     @State private var store = AIExtractStore()
     @State private var service = AIExtractService()
     @State private var isApplying = false
+    /// US-826: true while the high-value attribute confirm chips are showing,
+    /// after extraction and before auto-apply.
+    @State private var confirmingAttributes = false
+    /// The user's confirmed high-value attributes, written during auto-apply.
+    @State private var confirmedAttributes: [AIAttributeConfirm.Result] = []
     private static let waitTimeoutSeconds: Double = 60
 
     var body: some View {
@@ -48,9 +53,18 @@ struct AIExtractView: View {
         case .extracting:
             extracting
         case .ready:
-            // The result is auto-applied in `runFlow`; this is just the brief
-            // "writing it onto the item" state before we navigate to the canvas.
-            applying
+            if confirmingAttributes {
+                // US-826: pause on the high-value confirm chips before writing.
+                AIAttributeConfirmView(
+                    suggestions: store.attributes,
+                    onConfirm: handleAttributeConfirm,
+                    onSkip: handleAttributeSkip
+                )
+            } else {
+                // The result is auto-applied in `runFlow`; this is the brief
+                // "writing it onto the item" state before we navigate to the canvas.
+                applying
+            }
         case .failed(let message):
             failed(message: message)
         }
@@ -147,7 +161,41 @@ struct AIExtractView: View {
         }
         await waitForUploads()
         await runExtract()
+        // US-826: if the AI inferred any high-value attributes (department,
+        // size type, vintage, condition tier), pause on the confirm chips
+        // before auto-applying. The confirm/skip handlers resume the flow.
+        if case .ready = store.phase, store.hasAttributesToConfirm {
+            confirmingAttributes = true
+            return
+        }
         await autoApplyIfReady()
+    }
+
+    /// US-826: user confirmed the high-value chips — record their decisions and
+    /// resume into auto-apply (which writes them after the core fields so the
+    /// merged `ai_field_sources` survives).
+    private func handleAttributeConfirm(_ results: [AIAttributeConfirm.Result]) {
+        confirmedAttributes = results
+        confirmingAttributes = false
+        Task { await autoApplyIfReady() }
+    }
+
+    /// US-826: user skipped the chips — record every AI-suggested high-value
+    /// field as rejected (accepted = false) so the model isn't trusted blindly,
+    /// then resume.
+    private func handleAttributeSkip() {
+        confirmedAttributes = AIAttributeConfirm.fields.compactMap { field in
+            guard let suggestion = store.attributes[field.key],
+                  let first = suggestion.values.first, !first.isEmpty else { return nil }
+            return AIAttributeConfirm.Result(
+                key: field.key,
+                value: nil,
+                source: suggestion.source,
+                confidence: suggestion.confidence
+            )
+        }
+        confirmingAttributes = false
+        Task { await autoApplyIfReady() }
     }
 
     /// Polls the upload store until every queued photo for this item lands
@@ -273,12 +321,32 @@ struct AIExtractView: View {
         if review.hasSomethingToReview {
             AIFillReviewStore.shared.register(review)
         }
+
+        // US-826: persist the confirmed high-value attributes LAST so its
+        // read-modify-write merges on top of the core-field `ai_field_sources`
+        // the auto-apply just wrote (rather than clobbering them). Best-effort.
+        if !confirmedAttributes.isEmpty {
+            do {
+                try await AIItemFieldWriter.writeAttributes(
+                    itemId: inventoryItemId,
+                    results: confirmedAttributes
+                )
+            } catch {
+                Telemetry.breadcrumb(
+                    "AI attribute confirm write failed: \(error.localizedDescription)",
+                    category: "ai-extract"
+                )
+            }
+        }
+
         Telemetry.event(TelemetryEvent.aiExtractUsed, props: [
             "fields_accepted": review.applied.count,
             "measurements_accepted": review.measurementsApplied ? review.measurements.count : 0,
             "auto_applied": true,
             "low_confidence_pending": review.lowConfidence.count,
             "live_text_fallback": review.usedLiveTextFallback,
+            "attributes_confirmed": confirmedAttributes.filter { $0.accepted }.count,
+            "attributes_rejected": confirmedAttributes.filter { !$0.accepted }.count,
         ])
         complete()
     }

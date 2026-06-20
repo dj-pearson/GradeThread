@@ -20,6 +20,7 @@ import {
   SIZE_ESTIMATE_LOW_CONFIDENCE,
 } from "../lib/ai-size-estimate.ts";
 import { getCategoryAspects, suggestCategories } from "../lib/ebay-client.ts";
+import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
 import {
   classifyPhotoTypes,
   extractMatchHints,
@@ -639,6 +640,13 @@ interface EbayAspectsBlock {
   aspects: Record<string, string[]>;
   /** Raw per-aspect AI suggestions with confidence + source. */
   suggestions: Record<string, AspectValueSuggestion>;
+  /**
+   * US-826: true when the category resolved but aspects could NOT be filled
+   * (AI budget exhausted or aspect extraction failed). The item is flagged
+   * (inventory_items.ebay_aspects_refill_needed) so the specifics editor /
+   * publish-prep deterministically refills aspects with no further AI.
+   */
+  refill_needed: boolean;
 }
 
 function sanitizeAspectMap(raw: unknown): Record<string, string[]> {
@@ -701,9 +709,11 @@ async function runEbayAspectsPhase(args: {
   // Persist the resolved category even if there's nothing for the AI to do —
   // the picker pre-selecting the right category is half the win.
   if (aiSpecs.length === 0) {
+    // Complete prep: this category exposes no fillable specifics. Clear any
+    // stale refill flag — there is nothing for a deterministic refill to do.
     await supabaseAdmin
       .from("inventory_items")
-      .update({ ebay_category_id: categoryId })
+      .update(buildEbayPrepUpdate({ categoryId, status: "no_specs" }))
       .eq("id", itemId)
       .eq("user_id", userId);
     return {
@@ -712,17 +722,19 @@ async function runEbayAspectsPhase(args: {
         category_path: categoryPath,
         aspects: existingAspects,
         suggestions: {},
+        refill_needed: false,
       },
       actionsSpent: 0,
     };
   }
 
   // 3. Second model pass — billable, so reserve another AI action. If the
-  //    budget is exhausted, persist the category alone and stop.
+  //    budget is exhausted, persist the category alone, FLAG the item for a
+  //    later deterministic (non-AI) refill, and stop (US-826).
   if (!(await reserveAiAction(userId, limit))) {
     await supabaseAdmin
       .from("inventory_items")
-      .update({ ebay_category_id: categoryId })
+      .update(buildEbayPrepUpdate({ categoryId, status: "budget_exhausted" }))
       .eq("id", itemId)
       .eq("user_id", userId);
     return {
@@ -731,6 +743,7 @@ async function runEbayAspectsPhase(args: {
         category_path: categoryPath,
         aspects: existingAspects,
         suggestions: {},
+        refill_needed: true,
       },
       actionsSpent: 0,
     };
@@ -766,9 +779,12 @@ async function runEbayAspectsPhase(args: {
       "[flipdesk-ai] one-call aspect extraction failed:",
       err instanceof Error ? err.message : String(err)
     );
+    // Partial prep: category survived but aspects did not. Persist the category
+    // and FLAG the item so the specifics editor / publish-prep refills aspects
+    // deterministically (no AI) on next open (US-826).
     await supabaseAdmin
       .from("inventory_items")
-      .update({ ebay_category_id: categoryId })
+      .update(buildEbayPrepUpdate({ categoryId, status: "extraction_failed" }))
       .eq("id", itemId)
       .eq("user_id", userId);
     return {
@@ -777,6 +793,7 @@ async function runEbayAspectsPhase(args: {
         category_path: categoryPath,
         aspects: existingAspects,
         suggestions: {},
+        refill_needed: true,
       },
       actionsSpent: 0,
     };
@@ -792,11 +809,13 @@ async function runEbayAspectsPhase(args: {
   }
   await supabaseAdmin
     .from("inventory_items")
-    .update({
-      ebay_category_id: categoryId,
-      ebay_aspects: merged,
-      ai_generated_aspects_at: new Date().toISOString(),
-    })
+    .update(
+      buildEbayPrepUpdate({
+        categoryId,
+        status: "filled",
+        mergedAspects: merged,
+      })
+    )
     .eq("id", itemId)
     .eq("user_id", userId);
 
@@ -827,6 +846,7 @@ async function runEbayAspectsPhase(args: {
       category_path: categoryPath,
       aspects: merged,
       suggestions: aspectResult.suggestions,
+      refill_needed: false,
     },
     actionsSpent: 1,
   };

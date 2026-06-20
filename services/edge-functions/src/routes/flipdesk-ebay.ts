@@ -6599,9 +6599,16 @@ export async function assemblePublishContext(
             })
             .eq("id", listing.id);
         } else {
+          // US-826: this deterministic (no-AI) gap-fill IS the recovery path
+          // for a partial one-call prep — clear the refill flag now that the
+          // item's aspects are populated from its own columns.
           await supabaseAdmin
             .from("inventory_items")
-            .update({ ebay_aspects: aspectMap, ebay_aspect_sources: sources })
+            .update({
+              ebay_aspects: aspectMap,
+              ebay_aspect_sources: sources,
+              ebay_aspects_refill_needed: false,
+            })
             .eq("id", itemId);
         }
       }

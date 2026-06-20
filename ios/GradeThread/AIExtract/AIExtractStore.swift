@@ -43,6 +43,19 @@ final class AIExtractStore {
     /// the item during extraction. Display-only here — the specifics editor
     /// reads the saved values.
     var ebayPrep: AIExtractEbayBlock?
+    /// US-821 canonical attributes captured this pass (department, size_type,
+    /// vintage, …). Drives the US-826 high-value confirm chips.
+    var attributes: [String: AttributeSuggestion] = [:]
+
+    /// US-826: true when the AI produced at least one of the high-value
+    /// attributes (department / size_type / vintage / condition tier) worth
+    /// confirming before we land on the item.
+    var hasAttributesToConfirm: Bool {
+        AIAttributeConfirm.keys.contains { key in
+            guard let first = attributes[key]?.values.first else { return false }
+            return !first.isEmpty
+        }
+    }
 
     // MARK: - Lifecycle
 
@@ -117,6 +130,7 @@ final class AIExtractStore {
         // Measurements default-on per AC.
         acceptMeasurements = !measurements.isEmpty
         ebayPrep = response.ebay
+        attributes = response.attributes
 
         phase = .ready(Result(
             entries: entries,

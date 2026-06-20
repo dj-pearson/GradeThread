@@ -204,6 +204,88 @@ enum AIItemFieldWriter {
             .execute()
     }
 
+    // MARK: - Canonical attributes (US-826)
+
+    /// The `attributes` + `ai_field_sources` jsonb as they stand, so a
+    /// confirm-chip write can read-modify-write without clobbering sibling keys
+    /// (e.g. `features`, or core-field sources the auto-apply just wrote).
+    /// Tolerant: a missing/odd column degrades to an empty map rather than
+    /// throwing the whole read.
+    private struct AttributesSnapshot: Decodable {
+        var attributes: [String: AnyJSON]
+        var aiFieldSources: [String: AnyJSON]
+
+        private enum CodingKeys: String, CodingKey {
+            case attributes
+            case aiFieldSources = "ai_field_sources"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            attributes = (try? c.decode([String: AnyJSON].self, forKey: .attributes)) ?? [:]
+            aiFieldSources = (try? c.decode([String: AnyJSON].self, forKey: .aiFieldSources)) ?? [:]
+        }
+    }
+
+    private struct AttributeWrite: Encodable {
+        let attributes: [String: AnyJSON]
+        let aiFieldSources: [String: AnyJSON]
+        let aiEnrichedAt: String
+
+        private enum CodingKeys: String, CodingKey {
+            case attributes
+            case aiFieldSources = "ai_field_sources"
+            case aiEnrichedAt = "ai_enriched_at"
+        }
+    }
+
+    /// Persists the user's confirmed high-value attributes (US-826) onto
+    /// `inventory_items.attributes`, recording `ai_field_sources[key] =
+    /// { source, confidence, accepted }`. A rejected/cleared field (value nil)
+    /// is removed from `attributes` and recorded `accepted: false`. Reads the
+    /// current jsonb first and merges so sibling attributes + the core-field
+    /// sources written by the auto-apply survive.
+    static func writeAttributes(
+        itemId: String,
+        results: [AIAttributeConfirm.Result]
+    ) async throws {
+        guard !results.isEmpty else { return }
+
+        let rows: [AttributesSnapshot] = try await SupabaseShared.client
+            .from("inventory_items")
+            .select("attributes,ai_field_sources")
+            .eq("id", value: itemId)
+            .limit(1)
+            .execute()
+            .value
+        var attrs = rows.first?.attributes ?? [:]
+        var sources = rows.first?.aiFieldSources ?? [:]
+
+        for result in results {
+            if let value = result.value, !value.isEmpty {
+                attrs[result.key] = .string(value)
+            } else {
+                attrs.removeValue(forKey: result.key)
+            }
+            sources[result.key] = .object([
+                "source": .string(result.source),
+                "confidence": .double(result.confidence),
+                "accepted": .bool(result.accepted),
+            ])
+        }
+
+        let update = AttributeWrite(
+            attributes: attrs,
+            aiFieldSources: sources,
+            aiEnrichedAt: ISO8601DateFormatter().string(from: .now)
+        )
+        try await SupabaseShared.client
+            .from("inventory_items")
+            .update(update)
+            .eq("id", value: itemId)
+            .execute()
+    }
+
     /// Restores columns to their pre-fill values (nil ⇒ SQL NULL), optionally
     /// clearing measurements and the AI-source bookkeeping. Used by undo.
     static func revert(
