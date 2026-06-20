@@ -3554,3 +3554,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  9:59:05 PM
 ---
+## US-932: Internal behavioral event stream (trigger substrate)
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026 10:13:31 PM
+---
