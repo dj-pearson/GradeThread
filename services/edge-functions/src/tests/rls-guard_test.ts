@@ -198,6 +198,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // topic selection + the refill cron); the SPA never reads it. No tenant owner
   // column — operator-curated reference data, not user-owned tenant data.
   "email_topic_bank",
+  // US-916: product "What's New" changelog (migration 00291). RLS enabled,
+  // deny-all, read/written ONLY by the edge service-role client (admin CRUD +
+  // the assembler + auto-capture); the public feed is served by a service-role
+  // route hard-filtered to status='published', never anon RLS. No tenant owner
+  // column — operator-curated product release notes, not user-owned data.
+  "changelog_entries",
   // US-929: lifecycle email-journey engine tables (migration 00280). RLS enabled
   // with an explicit `revoke all from anon, authenticated` and zero policies by
   // design — read/written ONLY by the edge journey engine + the role-gated

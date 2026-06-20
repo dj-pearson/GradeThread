@@ -134,6 +134,22 @@ memory — not a progress log (the harness records progress separately).
   (once per period), not on send. New (pillar,angle) pairs not in the tuning catalog
   are un-biased until they earn data — graceful, by design.
 
+## Product changelog "What's New" (US-916)
+- The assembler's "what's new" now has TWO sources, in priority order: the
+  dedicated `changelog_entries` table (US-916, migration 00291; curated, audience-
+  gated, only `status='published'` rows) THEN `content_history_index` fills the
+  remaining slots. Pure policy in `lib/changelog.ts` (`audiencesForProduct` gates
+  flipdesk-only news away from grading-only issues; `selectUnsentChangelog`);
+  impure DB in `lib/changelog-job.ts`. Featured entries are stamped `featured_at`
+  AFTER copy persists so they aren't re-sent. Auto-capture (`autoCaptureChangelogDrafts`,
+  run weekly from the assembler + a manual admin trigger) drafts entries from
+  recently published blog posts — DRAFTS only (`source='auto'`, idempotent via the
+  `source_ref` unique index); an operator publishes them before they ever send.
+- `changelog_entries` is service-role-only (no user_id; in rls-guard SERVICE_ROLE_ONLY).
+  The string-concat `CHANGELOG_COLS` projection yields `GenericStringError`, so cast
+  insert/update `data` through `as unknown as ChangelogRow` (same trap as newsletter_issues).
+  Admin CRUD = `/api/admin/changelog`; public feed = `GET /api/changelog` (published only).
+
 ## Newsletter program (US-930 console)
 - The autonomous newsletter has NO dedicated issue/engine table before US-930 —
   US-931's `email_subscribers` + `newsletter_analytics` RPC was analytics only.

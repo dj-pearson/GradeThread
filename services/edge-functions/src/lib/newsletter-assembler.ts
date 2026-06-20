@@ -54,6 +54,12 @@ import {
   pickProductFocus,
   selectChangelogEntries,
 } from "./newsletter-changelog.ts";
+import { toWhatsNewEntry } from "./changelog.ts";
+import {
+  autoCaptureChangelogDrafts,
+  fetchUnsentChangelogForProduct,
+  markChangelogFeatured,
+} from "./changelog-job.ts";
 import { generateNewsletterCopy } from "./newsletter-copy.ts";
 import {
   resolveImageFromUrl,
@@ -444,25 +450,54 @@ export async function assembleNextIssue(
   const chosen = { topicId: dims.topic.id, styleId: dims.style.id, sendHour: dims.sendHour };
 
   // ── Step 1: changelog ("what's new") ──
+  // Two "what's new" sources, in priority order: (1) the dedicated US-916
+  // changelog_entries (curated product release notes, audience-gated), then
+  // (2) recently published blog/social content (content_history_index). The
+  // changelog entries are marked featured AFTER copy persists so they aren't
+  // repeated next week (AC4).
   let entries: ChangelogEntry[] = [];
   let featuredIds: string[] = [];
+  let changelogFeaturedIds: string[] = [];
   const reuseCopy = stepDone(steps, "copy") && !!row.subject && asSections(row.sections).length > 0;
   if (reuseCopy) {
     featuredIds = asStringArray(row.featured_content_ids);
   } else {
     try {
-      const [pool, alreadyFeatured] = await Promise.all([
-        fetchChangelogPool(settings.changelogLookbackDays, nowMs),
-        loadFeaturedContentIds(),
-      ]);
-      entries = selectChangelogEntries(pool, alreadyFeatured, dims.productFocus, MAX_WHATS_NEW);
-      featuredIds = entries.map((e) => e.id);
+      // US-916: draft changelog entries from newly published blog posts for
+      // human-light curation (best-effort; drafts never auto-send).
+      await autoCaptureChangelogDrafts(nowMs).catch(() => 0);
+
+      // (1) Curated, audience-gated changelog entries — these take priority.
+      const changelogRows = await fetchUnsentChangelogForProduct(
+        dims.productFocus,
+        MAX_WHATS_NEW,
+      );
+      changelogFeaturedIds = changelogRows.map((r) => r.id);
+
+      // (2) Fill any remaining slots from the published-content history.
+      const remaining = Math.max(0, MAX_WHATS_NEW - changelogRows.length);
+      let contentEntries: ChangelogEntry[] = [];
+      if (remaining > 0) {
+        const [pool, alreadyFeatured] = await Promise.all([
+          fetchChangelogPool(settings.changelogLookbackDays, nowMs),
+          loadFeaturedContentIds(),
+        ]);
+        contentEntries = selectChangelogEntries(
+          pool,
+          alreadyFeatured,
+          dims.productFocus,
+          remaining,
+        );
+      }
+      featuredIds = contentEntries.map((e) => e.id);
+      entries = [...changelogRows.map(toWhatsNewEntry), ...contentEntries];
       markStep(steps, "changelog", "done", nowMs, `${entries.length} featured`);
     } catch (e) {
       // Non-fatal: no "what's new" ⇒ evergreen lean (AC3).
       markStep(steps, "changelog", "failed", nowMs, errMsg(e));
       entries = [];
       featuredIds = [];
+      changelogFeaturedIds = [];
     }
   }
 
@@ -504,6 +539,12 @@ export async function assembleNextIssue(
       audience: dims.audience,
       build_steps: steps,
     });
+
+    // US-916: copy is persisted, so claim the featured changelog entries — they
+    // won't be re-featured next week. Best-effort; never blocks the build.
+    if (changelogFeaturedIds.length > 0) {
+      await markChangelogFeatured(changelogFeaturedIds, issueId, nowMs);
+    }
   }
 
   // ── Step 3: imagery (best-effort, never throws; reuses if already built) ──

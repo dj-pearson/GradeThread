@@ -84,6 +84,8 @@ import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAnalyticsRoutes } from "./routes/admin-analytics.ts";
 import { adminDripRoutes } from "./routes/admin-drip.ts";
 import { adminNewsletterRoutes } from "./routes/admin-newsletter.ts";
+import { adminChangelogRoutes } from "./routes/admin-changelog.ts";
+import { changelogPublicRoutes } from "./routes/changelog.ts";
 import { adminJourneyRoutes } from "./routes/admin-journeys.ts";
 import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
@@ -919,6 +921,9 @@ app.route("/api/admin/drip", adminDripRoutes);
 // enforce action (ops alert + auto-pause on a critical bounce/complaint breach).
 // Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/newsletter", adminNewsletterRoutes);
+// US-916 product "What's New" changelog — admin CRUD + manual auto-capture
+// trigger. Admin JWT + AAL2 via the /api/admin/* group.
+app.route("/api/admin/changelog", adminChangelogRoutes);
 // US-929 lifecycle email-journey console — view journeys + per-step metrics +
 // enrollment roll-up; enable/disable each journey (super_admin + step-up + audited,
 // since enabling starts autonomous sends). Admin JWT + AAL2 via /api/admin/*.
@@ -1068,6 +1073,10 @@ app.route("/api/admin/ads", adminAdsRoutes);
 // handler enforces X-Internal-Job-Secret itself. Schedule on Coolify cron
 // (suggested weekly, e.g. 0 6 * * 1). No-ops cleanly when Google Ads env unset.
 app.post("/api/jobs/keyword-research", (c) => handleKeywordResearchCron(c));
+// US-916 public "What's New" changelog feed (anonymous; published entries only,
+// hard-filtered in the handler). OUTSIDE /api/admin so the wildcard admin-JWT
+// middleware doesn't intercept it.
+app.route("/api/changelog", changelogPublicRoutes);
 // US-628 user-facing announcement reads (authed, per-user scoped).
 app.route("/api/announcements", announcementRoutes);
 // US-629 referral program (authed, per-user scoped).

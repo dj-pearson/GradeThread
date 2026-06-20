@@ -191,6 +191,7 @@ const contentNavItems = [
   { to: "/admin/content/social", icon: MessageCircle, label: "Social", end: false },
   { to: "/admin/content/topics", icon: Lightbulb, label: "Topic Bank", end: false },
   { to: "/admin/content/knowledge", icon: BookOpen, label: "Knowledge", end: false },
+  { to: "/admin/content/changelog", icon: Megaphone, label: "What's New", end: false },
   { to: "/admin/content/analytics", icon: Activity, label: "Analytics", end: false },
   { to: "/admin/content/settings", icon: SlidersHorizontal, label: "Content Settings", end: false },
 ];
