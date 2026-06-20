@@ -44,7 +44,12 @@ export type FeatureKey =
   // US-930: autonomous newsletter program. The newsletter sender checks this;
   // the admin console's master kill-switch flips it off to halt all newsletter
   // sends instantly platform-wide (within the flag cache TTL).
-  | "newsletter";
+  | "newsletter"
+  // US-929: lifecycle email-journey engine (welcome / trial-nurture / win-back).
+  // The /api/jobs/journey-tick cron gates on this; flipping it off halts every
+  // journey send fleet-wide within the flag cache TTL. Individual journeys also
+  // gate on email_journeys.enabled (all seeded off).
+  | "lifecycle_journeys";
 
 // The full targeting rule for one flag (one feature_flags row).
 export interface FeatureFlagRule {

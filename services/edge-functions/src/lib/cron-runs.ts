@@ -81,6 +81,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "data-retention", label: "Data-retention purge", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/jobs/data-retention", recorded: true },
   { name: "condition-index-refresh", label: "Condition Index refresh", schedule: "0 8 * * *", category: "content", endpoint: "/api/jobs/condition-index-refresh", recorded: true },
   { name: "trial-expiry", label: "Trial-expiry downgrade", schedule: "15 0 * * *", category: "billing", endpoint: "/api/jobs/trial-expiry", recorded: true },
+  // US-929: daily lifecycle email-journey tick (welcome / trial-nurture / win-back).
+  { name: "journey-tick", label: "Lifecycle email-journey tick", schedule: "30 13 * * *", category: "growth", endpoint: "/api/jobs/journey-tick", recorded: true },
   { name: "abuse-scan", label: "Abuse-signal scan", schedule: "0 */6 * * *", category: "safety", endpoint: "/api/jobs/abuse-scan", recorded: true },
   { name: "listing-prompt-promote", label: "Listing-prompt auto-promote", schedule: "0 9 * * *", category: "grading", endpoint: "/api/jobs/listing-prompt-promote", recorded: true },
   { name: "ebay-pending-webhooks", label: "eBay parked-webhook drain", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/ebay-pending-webhooks", recorded: true },

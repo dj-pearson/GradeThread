@@ -2011,6 +2011,46 @@ export async function sendDripStepEmail(
   return { delivered: false, enqueued: true };
 }
 
+// ─── Lifecycle email journeys (US-929) ──────────────────────────────────────
+
+/**
+ * US-929: wrap a journey step's content fragment in the shared branded layout
+ * (header/footer + CAN-SPAM postal address). Pass `unsubscribeUrl` for a
+ * MARKETING journey (nurture / win-back) so the one-click unsubscribe footer
+ * renders; omit it for a lifecycle-TRANSACTIONAL journey (welcome). The fully
+ * rendered HTML is then handed to coordinateMarketingSend (marketing) or sent
+ * durably via sendJourneyTransactionalEmail (transactional).
+ */
+export function buildJourneyEmailHtml(
+  contentHtml: string,
+  opts: { unsubscribeUrl?: string } = {},
+): string {
+  return emailLayout(contentHtml, opts);
+}
+
+/**
+ * US-929: durable send for a lifecycle-TRANSACTIONAL journey step (e.g. the
+ * welcome series). Like every transactional email it is never frequency-capped
+ * and carries no marketing unsubscribe link, but it goes through the same
+ * suppression check + email_deliveries outbox retry as the rest of the
+ * transactional mail. `contentHtml` is the inner fragment (rendered by
+ * renderJourneyStep); this wraps it in the branded layout. Returns whether SMTP
+ * accepted the live attempt (a failure is enqueued for backoff retry).
+ */
+export async function sendJourneyTransactionalEmail(opts: {
+  to: string;
+  subject: string;
+  contentHtml: string;
+  category: string;
+}): Promise<boolean> {
+  return await sendEmail({
+    to: opts.to,
+    subject: opts.subject,
+    html: emailLayout(opts.contentHtml),
+    category: opts.category,
+  });
+}
+
 /**
  * Ad-hoc operator → customer message (US-582). This is TRANSACTIONAL support /
  * account mail: it omits the marketing unsubscribe link (you cannot opt out of

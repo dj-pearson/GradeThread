@@ -44,6 +44,7 @@ import {
   PlugZap,
   GitMerge,
   MailCheck,
+  Mailbox,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -133,6 +134,8 @@ const growthNavItems = [
   { to: "/admin/growth/newsletter", icon: MailCheck, label: "Newsletter Health", end: false },
   // US-930 newsletter admin console — program oversight + per-issue lifecycle.
   { to: "/admin/growth/newsletter-console", icon: Newspaper, label: "Newsletter Console", end: false },
+  // US-929 lifecycle email journeys — welcome / trial-nurture / win-back.
+  { to: "/admin/growth/journeys", icon: Mailbox, label: "Lifecycle Journeys", end: false },
 ];
 
 // Operations console (US-881) — platform automation surface. Same admin +

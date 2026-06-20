@@ -189,6 +189,17 @@ const SERVICE_ROLE_ONLY = new Set([
   // read keys), not user-owned data.
   "newsletter_issues",
   "newsletter_issue_recipients",
+  // US-929: lifecycle email-journey engine tables (migration 00280). RLS enabled
+  // with an explicit `revoke all from anon, authenticated` and zero policies by
+  // design — read/written ONLY by the edge journey engine + the role-gated
+  // /api/admin/journeys console via the service-role client; the SPA never reads
+  // the raw rows. email_journey_enrollments.user_id is the enrolled tenant, not a
+  // client read key (same model as drip_enrollments). The journeys/steps/sends
+  // tables have no user_id of their own.
+  "email_journeys",
+  "email_journey_steps",
+  "email_journey_enrollments",
+  "email_journey_step_sends",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

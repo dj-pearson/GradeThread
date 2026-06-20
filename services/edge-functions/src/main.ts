@@ -84,6 +84,7 @@ import { adminRevenueRoutes } from "./routes/admin-revenue.ts";
 import { adminAnalyticsRoutes } from "./routes/admin-analytics.ts";
 import { adminDripRoutes } from "./routes/admin-drip.ts";
 import { adminNewsletterRoutes } from "./routes/admin-newsletter.ts";
+import { adminJourneyRoutes } from "./routes/admin-journeys.ts";
 import { adminAiSpendRoutes } from "./routes/admin-ai-spend.ts";
 import { adminAiBudgetsRoutes } from "./routes/admin-ai-budgets.ts";
 import { adminMarketplaceConnectionsRoutes } from "./routes/admin-marketplace-connections.ts";
@@ -106,6 +107,7 @@ import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
+import { handleJourneyTickCron } from "./routes/jobs-journey-tick.ts";
 import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
@@ -907,6 +909,10 @@ app.route("/api/admin/drip", adminDripRoutes);
 // enforce action (ops alert + auto-pause on a critical bounce/complaint breach).
 // Admin JWT + AAL2 via the /api/admin/* group.
 app.route("/api/admin/newsletter", adminNewsletterRoutes);
+// US-929 lifecycle email-journey console — view journeys + per-step metrics +
+// enrollment roll-up; enable/disable each journey (super_admin + step-up + audited,
+// since enabling starts autonomous sends). Admin JWT + AAL2 via /api/admin/*.
+app.route("/api/admin/journeys", adminJourneyRoutes);
 // US-894 AI spend & token-usage dashboard — token/cost rollups by
 // model/feature/day from the ai_usage_events ledger (re-priced from the
 // config-driven price table). Admin JWT + AAL2 via the /api/admin/* group;
@@ -987,6 +993,10 @@ app.post("/api/jobs/appstore-expiry-sweep", (c) => handleAppstoreExpirySweepCron
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
+// US-929 daily lifecycle email-journey tick (welcome / trial-nurture / win-back).
+// OUTSIDE /api/* JWT groups; the handler enforces X-Internal-Job-Secret itself.
+// The /api/jobs/* middleware records the run to cron_runs automatically.
+app.post("/api/jobs/journey-tick", (c) => handleJourneyTickCron(c));
 // US-888 abuse-signal scan — populates the Trust & Safety queue with
 // cross-account phash photo-reuse + submission-velocity signals. Idempotent
 // (dedupe_key); the handler enforces X-Internal-Job-Secret itself.

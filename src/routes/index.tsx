@@ -205,6 +205,7 @@ const AdminDripAnalyticsPage = lazy(() => import("@/pages/admin/drip-analytics")
 const AdminDripBuilderPage = lazy(() => import("@/pages/admin/drip").then(m => ({ default: m.AdminDripBuilderPage })));
 const AdminNewsletterAnalyticsPage = lazy(() => import("@/pages/admin/newsletter-analytics").then(m => ({ default: m.AdminNewsletterAnalyticsPage })));
 const AdminNewsletterConsolePage = lazy(() => import("@/pages/admin/newsletter").then(m => ({ default: m.AdminNewsletterConsolePage })));
+const AdminJourneysPage = lazy(() => import("@/pages/admin/journeys").then(m => ({ default: m.AdminJourneysPage })));
 const AdminReconciliationPage = lazy(() => import("@/pages/admin/reconciliation").then(m => ({ default: m.AdminReconciliationPage })));
 const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
 const AdminPricingPage = lazy(() => import("@/pages/admin/pricing").then(m => ({ default: m.AdminPricingPage })));
@@ -522,6 +523,7 @@ export const router = createBrowserRouter([
               { path: "/admin/growth/drip/builder", element: <SuspenseWrapper><AdminDripBuilderPage /></SuspenseWrapper> },
               { path: "/admin/growth/newsletter", element: <SuspenseWrapper><AdminNewsletterAnalyticsPage /></SuspenseWrapper> },
               { path: "/admin/growth/newsletter-console", element: <SuspenseWrapper><AdminNewsletterConsolePage /></SuspenseWrapper> },
+              { path: "/admin/growth/journeys", element: <SuspenseWrapper><AdminJourneysPage /></SuspenseWrapper> },
               { path: "/admin/billing/reconciliation", element: <SuspenseWrapper><AdminReconciliationPage /></SuspenseWrapper> },
               { path: "/admin/system", element: <SuspenseWrapper><AdminSystemPage /></SuspenseWrapper> },
               { path: "/admin/jobs", element: <SuspenseWrapper><AdminJobsPage /></SuspenseWrapper> },
