@@ -15,6 +15,20 @@ final class PlanStore {
         let grade_credit_balance: Int?
         let grades_used_this_month: Int?
         let grade_reset_at: String?
+        let billing_source: String?
+        let subscription_status: String?
+
+        /// Statuses that keep a subscription entitled (mirrors the edge +
+        /// `PaywallStore.entitlingStatuses`).
+        private static let entitlingStatuses: Set<String> = ["active", "trialing", "past_due"]
+
+        /// True when an active App Store subscription owns the plan — manage it
+        /// natively (the system manage-subscriptions sheet) rather than routing
+        /// to web billing (which can't manage an App Store-billed sub).
+        var billedOnAppStore: Bool {
+            billing_source == "appstore"
+                && Self.entitlingStatuses.contains(subscription_status ?? "")
+        }
     }
 
     enum Phase: Equatable {
@@ -30,7 +44,7 @@ final class PlanStore {
         do {
             let rows: [PlanInfo] = try await SupabaseShared.client
                 .from("users")
-                .select("flipdesk_plan, grade_credit_balance, grades_used_this_month, grade_reset_at")
+                .select("flipdesk_plan, grade_credit_balance, grades_used_this_month, grade_reset_at, billing_source, subscription_status")
                 .limit(1)
                 .execute()
                 .value

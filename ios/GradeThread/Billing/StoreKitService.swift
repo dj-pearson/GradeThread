@@ -9,6 +9,22 @@ enum PurchaseOutcome: Equatable {
     case pending
     case verificationFailed
     case failed(String)
+    /// The StoreKit purchase verified locally but the edge refused to switch
+    /// billing to the App Store because an active Stripe (web) subscription
+    /// owns the plan (409 ACTIVE_STRIPE_SUBSCRIPTION). The user must cancel the
+    /// web subscription first — the UI routes them to web billing.
+    case stripeConflict
+}
+
+/// The user's current on-device auto-renewable subscription, derived from
+/// `Transaction.currentEntitlements`. StoreKit types stay hidden so
+/// `PaywallStore` (and its tests) remain StoreKit-free.
+struct SubscriptionEntitlement: Equatable {
+    let productId: String
+    /// When the current period ends — a renewal date (auto-renew on) or an
+    /// expiry date (auto-renew off).
+    let renewalDate: Date?
+    let willAutoRenew: Bool
 }
 
 /// The thin StoreKit boundary. Behind a protocol so `PaywallStore` is testable
@@ -20,6 +36,9 @@ protocol StoreKitProviding {
     /// Buy a product; on a verified transaction, report it to the edge + finish it.
     func purchase(productId: String, appAccountToken: UUID) async -> PurchaseOutcome
     func restore() async
+    /// The active auto-renewable subscription on this Apple ID, or nil if none.
+    /// Used to surface renewal date + auto-renew state in the management card.
+    func currentSubscription() async -> SubscriptionEntitlement?
 }
 
 /// `POST /api/payments/appstore/verify` response.
@@ -59,9 +78,9 @@ struct StoreKitService: StoreKitProviding {
             case .success(let verification):
                 switch verification {
                 case .verified(let transaction):
-                    await reportToServer(jws: verification.jwsRepresentation)
+                    let report = await reportToServer(jws: verification.jwsRepresentation)
                     await transaction.finish()
-                    return .success
+                    return report == .stripeConflict ? .stripeConflict : .success
                 case .unverified:
                     return .verificationFailed
                 }
@@ -81,13 +100,46 @@ struct StoreKitService: StoreKitProviding {
         try? await AppStore.sync()
     }
 
+    func currentSubscription() async -> SubscriptionEntitlement? {
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result,
+                  transaction.productType == .autoRenewable else { continue }
+            // Auto-renew state lives on the renewal info, not the transaction.
+            var willAutoRenew = true
+            if let status = try? await transaction.subscriptionStatus,
+               case .verified(let renewalInfo) = status.renewalInfo {
+                willAutoRenew = renewalInfo.willAutoRenew
+            }
+            return SubscriptionEntitlement(
+                productId: transaction.productID,
+                renewalDate: transaction.expirationDate,
+                willAutoRenew: willAutoRenew)
+        }
+        return nil
+    }
+
+    /// Result of reporting a signed transaction to the edge.
+    private enum VerifyReport { case ok, stripeConflict, failed }
+
     /// Send the signed transaction to the edge, which verifies + reconciles it
     /// into the user's plan/credits. Entitlement is also delivered server-side by
     /// App Store Server Notifications, so a transient failure here self-heals.
-    private func reportToServer(jws: String) async {
+    /// A 409 ACTIVE_STRIPE_SUBSCRIPTION is surfaced so the caller can route the
+    /// user to web billing instead of dead-ending on a generic error.
+    private func reportToServer(jws: String) async -> VerifyReport {
         struct Body: Encodable { let jws: String }
-        let _: AppStoreVerifyResponse? = try? await api.postJSON(
-            "/api/payments/appstore/verify", body: Body(jws: jws))
+        do {
+            let _: AppStoreVerifyResponse = try await api.postJSON(
+                "/api/payments/appstore/verify", body: Body(jws: jws))
+            return .ok
+        } catch let error as EdgeAPIError {
+            if case .badRequest(let detail) = error, detail == "ACTIVE_STRIPE_SUBSCRIPTION" {
+                return .stripeConflict
+            }
+            return .failed
+        } catch {
+            return .failed
+        }
     }
 
     /// Drain StoreKit's transaction updates (renewals, refunds, deferred
@@ -97,7 +149,7 @@ struct StoreKitService: StoreKitProviding {
             let service = StoreKitService()
             for await update in Transaction.updates {
                 guard case .verified(let transaction) = update else { continue }
-                await service.reportToServer(jws: update.jwsRepresentation)
+                _ = await service.reportToServer(jws: update.jwsRepresentation)
                 await transaction.finish()
             }
         }

@@ -1,12 +1,15 @@
+import StoreKit
 import SwiftUI
 
 /// Settings "Plan & credits" section: the user's FlipDesk plan, grade
-/// credit balance, included grades remaining this month, and a link out to
-/// manage billing on the web (Stripe checkout/portal lives there).
+/// credit balance, included grades remaining this month, and a way to manage
+/// billing. App Store-billed subscribers manage natively (the system
+/// manage-subscriptions sheet); web (Stripe) and free users open web billing.
 struct PlanSection: View {
     @Environment(AuthStore.self) private var authStore
     @State private var store = PlanStore()
     @State private var activeSheet: ActiveSheet?
+    @State private var showManageSubscriptions = false
 
     private static let billingURL = URL(string: "https://gradethread.com/dashboard/billing")!
 
@@ -74,6 +77,11 @@ struct PlanSection: View {
                 SafariView(url: Self.billingURL).ignoresSafeArea()
             }
         }
+        .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
+        .onChange(of: showManageSubscriptions) { _, presented in
+            // Reload the plan after the system sheet (cancel/auto-renew may have changed).
+            if !presented { Task { await store.load() } }
+        }
     }
 
     @ViewBuilder
@@ -103,11 +111,22 @@ struct PlanSection: View {
             }
         }
 
-        Button {
-            AppRouter.haptic()
-            activeSheet = .billing
-        } label: {
-            Label("Manage plan & billing", systemImage: "creditcard")
+        if info.billedOnAppStore {
+            // App Store-billed: manage natively. Web billing can't manage this sub.
+            Button {
+                AppRouter.haptic()
+                showManageSubscriptions = true
+            } label: {
+                Label("Manage subscription", systemImage: "creditcard")
+            }
+        } else {
+            // Web (Stripe) or free: the Stripe checkout/portal lives on the web.
+            Button {
+                AppRouter.haptic()
+                activeSheet = .billing
+            } label: {
+                Label("Manage plan & billing", systemImage: "creditcard")
+            }
         }
     }
 }

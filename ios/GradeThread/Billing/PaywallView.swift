@@ -1,12 +1,19 @@
+import StoreKit
 import SwiftUI
 
 /// In-app paywall: subscription tiers (monthly/yearly) + credit packs, purchased
-/// via StoreKit. Reuses `PaywallStore`. When an active Stripe subscription owns
-/// the plan, subscription purchases are blocked with a "manage on web" note
+/// via StoreKit. Reuses `PaywallStore`. App Store-billed subscribers get a native
+/// management card (renewal/auto-renew + the system manage-subscriptions sheet;
+/// upgrade/downgrade by buying another tier). When an active Stripe subscription
+/// owns the plan, subscription purchases are blocked with a "manage on web" link
 /// (credit packs remain available).
 struct PaywallView: View {
     @State private var store: PaywallStore
+    @State private var showManageSubscriptions = false
+    @State private var showWebBilling = false
     @Environment(\.dismiss) private var dismiss
+
+    private static let billingURL = URL(string: "https://gradethread.com/dashboard/billing")!
 
     init(userId: UUID) {
         _store = State(initialValue: PaywallStore(userId: userId))
@@ -20,6 +27,7 @@ struct PaywallView: View {
             case .failed(let message):
                 failed(message)
             case .ready:
+                if store.managedOnAppStore { appStoreManagementSection }
                 if store.managedOnWeb { managedBanner }
                 intervalSection
                 plansSection
@@ -42,6 +50,29 @@ struct PaywallView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(store.purchaseError ?? "")
+        }
+        // The 409 ACTIVE_STRIPE_SUBSCRIPTION dead-end: route to web billing
+        // instead of surfacing a bare error.
+        .alert("Subscription managed on the web", isPresented: Binding(
+            get: { store.stripeConflict },
+            set: { if !$0 { store.stripeConflict = false } }
+        )) {
+            Button("Manage on the web") {
+                store.stripeConflict = false
+                showWebBilling = true
+            }
+            Button("Not now", role: .cancel) { store.stripeConflict = false }
+        } message: {
+            Text("You have an active subscription billed on the web. Cancel it there before switching to App Store billing.")
+        }
+        .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
+        .onChange(of: showManageSubscriptions) { _, presented in
+            // Returning from the system sheet: the user may have toggled
+            // auto-renew or cancelled — refresh the snapshot.
+            if !presented { Task { await store.refreshBillingState() } }
+        }
+        .sheet(isPresented: $showWebBilling) {
+            SafariView(url: Self.billingURL).ignoresSafeArea()
         }
         .task {
             if store.phase == .loading {
@@ -74,11 +105,41 @@ struct PaywallView: View {
     private var managedBanner: some View {
         Section {
             Label {
-                Text("Your subscription is managed on the web and can't be changed here. Grade credit packs are still available below.")
+                Text("Your subscription is billed on the web and can't be changed here. Grade credit packs are still available below.")
                     .font(.footnote)
             } icon: {
                 Image(systemName: "globe").foregroundStyle(Color.brandNavy)
             }
+            Button {
+                showWebBilling = true
+            } label: {
+                Label("Manage on the web", systemImage: "safari")
+            }
+        }
+    }
+
+    // MARK: - App Store management card
+
+    private var appStoreManagementSection: some View {
+        Section {
+            if !store.currentPlan.isEmpty, store.currentPlan.lowercased() != "free" {
+                LabeledContent("Current plan", value: store.currentPlan.capitalized)
+            }
+            if let renewal = store.subscriptionRenewalDate {
+                LabeledContent(
+                    store.autoRenewEnabled ? "Renews" : "Expires",
+                    value: renewal.formatted(date: .abbreviated, time: .omitted))
+            }
+            LabeledContent("Auto-renew", value: store.autoRenewEnabled ? "On" : "Off")
+            Button {
+                showManageSubscriptions = true
+            } label: {
+                Label("Manage subscription", systemImage: "gear")
+            }
+        } header: {
+            Text("Your subscription")
+        } footer: {
+            Text("Cancel or change auto-renew in the App Store. To upgrade or downgrade, pick another plan below.")
         }
     }
 

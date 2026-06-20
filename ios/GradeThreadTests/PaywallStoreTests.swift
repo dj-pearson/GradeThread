@@ -24,12 +24,30 @@ final class PaywallStoreTests: XCTestCase {
         let s = store()
         s.billingSource = "stripe"; s.subscriptionStatus = "active"
         XCTAssertTrue(s.managedOnWeb)
+        XCTAssertFalse(s.managedOnAppStore)
 
         s.subscriptionStatus = "canceled"
         XCTAssertFalse(s.managedOnWeb)
 
         s.billingSource = "appstore"; s.subscriptionStatus = "active"
         XCTAssertFalse(s.managedOnWeb)
+    }
+
+    func test_managedOnAppStore_onlyWhenAppstoreAndEntitling() {
+        let s = store()
+        s.billingSource = "appstore"; s.subscriptionStatus = "active"
+        XCTAssertTrue(s.managedOnAppStore)
+        XCTAssertFalse(s.managedOnWeb)
+
+        s.subscriptionStatus = "trialing"
+        XCTAssertTrue(s.managedOnAppStore)
+
+        s.subscriptionStatus = "canceled"
+        XCTAssertFalse(s.managedOnAppStore)
+
+        // Stripe-billed never reads as App Store-managed.
+        s.billingSource = "stripe"; s.subscriptionStatus = "active"
+        XCTAssertFalse(s.managedOnAppStore)
     }
 
     func test_canPurchase_subscriptionGating() {
@@ -99,6 +117,58 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertNil(s.purchasingId)                // cleared
     }
 
+    func test_buy_stripeConflict_routesToWebInsteadOfBareError() async {
+        let fake = FakeStoreKit(); fake.outcome = .stripeConflict
+        let s = store(service: fake)
+        let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
+        XCTAssertFalse(ok)
+        XCTAssertTrue(s.stripeConflict)           // UI presents the web-billing route
+        XCTAssertNil(s.purchaseError)             // not a bare error
+        XCTAssertFalse(s.purchaseSucceeded)
+    }
+
+    func test_buy_clearsStripeConflictAtStart() async {
+        let fake = FakeStoreKit(); fake.outcome = .success
+        let s = store(service: fake, billing: .init(plan: "pro", status: "active", source: "appstore", credits: 0))
+        s.stripeConflict = true                   // stale from a prior attempt
+        _ = await s.buy(sub("com.gradethread.sub.pro.monthly"))
+        XCTAssertFalse(s.stripeConflict)
+    }
+
+    func test_load_populatesRenewalAndAutoRenewFromSnapshot() async {
+        let renewal = Date(timeIntervalSince1970: 1_750_000_000)
+        let s = store(billing: .init(
+            plan: "pro", status: "active", source: "appstore", credits: 0,
+            periodEnd: renewal, cancelAtPeriodEnd: false))
+        await s.load()
+        XCTAssertEqual(s.subscriptionRenewalDate, renewal)
+        XCTAssertTrue(s.autoRenewEnabled)
+    }
+
+    func test_load_cancelAtPeriodEnd_marksAutoRenewOff() async {
+        let s = store(billing: .init(
+            plan: "pro", status: "active", source: "appstore", credits: 0,
+            periodEnd: nil, cancelAtPeriodEnd: true))
+        await s.load()
+        XCTAssertFalse(s.autoRenewEnabled)
+    }
+
+    func test_load_storeKitEntitlementOverridesServerSnapshot() async {
+        let serverRenewal = Date(timeIntervalSince1970: 1_750_000_000)
+        let kitRenewal = Date(timeIntervalSince1970: 1_760_000_000)
+        let fake = FakeStoreKit()
+        fake.entitlement = SubscriptionEntitlement(
+            productId: "com.gradethread.sub.pro.monthly",
+            renewalDate: kitRenewal, willAutoRenew: false)
+        let s = store(service: fake, billing: .init(
+            plan: "pro", status: "active", source: "appstore", credits: 0,
+            periodEnd: serverRenewal, cancelAtPeriodEnd: false))
+        await s.load()
+        // StoreKit's on-device entitlement is the fresher source for App Store subs.
+        XCTAssertEqual(s.subscriptionRenewalDate, kitRenewal)
+        XCTAssertFalse(s.autoRenewEnabled)
+    }
+
     func test_buy_failure_surfacesError() async {
         let fake = FakeStoreKit(); fake.outcome = .failed("Card declined")
         let s = store(service: fake)
@@ -150,6 +220,7 @@ final class PaywallStoreTests: XCTestCase {
 private final class FakeStoreKit: StoreKitProviding {
     var outcome: PurchaseOutcome = .success
     var prices: [String: String] = [:]
+    var entitlement: SubscriptionEntitlement?
     private(set) var purchasedProductId: String?
     private(set) var purchasedToken: UUID?
     private(set) var restored = false
@@ -163,4 +234,6 @@ private final class FakeStoreKit: StoreKitProviding {
     }
 
     func restore() async { restored = true }
+
+    func currentSubscription() async -> SubscriptionEntitlement? { entitlement }
 }

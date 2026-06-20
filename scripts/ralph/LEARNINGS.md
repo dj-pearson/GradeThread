@@ -477,6 +477,18 @@ memory — not a progress log (the harness records progress separately).
   `ios/project.yml`, whose `sources:` are directory paths (`GradeThread`,
   `GradeThreadTests`). New `.swift` files under those dirs are auto-included; do
   NOT hand-edit a pbxproj. Not buildable on Windows — gates on iOS CI.
+- Edge 4xx error bodies are `{error, detail?, error_code?}`; iOS `EdgeAPIError.from`
+  sets `.badRequest`'s `detail` to `detail ?? error ?? preview`. So a 409 like
+  `{error:"ACTIVE_STRIPE_SUBSCRIPTION"}` (no `detail`) surfaces as
+  `.badRequest(detail:"ACTIVE_STRIPE_SUBSCRIPTION")` — match on that string to
+  branch (US-806 routes it to web billing). No dedicated EdgeAPIError case.
+- StoreKit native sub management (US-806): `.manageSubscriptionsSheet(isPresented:)`
+  (SwiftUI, iOS 17+, target is 18) is the system cancel/auto-renew sheet — no
+  scene plumbing needed; refresh billing in `.onChange(of:)` when it dismisses.
+  Renewal date + auto-renew come from `Transaction.currentEntitlements` (filter
+  `.autoRenewable`; `expirationDate` + `try? await transaction.subscriptionStatus`
+  → `.renewalInfo.willAutoRenew`). Upgrade/downgrade is just buying another tier
+  in the same group via the normal purchase path.
 - iOS error→UI copy: reuse `FriendlyErrorCopy` (Telemetry/) — maps raw
   Supabase/URLError failures to friendly copy (offline/invalid-creds/
   email-not-confirmed/rate-limited/generic) + a `rawDetail` flattener for Sentry.
