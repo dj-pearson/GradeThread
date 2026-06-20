@@ -256,9 +256,9 @@ final class DraftsTests: XCTestCase {
         }
     }
 
-    private func ready(_ id: String, item: String) -> DraftListing {
+    private func ready(_ id: String, item: String, title: String = "Coat") -> DraftListing {
         DraftListing(
-            id: id, inventoryItemId: item, listingTitle: "Coat", listingPrice: 10,
+            id: id, inventoryItemId: item, listingTitle: title, listingPrice: 10,
             ebayCondition: "USED_GOOD", platformCategoryId: "57988", batchId: "b1"
         )
     }
@@ -417,7 +417,12 @@ final class DraftsTests: XCTestCase {
 
     @MainActor
     func test_library_applyBulk_writesPerDraftAndReportsPerItemFailure() async {
-        let fake = FakeService(drafts: [ready("a", item: "i1"), ready("b", item: "i2")],
+        // Distinct listing titles so the per-item failure line is identifiable:
+        // title(for:) prefers the draft's own listingTitle over the titles dict,
+        // so the failed row ("b") must carry "B" as its listingTitle for the
+        // summary to report "B:".
+        let fake = FakeService(drafts: [ready("a", item: "i1", title: "A"),
+                                        ready("b", item: "i2", title: "B")],
                                titles: ["i1": "A", "i2": "B"])
         fake.saveErrorIds = ["b"]   // only b fails — no all-or-nothing
         let store = DraftsLibraryStore(service: fake)
