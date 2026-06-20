@@ -76,6 +76,25 @@ type NavGroup = {
   adminOnly?: boolean;
 };
 
+// US-1121 — Nav contract / route-discoverability audit.
+//
+// Every authenticated route is reachable. Routes NOT in this sidebar are
+// intentionally contextual or deep-link-only — do NOT add them here:
+//   • /dashboard/submissions/bulk — reached from the Submissions page's "Bulk
+//     submit" button (submissions.tsx).
+//   • /dashboard/flipdesk/autolister/queue + /autolister/bulk-edit — batch-
+//     scoped (?batch=…); reached from the AutoLister / Drafts flow. A global
+//     nav link is meaningless without a batch id, so they stay contextual.
+//   • /dashboard/flipdesk/marketplaces/google — a sub-channel reached from the
+//     Marketplaces page (marketplaces.tsx).
+//   • /dashboard/flipdesk/intake — reached from the many "Add item" entry
+//     points; not a standalone nav destination.
+//   • Account / Billing / Team / API keys / Referrals / Settings / Support —
+//     consolidated into the Account hub (US-741); the hub is the single nav
+//     entry, individual routes remain for deep links + ⌘K.
+//   • /dashboard/flipdesk/{overview,grid,prep,pipeline,listings,reconciliation}
+//     and /dashboard/inventory* — legacy aliases that redirect (Navigate /
+//     InventoryModeRedirect) to their canonical surfaces; kept for old links.
 const navGroups: NavGroup[] = [
   {
     title: "Grading",

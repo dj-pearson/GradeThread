@@ -18,6 +18,9 @@ import {
   Gauge,
   Shapes,
   ExternalLink,
+  History,
+  BadgeCheck,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +69,24 @@ const features = [
     title: "Detailed Reports",
     description:
       "Get breakdown scores across fabric condition, structural integrity, cosmetic appearance, and more.",
+  },
+  {
+    icon: History,
+    title: "Garment Passport",
+    description:
+      "Every grade can carry a shareable provenance timeline buyers can scan before they buy — and it follows the garment when it's relisted or resold.",
+  },
+  {
+    icon: BadgeCheck,
+    title: "Verified Sellers",
+    description:
+      "Build a public Verified Seller profile, ranked by graded volume and average grade, and embed the badge in your listings to win buyer trust.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Buyer Guarantee",
+    description:
+      "A condition-backed guarantee: if an item arrives materially not as graded, the buyer can file a mediation claim against the certificate.",
   },
 ];
 
@@ -764,31 +785,43 @@ export function LandingPage() {
               every item without leaving the app.
             </p>
           </div>
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
               {
                 icon: Boxes,
-                title: "Source & catalog",
+                title: "Source & scout",
                 description:
-                  "Log thrift hauls, estate sales, and auction lots, then catalog items in seconds.",
+                  "Log thrift hauls, estate sales, and auction lots — and let ScoutAI pull real sold comps so you only buy what flips.",
               },
               {
                 icon: Award,
                 title: "Grade for trust",
                 description:
-                  "Send items straight to GradeThread and attach verified condition grades.",
+                  "Send items straight to GradeThread and attach a verified grade, certificate, and Garment Passport.",
+              },
+              {
+                icon: Layers,
+                title: "AutoLister",
+                description:
+                  "Turn photos into ready-to-publish, AI-written listings in bulk, then time launches with scheduled drops.",
               },
               {
                 icon: Tag,
-                title: "List anywhere",
+                title: "List & cross-list",
                 description:
-                  "Compose eBay-ready titles, descriptions, and item specifics with a live preview.",
+                  "Compose eBay-ready titles, descriptions, and item specifics with a live preview, and cross-list to more channels.",
+              },
+              {
+                icon: Gauge,
+                title: "Reprice automatically",
+                description:
+                  "Repricing rules and bulk pricing keep prices moving toward a sale without manual edits.",
               },
               {
                 icon: BarChart3,
                 title: "Reconcile profit",
                 description:
-                  "Track payouts, fees, and per-item P&L so you always know your real margins.",
+                  "Track payouts, fees, per-item P&L, and consignor splits so you always know your real margins.",
               },
             ].map((item) => (
               <div key={item.title} className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">

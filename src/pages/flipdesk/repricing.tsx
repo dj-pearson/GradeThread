@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { cn } from "@/lib/utils";
 import {
   useRepricingSuggestions,
@@ -134,7 +135,13 @@ function SuggestionRow({ s }: { s: RepriceSuggestion }) {
 }
 
 export function FlipdeskRepricingPage() {
-  const { data: suggestions = [], isLoading } = useRepricingSuggestions();
+  const {
+    data: suggestions = [],
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useRepricingSuggestions();
   const scan = useScanRepricing();
 
   return (
@@ -162,7 +169,13 @@ export function FlipdeskRepricingPage() {
         </Button>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState
+          title="Couldn't load repricing suggestions"
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      ) : isLoading ? (
         <div className="space-y-3">
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />

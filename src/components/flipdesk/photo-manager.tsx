@@ -27,7 +27,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
-import { useRemoveBackground } from "@/hooks/use-remove-bg";
+import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { itemPhotoThumb } from "@/lib/images";
 import { cn } from "@/lib/utils";
 import type {
@@ -46,6 +46,10 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
   const [removingBgId, setRemovingBgId] = useState<string | null>(null);
   const removeBg = useRemoveBackground();
+  // US-1114: only offer server-backed background removal when it's configured,
+  // so the button never 503s on click.
+  const { data: bgCaps } = useRemoveBgCapability();
+  const removeBgEnabled = bgCaps?.remove_bg ?? false;
 
   async function doRemoveBg(photo: ItemPhotoRow) {
     setRemovingBgId(photo.id);
@@ -201,6 +205,7 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
                 onEdit={setEditingPhoto}
                 onRemoveBg={doRemoveBg}
                 removingBg={removingBgId === photo.id}
+                removeBgEnabled={removeBgEnabled}
               />
             ))}
           </div>
@@ -244,6 +249,7 @@ function SortablePhoto({
   onEdit,
   onRemoveBg,
   removingBg,
+  removeBgEnabled,
 }: {
   photo: ItemPhotoRow;
   gradingInFlight: boolean;
@@ -252,6 +258,7 @@ function SortablePhoto({
   onEdit: (photo: ItemPhotoRow) => void;
   onRemoveBg: (photo: ItemPhotoRow) => void;
   removingBg: boolean;
+  removeBgEnabled: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: photo.id });
@@ -287,7 +294,7 @@ function SortablePhoto({
           <GripVertical className="h-3.5 w-3.5" />
         </button>
         <div className="absolute right-1 top-1 flex gap-1">
-          {photo.photo_type !== "flatlay" && (
+          {photo.photo_type !== "flatlay" && removeBgEnabled && (
             <button
               type="button"
               onClick={() => onRemoveBg(photo)}

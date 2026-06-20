@@ -127,18 +127,14 @@ export function PricingPage() {
                       /mo
                     </span>
                   </p>
+                  {/* US-1110: render the full feature list (sourced from
+                      FLIPDESK_PLANS — the single source of truth) so Pro vs
+                      Business differentiators (AutoLister, AI comp pulls,
+                      scheduled actions, API, sub-accounts, reconciliation) are
+                      visible instead of truncated. Each tier's features[]
+                      already includes its listing cap + included grades. */}
                   <ul className="mt-4 flex-1 space-y-2 text-sm text-muted-foreground">
-                    <li className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
-                      {plan.includedStandardGradesPerMonth} grades/mo included
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
-                      {plan.activeListingCap === -1
-                        ? "Unlimited active listings"
-                        : `${plan.activeListingCap} active listings`}
-                    </li>
-                    {plan.features.slice(0, 3).map((f) => (
+                    {plan.features.map((f) => (
                       <li key={f} className="flex items-start gap-2">
                         <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
                         {f}

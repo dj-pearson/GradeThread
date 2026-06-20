@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -59,7 +60,7 @@ export function ReferralsPage() {
   const [leaderboardName, setLeaderboardName] = useState("");
   const [savingLeaderboard, setSavingLeaderboard] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["referrals-me"],
     queryFn: async (): Promise<ReferralMe> => {
       const res = await edgeFetch("/api/referrals/me");
@@ -246,7 +247,13 @@ export function ReferralsPage() {
         </p>
       </div>
 
-      {isLoading || !data ? (
+      {isError ? (
+        <ErrorState
+          title="Couldn't load your referrals"
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      ) : isLoading || !data ? (
         <Skeleton className="h-40 w-full" />
       ) : (
         <>

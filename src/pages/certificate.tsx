@@ -14,6 +14,8 @@ import {
   Info,
   History,
   ArrowRight,
+  Camera,
+  Store,
   Image as ImageIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +51,7 @@ import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { Button } from "@/components/ui/button";
+import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import type {
   PublicGradeReportRow,
   PublicConfidenceLabel,
@@ -1102,6 +1105,30 @@ export function CertificatePage() {
             .
           </div>
         )}
+
+        {/* US-1111: conversion CTAs on the most-shared public surface — turn
+            certificate viewers into graders (buyers) and resellers instead of
+            dead-ending. Reuses the measurable, dismissable cross-surface nudge;
+            crossSurfacePromosEnabled defaults true so anonymous visitors see
+            the grade-your-own path. */}
+        <div className="space-y-3 print:hidden">
+          <CrossSurfaceNudge
+            nudgeId="cert-grade-your-own"
+            icon={Camera}
+            title="Grade your own garment"
+            description="Get an objective 1.0–10.0 condition grade and a shareable certificate buyers trust — in minutes."
+            cta={{ label: "Grade an item", to: "/whats-it-worth" }}
+            context={{ surface: "certificate", certificate_id: id }}
+          />
+          <CrossSurfaceNudge
+            nudgeId="cert-list-on-flipdesk"
+            icon={Store}
+            title="Sell it faster with FlipDesk"
+            description="List across marketplaces with the grade built into your listing — fewer “not as described” returns."
+            cta={{ label: "See FlipDesk", to: "/for-resellers" }}
+            context={{ surface: "certificate", certificate_id: id }}
+          />
+        </div>
 
         {/* Powered by footer */}
         <div className="pb-4 text-center">
