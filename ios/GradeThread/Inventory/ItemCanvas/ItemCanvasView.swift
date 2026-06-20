@@ -301,9 +301,15 @@ struct ItemCanvasView: View {
     private func form(state: ItemCanvasState) -> some View {
         @Bindable var state = state
 
+        ScrollViewReader { proxy in
         Form {
             if let review = aiReviewStore.review(for: item.id), review.hasSomethingToReview {
                 aiReviewBanner(review)
+            }
+            // US-815: prep checklist computed from item facts; each incomplete
+            // row jumps to the action (or section) that completes it.
+            if showPrepChecklist {
+                prepChecklistSection(scroll: proxy)
             }
             identitySection(state: state)
             storageSection(state: state)
@@ -312,6 +318,7 @@ struct ItemCanvasView: View {
                 pnlSection(pnl)
             }
             photosSection
+                .id(ItemPrepChecklist.Step.photos)
             CertifiedGradeSection(
                 item: item,
                 // US-746: a graded, still-publishable item can jump straight to
@@ -321,8 +328,11 @@ struct ItemCanvasView: View {
                     ? { Task { await saveThenPublish() } }
                     : nil
             )
+            .id(ItemPrepChecklist.Step.grade)
             measurementsSection
+                .id(ItemPrepChecklist.Step.measurements)
             compsSection(state: state)
+                .id(ItemPrepChecklist.Step.comps)
             notesSection(state: state)
             statusSection(state: state)
             if !itemListings.isEmpty {
@@ -335,6 +345,7 @@ struct ItemCanvasView: View {
             specificsSection
             if canPublish {
                 publishSection
+                    .id(ItemPrepChecklist.Step.draft)
             }
             if case let .failed(message) = state.savePhase {
                 Section {
@@ -344,6 +355,10 @@ struct ItemCanvasView: View {
                 }
             }
         }
+        // US-815: auto-advance the pipeline status as completed work lands
+        // (measurements from AI extract, required photos from upload sync, …).
+        // Forward-only and best-effort — never blocks; `save()` reconciles too.
+        .task(id: prepAdvanceSignature) { await autoAdvanceStatusIfNeeded() }
         .sheet(isPresented: $showingPublishDialog) {
             PublishDialog(
                 inventoryItemId: item.id,
@@ -449,6 +464,170 @@ struct ItemCanvasView: View {
                     }
             }
         }
+        }  // ScrollViewReader
+    }
+
+    // MARK: - Prep checklist (US-815)
+
+    /// Show the prep checklist only while the item is still working through the
+    /// pre-list pipeline. Hidden once listed/sold (rank ≥ "listed") and for
+    /// side-track statuses (keeping/wearing/archived/returned — rank −1).
+    private var showPrepChecklist: Bool {
+        let r = ItemWorkflow.rank(item.status)
+        return r >= 0 && r < ItemWorkflow.rank("listed")
+    }
+
+    /// Live facts for the checklist DISPLAY. The target price reflects the
+    /// (possibly unsaved) draft so "Comp & price" ticks as the user types;
+    /// everything else derives from persisted item state.
+    private var displayPrepFacts: ItemWorkflow.Facts {
+        let livePrice = state.flatMap { currencyFormatter.parse($0.draft.targetPriceText) }
+            ?? item.targetPrice
+        return ItemWorkflow.Facts(
+            hasMeasurements: !((measurements ?? [:]).isEmpty),
+            hasRequiredPhotos: ItemPrepChecklist.hasRequiredPhotos(
+                photoTypes: Set(allPhotos.map(\.photoType))),
+            hasTargetPrice: (livePrice ?? 0) > 0,
+            hasGrade: item.gradeValue != nil,
+            hasDraftListing: !itemListings.isEmpty
+        )
+    }
+
+    @ViewBuilder
+    private func prepChecklistSection(scroll: ScrollViewProxy) -> some View {
+        let facts = displayPrepFacts
+        Section {
+            ForEach(ItemPrepChecklist.rows(facts: facts)) { row in
+                Button {
+                    AppRouter.haptic()
+                    handlePrepTap(row.step, scroll: scroll)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: row.done ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(row.done ? Color.brandEmerald : Color.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.title)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Text(row.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        if row.done {
+                            if row.optional {
+                                Text("Optional")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                // US-705: each row reads as one element with its done/todo state.
+                .accessibilityElement(children: .combine)
+                .accessibilityHint(row.done ? "Completed" : "Incomplete — tap to complete")
+            }
+        } header: {
+            HStack {
+                Text("Prep checklist")
+                Spacer()
+                Text("\(ItemPrepChecklist.completedRequired(facts: facts))/\(ItemPrepChecklist.totalRequired(facts: facts))")
+                    .foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text("Tap a step to jump to it. Status advances automatically as you complete each step.")
+                .font(.caption)
+        }
+    }
+
+    /// Routes an incomplete checklist row to the action that completes it:
+    /// photos open the manager (or the add-photos picker when there are none),
+    /// every other step scrolls the form to its section.
+    private func handlePrepTap(_ step: ItemPrepChecklist.Step, scroll: ScrollViewProxy) {
+        switch step {
+        case .photos:
+            if allPhotos.isEmpty {
+                showingAddPhotosPicker = true
+            } else {
+                showingPhotoManager = true
+            }
+        case .measurements, .comps, .grade, .draft:
+            withAnimation { scroll.scrollTo(step, anchor: .top) }
+        }
+    }
+
+    /// US-815: PERSISTED facts (ignores the unsaved draft price) that drive the
+    /// reactive auto-advance — typing a price shouldn't move the status until the
+    /// price is actually saved.
+    private func persistedPrepFacts() -> ItemWorkflow.Facts {
+        ItemWorkflow.Facts(
+            hasMeasurements: !((ItemCanvasView.decodeMeasurements(item.measurementsJSON) ?? [:]).isEmpty),
+            hasRequiredPhotos: ItemPrepChecklist.hasRequiredPhotos(
+                photoTypes: Set(allPhotos.map(\.photoType))),
+            hasTargetPrice: (item.targetPrice ?? 0) > 0,
+            hasGrade: item.gradeValue != nil,
+            hasDraftListing: !itemListings.isEmpty
+        )
+    }
+
+    /// Cheap signature of the persisted facts (+ current status) so the
+    /// auto-advance `.task` re-runs exactly when completed work changes.
+    private var prepAdvanceSignature: Int {
+        var hasher = Hasher()
+        hasher.combine(!((measurements ?? [:]).isEmpty))
+        hasher.combine(ItemPrepChecklist.hasRequiredPhotos(
+            photoTypes: Set(allPhotos.map(\.photoType))))
+        hasher.combine((item.targetPrice ?? 0) > 0)
+        hasher.combine(item.gradeValue != nil)
+        hasher.combine(!itemListings.isEmpty)
+        hasher.combine(item.status)
+        return hasher.finalize()
+    }
+
+    /// US-815: advance the item's pipeline status to the furthest stage its
+    /// completed work has earned. Forward-only (never regresses, never overrides
+    /// a terminal/side-track status). Best-effort: a network failure queues the
+    /// status change for replay; anything else is left for `save()` to reconcile.
+    private func autoAdvanceStatusIfNeeded() async {
+        guard state?.savePhase != .saving else { return }
+        let facts = persistedPrepFacts()
+        let resolved = ItemWorkflow.resolveStatus(
+            current: item.status, selected: item.status, facts: facts)
+        guard resolved != item.status else { return }
+
+        let payload = StatusUpdate(status: resolved)
+        do {
+            try await SupabaseShared.client
+                .from("inventory_items")
+                .update(payload)
+                .eq("id", value: item.id)
+                .execute()
+            item.status = resolved
+            item.updatedAt = .now
+            try? modelContext.save()
+        } catch {
+            guard OfflineMutationQueue.shouldQueue(error) else { return }
+            _ = OfflineMutationQueue.enqueueUpdate(
+                kind: .updateInventoryItem, payload: payload, targetId: item.id, in: modelContext)
+            item.status = resolved
+            item.hasLocalChanges = true
+            item.updatedAt = .now
+            try? modelContext.save()
+        }
+        // Reflect the new status into the form when the user isn't mid-edit.
+        if state?.isDirty == false { state?.refreshFromItem(item) }
+    }
+
+    /// Partial `inventory_items` update carrying only the auto-advanced status.
+    private struct StatusUpdate: Encodable {
+        let status: String
     }
 
     /// US-748: where this item is listed, with a link out to the live listing —
@@ -1261,6 +1440,23 @@ struct ItemCanvasView: View {
             return false
         }
         state.beginSaving()
+
+        // US-815: auto-advance the status to the furthest stage the saved work
+        // earns (forward-only; a manual non-prep pick still wins). Web parity
+        // with `resolveStatus` in the prep flow. Applied to the draft before the
+        // payload/local-apply so the wire write, the cache, and the Status picker
+        // all carry the resolved value.
+        let (savedTarget, _) = state.parsedPrices()
+        let saveFacts = ItemWorkflow.Facts(
+            hasMeasurements: !((ItemCanvasView.decodeMeasurements(item.measurementsJSON) ?? [:]).isEmpty),
+            hasRequiredPhotos: ItemPrepChecklist.hasRequiredPhotos(
+                photoTypes: Set(allPhotos.map(\.photoType))),
+            hasTargetPrice: (savedTarget ?? 0) > 0,
+            hasGrade: item.gradeValue != nil,
+            hasDraftListing: !itemListings.isEmpty
+        )
+        state.draft.status = ItemWorkflow.resolveStatus(
+            current: item.status, selected: state.draft.status, facts: saveFacts)
 
         // Unified Save & sync (web parity): capture the eBay-relevant change
         // BEFORE the draft is accepted as the new original. Only a

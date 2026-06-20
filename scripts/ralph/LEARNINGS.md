@@ -595,6 +595,17 @@ memory — not a progress log (the harness records progress separately).
   edge `ebayPublicPhotoUrl` helper in `flipdesk-ebay.ts` mirrors the sensitive
   set so private photos are skipped (not turned into a 404 item-photos URL).
 
+## iOS pipeline auto-advance (US-815)
+- Status auto-advance + the prep checklist are PURE in `ios/GradeThread/
+  Inventory/ItemWorkflow.swift` (`ItemWorkflow.resolveStatus`/`earnedStatus`/
+  `rank` mirror web `src/lib/workflow.ts`; `ItemPrepChecklist` derives the
+  rows). ItemCanvasView wires them: `.task(id: prepAdvanceSignature)` reacts to
+  completed work (measurements/photos syncing in) + `save()` applies
+  `resolveStatus` to the draft. Forward-only; never regresses a terminal/
+  side-track status. US-827 (measurements→aspects) shares the measured-status
+  write — REUSE `resolveStatus`, don't reimplement. The checklist deep-links by
+  wrapping `Form` in a `ScrollViewReader` and tagging sections `.id(Step.x)`.
+
 ## One-call eBay prep / aspects (US-826)
 - `runEbayAspectsPhase` (flipdesk-ai.ts /extract) persistence is now routed
   through the PURE `buildEbayPrepUpdate` (lib/ebay-prep.ts): a PARTIAL prep
