@@ -76,6 +76,24 @@ public final class AuthStore {
         }
     }
 
+    /// Re-sends the signup confirmation email (US-810). Used by ``LoginView``
+    /// when a sign-in is rejected with GoTrue's "email not confirmed" error and
+    /// the user never clicked the original link. `type: .signup` re-issues the
+    /// account-confirmation mail; the redirect lands back on the app's
+    /// Universal Link so the existing ``handleAuthCallback`` deep-link flow
+    /// completes the confirmation. `captchaToken` mirrors the other auth calls
+    /// (prod GoTrue captcha-gates this endpoint too).
+    public func resendConfirmation(email: String, captchaToken: String? = nil) async {
+        await run {
+            try await SupabaseShared.client.auth.resend(
+                email: email,
+                type: .signup,
+                emailRedirectTo: SupabaseShared.redirectURL,
+                captchaToken: captchaToken
+            )
+        }
+    }
+
     public func resetPassword(email: String, captchaToken: String? = nil) async {
         await run {
             try await SupabaseShared.client.auth.resetPasswordForEmail(

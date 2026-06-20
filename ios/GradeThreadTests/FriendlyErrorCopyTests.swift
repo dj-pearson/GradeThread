@@ -109,6 +109,35 @@ final class FriendlyErrorCopyTests: XCTestCase {
         XCTAssertEqual(FriendlyErrorCopy.kind(for: err), .rateLimited)
     }
 
+    // MARK: - Email-not-confirmed classification helper (US-810)
+
+    /// US-810: `isEmailNotConfirmed` is the signal LoginView uses to swap in the
+    /// resend-confirmation guidance. It must recognise GoTrue's variants of the
+    /// "email not confirmed" rejection across SDK versions.
+    func test_isEmailNotConfirmed_recognisesGoTrueVariants() {
+        for message in [
+            "Email not confirmed",
+            "email_not_confirmed",
+            "Please confirm your email address before signing in",
+        ] {
+            let err = goTrueError(message)
+            XCTAssertTrue(
+                FriendlyErrorCopy.isEmailNotConfirmed(err),
+                "expected \(message) to classify as email-not-confirmed"
+            )
+        }
+    }
+
+    /// Other auth failures (and offline) must NOT be misread as unconfirmed —
+    /// otherwise a wrong-password sign-in would surface a resend button.
+    func test_isEmailNotConfirmed_falseForOtherKinds() {
+        XCTAssertFalse(FriendlyErrorCopy.isEmailNotConfirmed(goTrueError("Invalid login credentials")))
+        XCTAssertFalse(FriendlyErrorCopy.isEmailNotConfirmed(goTrueError("Email rate limit exceeded", code: 429)))
+        XCTAssertFalse(FriendlyErrorCopy.isEmailNotConfirmed(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        ))
+    }
+
     // MARK: - Generic fallback
 
     func test_unknownError_isGeneric_andNeverLeaksRawString() {

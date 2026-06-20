@@ -24,6 +24,17 @@ struct LoginView: View {
     @State private var infoMessage: String?
     @State private var captchaRequest: CaptchaRequest?
 
+    /// US-810: the address the most recent sign-in was attempted with, captured
+    /// at submit time so the "confirm your email" guidance + resend keep naming
+    /// the right inbox even if the field is edited afterwards.
+    @State private var lastAttemptedEmail = ""
+    /// Seconds left on the client-side resend rate-limit (0 = ready). Drives the
+    /// disabled state + the "Resend in Ns" label so a user can't hammer GoTrue.
+    @State private var resendCooldown = 0
+    /// Success line shown under the resend button after a confirmation mail is
+    /// re-sent. Cleared on the next sign-in attempt.
+    @State private var resendInfo: String?
+
     /// Raw nonce generated in the Apple button's `onRequest` and consumed in
     /// `onCompletion` to prove the identity token wasn't replayed during the
     /// Supabase exchange. The request carries only the SHA-256 hash.
@@ -62,7 +73,11 @@ struct LoginView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
-                if let error = authStore.lastError {
+                if isUnconfirmedSignIn {
+                    // US-810: an unconfirmed account gets dedicated guidance +
+                    // a resend action instead of the bare error line.
+                    unconfirmedEmailCard
+                } else if let error = authStore.lastError {
                     // US-1025: show friendly, actionable copy — never the raw
                     // Supabase/URLError string. The raw detail is captured to
                     // Sentry at the call site (`reportAuthFailure`).
@@ -242,6 +257,59 @@ struct LoginView: View {
         }
     }
 
+    // MARK: - Unconfirmed-email guidance (US-810)
+
+    /// True when the current failure is GoTrue's "email not confirmed" rejection
+    /// on a sign-in attempt — the trigger for the dedicated confirm-your-email
+    /// card (with resend) instead of the generic error line.
+    private var isUnconfirmedSignIn: Bool {
+        guard mode == .signIn, let error = authStore.lastError else { return false }
+        return FriendlyErrorCopy.isEmailNotConfirmed(error)
+    }
+
+    /// The inbox to name in the guidance: the address the sign-in used, falling
+    /// back to whatever is currently typed.
+    private var unconfirmedEmail: String {
+        let attempted = lastAttemptedEmail.trimmingCharacters(in: .whitespaces)
+        return attempted.isEmpty ? email.trimmingCharacters(in: .whitespaces) : attempted
+    }
+
+    private var unconfirmedEmailCard: some View {
+        VStack(spacing: 10) {
+            Text("Confirm your email to sign in")
+                .font(.brandHeadline)
+                .foregroundStyle(Color.brandNavy)
+            Text("We sent a confirmation link to \(unconfirmedEmail). Open it to activate your account, then sign in.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                Task { await resendConfirmation() }
+            } label: {
+                Text(resendCooldown > 0 ? "Resend available in \(resendCooldown)s" : "Resend confirmation email")
+                    .font(.brandHeadline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.brandNavy.opacity(resendCooldown > 0 ? 0.4 : 1))
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+            }
+            .disabled(resendCooldown > 0 || isSubmitting)
+
+            if let resendInfo {
+                Text(resendInfo)
+                    .font(.footnote)
+                    .foregroundStyle(.green)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+    }
+
     /// A short, red reason rendered directly under the offending field. A plain
     /// `Text` is read by VoiceOver as it scrolls, and the same string is also
     /// attached to the field via `.accessibilityHint` so focusing the field
@@ -285,7 +353,11 @@ struct LoginView: View {
         defer { isSubmitting = false }
 
         infoMessage = nil
+        resendInfo = nil
         let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
+        // US-810: remember the address this attempt used so the unconfirmed-email
+        // guidance + resend keep naming the right inbox.
+        lastAttemptedEmail = trimmedEmail
 
         // US-368: prod GoTrue captcha-gates signup + email/password sign-in.
         // Resolve a Turnstile token first; bail silently if the user cancels.
@@ -350,6 +422,44 @@ struct LoginView: View {
             infoMessage = "We sent you a reset link."
         } else {
             reportAuthFailure(context: "reset_password")
+        }
+    }
+
+    /// US-810: re-issues the signup confirmation email for an unconfirmed
+    /// account. Client-side rate-limited via a 60s cooldown so a user can't
+    /// spam GoTrue (which also enforces its own server-side limit). Resolves a
+    /// Turnstile token first, mirroring the other auth calls.
+    private func resendConfirmation() async {
+        let target = unconfirmedEmail
+        guard !target.isEmpty, resendCooldown == 0, !isSubmitting else { return }
+
+        let captchaToken: String?
+        do {
+            captchaToken = try await resolveCaptcha()
+        } catch {
+            handleCaptchaFailure(error)
+            return
+        }
+
+        await authStore.resendConfirmation(email: target, captchaToken: captchaToken)
+        if authStore.lastError == nil {
+            resendInfo = "Confirmation email re-sent to \(target)."
+            startResendCooldown()
+        } else {
+            reportAuthFailure(context: "resend_confirmation")
+        }
+    }
+
+    /// Starts (or restarts) the 60s resend cooldown countdown. Runs as a
+    /// detached child task so the resend action returns immediately; ticking
+    /// `resendCooldown` re-renders the button label each second.
+    private func startResendCooldown() {
+        resendCooldown = 60
+        Task {
+            while resendCooldown > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                resendCooldown -= 1
+            }
         }
     }
 

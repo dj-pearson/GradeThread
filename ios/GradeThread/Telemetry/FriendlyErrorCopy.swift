@@ -89,6 +89,15 @@ enum FriendlyErrorCopy {
         return .generic
     }
 
+    /// True when the failure is GoTrue's "email not confirmed" rejection on
+    /// sign-in (US-810) — the signal ``LoginView`` uses to swap the generic
+    /// error line for the dedicated confirm-your-email guidance + a
+    /// "Resend confirmation email" action. Delegates to ``kind(for:)`` so the
+    /// version-robust string matching lives in one place.
+    nonisolated static func isEmailNotConfirmed(_ error: Error) -> Bool {
+        kind(for: error) == .emailNotConfirmed
+    }
+
     /// Friendly copy for the auth surfaces (login / signup / reset).
     nonisolated static func authMessage(for error: Error) -> String {
         switch kind(for: error) {
