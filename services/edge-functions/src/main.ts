@@ -5,6 +5,7 @@ import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
 import { emailSnsRoutes } from "./routes/email-sns.ts";
+import { emailEngagementRoutes } from "./routes/email-engagement.ts";
 import { paymentRoutes } from "./routes/payments.ts";
 import { appstoreVerifyRoutes, appstoreWebhookRoutes } from "./routes/appstore.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
@@ -649,6 +650,10 @@ app.use("/api/drip/*", rateLimiter(60, 60_000, "drip-tick"));
 app.use("/api/drip-track/*", rateLimiter(120, 60_000, "drip-track", undefined, { failClosed: true }));
 // US-925: public open/click tracking for broadcast campaign emails (same shape).
 app.use("/api/campaign-track/*", rateLimiter(120, 60_000, "campaign-track", undefined, { failClosed: true }));
+// US-913: signed-token open/click tracking for marketing broadcast emails. Scoped
+// to the tracking paths so the SES-notification webhook on /api/email is untouched.
+app.use("/api/email/o/*", rateLimiter(120, 60_000, "email-track-open", undefined, { failClosed: true }));
+app.use("/api/email/c/*", rateLimiter(120, 60_000, "email-track-click", undefined, { failClosed: true }));
 app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is heavy
 app.use("/api/legal/*", rateLimiter(30, 60_000, "legal"));
 app.use("/api/announcements/*", rateLimiter(60, 60_000, "announcements"));
@@ -750,6 +755,9 @@ app.route("/api/payments/appstore", appstoreVerifyRoutes);
 app.route("/api/webhooks", webhookRoutes);
 // US-914: SES bounce/complaint feedback via SNS (public, signature-verified).
 app.route("/api/email", emailSnsRoutes);
+// US-913: signed open pixel + click redirect (public, token-verified). Shares the
+// /api/email prefix with email-sns; the /o/:token & /c/:token paths don't collide.
+app.route("/api/email", emailEngagementRoutes);
 app.route("/api/webhooks/appstore", appstoreWebhookRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/passport", passportRoutes);

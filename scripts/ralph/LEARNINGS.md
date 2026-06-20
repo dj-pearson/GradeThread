@@ -274,6 +274,16 @@ memory — not a progress log (the harness records progress separately).
   uses the campaign_recipients row id as token → public `/api/campaign-track/{o,c}`
   (sibling of /api/drip-track, mirrors routes/drip-tracking.ts). No migration —
   campaign_recipients already had opened_at/clicked_at.
+- SUPERSEDED by US-913: the US-925 rewriter (`applyEmailTracking`) is hardcoded to
+  `/api/drip-track` + a row-id token, so broadcast opens/clicks hit `drip_sends`
+  (no match) and `campaign_recipients` stayed un-stamped (dashboard always 0).
+  Broadcasts now use SIGNED tokens via `applyMarketingEmailTracking`
+  (lib/email-engagement-token.ts) → `/api/email/{o,c}/:token` (routes/
+  email-engagement.ts), stamping campaign_recipients by (campaign_id,user_id,
+  channel='email') through the `record_campaign_email_{open,click}` RPCs (00294).
+  Click destination is INSIDE the signed body (no `?u=` open-redirect). Gated by
+  the `marketing_email_tracking_enabled` no-track setting. The old
+  `/api/campaign-track` + `applyEmailTracking` remain only for the drip path.
 
 ## Email transport / SES deliverability (US-915)
 - `deliverEmail` (email.ts) now picks transport per send via pure

@@ -29,7 +29,10 @@ import { sendPushToUser } from "../lib/apns.ts";
 import { getReferralRewardConfig, grantReferralReward } from "../lib/referrals.ts";
 import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
 import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
-import { applyEmailTracking } from "../lib/email-tracking.ts";
+import {
+  applyMarketingEmailTracking,
+  engagementSigningSecret,
+} from "../lib/email-engagement-token.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { captureException } from "../lib/observability.ts";
 import { normalizeEmail } from "../lib/email-suppression.ts";
@@ -437,6 +440,9 @@ async function rulesForCampaign(segmentId: string | null): Promise<SegmentRules>
 // outbox cadence rather than hammering SES at full rate. Tunable via the registry.
 const SEND_BATCH_SETTING = "marketing_send_batch_limit";
 const DEFAULT_SEND_BATCH = 1000;
+// US-913: global no-track toggle (seeded 00294). When false, open/click tracking
+// is not applied to broadcast email at render time.
+const MARKETING_TRACKING_SETTING = "marketing_email_tracking_enabled";
 // Cap the confirmed-subscriber UNION scan (mirrors the newsletter send cap).
 const SUBSCRIBER_SCAN = 5000;
 
@@ -537,8 +543,18 @@ async function sendCampaignEmailDurable(
       },
       unsubscribeUrl,
     );
-    // AC4: click-tracking rewrite + open pixel injected at render time (token = ledger id).
-    html = applyEmailTracking(html, trackingBaseUrl(), token);
+    // US-913 AC4: click-tracking rewrite + open pixel injected at render time,
+    // keyed by SIGNED (campaign_id + user_id) tokens → /api/email/{o,c}. Applied
+    // ONLY to this marketing broadcast (never transactional), and gated by the
+    // global no-track setting so an operator can disable tracking without a deploy.
+    if (await getSetting(MARKETING_TRACKING_SETTING, true)) {
+      html = await applyMarketingEmailTracking(
+        html,
+        trackingBaseUrl(),
+        { campaignId: campaign.id, userId: member.userId },
+        engagementSigningSecret(),
+      );
+    }
 
     const result = await coordinateMarketingSend({
       to: member.email,
