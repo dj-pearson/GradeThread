@@ -17,7 +17,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { getSetting } from "./system-settings.ts";
 import { captureException } from "./observability.ts";
 import { coordinateMarketingSend } from "./marketing-coordinator.ts";
-import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
+import { marketingPreferenceCenterUrl, marketingUnsubscribeUrl } from "./unsubscribe.ts";
 import {
   type NewsletterSection,
   renderNewsletterHtml,
@@ -155,7 +155,10 @@ export async function deliverIssueRecipient(params: {
   }
 
   try {
-    const unsubscribeUrl = await marketingUnsubscribeUrl(recipient.user_id);
+    const [unsubscribeUrl, preferenceCenterUrl] = await Promise.all([
+      marketingUnsubscribeUrl(recipient.user_id),
+      marketingPreferenceCenterUrl(recipient.user_id),
+    ]);
     const baseSections = Array.isArray(issue.sections) ? issue.sections : [];
     let renderSections = baseSections;
     let renderSubject = subjectLine;
@@ -169,7 +172,7 @@ export async function deliverIssueRecipient(params: {
     }
     const html = renderNewsletterHtml(
       { subject: renderSubject, preheader: issue.preheader, sections: renderSections },
-      { unsubscribeUrl, postalAddress: postalAddress() },
+      { unsubscribeUrl, preferenceCenterUrl, postalAddress: postalAddress() },
     );
     const result = await coordinateMarketingSend({
       to: recipient.email,

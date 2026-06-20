@@ -57,10 +57,20 @@ export async function marketingUnsubscribeUrl(userId: string): Promise<string> {
   return `${base}/api/notifications/unsubscribe?u=${encodeURIComponent(userId)}&t=${token}`;
 }
 
-// The email-preference center (manage cadence / topics without fully
-// unsubscribing). US-924: every marketing send must offer this alongside the
-// one-click unsubscribe. Points at the authenticated account page.
-export function marketingPreferenceCenterUrl(): string {
+// The no-login email-preference center (US-911): a recipient can fine-tune
+// individual marketing categories or unsubscribe-all WITHOUT a session. Gated by
+// the SAME HMAC token as the one-click unsubscribe (over the user id), so it
+// can't be forged for another recipient. Points at the edge endpoint that
+// renders + saves the preferences.
+export async function marketingPreferenceCenterUrl(userId: string): Promise<string> {
+  const token = await unsubscribeToken(userId);
+  const base = Deno.env.get("FUNCTIONS_URL")?.trim() || "https://functions.gradethread.com";
+  return `${base}/api/notifications/preferences?u=${encodeURIComponent(userId)}&t=${token}`;
+}
+
+// In-app (authenticated) preference center — the SPA settings page. Used where a
+// recipient already has a session (e.g. links in the app, not email footers).
+export function accountPreferenceCenterUrl(): string {
   return `${SITE_URL}/dashboard/account#email-preferences`;
 }
 

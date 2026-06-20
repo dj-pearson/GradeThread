@@ -215,6 +215,11 @@ const SERVICE_ROLE_ONLY = new Set([
   "email_journey_steps",
   "email_journey_enrollments",
   "email_journey_step_sends",
+  // US-911: marketing-consent change audit trail (migration 00296). RLS enabled,
+  // deny-all — written ONLY by the no-login unsubscribe + preference-center edge
+  // endpoints on the service-role client; the SPA never reads it. subscriber_user_id
+  // links the row to an account but is a forensic reference, not a tenant read key.
+  "email_consent_audit",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

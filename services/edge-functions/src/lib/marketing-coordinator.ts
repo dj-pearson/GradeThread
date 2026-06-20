@@ -17,7 +17,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { isEmailSuppressed, normalizeEmail } from "./email-suppression.ts";
-import { marketingOptedOutEmail } from "./drip-graph.ts";
+import { marketingConsentDenied } from "./email-consent.ts";
 import { getSetting } from "./system-settings.ts";
 import { deliverEmail, recordSkippedDelivery } from "./email.ts";
 import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
@@ -191,7 +191,10 @@ export async function coordinateMarketingSend(
     prefs = (data as { notification_preferences: Record<string, unknown> | null } | null)
       ?.notification_preferences ?? null;
   }
-  const optedOut = marketingOptedOutEmail(prefs);
+  // US-911: honor the master marketing umbrella for EVERY source plus the
+  // per-source granular category (the weekly newsletter requires its own
+  // `weekly_newsletter` consent, not just the umbrella).
+  const optedOut = marketingConsentDenied(prefs, input.source);
 
   // 2. Suppression (US-914) — only worth a round-trip when consent is intact.
   const suppressed = optedOut ? false : await isEmailSuppressed(addr);

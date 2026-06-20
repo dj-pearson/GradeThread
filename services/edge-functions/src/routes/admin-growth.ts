@@ -28,6 +28,7 @@ import { buildBroadcastEmailHtml } from "../lib/email.ts";
 import { sendPushToUser } from "../lib/apns.ts";
 import { getReferralRewardConfig, grantReferralReward } from "../lib/referrals.ts";
 import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
+import { isMarketingOptedOut } from "../lib/email-consent.ts";
 import { marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
 import {
   applyMarketingEmailTracking,
@@ -410,10 +411,9 @@ function marketingOptedOut(
   prefs: Record<string, unknown> | null,
   channel: "email" | "push",
 ): boolean {
-  if (!prefs) return false;
-  const m = prefs["marketing"];
-  if (!m || typeof m !== "object") return false;
-  return (m as Record<string, unknown>)[channel] === false;
+  // US-911: delegate to the canonical consent model so the push/email opt-out
+  // reads the same `marketing` umbrella key the unsubscribe link writes.
+  return isMarketingOptedOut(prefs, channel);
 }
 
 interface DispatchResult {

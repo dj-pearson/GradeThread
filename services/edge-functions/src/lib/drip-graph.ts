@@ -7,6 +7,8 @@
 // write (no loops/orphans), renders step copy for preview/test-send, and runs
 // `simulateJourney()` for the "simulate for this user" dry-run.
 
+import { isMarketingOptedOut } from "./email-consent.ts";
+
 // ── Types ──
 
 export type DripPhase = "in_trial" | "win_back";
@@ -492,10 +494,9 @@ export function buildLostFeaturesHtml(labels: string[]): string {
 export function marketingOptedOutEmail(
   prefs: Record<string, unknown> | null | undefined,
 ): boolean {
-  if (!prefs) return false;
-  const m = prefs["marketing"];
-  if (!m || typeof m !== "object") return false;
-  return (m as Record<string, unknown>)["email"] === false;
+  // Canonical marketing consent now lives in email-consent.ts so the writer
+  // (unsubscribe link / preference center) and every reader can't drift.
+  return isMarketingOptedOut(prefs, "email");
 }
 
 // ── Per-send dispatch gate (US-938) ──

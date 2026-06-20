@@ -17,7 +17,7 @@ import { getSetting } from "./system-settings.ts";
 import { captureException } from "./observability.ts";
 import { emitOpsEvent } from "./ops-events.ts";
 import { fetchWithTimeout } from "./circuit-breaker.ts";
-import { marketingPreferenceCenterUrl, marketingUnsubscribeUrl } from "./unsubscribe.ts";
+import { accountPreferenceCenterUrl, marketingUnsubscribeUrl } from "./unsubscribe.ts";
 import {
   type NewsletterSection,
   type RenderableIssue,
@@ -155,7 +155,7 @@ export async function runIssueGuardrailGate(
   const unsubscribeUrl = await marketingUnsubscribeUrl(row.id).catch(
     () => "https://functions.gradethread.com/api/notifications/unsubscribe?u=preview&t=preview",
   );
-  const preferenceCenterUrl = marketingPreferenceCenterUrl();
+  const preferenceCenterUrl = accountPreferenceCenterUrl();
   const html = renderNewsletterHtml(renderable, { unsubscribeUrl, preferenceCenterUrl, postalAddress });
   const plaintext = renderNewsletterText(renderable);
 

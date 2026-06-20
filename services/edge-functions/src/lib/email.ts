@@ -12,7 +12,7 @@
 import { SMTPClient } from "denomailer";
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
-import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
+import { marketingPreferenceCenterUrl, marketingUnsubscribeUrl } from "./unsubscribe.ts";
 import { getSuppression } from "./email-suppression.ts";
 import { applyEmailTracking } from "./email-tracking.ts";
 import {
@@ -311,14 +311,19 @@ function postalAddress(): string {
 // suppressed) but still carries the postal address.
 function emailLayout(
   content: string,
-  opts: { unsubscribeUrl?: string } = {},
+  opts: { unsubscribeUrl?: string; preferenceCenterUrl?: string } = {},
 ): string {
+  // US-911 / CAN-SPAM: marketing email carries BOTH a one-click unsubscribe AND
+  // a link to the self-serve preference center (fine-tune categories).
+  const prefLink = opts.preferenceCenterUrl
+    ? ` &nbsp;&middot;&nbsp; <a href="${opts.preferenceCenterUrl}" style="color: #999; font-size: 12px; text-decoration: underline;">Manage email preferences</a>`
+    : "";
   const unsubscribeSection = opts.unsubscribeUrl
     ? `<tr>
         <td style="padding: 16px 32px; text-align: center;">
           <a href="${opts.unsubscribeUrl}" style="color: #999; font-size: 12px; text-decoration: underline;">
             Unsubscribe from marketing emails
-          </a>
+          </a>${prefLink}
         </td>
       </tr>`
     : "";
@@ -998,10 +1003,13 @@ export async function sendTrialExpiringEmail(
   const unsubscribeUrl = data.userId
     ? await marketingUnsubscribeUrl(data.userId)
     : undefined;
+  const preferenceCenterUrl = data.userId
+    ? await marketingPreferenceCenterUrl(data.userId)
+    : undefined;
   return await sendEmail({
     to,
     subject: `${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"} left on your FlipDesk Pro trial`,
-    html: emailLayout(content, { unsubscribeUrl }),
+    html: emailLayout(content, { unsubscribeUrl, preferenceCenterUrl }),
     category: "trial_expiring", // US-801: durable retry on transient failure
   });
 }
@@ -1069,12 +1077,15 @@ export async function buildNorthStarWeeklyEmail(
     </table>
     ${ctaButton("List an item", `${SITE_URL}/dashboard/flipdesk/intake`)}
   `;
-  const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
+  const [unsubscribeUrl, preferenceCenterUrl] = await Promise.all([
+    marketingUnsubscribeUrl(data.userId),
+    marketingPreferenceCenterUrl(data.userId),
+  ]);
   return {
     subject: goalMet
       ? `🎉 Weekly goal hit — ${data.itemsListed} items listed`
       : `Your week in listings: ${data.itemsListed} item${data.itemsListed === 1 ? "" : "s"}`,
-    html: emailLayout(content, { unsubscribeUrl }),
+    html: emailLayout(content, { unsubscribeUrl, preferenceCenterUrl }),
   };
 }
 
@@ -1120,10 +1131,13 @@ export async function buildNorthStarMilestoneEmail(
     </p>
     ${ctaButton("Keep listing", `${SITE_URL}/dashboard/flipdesk/intake`)}
   `;
-  const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
+  const [unsubscribeUrl, preferenceCenterUrl] = await Promise.all([
+    marketingUnsubscribeUrl(data.userId),
+    marketingPreferenceCenterUrl(data.userId),
+  ]);
   return {
     subject: `🏆 You've listed ${data.milestone} items on FlipDesk`,
-    html: emailLayout(content, { unsubscribeUrl }),
+    html: emailLayout(content, { unsubscribeUrl, preferenceCenterUrl }),
   };
 }
 

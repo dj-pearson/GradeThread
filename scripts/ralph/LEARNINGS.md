@@ -69,6 +69,20 @@ memory — not a progress log (the harness records progress separately).
   `/api/newsletter/scheduler`) because `app.route` registers CONCRETE paths, not
   greedy prefixes — `/subscribe` + `/confirm` never shadow `/scheduler/*`.
 
+## Marketing consent canonical key (US-911)
+- ALL marketing-consent logic now lives in PURE `lib/email-consent.ts`: a master
+  `notification_preferences.marketing.email` umbrella (every send gate reads it via
+  `marketingConsentDenied(prefs, source)`) + per-source granular categories
+  (`weekly_newsletter`). The no-login unsubscribe link writes the `marketing`
+  umbrella (NOT the old `product_updates.email`, which the send gate never read —
+  that was the US-911 bug; migration 00296 backfilled old opt-outs). `marketingOptedOutEmail`
+  (drip-graph) + `marketingOptedOut` (admin-growth) delegate to it. Newsletter sends
+  add the `weekly_newsletter` category check on top of the umbrella.
+- Adding a key to `NotificationPreferences` (src/types/database.ts) REQUIRES adding
+  it to `DEFAULT_NOTIFICATION_PREFERENCES` too — `withPreferenceDefaults` rebuilds the
+  blob from DEFAULT's keys only, so a key absent from DEFAULT is SILENTLY DROPPED on
+  a settings save (would wipe a recipient's opt-out).
+
 ## Plan-gate from a background worker
 - `requireFlipdesk` only reads `c.get` and (on block/warn) `c.json`/`c.header`.
   To reuse the IDENTICAL plan/capacity gate from a worker with no HTTP request

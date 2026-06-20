@@ -12,6 +12,14 @@ import {
 import { captureServer } from "../lib/posthog.ts";
 import { emitEvent } from "../lib/user-events.ts";
 import { verifyUnsubscribeToken } from "../lib/unsubscribe.ts";
+import {
+  applyCategoryConsent,
+  applyUnsubscribeAll,
+  isMarketingCategoryEnabled,
+  isMarketingOptedOut,
+  PREFERENCE_CENTER_CATEGORIES,
+  TRANSACTIONAL_CATEGORY_LABELS,
+} from "../lib/email-consent.ts";
 
 // Insert an in-app notification (service role bypasses RLS). Best-effort.
 async function notifyInApp(
@@ -47,38 +55,88 @@ function checkWelcomeRateLimit(ip: string): boolean {
   return entry.count <= WELCOME_MAX;
 }
 
-// ─── No-login marketing unsubscribe (US-516 / CAN-SPAM) ──────────────
+// ─── No-login marketing consent (US-516 / US-911 / CAN-SPAM) ──────────
 //
+// These endpoints are intentionally NOT under authMiddleware: commercial email
+// must offer an unsubscribe / preference center that works WITHOUT a login. Both
+// are HMAC-token gated (lib/unsubscribe.ts) over the user id, so a link can't be
+// forged for another recipient.
+
+// Recipient's client IP for the consent audit trail (CF first, then XFF).
+function consentClientIp(c: { req: { header: (k: string) => string | undefined } }): string | null {
+  const cf = c.req.header("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  const first = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+  return first || null;
+}
+
+// US-911 AC6: write an attributable consent-change row so opt-out history is
+// traceable. Best-effort — a logging failure never blocks the consent update.
+async function recordConsentAudit(input: {
+  userId: string;
+  email: string | null;
+  action: "unsubscribe_all" | "category_update";
+  category: string | null;
+  enabled: boolean | null;
+  source: "unsubscribe_link" | "preference_center";
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  ip: string | null;
+  userAgent: string | null;
+}): Promise<void> {
+  const { error } = await supabaseAdmin.from("email_consent_audit").insert({
+    subscriber_user_id: input.userId,
+    email: input.email,
+    action: input.action,
+    category: input.category,
+    channel: "email",
+    enabled: input.enabled,
+    source: input.source,
+    before: input.before,
+    after: input.after,
+    ip: input.ip,
+    user_agent: input.userAgent,
+  });
+  if (error) console.error("[consent-audit] insert failed:", error.message);
+}
+
+// Minimal branded HTML shell for the no-login pages.
+function consentPage(bodyHtml: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email preferences · GradeThread</title></head><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:48px auto;padding:0 24px;color:#1A1A2E"><h1 style="font-size:22px;color:#0F3460;text-align:center;margin:0 0 8px">GradeThread</h1>${bodyHtml}</body></html>`;
+}
+
+// Load a user's email + notification_preferences (service role).
+async function loadConsentUser(
+  userId: string,
+): Promise<{ email: string | null; prefs: Record<string, unknown> } | null> {
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select("email, notification_preferences")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as { email?: string | null; notification_preferences?: Record<string, unknown> | null };
+  return { email: row.email ?? null, prefs: row.notification_preferences ?? {} };
+}
+
 // GET /unsubscribe?u=<userId>&t=<token>
-// Honors a one-click unsubscribe from marketing email WITHOUT a login. The
-// token is an HMAC over the user id (lib/unsubscribe.ts) so it can't be forged
-// for another user. Flips notification_preferences.product_updates.email to
-// false. Returns a tiny HTML confirmation (rendered in the browser). This path
-// is intentionally NOT under authMiddleware.
+// One-click unsubscribe from ALL marketing email. Flips the canonical
+// notification_preferences.marketing.email umbrella to false (US-911 AC1) — the
+// SAME key every marketing send gate reads — so the opt-out actually suppresses
+// broadcasts/drip/newsletter, then writes a consent-audit row.
 notificationRoutes.get("/unsubscribe", async (c) => {
   const userId = c.req.query("u") ?? "";
   const token = c.req.query("t") ?? "";
   const html = (msg: string, ok: boolean) =>
-    c.html(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email preferences</title></head><body style="font-family:system-ui,sans-serif;max-width:480px;margin:64px auto;padding:0 24px;text-align:center;color:#1A1A2E"><h1 style="font-size:20px;color:#0F3460">GradeThread</h1><p style="font-size:15px;line-height:1.5">${msg}</p></body></html>`,
-      ok ? 200 : 400,
-    );
+    c.html(consentPage(`<p style="font-size:15px;line-height:1.5;text-align:center">${msg}</p>`), ok ? 200 : 400);
 
   if (!userId || !token || !(await verifyUnsubscribeToken(userId, token))) {
     return html("This unsubscribe link is invalid or has expired.", false);
   }
 
-  // Merge product_updates.email = false into the JSONB preferences.
-  const { data: row } = await supabaseAdmin
-    .from("users")
-    .select("notification_preferences")
-    .eq("id", userId)
-    .maybeSingle();
-  const prefs =
-    (row as { notification_preferences?: Record<string, unknown> } | null)
-      ?.notification_preferences ?? {};
-  const product = (prefs.product_updates as Record<string, unknown>) ?? {};
-  const next = { ...prefs, product_updates: { ...product, email: false } };
+  const loaded = await loadConsentUser(userId);
+  const before = loaded?.prefs ?? {};
+  const next = applyUnsubscribeAll(before);
 
   const { error } = await supabaseAdmin
     .from("users")
@@ -87,10 +145,170 @@ notificationRoutes.get("/unsubscribe", async (c) => {
   if (error) {
     return html("Sorry — we couldn't update your preferences. Please try again.", false);
   }
+  await recordConsentAudit({
+    userId,
+    email: loaded?.email ?? null,
+    action: "unsubscribe_all",
+    category: null,
+    enabled: false,
+    source: "unsubscribe_link",
+    before,
+    after: next,
+    ip: consentClientIp(c),
+    userAgent: c.req.header("user-agent") ?? null,
+  });
+  const prefUrl =
+    `/api/notifications/preferences?u=${encodeURIComponent(userId)}&t=${encodeURIComponent(token)}`;
   return html(
-    "You've been unsubscribed from GradeThread marketing emails. You'll still receive essential account and transaction messages.",
+    `You've been unsubscribed from GradeThread marketing emails. You'll still receive essential account and transaction messages.<br><br><a href="${prefUrl}" style="color:#0F3460">Manage individual email preferences instead →</a>`,
     true,
   );
+});
+
+// ─── No-login self-serve preference center (US-911 AC3) ───────────────
+//
+// GET  /preferences?u=<userId>&t=<token> → renders per-category toggles.
+// POST /preferences (form-encoded: u, t, action, plus a checkbox per category)
+//      → applies the changes + writes a consent-audit row.
+// Transactional categories are shown but NOT suppressible (clearly labeled).
+
+function renderPreferenceForm(
+  userId: string,
+  token: string,
+  prefs: Record<string, unknown>,
+  notice: string | null,
+): string {
+  const noticeHtml = notice
+    ? `<p style="background:#E8F5E9;color:#1B5E20;padding:12px 16px;border-radius:8px;font-size:14px;margin:0 0 20px;text-align:center">${notice}</p>`
+    : "";
+  const masterOff = isMarketingOptedOut(prefs);
+  const masterNote = masterOff
+    ? `<p style="font-size:13px;color:#E94560;margin:0 0 16px">You're currently unsubscribed from all marketing email. Re-enable a category below to start receiving it again.</p>`
+    : "";
+  const categoryRows = PREFERENCE_CENTER_CATEGORIES.map((cat) => {
+    const enabled = !masterOff && isMarketingCategoryEnabled(prefs, cat.key);
+    const checked = enabled ? "checked" : "";
+    return `<label style="display:flex;align-items:flex-start;gap:12px;padding:14px 0;border-bottom:1px solid #eee">
+        <input type="checkbox" name="cat_${cat.key}" value="1" ${checked} style="margin-top:3px;width:18px;height:18px">
+        <span><strong style="font-size:15px">${cat.label}</strong><br><span style="font-size:13px;color:#666">${cat.description}</span></span>
+      </label>`;
+  }).join("");
+  const transactionalRows = TRANSACTIONAL_CATEGORY_LABELS.map(
+    (label) =>
+      `<li style="font-size:13px;color:#666;margin:0 0 6px;list-style:none">🔒 ${label} <span style="color:#999">— always sent</span></li>`,
+  ).join("");
+  const u = encodeURIComponent(userId);
+  const t = encodeURIComponent(token);
+  return consentPage(`
+    <p style="font-size:14px;color:#666;text-align:center;margin:0 0 24px">Choose which emails you'd like to receive.</p>
+    ${noticeHtml}
+    ${masterNote}
+    <form method="POST" action="/api/notifications/preferences">
+      <input type="hidden" name="u" value="${u}">
+      <input type="hidden" name="t" value="${t}">
+      <input type="hidden" name="action" value="save">
+      <h2 style="font-size:14px;text-transform:uppercase;letter-spacing:.5px;color:#0F3460;margin:0 0 4px">Marketing</h2>
+      ${categoryRows}
+      <button type="submit" style="margin-top:20px;width:100%;background:#0F3460;color:#fff;border:0;border-radius:8px;padding:14px;font-size:15px;font-weight:600;cursor:pointer">Save preferences</button>
+    </form>
+    <form method="POST" action="/api/notifications/preferences" style="margin-top:12px">
+      <input type="hidden" name="u" value="${u}">
+      <input type="hidden" name="t" value="${t}">
+      <input type="hidden" name="action" value="unsubscribe_all">
+      <button type="submit" style="width:100%;background:transparent;color:#E94560;border:1px solid #E94560;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">Unsubscribe from all marketing email</button>
+    </form>
+    <h2 style="font-size:14px;text-transform:uppercase;letter-spacing:.5px;color:#0F3460;margin:28px 0 8px">Account &amp; transactional</h2>
+    <ul style="margin:0;padding:0">${transactionalRows}</ul>
+  `);
+}
+
+notificationRoutes.get("/preferences", async (c) => {
+  const userId = c.req.query("u") ?? "";
+  const token = c.req.query("t") ?? "";
+  if (!userId || !token || !(await verifyUnsubscribeToken(userId, token))) {
+    return c.html(
+      consentPage(`<p style="font-size:15px;text-align:center">This preferences link is invalid or has expired.</p>`),
+      400,
+    );
+  }
+  const loaded = await loadConsentUser(userId);
+  return c.html(renderPreferenceForm(userId, token, loaded?.prefs ?? {}, null));
+});
+
+notificationRoutes.post("/preferences", async (c) => {
+  const form = await c.req.parseBody();
+  const userId = typeof form.u === "string" ? form.u : "";
+  const token = typeof form.t === "string" ? form.t : "";
+  const action = typeof form.action === "string" ? form.action : "save";
+  if (!userId || !token || !(await verifyUnsubscribeToken(userId, token))) {
+    return c.html(
+      consentPage(`<p style="font-size:15px;text-align:center">This preferences link is invalid or has expired.</p>`),
+      400,
+    );
+  }
+
+  const loaded = await loadConsentUser(userId);
+  const before = loaded?.prefs ?? {};
+  const ip = consentClientIp(c);
+  const userAgent = c.req.header("user-agent") ?? null;
+
+  if (action === "unsubscribe_all") {
+    const next = applyUnsubscribeAll(before);
+    const { error } = await supabaseAdmin
+      .from("users")
+      .update({ notification_preferences: next })
+      .eq("id", userId);
+    if (error) {
+      return c.html(renderPreferenceForm(userId, token, before, "Sorry — couldn't save. Please try again."), 500);
+    }
+    await recordConsentAudit({
+      userId,
+      email: loaded?.email ?? null,
+      action: "unsubscribe_all",
+      category: null,
+      enabled: false,
+      source: "preference_center",
+      before,
+      after: next,
+      ip,
+      userAgent,
+    });
+    return c.html(renderPreferenceForm(userId, token, next, "You've been unsubscribed from all marketing email."));
+  }
+
+  // Save: a checked box (cat_<key>=1) ⇒ enabled. An unchecked box is absent from
+  // the POST body ⇒ disabled. Saving re-enables the master umbrella so a
+  // previously-unsubscribed recipient who opts a category back on is honored.
+  let next: Record<string, unknown> = applyCategoryConsent(before, "marketing", true);
+  for (const cat of PREFERENCE_CENTER_CATEGORIES) {
+    const enabled = form[`cat_${cat.key}`] === "1";
+    next = applyCategoryConsent(next, cat.key, enabled);
+  }
+  // If the recipient turned EVERY marketing category off, treat it as a full
+  // unsubscribe so the umbrella gate suppresses all marketing too.
+  const allOff = PREFERENCE_CENTER_CATEGORIES.every((cat) => form[`cat_${cat.key}`] !== "1");
+  if (allOff) next = applyUnsubscribeAll(next);
+
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update({ notification_preferences: next })
+    .eq("id", userId);
+  if (error) {
+    return c.html(renderPreferenceForm(userId, token, before, "Sorry — couldn't save. Please try again."), 500);
+  }
+  await recordConsentAudit({
+    userId,
+    email: loaded?.email ?? null,
+    action: "category_update",
+    category: PREFERENCE_CENTER_CATEGORIES.map((cat) => cat.key).join(","),
+    enabled: !allOff,
+    source: "preference_center",
+    before,
+    after: next,
+    ip,
+    userAgent,
+  });
+  return c.html(renderPreferenceForm(userId, token, next, "Your email preferences have been saved."));
 });
 
 // ─── User-submitted feedback (US-199) ────────────────────────────────

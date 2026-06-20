@@ -239,6 +239,10 @@ export interface NotificationPreferences {
   dispute_updates: NotificationChannelPrefs;
   billing_alerts: NotificationChannelPrefs;
   product_updates: NotificationChannelPrefs;
+  // US-911: master marketing-email umbrella (the canonical opt-out every
+  // marketing send path honors) + the dedicated weekly-newsletter category.
+  marketing: NotificationChannelPrefs;
+  weekly_newsletter: NotificationChannelPrefs;
   // Selling lifecycle: listing went live, sale recorded, item status changed
   // (US-737). Payouts split into their own category in US-1058.
   selling_activity: NotificationChannelPrefs;

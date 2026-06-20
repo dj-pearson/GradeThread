@@ -12,6 +12,11 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   dispute_updates: { email: true, in_app: true },
   billing_alerts: { email: true, in_app: true },
   product_updates: { email: true },
+  // US-911: master marketing umbrella + dedicated weekly-newsletter category.
+  // Included here (not just runtime) so withPreferenceDefaults PRESERVES them on
+  // save — otherwise a settings save would silently wipe a recipient's opt-out.
+  marketing: { email: true },
+  weekly_newsletter: { email: true },
   selling_activity: { email: true, in_app: true, push: true },
   offers: { email: true, in_app: true, push: true },
   returns: { email: true, in_app: true, push: true },
@@ -100,6 +105,13 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     label: "Billing",
     description: "Payment receipts, failed charges, and plan changes.",
     channels: ["email", "in_app"],
+  },
+  {
+    key: "weekly_newsletter",
+    label: "Weekly newsletter",
+    description:
+      "Curated grading tips, resale market trends, and product insights — about once a week. Turn off to stop the newsletter while keeping other email.",
+    channels: ["email"],
   },
   {
     key: "product_updates",

@@ -8,7 +8,7 @@ import { requireStepUp } from "../lib/step-up.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { deliverEmail } from "../lib/email.ts";
 import { coordinateMarketingSend } from "../lib/marketing-coordinator.ts";
-import { marketingPreferenceCenterUrl, marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
+import { accountPreferenceCenterUrl, marketingUnsubscribeUrl } from "../lib/unsubscribe.ts";
 import { runIssueGuardrailGate } from "../lib/newsletter-qa-job.ts";
 import { clearFeatureFlagCache, isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
@@ -709,7 +709,7 @@ adminNewsletterRoutes.post("/issues/:id/preview", async (c) => {
 
   const html = renderNewsletterHtml(toRenderable(issue), {
     unsubscribeUrl: "https://gradethread.com/unsubscribe?preview=1",
-    preferenceCenterUrl: marketingPreferenceCenterUrl(),
+    preferenceCenterUrl: accountPreferenceCenterUrl(),
     postalAddress: Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
       "Pearson Media LLC, Iowa, USA",
   });
@@ -731,7 +731,7 @@ adminNewsletterRoutes.post("/issues/:id/test-send", async (c) => {
 
   const html = renderNewsletterHtml(toRenderable(issue), {
     unsubscribeUrl: "https://gradethread.com/unsubscribe?preview=1",
-    preferenceCenterUrl: marketingPreferenceCenterUrl(),
+    preferenceCenterUrl: accountPreferenceCenterUrl(),
     postalAddress: Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
       "Pearson Media LLC, Iowa, USA",
   });
@@ -1026,7 +1026,7 @@ adminNewsletterRoutes.post("/issues/:id/send", async (c) => {
       }
       const html = renderNewsletterHtml(renderableForRecipient, {
         unsubscribeUrl,
-        preferenceCenterUrl: marketingPreferenceCenterUrl(),
+        preferenceCenterUrl: accountPreferenceCenterUrl(),
         postalAddress: Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
           "Pearson Media LLC, Iowa, USA",
       });
