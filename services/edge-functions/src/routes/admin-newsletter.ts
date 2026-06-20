@@ -42,6 +42,8 @@ import {
   resolveAbConfig,
   startAbTest,
 } from "../lib/newsletter-ab-job.ts";
+import { loadScheduleConfig } from "../lib/newsletter-dispatch-job.ts";
+import { isQuietPeriod, nextSendWindow } from "../lib/newsletter-schedule.ts";
 import {
   type AbMetric,
   normalizeVariants,
@@ -325,10 +327,11 @@ function requireSensitive(c: Context<AdminEnv>): Response | null {
 // GET /api/admin/newsletter/program — pause / require-approval / kill-switch
 // state + the next scheduled run.
 adminNewsletterRoutes.get("/program", async (c) => {
-  const [paused, requireApproval, killSwitchEnabled] = await Promise.all([
+  const [paused, requireApproval, killSwitchEnabled, schedule] = await Promise.all([
     getSetting<boolean>("newsletter_send_paused", false),
     getSetting<boolean>("newsletter_require_approval", true),
     isFeatureEnabled("newsletter"),
+    loadScheduleConfig(),
   ]);
 
   const { data: queued } = await supabaseAdmin
@@ -337,19 +340,33 @@ adminNewsletterRoutes.get("/program", async (c) => {
     .not("scheduled_for", "is", null)
     .in("status", ["draft", "ready_for_qa", "awaiting_review", "approved"]);
 
+  const nowMs = Date.now();
   const next = nextScheduledRun(
     ((queued ?? []) as { status: NewsletterStatus; scheduled_for: string | null }[]).map((r) => ({
       status: r.status,
       scheduledFor: r.scheduled_for,
     })),
-    Date.now(),
+    nowMs,
   );
 
   return c.json({
     paused: Boolean(paused),
     requireApproval: Boolean(requireApproval),
     killSwitchEnabled: killSwitchEnabled,
+    // The earliest already-scheduled issue, plus the config-driven NEXT weekly
+    // window (US-926) so the console shows the cadence even with nothing queued.
     nextScheduledRun: next,
+    schedule: {
+      weekday: schedule.weekday,
+      hour: schedule.hour,
+      timezone: schedule.timezone,
+      cadencePeriodDays: schedule.cadencePeriodDays,
+      sendTimeOptimization: schedule.stoEnabled,
+      stoWindowHours: schedule.stoWindowHours,
+      quietPeriodUntil: schedule.quietPeriodUntil,
+      inQuietPeriod: isQuietPeriod(schedule.quietPeriodUntil, nowMs),
+      nextWindow: nextSendWindow(schedule, nowMs),
+    },
   });
 });
 
@@ -363,6 +380,7 @@ adminNewsletterRoutes.patch("/program", async (c) => {
     paused?: boolean;
     requireApproval?: boolean;
     killSwitch?: boolean;
+    quietPeriodUntil?: string | null;
   };
   const adminId = c.get("userId");
 
@@ -406,6 +424,25 @@ adminNewsletterRoutes.patch("/program", async (c) => {
     }
     clearFeatureFlagCache();
     changed.killSwitchEnabled = body.killSwitch;
+  }
+
+  // US-926: holiday/quiet-period pause — skip dispatch until an ISO instant without
+  // touching the cadence clock. Pass "" / null to clear it.
+  if ("quietPeriodUntil" in body) {
+    const raw = (body.quietPeriodUntil ?? "").trim();
+    if (raw && !Number.isFinite(Date.parse(raw))) {
+      return c.json({ error: "quietPeriodUntil must be an ISO datetime or empty to clear" }, 400);
+    }
+    const { error } = await supabaseAdmin
+      .from("system_settings")
+      .update({ value: raw, updated_by: adminId })
+      .eq("key", "newsletter_quiet_period_until");
+    if (error) {
+      captureException(error, { tags: { area: "admin-newsletter.program" } });
+      return c.json({ error: "Failed to update quiet period" }, 500);
+    }
+    bustSettingCache("newsletter_quiet_period_until");
+    changed.quietPeriodUntil = raw || null;
   }
 
   if (Object.keys(changed).length === 0) {

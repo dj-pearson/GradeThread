@@ -32,6 +32,12 @@ memory — not a progress log (the harness records progress separately).
   co-running loop committed a new dep without installing). It is NOT your
   regression — `npx tsc --noEmit` passes while `tsc -b`/`build:locked` fails on
   it. Run `npm install` to sync, then rebuild.
+- `deno check` with MULTIPLE roots can surface SPURIOUS errors: if you pass a
+  root that doesn't import `lib/observability.ts` (the `declare module "hono"`
+  augmentation that adds `correlationId` to ContextVariableMap) alongside
+  `main.ts`, grade.ts fails with `c.get("correlationId")` not assignable. CI runs
+  `deno check src/main.ts` ALONE — verify with the single-root form, not a
+  multi-file invocation.
 - An edge unit test that imports any lib which pulls in `lib/supabase.ts`
   (`supabaseAdmin`) crashes at import: `SUPABASE_URL is not set`. Fix like
   `ops-jobs_test.ts`: `Deno.env.set("SUPABASE_URL", …)` + `SUPABASE_SERVICE_ROLE_KEY`
