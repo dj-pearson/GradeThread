@@ -136,6 +136,7 @@ import { contentImagesRoutes } from "./routes/content-images.ts";
 import { contentSettingsRoutes } from "./routes/content-settings.ts";
 import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
+import { newsletterSchedulerRoutes } from "./routes/newsletter-scheduler.ts";
 import { dripRoutes } from "./routes/drip.ts";
 import { dripTrackingRoutes } from "./routes/drip-tracking.ts";
 import { campaignTrackingRoutes } from "./routes/campaign-tracking.ts";
@@ -635,6 +636,8 @@ app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
 app.use("/api/flipdesk/google/oauth/start", rateLimiter(10, 60_000, "google-oauth"));
 app.use("/api/flipdesk/google/sheet/*", rateLimiter(15, 60_000, "google-sheet"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
+// US-923: autonomous newsletter kickoff trigger (own auth baked in, like /scheduler).
+app.use("/api/newsletter/scheduler/*", rateLimiter(60, 60_000, "newsletter-kickoff"));
 app.use("/api/drip/*", rateLimiter(60, 60_000, "drip-tick"));
 // US-938: public, unauthenticated open/click tracking pixels — fail-closed
 // against a flood (per-IP), but generous since one recipient can fire several.
@@ -1101,6 +1104,10 @@ app.route("/api/content/public", contentPublicRoutes);
 // route module short-circuits on X-Internal-Job-Secret OR falls back
 // to admin JWT). Don't add /scheduler/* to the use() lines above.
 app.route("/api/content/scheduler", contentSchedulerRoutes);
+// US-923 autonomous newsletter kickoff trigger. Like /scheduler, /api/newsletter/
+// scheduler/* has its own auth baked in (NEWSLETTER_INTERNAL_JOB_SECRET / signed
+// request / admin JWT) — don't add it to the /api/* use() lines above.
+app.route("/api/newsletter/scheduler", newsletterSchedulerRoutes);
 // US-943 autonomous drip orchestration tick. Like /scheduler, /api/drip/* has
 // its own auth baked in (DRIP_INTERNAL_JOB_SECRET / signed request / admin JWT) —
 // don't add it to the /api/* use() lines above.

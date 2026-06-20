@@ -28,13 +28,7 @@ import {
   type DeliverabilityThresholds,
   evaluateDeliverability,
 } from "../lib/newsletter-thresholds.ts";
-import {
-  NEWSLETTER_TOPICS,
-  selectWeightedKey,
-  SUBJECT_STYLES,
-  subjectStyleById,
-  topicById,
-} from "../lib/newsletter-tuning.ts";
+import { NEWSLETTER_TOPICS, SUBJECT_STYLES } from "../lib/newsletter-tuning.ts";
 import { recomputeNewsletterTuning } from "../lib/newsletter-tuning-job.ts";
 import {
   finalizeAbTest,
@@ -44,6 +38,7 @@ import {
   startAbTest,
 } from "../lib/newsletter-ab-job.ts";
 import { loadScheduleConfig } from "../lib/newsletter-dispatch-job.ts";
+import { assembleNextIssue } from "../lib/newsletter-assembler.ts";
 import { isQuietPeriod, nextSendWindow } from "../lib/newsletter-schedule.ts";
 import {
   type AbMetric,
@@ -522,110 +517,19 @@ adminNewsletterRoutes.get("/issues/:id", async (c) => {
 
 // ── Issue creation + editing ─────────────────────────────────────────────────
 
-// Uniform-weight fallback (cold start, before any engagement is recorded) so the
-// assembler still rotates across the catalog instead of always picking the first.
-function uniformWeights(ids: string[]): Record<string, number> {
-  return Object.fromEntries(ids.map((id) => [id, 1]));
-}
-
-// The next future UTC datetime whose hour == `hour`. Pure given `nowMs`.
-function nextSendAt(hour: number, nowMs: number): string {
-  const d = new Date(nowMs);
-  d.setUTCMinutes(0, 0, 0);
-  d.setUTCHours(hour);
-  if (d.getTime() <= nowMs) d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString();
-}
-
-// US-928: the self-tuning bias the assembler reads. Topic + subject-style
-// selection are weighted by the computed stores (favoring higher-engaging, away
-// from paused), and the send time consumes the per-hour stats. All data-driven —
-// the cron populates the stores from engagement; this just consumes them.
-async function loadAssemblerBias(): Promise<{
-  topicWeights: Record<string, number>;
-  styleWeights: Record<string, number>;
-  bestHour: number | null;
-}> {
-  const [topicWeights, styleWeights, hourStats] = await Promise.all([
-    getSetting<Record<string, number>>("newsletter_topic_weights", {}),
-    getSetting<Record<string, number>>("newsletter_subject_style_weights", {}),
-    getSetting<{ bestHour: number | null }>("newsletter_send_hour_stats", { bestHour: null }),
-  ]);
-  return {
-    topicWeights: topicWeights ?? {},
-    styleWeights: styleWeights ?? {},
-    bestHour: typeof hourStats?.bestHour === "number" ? hourStats.bestHour : null,
-  };
-}
-
 // POST /api/admin/newsletter/issues/build-next — build the next issue now. With
 // no autonomous content engine wired yet this scaffolds an editable draft; the
 // engine (sibling story) will populate richer AI content into the same shape.
 //
-// US-928: topic, subject style, and send hour are now chosen by the self-tuning
-// weights (engagement-biased, with the exploration floor keeping under-tested
-// topics in rotation and paused topics excluded). The chosen dimensions are
-// stamped on the issue so the next analysis pass can attribute its engagement.
+// US-928: topic, subject style, and send hour are chosen by the self-tuning weights
+// (engagement-biased, with the exploration floor keeping under-tested topics in
+// rotation and paused topics excluded). US-923: the actual assembly lives in the
+// shared lib/newsletter-assembler.ts so this console button and the autonomous
+// kickoff tick (routes/newsletter-scheduler.ts) never drift on how an issue is born.
 adminNewsletterRoutes.post("/issues/build-next", async (c) => {
-  const bias = await loadAssemblerBias();
-  const nowMs = Date.now();
-  const seed = `nl-${nowMs}`;
-
-  // A weighted pick that can't resolve to a catalog entry (empty/stale weights)
-  // falls back to a uniform pick over the live catalog — always resolvable.
-  const topic =
-    topicById(selectWeightedKey(bias.topicWeights, seed) ?? "") ??
-    topicById(selectWeightedKey(uniformWeights(NEWSLETTER_TOPICS.map((t) => t.id)), seed)!)!;
-
-  const style =
-    subjectStyleById(selectWeightedKey(bias.styleWeights, `${seed}:style`) ?? "") ??
-    subjectStyleById(
-      selectWeightedKey(uniformWeights(SUBJECT_STYLES.map((s) => s.id)), `${seed}:style`)!,
-    )!;
-
-  // Send-time optimization: use the learned best hour, else a sensible default.
-  const sendHour = bias.bestHour ?? 14;
-  const scheduledFor = nextSendAt(sendHour, nowMs);
-
-  const sections: NewsletterSection[] = [
-    {
-      heading: topic.label,
-      body:
-        `<p>Draft issue on <strong>${topic.label}</strong> (pillar: ${topic.pillar}). ` +
-        `Suggested subject style: <em>${style.label}</em> — ${style.guidance} ` +
-        `Edit these sections before sending.</p>`,
-    },
-  ];
-  const qa = runIssueQa({ subject: "", sections });
-
-  // US-927: seed two starter subject variants so the issue can run an A/B test out
-  // of the box. The copywriter (sibling story) overwrites these with real variants;
-  // operators can edit/extend them in the console before sending.
-  const subjectVariants: SubjectVariant[] = [
-    { id: "a", subject: topic.label, label: "Variant A" },
-    { id: "b", subject: `${topic.label}: what most resellers miss`, label: "Variant B" },
-  ];
-
-  const { data, error } = await supabaseAdmin
-    .from("newsletter_issues")
-    .insert({
-      title: topic.label,
-      subject: "",
-      sections,
-      subject_variants: subjectVariants,
-      status: "draft",
-      qa_results: qa,
-      pillar: topic.pillar,
-      angle: topic.angle,
-      subject_style: style.id,
-      send_hour: sendHour,
-      scheduled_for: scheduledFor,
-      created_by: c.get("userId"),
-    })
-    .select(ISSUE_COLS)
-    .maybeSingle();
-  if (error || !data) {
-    captureException(error ?? new Error("insert returned no row"), {
+  const result = await assembleNextIssue(c.get("userId"), Date.now());
+  if (!result.issue) {
+    captureException(new Error(result.error ?? "insert returned no row"), {
       tags: { area: "admin-newsletter.console" },
     });
     return c.json({ error: "Failed to build issue" }, 500);
@@ -634,11 +538,15 @@ adminNewsletterRoutes.post("/issues/build-next", async (c) => {
   await writeAuditLog(c, {
     action: "newsletter.issue.build",
     targetType: "newsletter_issue",
-    targetId: (data as unknown as NewsletterIssueRow).id,
-    details: { topic: topic.id, subjectStyle: style.id, sendHour },
+    targetId: result.issue.id,
+    details: {
+      topic: result.chosen.topicId,
+      subjectStyle: result.chosen.styleId,
+      sendHour: result.chosen.sendHour,
+    },
   });
 
-  return c.json({ issue: data as unknown as NewsletterIssueRow }, 201);
+  return c.json({ issue: result.issue.row as NewsletterIssueRow }, 201);
 });
 
 // ── Self-tuning transparency + override (US-928) ─────────────────────────────
