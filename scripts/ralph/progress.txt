@@ -3538,3 +3538,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  9:30:13 PM
 ---
+## US-936: Enrollment & state-machine engine
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  9:33:42 PM
+---
