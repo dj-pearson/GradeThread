@@ -18,6 +18,8 @@ struct CertifiedGradeSection: View {
     @State private var showingRequest = false
     @State private var showingReport = false
     @State private var showingDisclosure = false
+    /// US-768: the graded-photo (digital slab) preview/save/share sheet.
+    @State private var showingGradedPhoto = false
 
     private var isGraded: Bool { item.gradeValue != nil }
     private var certificateURL: URL? {
@@ -47,6 +49,11 @@ struct CertifiedGradeSection: View {
         }
         .sheet(isPresented: $showingDisclosure) {
             DisclosureView(itemId: item.id)
+        }
+        .sheet(isPresented: $showingGradedPhoto) {
+            if let certificateURL = item.certificateURL {
+                GradedPhotoView(certificateURL: certificateURL)
+            }
         }
     }
 
@@ -108,6 +115,16 @@ struct CertifiedGradeSection: View {
             if let certificateURL {
                 ShareLink(item: certificateURL) {
                     Label("Share certificate", systemImage: "square.and.arrow.up")
+                        .font(.subheadline.weight(.medium))
+                }
+
+                // US-768: the PSA-style certified "graded photo" for listings +
+                // socials — preview, pick a format, save to Photos, or share.
+                Button {
+                    AppRouter.haptic()
+                    showingGradedPhoto = true
+                } label: {
+                    Label("Graded photo", systemImage: "photo.badge.checkmark")
                         .font(.subheadline.weight(.medium))
                 }
             }

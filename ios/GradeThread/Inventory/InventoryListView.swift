@@ -208,7 +208,16 @@ struct InventoryListView: View {
         ) {
             // US-644: when some items failed, offer to see the per-item reasons
             // the executor already built — not just the summary count.
+            // US-756: and a one-tap "Retry N failed" that re-runs ONLY the
+            // failed set, so the user never re-selects + re-runs the whole batch.
             if let result = actionResult, !result.failures.isEmpty {
+                if Self.isRetryable(result.action) {
+                    Button("Retry \(result.failures.count) failed") {
+                        // Capture the result now — dismissing this alert nils
+                        // `actionResult`, so the async retry can't read it back.
+                        Task { await retryFailed(result) }
+                    }
+                }
                 Button("View details") { showingFailures = true }
             }
             Button("OK") {}
@@ -232,7 +241,15 @@ struct InventoryListView: View {
         // US-644: per-item failure detail.
         .sheet(isPresented: $showingFailures) {
             if let result = actionResult {
-                BulkFailuresView(result: result, items: allItems)
+                BulkFailuresView(
+                    result: result,
+                    items: allItems,
+                    // US-756: retry only the failed set (dismisses the sheet via
+                    // retryFailed); omitted for non-retryable actions.
+                    onRetry: Self.isRetryable(result.action)
+                        ? { Task { await retryFailed(result) } }
+                        : nil
+                )
             }
         }
         // US-685: publish a single row to eBay without entering the canvas.
@@ -855,6 +872,39 @@ struct InventoryListView: View {
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }
 
+    /// US-756: re-run the last bulk action against ONLY the items that failed,
+    /// so a partial failure recovers without re-selecting and re-running the
+    /// whole batch. Succeeded items are never touched; the new result replaces
+    /// `actionResult`, so repeated retries keep narrowing to the still-failing
+    /// set (and a fully-recovered retry shows "Updated N items."). The result is
+    /// passed in rather than read from state because dismissing the alert that
+    /// triggers this nils `actionResult` before the async work runs.
+    private func retryFailed(_ result: BulkActionResult) async {
+        guard !result.failures.isEmpty else { return }
+        let failedIds = Self.failedItemIdsToRetry(result)
+        let failedItems = allItems.filter { failedIds.contains($0.id) }
+        guard !failedItems.isEmpty else { return }
+        showingFailures = false
+        await perform(result.action, items: failedItems, isBulk: true)
+    }
+
+    /// The item ids to retry after a partial bulk failure — exactly the failed
+    /// set. Pure + static so the "never re-runs the succeeded items" contract is
+    /// unit-testable without a SwiftData container.
+    static func failedItemIdsToRetry(_ result: BulkActionResult) -> Set<String> {
+        Set(result.failures.map(\.itemId))
+    }
+
+    /// US-756: which actions a "Retry failed" makes sense for. Export is a
+    /// client-side no-fail action and grade runs in its own sheet (never lands
+    /// here), so neither offers a retry; everything else re-runs cleanly.
+    static func isRetryable(_ action: BulkAction) -> Bool {
+        switch action {
+        case .exportCSV, .grade: return false
+        default: return true
+        }
+    }
+
     /// True for status-only actions where Undo can safely restore the prior
     /// state on both the server and the local cache (US-644).
     private static func isStatusUndoable(_ action: BulkAction) -> Bool {
@@ -1014,9 +1064,13 @@ private struct BulkProgressHUD: View {
 }
 
 /// Per-item failure list (US-644) — resolves item titles from the cache.
+/// US-756: offers a "Retry N failed" action so only the failed rows re-run.
 private struct BulkFailuresView: View {
     let result: BulkActionResult
     let items: [LocalInventoryItem]
+    /// Re-runs the action against only the failed set. Nil for non-retryable
+    /// actions (export). Dismissal is handled by the parent's retry path.
+    var onRetry: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1034,6 +1088,20 @@ private struct BulkFailuresView: View {
                     }
                 } header: {
                     Text("\(result.failures.count) failed · \(result.succeeded) succeeded")
+                }
+                if let onRetry {
+                    Section {
+                        Button {
+                            onRetry()
+                        } label: {
+                            Label(
+                                "Retry \(result.failures.count) failed item\(result.failures.count == 1 ? "" : "s")",
+                                systemImage: "arrow.clockwise"
+                            )
+                        }
+                    } footer: {
+                        Text("Re-runs only the items that failed — the \(result.succeeded) that succeeded won't run again.")
+                    }
                 }
             }
             .navigationTitle(result.action.label)

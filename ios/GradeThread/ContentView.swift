@@ -65,6 +65,14 @@ struct ContentView: View {
                 Task { await authStore.handleAuthCallback(url: url) }
             }
             .onOpenURL { url in
+                // US-752: a home-screen widget tap arrives as a custom-scheme
+                // URL (com.gradethread.app://widget/...). Route it before the
+                // auth-callback handler — which ignores the `widget` host
+                // anyway, but parsing here keeps the two paths explicit.
+                if let widgetLink = WidgetDeepLink.from(url: url) {
+                    handleWidgetDeepLink(widgetLink)
+                    return
+                }
                 Task { await authStore.handleAuthCallback(url: url) }
             }
             .onChange(of: authStore.phase) { _, newPhase in
@@ -153,6 +161,18 @@ struct ContentView: View {
                     showingOnboarding = false
                 }
             }
+    }
+
+    /// US-752: translate a widget tap into the existing deep-link pipeline.
+    /// `WidgetDeepLink` lives in the shared module (the widget extension can't
+    /// see the app-only `DeepLinkRoute`), so the mapping happens here.
+    private func handleWidgetDeepLink(_ link: WidgetDeepLink) {
+        switch link {
+        case .marketplaces:
+            handleDeepLink(.marketplacesTab)
+        case .money:
+            handleDeepLink(.salesTab(inventoryItemId: nil))
+        }
     }
 
     private func handleDeepLink(_ route: DeepLinkRoute) {
@@ -523,8 +543,16 @@ struct MainShell: View {
 
     private func apply(route: DeepLinkRoute, router: AppRouter) {
         switch route {
-        case .salesTab:
+        case let .salesTab(inventoryItemId):
+            // US-752: a sale.created / payout.* push that carried the item id
+            // drills into that item's canvas (which shows its sale + payout
+            // detail) instead of dumping the user on the Money tab home. No id
+            // (e.g. a payout digest, or the widget's Money tap) → the tab root.
             router.selection = .sales
+            router.salesPath = NavigationPath()
+            if let id = inventoryItemId, let item = fetchInventoryItem(id: id) {
+                router.salesPath.append(item)
+            }
         case .marketplacesTab:
             router.selection = .marketplaces
         case .inventoryTab:
@@ -643,6 +671,11 @@ private struct TabBarShell: View {
             NavigationStack(path: $router.salesPath) {
                 MoneyPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
+                    // US-752: a sale.created / payout.* push (or a Money-row tap)
+                    // drills into the sale's item canvas on this tab.
+                    .navigationDestination(for: LocalInventoryItem.self) { item in
+                        ItemCanvasView(item: item)
+                    }
                     // US-684: add-method menu reachable from the Money tab.
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {

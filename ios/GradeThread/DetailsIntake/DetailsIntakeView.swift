@@ -203,7 +203,20 @@ struct DetailsIntakeView: View {
                         .focused($focusedField, equals: .title)
                         .submitLabel(.next)
                         .onSubmit { focusedField = .sku }
+                        // US-754: enforce the soft length cap as the user types so
+                        // a long paste is visibly clamped, not silently dropped.
+                        .onChange(of: form.title) { _, _ in form.clampTitleToLimit() }
                         .accessibilityLabel("Title, required")
+                    Spacer(minLength: 4)
+                    // US-754: length counter — appears only as the cap nears so
+                    // it's not visual noise during normal entry.
+                    if form.titleFeedback.level != .normal {
+                        Text(form.titleFeedback.counterText)
+                            .font(.caption2.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(form.titleFeedback.level == .atLimit
+                                             ? Color.brandRed : Color.brandAmber)
+                            .accessibilityHidden(true)
+                    }
                     // Visual "required" marker — the field carries the label
                     // for VoiceOver, so this stays decorative.
                     Text("Required")
@@ -211,13 +224,28 @@ struct DetailsIntakeView: View {
                         .foregroundStyle(Color.brandRed)
                         .accessibilityHidden(true)
                 }
-                if form.isTitleMissing {
-                    // Explains why both Save buttons are disabled; clears the
-                    // moment a title is typed.
-                    Text(IntakeFormState.titleRequiredHelp)
+                if let message = form.titleValidationMessage {
+                    // US-754: red FieldError (web parity) — explains why both Save
+                    // buttons are disabled; clears the moment a title is typed.
+                    FieldError(message)
+                } else if let atLimit = form.titleFeedback.atLimitNote {
+                    // At the cap: explain the truncation rather than silently
+                    // swallowing further keystrokes.
+                    Text(atLimit)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.brandAmber)
                 }
+            }
+            // US-754: announce the validation error to VoiceOver when it appears
+            // (e.g. the user clears the title), reusing A11yAnnounce — onChange
+            // doesn't fire on first render, so the initial empty state stays
+            // silent until the user actually interacts.
+            .onChange(of: form.titleValidationMessage) { _, newValue in
+                if let newValue { A11yAnnounce.announce(newValue) }
+            }
+            // Announce the at-cap note once the field hits the limit.
+            .onChange(of: form.titleFeedback.atLimitNote) { _, newValue in
+                if let newValue { A11yAnnounce.announce(newValue) }
             }
 
             HStack {

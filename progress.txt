@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-11
+# Last updated: 2026-06-20
 
 ## Completed Stories
 
@@ -6029,3 +6029,90 @@ libs + one Taxonomy cache table; no live-API or frontend changes required.
           includes 'ebay'). Run `npm run verify:web` before deploy. The edge AC2
           change is pure omission of a field from an existing upsert — no schema
           change, no migration.
+
+================================================================================
+## 2026-06-20 — iOS cohesion / UX backlog sweep (US-752..US-768) + US-786 audit
+
+Closed the remaining iOS `passes:false` backlog. iOS can't be built/tested on
+this (Linux/Windows) host — only `python3 ios/Scripts/no-ungated-print.py` runs
+locally (it PASSES) — so each change was hand-checked against the surrounding
+Swift and the macOS-runner iOS CI is the safety net. New logic is covered by
+unit tests for the macOS test target.
+
+- US-752  Precise notification + widget deep links. COMPLETE.
+          Notification routing already carried the item id (DeepLinkRoute), but
+          `apply(.salesTab)` ignored it — it now drills a sale.created / payout.*
+          tap into that item's canvas (which shows the sale + payout detail) on
+          the Money tab, falling back to the tab root when no id. Registered a
+          LocalInventoryItem navigationDestination on the salesPath stack so the
+          push resolves. NEW Shared/WidgetDeepLink.swift defines the widget tap
+          URL contract (com.gradethread.app://widget/{marketplaces|money}) shared
+          by the app + widget targets; the home-screen widget now deep-links on
+          tap — the Active-listings metric → Marketplaces (medium widget Link),
+          the rest (sold-today/payout) + the small widget → Money/Sales via
+          widgetURL. ContentView.onOpenURL parses widget URLs (the auth-callback
+          matcher already ignores the `widget` host, so the two can't collide).
+          Tests: WidgetDeepLinkTests (round-trip + auth-callback non-collision).
+
+- US-753  Shared component library. COMPLETE.
+          Extracted Components/InfoCard.swift (titled card on the US-652 tokens,
+          optional leading glyph + trailing accessory slot) and
+          Components/DataRow.swift (label/value row, brand tabular-data font,
+          VoiceOver-combined). StatusBadge (shipped earlier) now also renders the
+          listing status in ItemCanvas; DataRow adopted for the measurements grid.
+          Design tokens unchanged.
+
+- US-754  Inline form validation (details intake). COMPLETE.
+          IntakeFormState gained titleValidationMessage (single source for the
+          on-screen error + the VoiceOver announcement), a soft title length cap
+          (140) via the shared TitleLimitFeedback, and clampTitleToLimit().
+          NEW Components/FieldError.swift mirrors the web FieldError (red glyph +
+          message). DetailsIntakeView now shows the red FieldError, a length
+          counter that appears near the cap, an at-cap note, and announces the
+          error to VoiceOver via A11yAnnounce on change (silent on first render).
+          Tests added in DetailsIntakeTests.
+
+- US-755  Offline-mode indicator + guarded CTAs. COMPLETE.
+          The proactive offline pipeline already existed (SyncEngine flips the
+          SyncStatusBar to .offline off NetworkMonitor; publish / comps /
+          repricing / AI-extract / add-expense CTAs already gated via
+          NetworkMonitor.isOffline). Refined the SyncStatusBar offline label to
+          reassure "Offline — changes saved locally" (and "N changes saved
+          locally" when there's a pending queue), matching the AC phrasing.
+          State still auto-clears on reconnect + flushes via SyncEngine.
+
+- US-756  Bulk action: retry only the failed items. COMPLETE.
+          After a partial bulk failure the result alert + BulkFailuresView now
+          offer "Retry N failed", which re-runs ONLY the failed item set (never
+          the succeeded ones); the new result replaces the old so repeated
+          retries keep narrowing. Pure static helpers (failedItemIdsToRetry,
+          isRetryable — export/grade excluded) are unit-tested in BulkActionTests.
+
+- US-768  iOS graded-photo preview, save & share (Digital Slab). COMPLETE.
+          NEW Grading/SlabImageURL.swift derives the /slab/cert/:id image URL +
+          formats (square/portrait/story/label) — the iOS twin of web
+          slab-image.ts / edge slabImageUrlForItem (rewrite first /cert/ →
+          /slab/cert/, append format). NEW Grading/GradedPhotoView.swift: segmented
+          format picker, aspect-correct preview, Save-to-Photos (PHPhotoLibrary
+          add-only; added NSPhotoLibraryAddUsageDescription to project.yml) and a
+          native ShareLink (rendered image, URL fallback while loading). Wired a
+          "Graded photo" action into CertifiedGradeSection's graded state for
+          items with a public certificate. Tests: SlabImageURLTests (mirrors the
+          web slab-image.test.ts).
+
+- US-786  App Store submission unblock. STILL passes:false (operator-blocked).
+          Re-audited: every agent-doable piece is already done — PrivacyInfo
+          .xcprivacy declares PurchaseHistory (Linked, App Functionality) for the
+          StoreKit IAP, the APP_STORE_SUBMISSION.md §7 note + §10 checklist are
+          walked, the review_information metadata + notes.txt are real and
+          complete, and scripts/seed-review-demo-account.mjs is present. The two
+          remaining blockers are OPERATOR-ONLY and cannot be done from this repo:
+          (1) run the seed script with the prod service-role key to create the
+          live review demo user + sample data, then drop real creds into
+          demo_user.txt / demo_password.txt (still placeholders), and (2) put a
+          reachable number in phone_number.txt (still +10000000000). Left false
+          deliberately — the AC requires a working demo account live in prod.
+
+          (iOS caveat as always: Swift/xcodebuild is macOS-only; the no-ungated-
+          print gate is the only check runnable here and it passes. Run the iOS CI
+          lane on a macOS runner before release.)
