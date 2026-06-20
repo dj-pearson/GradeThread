@@ -35,6 +35,19 @@ import {
   topicById,
 } from "../lib/newsletter-tuning.ts";
 import { recomputeNewsletterTuning } from "../lib/newsletter-tuning-job.ts";
+import {
+  finalizeAbTest,
+  issueWantsAbTest,
+  type AbIssueRow,
+  resolveAbConfig,
+  startAbTest,
+} from "../lib/newsletter-ab-job.ts";
+import {
+  type AbMetric,
+  normalizeVariants,
+  type SubjectVariant,
+  variantById,
+} from "../lib/newsletter-ab.ts";
 
 // US-931: Email program analytics & deliverability dashboard (read-only) + a
 // deliverability-guard enforcement action.
@@ -231,7 +244,9 @@ const ISSUE_COLS =
   "scheduled_for, qa_results, recipients_total, sent_count, skipped_count, " +
   "failed_count, block_reason, created_by, approved_by, approved_at, " +
   "send_started_at, sent_at, created_at, updated_at, " +
-  "pillar, angle, subject_style, send_hour";
+  "pillar, angle, subject_style, send_hour, " +
+  "subject_variants, ab_metric, ab_test_fraction, ab_measurement_hours, " +
+  "ab_phase, ab_test_started_at, ab_winner_variant, ab_winner_source";
 
 // Cap a single synchronous send so the request stays bounded. The autonomous
 // engine (sibling story) sends larger lists in durable batches; the console's
@@ -265,6 +280,14 @@ interface NewsletterIssueRow {
   angle: string | null;
   subject_style: string | null;
   send_hour: number | null;
+  subject_variants: unknown;
+  ab_metric: "open" | "click";
+  ab_test_fraction: number | null;
+  ab_measurement_hours: number | null;
+  ab_phase: "none" | "testing" | "completed";
+  ab_test_started_at: string | null;
+  ab_winner_variant: string | null;
+  ab_winner_source: "auto" | "operator" | "fallback" | null;
 }
 
 function toRenderable(row: NewsletterIssueRow): RenderableIssue {
@@ -537,12 +560,21 @@ adminNewsletterRoutes.post("/issues/build-next", async (c) => {
   ];
   const qa = runIssueQa({ subject: "", sections });
 
+  // US-927: seed two starter subject variants so the issue can run an A/B test out
+  // of the box. The copywriter (sibling story) overwrites these with real variants;
+  // operators can edit/extend them in the console before sending.
+  const subjectVariants: SubjectVariant[] = [
+    { id: "a", subject: topic.label, label: "Variant A" },
+    { id: "b", subject: `${topic.label}: what most resellers miss`, label: "Variant B" },
+  ];
+
   const { data, error } = await supabaseAdmin
     .from("newsletter_issues")
     .insert({
       title: topic.label,
       subject: "",
       sections,
+      subject_variants: subjectVariants,
       status: "draft",
       qa_results: qa,
       pillar: topic.pillar,
@@ -651,6 +683,10 @@ adminNewsletterRoutes.patch("/issues/:id", async (c) => {
     sections?: NewsletterSection[];
     audience?: string;
     scheduledFor?: string | null;
+    subjectVariants?: SubjectVariant[];
+    abMetric?: AbMetric;
+    abTestFraction?: number | null;
+    abMeasurementHours?: number | null;
   };
 
   const patch: Record<string, unknown> = {};
@@ -660,6 +696,20 @@ adminNewsletterRoutes.patch("/issues/:id", async (c) => {
   if (Array.isArray(body.sections)) patch.sections = body.sections;
   if (typeof body.audience === "string") patch.audience = body.audience;
   if ("scheduledFor" in body) patch.scheduled_for = body.scheduledFor || null;
+  // US-927: editable A/B controls — the copywriter (or operator) sets the subject
+  // variants; the metric/fraction/window are optional per-issue overrides.
+  if (Array.isArray(body.subjectVariants)) {
+    patch.subject_variants = normalizeVariants(body.subjectVariants, issue.subject);
+  }
+  if (body.abMetric === "open" || body.abMetric === "click") patch.ab_metric = body.abMetric;
+  if ("abTestFraction" in body) {
+    patch.ab_test_fraction = typeof body.abTestFraction === "number" ? body.abTestFraction : null;
+  }
+  if ("abMeasurementHours" in body) {
+    patch.ab_measurement_hours = typeof body.abMeasurementHours === "number"
+      ? Math.floor(body.abMeasurementHours)
+      : null;
+  }
 
   if (Object.keys(patch).length === 0) {
     return c.json({ error: "No editable fields in body" }, 400);
@@ -862,6 +912,41 @@ adminNewsletterRoutes.post("/issues/:id/send", async (c) => {
     return c.json({ error: "Newsletter sending is paused" }, 409);
   }
 
+  // US-927: if the issue carries 2+ subject variants and A/B testing is enabled,
+  // run the A/B TEST phase (send the holdout with variants assigned) instead of a
+  // single send. The finalize cron — or POST /issues/:id/ab/finalize — then picks
+  // the winner and sends it to the remainder after the measurement window.
+  const abConfig = await resolveAbConfig(issue);
+  if (issueWantsAbTest(issue as unknown as AbIssueRow, abConfig)) {
+    const start = await startAbTest(issue as unknown as AbIssueRow, abConfig);
+    if (!start.ok) {
+      return c.json({ error: `A/B test could not start (${start.reason})` }, 409);
+    }
+    await writeAuditLog(c, {
+      action: "newsletter.issue.ab_start",
+      targetType: "newsletter_issue",
+      targetId: issue.id,
+      details: {
+        variants: start.variants.map((v) => v.id),
+        holdout: start.holdoutSize,
+        remainder: start.remainderSize,
+        summary: start.summary,
+      },
+    });
+    return c.json({
+      ok: true,
+      phase: "testing",
+      issue: (await loadIssue(issue.id)) ?? null,
+      summary: start.summary,
+      ab: {
+        variants: start.variants,
+        holdoutSize: start.holdoutSize,
+        remainderSize: start.remainderSize,
+        measurementHours: abConfig.measurementHours,
+      },
+    });
+  }
+
   // Resolve the confirmed list (capped for a bounded synchronous send).
   const { data: subs, error: subErr } = await supabaseAdmin
     .from("email_subscribers")
@@ -980,5 +1065,134 @@ adminNewsletterRoutes.post("/issues/:id/send", async (c) => {
     ok: true,
     issue: (finalRow as unknown as NewsletterIssueRow) ?? null,
     summary: { total: recipients.length, sent, skipped, failed },
+  });
+});
+
+// ── A/B subject test (US-927) ────────────────────────────────────────────────
+
+// GET /api/admin/newsletter/issues/:id/ab — the A/B test state: variants, phase,
+// per-variant holdout engagement so far, the (chosen or projected) winner, and
+// config. Read-only transparency surface (AC4).
+adminNewsletterRoutes.get("/issues/:id/ab", async (c) => {
+  const issue = await loadIssue(c.req.param("id"));
+  if (!issue) return c.json({ error: "Issue not found" }, 404);
+
+  const variants = normalizeVariants(issue.subject_variants, issue.subject);
+  const config = await resolveAbConfig(issue as unknown as AbIssueRow);
+
+  // Per-variant holdout engagement (rolled up from the ledger).
+  const { data: holdout } = await supabaseAdmin
+    .from("newsletter_issue_recipients")
+    .select("variant, opened_at, clicked_at")
+    .eq("issue_id", issue.id)
+    .eq("is_ab_holdout", true)
+    .limit(MAX_SEND_RECIPIENTS);
+  const rows = (holdout ?? []) as Array<{ variant: string | null; opened_at: string | null; clicked_at: string | null }>;
+  const perVariant: Record<string, { sent: number; opened: number; clicked: number }> = {};
+  for (const v of variants) perVariant[v.id] = { sent: 0, opened: 0, clicked: 0 };
+  for (const r of rows) {
+    if (!r.variant || !perVariant[r.variant]) continue;
+    const pv = perVariant[r.variant]!;
+    pv.sent += 1;
+    if (r.opened_at || r.clicked_at) pv.opened += 1;
+    if (r.clicked_at) pv.clicked += 1;
+  }
+
+  return c.json({
+    enabled: config.enabled,
+    phase: issue.ab_phase,
+    metric: issue.ab_metric,
+    variants,
+    config: {
+      testFraction: config.testFraction,
+      measurementHours: config.measurementHours,
+      minSample: config.minSample,
+    },
+    testStartedAt: issue.ab_test_started_at,
+    winnerVariant: issue.ab_winner_variant,
+    winnerSource: issue.ab_winner_source,
+    perVariant,
+  });
+});
+
+// POST /api/admin/newsletter/issues/:id/ab/winner — operator override of the
+// winning variant (AC4: visible/overridable). Settable while the test is running;
+// the finalize pass then honors it instead of auto-selecting. super_admin +
+// step-up; audited.
+adminNewsletterRoutes.post("/issues/:id/ab/winner", async (c) => {
+  const gate = requireSensitive(c);
+  if (gate) return gate;
+
+  const issue = await loadIssue(c.req.param("id"));
+  if (!issue) return c.json({ error: "Issue not found" }, 404);
+  if (issue.ab_phase !== "testing") {
+    return c.json({ error: "A winner can only be overridden while the A/B test is running" }, 409);
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as { variant?: string };
+  const variants = normalizeVariants(issue.subject_variants, issue.subject);
+  if (!body.variant || !variantById(variants, body.variant)) {
+    return c.json({ error: "A valid variant id is required" }, 400);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("newsletter_issues")
+    .update({ ab_winner_variant: body.variant, ab_winner_source: "operator" })
+    .eq("id", issue.id);
+  if (error) {
+    captureException(error, { tags: { area: "admin-newsletter.ab" } });
+    return c.json({ error: "Failed to set winner override" }, 500);
+  }
+
+  await writeAuditLog(c, {
+    action: "newsletter.issue.ab_winner_override",
+    targetType: "newsletter_issue",
+    targetId: issue.id,
+    details: { variant: body.variant },
+  });
+
+  return c.json({ ok: true, winnerVariant: body.variant, winnerSource: "operator" });
+});
+
+// POST /api/admin/newsletter/issues/:id/ab/finalize — finalize the running test
+// NOW (skip the measurement-window wait): pick the winner from holdout engagement
+// (or the operator override), send it to the remainder, mark the issue sent.
+// super_admin + step-up; audited. The cron does this autonomously on schedule.
+adminNewsletterRoutes.post("/issues/:id/ab/finalize", async (c) => {
+  const gate = requireSensitive(c);
+  if (gate) return gate;
+
+  const issue = await loadIssue(c.req.param("id"));
+  if (!issue) return c.json({ error: "Issue not found" }, 404);
+  if (issue.ab_phase !== "testing") {
+    return c.json({ error: `No running A/B test to finalize (phase '${issue.ab_phase}')` }, 409);
+  }
+
+  const config = await resolveAbConfig(issue as unknown as AbIssueRow);
+  const result = await finalizeAbTest(issue as unknown as AbIssueRow, config, Date.now(), { force: true });
+  if (!result.ok) {
+    return c.json({ error: `Finalize failed (${result.reason})` }, 409);
+  }
+
+  await writeAuditLog(c, {
+    action: "newsletter.issue.ab_finalize",
+    targetType: "newsletter_issue",
+    targetId: issue.id,
+    details: {
+      winner: result.winnerId,
+      source: result.winnerSource,
+      metric: result.metric,
+      remainder: result.remainderSummary,
+    },
+  });
+
+  return c.json({
+    ok: true,
+    winnerVariant: result.winnerId,
+    winnerSource: result.winnerSource,
+    metric: result.metric,
+    scores: result.scores,
+    remainderSummary: result.remainderSummary,
+    issue: (await loadIssue(issue.id)) ?? null,
   });
 });

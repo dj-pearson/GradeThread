@@ -85,6 +85,8 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "journey-tick", label: "Lifecycle email-journey tick", schedule: "30 13 * * *", category: "growth", endpoint: "/api/jobs/journey-tick", recorded: true },
   // US-928: daily newsletter self-tuning — recompute topic/subject/send-hour weights from engagement.
   { name: "newsletter-tuning", label: "Newsletter self-tuning", schedule: "45 12 * * *", category: "growth", endpoint: "/api/jobs/newsletter-tuning", recorded: true },
+  // US-927: finalize A/B subject tests whose measurement window elapsed (pick winner → send remainder).
+  { name: "newsletter-ab-finalize", label: "Newsletter A/B finalize", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/newsletter-ab-finalize", recorded: true },
   { name: "abuse-scan", label: "Abuse-signal scan", schedule: "0 */6 * * *", category: "safety", endpoint: "/api/jobs/abuse-scan", recorded: true },
   { name: "listing-prompt-promote", label: "Listing-prompt auto-promote", schedule: "0 9 * * *", category: "grading", endpoint: "/api/jobs/listing-prompt-promote", recorded: true },
   { name: "ebay-pending-webhooks", label: "eBay parked-webhook drain", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/ebay-pending-webhooks", recorded: true },
