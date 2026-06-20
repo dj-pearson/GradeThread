@@ -3582,3 +3582,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 12:58:00 AM
 ---
+## US-925: Durable segmented marketing send via outbox
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:14:22 AM
+---
