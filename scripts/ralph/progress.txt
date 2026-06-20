@@ -3650,3 +3650,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 12:07:31 PM
 ---
+## US-908: Granular RBAC permission scopes + scoped admin roles
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 12:24:55 PM
+---
