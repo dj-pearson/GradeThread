@@ -101,10 +101,13 @@ describe.skipIf(!hasDist)("prerendered dist output (US-292)", () => {
 
   it("each registered route emitted a static HTML file with one title", () => {
     for (const r of PUBLIC_ROUTES) {
+      // prerender.mjs writes FLAT files (dist/<route>.html), NOT directory
+      // indexes — a deliberate choice so Cloudflare Pages serves /privacy with a
+      // clean 200 instead of 308-redirecting to /privacy/ (see prerender.mjs).
       const file =
         r.path === "/"
           ? dist("index.html")
-          : dist(`${r.path.replace(/^\//, "")}/index.html`);
+          : dist(`${r.path.replace(/^\//, "")}.html`);
       expect(existsSync(file), `${file} should exist`).toBe(true);
       const html = readFileSync(file, "utf8");
       expect((html.match(/<title>/g) ?? []).length).toBe(1);
