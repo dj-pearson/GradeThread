@@ -3498,3 +3498,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 19, 2026  8:22:29 PM
 ---
+## US-942: Conversion incentive / promo integration
+- Status: COMPLETE
+- Timestamp: Fri, Jun 19, 2026  8:22:46 PM
+---
