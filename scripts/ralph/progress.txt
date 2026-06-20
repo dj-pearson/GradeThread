@@ -3590,3 +3590,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026  1:30:02 AM
 ---
+## US-923: Make.com kickoff trigger + webhook contract
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026  1:45:58 AM
+---
