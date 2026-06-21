@@ -3762,3 +3762,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026 12:42:47 AM
 ---
+## US-1127: iOS: Scheduled Drops
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026 12:53:40 AM
+---

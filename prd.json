@@ -3430,7 +3430,7 @@
         "Discoverable from the Tools hub or Marketplaces; python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1080,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: zero scheduled-drop code in ios/ (only Repricing rules). Web has flipdesk/scheduled-drops.tsx; backend timezone-aware drops shipped (done US-563).",
       "relevantPaths": [
         "src/pages/flipdesk/scheduled-drops.tsx",
