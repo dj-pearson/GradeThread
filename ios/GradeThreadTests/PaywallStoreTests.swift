@@ -127,6 +127,17 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertFalse(s.purchaseSucceeded)
     }
 
+    func test_buy_pending_setsPendingStateNotError() async {
+        let fake = FakeStoreKit(); fake.outcome = .pending
+        let s = store(service: fake)
+        let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
+        XCTAssertFalse(ok)
+        XCTAssertTrue(s.purchasePending)          // UI shows "pending approval"
+        XCTAssertFalse(s.purchaseSucceeded)
+        XCTAssertNil(s.purchaseError)             // not a failure
+        XCTAssertNil(s.purchasingId)              // spinner cleared
+    }
+
     func test_buy_clearsStripeConflictAtStart() async {
         let fake = FakeStoreKit(); fake.outcome = .success
         let s = store(service: fake, billing: .init(plan: "pro", status: "active", source: "appstore", credits: 0))

@@ -84,6 +84,17 @@ struct PaywallView: View {
         } message: {
             Text(store.purchaseError ?? "")
         }
+        // Ask to Buy / SCA deferral: the purchase needs approval before it
+        // completes; the transaction listener grants the entitlement once it's
+        // approved (US-1144).
+        .alert("Purchase pending approval", isPresented: Binding(
+            get: { store.purchasePending },
+            set: { if !$0 { store.purchasePending = false } }
+        )) {
+            Button("OK", role: .cancel) { store.purchasePending = false }
+        } message: {
+            Text("Your purchase needs approval before it completes. Once it's approved, your plan unlocks automatically — no need to buy again.")
+        }
         // The 409 ACTIVE_STRIPE_SUBSCRIPTION dead-end: route to web billing
         // instead of surfacing a bare error.
         .alert("Subscription managed on the web", isPresented: Binding(

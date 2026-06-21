@@ -3742,7 +3742,7 @@
         "Unit/integration coverage via a StoreKit test configuration for: verified grant, unverified, revoked, and pending paths"
       ],
       "priority": 1102,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Billing][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Billing/StoreKitService.swift",
