@@ -456,6 +456,16 @@ private struct ComposerForm: View {
         }
     }
 
+    /// US-1167 / type-check budget: build the comp line outside the view body so
+    /// the (large) ComposerForm body stays simple. Returns nil when there are no
+    /// usable comps.
+    private var compContextLabel: String? {
+        guard let stats = comps, stats.count > 0, let median = stats.median else { return nil }
+        let amount = MoneyFieldValidation.twoDecimalDisplay(String(median))
+        let plural = stats.count == 1 ? "" : "s"
+        return "Active comps: median \(stats.currency) \(amount) across \(stats.count) listing\(plural)"
+    }
+
     // US-674: listing templates, selectable to pre-fill the draft.
     @State private var templateStore = TemplateStore()
     /// US-972: a template the user picked that would overwrite existing content,
@@ -570,11 +580,13 @@ private struct ComposerForm: View {
                 }
                 profitEstimate
                 // US-1167: comp context (median + spread) from eBay so the seller
-                // can sanity-check the price before publishing.
-                if let stats = comps, stats.count > 0, let median = stats.median {
+                // can sanity-check the price before publishing. The string is built
+                // in `compContextLabel` (not inline) to keep this large Form body
+                // within the Swift type-checker's budget.
+                if let compContextLabel {
                     HStack(spacing: 6) {
                         Image(systemName: "chart.bar.xaxis").font(.caption2)
-                        Text("Active comps: median \(stats.currency) \(MoneyFieldValidation.twoDecimalDisplay(String(median))) across \(stats.count) listing\(stats.count == 1 ? "" : "s")")
+                        Text(compContextLabel)
                     }
                     .font(.caption2)
                     .foregroundStyle(Color.brandNavy)
