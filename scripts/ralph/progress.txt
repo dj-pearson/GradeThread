@@ -3786,3 +3786,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:27:35 AM
 ---
+## US-1135: iOS: general Automations/rules surface (beyond repricing)
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:36:48 AM
+---

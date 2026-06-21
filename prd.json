@@ -3577,7 +3577,7 @@
         "Discoverable from Tools hub; python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1057,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Web flipdesk/automations.tsx (triggers, A/B, actions). iOS has Repricing rules only — no general automations. Confirm the edge automations API surface (flipdesk-automations.ts) before building.",
       "relevantPaths": [
         "src/pages/flipdesk/automations.tsx",
