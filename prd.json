@@ -3648,7 +3648,7 @@
         "build + tsc + eslint + deno checks clean"
       ],
       "priority": 1053,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][FlipDesk/Marketplaces][EPIC: Web↔iOS Gaps & Polish 2026-06-20] flipdesk-shopify.ts + marketplace-adapters/shopify.ts fully wired (OAuth/publish/orders, done US-709/710/711) and registry includes shopify, but composer comments still say 'eBay publishes; others stay local drafts'. Verify it's truly first-class in the fan-out; Cross_Listing.md ranks Shopify the top second marketplace.",
       "relevantPaths": [
         "src/pages/flipdesk/composer.tsx",

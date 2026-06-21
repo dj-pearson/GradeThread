@@ -3802,3 +3802,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:56:20 AM
 ---
+## US-1139: FlipDesk: make Shopify a first-class cross-listing target in the composer
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:59:14 AM
+---
