@@ -1,0 +1,273 @@
+import SwiftUI
+
+/// Native Scheduled Drops (US-1127): parity with the web Scheduled Drops page.
+/// List the draft listings queued to publish at a chosen (timezone-aware) time,
+/// reschedule them to a peak-time preset or custom instant, and cancel them.
+/// They publish automatically within ~5 minutes of their scheduled time.
+struct ScheduledDropsView: View {
+    @State private var store = ScheduledDropsStore()
+    @State private var rescheduling: ScheduledDrop?
+    private let currency = CurrencyFormatter()
+
+    var body: some View {
+        content
+            .navigationTitle("Scheduled drops")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { timezoneMenu }
+            }
+            .task { await store.load() }
+            .refreshable { await store.load() }
+            .sheet(item: $rescheduling) { drop in
+                RescheduleSheet(drop: drop, store: store)
+            }
+            .overlay(alignment: .bottom) { bannerView }
+            .task(id: store.actionBanner) {
+                guard store.actionBanner != nil else { return }
+                try? await Task.sleep(for: .seconds(2.5))
+                withAnimation { store.actionBanner = nil }
+            }
+            .alert(
+                "Something went wrong",
+                isPresented: Binding(
+                    get: { store.actionError != nil },
+                    set: { if !$0 { store.actionError = nil } }
+                ),
+                presenting: store.actionError
+            ) { _ in
+                Button("OK", role: .cancel) { store.actionError = nil }
+            } message: { Text($0) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch store.phase {
+        case .loading:
+            ScrollView { SkeletonRows(count: 5) }
+
+        case .failed(let message):
+            ErrorStateView(
+                title: "Couldn't load scheduled drops",
+                message: message,
+                retry: { await store.load() }
+            )
+
+        case .ready:
+            if store.isEmpty {
+                ContentUnavailableView {
+                    Label("No scheduled drops yet", systemImage: "calendar.badge.clock")
+                } description: {
+                    Text("Open a draft in the composer, set a peak-time “Schedule publish”, and it will appear here to publish automatically.")
+                }
+            } else {
+                list
+            }
+        }
+    }
+
+    private var list: some View {
+        List {
+            Section {
+                ForEach(store.drops) { drop in
+                    DropRow(
+                        drop: drop,
+                        timeZoneIdentifier: store.timeZoneIdentifier,
+                        currency: currency
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { rescheduling = drop }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            Task { await store.cancel(drop) }
+                        } label: {
+                            Label("Cancel", systemImage: "calendar.badge.minus")
+                        }
+                    }
+                }
+            } header: {
+                Text("\(store.drops.count) scheduled")
+            } footer: {
+                Text("Drops publish automatically within ~5 minutes of their scheduled time. Tap a drop to reschedule, or swipe to cancel.")
+            }
+        }
+    }
+
+    private var timezoneMenu: some View {
+        Menu {
+            Picker("Timezone", selection: $store.timeZoneIdentifier) {
+                ForEach(timezoneOptions, id: \.id) { tz in
+                    Text(tz.label).tag(tz.id)
+                }
+            }
+        } label: {
+            Label("Timezone", systemImage: "globe")
+        }
+    }
+
+    /// The curated list, with the detected zone merged in if it isn't present.
+    private var timezoneOptions: [(id: String, label: String)] {
+        let common = ScheduledDropScheduling.commonTimezones
+        if common.contains(where: { $0.id == store.timeZoneIdentifier }) {
+            return common
+        }
+        return [(store.timeZoneIdentifier, "\(store.timeZoneIdentifier) (your timezone)")] + common
+    }
+
+    @ViewBuilder
+    private var bannerView: some View {
+        if let banner = store.actionBanner {
+            Text(banner)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(Color.brandNavy, in: Capsule())
+                .padding(.bottom, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+}
+
+// MARK: - Row
+
+private struct DropRow: View {
+    let drop: ScheduledDrop
+    let timeZoneIdentifier: String
+    let currency: CurrencyFormatter
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    if drop.isPromoted {
+                        Image(systemName: "megaphone.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color.brandRed)
+                            .accessibilityLabel("Promoted listing")
+                    }
+                    Text(drop.title)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                }
+                Text(ScheduledDropScheduling.formatInZone(drop.scheduledPublishAt, timeZoneIdentifier: timeZoneIdentifier))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if drop.isPromoted, let rate = drop.promoRatePct {
+                    Text("\(formattedRate(rate))% ad")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer(minLength: 0)
+            Text(currency.formatDisplay(drop.priceDollars))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.brandNavy)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func formattedRate(_ rate: Double) -> String {
+        rate == rate.rounded() ? String(Int(rate)) : String(format: "%.1f", rate)
+    }
+}
+
+// MARK: - Reschedule sheet
+
+private struct RescheduleSheet: View {
+    let drop: ScheduledDrop
+    let store: ScheduledDropsStore
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var customDate: Date
+    @State private var isSaving = false
+
+    init(drop: ScheduledDrop, store: ScheduledDropsStore) {
+        self.drop = drop
+        self.store = store
+        _customDate = State(initialValue: drop.scheduledPublishAt)
+    }
+
+    private var resolvedZone: TimeZone {
+        TimeZone(identifier: store.timeZoneIdentifier) ?? .current
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(drop.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text("Currently \(ScheduledDropScheduling.formatInZone(drop.scheduledPublishAt, timeZoneIdentifier: store.timeZoneIdentifier))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Drop")
+                }
+
+                Section {
+                    ForEach(ScheduledDropScheduling.presets) { preset in
+                        Button {
+                            Task { await apply { await store.reschedule(drop, preset: preset) } }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(preset.label)
+                                        .foregroundStyle(.primary)
+                                    Text(preset.hint)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .disabled(isSaving)
+                    }
+                } header: {
+                    Text("Peak-time presets")
+                } footer: {
+                    Text("Evaluated in \(store.timeZoneIdentifier).")
+                }
+
+                Section {
+                    DatePicker(
+                        "Custom time",
+                        selection: $customDate,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .environment(\.timeZone, resolvedZone)
+                    Button {
+                        Task { await apply { await store.reschedule(drop, to: customDate) } }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Reschedule")
+                        }
+                    }
+                    .disabled(isSaving)
+                } header: {
+                    Text("Or pick a custom time")
+                }
+            }
+            .navigationTitle("Reschedule drop")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }.disabled(isSaving)
+                }
+            }
+        }
+    }
+
+    /// Run a reschedule action, then dismiss unless it surfaced an error.
+    private func apply(_ action: () async -> Void) async {
+        isSaving = true
+        await action()
+        isSaving = false
+        if store.actionError == nil { dismiss() }
+    }
+}

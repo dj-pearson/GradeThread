@@ -105,6 +105,13 @@ struct ToolsHubView: View {
                     subtitle: "Review every graded item in one place"
                 )
             }
+            NavigationLink(value: ToolRoute.scheduledDrops) {
+                ToolRow(
+                    icon: "calendar.badge.clock",
+                    title: "Scheduled drops",
+                    subtitle: "Queue listings to publish at peak times"
+                )
+            }
         } header: {
             Text("List & grade")
         }
@@ -165,6 +172,8 @@ struct ToolsHubView: View {
             AutoListerView()
         case .grades:
             GradesListView()
+        case .scheduledDrops:
+            ScheduledDropsView()
         case .reconciliation:
             ReconciliationView()
         case .reconcileIntake:
@@ -195,6 +204,7 @@ struct ToolsHubView: View {
 private enum ToolRoute: Hashable {
     case autoLister
     case grades
+    case scheduledDrops
     case reconciliation
     case reconcileIntake
     case referrals
