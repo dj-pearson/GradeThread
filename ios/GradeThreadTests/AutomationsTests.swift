@@ -247,12 +247,14 @@ final class AutomationsTests: XCTestCase {
 
         var draft = AutomationDraft()
         draft.name = "New rule"
-        XCTAssertTrue(await store.save(draft, editingId: nil))
+        let created = await store.save(draft, editingId: nil)
+        XCTAssertTrue(created)
         XCTAssertEqual(store.rules.count, 2)
 
         var edit = AutomationDraft(from: store.rules[0])
         edit.name = "Renamed"
-        XCTAssertTrue(await store.save(edit, editingId: "a"))
+        let updated = await store.save(edit, editingId: "a")
+        XCTAssertTrue(updated)
         XCTAssertEqual(store.rules.first { $0.id == "a" }?.name, "Renamed")
     }
 
