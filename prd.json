@@ -3412,7 +3412,7 @@
         "Works across the cross-listing description path (eBay + others); no PII beyond the public verified profile; deno check/lint/test pass"
       ],
       "priority": 1081,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][FlipDesk/Trust][EPIC: Web↔iOS Gaps & Polish 2026-06-20] verified.ts ownStats() (~L60-77) computes the stats and pages/flipdesk/verified.tsx exists, but none is queried into listing descriptions. Surfacing it in the listing is the payoff of being verified.",
       "relevantPaths": [
         "services/edge-functions/src/routes/verified.ts",

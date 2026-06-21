@@ -3758,3 +3758,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026 12:27:04 AM
 ---
+## US-1126: FlipDesk: embed verified-seller credentials in listing descriptions
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026 12:42:47 AM
+---
