@@ -91,7 +91,7 @@ struct AutoListerQueueView: View {
     private func timeoutWarning(pending: Int, total: Int) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "clock.badge.exclamationmark")
-                .font(.system(size: 40))
+                .scaledIconFont(size: 40)  // US-1152: scale with Dynamic Type
                 .foregroundStyle(Color.brandRed)
             Text("Uploads still finishing")
                 .font(.brandHeadline)

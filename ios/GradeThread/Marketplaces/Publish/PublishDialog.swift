@@ -187,7 +187,7 @@ struct PublishDialog: View {
     private func successCard(_ response: PushResponse) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
+                .scaledIconFont(size: 48)  // US-1152: scale with Dynamic Type
                 .foregroundStyle(.brandEmerald)
             Text("Live on eBay")
                 .font(.brandTitle2)
@@ -235,7 +235,7 @@ struct PublishDialog: View {
     private func failureCard(message: String, retry: RetryAction) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "xmark.octagon.fill")
-                .font(.system(size: 40))
+                .scaledIconFont(size: 40)  // US-1152: scale with Dynamic Type
                 .foregroundStyle(.red)
             Text("Publish failed")
                 .font(.brandHeadline)

@@ -35,8 +35,14 @@ struct ScaledIconFont: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        let resolved = maxSize.map { min(scaledSize, $0) } ?? scaledSize
-        content.font(.system(size: resolved, weight: weight))
+        content.font(.system(size: Self.resolve(scaled: scaledSize, maxSize: maxSize), weight: weight))
+    }
+
+    /// Pure clamp: the Dynamic-Type-scaled size, capped to `maxSize` when set so
+    /// a glyph inside a fixed frame can't overflow at the largest text sizes
+    /// (US-1152). Factored out so the clamp is unit-testable.
+    static func resolve(scaled: CGFloat, maxSize: CGFloat?) -> CGFloat {
+        maxSize.map { min(scaled, $0) } ?? scaled
     }
 }
 

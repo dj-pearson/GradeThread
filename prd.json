@@ -3894,7 +3894,7 @@
         "Add/extend the existing accessibility tests to assert key labels remain visible/layout-stable under increased content size category"
       ],
       "priority": 1110,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Accessibility][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Capture/SlotThumbnail.swift",

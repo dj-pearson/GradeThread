@@ -77,7 +77,9 @@ struct OnboardingView: View {
                     .fill(Color.brandNavy.opacity(0.10))
                     .frame(width: 148, height: 148)
                 Image(systemName: page.systemImage)
-                    .font(.system(size: 60, weight: .semibold))
+                    // US-1152: scale with Dynamic Type, capped so the glyph
+                    // stays inside the 148pt circle at the largest text sizes.
+                    .scaledIconFont(size: 60, weight: .semibold, maxSize: 96)
                     .foregroundStyle(Color.brandNavy)
             }
             VStack(spacing: 12) {
