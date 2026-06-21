@@ -23,9 +23,10 @@ import { recordRelist } from "../lib/passport-relist.ts";
 //
 // POST /cross-push fans a single source draft out into one listings row per
 // selected platform (denormalized; siblings share listings.draft_id), then
-// asks each platform's adapter to publish. eBay publishes for real via the
-// US-121 pipeline; the other adapters return 501 until they're wired up, so
-// their rows stay local drafts.
+// asks each platform's adapter to publish. eBay (US-121) and Shopify (US-599,
+// the first first-class non-eBay target) publish for real; Depop (US-714) is
+// wired but gated until platform approval. Any adapter that isn't live yet
+// returns a typed 501, leaving its row a local draft.
 //
 // US-564 (AC3): each non-eBay sibling is populated from its per-marketplace AI
 // variant (US-721 platform_fields) — title/description clamped to that
