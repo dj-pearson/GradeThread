@@ -115,6 +115,7 @@ import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
+import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
 import { handleJourneyTickCron } from "./routes/jobs-journey-tick.ts";
 import { handleNewsletterTuningCron } from "./routes/jobs-newsletter-tuning.ts";
 import { handleNewsletterTopicBankRefillCron } from "./routes/jobs-newsletter-topic-bank.ts";
@@ -1040,6 +1041,10 @@ app.post("/api/jobs/appstore-expiry-sweep", (c) => handleAppstoreExpirySweepCron
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
+// US-1112 consignor auto-payout sweep: pay each consignor their share when a
+// consigned item sells. OUTSIDE /api/* JWT groups; handler enforces the
+// internal-job-secret + reads the consignor_auto_payout_mode config flag.
+app.post("/api/jobs/consignor-payouts", (c) => handleConsignorPayoutsCron(c));
 // US-929 daily lifecycle email-journey tick (welcome / trial-nurture / win-back).
 // OUTSIDE /api/* JWT groups; the handler enforces X-Internal-Job-Secret itself.
 // The /api/jobs/* middleware records the run to cron_runs automatically.

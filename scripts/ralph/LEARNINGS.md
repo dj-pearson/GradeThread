@@ -664,6 +664,20 @@ memory — not a progress log (the harness records progress separately).
   clobber the attribute sources. Only `/extract` is called from iOS (always with
   a required `item_id`); AutoLister does its eBay prep server-side (ai-listing.ts).
 
+## Consignor auto-payout (US-1112)
+- A consigned item's sale auto-creates the consignor payout: PURE math/decision
+  in `lib/consignor-payout-math.ts` (no env → unit-testable) +
+  IMPURE engine `lib/consignor-payout.ts` (`processSaleConsignorPayout`/
+  `sweepConsignorPayouts`/`maybeFireImmediateConsignorPayout`). Split mirrors the
+  consignor_pnl view (net = sale_price − platform_fees − payment_processing_fees;
+  share = net × split). Idempotent via the partial UNIQUE index
+  `uniq_consignor_payouts_auto_sale` (00301, source='auto') — a 23505 means a
+  race/re-ingest already created it. Not-onboarded consignor ⇒ row stays pending
+  (queued), retried by the cron once payouts_enabled flips. Config flag
+  `consignor_auto_payout_mode` (off|batched|immediate); batched cron =
+  `/api/jobs/consignor-payouts`. Manual POST /payouts (source='manual') is the
+  untouched override.
+
 ## DB schema ownership gotchas
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A

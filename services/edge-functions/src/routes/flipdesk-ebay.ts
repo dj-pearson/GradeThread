@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { maybeFireImmediateConsignorPayout } from "../lib/consignor-payout.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { resolveItemAspects } from "../lib/aspect-registry.ts";
 import type { RegistryAspect } from "../lib/aspect-registry.ts";
@@ -2237,11 +2238,23 @@ async function doListingsPull(
               .eq("id", (existing as { id: string }).id);
             salesUpdated += 1;
           } else {
-            await supabaseAdmin.from("sales").insert(salePayload);
+            const { data: insertedSale } = await supabaseAdmin
+              .from("sales")
+              .insert(salePayload)
+              .select("id")
+              .maybeSingle();
             salesNew += 1;
             // US-626: a brand-new sale → celebrate it on iOS (best-effort).
             // Only for genuine completed sales, never a cancelled/refunded one.
             if (saleStatus === "completed") {
+              // US-1112: a consigned item just sold → fire the consignor's
+              // payout immediately when the config flag is 'immediate' (no-op
+              // otherwise; the consignor-payouts cron is the catch-all).
+              // Best-effort — never fails the sync.
+              const newSaleId = (insertedSale as { id: string } | null)?.id;
+              if (newSaleId) {
+                void maybeFireImmediateConsignorPayout(newSaleId, userId);
+              }
               // US-737 / US-1054: a genuinely NEW completed sale (the `existing`
               // dedup guard above) → in-app + push, fired once per sale (never on
               // re-sync), push preference-gated. Best-effort.
