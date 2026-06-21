@@ -3148,7 +3148,7 @@
         "Tenant-scoped per CLAUDE.md (service-role bypasses RLS); deno check/lint/test pass; no duplicate payout on re-ingest (idempotent)"
       ],
       "priority": 1096,
-      "passes": false,
+      "passes": true,
       "hard": true,
       "notes": "[P1][FlipDesk/Money][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: Stripe Connect onboarding, consignor_payouts ledger, split math, and transfer code all exist in flipdesk-consignment.ts (~L286-392) but a payout fires ONLY on manual POST /payouts — no job/trigger references 'consignor' (grep of jobs-*.ts empty). Build a sale-ingest hook → compute share → ledger → transfer. Pairs with US-1123 (reconciled payout truth).",
       "relevantPaths": [
