@@ -281,8 +281,11 @@ struct PaywallView: View {
             Text("Current")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.brandEmerald)
+                // US-1151: VoiceOver reads "Current" with no context otherwise.
+                .accessibilityLabel("\(entry.title), your current plan")
         } else if store.purchasingId == entry.productId {
             ProgressView()
+                .accessibilityLabel("Purchasing \(entry.title)")
         } else {
             Button {
                 Task { await buy(entry) }
@@ -293,6 +296,12 @@ struct PaywallView: View {
             .buttonStyle(.borderedProminent)
             .tint(.brandNavy)
             .disabled(!store.canPurchase(entry))
+            // US-1151: the button's visible label is just the price; tell
+            // VoiceOver which plan/pack it buys and what tapping does.
+            .accessibilityLabel("\(entry.title), \(store.price(for: entry))")
+            .accessibilityHint(entry.isSubscription
+                ? "Subscribes to the \(entry.title) plan"
+                : "Buys \(entry.title)")
         }
     }
 

@@ -3875,7 +3875,7 @@
         "A documented VoiceOver test pass over these flows is recorded; once verified, VoiceOver is declared on the ASC accessibility labels (per APP_STORE_SUBMISSION.md §8)"
       ],
       "priority": 1109,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Accessibility][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Capture/PhotoIntakeView.swift",

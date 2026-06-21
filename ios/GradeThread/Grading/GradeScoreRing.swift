@@ -128,6 +128,11 @@ struct GradeChip: View {
         .padding(.vertical, 3)
         .background(GradeScale.color(for: score).opacity(0.12))
         .clipShape(Capsule())
-        .accessibilityLabel("Certified grade \(String(format: "%.1f", score))")
+        // US-1151: collapse the decorative seal + digits into one element so
+        // VoiceOver speaks just the explicit label, not "checkmark seal, 8.5".
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            label.map { "Certified grade \(String(format: "%.1f", score)), \($0)" }
+                ?? "Certified grade \(String(format: "%.1f", score))")
     }
 }
