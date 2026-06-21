@@ -3810,3 +3810,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  2:00:45 AM
 ---
+## US-1141: Referrals/affiliate: decision spike on cash payouts vs credits-only
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  2:02:57 AM
+---

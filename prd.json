@@ -3682,7 +3682,7 @@
         "No production code change required to close this spike beyond the decision doc"
       ],
       "priority": 1051,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Growth/Decision][EPIC: Web↔iOS Gaps & Polish 2026-06-20] A real affiliate program (vs in-app credit) needs money movement; mirror the consignor Stripe Connect pattern. Decide scope before building.",
       "relevantPaths": [
         "services/edge-functions/src/routes/referrals.ts",
