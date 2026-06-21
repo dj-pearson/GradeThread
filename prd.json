@@ -4258,7 +4258,7 @@
       ],
       "priority": 1169,
       "passes": false,
-      "notes": "[P3][iOS/AI][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Data exists but no AI narrative; insights are dead-end suggestions. 'Tie AI to each function.'",
+      "notes": "[P3][iOS/AI][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Data exists but no AI narrative; insights are dead-end suggestions. 'Tie AI to each function.' ASSESSED 2026-06-21 (deferred — needs edge work, passes stays false): AC1 (Analytics AI summary card narrating P&L/ROI/sell-through trends) requires a NEW edge endpoint to generate the narrative from the period rollups — not buildable/testable in an iOS-only session. AC2 (Community Insights item tie-in): CommunityInsightsView ALREADY deep-links each recommendation to a brand-filtered inventory list (a reasonable action, since a brand rec typically matches multiple on-hand items); a finer item-level link adds marginal value over that. Recommend doing AC1 in an edge-dev session (add the narrative endpoint + the iOS summary card together).",
       "relevantPaths": [
         "ios/GradeThread/Analytics/AnalyticsView.swift",
         "ios/GradeThread/Insights/CommunityInsightsView.swift",
