@@ -15,6 +15,8 @@ export interface VerifiedProfile {
   verified_since: string | null;
   // Storefront opt-in: list active listings on the public profile.
   show_listings: boolean;
+  // US-1126: opt-in to embed verified credentials in listing descriptions.
+  embed_in_listings: boolean;
 }
 
 export interface VerifiedStats {
@@ -33,6 +35,7 @@ export interface VerifiedProfileUpdate {
   bio?: string | null;
   enabled?: boolean;
   show_listings?: boolean;
+  embed_in_listings?: boolean;
 }
 
 export function useVerifiedProfile() {

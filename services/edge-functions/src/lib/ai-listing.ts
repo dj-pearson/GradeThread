@@ -54,6 +54,7 @@ import {
   type DisclosureInput,
   type PerImageAnalysisLike,
 } from "./disclosure.ts";
+import { loadSellerCredentialBlock } from "./seller-credentials-job.ts";
 import {
   getMarketplaceSpec,
   type MarketplacePlatform,
@@ -1231,6 +1232,17 @@ export async function generateListing(
     }
   }
 
+  // US-1126: embed the seller's verified credentials (total graded, average
+  // grade, profile link) — the trust signal that differentiates a verified
+  // seller from a plain marketplace seller. Independent of THIS item's grade;
+  // gated server-side on the seller being publicly verified + opted in
+  // (returns null otherwise). HTML, since the eBay description renders it.
+  const sellerCredential = await loadSellerCredentialBlock(ownerId);
+  if (sellerCredential) {
+    listingDescription =
+      `${listingDescription}\n<!--gradethread-seller-credentials-->${sellerCredential.html}`;
+  }
+
   // US-541: route low-confidence drafts to review.
   // US-828: also flag the draft when reconciliation left aspects unmatched —
   // the seller must reconcile them before they silently drop at publish.
@@ -1693,6 +1705,23 @@ export async function generatePlatformVariants(
       resolutions[i] ?? null,
     )
   );
+
+  // 6b. US-1126: embed the seller's verified credentials into EACH platform's
+  // description so the trust signal reaches buyers on every marketplace, not just
+  // eBay. These platforms render plain text (no HTML), so append the plain block —
+  // only when it still fits the platform's description cap (never push a listing
+  // over its limit). Gated server-side on verified + opted-in (null otherwise).
+  const crossCredential = await loadSellerCredentialBlock(ownerId);
+  if (crossCredential) {
+    for (const v of variants) {
+      const spec = getMarketplaceSpec(v.platform);
+      const addition = `\n\n${crossCredential.plain}`;
+      const max = spec?.descriptionMaxLength ?? null;
+      if (max == null || v.description.length + addition.length <= max) {
+        v.description = `${v.description}${addition}`;
+      }
+    }
+  }
 
   // 7. Persist, merging into any existing platform_fields.
   const now = new Date().toISOString();

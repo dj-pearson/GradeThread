@@ -55,6 +55,7 @@ export function FlipdeskVerifiedPage() {
   const [bio, setBio] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [showListings, setShowListings] = useState(false);
+  const [embedInListings, setEmbedInListings] = useState(false);
   const [availability, setAvailability] = useState<Availability>({ state: "idle" });
   const seeded = useRef(false);
 
@@ -66,6 +67,7 @@ export function FlipdeskVerifiedPage() {
     setBio(data.profile.bio ?? "");
     setEnabled(data.profile.enabled);
     setShowListings(data.profile.show_listings);
+    setEmbedInListings(data.profile.embed_in_listings);
     seeded.current = true;
   }, [data]);
 
@@ -135,6 +137,15 @@ export function FlipdeskVerifiedPage() {
       await update.mutateAsync({ show_listings: next });
     } catch {
       setShowListings(!next);
+    }
+  }
+
+  async function handleEmbedInListingsToggle(next: boolean) {
+    setEmbedInListings(next);
+    try {
+      await update.mutateAsync({ embed_in_listings: next });
+    } catch {
+      setEmbedInListings(!next);
     }
   }
 
@@ -313,6 +324,25 @@ export function FlipdeskVerifiedPage() {
               disabled={!isLive || update.isPending}
               onCheckedChange={handleShowListingsToggle}
               aria-label="Toggle storefront listings"
+            />
+          </div>
+
+          {/* US-1126: auto-embed verified credentials in generated listing
+              descriptions. Only meaningful once the profile is public. */}
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5">
+              <p className="font-medium">Add my credentials to listings</p>
+              <p className="text-sm text-muted-foreground">
+                Automatically embed your verified badge — grades earned, average
+                grade and a link to this profile — into the descriptions FlipDesk
+                generates for eBay and every other marketplace.
+              </p>
+            </div>
+            <Switch
+              checked={embedInListings}
+              disabled={!isLive || update.isPending}
+              onCheckedChange={handleEmbedInListingsToggle}
+              aria-label="Toggle embedding credentials in listings"
             />
           </div>
 

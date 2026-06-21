@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { purgeSellerProfileCache } from "../lib/cloudflare-purge.ts";
+import { loadSellerGradeStats } from "../lib/seller-credentials-job.ts";
 
 // GradeThread Verified — seller-profile management (US: revolutionary-flipping).
 //
@@ -33,6 +34,8 @@ interface ProfileBody {
   bio?: unknown;
   enabled?: unknown;
   show_listings?: unknown;
+  // US-1126: opt-in to embed verified credentials in listing descriptions.
+  embed_in_listings?: unknown;
 }
 
 /** Normalize + validate a handle. Returns the clean handle or an error reason. */
@@ -57,24 +60,12 @@ function parseHandle(raw: unknown): { handle: string } | { error: string } {
 const MAX_BIO = 280;
 const MAX_DISPLAY_NAME = 60;
 
-/** Count + average of the caller's certified (public) grades. */
-async function ownStats(
-  userId: string,
-): Promise<{ total_graded: number; average_grade: number }> {
-  const { data } = await supabaseAdmin
-    .from("grade_reports")
-    .select("overall_score, submissions!inner(user_id)")
-    .eq("submissions.user_id", userId)
-    .not("certificate_id", "is", null)
-    .limit(1000);
-  const rows = (data ?? []) as unknown as { overall_score: number }[];
-  const total = rows.length;
-  const avg =
-    total > 0
-      ? Math.round((rows.reduce((a, r) => a + Number(r.overall_score), 0) / total) * 10) / 10
-      : 0;
-  return { total_graded: total, average_grade: avg };
-}
+/**
+ * Count + average of the caller's certified (public) grades. Delegates to the
+ * shared `loadSellerGradeStats` (lib/seller-credentials.ts) so the profile page
+ * and the listing-credential embed (US-1126) compute identical numbers.
+ */
+const ownStats = loadSellerGradeStats;
 
 // ── GET /handle-available?handle=foo ──────────────────────────────
 verifiedRoutes.get("/handle-available", async (c) => {
@@ -103,7 +94,7 @@ verifiedRoutes.get("/profile", async (c) => {
   const { data: user, error } = await supabaseAdmin
     .from("users")
     .select(
-      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since, verified_show_listings, full_name",
+      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since, verified_show_listings, verified_embed_in_listings, full_name",
     )
     .eq("id", userId)
     .maybeSingle();
@@ -118,6 +109,7 @@ verifiedRoutes.get("/profile", async (c) => {
       enabled: user?.verified_enabled ?? false,
       verified_since: user?.verified_since ?? null,
       show_listings: user?.verified_show_listings ?? false,
+      embed_in_listings: user?.verified_embed_in_listings ?? false,
     },
     stats,
   });
@@ -158,6 +150,11 @@ verifiedRoutes.put("/profile", async (c) => {
     update.verified_show_listings = body.show_listings === true;
   }
 
+  // US-1126: opt-in to embed verified credentials in listing descriptions.
+  if (body.embed_in_listings !== undefined) {
+    update.verified_embed_in_listings = body.embed_in_listings === true;
+  }
+
   // Determine the resulting handle (incoming or already-stored) so we can
   // refuse to go public without one, and stamp verified_since on first enable.
   const { data: current } = await supabaseAdmin
@@ -192,7 +189,7 @@ verifiedRoutes.put("/profile", async (c) => {
     .update(update)
     .eq("id", userId)
     .select(
-      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since, verified_show_listings",
+      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since, verified_show_listings, verified_embed_in_listings",
     )
     .maybeSingle();
 
@@ -226,6 +223,7 @@ verifiedRoutes.put("/profile", async (c) => {
       enabled: data?.verified_enabled ?? false,
       verified_since: data?.verified_since ?? null,
       show_listings: data?.verified_show_listings ?? false,
+      embed_in_listings: data?.verified_embed_in_listings ?? false,
     },
   });
 });
