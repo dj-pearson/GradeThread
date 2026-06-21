@@ -67,6 +67,11 @@ actor SyncMergeActor {
         }
         var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
+        // US-1147: count genuine concurrent-edit conflicts (a locally-dirty row
+        // whose server copy is newer) so the dirty-wins resolution is auditable
+        // for support — breadcrumbed once per pass, not per field.
+        var dirtyConflicts = 0
+
         for remote in items {
             let createdAt = SyncEngine.parseDate(remote.created_at)
             let updatedAt = SyncEngine.parseDate(remote.updated_at)
@@ -74,6 +79,7 @@ actor SyncMergeActor {
             let primaryURL = primary?.thumbnail_url ?? primary?.photo_url
 
             if let local = existingById[remote.id] {
+                if local.hasLocalChanges && updatedAt > local.updatedAt { dirtyConflicts += 1 }
                 Self.applyServerWins(to: local, remote: remote)
                 // Only overwrite the cached primary when the delta actually
                 // carried this item's photos; a thin item-only delta leaves
@@ -107,6 +113,11 @@ actor SyncMergeActor {
             where !remoteIds.contains(stale.id) && !stale.hasLocalChanges {
                 modelContext.delete(stale)
             }
+        }
+        if dirtyConflicts > 0 {
+            Telemetry.backgroundBreadcrumb(
+                "Sync kept \(dirtyConflicts) locally-edited item(s) over a newer server row (dirty-wins)",
+                category: "sync")
         }
         modelContext.saveOrLog("mergeItems")
     }

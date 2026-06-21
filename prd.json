@@ -3799,7 +3799,7 @@
         "Test: cancelling mid-flush leaves the queue in a consistent, replayable state"
       ],
       "priority": 1105,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Sync][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Persistence/SyncEngine.swift",
