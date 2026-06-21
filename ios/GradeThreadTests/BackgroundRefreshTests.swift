@@ -129,6 +129,33 @@ final class BackgroundRefreshTests: XCTestCase {
         XCTAssertFalse(success)
     }
 
+    /// US-1159: when iOS expires the task (the expiration handler cancels the
+    /// work), performRefresh must bail before touching the cache and report
+    /// failure — never fire notifications off a half-merged snapshot nor claim
+    /// success.
+    func test_performRefresh_cancelled_bailsAndReportsFailure() async throws {
+        let container = try makeContainer()
+        let saleNotifier = SpyNewSaleNotifier()
+        let gradeNotifier = SpyNewGradeNotifier()
+        let service = BackgroundRefreshService(
+            modelContainer: container,
+            notifier: saleNotifier,
+            gradeNotifier: gradeNotifier
+        )
+        service.attachSyncEngine(FakeSyncEngine { .ok })
+
+        // Mirror what the BGTask expirationHandler does: cancel the work task.
+        let task = Task { await service.performRefresh() }
+        task.cancel()
+        let success = await task.value
+
+        XCTAssertFalse(success, "An expired/cancelled refresh must report failure")
+        XCTAssertTrue(
+            saleNotifier.notifiedCounts.isEmpty && gradeNotifier.notifiedCounts.isEmpty,
+            "Detection must be skipped once the task is cancelled"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeContainer() throws -> ModelContainer {

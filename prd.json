@@ -4027,7 +4027,7 @@
         "Malformed/unknown push payloads are handled without crashing"
       ],
       "priority": 1117,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Push][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Background/BackgroundRefreshService.swift",
