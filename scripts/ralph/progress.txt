@@ -3750,3 +3750,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 11:57:40 PM
 ---
+## US-1124: Garment Passport: guarantee seeding before listing/cert + reliable relist event
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026 12:04:21 AM
+---

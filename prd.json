@@ -3375,7 +3375,7 @@
         "Tenant-scoped; deno check/lint/test pass"
       ],
       "priority": 1083,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport][EPIC: Web↔iOS Gaps & Polish 2026-06-20] grading-pipeline.ts (~L1376-1393) seeds passport fire-and-forget after grade_reports insert; recordRelist in flipdesk-listings.ts (L333) is void-ed; ai-listing.ts reads garment_id (~L2700) which can be NULL. Provenance is a marketing pillar.",
       "relevantPaths": [
         "services/edge-functions/src/lib/grading-pipeline.ts",
