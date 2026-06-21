@@ -118,6 +118,11 @@ struct EbayMarketingControls: View {
             Text("Ad rate: \(rate, specifier: "%.1f")%")
         }
         .onAppear { rate = status.ratePct ?? status.suggestedRatePct }
+        // US-1175: re-seed the stepper when the store reloads a new rate after a
+        // promote/update (.onAppear won't refire), so it never shows a stale value.
+        .onChange(of: status.ratePct) { _, newValue in
+            rate = newValue ?? status.suggestedRatePct
+        }
         HStack {
             Button(promoted ? "Update rate" : "Promote") {
                 Task { await store.promote(ratePct: rate) }

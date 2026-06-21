@@ -4370,8 +4370,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1175,
-      "passes": false,
-      "notes": "[P2][iOS/Functionality][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] A first-class automation action does nothing live; toggle lag; stepper desync.",
+      "passes": true,
+      "notes": "[P2][iOS/Functionality][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] A first-class automation action does nothing live; toggle lag; stepper desync. IMPLEMENTED 2026-06-21: set_promo_rate_pct now shows an unmistakable inline Tracking only badge (not just footer); AutomationsStore.toggleActive flips optimistically with a togglingIds in-flight guard + revert-on-failure, and RuleRow disables the switch while toggling; EbayMarketingControls ad-rate stepper re-seeds via .onChange(of: status.ratePct). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Automations/AutomationRuleEditorSheet.swift",
         "ios/GradeThread/Automations/AutomationsStore.swift",

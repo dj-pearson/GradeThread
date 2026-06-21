@@ -98,6 +98,15 @@ struct AutomationRuleEditorSheet: View {
                     Text("Never below cost + \(draft.marginFloorPct)% margin")
                 }
             }
+            // US-1175: the promo-rate action only records the rate in FlipDesk —
+            // it isn't pushed to eBay Promoted Listings yet. Make that
+            // unmistakable inline (not just in the footer) so users don't build a
+            // rule expecting it to change anything live.
+            if draft.actionType == "set_promo_rate_pct" {
+                Label("Tracking only — not pushed to eBay yet", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.brandAmber)
+            }
         } header: {
             Text("Then")
         } footer: {
