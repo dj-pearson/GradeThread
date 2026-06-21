@@ -436,7 +436,17 @@ public final class PhotoUploadService {
             captured_at: task.capturedAt.map { Self.iso8601.string(from: $0) },
             reconcile_session_id: task.reconcileSessionId
         )
-        guard let data = try? JSONEncoder().encode(payload) else { return }
+        guard let data = try? JSONEncoder().encode(payload) else {
+            // Can't even encode the replay payload — the upload would be
+            // orphaned (blob in storage, no item_photos row, no queued
+            // mutation). The task is already `.failed` (caller set it) so the
+            // user can retry; breadcrumb it so the orphan isn't *silent*.
+            Telemetry.backgroundBreadcrumb(
+                "Photo re-link mutation could not be encoded; upload left for manual retry",
+                category: "persistence"
+            )
+            return
+        }
         let context = ModelContext(container)
         context.insert(
             LocalPendingMutation(
@@ -445,7 +455,10 @@ public final class PhotoUploadService {
                 targetId: task.inventoryItemId
             )
         )
-        try? context.save()
+        // If this save fails the mutation isn't queued, but the task stays in a
+        // retryable `.failed` state (set by the caller) and the failure is now
+        // recorded — no longer a silent orphan (US-1142).
+        context.saveOrLog("enqueuePendingMutation")
         _ = message  // surfaced via .failed phase; keep payload schema lean
     }
 

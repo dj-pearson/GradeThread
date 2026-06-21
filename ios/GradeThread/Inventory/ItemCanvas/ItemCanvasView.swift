@@ -611,7 +611,7 @@ struct ItemCanvasView: View {
                 .execute()
             item.status = resolved
             item.updatedAt = .now
-            try? modelContext.save()
+            modelContext.saveOrLog("autoAdvanceStatusIfNeeded")
         } catch {
             guard OfflineMutationQueue.shouldQueue(error) else { return }
             _ = OfflineMutationQueue.enqueueUpdate(
@@ -619,7 +619,7 @@ struct ItemCanvasView: View {
             item.status = resolved
             item.hasLocalChanges = true
             item.updatedAt = .now
-            try? modelContext.save()
+            modelContext.saveOrLog("autoAdvanceStatusIfNeeded")
         }
         // Reflect the new status into the form when the user isn't mid-edit.
         if state?.isDirty == false { state?.refreshFromItem(item) }
@@ -1419,7 +1419,7 @@ struct ItemCanvasView: View {
             HapticFeedback.error()
         } else {
             modelContext.delete(item)
-            try? modelContext.save()
+            modelContext.saveOrLog("deleteItem")
             HapticFeedback.success()
             dismiss()
         }
@@ -1575,7 +1575,7 @@ struct ItemCanvasView: View {
                 applyToLocalItem(state: state)
                 item.hasLocalChanges = true  // not yet on the server — keep it from prune
                 state.acceptDraftAsOriginal()
-                try? modelContext.save()
+                modelContext.saveOrLog("save")
                 state.savePhase = .idle
                 HapticFeedback.warning()
                 actionToast = "Saved offline — will sync when you reconnect."
@@ -1697,7 +1697,7 @@ struct ItemCanvasView: View {
                 .execute()
             applyToLocalItem(state: state)
             state.acceptDraftAsOriginal()
-            try? modelContext.save()
+            modelContext.saveOrLog("confirmMerge")
             HapticFeedback.success()
             if dismissAfterMerge { dismiss() }
         } catch {

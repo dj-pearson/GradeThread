@@ -122,7 +122,7 @@ struct PhotoRotateService {
         photo.thumbnailURL = newThumbnailURL
         photo.width = newWidth
         photo.height = newHeight
-        try? context.save()
+        context.saveOrLog("rotate")
     }
 
     // MARK: - Helpers

@@ -921,7 +921,7 @@ struct InventoryListView: View {
             HapticFeedback.error()
         } else {
             modelContext.delete(item)
-            try? modelContext.save()
+            modelContext.saveOrLog("deleteItem")
             HapticFeedback.success()
         }
     }

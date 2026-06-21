@@ -963,7 +963,7 @@ actor SyncEngine {
             if let row = try? context.fetch(descriptor).first {
                 row.lastError = nil
                 row.retryCount = 0
-                try? context.save()
+                context.saveOrLog("retryMutation")
             }
         }
         let snapshot = await snapshotMutations().first { $0.id == id }
@@ -1007,7 +1007,7 @@ actor SyncEngine {
             let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
             if let row = try? context.fetch(descriptor).first {
                 context.delete(row)
-                try? context.save()
+                context.saveOrLog("deleteMutation")
             }
         }
     }
@@ -1020,7 +1020,7 @@ actor SyncEngine {
             row.retryCount += 1
             row.lastError = error
             row.lastAttemptAt = .now
-            try? context.save()
+            context.saveOrLog("markFailed")
         }
     }
 

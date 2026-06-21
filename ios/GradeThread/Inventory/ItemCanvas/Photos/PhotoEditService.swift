@@ -40,7 +40,7 @@ struct PhotoEditService {
                 .execute()
         }
         applyLocalOrder(ordered, item: item)
-        try? context.save()
+        context.saveOrLog("persistOrder")
     }
 
     /// Deletes one photo, then closes the sort_order gap for the survivors.
@@ -71,7 +71,7 @@ struct PhotoEditService {
         }
         context.delete(photo)
         applyLocalOrder(remaining, item: item)
-        try? context.save()
+        context.saveOrLog("delete")
     }
 
     private struct TypeUpdate: Encodable { let photo_type: String }
@@ -90,7 +90,7 @@ struct PhotoEditService {
             .eq("id", value: photo.id)
             .execute()
         photo.photoType = serverType
-        try? context.save()
+        context.saveOrLog("retag")
     }
 
     /// Mirrors the order into the local rows + refreshes the cached cover.

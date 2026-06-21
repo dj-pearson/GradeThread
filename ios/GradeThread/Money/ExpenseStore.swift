@@ -171,14 +171,14 @@ final class ExpenseStore {
                 listingId: listingId
             ))
         }
-        try? queueContext.save()
+        queueContext.saveOrLog("mirrorCreated")
     }
 
     private func removeLocally(id: String, in queueContext: ModelContext) {
         let predicate = #Predicate<LocalExpense> { $0.id == id }
         if let row = try? queueContext.fetch(FetchDescriptor<LocalExpense>(predicate: predicate)).first {
             queueContext.delete(row)
-            try? queueContext.save()
+            queueContext.saveOrLog("removeLocally")
         }
     }
 

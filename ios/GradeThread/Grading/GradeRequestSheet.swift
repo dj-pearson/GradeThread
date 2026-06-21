@@ -453,7 +453,7 @@ struct GradeRequestSheet: View {
             item.status = "graded"
         }
         item.updatedAt = .now
-        try? modelContext.save()
+        modelContext.saveOrLog("applyGradeToItem")
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }
 

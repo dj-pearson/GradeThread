@@ -3701,7 +3701,7 @@
         "Unit tests cover save-failure paths (injected failing ModelContext) for the mutation queue and merge actor"
       ],
       "priority": 1100,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Data Integrity][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Persistence/OfflineMutationQueue.swift",

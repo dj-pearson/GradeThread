@@ -191,7 +191,7 @@ public final class SourceStore {
                 existingById[row.id] = local
             }
         }
-        try? context.save()
+        context.saveOrLog("mergeIntoCache")
     }
 
     /// Wire-shape `sources` row. Matches the columns we select above.

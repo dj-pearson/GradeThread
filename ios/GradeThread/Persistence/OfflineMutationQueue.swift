@@ -71,6 +71,6 @@ enum OfflineMutationQueue {
 
     private static func insert(_ mutation: LocalPendingMutation, in context: ModelContext) {
         context.insert(mutation)
-        try? context.save()
+        context.saveOrLog("insert")
     }
 }

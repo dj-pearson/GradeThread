@@ -108,7 +108,7 @@ actor SyncMergeActor {
                 modelContext.delete(stale)
             }
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeItems")
     }
 
     /// Upserts item photos. `prune` is true ONLY on a full backfill — in delta
@@ -175,7 +175,7 @@ actor SyncMergeActor {
                 modelContext.delete(stale)
             }
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergePhotos")
     }
 
     /// Upserts the user's sales. No pruning — a sale that disappears
@@ -221,7 +221,7 @@ actor SyncMergeActor {
             local.saleDate = SyncEngine.parseDate(remote.sale_date)
             local.buyerUsername = remote.buyer_username
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeSales")
     }
 
     /// Upserts the local mirror of `flipdesk_expenses` (US-750) so the Money tab
@@ -261,7 +261,7 @@ actor SyncMergeActor {
             local.inventoryItemId = remote.inventory_item_id
             local.listingId = remote.listing_id
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeExpenses")
     }
 
     /// Upserts the local mirror of `listings` so the item canvas can resolve a
@@ -308,7 +308,7 @@ actor SyncMergeActor {
             local.listingOrigin = remote.listing_origin
             local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeListings")
     }
 
     /// US-819: stamps each item's `disputeStatus` from the synced `disputes`
@@ -343,7 +343,7 @@ actor SyncMergeActor {
                 item.disputeStatus = latest.status
             }
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeDisputes")
     }
 
     // MARK: - Realtime single-row apply (US-198, reuses this shared context)
@@ -369,14 +369,14 @@ actor SyncMergeActor {
             Self.applyServerWins(to: local, remote: remote)
             modelContext.insert(local)
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeSingleInventory")
     }
 
     func deleteInventory(id: String) {
         let descriptor = FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { $0.id == id })
         if let row = try? modelContext.fetch(descriptor).first {
             modelContext.delete(row)
-            try? modelContext.save()
+            modelContext.saveOrLog("deleteInventory")
         }
     }
 

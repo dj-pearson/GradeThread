@@ -68,7 +68,7 @@ struct QuickPriceSheet: View {
                 .eq("id", value: item.id)
                 .execute()
             item.targetPrice = value
-            try? modelContext.save()
+            modelContext.saveOrLog("save")
             HapticFeedback.success()
             dismiss()
         } catch {
