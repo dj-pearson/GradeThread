@@ -20,6 +20,8 @@ struct CertifiedGradeSection: View {
     @State private var showingDisclosure = false
     /// US-768: the graded-photo (digital slab) preview/save/share sheet.
     @State private var showingGradedPhoto = false
+    /// US-1115: the Garment Passport (provenance timeline) viewer.
+    @State private var showingPassport = false
 
     private var isGraded: Bool { item.gradeValue != nil }
     private var certificateURL: URL? {
@@ -54,6 +56,9 @@ struct CertifiedGradeSection: View {
             if let certificateURL = item.certificateURL {
                 GradedPhotoView(certificateURL: certificateURL)
             }
+        }
+        .sheet(isPresented: $showingPassport) {
+            PassportTimelineView(inventoryItemId: item.id, itemTitle: item.title)
         }
     }
 
@@ -109,6 +114,16 @@ struct CertifiedGradeSection: View {
                 showingDisclosure = true
             } label: {
                 Label("Defect disclosure", systemImage: "exclamationmark.bubble")
+                    .font(.subheadline.weight(.medium))
+            }
+
+            // US-1115: the Garment Passport — the item's provenance timeline,
+            // shareable and claimable (parity with the web trust surface).
+            Button {
+                AppRouter.haptic()
+                showingPassport = true
+            } label: {
+                Label("Garment passport", systemImage: "clock.arrow.circlepath")
                     .font(.subheadline.weight(.medium))
             }
 
