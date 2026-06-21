@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import {
   computeAccuracySummary,
+  computeClaimAccuracySignal,
   computeConfidenceCalibration,
   computeOutcomeFeedback,
   computeWeeklyAccuracySummary,
@@ -122,6 +123,23 @@ adminGradingRoutes.get("/calibration", async (c) => {
   } catch (err) {
     return c.json(
       { error: "Failed to compute calibration", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
+
+// GET /claim-signal — buyer-guarantee-claim-derived per-factor over-grade signal
+// (US-1113). Approved "the grade was wrong" claims map their claimed_issues to
+// the five grading factors; this is the aggregate the calibration panel renders.
+adminGradingRoutes.get("/claim-signal", async (c) => {
+  try {
+    return c.json(await computeClaimAccuracySignal());
+  } catch (err) {
+    return c.json(
+      {
+        error: "Failed to compute claim signal",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       500,
     );
   }

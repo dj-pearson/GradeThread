@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Gauge, Lightbulb } from "lucide-react";
+import { Gauge, Lightbulb, ShieldAlert } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -30,6 +30,28 @@ interface CalibrationReport {
   target_agreement: number;
 }
 
+// US-1113: approved buyer-guarantee-claim-derived per-factor over-grade signal.
+interface ClaimFactorSignal {
+  factor: string;
+  claims: number;
+  total_delta: number;
+  mean_delta: number;
+}
+interface ClaimAccuracySignalReport {
+  factors: ClaimFactorSignal[];
+  total_claims: number;
+  total_issues: number;
+  mean_overall_delta: number;
+}
+
+const FACTOR_LABELS: Record<string, string> = {
+  fabric_condition: "Fabric",
+  structural_integrity: "Structural",
+  cosmetic_appearance: "Cosmetic",
+  functional_elements: "Functional",
+  odor_cleanliness: "Odor / Cleanliness",
+};
+
 function pct(x: number | null): string {
   return x === null || x === undefined ? "—" : `${(x * 100).toFixed(0)}%`;
 }
@@ -56,10 +78,27 @@ export function GradingCalibrationPanel() {
     staleTime: 60 * 1000,
   });
 
+  const { data: claimSignal } = useQuery({
+    queryKey: ["admin-grading-claim-signal"],
+    queryFn: async (): Promise<ClaimAccuracySignalReport> => {
+      const res = await fetch(`${edgeApiUrl()}/api/admin/grading/claim-signal`, {
+        headers: await authHeaders(),
+      });
+      if (!res.ok) throw new Error(`Claim signal unavailable (${res.status})`);
+      return res.json();
+    },
+    staleTime: 60 * 1000,
+  });
+
   const bins = (data?.bins ?? []).filter((b) => b.count > 0);
   const rec = data?.recommended_threshold ?? null;
   const cur = data?.current_threshold ?? 0.75;
   const recDiffers = rec !== null && Math.abs(rec - cur) >= 0.01;
+
+  // US-1113: only surface claim-derived deltas once an approved claim has fed
+  // the loop. Factors with no flagging claim are hidden (zero signal).
+  const claimFactors = (claimSignal?.factors ?? []).filter((f) => f.claims > 0);
+  const hasClaimSignal = (claimSignal?.total_claims ?? 0) > 0;
 
   return (
     <Card>
@@ -164,6 +203,63 @@ export function GradingCalibrationPanel() {
               </table>
             </div>
           </>
+        )}
+
+        {/* US-1113: buyer-guarantee-claim → grading-accuracy feedback. Approved
+            "the grade was wrong" claims map their claimed issues to grading
+            factors; this shows where confirmed claims say grades ran HIGH. */}
+        {hasClaimSignal && (
+          <div className="space-y-2 rounded-lg border border-brand-red/30 bg-brand-red/5 p-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-brand-navy dark:text-foreground">
+              <ShieldAlert className="h-4 w-4 text-brand-red" />
+              Buyer-claim calibration signal
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {claimSignal!.total_claims} approved guarantee claim
+              {claimSignal!.total_claims === 1 ? "" : "s"} fed the loop — confirmed
+              cases where the item was worse than graded. Implied overall over-grade
+              averages{" "}
+              <strong>{claimSignal!.mean_overall_delta.toFixed(2)} pts</strong>.
+            </p>
+            {claimFactors.length > 0 ? (
+              <div className="overflow-x-auto rounded-lg border bg-background">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold">Factor</th>
+                      <th className="px-3 py-2 text-right font-semibold">Claims</th>
+                      <th className="px-3 py-2 text-right font-semibold">
+                        Mean over-grade
+                      </th>
+                      <th className="px-3 py-2 text-right font-semibold">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {claimFactors.map((f) => (
+                      <tr key={f.factor} className="border-t">
+                        <td className="px-3 py-2">
+                          {FACTOR_LABELS[f.factor] ?? f.factor}
+                        </td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">
+                          {f.claims}
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium">
+                          {f.mean_delta.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">
+                          {f.total_delta.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No structured per-factor issues on the approved claims yet.
+              </p>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

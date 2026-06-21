@@ -2,6 +2,13 @@ import { supabaseAdmin } from "./supabase.ts";
 import { evalThresholds } from "./grading-eval.ts";
 import { reviewConfidenceThreshold } from "./ai-config.ts";
 import { computeIrrReport, type ItemRatings } from "./irr.ts";
+import {
+  aggregateClaimSignals,
+  type ClaimAccuracySignalReport,
+  type ClaimSignalRow,
+  mapClaimIssuesToFactorDeltas,
+  normalizeClaimIssues,
+} from "./claim-accuracy.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -1289,4 +1296,148 @@ export async function computeOutcomeFeedback(): Promise<OutcomeFeedbackSummary> 
     overall_dispute_rate: totalSales > 0 ? totalDisputes / totalSales : 0,
     generated_at: new Date().toISOString(),
   };
+}
+
+// ─── Buyer-guarantee claim feedback loop (US-1113) ──────────────────
+//
+// An APPROVED buyer trust-guarantee claim is a confirmed "the grade was wrong"
+// ground-truth signal (the certified item was materially WORSE than graded).
+// These functions close the loop so an approval actually reaches the grading
+// calibration system instead of ending at a status flip:
+//
+//   applyClaimAccuracySignal   — on approve: map claimed_issues → per-factor
+//                                over-grade deltas and UPSERT the signal row.
+//                                UNIQUE(claim_id) makes it idempotent (a claim
+//                                contributes exactly once); re-approving a
+//                                previously-reversed claim re-activates it.
+//   neutralizeClaimAccuracySignal — on reject/reversal: flip active=false so the
+//                                claim's signal stops feeding the aggregate
+//                                (no double-counting; the row history survives).
+//   computeClaimAccuracySignal — read the active signals and aggregate them into
+//                                the per-factor report the admin grading-
+//                                calibration panel renders.
+//
+// All three are fail-soft: a DB hiccup logs and returns rather than throwing, so
+// a calibration-feedback failure can never block the admin claim decision (the
+// status flip + audit log) it rides behind. Tenant scoping is preserved — the
+// signal copies seller_user_id from the already-ownership-verified claim row.
+
+export interface ClaimAccuracySignalInput {
+  id: string;
+  grade_report_id: string;
+  seller_user_id: string;
+  claimed_issues: unknown;
+}
+
+/**
+ * Persist (or re-activate) the per-factor over-grade signal for an APPROVED
+ * claim. Idempotent via the UNIQUE(claim_id) index — a re-approval updates the
+ * same row rather than creating a duplicate. Never throws (logs on failure).
+ */
+export async function applyClaimAccuracySignal(
+  claim: ClaimAccuracySignalInput,
+): Promise<void> {
+  if (!claim.grade_report_id) return; // only claims anchored to a grade feed it
+  try {
+    const issues = normalizeClaimIssues(claim.claimed_issues);
+    const { deltas, overall_delta, issue_count } = mapClaimIssuesToFactorDeltas(issues);
+
+    // Resolve submission + garment category for optional slicing (best-effort).
+    let submissionId: string | null = null;
+    let garmentCategory: string | null = null;
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select("submission_id")
+      .eq("id", claim.grade_report_id)
+      .maybeSingle();
+    if (report?.submission_id) {
+      submissionId = report.submission_id as string;
+      const { data: sub } = await supabaseAdmin
+        .from("submissions")
+        .select("garment_category")
+        .eq("id", submissionId)
+        .maybeSingle();
+      garmentCategory =
+        (sub as { garment_category?: string | null } | null)?.garment_category ?? null;
+    }
+
+    const { error } = await supabaseAdmin
+      .from("claim_accuracy_signals")
+      .upsert(
+        {
+          claim_id: claim.id,
+          grade_report_id: claim.grade_report_id,
+          submission_id: submissionId,
+          seller_user_id: claim.seller_user_id,
+          garment_category: garmentCategory,
+          factor_deltas: deltas,
+          overall_delta,
+          issue_count,
+          active: true,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "claim_id" },
+      );
+    if (error) {
+      console.error("[AccuracyTracking] applyClaimAccuracySignal upsert failed:", error.message);
+    }
+  } catch (err) {
+    console.error(
+      "[AccuracyTracking] applyClaimAccuracySignal failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/**
+ * Neutralize an approved claim's signal when the claim is rejected/reversed —
+ * flip active=false so it stops feeding the aggregate. No-op when the claim was
+ * never approved (no signal row). Never throws (logs on failure).
+ */
+export async function neutralizeClaimAccuracySignal(claimId: string): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin
+      .from("claim_accuracy_signals")
+      .update({ active: false, updated_at: new Date().toISOString() })
+      .eq("claim_id", claimId);
+    if (error) {
+      console.error(
+        "[AccuracyTracking] neutralizeClaimAccuracySignal failed:",
+        error.message,
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[AccuracyTracking] neutralizeClaimAccuracySignal failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/**
+ * Aggregate the active claim signals into the per-factor over-grade report the
+ * admin grading-calibration panel renders.
+ */
+export async function computeClaimAccuracySignal(): Promise<ClaimAccuracySignalReport> {
+  const generatedAt = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("claim_accuracy_signals")
+    .select("factor_deltas, overall_delta, issue_count")
+    .eq("active", true);
+  if (error) throw new Error(`Failed to fetch claim signals: ${error.message}`);
+
+  const rows: ClaimSignalRow[] = (data ?? []).map((r) => {
+    const row = r as {
+      factor_deltas: Record<string, number> | null;
+      overall_delta: number | null;
+      issue_count: number | null;
+    };
+    return {
+      factor_deltas: row.factor_deltas,
+      overall_delta: row.overall_delta === null ? null : Number(row.overall_delta),
+      issue_count: row.issue_count === null ? null : Number(row.issue_count),
+    };
+  });
+
+  return aggregateClaimSignals(rows, generatedAt);
 }

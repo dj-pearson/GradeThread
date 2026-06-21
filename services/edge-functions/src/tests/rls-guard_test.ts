@@ -235,6 +235,15 @@ const SERVICE_ROLE_ONLY = new Set([
   "permission_scopes",
   "role_scopes",
   "admin_scope_grants",
+  // US-1113 buyer-guarantee claim → grading-accuracy feedback signals (migration
+  // 00302). RLS enabled with an explicit `revoke all from anon, authenticated`
+  // and zero policies by design — read/written ONLY by the service-role edge
+  // client (lib/accuracy-tracking.ts: apply on claim approve, neutralize on
+  // reject, aggregate for the admin grading-calibration panel); the SPA never
+  // reads the raw rows. seller_user_id is the owning tenant (copied from the
+  // already-verified guarantee_claims row), a grading-quality surface, not
+  // client-readable user data.
+  "claim_accuracy_signals",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

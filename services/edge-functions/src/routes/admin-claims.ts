@@ -8,6 +8,10 @@ import {
   updateByIdChecked,
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
+import {
+  applyClaimAccuracySignal,
+  neutralizeClaimAccuracySignal,
+} from "../lib/accuracy-tracking.ts";
 
 // US-867: admin review of buyer trust-guarantee claims. Mounted at
 // /api/admin/claims — inherits authMiddleware + adminAuthMiddleware from main.ts
@@ -265,6 +269,23 @@ function decisionHandler(decision: "approved" | "rejected", action: string) {
       }
       console.error(`[admin-claims] ${decision} failed:`, err);
       return c.json({ error: "Failed to update claim" }, 500);
+    }
+
+    // US-1113: close the grading-accuracy feedback loop. An APPROVED claim is a
+    // confirmed "the grade was wrong" signal → write its per-factor over-grade
+    // delta into the accuracy-tracking pipeline; a REJECTION (incl. reversing a
+    // prior approval) neutralizes it so it stops feeding calibration. Both are
+    // fail-soft and tenant-scoped (signal copies the verified seller_user_id),
+    // and run AFTER the decision is committed so they never block it.
+    if (decision === "approved" && claim.grade_report_id) {
+      await applyClaimAccuracySignal({
+        id: claim.id,
+        grade_report_id: claim.grade_report_id,
+        seller_user_id: claim.seller_user_id,
+        claimed_issues: claim.claimed_issues,
+      });
+    } else if (decision === "rejected") {
+      await neutralizeClaimAccuracySignal(claimId);
     }
 
     await auditLog(c, action, claimId, {
