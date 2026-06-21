@@ -120,6 +120,51 @@ final class EdgeAPITests: XCTestCase {
         await XCTAssertThrowsItem(.rateLimited, with: makeAPI())
     }
 
+    // US-1145: a 429 is transient — it retries and succeeds when the next
+    // attempt is allowed through (the request was rejected, not processed, so a
+    // retry is safe).
+    func test_429_thenSuccess_retriesAndSucceeds() async throws {
+        let json = #"{"id":"r1","title":"Retried","created_at":"2026-05-27T12:34:56Z"}"#
+        let calls = CallBox()
+        MockURLProtocol.handler = { request in
+            let n = calls.next()
+            if n == 1 {
+                return (
+                    HTTPURLResponse(
+                        url: request.url!, statusCode: 429, httpVersion: nil,
+                        headerFields: ["Retry-After": "0"])!,
+                    Data())
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(json.utf8))
+        }
+        let item: Item = try await makeAPI().getJSON("/foo")
+        XCTAssertEqual(item.id, "r1")
+        XCTAssertEqual(calls.count, 2)  // one 429, one success
+    }
+
+    func test_parseRetryAfter_secondsForm() {
+        XCTAssertEqual(EdgeAPI.parseRetryAfter("30"), 30)
+        XCTAssertEqual(EdgeAPI.parseRetryAfter("  5 "), 5)
+        XCTAssertEqual(EdgeAPI.parseRetryAfter("0"), 0)
+    }
+
+    func test_parseRetryAfter_rejectsNonNumericAndNil() {
+        XCTAssertNil(EdgeAPI.parseRetryAfter(nil))
+        XCTAssertNil(EdgeAPI.parseRetryAfter(""))
+        // HTTP-date form is intentionally unsupported → falls back to backoff.
+        XCTAssertNil(EdgeAPI.parseRetryAfter("Wed, 21 Oct 2026 07:28:00 GMT"))
+    }
+
+    func test_isTransient_includesRateLimitedNotBadRequest() {
+        XCTAssertTrue(EdgeAPI.isTransient(.rateLimited))
+        XCTAssertTrue(EdgeAPI.isTransient(.network("x")))
+        XCTAssertTrue(EdgeAPI.isTransient(.serverError(detail: nil)))
+        XCTAssertFalse(EdgeAPI.isTransient(.badRequest(detail: nil)))
+        XCTAssertFalse(EdgeAPI.isTransient(.unauthorized))
+    }
+
     func test_400_mapsToBadRequest_withDetail() async {
         MockURLProtocol.handler = { request in
             (
@@ -317,6 +362,16 @@ fileprivate struct Item: Codable, Equatable {
     let id: String
     let title: String
     let createdAt: Date
+}
+
+/// Thread-safe call counter for stateful mock handlers (e.g. "429 then 200").
+/// The handler runs on URLSession's loading thread; retries are sequential, but
+/// the lock keeps it sound under `@unchecked Sendable`.
+final class CallBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _count = 0
+    func next() -> Int { lock.lock(); defer { lock.unlock() }; _count += 1; return _count }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return _count }
 }
 
 // MARK: - Mock URLProtocol

@@ -3761,7 +3761,7 @@
         "Unit test: a 429 then 200 succeeds after backoff; retries are bounded by `maxRetries`"
       ],
       "priority": 1103,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Networking][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Networking/EdgeAPI.swift",

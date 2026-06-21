@@ -209,8 +209,11 @@ public actor EdgeAPI {
         let request = try await buildRequest(method: method, path: path, query: query, body: body)
 
         // Bounded retry-with-backoff for transient failures only (US-638);
-        // 4xx (auth, bad request, not-found, rate-limit) fail fast.
+        // network/5xx + 429 rate-limits retry (US-1145), other 4xx fail fast.
         var attempt = 0
+        // US-1145: when a 429 carries a `Retry-After`, honor it for the next
+        // backoff instead of the blind exponential schedule. Reset after use.
+        var retryAfterHint: TimeInterval?
         while true {
             do {
                 let (data, response): (Data, URLResponse)
@@ -224,6 +227,16 @@ public actor EdgeAPI {
                 }
                 interceptPlanSignals(http, data: data)
                 guard (200..<300).contains(http.statusCode) else {
+                    if http.statusCode == 429 {
+                        // US-1145: surface rate-limit frequency to Sentry and
+                        // capture the server's backoff hint for the retry.
+                        retryAfterHint = Self.parseRetryAfter(
+                            http.value(forHTTPHeaderField: "Retry-After"))
+                        Telemetry.backgroundBreadcrumb(
+                            "Edge 429 rate-limited [\(method) \(path)]"
+                                + (retryAfterHint.map { " retryAfter=\(Int($0))s" } ?? ""),
+                            category: "network")
+                    }
                     throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
                 }
                 if cacheTTL > 0, method == "GET" {
@@ -244,7 +257,16 @@ public actor EdgeAPI {
                     throw error
                 }
                 if Self.isTransient(error), attempt < Self.maxRetries {
-                    try? await Task.sleep(nanoseconds: Backoff.delayNanos(attempt: attempt, base: 0.5, cap: 4))
+                    // Honor a `Retry-After` hint (capped) for a 429; otherwise
+                    // fall back to the bounded exponential backoff.
+                    let nanos: UInt64
+                    if let hint = retryAfterHint {
+                        nanos = UInt64(min(max(hint, 0), 8) * 1_000_000_000)
+                        retryAfterHint = nil
+                    } else {
+                        nanos = Backoff.delayNanos(attempt: attempt, base: 0.5, cap: 4)
+                    }
+                    try? await Task.sleep(nanoseconds: nanos)
                     attempt += 1
                     continue
                 }
@@ -253,12 +275,24 @@ public actor EdgeAPI {
         }
     }
 
-    /// Only network blips + 5xx are worth retrying — decode/4xx are deterministic.
-    private static func isTransient(_ error: EdgeAPIError) -> Bool {
+    /// Network blips, 5xx, and 429 rate-limits are worth retrying — a 429 means
+    /// the request was rejected (not processed), so retrying is safe even for
+    /// writes. Decode + other 4xx are deterministic and fail fast (US-1145).
+    static func isTransient(_ error: EdgeAPIError) -> Bool {
         switch error {
-        case .network, .serverError: return true
+        case .network, .serverError, .rateLimited: return true
         default: return false
         }
+    }
+
+    /// Parse an HTTP `Retry-After` header. Supports the delay-seconds form
+    /// (e.g. "30"); the HTTP-date form is ignored (returns nil) and the caller
+    /// falls back to exponential backoff. `internal` so it's unit-testable
+    /// (US-1145).
+    static func parseRetryAfter(_ value: String?) -> TimeInterval? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces),
+              let seconds = Double(value) else { return nil }
+        return max(0, seconds)
     }
 
     /// Stable cache key fragment: query items sorted so order doesn't matter.
