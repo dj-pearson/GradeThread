@@ -364,7 +364,16 @@ jobs:
             POSTHOG_HOST="${POSTHOG_HOST:-https://us.i.posthog.com}" \
             CURRENT_PROJECT_VERSION=${{ steps.build_number.outputs.value }} \
             "${VERSION_ARGS[@]}" \
-            archive | xcbeautify --renderer github-actions
+            archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild-raw.log" | xcbeautify --renderer github-actions
+          ARCHIVE_RC=${PIPESTATUS[0]}
+          # TEMP DIAGNOSTIC: xcbeautify strips the file path from compile errors
+          # (it turns them into ::error annotations GitHub consumes), so on a
+          # build failure echo the raw, path-bearing diagnostic lines here where
+          # they survive in the plain log. Revert once the failing file is known.
+          echo "::group::Raw xcodebuild errors (path-bearing)"
+          grep -nE "error: |unable to type-check this expression" "$RUNNER_TEMP/xcodebuild-raw.log" | head -60 || true
+          echo "::endgroup::"
+          exit "$ARCHIVE_RC"
 
       - name: Verify entitlements in archive
         # Isolates WHERE custom entitlements (applesignin, associated-domains,
