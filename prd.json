@@ -4219,7 +4219,7 @@
       ],
       "priority": 1167,
       "passes": false,
-      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] The comp/repricing engine exists but isn't surfaced where prices are actually set. 'Tie AI to each function.'",
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] The comp/repricing engine exists but isn't surfaced where prices are actually set. 'Tie AI to each function.' PARTIAL 2026-06-21 (AC4 DONE; AC1-3 need comp-data wiring, passes stays false): DONE — Price Suggestions dismiss now shows an Undo in the banner (PriceSuggestionsStore.lastDismissed/undoDismiss/bannerTimedOut) so a mis-tap is recoverable. DEFERRED — surfacing comp median/suggested price inline in the publish composer (PublishDialog) and a Suggest-from-comps mode in BulkPricing both need to fetch/plumb comp data (CompsService/RepricingSuggestion) into those surfaces (potentially N comp calls for bulk); the sold-vs-active comp relabel is a smaller follow-on. These are best done alongside the comp/edge data work.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
         "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingView.swift",

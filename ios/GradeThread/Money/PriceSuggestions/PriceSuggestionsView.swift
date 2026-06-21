@@ -144,19 +144,28 @@ struct PriceSuggestionsView: View {
     @ViewBuilder
     private var banner: some View {
         if let text = store.actionBanner {
-            Text(text)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color.brandNavy, in: Capsule())
-                .padding(.bottom, 16)
-                .shadow(radius: 6, y: 2)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .task(id: text) {
-                    try? await Task.sleep(for: .seconds(2.5))
-                    store.actionBanner = nil
+            HStack(spacing: 12) {
+                Text(text)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                // US-1167: offer Undo on a dismiss so a mis-tap isn't a permanent
+                // (session-long) loss of a pricing opportunity.
+                if store.lastDismissed != nil {
+                    Button("Undo") { store.undoDismiss() }
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Color.brandAmber)
                 }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.brandNavy, in: Capsule())
+            .padding(.bottom, 16)
+            .shadow(radius: 6, y: 2)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .task(id: text) {
+                try? await Task.sleep(for: .seconds(2.5))
+                store.bannerTimedOut()
+            }
         }
     }
 }
