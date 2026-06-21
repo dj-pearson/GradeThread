@@ -4241,7 +4241,7 @@
       ],
       "priority": 1168,
       "passes": false,
-      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Negotiation has no AI assist and no in-flight/error feedback; counters are unvalidated. 'Tie AI to each function.'",
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Negotiation has no AI assist and no in-flight/error feedback; counters are unvalidated. 'Tie AI to each function.' PARTIAL 2026-06-21 (AC2/3/4 DONE; AC1 needs an edge endpoint, passes stays false): DONE — Counter/Reply/SendOffer sheets are now async with an isSubmitting spinner, keep the sheet open + show an inline error on failure, and dismiss only on success (store counter/respond/sendOffer now return Bool, @discardableResult so US-1160 call sites still compile); counter-offer is validated against the buyer offer (Send disabled + warning when at/below it, shows the buyer offer, parses via CurrencyFormatter); non-replyable messages (no itemId/sender) render as non-interactive rows annotated \"Can't reply in-app\" instead of failing after Send. DEFERRED — the Draft-with-AI affordance (suggested counter/reply) needs a new edge endpoint (ListingCopyService-style), not buildable/testable in an iOS-only session.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
         "ios/GradeThread/Marketplaces/Negotiation/NegotiationStore.swift"

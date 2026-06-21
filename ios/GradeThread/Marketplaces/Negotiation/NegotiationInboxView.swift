@@ -101,18 +101,19 @@ struct NegotiationInboxView: View {
             await store.loadMessages()
         }
         .sheet(item: $countering) { offer in
+            // US-1168: the sheet awaits the result and dismisses only on success.
             CounterOfferSheet(offer: offer) { price, message in
-                Task { await store.counter(offer, price: price, message: message) }
+                await store.counter(offer, price: price, message: message)
             }
         }
         .sheet(item: $replying) { message in
             MessageReplySheet(message: message) { body in
-                Task { _ = await store.reply(to: message, body: body) }
+                await store.reply(to: message, body: body)
             }
         }
         .sheet(isPresented: $showSendOffer) {
             SendOfferSheet { pct, message in
-                Task { await store.sendOfferToAllEligible(discountPercentage: pct, message: message) }
+                await store.sendOfferToAllEligible(discountPercentage: pct, message: message)
             }
         }
         .confirmationDialog(
@@ -217,8 +218,15 @@ struct NegotiationInboxView: View {
                 ContentUnavailableView("No messages", systemImage: "bubble.left.and.bubble.right", description: Text("Buyer messages from the last 30 days will show up here."))
             } else {
                 List(visibleMessages) { message in
-                    Button { replying = message } label: { messageRow(message) }
-                        .tint(.primary)
+                    // US-1168: only offer a reply when the message can actually be
+                    // replied to in-app (has an item + sender) — otherwise show a
+                    // non-interactive row, instead of failing after Send.
+                    if isReplyable(message) {
+                        Button { replying = message } label: { messageRow(message) }
+                            .tint(.primary)
+                    } else {
+                        messageRow(message)
+                    }
                 }
                 .listStyle(.plain)
                 .refreshable { await store.loadMessages() }
@@ -242,8 +250,18 @@ struct NegotiationInboxView: View {
             if let body = message.body {
                 Text(body).font(.caption).foregroundStyle(.secondary).lineLimit(3)
             }
+            if !isReplyable(message) {
+                Text("Can't reply to this message in-app")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
         }
         .padding(.vertical, 2)
+    }
+
+    /// US-1168: a message is replyable only when it carries the item + sender the
+    /// eBay reply API needs (mirrors NegotiationStore.reply's guard).
+    private func isReplyable(_ message: BuyerMessage) -> Bool {
+        message.itemId != nil && message.senderUsername != nil
     }
 }
 
@@ -251,45 +269,82 @@ struct NegotiationInboxView: View {
 
 private struct CounterOfferSheet: View {
     let offer: BestOffer
-    let onSubmit: (Double, String?) -> Void
+    /// US-1168: async + returns success so the sheet stays open (with an error)
+    /// on failure and dismisses only when the counter actually sent.
+    let onSubmit: (Double, String?) async -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var priceText = ""
     @State private var message = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var price: Double? { CurrencyFormatter().parse(priceText) }
+
+    /// US-1168: a counter at or below the buyer's own offer makes no sense.
+    private var belowOffer: Bool {
+        guard let price, let offerPrice = offer.price else { return false }
+        return price <= offerPrice
+    }
+
+    private var canSend: Bool { (price ?? 0) > 0 && !belowOffer && !isSubmitting }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Counter price") {
-                    TextField("Amount", text: $priceText).keyboardType(.decimalPad)
+                    TextField("Amount", text: $priceText).keyboardType(.decimalPad).disabled(isSubmitting)
+                    if let offerPrice = offer.price {
+                        Text("Buyer offered \(offerPrice.formatted(.currency(code: offer.currency)))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if belowOffer {
+                        Text("Counter is at or below the buyer's offer — enter a higher price.")
+                            .font(.caption).foregroundStyle(Color.brandRed)
+                    }
                 }
                 Section("Message (optional)") {
-                    TextField("Note to buyer", text: $message, axis: .vertical).lineLimit(2...4)
+                    TextField("Note to buyer", text: $message, axis: .vertical).lineLimit(2...4).disabled(isSubmitting)
+                }
+                if let errorMessage {
+                    Section { Text(errorMessage).font(.callout).foregroundStyle(Color.brandRed) }
                 }
             }
             .keyboardDoneToolbar()
             .navigationTitle("Counter offer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isSubmitting) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Send") {
-                        if let price = Double(priceText), price > 0 {
-                            onSubmit(price, message.isEmpty ? nil : message)
-                            dismiss()
-                        }
-                    }
-                    .disabled(Double(priceText) == nil)
+                    if isSubmitting { ProgressView() }
+                    else { Button("Send") { submit() }.disabled(!canSend) }
                 }
             }
+        }
+    }
+
+    private func submit() {
+        guard let price, canSend else { return }
+        Task {
+            isSubmitting = true
+            errorMessage = nil
+            let ok = await onSubmit(price, message.isEmpty ? nil : message)
+            isSubmitting = false
+            if ok { dismiss() } else { errorMessage = "Couldn't send your counter. Please try again." }
         }
     }
 }
 
 private struct MessageReplySheet: View {
     let message: BuyerMessage
-    let onSubmit: (String) -> Void
+    let onSubmit: (String) async -> Bool // US-1168: async + success
     @Environment(\.dismiss) private var dismiss
     @State private var replyText = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var canSend: Bool {
+        !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSubmitting
+    }
 
     var body: some View {
         NavigationStack {
@@ -298,30 +353,43 @@ private struct MessageReplySheet: View {
                     Section("Buyer wrote") { Text(original).font(.callout) }
                 }
                 Section("Your reply") {
-                    TextField("Reply…", text: $replyText, axis: .vertical).lineLimit(3...8)
+                    TextField("Reply…", text: $replyText, axis: .vertical).lineLimit(3...8).disabled(isSubmitting)
+                }
+                if let errorMessage {
+                    Section { Text(errorMessage).font(.callout).foregroundStyle(Color.brandRed) }
                 }
             }
             .navigationTitle("Reply")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isSubmitting) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Send") {
-                        onSubmit(replyText)
-                        dismiss()
-                    }
-                    .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if isSubmitting { ProgressView() }
+                    else { Button("Send") { submit() }.disabled(!canSend) }
                 }
             }
+        }
+    }
+
+    private func submit() {
+        guard canSend else { return }
+        Task {
+            isSubmitting = true
+            errorMessage = nil
+            let ok = await onSubmit(replyText)
+            isSubmitting = false
+            if ok { dismiss() } else { errorMessage = "Couldn't send your reply. Please try again." }
         }
     }
 }
 
 private struct SendOfferSheet: View {
-    let onSubmit: (String, String?) -> Void
+    let onSubmit: (String, String?) async -> Bool // US-1168: async + success
     @Environment(\.dismiss) private var dismiss
     @State private var discount: Double = 10
     @State private var message = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -329,7 +397,7 @@ private struct SendOfferSheet: View {
                 Section {
                     VStack(alignment: .leading) {
                         Text("Discount: \(Int(discount))%")
-                        Slider(value: $discount, in: 5...50, step: 5)
+                        Slider(value: $discount, in: 5...50, step: 5).disabled(isSubmitting)
                     }
                 } header: {
                     Text("Offer to interested buyers")
@@ -337,20 +405,31 @@ private struct SendOfferSheet: View {
                     Text("Sends a limited-time offer to buyers who've shown interest (watchers / cart) on all eligible listings.")
                 }
                 Section("Message (optional)") {
-                    TextField("Note to buyers", text: $message, axis: .vertical).lineLimit(2...4)
+                    TextField("Note to buyers", text: $message, axis: .vertical).lineLimit(2...4).disabled(isSubmitting)
+                }
+                if let errorMessage {
+                    Section { Text(errorMessage).font(.callout).foregroundStyle(Color.brandRed) }
                 }
             }
             .navigationTitle("Send offer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isSubmitting) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Send") {
-                        onSubmit(String(Int(discount)), message.isEmpty ? nil : message)
-                        dismiss()
-                    }
+                    if isSubmitting { ProgressView() }
+                    else { Button("Send") { submit() } }
                 }
             }
+        }
+    }
+
+    private func submit() {
+        Task {
+            isSubmitting = true
+            errorMessage = nil
+            let ok = await onSubmit(String(Int(discount)), message.isEmpty ? nil : message)
+            isSubmitting = false
+            if ok { dismiss() } else { errorMessage = "Couldn't send the offer. Please try again." }
         }
     }
 }

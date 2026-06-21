@@ -40,16 +40,23 @@ final class NegotiationStore {
         }
     }
 
-    func accept(_ offer: BestOffer) async { await respond(offer, action: "Accept") }
-    func decline(_ offer: BestOffer) async { await respond(offer, action: "Decline") }
+    // US-1168: return success so the counter/offer sheets can keep themselves
+    // open with an error on failure and dismiss only on success. @discardableResult
+    // so the US-1160 confirmation call sites can still ignore the result.
+    @discardableResult
+    func accept(_ offer: BestOffer) async -> Bool { await respond(offer, action: "Accept") }
+    @discardableResult
+    func decline(_ offer: BestOffer) async -> Bool { await respond(offer, action: "Decline") }
 
-    func counter(_ offer: BestOffer, price: Double, message: String?) async {
+    @discardableResult
+    func counter(_ offer: BestOffer, price: Double, message: String?) async -> Bool {
         await respond(offer, action: "Counter", counterPrice: price, message: message)
     }
 
+    @discardableResult
     private func respond(
         _ offer: BestOffer, action: String, counterPrice: Double? = nil, message: String? = nil
-    ) async {
+    ) async -> Bool {
         do {
             try await service.respond(
                 bestOfferId: offer.bestOfferId, itemId: offer.itemId,
@@ -60,19 +67,22 @@ final class NegotiationStore {
             actionBanner = "Offer \(action.lowercased())ed."
             HapticFeedback.success()
             await loadOffers()
+            return true
         } catch {
             actionError = error.localizedDescription
             HapticFeedback.error()
+            return false
         }
     }
 
-    func sendOfferToAllEligible(discountPercentage: String, message: String?) async {
+    @discardableResult
+    func sendOfferToAllEligible(discountPercentage: String, message: String?) async -> Bool {
         do {
             let eligible = try await service.eligibleItems()
             guard !eligible.isEmpty else {
                 actionBanner = "No listings are currently eligible for an offer."
                 HapticFeedback.warning()
-                return
+                return true // not an error — nothing to send; let the sheet close
             }
             try await service.sendOffer(
                 listingIds: eligible.map(\.listingId),
@@ -81,9 +91,11 @@ final class NegotiationStore {
             )
             actionBanner = "Sent \(discountPercentage)% offers to interested buyers on \(eligible.count) listing\(eligible.count == 1 ? "" : "s")."
             HapticFeedback.success()
+            return true
         } catch {
             actionError = error.localizedDescription
             HapticFeedback.error()
+            return false
         }
     }
 
