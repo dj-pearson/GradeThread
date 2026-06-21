@@ -1,52 +1,24 @@
-import AuthenticationServices
 import CryptoKit
 import Foundation
-import UIKit
 
-/// Drives the Sign in with Apple handshake end-to-end and surfaces the
-/// resulting credential to ``AuthStore``.
+/// Sign in with Apple is driven end-to-end by the SwiftUI
+/// `SignInWithAppleButton` in ``LoginView`` — its `onRequest` stashes a nonce
+/// and `onCompletion` hands the identity token to ``AuthStore``.
 ///
-/// Apple requires a nonce on the request that's SHA-256-hashed at the
-/// client. The unhashed value is what we ultimately send to Supabase to
-/// prove the token wasn't replayed. ``hashedNonce(_:)`` does the hashing;
-/// ``randomNonce(length:)`` generates the source.
-@MainActor
-public final class SignInWithAppleCoordinator: NSObject {
-    public struct Result {
-        public let idToken: String
-        public let unhashedNonce: String
-        public let fullName: PersonNameComponents?
-    }
-
-    public override init() { super.init() }
-
-    private var continuation: CheckedContinuation<Result, Error>?
-    private var currentNonce: String?
-
-    /// Presents the Apple sign-in UI and returns the credential payload.
-    /// Throws if the user cancels (`ASAuthorizationError.canceled`) or if
-    /// the identity token is missing from the response.
-    public func start() async throws -> Result {
-        let nonce = Self.randomNonce()
-        currentNonce = nonce
-
-        let request = ASAuthorizationAppleIDProvider().createRequest()
-        request.requestedScopes = [.fullName, .email]
-        request.nonce = Self.hashedNonce(nonce)
-
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Result, Error>) in
-            continuation = cont
-            let controller = ASAuthorizationController(authorizationRequests: [request])
-            controller.delegate = self
-            controller.presentationContextProvider = self
-            controller.performRequests()
-        }
-    }
-
-    // MARK: - Nonce helpers (testable)
+/// US-1172: the old `ASAuthorizationController`-based handshake that used to
+/// live here was a *second*, never-exercised credential path (the button never
+/// called it), so it was removed to avoid two implementations drifting. Only
+/// the shared, testable nonce helpers remain — consumed by the button's
+/// `onRequest` and by `SignInWithAppleTests`.
+///
+/// Apple requires a nonce on the request that's SHA-256-hashed at the client;
+/// the unhashed value is what we send to Supabase to prove the token wasn't
+/// replayed. ``hashedNonce(_:)`` does the hashing; ``randomNonce(length:)``
+/// generates the source.
+public enum SignInWithAppleCoordinator {
 
     /// Cryptographically-random nonce of `length` URL-safe characters.
-    public nonisolated static func randomNonce(length: Int = 32) -> String {
+    public static func randomNonce(length: Int = 32) -> String {
         precondition(length > 0)
         let charset: [Character] = Array(
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._"
@@ -57,60 +29,9 @@ public final class SignInWithAppleCoordinator: NSObject {
         return String(random.map { charset[Int($0) % charset.count] })
     }
 
-    public nonisolated static func hashedNonce(_ input: String) -> String {
+    public static func hashedNonce(_ input: String) -> String {
         let digest = SHA256.hash(data: Data(input.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
-    }
-}
-
-// MARK: - ASAuthorizationControllerDelegate
-
-extension SignInWithAppleCoordinator: ASAuthorizationControllerDelegate {
-    public func authorizationController(
-        controller: ASAuthorizationController,
-        didCompleteWithAuthorization authorization: ASAuthorization
-    ) {
-        defer {
-            continuation = nil
-            currentNonce = nil
-        }
-
-        guard
-            let appleCred = authorization.credential as? ASAuthorizationAppleIDCredential,
-            let tokenData = appleCred.identityToken,
-            let idToken = String(data: tokenData, encoding: .utf8),
-            let nonce = currentNonce
-        else {
-            continuation?.resume(throwing: SignInWithAppleError.missingIdentityToken)
-            return
-        }
-
-        continuation?.resume(
-            returning: Result(
-                idToken: idToken,
-                unhashedNonce: nonce,
-                fullName: appleCred.fullName
-            )
-        )
-    }
-
-    public func authorizationController(
-        controller: ASAuthorizationController,
-        didCompleteWithError error: Error
-    ) {
-        continuation?.resume(throwing: error)
-        continuation = nil
-        currentNonce = nil
-    }
-}
-
-// MARK: - Presentation anchor
-
-extension SignInWithAppleCoordinator: ASAuthorizationControllerPresentationContextProviding {
-    public func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        // Prefer the foreground-active scene's key window, falling back through
-        // real windows before a detached anchor (shared with the web-auth flows).
-        WebAuthPresentationAnchor.resolve()
     }
 }
 

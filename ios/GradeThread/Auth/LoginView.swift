@@ -63,7 +63,13 @@ struct LoginView: View {
 
                 primaryButton
 
-                divider
+                // US-1172: the "or" divider implies a choice of social buttons.
+                // Google is gated off (AppConfig.googleSignInEnabled), leaving
+                // only Apple, so suppress the divider unless there's a second
+                // option to separate from email/password.
+                if AppConfig.googleSignInEnabled {
+                    divider
+                }
 
                 socialButtons
 
@@ -499,6 +505,9 @@ struct LoginView: View {
                 return
             }
             let fullName = credential.fullName
+            // US-1172: remember the Apple user id so the foreground check can
+            // detect a later revocation under Settings → Apple ID.
+            AppleCredentialMonitor.record(userId: credential.user)
             Task {
                 await authStore.signInWithApple(idToken: idToken, nonce: nonce, fullName: fullName)
                 appleNonce = nil

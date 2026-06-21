@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftData
 import SwiftUI
 import UIKit
@@ -144,6 +145,9 @@ struct ContentView: View {
                     if case let .signedIn(user) = authStore.phase {
                         startRealtimeIfNeeded(userId: user.id.uuidString)
                     }
+                    // US-1172: a user who revoked the app under Settings →
+                    // Apple ID should be signed out, not left on a dead session.
+                    signOutIfAppleCredentialRevoked()
                 } else if newValue == .background {
                     // Pause the channel to save battery + data while
                     // the user's away. Re-opens on next .active above.
@@ -157,6 +161,15 @@ struct ContentView: View {
             ) { _ in
                 // Inventory list pulled-to-refresh — route to the engine.
                 Task { await syncEngine?.sync() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: ASAuthorizationAppleIDProvider.credentialRevokedNotification
+                )
+            ) { _ in
+                // US-1172: Apple posts this when the user revokes the app while
+                // it's running; verify + sign out.
+                signOutIfAppleCredentialRevoked()
             }
             .onReceive(
                 NotificationCenter.default.publisher(for: DeepLinkRouter.notificationName)
@@ -215,6 +228,19 @@ struct ContentView: View {
         }
         lastForegroundPullAt = .now
         Task { await syncEngine?.sync() }
+    }
+
+    /// US-1172: if the user revoked Sign in with Apple for this app, the stored
+    /// session is dead — sign out so they land back on LoginView instead of a
+    /// half-broken authed shell. No-op for non-Apple sessions.
+    private func signOutIfAppleCredentialRevoked() {
+        guard case .signedIn = authStore.phase else { return }
+        Task {
+            if await AppleCredentialMonitor.isRevoked() {
+                AppleCredentialMonitor.clear()
+                await authStore.signOut()
+            }
+        }
     }
 
     private func startRealtimeIfNeeded(userId: String) {

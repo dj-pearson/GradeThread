@@ -4311,8 +4311,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1172,
-      "passes": false,
-      "notes": "[P2][iOS/Auth][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] SIWA completeness gap (no revocation check) + dead duplicate coordinator + lonely divider.",
+      "passes": true,
+      "notes": "[P2][iOS/Auth][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] SIWA completeness gap (no revocation check) + dead duplicate coordinator + lonely divider. IMPLEMENTED 2026-06-21: new AppleCredentialMonitor records ASAuthorizationAppleIDCredential.user on sign-in and checks getCredentialState on foreground + on credentialRevokedNotification (ContentView), signing out on .revoked/.notFound; AuthStore.signOut clears the id. Dead ASAuthorizationController handshake removed from SignInWithAppleCoordinator (now an enum with just the shared nonce helpers + error). Divider suppressed when only Apple shows (Google gated). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Auth/SignInWithAppleCoordinator.swift",
         "ios/GradeThread/Auth/LoginView.swift",

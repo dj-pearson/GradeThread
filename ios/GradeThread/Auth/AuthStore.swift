@@ -219,6 +219,9 @@ public final class AuthStore {
             // Belt-and-suspenders: even if the SDK skipped a cleanup branch,
             // wipe the keychain bucket. Idempotent.
             try? KeychainLocalStorage().removeAll()
+            // US-1172: forget the tracked Apple credential id so a later
+            // non-Apple sign-in doesn't inherit a stale revocation check.
+            AppleCredentialMonitor.clear()
         }
     }
 
