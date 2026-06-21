@@ -151,6 +151,13 @@ struct ToolsHubView: View {
                     subtitle: "Condition-aware price suggestions for live listings"
                 )
             }
+            NavigationLink(value: ToolRoute.automations) {
+                ToolRow(
+                    icon: "bolt.badge.automatic",
+                    title: "Automations",
+                    subtitle: "Trigger → action rules for stale or quiet listings"
+                )
+            }
             NavigationLink(value: ToolRoute.communityInsights) {
                 ToolRow(
                     icon: "chart.bar.xaxis",
@@ -232,6 +239,8 @@ struct ToolsHubView: View {
             SourcesView()
         case .repricing:
             RepricingView()
+        case .automations:
+            AutomationsView()
         case .communityInsights:
             CommunityInsightsView()
         case .referrals:
@@ -267,6 +276,7 @@ private enum ToolRoute: Hashable {
     case consignors
     case sources
     case repricing
+    case automations
     case communityInsights
     case referrals
     case verified
