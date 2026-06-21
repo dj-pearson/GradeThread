@@ -62,4 +62,18 @@ public enum SupabaseShared {
             return nil
         }
     }
+
+    /// Force a token refresh and return the new access token (US-1146). The SDK
+    /// refreshes near-expiry on its own `session` access, but a token the server
+    /// rejects with a 401 (clock skew, rotation) needs an explicit refresh +
+    /// retry. Returns nil when there's no session to refresh or the refresh
+    /// fails — the caller then surfaces the original auth error.
+    public static func refreshAccessToken() async -> String? {
+        do {
+            let session = try await client.auth.refreshSession()
+            return session.accessToken
+        } catch {
+            return nil
+        }
+    }
 }

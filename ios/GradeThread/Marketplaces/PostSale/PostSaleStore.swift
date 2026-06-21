@@ -19,6 +19,15 @@ final class PostSaleStore {
     var actionError: String?
     var actionBanner: String?
 
+    /// US-1146: a dispute-evidence upload that failed, retained so the UI can
+    /// offer an explicit Retry rather than losing the (non-idempotent, so
+    /// not-auto-retried) upload behind a dismissed error toast.
+    struct PendingEvidenceUpload: Equatable {
+        let dispute: EbayPaymentDispute
+        let imageData: Data
+    }
+    var pendingEvidenceRetry: PendingEvidenceUpload?
+
     init(service: PostSaleProviding = PostSaleService()) {
         self.service = service
     }
@@ -133,8 +142,23 @@ final class PostSaleStore {
                 evidenceType: nil
             )
             actionBanner = "Evidence uploaded to eBay."
+            pendingEvidenceRetry = nil
         } catch {
-            actionError = error.localizedDescription
+            // Multipart evidence uploads aren't auto-retried (not idempotent),
+            // so surface an explicit, retryable failure and breadcrumb it rather
+            // than dead-ending behind a dismissed toast (US-1146).
+            Telemetry.breadcrumb(
+                "Dispute evidence upload failed: \(error.localizedDescription)",
+                category: "postsale")
+            actionError = "Couldn't upload your evidence to eBay. Tap Retry to try again."
+            pendingEvidenceRetry = PendingEvidenceUpload(dispute: d, imageData: imageData)
         }
+    }
+
+    /// Re-attempt the last failed evidence upload (US-1146).
+    func retryEvidenceUpload() async {
+        guard let pending = pendingEvidenceRetry else { return }
+        actionError = nil
+        await uploadDisputeEvidence(pending.dispute, imageData: pending.imageData)
     }
 }

@@ -3780,7 +3780,7 @@
         "Tests cover: 401 → refresh → retry success, and refresh-failure → clean sign-out/auth prompt"
       ],
       "priority": 1104,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Networking][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Networking/SupabaseShared.swift",

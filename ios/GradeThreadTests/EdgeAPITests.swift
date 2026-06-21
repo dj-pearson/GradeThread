@@ -12,14 +12,18 @@ final class EdgeAPITests: XCTestCase {
         let title: String
     }
 
-    private func makeAPI(token: String? = "tk_test") -> EdgeAPI {
+    private func makeAPI(
+        token: String? = "tk_test",
+        tokenRefresher: @escaping @Sendable () async -> String? = { nil }
+    ) -> EdgeAPI {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
         let session = URLSession(configuration: config)
         return EdgeAPI(
             baseURL: URL(string: "https://example.test")!,
             session: session,
-            tokenProvider: { token }
+            tokenProvider: { token },
+            tokenRefresher: tokenRefresher
         )
     }
 
@@ -163,6 +167,38 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertTrue(EdgeAPI.isTransient(.serverError(detail: nil)))
         XCTAssertFalse(EdgeAPI.isTransient(.badRequest(detail: nil)))
         XCTAssertFalse(EdgeAPI.isTransient(.unauthorized))
+    }
+
+    // US-1146: a 401 triggers exactly one forced refresh + retry; if the retry
+    // succeeds the call returns rather than surfacing "session expired".
+    func test_401_refreshesTokenAndRetriesOnce() async throws {
+        let json = #"{"id":"ok","title":"After refresh","created_at":"2026-05-27T12:34:56Z"}"#
+        let calls = CallBox()
+        let refreshes = CallBox()
+        MockURLProtocol.handler = { request in
+            let n = calls.next()
+            if n == 1 {
+                return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(json.utf8))
+        }
+        let api = makeAPI(tokenRefresher: { _ = refreshes.next(); return "fresh_token" })
+        let item: Item = try await api.getJSON("/foo")
+        XCTAssertEqual(item.id, "ok")
+        XCTAssertEqual(refreshes.count, 1)   // refreshed exactly once
+        XCTAssertEqual(calls.count, 2)       // 401 then success
+    }
+
+    // When the refresh can't produce a token, the 401 surfaces (no infinite loop).
+    func test_401_refreshFails_surfacesUnauthorized() async {
+        let calls = CallBox()
+        MockURLProtocol.handler = { request in
+            _ = calls.next()
+            return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        let api = makeAPI(tokenRefresher: { nil })
+        await XCTAssertThrowsItem(.unauthorized, with: api)
+        XCTAssertEqual(calls.count, 1)       // no retry when refresh yields nothing
     }
 
     func test_400_mapsToBadRequest_withDetail() async {

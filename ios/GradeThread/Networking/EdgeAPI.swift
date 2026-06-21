@@ -13,12 +13,17 @@ public actor EdgeAPI {
         // US-992: bounded-timeout session so a stalled request fails fast as
         // a transient `.network` error instead of hanging ~60s behind a spinner.
         session: EdgeNetwork.shared,
-        tokenProvider: { await SupabaseShared.currentAccessToken() }
+        tokenProvider: { await SupabaseShared.currentAccessToken() },
+        tokenRefresher: { await SupabaseShared.refreshAccessToken() }
     )
 
     private let baseURL: URL
     private let session: URLSession
     private let tokenProvider: @Sendable () async -> String?
+    /// US-1146: forces a token refresh after a server 401 so a rejected-but-
+    /// present token gets one explicit refresh + retry before surfacing
+    /// "session expired". Injectable for tests.
+    private let tokenRefresher: @Sendable () async -> String?
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     /// US-805: centralized plan-gate interception. A decoded 402 cap body and an
@@ -64,6 +69,7 @@ public actor EdgeAPI {
         baseURL: URL,
         session: URLSession,
         tokenProvider: @Sendable @escaping () async -> String?,
+        tokenRefresher: @Sendable @escaping () async -> String? = { nil },
         decoder: JSONDecoder = .iso8601,
         encoder: JSONEncoder = .iso8601,
         onPlanGate: @escaping @Sendable (PlanGateError) -> Void = PlanGateNotifier.publish,
@@ -72,6 +78,7 @@ public actor EdgeAPI {
         self.baseURL = baseURL
         self.session = session
         self.tokenProvider = tokenProvider
+        self.tokenRefresher = tokenRefresher
         self.decoder = decoder
         self.encoder = encoder
         self.onPlanGate = onPlanGate
@@ -206,11 +213,13 @@ public actor EdgeAPI {
             }
         }
 
-        let request = try await buildRequest(method: method, path: path, query: query, body: body)
+        var request = try await buildRequest(method: method, path: path, query: query, body: body)
 
         // Bounded retry-with-backoff for transient failures only (US-638);
         // network/5xx + 429 rate-limits retry (US-1145), other 4xx fail fast.
         var attempt = 0
+        // US-1146: allow exactly one forced token refresh + retry on a 401/403.
+        var didRefreshAuth = false
         // US-1145: when a 429 carries a `Retry-After`, honor it for the next
         // backoff instead of the blind exponential schedule. Reset after use.
         var retryAfterHint: TimeInterval?
@@ -254,6 +263,21 @@ public actor EdgeAPI {
                 // surface the typed error to the caller.
                 if case .workspaceAccessRevoked = error {
                     WorkspaceScope.handleAccessRevoked()
+                    throw error
+                }
+                // US-1146: one forced token refresh + retry before surfacing an
+                // auth failure. The SDK refreshes near-expiry on its own, but a
+                // token the server actively rejects (rotation, clock skew) needs
+                // an explicit refresh — rebuilding the request re-attaches the
+                // fresh token — rather than dead-ending the user on "session
+                // expired" mid-task.
+                if case .unauthorized = error, !didRefreshAuth {
+                    didRefreshAuth = true
+                    if await tokenRefresher() != nil {
+                        request = try await buildRequest(
+                            method: method, path: path, query: query, body: body)
+                        continue
+                    }
                     throw error
                 }
                 if Self.isTransient(error), attempt < Self.maxRetries {
