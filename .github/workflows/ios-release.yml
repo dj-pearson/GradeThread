@@ -345,9 +345,11 @@ jobs:
           VERSION_ARGS=()
           MV='${{ steps.marketing.outputs.value }}'
           if [ -n "$MV" ]; then VERSION_ARGS+=("MARKETING_VERSION=$MV"); fi
-          # TEMP DIAGNOSTIC: disable -e around the pipeline so a build failure
-          # doesn't abort the step before the raw-log grep below runs. pipefail
-          # stays on; PIPESTATUS[0] still captures xcodebuild's real exit code.
+          # Disable -e around the pipeline so a build failure doesn't abort the
+          # step before the raw-log error echo below runs. pipefail stays on;
+          # PIPESTATUS[0] still captures xcodebuild's real exit code, which we
+          # re-raise at the end. (Without this, `bash -e` + `set -o pipefail`
+          # exits the instant the pipeline fails and the diagnostic never runs.)
           set +e
           xcodebuild \
             -project GradeThread.xcodeproj \
@@ -371,13 +373,18 @@ jobs:
             archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild-raw.log" | xcbeautify --renderer github-actions
           ARCHIVE_RC=${PIPESTATUS[0]}
           set -e
-          # TEMP DIAGNOSTIC: xcbeautify strips the file path from compile errors
-          # (it turns them into ::error annotations GitHub consumes), so on a
-          # build failure echo the raw, path-bearing diagnostic lines here where
-          # they survive in the plain log. Revert once the failing file is known.
-          echo "::group::Raw xcodebuild errors (path-bearing)"
-          grep -nE "error: |unable to type-check this expression" "$RUNNER_TEMP/xcodebuild-raw.log" | head -60 || true
-          echo "::endgroup::"
+          # xcbeautify --renderer github-actions strips the file path from
+          # compile errors (it folds them into ::error annotations GitHub
+          # consumes), which makes "unable to type-check this expression" and
+          # similar failures impossible to locate from the rendered log alone.
+          # On any failure, echo the raw, path-bearing diagnostic lines from the
+          # tee'd log so the exact File.swift:line is visible. Costs nothing on a
+          # green build (grep matches nothing); invaluable on a red one.
+          if [ "$ARCHIVE_RC" -ne 0 ]; then
+            echo "::group::Raw xcodebuild errors (path-bearing)"
+            grep -nE "error: |unable to type-check this expression" "$RUNNER_TEMP/xcodebuild-raw.log" | head -60 || true
+            echo "::endgroup::"
+          fi
           exit "$ARCHIVE_RC"
 
       - name: Verify entitlements in archive
