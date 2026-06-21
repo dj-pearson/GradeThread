@@ -73,7 +73,7 @@ struct PostSaleView: View {
         case .loading:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            ContentUnavailableView("Couldn't load disputes", systemImage: "exclamationmark.triangle", description: Text(message))
+            ErrorStateView(title: "Couldn't load disputes", message: message, retry: { await store.loadDisputes() })
         case .ready:
             if store.disputes.isEmpty {
                 ContentUnavailableView("No payment disputes", systemImage: "checkmark.shield", description: Text("Buyer-opened payment disputes will show up here."))
@@ -128,7 +128,7 @@ struct PostSaleView: View {
         case .loading:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            ContentUnavailableView("Couldn't load returns", systemImage: "exclamationmark.triangle", description: Text(message))
+            ErrorStateView(title: "Couldn't load returns", message: message, retry: { await store.loadReturns() })
         case .ready:
             if store.returns.isEmpty {
                 ContentUnavailableView("No open returns", systemImage: "arrow.uturn.backward", description: Text("Buyer return requests will show up here."))
@@ -169,7 +169,7 @@ struct PostSaleView: View {
         case .loading:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            ContentUnavailableView("Couldn't load cancellations", systemImage: "exclamationmark.triangle", description: Text(message))
+            ErrorStateView(title: "Couldn't load cancellations", message: message, retry: { await store.loadCancellations() })
         case .ready:
             if store.cancellations.isEmpty {
                 ContentUnavailableView("No cancellation requests", systemImage: "xmark.bin", description: Text("Buyer cancellation requests will show up here."))

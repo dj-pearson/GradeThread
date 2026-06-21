@@ -107,7 +107,7 @@ struct NegotiationInboxView: View {
         case .loading:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            ContentUnavailableView("Couldn't load offers", systemImage: "exclamationmark.triangle", description: Text(message))
+            ErrorStateView(title: "Couldn't load offers", message: message, retry: { await store.loadOffers() })
         case .ready:
             if visibleOffers.isEmpty {
                 ContentUnavailableView("No active offers", systemImage: "tag", description: Text("Incoming best offers from buyers will show up here."))
@@ -158,7 +158,7 @@ struct NegotiationInboxView: View {
         case .loading:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            ContentUnavailableView("Couldn't load messages", systemImage: "exclamationmark.triangle", description: Text(message))
+            ErrorStateView(title: "Couldn't load messages", message: message, retry: { await store.loadMessages() })
         case .ready:
             if visibleMessages.isEmpty {
                 ContentUnavailableView("No messages", systemImage: "bubble.left.and.bubble.right", description: Text("Buyer messages from the last 30 days will show up here."))
