@@ -3818,7 +3818,7 @@
         "Add a lightweight test/lint asserting breadcrumb strings pass through the scrubber"
       ],
       "priority": 1106,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Observability][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Telemetry/",

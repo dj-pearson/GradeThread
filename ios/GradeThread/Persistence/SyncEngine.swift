@@ -1031,14 +1031,14 @@ actor SyncEngine {
             row.retryCount += 1
             row.lastError = error
             row.lastAttemptAt = .now
-            // US-1147: breadcrumb the moment a mutation exhausts its auto-retry
-            // budget and goes "stuck" (it stays queued for manual retry) so a
-            // systemic replay failure is visible to support, not just silent.
-            if row.retryCount == Self.maxRetries {
-                Telemetry.backgroundBreadcrumb(
-                    "Pending mutation stuck after \(Self.maxRetries) retries (kind \(row.kind)): \(error)",
-                    category: "sync")
-            }
+            // US-1148: breadcrumb every replay failure (scrubbed by Sentry's
+            // beforeBreadcrumb) instead of only mutating state silently; flag the
+            // transition to "stuck" (US-1147) distinctly since that one needs
+            // manual user attention.
+            let stuckSuffix = row.retryCount >= Self.maxRetries ? " — now stuck (manual retry needed)" : ""
+            Telemetry.backgroundBreadcrumb(
+                "Mutation replay failed (kind \(row.kind), attempt \(row.retryCount)/\(Self.maxRetries)): \(error)\(stuckSuffix)",
+                category: "sync")
             context.saveOrLog("markFailed")
         }
     }

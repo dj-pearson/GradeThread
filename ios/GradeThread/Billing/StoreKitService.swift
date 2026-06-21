@@ -82,6 +82,9 @@ struct StoreKitService: StoreKitProviding {
                     await transaction.finish()
                     return report == .stripeConflict ? .stripeConflict : .success
                 case .unverified:
+                    Telemetry.backgroundBreadcrumb(
+                        "IAP purchase failed local verification (product \(productId))",
+                        category: "iap")
                     return .verificationFailed
                 }
             case .userCancelled:
@@ -92,6 +95,11 @@ struct StoreKitService: StoreKitProviding {
                 return .failed("Unknown purchase result.")
             }
         } catch {
+            // US-1148: a thrown purchase error (network, StoreKit) was previously
+            // only surfaced to the UI; breadcrumb it for diagnosis too.
+            Telemetry.backgroundBreadcrumb(
+                "IAP purchase threw (product \(productId)): \(error.localizedDescription)",
+                category: "iap")
             return .failed(error.localizedDescription)
         }
     }
@@ -140,8 +148,15 @@ struct StoreKitService: StoreKitProviding {
             if case .badRequest(let detail) = error, detail == "ACTIVE_STRIPE_SUBSCRIPTION" {
                 return .stripeConflict
             }
+            // US-1148: the edge rejected the verify (non-conflict). It self-heals
+            // via App Store Server Notifications, but breadcrumb so a systemic
+            // verify failure is visible rather than silently swallowed.
+            Telemetry.backgroundBreadcrumb(
+                "IAP server verify failed: \(error.localizedDescription)", category: "iap")
             return .failed
         } catch {
+            Telemetry.backgroundBreadcrumb(
+                "IAP server verify failed: \(error.localizedDescription)", category: "iap")
             return .failed
         }
     }
