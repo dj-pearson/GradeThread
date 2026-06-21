@@ -3248,7 +3248,7 @@
         "python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1091,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Activation][EPIC: Web↔iOS Gaps & Polish 2026-06-20] ActivationChecklist.swift step 2 (L83) only switches tabs; MarketplacesView.swift (~L99) says eBay is managed on web — so 1 of 3 activation steps can't be completed in-app. Check whether EbayConnectionService / OAuthWebSession already supports a mobile connect path to reuse.",
       "relevantPaths": [
         "ios/GradeThread/Onboarding/ActivationChecklist.swift",

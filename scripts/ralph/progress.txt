@@ -3730,3 +3730,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 10:59:24 PM
 ---
+## US-1117: iOS: activation 'Connect eBay' launches the real connect flow
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 11:02:00 PM
+---
