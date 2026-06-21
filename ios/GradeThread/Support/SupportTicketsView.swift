@@ -178,7 +178,7 @@ private struct SupportTicketComposer: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var subject = ""
-    @State private var body = ""
+    @State private var messageBody = ""
     @State private var isSending = false
 
     private static let maxSubject = 200
@@ -186,7 +186,7 @@ private struct SupportTicketComposer: View {
 
     private var canSubmit: Bool {
         !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !messageBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !isSending
     }
 
@@ -205,14 +205,14 @@ private struct SupportTicketComposer: View {
                 Section {
                     TextField(
                         "Share as much detail as you can…",
-                        text: $body,
+                        text: $messageBody,
                         axis: .vertical
                     )
                     .lineLimit(5...12)
                     .disabled(isSending)
-                    .onChange(of: body) { _, new in
+                    .onChange(of: messageBody) { _, new in
                         if new.count > Self.maxBody {
-                            body = String(new.prefix(Self.maxBody))
+                            messageBody = String(new.prefix(Self.maxBody))
                         }
                     }
                 } header: {
@@ -237,7 +237,7 @@ private struct SupportTicketComposer: View {
                 }
             }
             .onAppear {
-                if let prefillBody, body.isEmpty { body = prefillBody }
+                if let prefillBody, messageBody.isEmpty { messageBody = prefillBody }
             }
         }
         .interactiveDismissDisabled(isSending)
@@ -246,7 +246,7 @@ private struct SupportTicketComposer: View {
     private func submit() async {
         isSending = true
         defer { isSending = false }
-        if let id = await store.create(subject: subject, body: body) {
+        if let id = await store.create(subject: subject, body: messageBody) {
             HapticFeedback.success()
             dismiss()
             onOpened(id)

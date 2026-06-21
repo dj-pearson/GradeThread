@@ -24,7 +24,7 @@ protocol ListingPerformanceProviding {
 struct ListingPerformanceService: ListingPerformanceProviding {
     private let supabase: SupabaseClient
 
-    init(supabase: SupabaseClient = SupabaseShared.client) {
+    nonisolated init(supabase: SupabaseClient = SupabaseShared.client) {
         self.supabase = supabase
     }
 
