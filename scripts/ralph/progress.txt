@@ -3806,3 +3806,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:59:14 AM
 ---
+## US-1140: iOS: in-place retry buttons on Negotiation & PostSale error states
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  2:00:45 AM
+---

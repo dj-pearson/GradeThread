@@ -3665,7 +3665,7 @@
         "Retry re-runs the failed load and clears the error on success; python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1052,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/UX][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Both show full-screen error ContentUnavailableViews but rely on pull-to-refresh, which is undiscoverable from an error state that fills the screen.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
