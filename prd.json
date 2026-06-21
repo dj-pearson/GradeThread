@@ -3484,7 +3484,7 @@
         "python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1077,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] BulkAction.swift (~L9-12,97-101): .aiEnrich exists but is omitted from all visible action sets because the executor is a stub. AI enrich exists on web; iOS markets AI heavily, so the absence is a parity gap. Decide build-vs-remove.",
       "relevantPaths": [
         "ios/GradeThread/Inventory/BulkAction.swift",

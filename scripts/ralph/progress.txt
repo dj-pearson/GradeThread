@@ -3774,3 +3774,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:06:00 AM
 ---
+## US-1130: iOS: wire or remove the aiEnrich bulk action
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:08:53 AM
+---
