@@ -345,6 +345,10 @@ jobs:
           VERSION_ARGS=()
           MV='${{ steps.marketing.outputs.value }}'
           if [ -n "$MV" ]; then VERSION_ARGS+=("MARKETING_VERSION=$MV"); fi
+          # TEMP DIAGNOSTIC: disable -e around the pipeline so a build failure
+          # doesn't abort the step before the raw-log grep below runs. pipefail
+          # stays on; PIPESTATUS[0] still captures xcodebuild's real exit code.
+          set +e
           xcodebuild \
             -project GradeThread.xcodeproj \
             -scheme GradeThread \
@@ -366,6 +370,7 @@ jobs:
             "${VERSION_ARGS[@]}" \
             archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild-raw.log" | xcbeautify --renderer github-actions
           ARCHIVE_RC=${PIPESTATUS[0]}
+          set -e
           # TEMP DIAGNOSTIC: xcbeautify strips the file path from compile errors
           # (it turns them into ::error annotations GitHub consumes), so on a
           # build failure echo the raw, path-bearing diagnostic lines here where
