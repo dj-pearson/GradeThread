@@ -66,8 +66,14 @@ struct ReconcileIntakeView: View {
                     Label("Synced \(count) photo\(count == 1 ? "" : "s") to a reconcile session. Open the web board to cluster + finish.", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.brandEmerald)
                 case .failed(let message):
-                    Label(message, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
+                    // US-1163: the staged photos are retained on failure (only
+                    // cleared on success), so make the retry path explicit.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                        Text("Your photos are still staged — tap Sync to try again.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
 
                 Button {

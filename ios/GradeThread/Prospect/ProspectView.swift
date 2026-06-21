@@ -44,9 +44,16 @@ struct ProspectView: View {
                     .disabled(!store.canRun)
 
                     if let message = store.errorMessage {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(Color.brandRed)
+                        // US-1163: offer a retry instead of a dead-end red line.
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(message)
+                                .font(.footnote)
+                                .foregroundStyle(Color.brandRed)
+                            Button("Try again") { Task { await store.run() } }
+                                .font(.footnote.weight(.semibold))
+                                .buttonStyle(.bordered)
+                                .disabled(!store.canRun)
+                        }
                     }
 
                     if let result = store.result {

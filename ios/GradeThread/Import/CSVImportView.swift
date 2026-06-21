@@ -204,8 +204,17 @@ struct CSVImportView: View {
                         .cardStyle(.flush)
                     }
                 }
-                Button("Done") { dismiss() }
-                    .buttonStyle(.brandPrimary)
+                // US-1163: if nothing imported, don't dead-end on "Done" — let
+                // the user jump back to remap columns (keeping the loaded sheet).
+                if let result = store.result, result.inserted == 0 {
+                    Button("Back to mapping") { store.backToMapping() }
+                        .buttonStyle(.brandPrimary)
+                    Button("Done") { dismiss() }
+                        .buttonStyle(.brandSecondary)
+                } else {
+                    Button("Done") { dismiss() }
+                        .buttonStyle(.brandPrimary)
+                }
             }
             .padding(16)
         }

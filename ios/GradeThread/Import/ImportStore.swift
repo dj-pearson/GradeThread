@@ -122,4 +122,17 @@ final class ImportStore {
         progressDone = 0
         progressTotal = 0
     }
+
+    /// US-1163: return to the mapping step keeping the loaded sheet + column map
+    /// so the user can fix a bad mapping after a failed import, instead of
+    /// restarting from file selection. Falls back to a full reset if the sheet
+    /// is somehow gone.
+    func backToMapping() {
+        guard sheet != nil else { reset(); return }
+        result = nil
+        errorBanner = nil
+        progressDone = 0
+        progressTotal = 0
+        phase = .mapping
+    }
 }

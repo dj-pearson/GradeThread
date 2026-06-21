@@ -78,7 +78,14 @@ struct EbayMarketingControls: View {
             case .loading:
                 HStack { ProgressView(); Text("Loading promotion…").foregroundStyle(.secondary) }
             case .failed(let message):
-                Text(message).font(.caption).foregroundStyle(.secondary)
+                // US-1163: a transient load failure shouldn't permanently hide
+                // the promote/sale controls — offer a retry.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                    Button("Try again") { Task { await store.load() } }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.bordered)
+                }
             case .ready:
                 if let status = store.status {
                     if isOffline {

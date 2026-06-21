@@ -4121,8 +4121,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1163,
-      "passes": false,
-      "notes": "[P1][iOS/UX][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Dead-end error states and loading-vs-empty confusion across Sales/EbayMarketing/Prospect/Import/Reconcile/Publish. Headless-codeable.",
+      "passes": true,
+      "notes": "[P1][iOS/UX][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Dead-end error states and loading-vs-empty confusion across Sales/EbayMarketing/Prospect/Import/Reconcile/Publish. Headless-codeable. IMPLEMENTED 2026-06-21: SalesView shows SkeletonRows while syncStatus==.syncing (first sync) vs the empty state; EbayMarketingControls/.failed + ProspectView error now offer Try again; ReconcileIntake .failed clarifies staged photos retained; CSV done-step adds Back to mapping (ImportStore.backToMapping keeps sheet) when inserted==0; EbayPublishService maps 401/403 to a friendly re-auth message; PayoutReconciliation loading uses SkeletonRows. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Sales/SalesView.swift",
         "ios/GradeThread/Inventory/ItemCanvas/EbayMarketing/EbayMarketingControls.swift",
