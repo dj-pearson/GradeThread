@@ -10,6 +10,9 @@ struct FeedbackSheet: View {
     @State private var message: String = ""
     @State private var isSending: Bool = false
     @State private var resultMessage: ResultMessage?
+    /// US-1136: escalation to a tracked support ticket (prefilled with whatever
+    /// the user has typed so far) when they want a direct reply.
+    @State private var showingTicketComposer = false
 
     private struct ResultMessage: Identifiable {
         let id = UUID()
@@ -61,6 +64,21 @@ struct FeedbackSheet: View {
                     }
                     .disabled(isSending || trimmedMessage.isEmpty)
                 }
+
+                // US-1136: escalate quick feedback into a tracked support ticket
+                // so the user can get a threaded reply in-app.
+                Section {
+                    Button {
+                        showingTicketComposer = true
+                    } label: {
+                        Label("Need a reply? Open a support ticket", systemImage: "bubble.left.and.bubble.right")
+                            .font(.subheadline)
+                    }
+                    .disabled(isSending)
+                } footer: {
+                    Text("Feedback is one-way. Open a support ticket to start a conversation and track our reply.")
+                        .font(.footnote)
+                }
             }
             .navigationTitle("Send feedback")
             .navigationBarTitleDisplayMode(.inline)
@@ -71,6 +89,9 @@ struct FeedbackSheet: View {
             }
         }
         .interactiveDismissDisabled(isSending)
+        .sheet(isPresented: $showingTicketComposer) {
+            SupportTicketsView(initialDraftBody: trimmedMessage)
+        }
     }
 
     // MARK: - Send

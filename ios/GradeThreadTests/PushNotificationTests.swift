@@ -21,10 +21,12 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertEqual(NotificationCategoryID.listingEnded.rawValue, "listing.ended")
         XCTAssertEqual(NotificationCategoryID.agingDigest.rawValue, "aging.digest")
         XCTAssertEqual(NotificationCategoryID.payoutPosted.rawValue, "payout.posted")
+        // US-1136 support replies.
+        XCTAssertEqual(NotificationCategoryID.supportReply.rawValue, "support.reply")
     }
 
     func test_category_allCases_listsAll() {
-        XCTAssertEqual(NotificationCategoryID.allCases.count, 10)
+        XCTAssertEqual(NotificationCategoryID.allCases.count, 11)
     }
 
     func test_category_labelsAreUserReadable() {
@@ -149,6 +151,20 @@ final class PushNotificationTests: XCTestCase {
 
     func test_deepLink_agingDigest_routesToInventoryTab() {
         XCTAssertEqual(DeepLinkRoute.from(category: "aging.digest", userInfo: [:]), .inventoryTab)
+    }
+
+    // MARK: - US-1136 support replies
+
+    func test_deepLink_supportReply_withTicketId_opensThread() {
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "support.reply", userInfo: ["support_ticket_id": "t-7"]),
+            .supportTickets(ticketId: "t-7"))
+    }
+
+    func test_deepLink_supportReply_withoutTicketId_opensInbox() {
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "support.reply", userInfo: [:]),
+            .supportTickets(ticketId: nil))
     }
 
     func test_deepLink_listingEnded_itemElseInventoryTab() {

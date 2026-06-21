@@ -150,6 +150,9 @@ public enum DeepLinkRoute: Equatable {
     /// US-1134: "Add an item" Siri/Shortcut → the add-method chooser. App Intents
     /// only.
     case addItem
+    /// US-1136: a support reply push opens the native ticket inbox — straight
+    /// into the referenced thread when the payload carried its id.
+    case supportTickets(ticketId: String?)
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.
@@ -188,6 +191,10 @@ public enum DeepLinkRoute: Equatable {
             // (which surfaces on the Money/Sales tab).
             if let itemId { return .inventoryItem(id: itemId) }
             return .salesTab(inventoryItemId: nil)
+        case NotificationCategoryID.supportReply.rawValue:
+            // US-1136: open the ticket thread directly when the push carried its
+            // id; otherwise land on the support inbox list.
+            return .supportTickets(ticketId: userInfo["support_ticket_id"] as? String)
         default:
             return nil
         }

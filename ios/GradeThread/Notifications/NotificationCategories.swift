@@ -19,6 +19,10 @@ public enum NotificationCategoryID: String, CaseIterable {
     case listingEnded     = "listing.ended"
     case agingDigest      = "aging.digest"
     case payoutPosted     = "payout.posted"
+    // US-1136: a support agent replied to one of the user's tickets. The receive
+    // side + tap routing (into the native ticket thread) are ready; the backend
+    // APNs send ships separately (same forward-compatible pattern as US-679).
+    case supportReply     = "support.reply"
 
     /// User-facing label for the Settings UI toggle.
     public var label: String {
@@ -33,6 +37,7 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .listingEnded:     return "Listing ended / relist"
         case .agingDigest:      return "Aging stock digest"
         case .payoutPosted:     return "Payouts posted"
+        case .supportReply:     return "Support replies"
         }
     }
 
@@ -48,6 +53,7 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .listingEnded:     return "Pushes when a listing ends unsold so you can relist it."
         case .agingDigest:      return "A periodic summary of stock that's been sitting too long."
         case .payoutPosted:     return "Pushes when eBay posts a payout (before it clears your bank)."
+        case .supportReply:     return "Pushes when our support team replies to one of your tickets."
         }
     }
 

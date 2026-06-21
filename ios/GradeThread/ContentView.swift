@@ -460,6 +460,11 @@ struct MainShell: View {
         .sheet(isPresented: $router.showingReconciliation, onDismiss: { refreshReconcileBadge() }) {
             NavigationStack { ReconciliationView() }
         }
+        // US-1136: native support inbox, opened by a support-reply deep link from
+        // any tab. Carries the referenced thread id when the push had one.
+        .sheet(isPresented: $router.showingSupport, onDismiss: { router.supportTicketId = nil }) {
+            SupportTicketsView(initialTicketId: router.supportTicketId)
+        }
         .fullScreenCover(item: $sharedIntakeBatch) { drained in
             NavigationStack {
                 PhotoIntakeView(initialPhotos: drained.slotPhotos)
@@ -587,6 +592,11 @@ struct MainShell: View {
             // US-1134: "Add an item" Siri/Shortcut → the add-method chooser sheet.
             router.selection = .home
             router.showingAddSheet = true
+        case let .supportTickets(ticketId):
+            // US-1136: open the native support inbox over the shell, drilling into
+            // the referenced thread when the push carried one.
+            router.supportTicketId = ticketId
+            router.showingSupport = true
         }
     }
 
@@ -909,6 +919,11 @@ final class AppRouter {
     /// US-749: presents Reconciliation directly from the shell-level orphan
     /// banner, so it's reachable regardless of which tab is active.
     var showingReconciliation = false
+    /// US-1136: presents the native support inbox from the shell so a
+    /// `support.reply` deep link can open it (and the referenced thread) from
+    /// any tab. `supportTicketId` carries the thread to open, if any.
+    var showingSupport = false
+    var supportTicketId: String?
 
     var homePath = NavigationPath()
     var inventoryPath = NavigationPath()
@@ -1076,6 +1091,7 @@ struct SettingsView: View {
     /// toggle binds correctly, written through on change.
     @State private var bgRefreshEnabled: Bool = BackgroundRefreshService().isEnabled
     @State private var showingFeedbackSheet = false
+    @State private var showingSupportTickets = false   // US-1136 native ticket inbox
     @State private var showingDeleteAccountSheet = false
     @State private var showingHelp = false
     @State private var showingImport = false   // US-667 CSV / Sheets import
@@ -1200,6 +1216,14 @@ struct SettingsView: View {
 
             // ── Support ──────────────────────────────────────────────
             Section("Support") {
+                // US-1136: native ticket inbox — open a request + read threaded
+                // replies in-app instead of only emailing feedback.
+                Button {
+                    showingSupportTickets = true
+                } label: {
+                    Label("Support tickets", systemImage: "bubble.left.and.bubble.right")
+                }
+                .accessibilityLabel("Support tickets")
                 Button {
                     showingFeedbackSheet = true
                 } label: {
@@ -1262,6 +1286,9 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .sheet(isPresented: $showingFeedbackSheet) {
             FeedbackSheet()
+        }
+        .sheet(isPresented: $showingSupportTickets) {
+            SupportTicketsView()
         }
         .sheet(isPresented: $showingDeleteAccountSheet) {
             DeleteAccountSheet()
