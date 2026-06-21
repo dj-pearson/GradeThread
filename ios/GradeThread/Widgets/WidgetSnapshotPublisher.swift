@@ -97,7 +97,8 @@ enum WidgetSnapshotPublisher {
             soldTodayCount: todaysSales.count,
             soldTodayGross: soldTodayGross,
             pendingPayoutCount: pending.count,
-            pendingPayoutNet: pendingNet
+            pendingPayoutNet: pendingNet,
+            currencyCode: AppPreferences.currencyCode
         )
     }
 }

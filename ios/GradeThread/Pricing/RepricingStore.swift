@@ -103,12 +103,13 @@ final class RepricingStore {
         }
     }
 
+    // US-1161: honor the user's currency override / locale instead of a literal "$".
     static func dollars(_ amount: Double) -> String {
-        "$" + String(format: "%.2f", amount)
+        CurrencyFormatter().formatDisplay(amount)
     }
 
     static func centsDollars(_ cents: Int) -> String {
-        "$" + String(format: "%.2f", Double(cents) / 100)
+        CurrencyFormatter().formatDisplay(Double(cents) / 100)
     }
 
     private static func message(_ error: Error) -> String {

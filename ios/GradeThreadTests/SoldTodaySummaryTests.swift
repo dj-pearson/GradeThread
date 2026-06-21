@@ -19,7 +19,9 @@ final class SoldTodaySummaryTests: XCTestCase {
             soldTodayCount: sold,
             soldTodayGross: gross,
             pendingPayoutCount: payoutCount,
-            pendingPayoutNet: payoutNet
+            pendingPayoutNet: payoutNet,
+            // US-1161: pin USD so the phrasing assertions stay locale-independent.
+            currencyCode: "USD"
         )
     }
 
@@ -67,7 +69,7 @@ final class SoldTodaySummaryTests: XCTestCase {
     }
 
     func test_currency_dropsZeroCents() {
-        XCTAssertEqual(SoldTodaySummary.currency(184), "$184")
-        XCTAssertEqual(SoldTodaySummary.currency(184.5), "$184.50")
+        XCTAssertEqual(SoldTodaySummary.currency(184, code: "USD"), "$184")
+        XCTAssertEqual(SoldTodaySummary.currency(184.5, code: "USD"), "$184.50")
     }
 }

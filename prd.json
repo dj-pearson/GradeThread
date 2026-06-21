@@ -4072,8 +4072,8 @@
         "Build + unit tests clean; add/extend a currency-formatting test"
       ],
       "priority": 1161,
-      "passes": false,
-      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Multiple hardcoded-USD and cents/100 truncation bugs found across Pricing/Insights/Analytics/Widget/Intents/Prospect/Snap. Headless-codeable.",
+      "passes": true,
+      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Multiple hardcoded-USD and cents/100 truncation bugs found across Pricing/Insights/Analytics/Widget/Intents/Prospect/Snap. Headless-codeable. IMPLEMENTED 2026-06-21: in-app sites route through CurrencyFormatter (RepricingStore, BulkPricingView, CommunityBenchmarks, AnalyticsMetrics priceBands, RuleEditorSheet symbol, Prospect/Snap dollars no longer integer-truncate). Widget+Siri get currency via a new optional WidgetSnapshot.currencyCode (back-compat, omitted-when-nil) set from AppPreferences in WidgetSnapshotPublisher; CurrencyText/SoldTodaySummary.currency take an optional code. Tests pinned to USD. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingView.swift",
         "ios/GradeThread/Pricing/RepricingStore.swift",

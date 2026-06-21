@@ -128,7 +128,8 @@ enum CommunityRecommendations {
     }
 
     private static func pct(_ n: Double) -> String { "\(Int((n * 100).rounded()))%" }
-    private static func usd(_ n: Double) -> String { String(format: "$%.2f", n) }
+    // US-1161: honor the user's currency override / locale instead of a literal "$".
+    private static func usd(_ n: Double) -> String { CurrencyFormatter().formatDisplay(n) }
 
     private static func brandSourceRec(_ b: BrandBenchmark) -> CommunityRecommendation? {
         guard let st = b.sellThrough, st >= sourceSellThroughFloor else { return nil }

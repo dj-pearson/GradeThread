@@ -229,7 +229,8 @@ struct SnapView: View {
 
     private func dollars(_ cents: Int?) -> String {
         guard let cents else { return "—" }
-        return "$\(cents / 100)"
+        // US-1161: full cents + locale currency, not integer-truncated "$".
+        return CurrencyFormatter().formatDisplay(Double(cents) / 100)
     }
 
     private func valueText(_ value: SnapValue?) -> String {
