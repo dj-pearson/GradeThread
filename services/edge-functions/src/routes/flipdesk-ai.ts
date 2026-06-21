@@ -245,6 +245,27 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     return c.json({ error: "Provide text or photos." }, 400);
   }
 
+  // US-826 diagnostics: the success path is sampled out of the access log, so a
+  // 200 that extracts nothing is otherwise invisible (the iOS canvas just lands
+  // on an "Untitled" item with no error). Log entry unconditionally so a failed
+  // run is always greppable. Hosts only — never the signed-URL query string.
+  console.log(
+    "[flipdesk-ai] extract: start",
+    JSON.stringify({
+      itemId,
+      hasText: !!(text && text.trim() !== ""),
+      photoCount: cappedPhotos.length,
+      photoTypes: cappedPhotos.map((p) => p.type ?? "untyped"),
+      photoHosts: cappedPhotos.map((p) => {
+        try {
+          return new URL(p.url).host;
+        } catch {
+          return "INVALID_URL";
+        }
+      }),
+    })
+  );
+
   // Enablement + monthly cap check.
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);
@@ -285,6 +306,49 @@ flipdeskAiRoutes.post("/extract", async (c) => {
   // Never contradict caller-supplied known fields.
   for (const key of Object.keys(knownFields)) {
     delete result.suggestions[key];
+  }
+
+  const suggestionCount = Object.keys(result.suggestions).length;
+  const attributeCount = Object.keys(result.attributes ?? {}).length;
+
+  // US-826 diagnostics: always log the outcome (bypasses access-log sampling).
+  console.log(
+    "[flipdesk-ai] extract: done",
+    JSON.stringify({
+      itemId,
+      model: result.model,
+      suggestionCount,
+      attributeCount,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      latencyMs,
+    })
+  );
+
+  // The silent-failure signature: photos were sent and the AI call succeeded,
+  // yet Claude returned ZERO usable fields. This is what surfaces on iOS as an
+  // "Untitled" item with nothing filled. WARN loudly with the inputs so the
+  // cause (unreadable images, a misconfigured DEFAULT_AI_MODEL, a blank/placeholder
+  // object) is diagnosable from one reproduction instead of guesswork.
+  if (suggestionCount === 0 && attributeCount === 0 && cappedPhotos.length > 0) {
+    console.warn(
+      "[flipdesk-ai] extract: EMPTY result despite photos — AI returned no fields.",
+      JSON.stringify({
+        itemId,
+        model: result.model,
+        photoCount: cappedPhotos.length,
+        photoTypes: cappedPhotos.map((p) => p.type ?? "untyped"),
+        photoHosts: cappedPhotos.map((p) => {
+          try {
+            return new URL(p.url).host;
+          } catch {
+            return "INVALID_URL";
+          }
+        }),
+        tokensIn: result.tokensIn,
+        tokensOut: result.tokensOut,
+      })
+    );
   }
 
   const costUsd = estimateCost(
