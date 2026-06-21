@@ -439,6 +439,12 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- Two DIFFERENT decoders on iOS: the EdgeAPI decoder converts snake→camel
+  (`.convertFromSnakeCase`), but the supabase-swift PostgREST client
+  (`supabase.from(...).select(...).execute().value`) does NOT — decode its rows
+  with EXPLICIT snake_case `CodingKeys` (see `RemoteMarketplaceConnection`,
+  `ListingPerformanceRow`). Keep timestamp columns as `String` and parse at the
+  display boundary (fractional seconds break the default ISO date strategy).
 - The EdgeAPI decoder (`JSONDecoder.iso8601`) uses `keyDecodingStrategy =
   .convertFromSnakeCase`, which camelCases NESTED free-form jsonb keys too — so a
   passport `sku_class.garment_type` decodes as `garmentType`. When reading

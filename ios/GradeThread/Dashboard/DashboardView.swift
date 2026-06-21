@@ -153,7 +153,7 @@ struct DashboardView: View {
 
     private var analyticsCard: some View {
         NavigationLink {
-            AnalyticsView()
+            AnalyticsView(router: router)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "chart.bar.xaxis")

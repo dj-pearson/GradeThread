@@ -7,6 +7,10 @@ import SwiftUI
 /// SwiftData mirror (same data source as the dashboard). Reduces via
 /// ``AnalyticsRollup``. Pushed from the Home dashboard.
 struct AnalyticsView: View {
+    /// US-1128: threaded into the listing-performance surface so its reconnect
+    /// prompt can jump to the Marketplaces tab. Optional for previews/tests.
+    var router: AppRouter? = nil
+
     @Query(sort: \LocalInventoryItem.updatedAt, order: .forward)
     private var items: [LocalInventoryItem]
     @Query private var sales: [LocalSale]
@@ -119,6 +123,7 @@ struct AnalyticsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 gradeHeader
                 rangeCard
+                listingPerformanceCard
                 periodPnLCard
                 gradingRoiCard
                 sourcingBudgetCard
@@ -191,6 +196,36 @@ struct AnalyticsView: View {
     }
 
     // MARK: - Cards
+
+    // US-1128: entry point to the per-listing eBay performance surface
+    // (impressions / CTR / watchers), parity with the web listing-performance
+    // dashboard. Aggregate sell-through lives below; this drills into per-listing.
+    private var listingPerformanceCard: some View {
+        NavigationLink {
+            ListingPerformanceView(router: router)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Listing performance")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Views, watchers, impressions & CTR per eBay listing")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
 
     @ViewBuilder
     private func card<Content: View>(
