@@ -52,6 +52,10 @@ final class DraftsLibraryStore {
     /// Per-item progress for a bulk field-apply run (so the UI can show "n/N").
     struct BulkProgress: Equatable { let done: Int; let total: Int }
 
+    /// US-1166: how many draft saves run concurrently in a bulk field-apply.
+    /// Bounded so we don't open hundreds of sockets at once on a big selection.
+    static let bulkSaveConcurrency = 4
+
     init(service: DraftsProviding = DraftsService()) {
         self.service = service
     }
@@ -119,20 +123,46 @@ final class DraftsLibraryStore {
 
         var ok = 0
         var fails: [String] = []
-        for (index, draft) in targets.enumerated() {
-            defer { bulkProgress = BulkProgress(done: index + 1, total: targets.count) }
+        var done = 0
+
+        // US-1166: build the per-draft work synchronously (skipping eBay-owned
+        // rows), then save in bounded-concurrency chunks instead of one
+        // round-trip at a time. Each save is an independent row update with no
+        // shared state, so parallelism is safe; results are folded back here on
+        // the @MainActor store.
+        var work: [(label: String, edit: DraftEdit)] = []
+        for draft in targets {
             var row = DraftEditRow(from: draft)
             if row.isEbayOriginated {
                 fails.append("\(title(for: draft)): eBay-originated — edit on eBay")
+                done += 1
+                bulkProgress = BulkProgress(done: done, total: targets.count)
                 continue
             }
             DraftBulkMutation.apply(change, to: &row)
-            do {
-                try await service.save(row.toEdit())
-                ok += 1
-            } catch {
-                fails.append("\(title(for: draft)): \(error.localizedDescription)")
+            work.append((title(for: draft), row.toEdit()))
+        }
+
+        let service = self.service
+        for chunk in work.chunked(into: Self.bulkSaveConcurrency) {
+            let results = await withTaskGroup(of: (ok: Bool, message: String?).self) { group -> [(ok: Bool, message: String?)] in
+                for item in chunk {
+                    let edit = item.edit
+                    let label = item.label
+                    group.addTask {
+                        do { try await service.save(edit); return (true, nil) }
+                        catch { return (false, "\(label): \(error.localizedDescription)") }
+                    }
+                }
+                var acc: [(ok: Bool, message: String?)] = []
+                for await r in group { acc.append(r) }
+                return acc
             }
+            for r in results {
+                done += 1
+                if r.ok { ok += 1 } else if let message = r.message { fails.append(message) }
+            }
+            bulkProgress = BulkProgress(done: done, total: targets.count)
         }
 
         bulkSummary = fails.isEmpty
@@ -219,5 +249,16 @@ final class DraftsLibraryStore {
         selected.subtract(published)
         if ok > 0 { await load() }
         return published
+    }
+}
+
+// US-1166: split a collection into fixed-size chunks for bounded-concurrency
+// processing. fileprivate so it can't collide with a future shared helper.
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
     }
 }
