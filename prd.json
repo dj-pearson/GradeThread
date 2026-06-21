@@ -3465,7 +3465,7 @@
         "python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1078,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Templates/Consignors/Sources only via Settings>Data (ContentView.swift ~L1152-1169); Repricing/Insights only inside Money tab. ToolsHub (US-749) was meant to make secondary modules discoverable but is incomplete. VerifiedView (~L12-25,192) and ReferralsView (~L59-100) lack empty states.",
       "relevantPaths": [
         "ios/GradeThread/Tools/ToolsHubView.swift",
