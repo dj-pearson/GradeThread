@@ -96,7 +96,10 @@ final class AIAssistantStore {
 struct AIAssistantSection: View {
     @Environment(AuthStore.self) private var authStore
     @State private var store = AIAssistantStore()
-    @State private var enabled = true
+    // US-1178: nil = "show whatever the loaded Info says"; set only once the
+    // user flips the toggle. Avoids the wrong-state flash from a @State seeded
+    // to `true` before load resolves.
+    @State private var enabledOverride: Bool?
     @State private var limitText = ""
 
     private var userId: String? {
@@ -127,7 +130,6 @@ struct AIAssistantSection: View {
         .task {
             await store.load()
             if case let .ready(info) = store.phase {
-                enabled = info.ai_enrichment_enabled
                 limitText = info.ai_action_limit.map(String.init) ?? ""
             }
         }
@@ -135,12 +137,17 @@ struct AIAssistantSection: View {
 
     @ViewBuilder
     private func readyRows(_ info: AIAssistantStore.Info) -> some View {
-        Toggle(isOn: $enabled) {
+        // US-1178: drive the toggle from the loaded Info; the local override only
+        // holds the user's just-made choice, so the row never shows a stale state.
+        Toggle(isOn: Binding(
+            get: { enabledOverride ?? info.ai_enrichment_enabled },
+            set: { newValue in
+                enabledOverride = newValue
+                guard let userId, newValue != info.ai_enrichment_enabled else { return }
+                Task { await store.setEnabled(newValue, userId: userId) }
+            }
+        )) {
             Label("AI suggestions", systemImage: "sparkles")
-        }
-        .onChange(of: enabled) { _, newValue in
-            guard let userId, newValue != info.ai_enrichment_enabled else { return }
-            Task { await store.setEnabled(newValue, userId: userId) }
         }
 
         // Usage meter.

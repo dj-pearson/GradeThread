@@ -174,6 +174,22 @@ private struct MarkShippedSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var tracking: String = ""
+    // US-1178: warn before sending an obviously-malformed tracking number to eBay.
+    @State private var showTrackingWarning = false
+
+    /// Carrier tracking numbers are alphanumeric, ~8–40 chars. We don't try to
+    /// validate per-carrier (too brittle) — just catch obvious typos/paste errors.
+    private var trackingLooksValid: Bool {
+        let t = tracking.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return true } // empty is allowed (ship without)
+        return (8...40).contains(t.count)
+            && t.allSatisfy { $0.isLetter || $0.isNumber }
+    }
+
+    private func confirmShipped() {
+        onConfirm(tracking.trimmingCharacters(in: .whitespacesAndNewlines))
+        dismiss()
+    }
 
     var body: some View {
         NavigationStack {
@@ -207,11 +223,21 @@ private struct MarkShippedSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Mark shipped") {
-                        onConfirm(tracking)
-                        dismiss()
+                        if trackingLooksValid { confirmShipped() }
+                        else { showTrackingWarning = true }
                     }
                     .fontWeight(.semibold)
                 }
+            }
+            .confirmationDialog(
+                "That tracking number looks off",
+                isPresented: $showTrackingWarning,
+                titleVisibility: .visible
+            ) {
+                Button("Mark shipped anyway") { confirmShipped() }
+                Button("Let me fix it", role: .cancel) {}
+            } message: {
+                Text("It should be ~8–40 letters/numbers. Double-check before it goes to eBay.")
             }
         }
     }

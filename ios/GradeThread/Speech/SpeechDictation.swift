@@ -100,6 +100,9 @@ public final class SpeechDictation {
         task?.cancel()
         request = nil
         task = nil
+        // US-1178: release the audio session so other apps' audio isn't left
+        // ducked (the session is activated with .duckOthers in start()).
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     public func reset() {

@@ -104,10 +104,11 @@ struct OnboardingState {
     func complete(useCase: OnboardingUseCase?) {
         hasCompleted = true
         selectedUseCase = useCase
-        if useCase != nil {
-            pendingFirstAction = true
-            NotificationCenter.default.post(name: .onboardingDidFinish, object: nil)
-        }
+        // US-1178: queue a first action even on skip (nil useCase) so the shell
+        // can offer a gentle "add your first item" nudge instead of landing the
+        // user on a bare dashboard with nothing to do.
+        pendingFirstAction = true
+        NotificationCenter.default.post(name: .onboardingDidFinish, object: nil)
     }
 }
 

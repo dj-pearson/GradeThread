@@ -589,8 +589,15 @@ struct MainShell: View {
     /// runs, so the notification + appear paths can both fire safely.
     private func consumeOnboardingFirstAction(router: AppRouter) {
         let state = OnboardingState()
-        guard state.pendingFirstAction, let useCase = state.selectedUseCase else { return }
+        guard state.pendingFirstAction else { return }
         state.pendingFirstAction = false
+        guard let useCase = state.selectedUseCase else {
+            // US-1178: skip path — nudge toward the first item via the add-method
+            // chooser rather than dropping the user on a bare shell.
+            router.selection = .home
+            router.showingAddSheet = true
+            return
+        }
         let action = useCase.firstAction
         router.selection = action.section
         if let intake = action.intake {

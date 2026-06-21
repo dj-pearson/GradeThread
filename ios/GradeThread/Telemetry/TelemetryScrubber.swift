@@ -31,6 +31,12 @@ enum TelemetryScrubber {
         // Signed Supabase Storage object URLs (carry a token query + the path).
         Rule(pattern: #"https?://[^\s"']*?/storage/v1/object/[^\s"']+"#,
              template: "[redacted-storage-url]"),
+        // US-1178: raw UUIDs — user/workspace/item ids commonly appear in
+        // breadcrumbs and are identifying in aggregate. (A generic phone regex
+        // was considered but over-matches numeric ids, so it's deliberately
+        // omitted — breadcrumb content here is app-controlled.)
+        Rule(pattern: #"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"#,
+             template: "[redacted-uuid]"),
     ]
 
     /// Header field names whose ENTIRE value must be dropped. A raw header

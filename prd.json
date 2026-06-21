@@ -4432,8 +4432,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1178,
-      "passes": false,
-      "notes": "[P3][iOS/Polish][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Bucket of small grounded fixes from the audit; each is independently shippable. Keep changes minimal/local.",
+      "passes": true,
+      "notes": "[P3][iOS/Polish][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Bucket of small grounded fixes from the audit; each is independently shippable. Keep changes minimal/local. IMPLEMENTED 2026-06-21: SpeechDictation.stop() deactivates the audio session; TagTextRecognizer uses a real multi-language list; Fulfillment validates the tracking number (confirm-anyway dialog); PostSale defaults to Returns + jumps to a non-empty tab + count badges + inline evidence-upload progress; AIAssistant toggle derives from loaded Info (no flash); AIExtract uses a named actionsRemainingUnknown sentinel (distinct from -1=unlimited); TelemetryScrubber adds a UUID rule (+test); softened the ~10s copy; onboarding skip now nudges to the add-item chooser (+updated test). NOTE: Info.plist usage-string drift is moot (XcodeGen regenerates it from project.yml which already has all keys); data-export temp cleanup was already wired (ShareSheet onComplete). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Speech/SpeechDictation.swift",
         "ios/GradeThread/Vision/TagTextRecognizer.swift",

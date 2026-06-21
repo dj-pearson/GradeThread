@@ -117,6 +117,13 @@ final class TelemetryTests: XCTestCase {
         XCTAssertEqual(TelemetryScrubber.redact(input), input)
     }
 
+    // US-1178: raw UUIDs (user/workspace/item ids) are redacted from breadcrumbs.
+    func test_scrubber_redactsUUID() {
+        let out = TelemetryScrubber.redact("load failed for item 3F2504E0-4F89-41D3-9A0C-0305E82C3301")
+        XCTAssertFalse(out.contains("3F2504E0"))
+        XCTAssertTrue(out.contains("[redacted-uuid]"))
+    }
+
     // MARK: - Event property scrubbing (US-991)
 
     func test_redactProperties_redactsStringValues() {

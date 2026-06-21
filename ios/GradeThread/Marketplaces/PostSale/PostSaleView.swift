@@ -7,7 +7,10 @@ import UIKit
 /// actions (approve/decline/refund, approve/reject, accept/contest).
 struct PostSaleView: View {
     @State private var store = PostSaleStore()
-    @State private var tab: Tab = .disputes
+    // US-1178: Returns are far more common than Disputes — open there, and
+    // after load jump to whichever tab actually has items so the screen isn't
+    // empty on arrival.
+    @State private var tab: Tab = .returns
     @State private var contesting: EbayPaymentDispute?
     @State private var evidenceTarget: EbayPaymentDispute?
     @State private var showingEvidencePicker = false
@@ -81,7 +84,7 @@ struct PostSaleView: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker("Section", selection: $tab) {
-                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(Tab.allCases) { Text(tabLabel($0)).tag($0) }
             }
             .pickerStyle(.segmented)
             .padding()
@@ -94,7 +97,15 @@ struct PostSaleView: View {
         }
         .navigationTitle("Returns & disputes")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await store.loadAll() }
+        .task {
+            await store.loadAll()
+            // Land on a tab that has items (returns first, then cancellations,
+            // then disputes) so the user doesn't arrive on an empty section.
+            if store.returns.isEmpty {
+                if !store.cancellations.isEmpty { tab = .cancellations }
+                else if !store.disputes.isEmpty { tab = .disputes }
+            }
+        }
         .sheet(item: $contesting) { dispute in
             ContestSheet(dispute: dispute) { note in
                 Task { await store.contestDispute(dispute, note: note) }
@@ -184,12 +195,21 @@ struct PostSaleView: View {
             if let buyer = d.buyerUsername {
                 Text("Order \(d.orderId ?? "—") · \(buyer)").font(.caption).foregroundStyle(.secondary)
             }
+            // US-1178: show an inline progress row while an evidence upload is
+            // in flight (the picker is already dismissed, so it'd look frozen).
+            if store.evidenceUploadingId == d.paymentDisputeId {
+                HStack(spacing: 6) {
+                    ProgressView()
+                    Text("Uploading evidence…").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             HStack(spacing: 10) {
                 Button("Evidence") {
                     evidenceTarget = d
                     showingEvidencePicker = true
                 }
                 .buttonStyle(.bordered)
+                .disabled(store.evidenceUploadingId == d.paymentDisputeId)
                 Button("Contest") { contesting = d }
                     .buttonStyle(.bordered)
                 Button("Accept & refund", role: .destructive) { pendingAction = .acceptDispute(d) }
@@ -278,6 +298,17 @@ struct PostSaleView: View {
             .padding(.top, 2)
         }
         .padding(.vertical, 4)
+    }
+
+    /// US-1178: segment label with a non-zero count so open work is visible.
+    private func tabLabel(_ tab: Tab) -> String {
+        let count: Int
+        switch tab {
+        case .disputes: count = store.disputes.count
+        case .returns: count = store.returns.count
+        case .cancellations: count = store.cancellations.count
+        }
+        return count > 0 ? "\(tab.rawValue) (\(count))" : tab.rawValue
     }
 
     /// Runs the confirmed irreversible action against the store.
