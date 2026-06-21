@@ -450,6 +450,15 @@ struct MainShell: View {
                 PrivacyCoverView()
             }
         }
+        // US-1158: reflect connectivity into the global status banner the moment
+        // it drops, so a cold launch while offline shows the offline state
+        // immediately instead of waiting for the SyncEngine's connectivity
+        // stream (which only starts after sign-in/engine boot). Idempotent with
+        // the engine, which also sets .offline on disconnect; reconnect is left
+        // to the engine so it can drive the .syncing/.idle transition + sync.
+        .onChange(of: networkMonitor.isConnected) { _, connected in
+            if !connected { syncStatus.set(.offline) }
+        }
         .task {
             drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.

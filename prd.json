@@ -4008,7 +4008,7 @@
         "Destructive/queued-while-offline actions give consistent feedback (toast/haptic) about being queued"
       ],
       "priority": 1116,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UX][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/ContentView.swift",
