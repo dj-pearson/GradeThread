@@ -6,15 +6,15 @@ final class BulkActionTests: XCTestCase {
 
     // MARK: - BulkAction.actions(for:) stage mapping
 
-    func test_actions_toList_includesGradeAndCreateDraft_notStubbedAIEnrich() {
+    func test_actions_toList_includesGradeAndCreateDraft() {
+        // US-1130: the dead `.aiEnrich` case was removed entirely (it was a
+        // permanent stub never surfaced in any action set), so there's nothing
+        // to assert against anymore — just confirm the real to-list actions.
         let actions = BulkAction.actions(for: .toList)
         XCTAssertTrue(actions.contains(.grade))
         XCTAssertTrue(actions.contains(.createDraft))
         XCTAssertTrue(actions.contains(.exportCSV))
         XCTAssertFalse(actions.contains(.endListing))
-        // US-791: .aiEnrich is stubbed (executor returns "not yet wired"), so it
-        // must NOT be surfaced — tapping it would fail every selected item.
-        XCTAssertFalse(actions.contains(.aiEnrich))
     }
 
     func test_actions_active_includesDropPriceAndEndListing() {

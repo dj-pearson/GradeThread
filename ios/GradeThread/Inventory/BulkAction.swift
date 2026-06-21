@@ -6,10 +6,12 @@ import Foundation
 /// The eBay-backed actions (drop price, end listing) are wired through
 /// ``BulkActionExecutor`` to the edge publish endpoints (US-185); each
 /// item that has no active eBay listing fails individually with a reason
-/// rather than failing the whole batch. `aiEnrich`'s execute path is still a
-/// stub, so it is NOT surfaced in any visible action set (US-791) — the enum
-/// case is retained for switch exhaustiveness + a future AI-batch pass; the
-/// executor keeps a defensive "not yet wired" guard in case it's ever routed.
+/// rather than failing the whole batch.
+///
+/// US-1130: the former `aiEnrich` case was removed — its executor was a
+/// permanent stub that never appeared in any visible action set, so it was a
+/// dead, half-advertised AI capability. Per-item AI enrichment still lives on
+/// the item canvas (``AIFillReviewSheet``); there is no bulk path on iOS.
 public enum BulkAction: Identifiable, Hashable {
     case createDraft
     /// US-680: validate + push each selected item to eBay in one batch.
@@ -19,7 +21,6 @@ public enum BulkAction: Identifiable, Hashable {
     /// Percent reduction (e.g. 10 for -10%). Surfaced as a single button
     /// because that's how the web copy reads.
     case dropPrice(percent: Int)
-    case aiEnrich
     /// Submit the selection for certified grading. Unlike the others this
     /// doesn't run through ``BulkActionExecutor`` — the InventoryListView
     /// intercepts it to present a dedicated batch-grading sheet (tier +
@@ -34,7 +35,6 @@ public enum BulkAction: Identifiable, Hashable {
         case .markShipped:        return "mark_shipped"
         case .endListing:         return "end_listing"
         case .dropPrice(let pct): return "drop_price_\(pct)"
-        case .aiEnrich:           return "ai_enrich"
         case .grade:              return "grade"
         case .exportCSV:          return "export_csv"
         }
@@ -47,7 +47,6 @@ public enum BulkAction: Identifiable, Hashable {
         case .markShipped:        return "Mark shipped"
         case .endListing:         return "End listing"
         case .dropPrice(let pct): return "Drop -\(pct)%"
-        case .aiEnrich:           return "AI enrich"
         case .grade:              return "Grade"
         case .exportCSV:          return "Export CSV"
         }
@@ -60,7 +59,6 @@ public enum BulkAction: Identifiable, Hashable {
         case .markShipped: return "shippingbox.fill"
         case .endListing:  return "stop.circle"
         case .dropPrice:   return "arrow.down.circle"
-        case .aiEnrich:    return "sparkles"
         case .grade:       return "checkmark.seal"
         case .exportCSV:   return "square.and.arrow.up"
         }
@@ -83,7 +81,6 @@ public enum BulkAction: Identifiable, Hashable {
         case .markShipped:        return "Mark \(count) \(suffix) as shipped?"
         case .endListing:         return "End \(count) \(suffix)?"
         case .dropPrice(let pct): return "Drop price -\(pct)% on \(count) \(suffix)?"
-        case .aiEnrich:           return "Run AI enrich on \(count) \(suffix)?"
         case .grade:              return "Grade \(count) \(suffix)?"
         case .exportCSV:          return "Export \(count) \(suffix) as CSV?"
         }
@@ -94,10 +91,8 @@ public enum BulkAction: Identifiable, Hashable {
     public static func actions(for stage: InventoryStage) -> [BulkAction] {
         switch stage {
         case .toList:
-            // US-791: .aiEnrich is omitted — its executor path is still a stub,
-            // so surfacing it would tap users into a guaranteed per-item failure.
             // .grade IS surfaced: InventoryListView intercepts it into the
-            // dedicated bulk-grade sheet (it never hits the stub path).
+            // dedicated bulk-grade sheet (it never hits the executor path).
             return [.publish, .grade, .createDraft, .exportCSV]
         case .drafts:
             return [.publish, .exportCSV]
