@@ -4293,8 +4293,8 @@
         "Build + unit tests clean; extend AIExtract tests to cover persistence + size provenance"
       ],
       "priority": 1171,
-      "passes": false,
-      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Auto-fill review is in-memory only; Size AI bypasses the provenance model. 'Tie AI to each function.'",
+      "passes": true,
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Auto-fill review is in-memory only; Size AI bypasses the provenance model. 'Tie AI to each function.' IMPLEMENTED 2026-06-21: AIFillReviewStore now persists each review to a protected per-item JSON file under Application Support (loaded on init), so the review+undo survive relaunch / a lost deep-link race. Chose file persistence over a new SwiftData @Model to avoid a schema-version migration (same survives-relaunch intent, lower risk; made AIFillReview/AppliedAIField/FieldSuggestionEntry/Measurement Codable). Size AI now writes through AIItemFieldWriter.write with an ai_field_sources entry (source ai:size, the returned confidence) so size gets the AI badge + provenance like extract-fill. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/AIExtract/AIFillReview.swift",
         "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift"

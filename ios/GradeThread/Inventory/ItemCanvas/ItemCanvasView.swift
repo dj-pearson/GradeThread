@@ -916,6 +916,17 @@ struct ItemCanvasView: View {
                     "Size AI couldn't read a size — add a measurement or flat-lay photo and try again."
                 return
             }
+            // US-1171: persist with provenance through AIItemFieldWriter so the
+            // size carries an `ai_field_sources` entry (and the "AI" badge), just
+            // like extract-fill — rather than writing only the local draft.
+            try await AIItemFieldWriter.write(
+                itemId: item.id,
+                fields: [(field: "size", value: r.size)],
+                measurements: nil,
+                sources: ["size": AIItemFieldWriter.SourceEntry(
+                    source: "ai:size", confidence: r.confidence, accepted: true)],
+                seedTitle: false
+            )
             state.draft.size = r.size
             HapticFeedback.success()
             let genderNote = r.gender.map { " · \($0)" } ?? ""

@@ -172,7 +172,7 @@ extension AIExtractResponse {
 
 /// One row in the review screen. Renderable directly + decoupled from the
 /// wire shape so the UI can re-order or filter independently.
-struct FieldSuggestionEntry: Identifiable, Equatable {
+struct FieldSuggestionEntry: Identifiable, Equatable, Codable {
     let id: String         // field name, doubles as Identifiable
     let field: String
     let suggestion: FieldSuggestion
