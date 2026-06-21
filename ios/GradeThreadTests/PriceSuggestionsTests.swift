@@ -131,6 +131,46 @@ final class PriceSuggestionsTests: XCTestCase {
     }
 
     @MainActor
+    func test_scan_allRowsThrow_setsFailedPhase() async {
+        // US-1116: a total wipeout surfaces a top-level retryable failure, not N
+        // identical buried per-row errors.
+        let comps = FakeComps()
+        comps.throwTitles = ["A", "B"]
+        let store = PriceSuggestionsStore(comps: comps, applier: FakeApplier(), throttle: .zero)
+        await store.start(candidates: [makeCandidate("a", title: "A"), makeCandidate("b", title: "B")])
+        if case .failed = store.phase {} else { XCTFail("expected .failed phase, got \(store.phase)") }
+    }
+
+    @MainActor
+    func test_scan_partialThrow_staysReady() async {
+        // One bad title doesn't fail the whole batch — the rest are still usable.
+        let comps = FakeComps()
+        comps.byTitle["A"] = lookup(median: 20, count: 5)
+        comps.throwTitles = ["B"]
+        let store = PriceSuggestionsStore(comps: comps, applier: FakeApplier(), throttle: .zero)
+        await store.start(candidates: [makeCandidate("a", title: "A"), makeCandidate("b", title: "B")])
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.rows.first?.state, .suggested)
+    }
+
+    @MainActor
+    func test_retry_recoversFromFailure() async {
+        let comps = FakeComps()
+        comps.throwTitles = ["A"]
+        let store = PriceSuggestionsStore(comps: comps, applier: FakeApplier(), throttle: .zero)
+        await store.start(candidates: [makeCandidate("a", title: "A")])
+        if case .failed = store.phase {} else { return XCTFail("expected .failed precondition") }
+
+        comps.throwTitles = []
+        comps.byTitle["A"] = lookup(median: 25, count: 4)
+        await store.retry()
+
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.rows.first?.state, .suggested)
+        XCTAssertNil(store.error(for: store.rows[0]))
+    }
+
+    @MainActor
     func test_apply_writesPriceAndHidesRow() async {
         let comps = FakeComps()
         comps.byTitle["Hat"] = lookup(median: 18, count: 5)

@@ -44,9 +44,7 @@ struct SnapView: View {
                     .disabled(!store.canEvaluate)
 
                     if let message = store.errorMessage {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(Color.brandRed)
+                        errorCard(message)
                     }
 
                     if let result = store.result {
@@ -136,6 +134,38 @@ struct SnapView: View {
             TextField("Item, e.g. Better Sweater (optional)", text: $store.keyword)
                 .textFieldStyle(.roundedBorder)
         }
+    }
+
+    /// US-1116: a dedicated, obvious error+retry state. The picked photo and
+    /// hint fields stay visible above so the user can retry in place (the most
+    /// common failure here is a transient network blip on the valuation call).
+    private func errorCard(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color.brandRed)
+            }
+            Button {
+                AppRouter.haptic()
+                Task { await store.evaluate() }
+            } label: {
+                if store.isLoading {
+                    ProgressView().frame(maxWidth: .infinity)
+                } else {
+                    Label("Try again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.brandSecondary)
+            .disabled(!store.canEvaluate)
+        }
+        .padding()
+        .background(Color.brandRed.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     private func resultCard(_ result: SnapResponse) -> some View {

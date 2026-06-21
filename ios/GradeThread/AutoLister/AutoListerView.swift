@@ -36,6 +36,17 @@ struct AutoListerView: View {
             }
             .onAppear { Telemetry.event("autolister_opened") }
             .task { await templateStore.load() }
+            .alert(
+                "Something went wrong",
+                isPresented: Binding(
+                    get: { model.actionError != nil },
+                    set: { if !$0 { model.actionError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { model.actionError = nil }
+            } message: {
+                Text(model.actionError ?? "")
+            }
             .navigationDestination(
                 isPresented: Binding(
                     get: { pendingGroups != nil },
@@ -58,11 +69,41 @@ struct AutoListerView: View {
         if model.isImporting && model.isEmpty {
             // US-656: shimmer skeleton instead of a bare spinner.
             ScrollView { SkeletonRows(count: 4) }
+        } else if let message = model.importError {
+            // US-1116: import produced nothing — explicit retry, not the empty
+            // state (which reads as "the import never happened").
+            importErrorState(message)
+        } else if model.hasPhotosButNoGroups {
+            // US-1116: photos imported but grouping yielded nothing reviewable.
+            groupingErrorState
         } else if model.isEmpty {
             emptyState
         } else {
             reviewList
         }
+    }
+
+    // MARK: - Error states (US-1116)
+
+    private func importErrorState(_ message: String) -> some View {
+        ErrorStateView(
+            title: "Couldn't import photos",
+            message: message,
+            systemImage: "photo.badge.exclamationmark",
+            retryTitle: "Import photos",
+            retry: { await MainActor.run { showingPicker = true } }
+        )
+    }
+
+    private var groupingErrorState: some View {
+        ErrorStateView(
+            title: "Couldn't group photos",
+            message: "We couldn't sort your imported photos into items. Try grouping again, or import a fresh batch.",
+            systemImage: "square.stack.3d.up.slash",
+            retry: { await MainActor.run { model.regroupAll() } },
+            secondaryTitle: "Import photos",
+            secondaryAction: { showingPicker = true }
+        )
     }
 
     // MARK: - Empty state

@@ -139,4 +139,20 @@ final class AutoListerReviewModelTests: XCTestCase {
         await m.rotate(UUID(), clockwise: true) // unknown id
         XCTAssertEqual(m.totalPhotos, 1)
     }
+
+    /// US-1116: a rotate that can't proceed surfaces a retryable error instead of
+    /// silently doing nothing.
+    func test_rotate_missingPhoto_surfacesActionError() async {
+        let m = AutoListerReviewModel()
+        m.ingest([landscapeCap()])
+        await m.rotate(UUID(), clockwise: true)
+        XCTAssertNotNil(m.actionError)
+    }
+
+    func test_hasPhotosButNoGroups_isFalseInNormalFlow() {
+        let m = AutoListerReviewModel()
+        XCTAssertFalse(m.hasPhotosButNoGroups) // empty
+        m.ingest([cap(0)])
+        XCTAssertFalse(m.hasPhotosButNoGroups) // grouped
+    }
 }

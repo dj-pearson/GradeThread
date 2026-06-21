@@ -46,6 +46,9 @@ final class PriceSuggestionsStore {
         /// Fetching comps; `done` of `total` rows resolved.
         case scanning(done: Int, total: Int)
         case ready
+        /// Every row's comps fetch failed — surface a top-level retryable error
+        /// instead of a list of identical buried per-row errors (US-1116).
+        case failed(String)
     }
 
     enum RowState: Equatable {
@@ -112,6 +115,8 @@ final class PriceSuggestionsStore {
         guard total > 0 else { phase = .ready; return }
         phase = .scanning(done: 0, total: total)
 
+        var errorCount = 0
+        var lastError: String?
         for index in rows.indices {
             if Task.isCancelled { break }
             let candidate = rows[index].candidate
@@ -126,9 +131,12 @@ final class PriceSuggestionsStore {
                 }
             } catch {
                 rows[index].state = .noComps
-                rowErrors[candidate.id] = FriendlyErrorCopy.actionMessage(
+                let message = FriendlyErrorCopy.actionMessage(
                     for: error, fallback: "Couldn't load comps for this item."
                 )
+                rowErrors[candidate.id] = message
+                errorCount += 1
+                lastError = message
             }
             phase = .scanning(done: index + 1, total: total)
             if index + 1 < total, throttle > .zero {
@@ -136,7 +144,24 @@ final class PriceSuggestionsStore {
             }
         }
 
-        phase = .ready
+        // A total wipeout (every row's comps fetch threw — e.g. offline) is a
+        // top-level failure with retry, not N identical buried per-row errors.
+        if errorCount == total, let lastError {
+            phase = .failed(lastError)
+        } else {
+            phase = .ready
+        }
+    }
+
+    /// Re-runs the comps scan from scratch (clears per-row errors + suggestions).
+    /// Backs the top-level ``Phase/failed`` retry affordance.
+    func retry() async {
+        rowErrors = [:]
+        for index in rows.indices {
+            rows[index].state = .pending
+            rows[index].suggestion = nil
+        }
+        await scan()
     }
 
     /// Optimistically marks the row applied and writes the suggested price.

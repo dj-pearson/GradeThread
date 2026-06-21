@@ -28,9 +28,19 @@ final class AutoListerReviewModel: ObservableObject {
     @Published private(set) var photosById: [UUID: PhotoCapture] = [:]
     @Published private(set) var groups: [ReviewGroup] = []
     @Published private(set) var isImporting = false
+    /// Set when a batch import yields no usable photos (US-1116) — drives a
+    /// retryable error state instead of silently dropping back to the empty
+    /// state, which reads as "nothing happened".
+    @Published private(set) var importError: String?
+    /// Transient failure (e.g. a rotate that couldn't re-encode) surfaced as an
+    /// alert; the review list stays put.
+    @Published var actionError: String?
 
     var isEmpty: Bool { photosById.isEmpty }
     var totalPhotos: Int { photosById.count }
+
+    /// Photos imported but auto-grouping produced nothing to review (US-1116).
+    var hasPhotosButNoGroups: Bool { !photosById.isEmpty && groups.isEmpty }
 
     /// Ready to generate when there's at least one group and none is empty.
     var canGenerate: Bool { !groups.isEmpty && groups.allSatisfy { !$0.photoIds.isEmpty } }
@@ -50,6 +60,7 @@ final class AutoListerReviewModel: ObservableObject {
     /// that can't materialize (e.g. still in iCloud) are skipped.
     func importPicks(_ results: [PHPickerResult]) async {
         isImporting = true
+        importError = nil
         defer { isImporting = false }
         var captures: [PhotoCapture] = []
         for result in results {
@@ -65,6 +76,14 @@ final class AutoListerReviewModel: ObservableObject {
             )
         }
         ingest(captures)
+        // The user picked photos but none could be materialized (still syncing
+        // from iCloud, undecodable). Surface a retryable error rather than the
+        // empty state, which would look like the import never ran (US-1116).
+        if captures.isEmpty && !results.isEmpty {
+            importError = results.count == 1
+                ? "Couldn't import that photo. It may still be downloading from iCloud — try again."
+                : "Couldn't import those photos. They may still be downloading from iCloud — try again."
+        }
     }
 
     /// Add captures and re-derive groups from capture time. Test seam (callers
@@ -146,9 +165,15 @@ final class AutoListerReviewModel: ObservableObject {
     /// missing or its data can't be decoded.
     func rotate(_ photoId: UUID, clockwise: Bool) async {
         guard let capture = photosById[photoId],
-              let image = UIImage(data: capture.imageData) else { return }
+              let image = UIImage(data: capture.imageData) else {
+            actionError = "Couldn't rotate that photo."
+            return
+        }
         let rotated = PhotoRotateService.rotated(image, clockwise: clockwise)
-        guard let output = await PhotoCompressor.compressOffMain(rotated) else { return }
+        guard let output = await PhotoCompressor.compressOffMain(rotated) else {
+            actionError = "Couldn't rotate that photo. Try again."
+            return
+        }
         photosById[photoId] = PhotoCapture(
             id: capture.id,
             imageData: output.imageData,

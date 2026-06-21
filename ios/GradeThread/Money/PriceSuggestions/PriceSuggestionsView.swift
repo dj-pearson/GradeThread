@@ -40,7 +40,13 @@ struct PriceSuggestionsView: View {
 
     var body: some View {
         Group {
-            if candidates.isEmpty {
+            if case let .failed(message) = store.phase {
+                ErrorStateView(
+                    title: "Couldn't load suggestions",
+                    message: message,
+                    retry: { await store.retry() }
+                )
+            } else if candidates.isEmpty {
                 emptyState
             } else {
                 content
