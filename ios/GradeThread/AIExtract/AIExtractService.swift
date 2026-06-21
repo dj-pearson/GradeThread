@@ -20,7 +20,10 @@ final class AIExtractService {
     }
 
     func extract(_ request: AIExtractRequest) async throws -> AIExtractResponse {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        // US-1164: guard instead of force-unwrapping a malformed base URL.
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw EdgeAPIError.network("Could not build request URL")
+        }
         components.path = "/api/flipdesk/ai/extract"
         guard let url = components.url else {
             throw EdgeAPIError.network("Could not build URL")

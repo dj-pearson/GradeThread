@@ -80,7 +80,10 @@ final class CompsService: CompsProviding {
     private func get<T: Decodable>(
         path: String, query: [URLQueryItem]
     ) async throws -> T {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        // US-1164: guard instead of force-unwrapping a malformed base URL.
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw EdgeAPIError.network("Could not build request URL")
+        }
         components.path = path
         components.queryItems = query
         guard let url = components.url else {

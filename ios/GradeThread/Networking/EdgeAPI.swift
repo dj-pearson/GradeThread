@@ -280,7 +280,7 @@ public actor EdgeAPI {
                     }
                     throw error
                 }
-                if Self.isTransient(error), attempt < Self.maxRetries {
+                if Self.shouldRetry(error, method: method), attempt < Self.maxRetries {
                     // Honor a `Retry-After` hint (capped) for a 429; otherwise
                     // fall back to the bounded exponential backoff.
                     let nanos: UInt64
@@ -309,15 +309,48 @@ public actor EdgeAPI {
         }
     }
 
+    /// US-1164: which transient errors are safe to retry for a given HTTP method.
+    /// A 5xx on a non-idempotent POST/PATCH may have been applied server-side
+    /// before the failure, so blind-retrying risks a duplicate sale/listing — we
+    /// retry 5xx only for idempotent methods. Network blips and 429 (rejected,
+    /// not processed) remain retryable for any method.
+    static func shouldRetry(_ error: EdgeAPIError, method: String) -> Bool {
+        switch error {
+        case .network, .rateLimited: return true
+        case .serverError: return isIdempotent(method)
+        default: return false
+        }
+    }
+
+    static func isIdempotent(_ method: String) -> Bool {
+        switch method.uppercased() {
+        case "GET", "HEAD", "PUT", "DELETE", "OPTIONS": return true
+        default: return false // POST, PATCH
+        }
+    }
+
     /// Parse an HTTP `Retry-After` header. Supports the delay-seconds form
     /// (e.g. "30"); the HTTP-date form is ignored (returns nil) and the caller
     /// falls back to exponential backoff. `internal` so it's unit-testable
     /// (US-1145).
     static func parseRetryAfter(_ value: String?) -> TimeInterval? {
-        guard let value = value?.trimmingCharacters(in: .whitespaces),
-              let seconds = Double(value) else { return nil }
-        return max(0, seconds)
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
+        if let seconds = Double(value) { return max(0, seconds) }
+        // US-1164: also accept the HTTP-date form (RFC 1123), converting it to a
+        // relative delay from now (clamped to >= 0). The caller caps the result.
+        if let date = httpDateFormatter.date(from: value) {
+            return max(0, date.timeIntervalSinceNow)
+        }
+        return nil
     }
+
+    private static let httpDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "GMT")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        return f
+    }()
 
     /// Stable cache key fragment: query items sorted so order doesn't matter.
     private static func canonicalQuery(_ query: [URLQueryItem]) -> String {

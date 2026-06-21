@@ -4146,7 +4146,7 @@
       ],
       "priority": 1164,
       "passes": false,
-      "notes": "[P1][iOS/Networking][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Two AI services bypass EdgeAPI hardening; 5xx retry on POST risks duplicate sales/listings. Headless-codeable.",
+      "notes": "[P1][iOS/Networking][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Two AI services bypass EdgeAPI hardening; 5xx retry on POST risks duplicate sales/listings. Headless-codeable. PARTIAL 2026-06-21 (correctness+crash-safety DONE; full routing DEFERRED, passes stays false): DONE — EdgeAPI no longer blind-retries 5xx on non-idempotent POST/PATCH (new shouldRetry(_:method:) + isIdempotent; 429/network still retry any method; +test asserting POST 5xx not retried); parseRetryAfter now honors the HTTP-date (RFC 1123) form, clamped >=0 (+test); guarded all 7 force-unwrapped URLComponents in AIExtractService/SizeAIService/ProspectService/ScoutService(x2)/CompsService/SnapService (throw instead of crash). DEFERRED — routing AIExtractService + SizeAIService fully through EdgeAPI to inherit retry/token-refresh/plan-gating: that needs an EdgeAPI per-call decoder option (these decode camelCase 1:1, not the snake_case shared decoder) + auth/plan-gate behavior verification, an architectural change best done on CI. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/AIExtract/AIExtractService.swift",
         "ios/GradeThread/AIExtract/SizeAIService.swift",

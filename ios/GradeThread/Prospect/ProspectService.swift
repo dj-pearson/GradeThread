@@ -38,7 +38,10 @@ final class ProspectService: Prospecting {
     // MARK: - Transport
 
     private func post<Body: Encodable, T: Decodable>(path: String, body: Body) async throws -> T {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        // US-1164: guard instead of force-unwrapping a malformed base URL.
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw EdgeAPIError.network("Could not build request URL")
+        }
         components.path = path
         guard let url = components.url else {
             throw EdgeAPIError.network("Could not build URL for \(path)")
