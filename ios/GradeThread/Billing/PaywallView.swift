@@ -51,13 +51,7 @@ struct PaywallView: View {
             case .failed(let message):
                 failed(message)
             case .ready:
-                if store.managedOnAppStore { appStoreManagementSection }
-                if store.managedOnWeb { managedBanner }
-                intervalSection
-                plansSection
-                creditsSection
-                legalSection
-                restoreSection
+                readyContent
             }
         }
         // US-804: pin "Continue with Free" so it's reachable without scrolling
@@ -213,6 +207,21 @@ struct PaywallView: View {
             }
             .background(.bar)
         }
+    }
+
+    // Type-check budget: the ready-state section composition lives here, out of
+    // `body`'s switch, so the (already large) body expression stays within the
+    // Swift type-checker's limit. Adding the US-1177 header/footer changes to the
+    // sections tipped the inline version over.
+    @ViewBuilder
+    private var readyContent: some View {
+        if store.managedOnAppStore { appStoreManagementSection }
+        if store.managedOnWeb { managedBanner }
+        intervalSection
+        plansSection
+        creditsSection
+        legalSection
+        restoreSection
     }
 
     // MARK: - Interval
