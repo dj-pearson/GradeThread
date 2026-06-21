@@ -72,7 +72,10 @@ struct NegotiationInboxView: View {
         var id: String { rawValue }
     }
 
-    var body: some View {
+    // US-1166/type-check budget: keep the picker+switch content out of `body` so
+    // the Release whole-module build's tighter budget doesn't time out on the
+    // modifier chain (the US-1160 confirmationDialog pushed it over).
+    private var content: some View {
         VStack(spacing: 0) {
             Picker("Section", selection: $tab) {
                 ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
@@ -85,6 +88,10 @@ struct NegotiationInboxView: View {
             case .messages: messagesList
             }
         }
+    }
+
+    var body: some View {
+        content
         .navigationTitle("Offers & messages")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

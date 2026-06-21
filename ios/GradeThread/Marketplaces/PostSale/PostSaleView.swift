@@ -81,7 +81,11 @@ struct PostSaleView: View {
         }
     }
 
-    var body: some View {
+    // US-1166/type-check budget: the picker+switch content lives in its own
+    // property so `body` only type-checks the modifier chain against an opaque
+    // view — the Release (whole-module) build's tighter budget otherwise timed
+    // out on this body after the US-1160 confirmationDialog was added.
+    private var content: some View {
         VStack(spacing: 0) {
             Picker("Section", selection: $tab) {
                 ForEach(Tab.allCases) { Text(tabLabel($0)).tag($0) }
@@ -95,6 +99,10 @@ struct PostSaleView: View {
             case .cancellations: cancellationsList
             }
         }
+    }
+
+    var body: some View {
+        content
         .navigationTitle("Returns & disputes")
         .navigationBarTitleDisplayMode(.inline)
         .task {
