@@ -3734,3 +3734,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 11:02:00 PM
 ---
+## US-1118: Web: persona-aware dashboard + surface Passport/Verified/Referrals/Guarantee
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 11:12:30 PM
+---

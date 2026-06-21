@@ -3268,7 +3268,7 @@
         "build + tsc + eslint clean"
       ],
       "priority": 1089,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Web/Discoverability][EPIC: Web↔iOS Gaps & Polish 2026-06-20] dashboard.tsx (L200-242) renders unconditional New Submission / Add Inventory / View Finances + FlipdeskPromoCard (L251) regardless of use_case; never surfaces Passport/Verified/Referrals/Guarantee. use_case is already captured in onboarding.",
       "relevantPaths": [
         "src/pages/dashboard.tsx",
