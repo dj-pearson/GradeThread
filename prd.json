@@ -3447,7 +3447,7 @@
         "Loading/empty/error states; python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1079,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] iOS AnalyticsView covers aggregate (grade dist/top brands/sell-through) but grep for impressions/CTR/listingPerformance in ios/ = none. Web flipdesk/listing-performance.tsx + backend perf cron shipped (done US-565 + analytics performance work).",
       "relevantPaths": [
         "src/pages/flipdesk/listing-performance.tsx",

@@ -3766,3 +3766,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026 12:53:40 AM
 ---
+## US-1128: iOS: per-listing performance metrics (impressions/clicks/watchers/sell-through)
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:03:27 AM
+---
