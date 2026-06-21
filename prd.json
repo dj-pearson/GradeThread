@@ -3970,7 +3970,7 @@
         "Tests cover push-tap → route, widget-tap → route, and malformed-link rejection"
       ],
       "priority": 1114,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Lifecycle][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/ContentView.swift",

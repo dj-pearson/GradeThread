@@ -27,6 +27,11 @@ struct ContentView: View {
     @State private var lastForegroundPullAt: Date?
     private static let foregroundDebounceSeconds: TimeInterval = 60
 
+    /// US-1156: rate-limit inbound deep links and hold one that arrives before
+    /// sign-in completes so it routes afterward instead of being dropped.
+    @State private var lastDeepLinkAt: Date?
+    @State private var pendingDeepLink = PendingDeepLink()
+
     /// First-run welcome carousel. Shown once over everything at launch
     /// (gated by the persisted OnboardingState flag).
     @State private var showingOnboarding = !OnboardingState().hasCompleted
@@ -65,6 +70,11 @@ struct ContentView: View {
                 Task { await authStore.handleAuthCallback(url: url) }
             }
             .onOpenURL { url in
+                // US-1156: rate-limit inbound URLs so another app can't flood the
+                // custom scheme and spawn unbounded work / ANR us.
+                let now = Date.now
+                guard DeepLinkGate.shouldAccept(last: lastDeepLinkAt, now: now) else { return }
+                lastDeepLinkAt = now
                 // US-752: a home-screen widget tap arrives as a custom-scheme
                 // URL (com.gradethread.app://widget/...). Route it before the
                 // auth-callback handler — which ignores the `widget` host
@@ -83,6 +93,8 @@ struct ContentView: View {
                 case .signedIn(let user):
                     startSyncEngineIfNeeded()
                     startRealtimeIfNeeded(userId: user.id.uuidString)
+                    // US-1156: replay a deep link that arrived during sign-in.
+                    if let queued = pendingDeepLink.take() { handleDeepLink(queued) }
                 case .signedOut:
                     // Reset the delta-sync cursors (US-633) so the next account
                     // does a clean full backfill instead of inheriting this
@@ -180,8 +192,13 @@ struct ContentView: View {
         // Re-post via a more specific notification so MainShell can
         // mutate its router state without us threading a handle through
         // the env. ProtectedRouteShell is what's currently rendered when
-        // .signedIn — anything else gets ignored.
-        guard case .signedIn = authStore.phase else { return }
+        // .signedIn.
+        // US-1156: a tap that arrives mid-auth (sign-in sheet on screen) used to
+        // be dropped here; queue it and replay once signed in instead.
+        guard case .signedIn = authStore.phase else {
+            pendingDeepLink.queue(route)
+            return
+        }
         NotificationCenter.default.post(
             name: .applyDeepLink,
             object: nil,
