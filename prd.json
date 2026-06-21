@@ -3838,7 +3838,7 @@
         "Add a test or documented manual QA step for the snapshot behavior"
       ],
       "priority": 1107,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Security][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/ContentView.swift",

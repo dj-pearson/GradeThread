@@ -442,8 +442,12 @@ struct MainShell: View {
                 AppLockCoverView { Task { await appLock.authenticate() } }
                     .transition(.opacity)
             } else if scenePhase != .active {
+                // US-1149: NO opacity transition here — a fade-in means iOS can
+                // capture the App Switcher snapshot while the cover is still
+                // semi-transparent, leaking the financial figures behind it. The
+                // cover must appear instantly (and fully opaque) the moment the
+                // scene goes inactive.
                 PrivacyCoverView()
-                    .transition(.opacity)
             }
         }
         .task {
