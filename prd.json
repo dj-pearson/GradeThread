@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1142,
+  "nextId": 1160,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3687,6 +3687,352 @@
       "relevantPaths": [
         "services/edge-functions/src/routes/referrals.ts",
         "services/edge-functions/src/routes/affiliate.ts"
+      ]
+    },
+    {
+      "id": "US-1142",
+      "title": "Eliminate silent SwiftData save failures across the offline/sync layer",
+      "description": "As a reseller working offline, I want my queued edits, photo uploads, and merged server data to never be silently lost, so that what the app shows me is what is actually persisted.",
+      "acceptanceCriteria": [
+        "Replace every `try? context.save()` / `try? modelContext.save()` in the persistence + upload layers with explicit error handling (audit found ~32 occurrences across OfflineMutationQueue, SyncMergeActor, SyncEngine, PhotoUploadService, ExpenseStore, etc.)",
+        "On a save failure, capture a scrubbed Sentry breadcrumb/event (no PII) and set a recoverable state rather than discarding the error",
+        "A persistent local-write failure (e.g., disk full, store corrupt) surfaces a user-visible \"changes could not be saved locally\" signal instead of appearing to succeed",
+        "PhotoUploadService no longer orphans a server upload when the metadata insert AND the fallback pending-mutation insert both fail silently",
+        "Unit tests cover save-failure paths (injected failing ModelContext) for the mutation queue and merge actor"
+      ],
+      "priority": 1100,
+      "passes": false,
+      "notes": "[P1][iOS/Data Integrity][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/OfflineMutationQueue.swift",
+        "ios/GradeThread/Persistence/SyncMergeActor.swift",
+        "ios/GradeThread/Persistence/SyncEngine.swift",
+        "ios/GradeThread/Upload/PhotoUploadService.swift"
+      ]
+    },
+    {
+      "id": "US-1143",
+      "title": "Add SwiftData VersionedSchema + SchemaMigrationPlan and a CI schema-compat guard",
+      "description": "As a user updating the app, I want the local offline cache to migrate (not crash) when the data models change between releases, so that an app update never wipes my pending work or fails to launch.",
+      "acceptanceCriteria": [
+        "Introduce a `VersionedSchema` for the current model graph and a `SchemaMigrationPlan` wired into `ModelStoreProvider` (currently a single unversioned `Schema`)",
+        "Document the lightweight-vs-custom migration policy and add at least one migration stage scaffold so future model changes have a home",
+        "Destructive recovery is preserved as the LAST resort and, when it discards unsynced `LocalPendingMutation` rows, the user is told work was lost (not silently)",
+        "Add a CI check (ios-ci.yml) or unit test that fails when a model changes without a corresponding schema version bump",
+        "Test: opening a store written by the previous schema version migrates without data loss; an intentionally incompatible store triggers controlled recovery, not a launch crash"
+      ],
+      "priority": 1101,
+      "passes": false,
+      "notes": "[P1][iOS/Data Integrity][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/ModelStoreProvider.swift",
+        "ios/GradeThread/Persistence/Models/",
+        ".github/workflows/ios-ci.yml"
+      ]
+    },
+    {
+      "id": "US-1144",
+      "title": "Harden StoreKit Transaction.updates: unverified, revocation/refund, and pending handling",
+      "description": "As a paying customer, I want refunds, async renewals, and interrupted purchases to be reflected correctly, so that I am never charged without entitlement or left on a paid tier after a refund.",
+      "acceptanceCriteria": [
+        "The `Transaction.updates` listener no longer silently `continue`s past `.unverified` transactions — it breadcrumbs them and reports for server-side reconciliation instead of dropping them",
+        "Client checks `revocationDate`/`revocationReason` (refund/revoke) and proactively clears the cached entitlement + triggers a server sync rather than waiting for the next fetch",
+        "Server report failures from the listener are retried with bounded backoff (or re-queued) rather than the transaction being finished best-effort with the result discarded",
+        "A `.pending` purchase (Ask-to-Buy / SCA) surfaces a clear \"purchase pending approval\" state and the entitlement is granted when the listener later receives the approved transaction",
+        "Unit/integration coverage via a StoreKit test configuration for: verified grant, unverified, revoked, and pending paths"
+      ],
+      "priority": 1102,
+      "passes": false,
+      "notes": "[P1][iOS/Billing][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Billing/StoreKitService.swift",
+        "ios/GradeThread/Billing/PaywallStore.swift"
+      ]
+    },
+    {
+      "id": "US-1145",
+      "title": "Retry HTTP 429 rate-limits with Retry-After backoff and breadcrumb them",
+      "description": "As a user during peak load, I want rate-limited requests to back off and retry instead of failing instantly, so that grading polls and eBay sync do not error out spuriously.",
+      "acceptanceCriteria": [
+        "`EdgeAPI.isTransient` treats `.rateLimited` (429) as retryable (currently only `.network` + `.serverError` retry)",
+        "Honor a `Retry-After` header when present; otherwise use the existing bounded exponential backoff",
+        "Idempotent GET/poll paths (grade polling, eBay sync) retry on 429; non-idempotent writes are handled per their own idempotency guarantees",
+        "429 events are recorded as scrubbed Sentry breadcrumbs so rate-limit frequency is visible to support",
+        "Unit test: a 429 then 200 succeeds after backoff; retries are bounded by `maxRetries`"
+      ],
+      "priority": 1103,
+      "passes": false,
+      "notes": "[P2][iOS/Networking][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Networking/EdgeAPI.swift",
+        "ios/GradeThread/Grading/GradeRequestStore.swift",
+        "ios/GradeThread/Marketplaces/EbaySyncService.swift"
+      ]
+    },
+    {
+      "id": "US-1146",
+      "title": "Explicit token-refresh-on-401 and resilient handling of non-idempotent uploads",
+      "description": "As a returning user with an expired session, I want requests to transparently refresh my token instead of erroring, and important uploads (dispute evidence, photos) to fail loudly rather than silently.",
+      "acceptanceCriteria": [
+        "`currentAccessToken()` / request path attempts a single token refresh on 401 before surfacing an auth error, instead of silently sending unauthenticated or failing",
+        "Multipart/evidence uploads that cannot be safely auto-retried surface an explicit, retryable failure to the user (PostSale dispute evidence currently fails into a string-only state)",
+        "A clear, user-facing retry affordance exists for failed evidence/photo uploads",
+        "Tests cover: 401 → refresh → retry success, and refresh-failure → clean sign-out/auth prompt"
+      ],
+      "priority": 1104,
+      "passes": false,
+      "notes": "[P2][iOS/Networking][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Networking/SupabaseShared.swift",
+        "ios/GradeThread/Networking/EdgeAPI.swift",
+        "ios/GradeThread/Marketplaces/PostSale/PostSaleService.swift"
+      ]
+    },
+    {
+      "id": "US-1147",
+      "title": "Sync engine graceful shutdown and surfacing of stuck mutations",
+      "description": "As a user, I want in-flight syncs to shut down cleanly on sign-out/background and to be told when changes are stuck, so that mutations are not left half-applied or silently abandoned.",
+      "acceptanceCriteria": [
+        "SyncEngine has a cleanup/cancellation path so a sign-out, force-quit, or background mid-`flushPending()` cannot leave a mutation half-applied",
+        "Mutations that exhaust `maxRetries` (6) are surfaced to the user (badge/notice + manual retry) instead of sitting silently queued forever",
+        "Which conflict-resolution rule fired (server-wins / user-owns-if-dirty / timestamp) is breadcrumbed for support diagnosis",
+        "Test: cancelling mid-flush leaves the queue in a consistent, replayable state"
+      ],
+      "priority": 1105,
+      "passes": false,
+      "notes": "[P2][iOS/Sync][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/SyncEngine.swift",
+        "ios/GradeThread/Persistence/OfflineMutationQueue.swift",
+        "ios/GradeThread/Persistence/ConflictPolicy.swift"
+      ]
+    },
+    {
+      "id": "US-1148",
+      "title": "Close telemetry gaps for sync, IAP, upload, and background failures (scrub before breadcrumb)",
+      "description": "As an operator, I want failures in sync replay, IAP, uploads, and background refresh to be observable in Sentry, so that I can diagnose production issues without leaking PII.",
+      "acceptanceCriteria": [
+        "Mutation-replay failures (`SyncEngine.apply` → `markFailed`) emit a scrubbed breadcrumb/event, not just a silent state change",
+        "IAP failures (purchase, verify, server-report) and background-refresh cancellations are telemetered",
+        "Fix the ordering bug where the grade-poll breadcrumb is built from a raw error message BEFORE `TelemetryScrubber` runs — scrub first, then breadcrumb",
+        "Add a lightweight test/lint asserting breadcrumb strings pass through the scrubber"
+      ],
+      "priority": 1106,
+      "passes": false,
+      "notes": "[P2][iOS/Observability][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Telemetry/",
+        "ios/GradeThread/Grading/GradeRequestStore.swift",
+        "ios/GradeThread/Persistence/SyncEngine.swift",
+        "ios/GradeThread/Background/BackgroundRefreshService.swift"
+      ]
+    },
+    {
+      "id": "US-1149",
+      "title": "Harden the background privacy cover against the app-switcher snapshot race + sensitive pasteboard",
+      "description": "As a privacy-conscious seller, I want my financial data hidden in the app switcher and not lingering on the clipboard, so that sales/payout figures never leak in a snapshot or to other apps.",
+      "acceptanceCriteria": [
+        "Privacy cover is presented on `.inactive` (not only `!= .active`) and/or applied at the window level so it is in place before iOS captures the app-switcher snapshot (no race where dashboards flash visible)",
+        "Verify on-device that no financial/PII screen is visible in the multitasking snapshot",
+        "General pasteboard items copied from sensitive screens are marked local-only/expiring (or cleared on background), consistent with the existing `SecurePasteboard` pattern",
+        "Add a test or documented manual QA step for the snapshot behavior"
+      ],
+      "priority": 1107,
+      "passes": false,
+      "notes": "[P2][iOS/Security][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/Security/"
+      ]
+    },
+    {
+      "id": "US-1150",
+      "title": "Evaluate and implement certificate/public-key pinning for API + auth endpoints",
+      "description": "As a user of a financial app, I want the connection to api/functions.gradethread.com pinned, so that a CA compromise cannot MITM my tokens, receipts, and PII.",
+      "acceptanceCriteria": [
+        "Decision doc: pin public keys (with backup pins + rotation plan) vs. accept ATS-only, given the self-hosted Supabase/Coolify topology",
+        "If go: implement a `URLSessionDelegate` challenge handler pinning the leaf/intermediate public key(s) for the edge + auth hosts, with a safe fallback/kill-switch and pin-rotation runbook",
+        "Pinning is verified by tests (good pin succeeds, wrong pin fails) and does not break OAuth web sessions",
+        "KEY_ROTATION.md / SECURITY.md updated with the pin set and rotation procedure"
+      ],
+      "priority": 1108,
+      "passes": false,
+      "notes": "[P2][iOS/Security][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Networking/EdgeNetwork.swift",
+        "ios/GradeThread/Networking/SupabaseShared.swift"
+      ]
+    },
+    {
+      "id": "US-1151",
+      "title": "VoiceOver pass over hero flows (capture, details intake, paywall, grade report)",
+      "description": "As a VoiceOver user, I want the capture → catalog → grade and paywall flows fully labeled, so that I can list items and subscribe without sight — and so we can safely declare VoiceOver support in ASC.",
+      "acceptanceCriteria": [
+        "Paywall plan/credit cards expose accessible labels conveying tier, price, and selected state",
+        "Photo intake slots and the active-slot indicator (Front/Back/Tag/Detail) carry persistent accessibility labels + hints; capture controls are reachable",
+        "Details intake form sections are labeled so rotor navigation announces section purpose",
+        "Grade report ring/score and decorative seals are correctly labeled vs. hidden (no redundant announcements)",
+        "A documented VoiceOver test pass over these flows is recorded; once verified, VoiceOver is declared on the ASC accessibility labels (per APP_STORE_SUBMISSION.md §8)"
+      ],
+      "priority": 1109,
+      "passes": false,
+      "notes": "[P2][iOS/Accessibility][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Capture/PhotoIntakeView.swift",
+        "ios/GradeThread/DetailsIntake/DetailsIntakeView.swift",
+        "ios/GradeThread/Billing/PaywallView.swift",
+        "ios/GradeThread/Grading/GradeScoreRing.swift"
+      ]
+    },
+    {
+      "id": "US-1152",
+      "title": "Dynamic Type: replace fixed font sizes and audit large-text layouts",
+      "description": "As a user with large text enabled, I want icons and text to scale and not overflow, so that the app is usable at accessibility text sizes.",
+      "acceptanceCriteria": [
+        "Replace hardcoded `.font(.system(size:))` icon/text sizes in the audited views with `@ScaledMetric` or relative text styles (Publish dialog, AutoLister queue, capture slot thumbnail, reconciliation empty state, onboarding)",
+        "Audit hero + revenue flows at AX5 / largest accessibility size for clipping, truncation, and overlap; fix breakages",
+        "Add/extend the existing accessibility tests to assert key labels remain visible/layout-stable under increased content size category"
+      ],
+      "priority": 1110,
+      "passes": false,
+      "notes": "[P2][iOS/Accessibility][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Capture/SlotThumbnail.swift",
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/AutoLister/AutoListerQueueView.swift",
+        "ios/GradeThread/Onboarding/OnboardingView.swift"
+      ]
+    },
+    {
+      "id": "US-1153",
+      "title": "Critical-flow UI tests wired into CI (SIWA sign-in, paywall/StoreKit, capture→grade→list)",
+      "description": "As the team, I want automated UI coverage of the revenue- and trust-critical flows, so that a regression in sign-in, purchase, or capture→grade→list is caught before submission.",
+      "acceptanceCriteria": [
+        "UI tests assert (not just screenshot) the core journeys: Sign in with Apple/email sign-in, paywall purchase via a StoreKit test configuration (.storekit file), and capture → AI extract → grade → draft listing",
+        "A UI-test phase runs in CI on PRs (ios-ci.yml currently runs unit tests only; UITests are not executed in CI)",
+        "Tests use launch arguments/mocks so they are hermetic (no live network/StoreKit/App Store Connect calls)",
+        "Flows that currently have zero end-to-end coverage are enumerated and at least the three above are covered"
+      ],
+      "priority": 1111,
+      "passes": false,
+      "notes": "[P1][iOS/Testing][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThreadUITests/",
+        "ios/GradeThread/Billing/StoreKitService.swift",
+        ".github/workflows/ios-ci.yml"
+      ]
+    },
+    {
+      "id": "US-1154",
+      "title": "Launch-performance and memory-leak baselines + snapshot regression for key screens",
+      "description": "As the team, I want automated performance/leak/visual baselines, so that launch-time, memory, and layout regressions are detected early.",
+      "acceptanceCriteria": [
+        "Add an XCTest launch-performance measurement (XCTApplicationLaunchMetric) with a tracked baseline",
+        "Add memory-leak assertions for the heavy stores/services (e.g., SyncEngine, image caches) using teardown leak checks",
+        "Add snapshot/visual-regression coverage for Home dashboard, Inventory list, Item canvas, and Grade report beyond the existing widget snapshots",
+        "These run in a dedicated (non-PR-blocking) CI lane to keep PR CI fast"
+      ],
+      "priority": 1112,
+      "passes": false,
+      "notes": "[P3][iOS/Testing][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThreadTests/",
+        "ios/GradeThreadUITests/",
+        ".github/workflows/"
+      ]
+    },
+    {
+      "id": "US-1155",
+      "title": "Localization foundation: String Catalog, wrapped strings, locale-aware formatting",
+      "description": "As an international user, I want UI text, dates, and currency to respect my locale, so that the app is ready for localization beyond English-only.",
+      "acceptanceCriteria": [
+        "Add a `Localizable.xcstrings` String Catalog and wire `SWIFT_EMIT_LOC_STRINGS` extraction (currently YES but zero `String(localized:)` usage and no catalog → strings are English-only in the binary)",
+        "Migrate user-facing strings (~670 hardcoded `Text(\"…\")` literals) to localizable form, starting with hero + revenue + settings flows; add a lint/CI guard discouraging new bare string literals in those areas",
+        "Dates displayed in the UI use locale-aware `Date.FormatStyle` (not raw ISO8601); currency uses `.formatted(.currency(code:))` with no hardcoded \"$\" literals",
+        "Pseudolocalization / longest-language smoke check passes without major clipping"
+      ],
+      "priority": 1113,
+      "passes": false,
+      "notes": "[P2][iOS/Localization][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/project.yml",
+        "ios/GradeThread/"
+      ]
+    },
+    {
+      "id": "US-1156",
+      "title": "Deep-link and Universal Links hardening + AASA validation in CI",
+      "description": "As a user tapping notifications, widgets, and links, I want deep links to route reliably and safely, so that links never crash, misroute, or get hijacked.",
+      "acceptanceCriteria": [
+        "`onOpenURL` handling is rate-limited/debounced and robust to malformed payloads (invalid UUIDs, unknown routes) without ANR or memory growth",
+        "Deep links arriving during the auth flow (sign-in sheet on screen) are queued and routed after authentication rather than dropped",
+        "Add a CI/monitoring check that the `.well-known/apple-app-site-association` for `applinks:gradethread.com` is served correctly (matches the entitlement)",
+        "Tests cover push-tap → route, widget-tap → route, and malformed-link rejection"
+      ],
+      "priority": 1114,
+      "passes": false,
+      "notes": "[P2][iOS/Lifecycle][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/GradeThread.entitlements",
+        "ios/GradeThread/Notifications/NotificationDelegate.swift"
+      ]
+    },
+    {
+      "id": "US-1157",
+      "title": "Verify iPad multi-window and scene state restoration",
+      "description": "As an iPad user, I want multiple windows to restore their state, so that the multi-scene support (UIApplicationSupportsMultipleScenes=YES) actually works across window teardown.",
+      "acceptanceCriteria": [
+        "Define/verify per-scene state restoration (NSUserActivity / scene storage) so a window restores its navigation + selected item after teardown or app relaunch",
+        "Open two windows (e.g., Inventory + Item canvas), close one, and confirm the other retains state",
+        "Confirm split-view ↔ Slide Over / Stage Manager transitions do not lose selection or crash",
+        "Document or test the multi-window behavior so it can be declared/QA-signed for release"
+      ],
+      "priority": 1115,
+      "passes": false,
+      "notes": "[P2][iOS/iPad][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/App.swift",
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/Info.plist"
+      ]
+    },
+    {
+      "id": "US-1158",
+      "title": "Global offline banner, cold-launch-while-offline handling, and grading-poll timeout",
+      "description": "As a user with a flaky connection, I want a clear offline indicator and no stuck screens, so that launching offline or losing network never strands me.",
+      "acceptanceCriteria": [
+        "A persistent, app-level offline banner appears when the network is unavailable (today OfflineNotice is per-action, not global)",
+        "Cold launch while offline reaches an interactive cached UI quickly instead of blocking on a sync timeout / stuck splash",
+        "Grading poll has a hard timeout that transitions to a clear, retryable error instead of staying `.processing` indefinitely",
+        "Destructive/queued-while-offline actions give consistent feedback (toast/haptic) about being queued"
+      ],
+      "priority": 1116,
+      "passes": false,
+      "notes": "[P2][iOS/UX][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/Components/OfflineNotice.swift",
+        "ios/GradeThread/Grading/GradeRequestStore.swift"
+      ]
+    },
+    {
+      "id": "US-1159",
+      "title": "Background-task expiration, push-token registration retry, and push-tap routing tests",
+      "description": "As a user, I want reliable background refresh and push delivery, so that my device stays registered and notifications open the right screen.",
+      "acceptanceCriteria": [
+        "BGTask handler reliably calls `setTaskCompleted` before the budget expires and reschedules; add a test for the expiration path",
+        "Push-token registration retries on transient failure (e.g., 5xx during first sign-in) so a device is not left unreachable; add a test for failure-then-retry",
+        "A push tap routes to the correct destination (e.g., sale → that item canvas); add a tap→route test, including app-backgrounded and mid-auth cases",
+        "Malformed/unknown push payloads are handled without crashing"
+      ],
+      "priority": 1117,
+      "passes": false,
+      "notes": "[P2][iOS/Push][EPIC: iOS Production Readiness 2026-06-21]",
+      "relevantPaths": [
+        "ios/GradeThread/Background/BackgroundRefreshService.swift",
+        "ios/GradeThread/Notifications/PushService.swift",
+        "ios/GradeThread/Notifications/NotificationDelegate.swift"
       ]
     }
   ]
