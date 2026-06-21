@@ -3337,7 +3337,7 @@
         "Checklist is dismissible and tracks completion per step; build + tsc + eslint clean"
       ],
       "priority": 1085,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Web/Activation][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Web has OnboardingFlow modal + FlipDesk-only checklist (components/flipdesk/flipdesk-onboarding.tsx, mounted in dashboard-layout.tsx) but no app-wide activation checklist; iOS has ActivationChecklist.swift (US-647) and OnboardingPlanStepView. signup.tsx doesn't capture use_case. Mirrors done US-742/US-747 on iOS.",
       "relevantPaths": [
         "src/pages/signup.tsx",
