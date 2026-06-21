@@ -100,7 +100,7 @@ const navGroups: NavGroup[] = [
     title: "Grading",
     items: [
       { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
-      { to: "/dashboard/snap", icon: Camera, label: "What's it worth?", end: false },
+      { to: "/dashboard/snap", icon: Camera, label: "Snap to Value", end: false },
       { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
       // Inventory consolidated into the FlipDesk section (US-740) — no duplicate
       // here; the single canonical inventory lives under FlipDesk.

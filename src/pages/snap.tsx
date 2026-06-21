@@ -53,7 +53,7 @@ export function SnapToValuePage() {
     <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="space-y-1">
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Sparkles className="h-6 w-6 text-brand-red-text" /> What's it worth?
+          <Sparkles className="h-6 w-6 text-brand-red-text" /> Snap to Value
         </h1>
         <p className="text-muted-foreground">
           Snap a photo of any garment and get an instant AI condition grade plus a
@@ -111,7 +111,7 @@ export function SnapToValuePage() {
 
           <Button className="w-full" onClick={valueIt} disabled={!dataUri || snap.isPending}>
             {snap.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-            What's it worth?
+            Get my value
           </Button>
         </CardContent>
       </Card>
