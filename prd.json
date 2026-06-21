@@ -3394,7 +3394,7 @@
         "No PII leaked for pseudonymous nodes; existing privacy/retention model preserved; deno check/lint/test + web build clean"
       ],
       "priority": 1082,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport/Trust][EPIC: Web↔iOS Gaps & Polish 2026-06-20] graded event payload carries 'certificate' (passport-write.ts ~L90-104) but passport.tsx doesn't render the link. passport-write.ts (~L62-72) never sets linked_user_id though createdByUserId is available; passport.ts (~L114-137) returns it as NULL. Small, high-leverage; connects to US-1126.",
       "relevantPaths": [
         "src/pages/passport.tsx",

@@ -3754,3 +3754,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026 12:04:21 AM
 ---
+## US-1125: Passport: render certificate cross-link + link origin node to verified grader
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026 12:27:04 AM
+---
