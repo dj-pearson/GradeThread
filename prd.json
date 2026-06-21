@@ -3915,7 +3915,7 @@
       ],
       "priority": 1111,
       "passes": false,
-      "notes": "[P1][iOS/Testing][EPIC: iOS Production Readiness 2026-06-21]",
+      "notes": "[P1][iOS/Testing][EPIC: iOS Production Readiness 2026-06-21] [PARTIAL — simulator/device-gated; scaffolding + steps in ios/IOS_PRODUCTION_READINESS_REMAINING.md]",
       "relevantPaths": [
         "ios/GradeThreadUITests/",
         "ios/GradeThread/Billing/StoreKitService.swift",
@@ -3953,7 +3953,7 @@
       ],
       "priority": 1113,
       "passes": false,
-      "notes": "[P2][iOS/Localization][EPIC: iOS Production Readiness 2026-06-21]",
+      "notes": "[P2][iOS/Localization][EPIC: iOS Production Readiness 2026-06-21] [PARTIAL — simulator/device-gated; scaffolding + steps in ios/IOS_PRODUCTION_READINESS_REMAINING.md]",
       "relevantPaths": [
         "ios/project.yml",
         "ios/GradeThread/"
@@ -3990,7 +3990,7 @@
       ],
       "priority": 1115,
       "passes": false,
-      "notes": "[P2][iOS/iPad][EPIC: iOS Production Readiness 2026-06-21]",
+      "notes": "[P2][iOS/iPad][EPIC: iOS Production Readiness 2026-06-21] [PARTIAL — simulator/device-gated; scaffolding + steps in ios/IOS_PRODUCTION_READINESS_REMAINING.md]",
       "relevantPaths": [
         "ios/GradeThread/App.swift",
         "ios/GradeThread/ContentView.swift",

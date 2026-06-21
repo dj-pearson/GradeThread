@@ -1,0 +1,97 @@
+# iOS Production Readiness — Remaining (simulator/device-gated)
+
+The 2026-06-21 production-readiness epic (US-1142…US-1159) is complete except the
+three stories below. They are **not** abandoned — they're blocked on a macOS
+toolchain (Xcode build + simulator/device + iterative UI runs) that the headless
+Linux dev environment doesn't have. Writing them blind risks breaking the build
+or shipping non-functional infra, so they're scoped here with concrete steps to
+finish on a Mac. Everything else in the epic shipped with unit tests.
+
+---
+
+## US-1153 — Critical-flow UI tests in CI
+
+**Done here (safe artifacts):**
+- `ios/GradeThread.storekit` — a StoreKit Testing configuration with all 6
+  subscriptions + 4 consumable credit packs (IDs match
+  `APP_STORE_SUBMISSION.md` and the server map). Lets the paywall purchase flow
+  run hermetically in a UI test with no App Store Connect round-trip.
+
+**To finish on a Mac:**
+1. In the `GradeThread` scheme → Run/Test → Options, set **StoreKit
+   Configuration** to `GradeThread.storekit` (or set it per UI-test plan).
+2. Add UI tests to the existing `GradeThreadUITests` target for the three
+   critical journeys, driven by launch arguments so they're hermetic:
+   - **Sign in** (email + Sign in with Apple button presence/route),
+   - **Paywall purchase** against the `.storekit` config (tap a plan → assert the
+     entitlement/Current state),
+   - **Capture → grade → draft** (use a `--uitest-mock-grading` launch arg to
+     stub the grading network so the flow is deterministic).
+   Add accessibility identifiers to the key controls as you go (the a11y labels
+   from US-1151 help, but stable `accessibilityIdentifier`s are better selectors).
+3. Wire a **UI-test phase** into `.github/workflows/ios-ci.yml` (a separate job
+   from the fast unit lane, on a macOS runner with a booted simulator):
+   `xcodebuild test -scheme GradeThread -testPlan UITests -destination 'platform=iOS Simulator,name=iPhone 16'`.
+   Keep it off the PR-blocking path until it's stable, then promote.
+4. Iterate selectors/timing on the simulator until green.
+
+---
+
+## US-1155 — Localization foundation
+
+**Why blind is risky:** adding a `Localizable.xcstrings` String Catalog requires
+wiring it into `ios/project.yml` `resources:` and letting Xcode's build phase
+process it; a misconfigured path or catalog fails the build, which can't be
+caught without compiling. Migrating ~670 `Text("…")` literals is high-volume and
+each is a potential build/runtime regression.
+
+**To finish on a Mac:**
+1. `File → New → String Catalog` → `Localizable.xcstrings` under
+   `GradeThread/Resources/`; add it to `project.yml` `targets.GradeThread.resources`.
+   `SWIFT_EMIT_LOC_STRINGS` is already `YES`, so build-time extraction populates it.
+2. Migrate user-facing strings to `String(localized:)` / `LocalizedStringKey`
+   **in priority order**: paywall + billing → settings → onboarding → capture/
+   intake → the rest. Verify each screen builds + renders after migration.
+3. Replace hardcoded currency/date literals with locale-aware formatting
+   (`.formatted(.currency(code:))`, `Date.FormatStyle` with `.locale`); audit
+   `ISO8601DateFormatter` *display* uses (wire formats stay ISO).
+4. Add a lint guard (e.g. a script in CI) that flags **new** bare `Text("literal")`
+   in the migrated directories, allow-listing the not-yet-migrated ones so it
+   doesn't fail on the backlog.
+5. Pseudolocalization run (Scheme → Options → App Language → "Double-Length
+   Pseudolanguage") to catch clipping before adding real locales.
+
+---
+
+## US-1157 — iPad multi-window & scene state restoration
+
+**Status:** multi-scene is already enabled (`UIApplicationSupportsMultipleScenes:
+true`, `NavigationSplitView` three-column on regular width). The gap is verified
+**per-scene state restoration** across window teardown, which needs a simulator
+(or Stage Manager-capable iPad) to exercise.
+
+**To finish on a Mac:**
+1. Add `@SceneStorage` to the shell's navigation state (selected tab in
+   `AppRouter`/`MainShell`, selected inventory item) so each window restores its
+   own state on relaunch/teardown. `@SceneStorage` is per-scene and value-based —
+   low-risk, no UIKit `SceneDelegate` needed.
+2. For richer hand-off, attach an `NSUserActivity` to the detail routes and
+   restore from it in `onContinueUserActivity`.
+3. **Verify on simulator/Stage Manager:** open Inventory in window 1, drag out
+   window 2 to an Item canvas, close window 1, confirm window 2 keeps its state;
+   confirm split-view ↔ Slide Over transitions don't lose selection or crash.
+4. Add a UI test in the (US-1153) lane that backgrounds + relaunches a scene and
+   asserts the restored tab/selection.
+
+---
+
+## What shipped (for context)
+
+US-1142 (silent saves), US-1143 (SwiftData versioning), US-1144 (StoreKit
+listener), US-1145 (429 retry), US-1146 (token refresh + uploads), US-1147 (sync
+shutdown + stuck mutations), US-1148 (telemetry), US-1149 (privacy-cover snapshot
+race), US-1150 (cert-pinning decision: no-go), US-1151 (VoiceOver labels), US-1152
+(Dynamic Type), US-1154 (memory-leak checks), US-1156 (deep-link hardening),
+US-1158 (offline indicator), US-1159 (BGTask/push tests) — all with unit tests,
+pending one **iOS CI run** to confirm compilation/green (authored on Linux, no
+local Swift toolchain).
