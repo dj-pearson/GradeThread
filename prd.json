@@ -3357,7 +3357,7 @@
         "Tenant-scoped; deno check/lint/test pass"
       ],
       "priority": 1084,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][FlipDesk/Money][EPIC: Web↔iOS Gaps & Polish 2026-06-20] flipdesk-reconciliation.ts matches payout_imports↔sales accurately, but consignor_pnl computes from estimates and never back-fills consignor_payouts.payout_reference. Pairs with US-1112.",
       "relevantPaths": [
         "services/edge-functions/src/routes/flipdesk-reconciliation.ts",
