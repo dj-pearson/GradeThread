@@ -3630,7 +3630,7 @@
         "build + tsc + eslint clean"
       ],
       "priority": 1054,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Web/Copy][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Same feature is named inconsistently: SnapToValuePage, sidebar 'What's it worth?' (sidebar.tsx ~L84), marketing /whats-it-worth, comment 'Snap-to-Value' in new-submission.tsx.",
       "relevantPaths": [
         "src/pages/snap.tsx",

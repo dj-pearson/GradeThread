@@ -3798,3 +3798,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:52:04 AM
 ---
+## US-1138: Web: unify feature naming ('Snap to Value' vs 'What's it worth?')
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:56:20 AM
+---
