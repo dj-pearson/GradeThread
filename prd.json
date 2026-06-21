@@ -4349,8 +4349,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1174,
-      "passes": false,
-      "notes": "[P2][iOS/UX][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] FriendlyErrorCopy exists but is used in only a couple of stores; raw DB errors leak elsewhere.",
+      "passes": true,
+      "notes": "[P2][iOS/UX][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] FriendlyErrorCopy exists but is used in only a couple of stores; raw DB errors leak elsewhere. IMPLEMENTED 2026-06-21: wrapped raw error.localizedDescription in FriendlyErrorCopy.actionMessage across QuickPriceSheet, PayoutReconciliationView, CommunityInsightsStore, ExpenseStore (load/save/delete), RepricingRulesStore (load/save/delete), BulkActionExecutor (delete/move). Support composer now keeps the sheet open on failure with an inline error section (clears on cancel) instead of dismissing and discarding the draft. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Inventory/QuickPriceSheet.swift",
         "ios/GradeThread/Money/PayoutReconciliationView.swift",

@@ -51,7 +51,8 @@ final class CommunityInsightsStore {
             let data = try decoder.decode(CommunityBenchmarks.self, from: response.data)
             phase = .ready(data)
         } catch {
-            phase = .failed(error.localizedDescription)
+            // US-1174: friendly copy instead of a raw decode/network error.
+            phase = .failed(FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't load insights. Please try again."))
         }
     }
 }

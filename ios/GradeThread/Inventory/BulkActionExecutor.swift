@@ -75,7 +75,8 @@ public struct BulkActionExecutor {
                 .execute()
             return nil
         } catch {
-            return error.localizedDescription
+            // US-1174: friendly copy instead of a raw delete error.
+            return FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't delete the item. Please try again.")
         }
     }
 
@@ -105,7 +106,7 @@ public struct BulkActionExecutor {
             // Revert the optimistic write on failure.
             item.status = move.from
             item.updatedAt = priorUpdatedAt
-            return error.localizedDescription
+            return FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't move the item. Please try again.")
         }
     }
 

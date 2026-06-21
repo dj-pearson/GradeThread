@@ -50,7 +50,8 @@ final class ExpenseStore {
                 .execute()
             phase = .ready(Self.decodeResiliently(response.data))
         } catch {
-            phase = .failed(error.localizedDescription)
+            // US-1174: friendly copy instead of a raw Supabase error.
+            phase = .failed(FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't load expenses. Please try again."))
         }
     }
 
@@ -114,7 +115,7 @@ final class ExpenseStore {
         } catch {
             // US-982: queue genuine connectivity failures; surface real rejections.
             guard OfflineMutationQueue.shouldQueue(error) else {
-                return .failed(error.localizedDescription)
+                return .failed(FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't save the expense. Please try again."))
             }
             _ = OfflineMutationQueue.enqueueCreate(
                 kind: .createExpense, payload: row, in: queueContext
@@ -139,7 +140,7 @@ final class ExpenseStore {
             return .saved
         } catch {
             guard OfflineMutationQueue.shouldQueue(error) else {
-                return .failed(error.localizedDescription)
+                return .failed(FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't delete the expense. Please try again."))
             }
             OfflineMutationQueue.enqueueDelete(
                 kind: .deleteExpense, targetId: id, in: queueContext

@@ -74,7 +74,8 @@ struct QuickPriceSheet: View {
             HapticFeedback.success()
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            // US-1174: friendly copy instead of a raw PostgREST/Supabase error.
+            errorMessage = FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't update the price. Please try again.")
             HapticFeedback.error()
         }
     }

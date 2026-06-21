@@ -107,7 +107,8 @@ struct PayoutReconciliationView: View {
             }
             Task { await store.importCsv(text) }
         case .failure(let error):
-            store.actionError = error.localizedDescription
+            // US-1174: friendly copy instead of a raw file-import error.
+            store.actionError = FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't read that file. Please try again.")
         }
     }
 
