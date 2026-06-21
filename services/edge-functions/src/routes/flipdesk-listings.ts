@@ -329,8 +329,11 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
 
       // US-1095: a NEW listing for a passport-linked item CONTINUES the chain —
       // append a 'listed' event to the same garment (no new garment created;
-      // tenant-scoped via the item's owner). Best-effort, never blocks the push.
-      void recordRelist(draft.inventory_item_id, ownerId, platform);
+      // tenant-scoped via the item's owner). US-1124: awaited (not fire-and-forget)
+      // so the 'listed' event is reliably persisted before the response returns —
+      // the next buyer's passport claim then includes this relist. recordRelist is
+      // best-effort internally (never throws), so awaiting can't fail the push.
+      await recordRelist(draft.inventory_item_id, ownerId, platform);
     }
 
     // US-725: pre-flight the mapped sibling against the platform's requirements

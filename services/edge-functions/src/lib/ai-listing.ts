@@ -38,6 +38,7 @@ import {
 } from "./ebay-client.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { ensurePassportForGradeReport } from "./passport-write.ts";
 import { sourcesFor } from "./aspect-provenance.ts";
 import {
   type AspectReviewEntry,
@@ -1178,6 +1179,12 @@ export async function generateListing(
   let listingDescription = applyMeasurementsBlock(listing.description, measurements);
   let conditionDescription = listing.condition_description;
   if (gradeReportId) {
+    // US-1124: guarantee the passport exists BEFORE we read garment_id — closes
+    // the race/failure window where the grading pipeline's seed didn't persist
+    // (createSingleHopPassport returned null). Idempotent + best-effort, so a
+    // healthy report is a cheap garment_id re-read and a failure just omits the
+    // passport link (the listing still builds).
+    await ensurePassportForGradeReport(gradeReportId);
     const { data: report } = await supabaseAdmin
       .from("grade_reports")
       .select(

@@ -127,6 +127,111 @@ export async function createSingleHopPassport(
 }
 
 /**
+ * US-1124: guarantee a grade_report has its single-hop passport, seeding it from
+ * the report + its submission if missing. Idempotent (returns the existing
+ * garment_id when already linked) and best-effort (never throws). This is the
+ * self-heal primitive: it closes the race/failure window where the grading
+ * pipeline's synchronous seed didn't persist a garment_id before a downstream
+ * consumer (listing builder, certificate, repair cron) reads it.
+ *
+ * Only certificated reports get a passport (mirrors the 00257 backfill filter).
+ * Tenant-safe: created_by is derived from the report's own submission.user_id —
+ * never from a caller-supplied id.
+ */
+export async function ensurePassportForGradeReport(
+  gradeReportId: string,
+): Promise<string | null> {
+  try {
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select(
+        "garment_id, submission_id, overall_score, grade_tier, confidence_score, certificate_id",
+      )
+      .eq("id", gradeReportId)
+      .maybeSingle();
+    if (!report) return null;
+    const r = report as {
+      garment_id: string | null;
+      submission_id: string | null;
+      overall_score: number | null;
+      grade_tier: string | null;
+      confidence_score: number | null;
+      certificate_id: string | null;
+    };
+    // Already linked — nothing to do (the common, fast path).
+    if (r.garment_id) return r.garment_id;
+    // No certificate (or orphaned report) → never gets a passport.
+    if (!r.certificate_id || !r.submission_id) return null;
+
+    const { data: submission } = await supabaseAdmin
+      .from("submissions")
+      .select("user_id, brand, garment_type, garment_category")
+      .eq("id", r.submission_id)
+      .maybeSingle();
+    if (!submission) return null;
+    const s = submission as {
+      user_id: string | null;
+      brand: string | null;
+      garment_type: string | null;
+      garment_category: string | null;
+    };
+    if (!s.user_id) return null;
+
+    // createSingleHopPassport re-checks garment_id under the hood, so a concurrent
+    // seed loses the race harmlessly (the second call returns the first's id).
+    return await createSingleHopPassport({
+      gradeReportId,
+      createdByUserId: s.user_id,
+      skuClass: {
+        brand: s.brand ?? undefined,
+        garment_type: s.garment_type,
+        category: s.garment_category,
+      },
+      overallScore: Number(r.overall_score ?? 0),
+      gradeTier: String(r.grade_tier ?? ""),
+      confidenceScore: Number(r.confidence_score ?? 0),
+      certificateId: r.certificate_id,
+    });
+  } catch (e) {
+    console.error(
+      "[passport-write] ensurePassportForGradeReport failed:",
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  }
+}
+
+/**
+ * US-1124: repair path for certificated grade_reports left with a NULL
+ * garment_id by the live-seed race/failure window (the migration backfill only
+ * runs once at deploy). Newest-first, bounded; reuses the idempotent
+ * ensurePassportForGradeReport per row. Best-effort; returns scan/repair counts.
+ */
+export async function repairMissingPassports(limit = 200): Promise<{
+  scanned: number;
+  repaired: number;
+}> {
+  const { data: rows, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id")
+    .not("certificate_id", "is", null)
+    .is("garment_id", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[passport-write] repairMissingPassports query failed:", error.message);
+    return { scanned: 0, repaired: 0 };
+  }
+  const ids = ((rows ?? []) as Array<{ id: string }>).map((row) => row.id);
+  let repaired = 0;
+  for (const id of ids) {
+    const garmentId = await ensurePassportForGradeReport(id);
+    if (garmentId) repaired++;
+  }
+  return { scanned: ids.length, repaired };
+}
+
+/**
  * US-1097: store the per-grade visual fingerprint for a garment. Reuses the
  * phash already computed + stored on submission_images (the hardened server-side
  * dHash — no image re-fetch) plus the structured defect map. Idempotent (one

@@ -123,6 +123,7 @@ import { handleNewsletterAbFinalizeCron } from "./routes/jobs-newsletter-ab.ts";
 import { handleNewsletterDispatchCron } from "./routes/jobs-newsletter-dispatch.ts";
 import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
+import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleContentWatchdogCron } from "./routes/jobs-content-watchdog.ts";
@@ -1070,6 +1071,10 @@ app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
 // token-replay anomalies. Idempotent (dedupe_key); the handler enforces
 // X-Internal-Job-Secret itself.
 app.post("/api/jobs/passport-integrity-scan", (c) => handlePassportIntegrityScanCron(c));
+// US-1124 Garment Passport backfill/repair — seed single-hop passports for any
+// certificated grade_report left with a NULL garment_id by the live-seed race
+// window. Idempotent; the handler enforces X-Internal-Job-Secret itself.
+app.post("/api/jobs/passport-backfill", (c) => handlePassportBackfillCron(c));
 // US-905 scheduled audit-log anomaly scan (role-change bursts, mass refunds,
 // off-hours destructive actions). Thresholds in the settings registry; raises
 // an ops alert + admin_audit_anomalies finding. Enforces the job secret itself.

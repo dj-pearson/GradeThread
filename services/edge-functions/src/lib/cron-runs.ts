@@ -94,6 +94,8 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-926: weekly dispatch — assign send windows + release due issues (cadence guard + send-time optimization). Hourly so STO can stagger.
   { name: "newsletter-dispatch", label: "Newsletter weekly dispatch", schedule: "0 * * * *", category: "growth", endpoint: "/api/jobs/newsletter-dispatch", recorded: true },
   { name: "abuse-scan", label: "Abuse-signal scan", schedule: "0 */6 * * *", category: "safety", endpoint: "/api/jobs/abuse-scan", recorded: true },
+  // US-1124: Garment Passport backfill/repair — seed passports for grade_reports left NULL by the live-seed race window.
+  { name: "passport-backfill", label: "Garment Passport backfill", schedule: "*/15 * * * *", category: "maintenance", endpoint: "/api/jobs/passport-backfill", recorded: true },
   { name: "listing-prompt-promote", label: "Listing-prompt auto-promote", schedule: "0 9 * * *", category: "grading", endpoint: "/api/jobs/listing-prompt-promote", recorded: true },
   { name: "ebay-pending-webhooks", label: "eBay parked-webhook drain", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/ebay-pending-webhooks", recorded: true },
   { name: "gsc-sync", label: "Search Console sync", schedule: "30 6 * * *", category: "seo", endpoint: "/api/jobs/gsc-sync", recorded: true },
