@@ -40,17 +40,11 @@ enum ModelStoreProvider {
     }
 
     /// Canonical schema for the offline cache. Single source of truth so the
-    /// app launch path and recovery build the identical model graph.
+    /// app launch path and recovery build the identical model graph. Derived
+    /// from the current ``VersionedSchema`` (US-1143) so the schema and the
+    /// migration plan can never drift apart.
     static var schema: Schema {
-        Schema([
-            LocalInventoryItem.self,
-            LocalItemPhoto.self,
-            LocalListing.self,
-            LocalSale.self,
-            LocalExpense.self,
-            LocalSource.self,
-            LocalPendingMutation.self,
-        ])
+        Schema(versionedSchema: GradeThreadSchema.current)
     }
 
     /// Explicit on-disk store location. We name the store ourselves (rather than
@@ -110,7 +104,11 @@ enum ModelStoreProvider {
             url: url,
             cloudKitDatabase: .none
         )
-        return try ModelContainer(for: schema, configurations: configuration)
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: GradeThreadMigrationPlan.self,
+            configurations: configuration
+        )
     }
 
     private static func makeInMemory() throws -> ModelContainer {
@@ -119,7 +117,11 @@ enum ModelStoreProvider {
             isStoredInMemoryOnly: true,
             cloudKitDatabase: .none
         )
-        return try ModelContainer(for: schema, configurations: configuration)
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: GradeThreadMigrationPlan.self,
+            configurations: configuration
+        )
     }
 
     /// Deletes the SQLite store plus its sidecar files. SwiftData (Core Data

@@ -102,9 +102,9 @@ struct GradeThreadApp: App {
     /// cache won't survive the next launch), so it gets a distinct message.
     private var storeResetMessage: String {
         if storeOutcome.isInMemoryFallback {
-            return "We couldn't repair this device's offline cache, so GradeThread is running without one for now. Your account and data on our servers are safe and will sync back in. Restarting the app may restore offline storage."
+            return "We couldn't repair this device's offline cache, so GradeThread is running without one for now. Your account and data on our servers are safe and will sync back in. Any changes you made while offline and hadn't synced yet may be lost. Restarting the app may restore offline storage."
         }
-        return "GradeThread's offline cache was damaged and had to be cleared. Your account and data on our servers are safe — they'll sync back to this device automatically."
+        return "GradeThread's offline cache was damaged and had to be cleared. Your account and data on our servers are safe — they'll sync back to this device automatically. Any changes you made while offline and hadn't synced yet may be lost."
     }
 }
 

@@ -3722,7 +3722,7 @@
         "Test: opening a store written by the previous schema version migrates without data loss; an intentionally incompatible store triggers controlled recovery, not a launch crash"
       ],
       "priority": 1101,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Data Integrity][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Persistence/ModelStoreProvider.swift",
