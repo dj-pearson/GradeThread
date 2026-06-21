@@ -3933,7 +3933,7 @@
         "These run in a dedicated (non-PR-blocking) CI lane to keep PR CI fast"
       ],
       "priority": 1112,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Testing][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThreadTests/",
