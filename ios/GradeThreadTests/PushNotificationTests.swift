@@ -158,6 +158,135 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertEqual(DeepLinkRoute.from(category: "listing.ended", userInfo: [:]), .inventoryTab)
     }
 
+    // MARK: - US-1133 inline notification actions
+
+    func test_actionID_rawValues_pinnedToWireStrings() {
+        // The action identifier is matched against `response.actionIdentifier`;
+        // renaming breaks the button on installed apps.
+        XCTAssertEqual(NotificationActionID.acceptOffer.rawValue, "offer.accept")
+        XCTAssertEqual(NotificationActionID.counterOffer.rawValue, "offer.counter")
+        XCTAssertEqual(NotificationActionID.markShipped.rawValue, "order.mark_shipped")
+        XCTAssertEqual(NotificationActionID.reconnectEbay.rawValue, "ebay.reconnect")
+    }
+
+    func test_actionID_textInput_onlyCounterAndShip() {
+        XCTAssertNotNil(NotificationActionID.counterOffer.textInput)
+        XCTAssertNotNil(NotificationActionID.markShipped.textInput)
+        XCTAssertNil(NotificationActionID.acceptOffer.textInput)
+        XCTAssertNil(NotificationActionID.reconnectEbay.textInput)
+    }
+
+    func test_actionID_reconnect_isForeground() {
+        // OAuth needs the app foregrounded; the others act headlessly.
+        XCTAssertTrue(NotificationActionID.reconnectEbay.options.contains(.foreground))
+        XCTAssertFalse(NotificationActionID.acceptOffer.options.contains(.foreground))
+        XCTAssertFalse(NotificationActionID.markShipped.options.contains(.foreground))
+    }
+
+    func test_category_actions_onlyLiveCategoriesGetButtons() {
+        XCTAssertEqual(NotificationCategoryID.offerReceived.actions, [.acceptOffer, .counterOffer])
+        XCTAssertEqual(NotificationCategoryID.saleCreated.actions, [.markShipped])
+        XCTAssertEqual(NotificationCategoryID.tokenExpiring.actions, [.reconnectEbay])
+    }
+
+    func test_category_actions_unsentCategoriesHaveNoButtons() {
+        // AC: actions are hidden where the backend send isn't live yet.
+        for id in [NotificationCategoryID.gradeReady, .messageReceived,
+                   .listingEnded, .agingDigest, .payoutPosted,
+                   .payoutCleared, .itemReviewNeeded] {
+            XCTAssertTrue(id.actions.isEmpty, "\(id.rawValue) should have no inline actions")
+        }
+    }
+
+    // MARK: - NotificationActionPlan.from
+
+    func test_plan_unknownAction_isNone() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(actionIdentifier: "bogus", userInfo: [:], userText: nil),
+            .none)
+    }
+
+    func test_plan_reconnect_alwaysReconnects() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "ebay.reconnect", userInfo: [:], userText: nil),
+            .reconnect)
+    }
+
+    func test_plan_acceptOffer_withIds_acceptsHeadlessly() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "offer.accept",
+                userInfo: ["best_offer_id": "bo1", "inventory_item_id": "i1"],
+                userText: nil),
+            .acceptOffer(bestOfferId: "bo1", itemId: "i1"))
+    }
+
+    func test_plan_acceptOffer_missingIds_fallsBackToInbox() {
+        // Backend send doesn't carry ids yet → degrade to opening the inbox.
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "offer.accept",
+                userInfo: ["inventory_item_id": "i1"],
+                userText: nil),
+            .deepLink(.negotiationInbox(filterItemId: "i1")))
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "offer.accept", userInfo: [:], userText: nil),
+            .deepLink(.negotiationInbox(filterItemId: nil)))
+    }
+
+    func test_plan_counterOffer_parsesTypedPrice() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "offer.counter",
+                userInfo: ["best_offer_id": "bo1", "inventory_item_id": "i1"],
+                userText: "$42.50"),
+            .counterOffer(bestOfferId: "bo1", itemId: "i1", price: 42.5))
+    }
+
+    func test_plan_counterOffer_noPrice_fallsBackToInbox() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "offer.counter",
+                userInfo: ["best_offer_id": "bo1", "inventory_item_id": "i1"],
+                userText: "   "),
+            .deepLink(.negotiationInbox(filterItemId: "i1")))
+    }
+
+    func test_plan_markShipped_withSaleId_andTracking() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "order.mark_shipped",
+                userInfo: ["sale_id": "s9"],
+                userText: "1Z999"),
+            .markShipped(saleId: "s9", tracking: "1Z999"))
+    }
+
+    func test_plan_markShipped_blankTracking_isNil() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "order.mark_shipped",
+                userInfo: ["sale_id": "s9"],
+                userText: "  "),
+            .markShipped(saleId: "s9", tracking: nil))
+    }
+
+    func test_plan_markShipped_missingSaleId_fallsBackToSales() {
+        XCTAssertEqual(
+            NotificationActionPlan.from(
+                actionIdentifier: "order.mark_shipped",
+                userInfo: ["inventory_item_id": "i1"],
+                userText: "1Z999"),
+            .deepLink(.salesTab(inventoryItemId: "i1")))
+    }
+
+    func test_plan_parsePrice_tolerantOfFormatting() {
+        XCTAssertEqual(NotificationActionPlan.parsePrice("$1,234.56"), 1234.56)
+        XCTAssertNil(NotificationActionPlan.parsePrice("abc"))
+        XCTAssertNil(NotificationActionPlan.parsePrice(nil))
+    }
+
     // MARK: - PushService.environmentName
 
     func test_pushService_environmentName_matchesBuildConfig() {

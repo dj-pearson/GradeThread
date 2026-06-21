@@ -69,9 +69,12 @@ public enum NotificationCategories {
     public static func registerAll() async {
         let center = UNUserNotificationCenter.current()
         let categories = NotificationCategoryID.allCases.map { id in
+            // US-1133: attach the inline action buttons each category declares.
+            // Categories whose backend send isn't live yet declare no actions,
+            // so they register with an empty button set (unchanged behavior).
             UNNotificationCategory(
                 identifier: id.rawValue,
-                actions: [],
+                actions: id.actions.map { $0.makeAction() },
                 intentIdentifiers: [],
                 options: id.options
             )

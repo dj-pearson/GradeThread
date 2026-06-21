@@ -30,14 +30,101 @@ public final class NotificationDelegate: NSObject, UNUserNotificationCenterDeleg
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let payload = response.notification.request.content
-        let route = DeepLinkRoute.from(
-            category: payload.categoryIdentifier,
-            userInfo: payload.userInfo
-        )
-        if let route {
-            DeepLinkRouter.post(route)
+        let actionId = response.actionIdentifier
+
+        // A plain tap keeps the existing deep-link behavior; the system dismiss
+        // is a no-op. Everything else is an inline action button (US-1133).
+        if actionId == UNNotificationDefaultActionIdentifier {
+            if let route = DeepLinkRoute.from(
+                category: payload.categoryIdentifier,
+                userInfo: payload.userInfo
+            ) {
+                DeepLinkRouter.post(route)
+            }
+            completionHandler()
+            return
         }
-        completionHandler()
+        if actionId == UNNotificationDismissActionIdentifier {
+            completionHandler()
+            return
+        }
+
+        let typed = (response as? UNTextInputNotificationResponse)?.userText
+        let plan = NotificationActionPlan.from(
+            actionIdentifier: actionId,
+            userInfo: payload.userInfo,
+            userText: typed
+        )
+        Self.perform(plan, completionHandler: completionHandler)
+    }
+
+    /// Executes a resolved inline-action plan (US-1133). Network actions run the
+    /// matching edge call off-main and only then signal completion so iOS keeps
+    /// the brief background window alive; ``NotificationActionPlan/deepLink(_:)``
+    /// and ``NotificationActionPlan/reconnect`` just route into the app (the
+    /// reconnect button is `.foreground`, so the OAuth UI can present).
+    static func perform(
+        _ plan: NotificationActionPlan,
+        completionHandler: @escaping () -> Void
+    ) {
+        switch plan {
+        case .reconnect:
+            DeepLinkRouter.post(.marketplacesTab)
+            completionHandler()
+        case let .deepLink(route):
+            DeepLinkRouter.post(route)
+            completionHandler()
+        case .none:
+            completionHandler()
+        case let .acceptOffer(bestOfferId, itemId):
+            runEdgeAction(label: NotificationActionID.acceptOffer.rawValue,
+                          completionHandler: completionHandler) {
+                try await NegotiationService().respond(
+                    bestOfferId: bestOfferId, itemId: itemId,
+                    action: "Accept", counterPrice: nil, message: nil)
+            }
+        case let .counterOffer(bestOfferId, itemId, price):
+            runEdgeAction(label: NotificationActionID.counterOffer.rawValue,
+                          completionHandler: completionHandler) {
+                try await NegotiationService().respond(
+                    bestOfferId: bestOfferId, itemId: itemId,
+                    action: "Counter", counterPrice: price, message: nil)
+            }
+        case let .markShipped(saleId, tracking):
+            runEdgeAction(label: NotificationActionID.markShipped.rawValue,
+                          completionHandler: completionHandler) {
+                try await FulfillmentService().markShipped(
+                    saleId: saleId, trackingNumber: tracking, shippedAt: Date())
+            }
+        }
+    }
+
+    /// Runs an async edge call for an inline action, instruments the outcome,
+    /// and signals completion regardless of success — a failed accept/ship must
+    /// never strand the system's background handler.
+    private static func runEdgeAction(
+        label: String,
+        completionHandler: @escaping () -> Void,
+        _ operation: @escaping @Sendable () async throws -> Void
+    ) {
+        Task {
+            var ok = true
+            do {
+                try await operation()
+            } catch {
+                ok = false
+            }
+            await MainActor.run {
+                Telemetry.event(
+                    "notification_action",
+                    props: ["action": label, "result": ok ? "ok" : "error"])
+                if !ok {
+                    Telemetry.breadcrumb(
+                        "notification action \(label) failed", category: "notifications")
+                }
+            }
+            completionHandler()
+        }
     }
 }
 
