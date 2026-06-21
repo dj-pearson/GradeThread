@@ -3302,7 +3302,7 @@
         "build + tsc + eslint clean"
       ],
       "priority": 1087,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Web/Conversion][EPIC: Web↔iOS Gaps & Polish 2026-06-20] submission-detail.tsx passport tag panel only when garment_id exists (~L1304); passport.tsx (~L368-389) shows timeline + guarantee + origin badge but converts nothing and the certificate link in the payload isn't rendered (see US-1125).",
       "relevantPaths": [
         "src/pages/submission-detail.tsx",
