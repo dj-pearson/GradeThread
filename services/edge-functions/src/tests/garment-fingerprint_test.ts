@@ -2,6 +2,7 @@
 // payload shape, perceptual similarity). No DB, no image decode.
 import { assert, assertEquals } from "@std/assert";
 import {
+  buildFingerprintedEventPayload,
   buildFingerprintPayload,
   fingerprintSimilarity,
   hashSimilarity,
@@ -56,6 +57,25 @@ Deno.test("buildFingerprintPayload: stable v1 shape", () => {
   assertEquals(p.phashes, { front: "0123456789abcdef" });
   assertEquals(p.defects.count, 1);
   assertEquals(p.measurements, { chest: 21 });
+});
+
+Deno.test("buildFingerprintedEventPayload: aggregate-only, PII-free (US-1137)", () => {
+  const p = buildFingerprintedEventPayload({
+    phashes: { front: "0123456789abcdef", back: "fedcba9876543210" },
+    defectCount: 3,
+    overallScore: 8.5,
+  });
+  assertEquals(p, { v: 1, photo_count: 2, defect_count: 3, wear_score: 1.5 });
+  // No hashes, images, or identity keys leak into the public-timeline payload.
+  const keys = Object.keys(p);
+  assert(!keys.some((k) => /(^|_)(id|email|user|owner|handle|name)$/i.test(k)));
+  assert(!JSON.stringify(p).includes("0123456789abcdef"));
+
+  // Empty photo set still produces a valid, count-zero payload.
+  assertEquals(
+    buildFingerprintedEventPayload({ phashes: {}, defectCount: 0, overallScore: 10 }),
+    { v: 1, photo_count: 0, defect_count: 0, wear_score: 0 },
+  );
 });
 
 Deno.test("hashSimilarity: 1 for identical, 0 for opposite", () => {

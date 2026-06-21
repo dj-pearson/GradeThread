@@ -92,6 +92,36 @@ export function phashesByType(
   return out;
 }
 
+/** PII-free payload for the 'fingerprinted' garment_event (US-1137). */
+export interface FingerprintedEventPayload {
+  v: 1;
+  /** Number of distinct photo angles that contributed a perceptual hash. */
+  photo_count: number;
+  /** Number of defects captured in the grade (aggregate count only). */
+  defect_count: number;
+  /** Wear score [0,10] at the time the fingerprint was recorded. */
+  wear_score: number;
+}
+
+/**
+ * Build the PII-free payload for the public 'fingerprinted' garment_event
+ * (US-1137). Holds ONLY aggregate counts + the wear score — never a hash, an
+ * image, or any identity key — so it surfaces safely on the public passport
+ * timeline (and survives sanitizePayload by construction). Pure.
+ */
+export function buildFingerprintedEventPayload(input: {
+  phashes: Record<string, string>;
+  defectCount: number;
+  overallScore: number;
+}): FingerprintedEventPayload {
+  return {
+    v: 1,
+    photo_count: Object.keys(input.phashes).length,
+    defect_count: input.defectCount,
+    wear_score: wearScore(input.overallScore),
+  };
+}
+
 /**
  * Best similarity between two fingerprints' shared photo types (max over the
  * angles both have). Returns { score, comparedTypes }. Pure.

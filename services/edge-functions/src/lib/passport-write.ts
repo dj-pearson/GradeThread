@@ -17,7 +17,12 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { pseudonymousLabel } from "./garment-passport.ts";
-import { buildFingerprintPayload, phashesByType, wearScore } from "./garment-fingerprint.ts";
+import {
+  buildFingerprintedEventPayload,
+  buildFingerprintPayload,
+  phashesByType,
+  wearScore,
+} from "./garment-fingerprint.ts";
 
 /** Coarse confidence bucket — mirrors public_grade_reports.confidence_label. */
 function confidenceLabel(score: number): string {
@@ -277,8 +282,61 @@ export async function storeGarmentFingerprint(input: {
     // 23505 = unique_violation (already fingerprinted this grade) → idempotent.
     if (error && error.code !== "23505") {
       console.error("[passport-write] fingerprint insert failed:", error.message);
+      return;
+    }
+    // US-1137: emit the deterministic 'fingerprinted' garment_event so the enum
+    // value is actually written by its pipeline (the fingerprint service) and the
+    // public passport timeline shows when a tamper-evident visual signature was
+    // recorded. Only on a FRESH insert (error == null) — an idempotent 23505
+    // re-run must not append a duplicate event. Payload is aggregate-only +
+    // PII-free; best-effort (a logging failure never affects the grade).
+    if (!error) {
+      await emitFingerprintedEvent(input.garmentId, {
+        phashes,
+        defectCount: input.defects.length,
+        overallScore: input.overallScore,
+      });
     }
   } catch (e) {
     console.error("[passport-write] fingerprint error:", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * US-1137: append the 'fingerprinted' event for a just-stored fingerprint. The
+ * actor is the garment's current owner node (the party whose grade produced the
+ * fingerprint). Best-effort — never throws; a passport event failure must not
+ * affect the grade. Tenant-safe: the garment id is already owner-verified by the
+ * grading pipeline that produced it; the lookup is scoped by that id.
+ */
+async function emitFingerprintedEvent(
+  garmentId: string,
+  input: { phashes: Record<string, string>; defectCount: number; overallScore: number },
+): Promise<void> {
+  try {
+    const { data: garment } = await supabaseAdmin
+      .from("garments")
+      .select("current_owner_node_id")
+      .eq("id", garmentId)
+      .maybeSingle();
+    const actorNodeId = (garment as { current_owner_node_id: string | null } | null)
+      ?.current_owner_node_id ?? null;
+
+    const { error } = await supabaseAdmin.from("garment_events").insert({
+      garment_id: garmentId,
+      event_type: "fingerprinted",
+      actor_node_id: actorNodeId,
+      payload: buildFingerprintedEventPayload(input),
+      confidence: "deterministic",
+      source: "fingerprint-service",
+    });
+    if (error) {
+      console.error("[passport-write] fingerprinted event insert failed:", error.message);
+    }
+  } catch (e) {
+    console.error(
+      "[passport-write] fingerprinted event error:",
+      e instanceof Error ? e.message : e,
+    );
   }
 }
