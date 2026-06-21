@@ -8,19 +8,26 @@ import {
   Tag,
   ShoppingBag,
   ArrowRightLeft,
+  ArrowRight,
   Fingerprint,
   Calendar,
+  Camera,
+  Store,
+  ScanLine,
   ExternalLink,
   History,
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { passportLd, breadcrumbLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
+import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { edgeApiUrl } from "@/lib/edge-api";
 import {
@@ -295,6 +302,9 @@ export function PassportPage() {
   const latestGraded = gradedEvents[gradedEvents.length - 1];
   const latestScore = latestGraded ? num(latestGraded.payload.overall_score) : null;
   const latestTier = latestGraded ? str(latestGraded.payload.grade_tier) : null;
+  // US-1120: the public certificate handle from the most recent grade — the
+  // headline proof a passport viewer can open and verify.
+  const latestCertificate = latestGraded ? str(latestGraded.payload.certificate) : null;
 
   const breadcrumbTrail = [
     { name: "GradeThread", url: `${SITE_URL}/` },
@@ -363,6 +373,25 @@ export function PassportPage() {
               </div>
             )}
           </CardContent>
+          {/* US-1120: a prominent link to the latest grade certificate — the
+              verifiable proof behind this passport. Previously the certificate
+              only appeared buried in a timeline node. */}
+          {latestCertificate && (
+            <CardContent className="border-t px-5 pb-5 pt-3">
+              <Button asChild className="w-full sm:w-auto">
+                <Link
+                  to={`/cert/${latestCertificate}`}
+                  onClick={() =>
+                    track("passport_certificate_cta_clicked", { slug: data.slug })
+                  }
+                >
+                  <BadgeCheck className="mr-1.5 h-4 w-4" />
+                  View the latest grade certificate
+                  <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </CardContent>
+          )}
           {/* US-1101: the origin seller's GradeThread Verified badge — public,
               opt-in trust that travels with the passport. */}
           {data.origin_verified_seller && (
@@ -472,6 +501,56 @@ export function PassportPage() {
             </ol>
           )}
         </section>
+
+        {/* US-1120: convert passport viewers instead of dead-ending. A buyer who
+            owns the item can claim the chain; everyone else gets a measurable,
+            dismissable path to grade their own item or sell on FlipDesk. */}
+        <div className="space-y-3">
+          <Card className="border-brand-navy/30 bg-brand-navy/5">
+            <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="rounded-md bg-brand-navy/10 p-2">
+                  <ScanLine className="h-5 w-5 text-brand-navy dark:text-foreground" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Bought this item? Claim its passport
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Enter the tag code from the seller to take ownership — the full
+                    history and the buyer guarantee follow you.
+                  </p>
+                </div>
+              </div>
+              <Button asChild className="shrink-0 bg-brand-navy text-white hover:bg-brand-navy/90">
+                <Link
+                  to="/scan"
+                  onClick={() => track("passport_claim_cta_clicked", { slug: data.slug })}
+                >
+                  Claim this passport
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <CrossSurfaceNudge
+            nudgeId="passport-grade-your-own"
+            icon={Camera}
+            title="Grade your own garment"
+            description="Get an objective 1.0–10.0 condition grade and a public passport buyers can scan and trust — in minutes."
+            cta={{ label: "Grade an item", to: "/whats-it-worth" }}
+            context={{ surface: "passport", slug: data.slug }}
+          />
+          <CrossSurfaceNudge
+            nudgeId="passport-sell-flipdesk"
+            icon={Store}
+            title="Sell it faster with FlipDesk"
+            description="List across marketplaces with the grade and passport built in — fewer “not as described” returns."
+            cta={{ label: "See FlipDesk", to: "/for-resellers" }}
+            context={{ surface: "passport", slug: data.slug }}
+          />
+        </div>
 
         <p className="border-t pt-4 text-center text-xs text-muted-foreground">
           Each entry is labeled with how certain its link in the chain is.
