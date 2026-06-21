@@ -4390,8 +4390,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1176,
-      "passes": false,
-      "notes": "[P2][iOS/Grading][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Bulk grade lacks spend-confirm + completion feedback; processing sheet not dismissible; empty-userId fallback.",
+      "passes": true,
+      "notes": "[P2][iOS/Grading][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Bulk grade lacks spend-confirm + completion feedback; processing sheet not dismissible; empty-userId fallback. IMPLEMENTED 2026-06-21: bulk spend-confirmation already existed (BulkGradeSheet showSpendConfirm) and the .done summary already reports submitted/failed — added a post-submit inventoryPullRequested so grades land sooner. Single grade sheet now only blocks dismissal during .submitting (not .processing); close button reads Continue in background while polling. PhotoIntakeView guards a nil/empty userId with a re-sign-in prompt instead of building malformed paths. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Grading/BulkGradeStore.swift",
         "ios/GradeThread/Grading/GradeRequestSheet.swift",
