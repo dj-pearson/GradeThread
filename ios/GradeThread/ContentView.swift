@@ -348,6 +348,11 @@ struct MainShell: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AppLock.self) private var appLock
     @Environment(AuthStore.self) private var authStore
+    // US-1158: injected from ContentView so the shell can reflect connectivity
+    // drops into the global status banner the instant they happen (see the
+    // `.onChange(of: networkMonitor.isConnected)` below).
+    @Environment(NetworkMonitor.self) private var networkMonitor
+    @Environment(SyncStatusStore.self) private var syncStatus
     @State private var router = AppRouter()
     /// US-749: tab-independent orphan-listing count for the shell Reconcile
     /// banner. Refreshed on appear + foreground; the full list loads on tap.
