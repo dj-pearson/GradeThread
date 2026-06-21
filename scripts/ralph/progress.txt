@@ -3790,3 +3790,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:36:48 AM
 ---
+## US-1136: iOS: native support ticket inbox + threads
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:48:39 AM
+---

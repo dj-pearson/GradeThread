@@ -3595,7 +3595,7 @@
         "Loading/empty/error states; push/notification routing to a ticket where applicable; python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1056,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Web support-tickets.tsx (full threads via edge, done US-900). iOS Settings has only FeedbackSheet + Safari link to /help — no native ticket inbox.",
       "relevantPaths": [
         "src/pages/support-tickets.tsx",
