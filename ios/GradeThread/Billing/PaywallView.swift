@@ -227,6 +227,14 @@ struct PaywallView: View {
                 Text("Yearly").tag("yearly")
             }
             .pickerStyle(.segmented)
+        } footer: {
+            // US-1177: nudge yearly. (A precise "Save N%" needs the monthly vs.
+            // yearly StoreKit prices for the same tier at runtime — see notes.)
+            if store.interval == "yearly" {
+                Text("Yearly is billed once a year — cheaper than 12 monthly payments.")
+            } else {
+                Text("Switch to Yearly to save vs. paying monthly.")
+            }
         }
     }
 
@@ -238,7 +246,17 @@ struct PaywallView: View {
                 productRow(entry)
             }
         } header: {
-            Text("Plans")
+            HStack {
+                Text("Plans")
+                // US-1177: make the current free state explicit.
+                if store.currentPlan.lowercased() == "free" {
+                    Spacer()
+                    Text("You're on Free")
+                        .font(.caption.weight(.semibold))
+                        .textCase(nil)
+                        .foregroundStyle(Color.brandNavy)
+                }
+            }
         } footer: {
             Text("Auto-renewing subscription. Your Apple ID is charged at confirmation and again at the start of each \(store.interval == "yearly" ? "year" : "month") unless you cancel at least 24 hours before the renewal date. Manage or cancel anytime in Settings › Apple ID › Subscriptions.")
         }

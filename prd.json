@@ -4410,7 +4410,7 @@
       ],
       "priority": 1177,
       "passes": false,
-      "notes": "[P2][iOS/Billing][IMPORTANT][needs ASC + device][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] ASC product setup must be reconciled before submission; .storekit has placeholder Team ID. Verification is ASC/device-gated.",
+      "notes": "[P2][iOS/Billing][IMPORTANT][needs ASC + device][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] ASC product setup must be reconciled before submission; .storekit has placeholder Team ID. Verification is ASC/device-gated. PARTIAL 2026-06-21 (paywall UI DONE; ASC config needs the account owner, passes stays false): DONE — PaywallView now shows a Youre on Free indicator on the Plans header when currentPlan==free, and a yearly-value nudge in the interval footer. DEFERRED — (1) the .storekit placeholder _developerTeamID + confirming all 6 subs/4 consumables exist & are approved in App Store Connect requires the real Team ID + ASC access (account owner); (2) a precise Save N% badge needs the monthly-vs-yearly StoreKit prices for the same tier at runtime (PaywallStore product data), not derivable here.",
       "relevantPaths": [
         "ios/GradeThread.storekit",
         "ios/GradeThread/Billing/PaywallView.swift",
