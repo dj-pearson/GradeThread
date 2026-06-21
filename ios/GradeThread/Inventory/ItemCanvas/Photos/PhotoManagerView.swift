@@ -28,148 +28,182 @@ struct PhotoManagerView: View {
     // US-1160: confirm before a swipe permanently deletes a photo + its bytes.
     @State private var pendingPhotoDelete: LocalItemPhoto?
 
+    // The body is deliberately decomposed into per-chunk computed properties /
+    // @ViewBuilder helpers. As a single expression this `List` (nested ForEach →
+    // contextMenu → nested Menu with two filtered Sections, plus three
+    // alert/dialog modifiers) blows the whole-module Release type-check budget
+    // ("unable to type-check this expression in reasonable time"). Each helper
+    // returns `some View`, so the compiler type-checks them independently.
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    ForEach(working) { photo in
-                        let isCover = working.first?.id == photo.id
-                        // Retag options ordered by this item's category profile:
-                        // the category's own roles first (with category labels),
-                        // then every other type.
-                        let profile = photoProfileStore.profile(for: item.itemCategory)
-                        let suggestedTypes = Set(profile.roles.map(\.type))
-                        PhotoManagerRow(photo: photo, isCover: isCover)
-                            .contextMenu {
-                                if !isCover {
-                                    Button {
-                                        setCover(photo)
-                                    } label: {
-                                        Label("Set as cover", systemImage: "star")
-                                    }
-                                }
-                                Button {
-                                    rotate(photo, clockwise: true)
-                                } label: {
-                                    Label("Rotate right", systemImage: "rotate.right")
-                                }
-                                Button {
-                                    rotate(photo, clockwise: false)
-                                } label: {
-                                    Label("Rotate left", systemImage: "rotate.left")
-                                }
-                                Menu {
-                                    Section("Suggested · \(profile.label)") {
-                                        ForEach(profile.roles, id: \.type) { role in
-                                            Button {
-                                                retag(photo, to: role.type)
-                                            } label: {
-                                                if role.type == photo.photoType {
-                                                    Label(role.label, systemImage: "checkmark")
-                                                } else {
-                                                    Text(role.label)
-                                                }
-                                            }
-                                            .disabled(role.type == photo.photoType)
-                                        }
-                                    }
-                                    Section("All types") {
-                                        ForEach(FlipdeskPhotoType.all.filter { !suggestedTypes.contains($0) }, id: \.self) { type in
-                                            Button {
-                                                retag(photo, to: type)
-                                            } label: {
-                                                if type == photo.photoType {
-                                                    Label(FlipdeskPhotoType.label(for: type), systemImage: "checkmark")
-                                                } else {
-                                                    Text(FlipdeskPhotoType.label(for: type))
-                                                }
-                                            }
-                                            .disabled(type == photo.photoType)
-                                        }
-                                    }
-                                } label: {
-                                    Label("Change type", systemImage: "tag")
-                                }
-                            }
-                    }
-                    .onMove(perform: move)
-                    .onDelete(perform: deleteAt)
-                } footer: {
-                    Text("The top photo is the cover — it's the thumbnail in your inventory and the main image on eBay.")
-                }
-
-                if let listing = liveListing {
-                    Section {
-                        Button {
-                            AppRouter.haptic()
-                            syncToEbay(listing)
-                        } label: {
-                            HStack(spacing: 6) {
-                                if isSyncing {
-                                    ProgressView().controlSize(.small)
-                                } else {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                }
-                                Text("Sync photo order to eBay")
-                                    .font(.subheadline.weight(.semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        .disabled(isSyncing || isSaving)
-                    } footer: {
-                        Text("This listing is live on eBay. eBay won't let you reorder or edit its photos on its own site, so push the new order from here.")
-                    }
-                }
-            }
-            .navigationTitle("Photos")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }.disabled(isSaving)
-                }
-            }
-            .overlay {
-                if isSaving {
-                    ProgressView()
-                        .padding(20)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: CornerRadius.control))
-                }
-            }
-            .alert(
-                "Couldn't update photos",
-                isPresented: Binding(
-                    get: { errorMessage != nil },
-                    set: { if !$0 { errorMessage = nil } }
-                )
-            ) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(errorMessage ?? "")
-            }
-            .alert("Photos synced to eBay", isPresented: $syncSucceeded) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("The new photo order is now live on your eBay listing.")
-            }
-            .confirmationDialog(
-                "Delete photo?",
-                isPresented: Binding(
-                    get: { pendingPhotoDelete != nil }, set: { if !$0 { pendingPhotoDelete = nil } }
-                ),
-                presenting: pendingPhotoDelete
-            ) { photo in
-                Button("Delete photo", role: .destructive) {
-                    pendingPhotoDelete = nil
-                    confirmPhotoDelete(photo)
-                }
-                Button("Cancel", role: .cancel) { pendingPhotoDelete = nil }
-            } message: { _ in
-                Text("This permanently removes the photo. This can't be undone.")
-            }
+            photoList
         }
         .onAppear {
             if working.isEmpty { working = photos }
+        }
+    }
+
+    private var photoList: some View {
+        List {
+            photosSection
+            syncSection
+        }
+        .navigationTitle("Photos")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) { EditButton() }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { dismiss() }.disabled(isSaving)
+            }
+        }
+        .overlay {
+            if isSaving {
+                ProgressView()
+                    .padding(20)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: CornerRadius.control))
+            }
+        }
+        .alert(
+            "Couldn't update photos",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .alert("Photos synced to eBay", isPresented: $syncSucceeded) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The new photo order is now live on your eBay listing.")
+        }
+        .confirmationDialog(
+            "Delete photo?",
+            isPresented: Binding(
+                get: { pendingPhotoDelete != nil }, set: { if !$0 { pendingPhotoDelete = nil } }
+            ),
+            presenting: pendingPhotoDelete
+        ) { photo in
+            Button("Delete photo", role: .destructive) {
+                pendingPhotoDelete = nil
+                confirmPhotoDelete(photo)
+            }
+            Button("Cancel", role: .cancel) { pendingPhotoDelete = nil }
+        } message: { _ in
+            Text("This permanently removes the photo. This can't be undone.")
+        }
+    }
+
+    private var photosSection: some View {
+        Section {
+            ForEach(working) { photo in
+                photoRow(for: photo)
+            }
+            .onMove(perform: move)
+            .onDelete(perform: deleteAt)
+        } footer: {
+            Text("The top photo is the cover — it's the thumbnail in your inventory and the main image on eBay.")
+        }
+    }
+
+    @ViewBuilder
+    private func photoRow(for photo: LocalItemPhoto) -> some View {
+        let isCover = working.first?.id == photo.id
+        // Retag options ordered by this item's category profile: the category's
+        // own roles first (with category labels), then every other type.
+        let profile = photoProfileStore.profile(for: item.itemCategory)
+        PhotoManagerRow(photo: photo, isCover: isCover)
+            .contextMenu { rowContextMenu(for: photo, isCover: isCover, profile: profile) }
+    }
+
+    @ViewBuilder
+    private func rowContextMenu(
+        for photo: LocalItemPhoto,
+        isCover: Bool,
+        profile: PhotoProfile
+    ) -> some View {
+        if !isCover {
+            Button {
+                setCover(photo)
+            } label: {
+                Label("Set as cover", systemImage: "star")
+            }
+        }
+        Button {
+            rotate(photo, clockwise: true)
+        } label: {
+            Label("Rotate right", systemImage: "rotate.right")
+        }
+        Button {
+            rotate(photo, clockwise: false)
+        } label: {
+            Label("Rotate left", systemImage: "rotate.left")
+        }
+        changeTypeMenu(for: photo, profile: profile)
+    }
+
+    @ViewBuilder
+    private func changeTypeMenu(for photo: LocalItemPhoto, profile: PhotoProfile) -> some View {
+        let suggestedTypes = Set(profile.roles.map(\.type))
+        Menu {
+            Section("Suggested · \(profile.label)") {
+                ForEach(profile.roles, id: \.type) { role in
+                    Button {
+                        retag(photo, to: role.type)
+                    } label: {
+                        if role.type == photo.photoType {
+                            Label(role.label, systemImage: "checkmark")
+                        } else {
+                            Text(role.label)
+                        }
+                    }
+                    .disabled(role.type == photo.photoType)
+                }
+            }
+            Section("All types") {
+                ForEach(FlipdeskPhotoType.all.filter { !suggestedTypes.contains($0) }, id: \.self) { type in
+                    Button {
+                        retag(photo, to: type)
+                    } label: {
+                        if type == photo.photoType {
+                            Label(FlipdeskPhotoType.label(for: type), systemImage: "checkmark")
+                        } else {
+                            Text(FlipdeskPhotoType.label(for: type))
+                        }
+                    }
+                    .disabled(type == photo.photoType)
+                }
+            }
+        } label: {
+            Label("Change type", systemImage: "tag")
+        }
+    }
+
+    @ViewBuilder
+    private var syncSection: some View {
+        if let listing = liveListing {
+            Section {
+                Button {
+                    AppRouter.haptic()
+                    syncToEbay(listing)
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSyncing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text("Sync photo order to eBay")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .disabled(isSyncing || isSaving)
+            } footer: {
+                Text("This listing is live on eBay. eBay won't let you reorder or edit its photos on its own site, so push the new order from here.")
+            }
         }
     }
 
