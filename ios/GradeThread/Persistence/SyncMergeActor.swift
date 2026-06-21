@@ -67,6 +67,11 @@ actor SyncMergeActor {
         }
         var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
+        // US-1147: count genuine concurrent-edit conflicts (a locally-dirty row
+        // whose server copy is newer) so the dirty-wins resolution is auditable
+        // for support — breadcrumbed once per pass, not per field.
+        var dirtyConflicts = 0
+
         for remote in items {
             let createdAt = SyncEngine.parseDate(remote.created_at)
             let updatedAt = SyncEngine.parseDate(remote.updated_at)
@@ -74,6 +79,7 @@ actor SyncMergeActor {
             let primaryURL = primary?.thumbnail_url ?? primary?.photo_url
 
             if let local = existingById[remote.id] {
+                if local.hasLocalChanges && updatedAt > local.updatedAt { dirtyConflicts += 1 }
                 Self.applyServerWins(to: local, remote: remote)
                 // Only overwrite the cached primary when the delta actually
                 // carried this item's photos; a thin item-only delta leaves
@@ -108,7 +114,12 @@ actor SyncMergeActor {
                 modelContext.delete(stale)
             }
         }
-        try? modelContext.save()
+        if dirtyConflicts > 0 {
+            Telemetry.backgroundBreadcrumb(
+                "Sync kept \(dirtyConflicts) locally-edited item(s) over a newer server row (dirty-wins)",
+                category: "sync")
+        }
+        modelContext.saveOrLog("mergeItems")
     }
 
     /// Upserts item photos. `prune` is true ONLY on a full backfill — in delta
@@ -175,7 +186,7 @@ actor SyncMergeActor {
                 modelContext.delete(stale)
             }
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergePhotos")
     }
 
     /// Upserts the user's sales. No pruning — a sale that disappears
@@ -221,7 +232,7 @@ actor SyncMergeActor {
             local.saleDate = SyncEngine.parseDate(remote.sale_date)
             local.buyerUsername = remote.buyer_username
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeSales")
     }
 
     /// Upserts the local mirror of `flipdesk_expenses` (US-750) so the Money tab
@@ -261,7 +272,7 @@ actor SyncMergeActor {
             local.inventoryItemId = remote.inventory_item_id
             local.listingId = remote.listing_id
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeExpenses")
     }
 
     /// Upserts the local mirror of `listings` so the item canvas can resolve a
@@ -308,7 +319,7 @@ actor SyncMergeActor {
             local.listingOrigin = remote.listing_origin
             local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeListings")
     }
 
     /// US-819: stamps each item's `disputeStatus` from the synced `disputes`
@@ -343,7 +354,7 @@ actor SyncMergeActor {
                 item.disputeStatus = latest.status
             }
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeDisputes")
     }
 
     // MARK: - Realtime single-row apply (US-198, reuses this shared context)
@@ -369,14 +380,14 @@ actor SyncMergeActor {
             Self.applyServerWins(to: local, remote: remote)
             modelContext.insert(local)
         }
-        try? modelContext.save()
+        modelContext.saveOrLog("mergeSingleInventory")
     }
 
     func deleteInventory(id: String) {
         let descriptor = FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { $0.id == id })
         if let row = try? modelContext.fetch(descriptor).first {
             modelContext.delete(row)
-            try? modelContext.save()
+            modelContext.saveOrLog("deleteInventory")
         }
     }
 

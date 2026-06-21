@@ -26,6 +26,13 @@ struct GradeThreadApp: App {
     /// to discard a corrupt cache. Set from `storeOutcome` once the scene is up.
     @State private var showingStoreResetNotice = false
 
+    /// US-1142: surfaces a one-time notice when local writes are *persistently*
+    /// failing (disk full, store corruption). `saveOrLog` posts on every failed
+    /// save; we count them and only nag once a few have piled up so a single
+    /// transient blip stays quiet.
+    @State private var showingSaveFailureNotice = false
+    @State private var saveFailureCount = 0
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -68,6 +75,26 @@ struct GradeThreadApp: App {
                 } message: {
                     Text(storeResetMessage)
                 }
+                // US-1142: persistent local-save failures. Debounced to the
+                // main run loop because `saveOrLog` posts from whatever isolation
+                // the failing context lives in (the SyncMergeActor, a background
+                // upload context, etc.).
+                .onReceive(
+                    NotificationCenter.default
+                        .publisher(for: PersistenceHealth.saveFailedNotification)
+                        .receive(on: RunLoop.main)
+                ) { _ in
+                    saveFailureCount += 1
+                    if saveFailureCount >= 3 { showingSaveFailureNotice = true }
+                }
+                .alert(
+                    "Couldn't save changes on this device",
+                    isPresented: $showingSaveFailureNotice
+                ) {
+                    Button("OK", role: .cancel) { saveFailureCount = 0 }
+                } message: {
+                    Text("GradeThread is having trouble saving changes locally — this device may be low on storage. Your account and synced data on our servers are safe. Free up space, then restart the app.")
+                }
         }
     }
 
@@ -75,9 +102,9 @@ struct GradeThreadApp: App {
     /// cache won't survive the next launch), so it gets a distinct message.
     private var storeResetMessage: String {
         if storeOutcome.isInMemoryFallback {
-            return "We couldn't repair this device's offline cache, so GradeThread is running without one for now. Your account and data on our servers are safe and will sync back in. Restarting the app may restore offline storage."
+            return "We couldn't repair this device's offline cache, so GradeThread is running without one for now. Your account and data on our servers are safe and will sync back in. Any changes you made while offline and hadn't synced yet may be lost. Restarting the app may restore offline storage."
         }
-        return "GradeThread's offline cache was damaged and had to be cleared. Your account and data on our servers are safe — they'll sync back to this device automatically."
+        return "GradeThread's offline cache was damaged and had to be cleared. Your account and data on our servers are safe — they'll sync back to this device automatically. Any changes you made while offline and hadn't synced yet may be lost."
     }
 }
 

@@ -91,6 +91,25 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertNil(DeepLinkRoute.from(category: "", userInfo: [:]))
     }
 
+    // US-1159: a malformed/garbage payload (wrong types, junk keys) must not
+    // crash — the `as? String` casts fail gracefully and the route falls back to
+    // its no-item destination.
+    func test_deepLink_malformedPayload_doesNotCrash_fallsBack() {
+        let garbage: [AnyHashable: Any] = [
+            "inventory_item_id": 12345,            // Int, not String
+            "support_ticket_id": ["nested": true], // wrong type
+            42: "unexpected key type",
+        ]
+        // gradeReady with a non-string item id → falls back to the Grades list.
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "grade.ready", userInfo: garbage),
+            .gradesList)
+        // supportReply with a non-string ticket id → inbox (nil ticket).
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "support.reply", userInfo: garbage),
+            .supportTickets(ticketId: nil))
+    }
+
     // MARK: - US-679 expanded routing
 
     func test_deepLink_payoutPosted_routesToSales() {

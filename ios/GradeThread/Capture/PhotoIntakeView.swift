@@ -655,7 +655,7 @@ struct PhotoIntakeView: View {
             status: "cataloged"
         )
         modelContext.insert(localItem)
-        try? modelContext.save()
+        modelContext.saveOrLog("startIntakeFlow")
 
         service.enqueueAll(
             photos: entries,

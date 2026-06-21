@@ -357,7 +357,7 @@ struct AIFillReviewSheet: View {
 
     private func commitLocal() {
         item.updatedAt = .now
-        try? modelContext.save()
+        modelContext.saveOrLog("commitLocal")
         HapticFeedback.success()
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }

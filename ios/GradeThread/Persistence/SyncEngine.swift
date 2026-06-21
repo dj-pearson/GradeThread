@@ -42,6 +42,10 @@ actor SyncEngine {
 
     private var isPulling = false
     private var isFlushing = false
+    /// US-1147: set by ``stop()`` so an in-flight flush stops dequeuing further
+    /// mutations at a clean boundary (each replay is idempotent, so the one
+    /// in-flight is safe to let finish or re-run next launch).
+    private var isStopping = false
     private var connectivityTask: Task<Void, Never>?
 
     /// Debounces connectivity-driven syncs so a flap storm (walking between
@@ -76,6 +80,7 @@ actor SyncEngine {
     // MARK: - Lifecycle
 
     func start() {
+        isStopping = false
         guard connectivityTask == nil else { return }
         let monitor = networkMonitor
         let status = statusStore
@@ -101,6 +106,9 @@ actor SyncEngine {
     }
 
     func stop() {
+        // US-1147: signal an in-flight flush to stop at the next mutation
+        // boundary so sign-out / teardown can't leave the queue half-drained.
+        isStopping = true
         connectivityTask?.cancel()
         connectivityTask = nil
         if let debouncer = connectivityDebouncer {
@@ -734,7 +742,7 @@ actor SyncEngine {
     // MARK: - Flush (US-640)
 
     func flushPending() async {
-        guard !isFlushing else { return }
+        guard !isFlushing, !isStopping else { return }
         isFlushing = true
         defer { isFlushing = false }
 
@@ -748,6 +756,9 @@ actor SyncEngine {
 
         await statusStore.set(.syncing)
         for mutation in mutations {
+            // US-1147: stop cleanly on teardown — replays are idempotent so the
+            // remaining mutations simply flush on the next start/sync.
+            if isStopping { break }
             await apply(mutation)
         }
         await refreshPendingCount()
@@ -963,7 +974,7 @@ actor SyncEngine {
             if let row = try? context.fetch(descriptor).first {
                 row.lastError = nil
                 row.retryCount = 0
-                try? context.save()
+                context.saveOrLog("retryMutation")
             }
         }
         let snapshot = await snapshotMutations().first { $0.id == id }
@@ -1007,7 +1018,7 @@ actor SyncEngine {
             let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
             if let row = try? context.fetch(descriptor).first {
                 context.delete(row)
-                try? context.save()
+                context.saveOrLog("deleteMutation")
             }
         }
     }
@@ -1020,7 +1031,15 @@ actor SyncEngine {
             row.retryCount += 1
             row.lastError = error
             row.lastAttemptAt = .now
-            try? context.save()
+            // US-1148: breadcrumb every replay failure (scrubbed by Sentry's
+            // beforeBreadcrumb) instead of only mutating state silently; flag the
+            // transition to "stuck" (US-1147) distinctly since that one needs
+            // manual user attention.
+            let stuckSuffix = row.retryCount >= Self.maxRetries ? " — now stuck (manual retry needed)" : ""
+            Telemetry.backgroundBreadcrumb(
+                "Mutation replay failed (kind \(row.kind), attempt \(row.retryCount)/\(Self.maxRetries)): \(error)\(stuckSuffix)",
+                category: "sync")
+            context.saveOrLog("markFailed")
         }
     }
 
@@ -1032,9 +1051,23 @@ actor SyncEngine {
         }
     }
 
+    /// Count of mutations that have exhausted their auto-retry budget and now
+    /// need the user's attention (US-1147). Predicate uses a captured copy of
+    /// `maxRetries` because `#Predicate` can't reference a type member.
+    private func stuckMutationCount() async -> Int {
+        let ceiling = Self.maxRetries
+        return await MainActor.run {
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<LocalPendingMutation>(
+                predicate: #Predicate { $0.retryCount >= ceiling })
+            return (try? context.fetchCount(descriptor)) ?? 0
+        }
+    }
+
     private func refreshPendingCount() async {
         let count = await pendingMutationCount()
-        await statusStore.setPendingCount(count)
+        let stuck = await stuckMutationCount()
+        await statusStore.setPendingCount(count, stuck: stuck)
     }
 
     // MARK: - Logging
@@ -1066,13 +1099,19 @@ final class SyncStatusStore {
 
     var phase: Phase = .idle
     var pendingCount: Int = 0
+    /// US-1147: mutations that exhausted their auto-retry budget and need the
+    /// user to retry/discard them via the inspector. Surfaced distinctly from
+    /// the routine pending count so a genuinely stuck change isn't mistaken for
+    /// "still syncing".
+    var stuckCount: Int = 0
 
     func set(_ next: Phase) {
         phase = next
     }
 
-    func setPendingCount(_ count: Int) {
+    func setPendingCount(_ count: Int, stuck: Int = 0) {
         pendingCount = count
+        stuckCount = stuck
         if phase == .idle, count > 0 {
             phase = .pending
         } else if phase == .pending, count == 0 {

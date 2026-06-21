@@ -44,6 +44,17 @@ struct SyncStatusBar: View {
     }
 
     private var descriptor: Descriptor? {
+        // US-1147: stuck changes (auto-retry exhausted) take precedence over the
+        // routine phase — they need a deliberate retry/discard, so surface them
+        // loudly and route the tap to the inspector regardless of sync phase.
+        if status.stuckCount > 0 {
+            return Descriptor(
+                label: "\(status.stuckCount) change\(status.stuckCount == 1 ? "" : "s") need attention",
+                icon: AnyView(Image(systemName: "exclamationmark.triangle.fill")),
+                background: Color.brandRed.opacity(0.15),
+                foreground: Color.brandRed
+            )
+        }
         switch status.phase {
         case .idle:
             return nil

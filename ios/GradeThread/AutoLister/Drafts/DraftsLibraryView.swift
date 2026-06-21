@@ -261,7 +261,7 @@ struct DraftsLibraryView: View {
                 row.listedAt = now
                 row.updatedAt = now
             }
-            try? modelContext.save()
+            modelContext.saveOrLog("applyOptimisticPublish")
         }
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }

@@ -1,0 +1,155 @@
+{
+  "identifier" : "GRADETHREAD_TEST_CONFIG",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "24.99",
+      "familyShareable" : false,
+      "internalID" : "credits10",
+      "localizations" : [
+        { "description" : "10 AI condition grading credits. Never expire.", "displayName" : "10 Grade Credits", "locale" : "en_US" }
+      ],
+      "productID" : "com.gradethread.credits.10",
+      "referenceName" : "10 Grade Credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "59.99",
+      "familyShareable" : false,
+      "internalID" : "credits25",
+      "localizations" : [
+        { "description" : "25 AI condition grading credits. Never expire.", "displayName" : "25 Grade Credits", "locale" : "en_US" }
+      ],
+      "productID" : "com.gradethread.credits.25",
+      "referenceName" : "25 Grade Credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "109.99",
+      "familyShareable" : false,
+      "internalID" : "credits50",
+      "localizations" : [
+        { "description" : "50 AI condition grading credits. Never expire.", "displayName" : "50 Grade Credits", "locale" : "en_US" }
+      ],
+      "productID" : "com.gradethread.credits.50",
+      "referenceName" : "50 Grade Credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "199.99",
+      "familyShareable" : false,
+      "internalID" : "credits100",
+      "localizations" : [
+        { "description" : "100 AI condition grading credits. Never expire.", "displayName" : "100 Grade Credits", "locale" : "en_US" }
+      ],
+      "productID" : "com.gradethread.credits.100",
+      "referenceName" : "100 Grade Credits",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "GradeThread",
+    "_developerTeamID" : "TEAMID",
+    "_failTransactionsEnabled" : false
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "flipdesk_plans",
+      "localizations" : [],
+      "name" : "FlipDesk Plans",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "displayPrice" : "29.00",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "starter_monthly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            { "description" : "250 listings, 200 AI actions, 10 grades/mo", "displayName" : "Starter", "locale" : "en_US" }
+          ],
+          "productID" : "com.gradethread.sub.starter.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "FlipDesk Starter Monthly",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "displayPrice" : "59.00",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "pro_monthly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            { "description" : "1,000 listings, 1,000 AI actions, 30 grades", "displayName" : "Pro", "locale" : "en_US" }
+          ],
+          "productID" : "com.gradethread.sub.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "FlipDesk Pro Monthly",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "displayPrice" : "99.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "business_monthly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            { "description" : "Unlimited listings, team seats, API, reconciliation", "displayName" : "Business", "locale" : "en_US" }
+          ],
+          "productID" : "com.gradethread.sub.business.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "FlipDesk Business Monthly",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "displayPrice" : "290.00",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "starter_yearly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            { "description" : "250 listings, 200 AI actions, 10 grades/mo", "displayName" : "Starter (Yearly)", "locale" : "en_US" }
+          ],
+          "productID" : "com.gradethread.sub.starter.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "FlipDesk Starter Yearly",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "displayPrice" : "590.00",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "pro_yearly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            { "description" : "1,000 listings, 1,000 AI actions, 30 grades", "displayName" : "Pro (Yearly)", "locale" : "en_US" }
+          ],
+          "productID" : "com.gradethread.sub.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "FlipDesk Pro Yearly",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "displayPrice" : "990.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "business_yearly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            { "description" : "Unlimited listings, team seats, API, reconciliation", "displayName" : "Business (Yearly)", "locale" : "en_US" }
+          ],
+          "productID" : "com.gradethread.sub.business.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "FlipDesk Business Yearly",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : { "major" : 3, "minor" : 0 }
+}

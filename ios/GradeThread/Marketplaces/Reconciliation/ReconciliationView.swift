@@ -103,7 +103,7 @@ struct ReconciliationView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.seal")
-                .font(.system(size: 44, weight: .light))
+                .scaledIconFont(size: 44, weight: .light)  // US-1152: scale with Dynamic Type
                 .foregroundStyle(.brandEmerald)
             Text("Nothing to reconcile")
                 .font(.brandHeadline)

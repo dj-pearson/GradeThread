@@ -184,11 +184,31 @@ public enum Telemetry {
     ///
     /// No-op when the Sentry DSN isn't configured.
     public static func breadcrumb(_ message: String, category: String) {
+        Self.addBreadcrumb(message, category: category, level: .info)
+    }
+
+    /// Nonisolated breadcrumb for off-main-actor call sites — the
+    /// `SyncMergeActor` (a plain `actor`), the nonisolated `OfflineMutationQueue`,
+    /// and the `ModelContext.saveOrLog` persistence helper (US-1142) all need to
+    /// breadcrumb without an `await MainActor.run` hop. Logged at `.warning`
+    /// since these are failure paths. Safe off the main thread:
+    /// `SentrySDK.addBreadcrumb` is thread-safe, `AppConfig` is a plain enum, and
+    /// the `beforeBreadcrumb` hook still scrubs PII before the crumb is stored.
+    nonisolated public static func backgroundBreadcrumb(_ message: String, category: String) {
+        Self.addBreadcrumb(message, category: category, level: .warning)
+    }
+
+    /// Single construction point for both the main-actor and nonisolated
+    /// breadcrumb entry points so the DSN guard + scrubbing contract live in one
+    /// place. `nonisolated` because `backgroundBreadcrumb` calls it off-main.
+    nonisolated private static func addBreadcrumb(
+        _ message: String, category: String, level: SentryLevel
+    ) {
         guard AppConfig.sentryDSN != nil else { return }
         let crumb = Breadcrumb()
         crumb.message = message
         crumb.category = category
-        crumb.level = .info
+        crumb.level = level
         crumb.timestamp = .now
         SentrySDK.addBreadcrumb(crumb)
     }

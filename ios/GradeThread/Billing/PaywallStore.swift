@@ -70,6 +70,16 @@ final class PaywallStore {
     /// switch because an active Stripe (web) subscription owns the plan — the UI
     /// presents the "manage on web" route instead of a bare error.
     var stripeConflict = false
+    /// Set when a purchase is deferred for approval (Ask to Buy / SCA). The buy
+    /// returns without an entitlement; the transaction listener grants it once
+    /// approved, so the UI tells the user it's pending rather than dismissing
+    /// silently (US-1144).
+    var purchasePending = false
+
+    /// Observes ``StoreKitService/entitlementsDidChangeNotification`` so an
+    /// out-of-band renewal/refund/revoke (delivered to the transaction listener)
+    /// re-fetches billing state and clears stale paid features.
+    private var entitlementObserver: Task<Void, Never>?
 
     init(
         userId: UUID,
@@ -81,7 +91,16 @@ final class PaywallStore {
         self.service = service
         self.billingFetcher = billingFetcher
         self.catalogLoader = catalogLoader
+        entitlementObserver = Task { [weak self] in
+            let stream = NotificationCenter.default.notifications(
+                named: StoreKitService.entitlementsDidChangeNotification)
+            for await _ in stream {
+                await self?.refreshBillingState()
+            }
+        }
     }
+
+    deinit { entitlementObserver?.cancel() }
 
     // MARK: - Derived (pure, tested)
 
@@ -143,6 +162,7 @@ final class PaywallStore {
         purchasingId = entry.productId
         purchaseError = nil
         stripeConflict = false
+        purchasePending = false
         defer { purchasingId = nil }
 
         let outcome = await service.purchase(productId: entry.productId, appAccountToken: userId)
@@ -151,7 +171,12 @@ final class PaywallStore {
             purchaseSucceeded = true
             await refreshBilling()
             return true
-        case .userCancelled, .pending:
+        case .pending:
+            // Ask to Buy / SCA: no entitlement yet — the listener grants it on
+            // approval. Tell the user instead of dismissing silently (US-1144).
+            purchasePending = true
+            return false
+        case .userCancelled:
             return false
         case .stripeConflict:
             // Local purchase verified, but the server won't switch billing while

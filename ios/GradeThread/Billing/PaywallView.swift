@@ -84,6 +84,17 @@ struct PaywallView: View {
         } message: {
             Text(store.purchaseError ?? "")
         }
+        // Ask to Buy / SCA deferral: the purchase needs approval before it
+        // completes; the transaction listener grants the entitlement once it's
+        // approved (US-1144).
+        .alert("Purchase pending approval", isPresented: Binding(
+            get: { store.purchasePending },
+            set: { if !$0 { store.purchasePending = false } }
+        )) {
+            Button("OK", role: .cancel) { store.purchasePending = false }
+        } message: {
+            Text("Your purchase needs approval before it completes. Once it's approved, your plan unlocks automatically — no need to buy again.")
+        }
         // The 409 ACTIVE_STRIPE_SUBSCRIPTION dead-end: route to web billing
         // instead of surfacing a bare error.
         .alert("Subscription managed on the web", isPresented: Binding(
@@ -270,8 +281,11 @@ struct PaywallView: View {
             Text("Current")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.brandEmerald)
+                // US-1151: VoiceOver reads "Current" with no context otherwise.
+                .accessibilityLabel("\(entry.title), your current plan")
         } else if store.purchasingId == entry.productId {
             ProgressView()
+                .accessibilityLabel("Purchasing \(entry.title)")
         } else {
             Button {
                 Task { await buy(entry) }
@@ -282,6 +296,12 @@ struct PaywallView: View {
             .buttonStyle(.borderedProminent)
             .tint(.brandNavy)
             .disabled(!store.canPurchase(entry))
+            // US-1151: the button's visible label is just the price; tell
+            // VoiceOver which plan/pack it buys and what tapping does.
+            .accessibilityLabel("\(entry.title), \(store.price(for: entry))")
+            .accessibilityHint(entry.isSubscription
+                ? "Subscribes to the \(entry.title) plan"
+                : "Buys \(entry.title)")
         }
     }
 

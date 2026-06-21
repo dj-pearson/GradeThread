@@ -82,6 +82,9 @@ struct StoreKitService: StoreKitProviding {
                     await transaction.finish()
                     return report == .stripeConflict ? .stripeConflict : .success
                 case .unverified:
+                    Telemetry.backgroundBreadcrumb(
+                        "IAP purchase failed local verification (product \(productId))",
+                        category: "iap")
                     return .verificationFailed
                 }
             case .userCancelled:
@@ -92,6 +95,11 @@ struct StoreKitService: StoreKitProviding {
                 return .failed("Unknown purchase result.")
             }
         } catch {
+            // US-1148: a thrown purchase error (network, StoreKit) was previously
+            // only surfaced to the UI; breadcrumb it for diagnosis too.
+            Telemetry.backgroundBreadcrumb(
+                "IAP purchase threw (product \(productId)): \(error.localizedDescription)",
+                category: "iap")
             return .failed(error.localizedDescription)
         }
     }
@@ -103,7 +111,11 @@ struct StoreKitService: StoreKitProviding {
     func currentSubscription() async -> SubscriptionEntitlement? {
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result,
-                  transaction.productType == .autoRenewable else { continue }
+                  transaction.productType == .autoRenewable,
+                  // Defensive: `currentEntitlements` already excludes revoked
+                  // (refunded) transactions, but never surface one as an active
+                  // entitlement if StoreKit ever includes it (US-1144).
+                  transaction.revocationDate == nil else { continue }
             // Auto-renew state lives on the renewal info, not the transaction.
             var willAutoRenew = true
             if let status = try? await transaction.subscriptionStatus,
@@ -119,7 +131,7 @@ struct StoreKitService: StoreKitProviding {
     }
 
     /// Result of reporting a signed transaction to the edge.
-    private enum VerifyReport { case ok, stripeConflict, failed }
+    private enum VerifyReport: Equatable { case ok, stripeConflict, failed }
 
     /// Send the signed transaction to the edge, which verifies + reconciles it
     /// into the user's plan/credits. Entitlement is also delivered server-side by
@@ -136,22 +148,118 @@ struct StoreKitService: StoreKitProviding {
             if case .badRequest(let detail) = error, detail == "ACTIVE_STRIPE_SUBSCRIPTION" {
                 return .stripeConflict
             }
+            // US-1148: the edge rejected the verify (non-conflict). It self-heals
+            // via App Store Server Notifications, but breadcrumb so a systemic
+            // verify failure is visible rather than silently swallowed.
+            Telemetry.backgroundBreadcrumb(
+                "IAP server verify failed: \(error.localizedDescription)", category: "iap")
             return .failed
         } catch {
+            Telemetry.backgroundBreadcrumb(
+                "IAP server verify failed: \(error.localizedDescription)", category: "iap")
             return .failed
         }
     }
 
+    /// Posted after the transaction listener processes a renewal, refund, or
+    /// revocation so a live ``PaywallStore`` re-fetches billing state instead of
+    /// showing stale paid-plan features until the next manual refresh (US-1144).
+    static let entitlementsDidChangeNotification =
+        Notification.Name("com.gradethread.app.entitlementsDidChange")
+
+    /// How the listener should handle one transaction update. Factored out as a
+    /// pure function so it's unit-testable without StoreKit types (US-1144).
+    enum TransactionDisposition: Equatable {
+        /// Verified, not revoked — report it and finish only once the server
+        /// confirms (so a server outage re-queues it via next-launch redelivery).
+        case grant
+        /// Verified but revoked (refund/family revoke) — report the lapse and
+        /// always finish so the revoked transaction clears.
+        case revoke
+        /// Failed JWS verification — never grant; leave unfinished for
+        /// server-side reconciliation (App Store Server Notifications).
+        case unverifiedDrop
+    }
+
+    static func disposition(isVerified: Bool, isRevoked: Bool) -> TransactionDisposition {
+        guard isVerified else { return .unverifiedDrop }
+        return isRevoked ? .revoke : .grant
+    }
+
+    /// Whether to call `transaction.finish()` given the disposition and whether
+    /// the server report succeeded. A granted transaction is only finished once
+    /// the server confirmed it; revoked ones always finish; unverified never do.
+    static func shouldFinish(_ disposition: TransactionDisposition, reportSucceeded: Bool) -> Bool {
+        switch disposition {
+        case .unverifiedDrop: return false
+        case .revoke: return true
+        case .grant: return reportSucceeded
+        }
+    }
+
     /// Drain StoreKit's transaction updates (renewals, refunds, deferred
-    /// purchases): report + finish each verified one. Start once at app launch.
+    /// purchases). Start once at app launch.
     static func startTransactionListener() -> Task<Void, Never> {
         Task.detached {
             let service = StoreKitService()
             for await update in Transaction.updates {
-                guard case .verified(let transaction) = update else { continue }
-                _ = await service.reportToServer(jws: update.jwsRepresentation)
-                await transaction.finish()
+                await service.process(update)
             }
         }
+    }
+
+    /// Process one transaction update: verify, report (with bounded retry),
+    /// finish per ``shouldFinish``, and nudge live billing UI to refresh.
+    func process(_ update: VerificationResult<Transaction>) async {
+        let transaction: Transaction
+        switch update {
+        case .verified(let t):
+            transaction = t
+        case .unverified(let t, let error):
+            // Don't silently `continue` past it (the old bug) — breadcrumb it so
+            // a tampered/corrupt transaction is visible, and don't grant/finish.
+            Telemetry.backgroundBreadcrumb(
+                "StoreKit update failed verification (product \(t.productID)): \(error.localizedDescription)",
+                category: "iap")
+            return
+        @unknown default:
+            return
+        }
+
+        let disposition = Self.disposition(
+            isVerified: true, isRevoked: transaction.revocationDate != nil)
+        let report = await reportWithRetry(jws: update.jwsRepresentation)
+        let reportSucceeded = report != .failed
+
+        if Self.shouldFinish(disposition, reportSucceeded: reportSucceeded) {
+            await transaction.finish()
+        } else {
+            Telemetry.backgroundBreadcrumb(
+                "StoreKit transaction left unfinished for retry "
+                    + "(product \(transaction.productID), disposition \(disposition))",
+                category: "iap")
+        }
+
+        // Renewal / refund / revoke all change entitlement state — let a live
+        // PaywallStore re-fetch (it clears stale paid features on a refund).
+        NotificationCenter.default.post(
+            name: Self.entitlementsDidChangeNotification, object: nil)
+    }
+
+    /// Report a signed transaction with bounded backoff. `EdgeAPI` already
+    /// retries transient network/5xx internally; this adds an outer budget for
+    /// the listener so a brief server blip doesn't strand the transaction as
+    /// finished-but-unreported. `ok` / `stripeConflict` are terminal.
+    private func reportWithRetry(jws: String, attempts: Int = 3) async -> VerifyReport {
+        var delay: UInt64 = 1_000_000_000  // 1s, doubling
+        for attempt in 1...attempts {
+            let result = await reportToServer(jws: jws)
+            if result != .failed { return result }
+            if attempt < attempts {
+                try? await Task.sleep(nanoseconds: delay)
+                delay *= 2
+            }
+        }
+        return .failed
     }
 }

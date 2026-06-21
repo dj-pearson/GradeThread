@@ -85,7 +85,9 @@ struct SlotThumbnail: View {
                 Spacer()
                 Image(systemName: uploadComplete ? "checkmark.circle.fill" : "circle.dashed")
                     .foregroundStyle(.white, uploadComplete ? Color.brandNavy : Color.gray)
-                    .font(.system(size: 18))
+                    // US-1152: scale with Dynamic Type, capped so the corner
+                    // badge can't overflow the fixed-size slot cell at AX5.
+                    .scaledIconFont(size: 18, maxSize: 28)
                     .padding(4)
             }
             Spacer()

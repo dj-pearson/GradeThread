@@ -766,7 +766,7 @@ struct DetailsIntakeView: View {
             targetId: id
         )
         modelContext.insert(mutation)
-        try? modelContext.save()
+        modelContext.saveOrLog("enqueueOfflineMutation")
     }
 
     private func buildInsertPayload(userId: String) -> ItemInsertPayload {

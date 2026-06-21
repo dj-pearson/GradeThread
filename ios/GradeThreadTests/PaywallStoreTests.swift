@@ -20,6 +20,17 @@ final class PaywallStoreTests: XCTestCase {
     private func sub(_ id: String) -> IAPCatalogEntry { IAPCatalog.entry(for: id)! }
     private func pack(_ id: String) -> IAPCatalogEntry { IAPCatalog.entry(for: id)! }
 
+    // US-1154: the entitlement-change observer (US-1144) captures [weak self]
+    // and is cancelled in deinit; verify it introduces no retain cycle.
+    func test_paywallStore_noRetainCycle() {
+        weak var weak: PaywallStore?
+        autoreleasepool {
+            let s = store()
+            weak = s
+        }
+        XCTAssertNil(weak, "PaywallStore leaked — the entitlement observer likely retains self")
+    }
+
     func test_managedOnWeb_onlyWhenStripeAndEntitling() {
         let s = store()
         s.billingSource = "stripe"; s.subscriptionStatus = "active"
@@ -125,6 +136,17 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertTrue(s.stripeConflict)           // UI presents the web-billing route
         XCTAssertNil(s.purchaseError)             // not a bare error
         XCTAssertFalse(s.purchaseSucceeded)
+    }
+
+    func test_buy_pending_setsPendingStateNotError() async {
+        let fake = FakeStoreKit(); fake.outcome = .pending
+        let s = store(service: fake)
+        let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
+        XCTAssertFalse(ok)
+        XCTAssertTrue(s.purchasePending)          // UI shows "pending approval"
+        XCTAssertFalse(s.purchaseSucceeded)
+        XCTAssertNil(s.purchaseError)             // not a failure
+        XCTAssertNil(s.purchasingId)              // spinner cleared
     }
 
     func test_buy_clearsStripeConflictAtStart() async {

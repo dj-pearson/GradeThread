@@ -49,7 +49,14 @@ struct PostSaleView: View {
         .alert("Something went wrong", isPresented: Binding(
             get: { store.actionError != nil }, set: { if !$0 { store.actionError = nil } }
         )) {
-            Button("OK", role: .cancel) {}
+            // US-1146: a failed (non-idempotent) evidence upload offers an
+            // explicit Retry instead of being lost when the toast is dismissed.
+            if store.pendingEvidenceRetry != nil {
+                Button("Retry") { Task { await store.retryEvidenceUpload() } }
+                Button("Cancel", role: .cancel) { store.pendingEvidenceRetry = nil }
+            } else {
+                Button("OK", role: .cancel) {}
+            }
         } message: { Text(store.actionError ?? "") }
         .overlay(alignment: .bottom) {
             if let banner = store.actionBanner {

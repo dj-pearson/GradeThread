@@ -615,6 +615,26 @@ final class SyncTests: XCTestCase {
         UserDefaults(suiteName: "sync-test-\(UUID().uuidString)")!
     }
 
+    // MARK: - Stuck-mutation surfacing (US-1147)
+
+    func test_statusStore_stuckCount_surfacedDistinctlyFromPending() {
+        let store = SyncStatusStore()
+        store.setPendingCount(3, stuck: 1)
+        XCTAssertEqual(store.pendingCount, 3)
+        XCTAssertEqual(store.stuckCount, 1)
+        XCTAssertEqual(store.phase, .pending)   // still has pending work
+    }
+
+    func test_statusStore_stuckClearsWhenDrained() {
+        let store = SyncStatusStore()
+        store.setPendingCount(2, stuck: 2)
+        XCTAssertEqual(store.stuckCount, 2)
+        store.setPendingCount(0)                // all resolved
+        XCTAssertEqual(store.stuckCount, 0)
+        XCTAssertEqual(store.pendingCount, 0)
+        XCTAssertEqual(store.phase, .idle)
+    }
+
     // MARK: - Helpers
 
     private func inMemoryContainer() throws -> ModelContainer {

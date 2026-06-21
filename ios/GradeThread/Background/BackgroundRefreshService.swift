@@ -127,6 +127,11 @@ public final class BackgroundRefreshService {
             // disabled, or BGTaskSchedulerPermittedIdentifiers in
             // Info.plist doesn't match. The latter is a build error so
             // we surface the message to console for debug builds.
+            // US-1148: breadcrumb it so a misconfigured permitted-identifier (a
+            // release-build issue invisible to the DEBUG print) is diagnosable.
+            Telemetry.backgroundBreadcrumb(
+                "Background refresh schedule submit failed: \(error.localizedDescription)",
+                category: "background")
             #if DEBUG
             print("[BGRefresh] submit failed: \(error.localizedDescription)")
             #endif
@@ -149,6 +154,10 @@ public final class BackgroundRefreshService {
             // throttled out of future schedules. `performRefresh` observes
             // the cancellation and skips detection, and `setTaskCompleted`
             // below reports the real (unfinished) outcome.
+            // US-1148: telemeter the expiration so a pattern of the OS killing
+            // refreshes early (budget too tight) is visible, not invisible.
+            Telemetry.backgroundBreadcrumb(
+                "Background refresh expired before completion", category: "background")
             work.cancel()
         }
 
