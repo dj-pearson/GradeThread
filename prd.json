@@ -3856,7 +3856,7 @@
         "KEY_ROTATION.md / SECURITY.md updated with the pin set and rotation procedure"
       ],
       "priority": 1108,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Security][EPIC: iOS Production Readiness 2026-06-21]",
       "relevantPaths": [
         "ios/GradeThread/Networking/EdgeNetwork.swift",
