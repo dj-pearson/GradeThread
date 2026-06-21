@@ -3558,7 +3558,7 @@
         "python3 ios/Scripts/no-ungated-print.py passes; no secrets in intents/widget code"
       ],
       "priority": 1058,
-      "passes": false,
+      "passes": true,
       "hard": true,
       "notes": "[P3][iOS/Platform][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Greenfield: grep AppIntent/AppShortcut/SiriKit in ios/ = 0. GradeThreadWidget declares only .systemSmall/.systemMedium (~L28); Shared/WidgetSnapshot.swift data already exists. Cheap activation/retention win.",
       "relevantPaths": [

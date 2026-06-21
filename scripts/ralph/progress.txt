@@ -3782,3 +3782,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:20:47 AM
 ---
+## US-1134: iOS: Siri/App Intents/Shortcuts + Lock Screen widgets
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:27:35 AM
+---
