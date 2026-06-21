@@ -3778,3 +3778,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:08:53 AM
 ---
+## US-1133: iOS: actionable notification buttons (accept offer / mark shipped / reconnect)
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:20:47 AM
+---

@@ -3541,7 +3541,7 @@
         "Actions are no-ops/hidden for categories where the backend send isn't live yet (see US about APNs sends); python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1059,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Notifications][EPIC: Web↔iOS Gaps & Polish 2026-06-20] NotificationCategories.swift registers every category with actions:[] (~L71-78); tap-routing is solid but no inline actions. Offers/shipping/token-expiry are exactly what notification actions exist for. Note ~L14-21: several categories depend on backend APNs sends that may not be live yet — confirm before relying on them.",
       "relevantPaths": [
         "ios/GradeThread/Notifications/NotificationCategories.swift",
