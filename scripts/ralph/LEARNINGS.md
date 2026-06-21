@@ -439,6 +439,13 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- The EdgeAPI decoder (`JSONDecoder.iso8601`) uses `keyDecodingStrategy =
+  .convertFromSnakeCase`, which camelCases NESTED free-form jsonb keys too — so a
+  passport `sku_class.garment_type` decodes as `garmentType`. When reading
+  arbitrary jsonb from an EdgeAPI response into a `[String: …]` dict, look up both
+  forms (`dict["garmentType"] ?? dict["garment_type"]`). Also keep edge timestamps
+  as `String` (the edge emits fractional seconds, which the default `.iso8601`
+  date strategy REJECTS) and format at the display boundary.
 - Plan-gate UX is centralized (US-805): `EdgeAPI.interceptPlanSignals` decodes a
   402 `PlanGateError` body + the `X-Plan-Warning` header on EVERY response and
   publishes to `PlanGateNotifier.shared` (`nonisolated static let publish*`
