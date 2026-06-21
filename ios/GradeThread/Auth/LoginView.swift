@@ -142,6 +142,7 @@ struct LoginView: View {
                     .textFieldStyle(.roundedBorder)
             }
             TextField("Email", text: $email)
+                .accessibilityIdentifier("login.email") // US-1173: stable UI-test selector
                 .keyboardType(.emailAddress)
                 // `.username` (not `.emailAddress`) is the login-identity content
                 // type AutoFill pairs with `.password` to surface a saved
@@ -156,6 +157,7 @@ struct LoginView: View {
                 validationHint(emailValidationHint)
             }
             SecureField("Password", text: $password)
+                .accessibilityIdentifier("login.password") // US-1173: stable UI-test selector
                 .textContentType(mode == .signUp ? .newPassword : .password)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityHint(passwordValidationHint.map { Text($0) } ?? Text(""))
@@ -194,6 +196,7 @@ struct LoginView: View {
             .foregroundStyle(.white)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
         }
+        .accessibilityIdentifier("login.submit") // US-1173: stable UI-test selector
         .disabled(!canSubmit || isSubmitting)
         .opacity(!canSubmit || isSubmitting ? 0.5 : 1)
     }
@@ -235,6 +238,7 @@ struct LoginView: View {
                 handleAppleCompletion(result)
             }
             .signInWithAppleButtonStyle(.black)
+            .accessibilityIdentifier("login.apple") // US-1173: stable UI-test selector
             .frame(height: Self.socialButtonHeight)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             // The native button already exposes the `.button` trait and a

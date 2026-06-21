@@ -273,6 +273,9 @@ struct PaywallView: View {
             Spacer(minLength: 8)
             trailing(for: entry)
         }
+        // US-1173: stable per-product selector for the paywall UI test (US-1153).
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("paywall.product.\(entry.id)")
     }
 
     @ViewBuilder
@@ -332,6 +335,7 @@ struct PaywallView: View {
             } label: {
                 Label("Restore purchases", systemImage: "arrow.clockwise")
             }
+            .accessibilityIdentifier("paywall.restore") // US-1173: stable UI-test selector
         } footer: {
             Text("Already subscribed on this Apple ID? Restore to re-link it.")
         }

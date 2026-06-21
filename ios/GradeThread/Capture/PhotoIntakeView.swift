@@ -482,6 +482,7 @@ struct PhotoIntakeView: View {
             }
             .disabled(permissionState != .granted || isCapturing)
             .accessibilityLabel("Capture photo")
+            .accessibilityIdentifier("capture.shutter") // US-1173: stable UI-test selector
             .accessibilityHint("\(store.photos.count) of \(store.visibleSlots.count) slots filled")
             .accessibilityFocused($captureControlFocused)
 

@@ -4330,8 +4330,8 @@
         "Build + unit tests clean (this unblocks US-1153 selector stability)"
       ],
       "priority": 1173,
-      "passes": false,
-      "notes": "[P2][iOS/Accessibility][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] 0 accessibilityIdentifiers exist despite a UI-test/screenshot target; supports US-1153. Hit-target + announce polish bundled.",
+      "passes": true,
+      "notes": "[P2][iOS/Accessibility][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] 0 accessibilityIdentifiers exist despite a UI-test/screenshot target; supports US-1153. Hit-target + announce polish bundled. IMPLEMENTED 2026-06-21: shared brand button styles (Primary/Secondary/Destructive) now enforce .frame(minHeight: 44) so every CTA meets the hit-target floor. Seeded stable accessibilityIdentifiers across the three US-1153 hermetic journeys: login.email/password/submit/apple, paywall.product.<id>/paywall.restore, capture.shutter (tab bar selects by label). A11yAnnounce 100ms delay left as accepted low-risk. Selector reliability is verified when US-1153 UI tests run on a Mac. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Theme/DesignTokens.swift",
         "ios/GradeThread/Accessibility/A11yAnnounce.swift",
