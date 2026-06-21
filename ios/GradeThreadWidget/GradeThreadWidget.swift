@@ -25,7 +25,12 @@ struct SnapshotWidget: Widget {
         }
         .configurationDisplayName("Today at a glance")
         .description("Your active listings, what sold today, and payout waiting in the wings.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        // US-1134: home-screen (.system*) + Lock Screen / StandBy accessory
+        // families, all driven by the same App Group rollup.
+        .supportedFamilies([
+            .systemSmall, .systemMedium,
+            .accessoryRectangular, .accessoryInline, .accessoryCircular,
+        ])
     }
 }
 
@@ -64,15 +69,31 @@ struct SnapshotProvider: TimelineProvider {
 
 struct SnapshotWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    // US-1134: StandBy (and the Lock Screen) strip the widget container
+    // background; we render a higher-contrast, larger-number small treatment
+    // when that's the case so the numbers stay glanceable on a nightstand.
+    @Environment(\.showsWidgetContainerBackground) private var showsContainerBackground
     let entry: SnapshotEntry
 
     var body: some View {
-        if !entry.snapshot.isSignedIn {
-            SignedOutView()
-        } else {
-            switch family {
-            case .systemSmall: SmallView(snapshot: entry.snapshot)
-            default:           MediumView(snapshot: entry.snapshot)
+        switch family {
+        case .accessoryInline:
+            AccessoryInlineView(snapshot: entry.snapshot)
+        case .accessoryCircular:
+            AccessoryCircularView(snapshot: entry.snapshot)
+        case .accessoryRectangular:
+            AccessoryRectangularView(snapshot: entry.snapshot)
+        default:
+            if !entry.snapshot.isSignedIn {
+                SignedOutView()
+            } else if family == .systemSmall {
+                if showsContainerBackground {
+                    SmallView(snapshot: entry.snapshot)
+                } else {
+                    StandByView(snapshot: entry.snapshot)
+                }
+            } else {
+                MediumView(snapshot: entry.snapshot)
             }
         }
     }
@@ -166,6 +187,113 @@ private struct MediumView: View {
     }
 }
 
+/// StandBy / Lock Screen full-bleed small treatment (US-1134). No container
+/// background, so we lean on big rounded numerals for nightstand legibility and
+/// drop the "Updated Xm ago" footnote that's invisible at standby distance.
+private struct StandByView: View {
+    let snapshot: WidgetSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            BrandHeader()
+            Spacer(minLength: 0)
+            Text("\(snapshot.soldTodayCount)")
+                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.brandNavyLiteral)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+            Text(snapshot.soldTodayCount == 1 ? "sale today" : "sales today")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Text("\(CurrencyText.string(snapshot.pendingPayoutNet)) payout waiting")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(Color.brandNavyLiteral)
+                .minimumScaleFactor(0.7)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .widgetURL(WidgetDeepLink.money.url)
+    }
+}
+
+// MARK: - Lock Screen accessory families (US-1134)
+
+/// Lock Screen inline (the line above the clock). One Label only — the OS
+/// renders it monochrome, tinted to the user's Lock Screen color.
+private struct AccessoryInlineView: View {
+    let snapshot: WidgetSnapshot
+
+    var body: some View {
+        if snapshot.isSignedIn {
+            Label(
+                "\(snapshot.soldTodayCount) sold · \(CurrencyText.string(snapshot.pendingPayoutNet)) payout",
+                systemImage: "shippingbox.fill"
+            )
+        } else {
+            Label("Sign in to GradeThread", systemImage: "shippingbox.fill")
+        }
+    }
+}
+
+/// Lock Screen circular complication. Shows the single most glanceable number —
+/// items sold today — over the system accessory background.
+private struct AccessoryCircularView: View {
+    let snapshot: WidgetSnapshot
+
+    var body: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            VStack(spacing: 0) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 11))
+                Text("\(snapshot.isSignedIn ? snapshot.soldTodayCount : 0)")
+                    .font(.title2.weight(.bold))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                Text("sold")
+                    .font(.system(size: 9))
+            }
+        }
+        .widgetAccentable()
+        .widgetURL(WidgetDeepLink.money.url)
+    }
+}
+
+/// Lock Screen rectangular complication. Two compact lines: today's sales and
+/// the payout waiting.
+private struct AccessoryRectangularView: View {
+    let snapshot: WidgetSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label("GradeThread", systemImage: "shippingbox.fill")
+                .font(.caption2.weight(.bold))
+                .widgetAccentable()
+            if snapshot.isSignedIn {
+                Text(soldLine)
+                    .font(.caption2)
+                Text("\(CurrencyText.string(snapshot.pendingPayoutNet)) payout waiting")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Sign in to see today's sales.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .widgetURL(WidgetDeepLink.money.url)
+    }
+
+    private var soldLine: String {
+        if snapshot.soldTodayCount > 0 {
+            return "\(snapshot.soldTodayCount) sold today · \(CurrencyText.string(snapshot.soldTodayGross))"
+        }
+        return "Nothing sold yet today"
+    }
+}
+
 // MARK: - Shared bits
 
 private struct BrandHeader: View {
@@ -250,4 +378,22 @@ private extension Color {
 } timeline: {
     SnapshotEntry(date: .now, snapshot: .placeholder)
     SnapshotEntry(date: .now, snapshot: .signedOut())
+}
+
+#Preview("Lock — Rectangular", as: .accessoryRectangular) {
+    SnapshotWidget()
+} timeline: {
+    SnapshotEntry(date: .now, snapshot: .placeholder)
+}
+
+#Preview("Lock — Inline", as: .accessoryInline) {
+    SnapshotWidget()
+} timeline: {
+    SnapshotEntry(date: .now, snapshot: .placeholder)
+}
+
+#Preview("Lock — Circular", as: .accessoryCircular) {
+    SnapshotWidget()
+} timeline: {
+    SnapshotEntry(date: .now, snapshot: .placeholder)
 }

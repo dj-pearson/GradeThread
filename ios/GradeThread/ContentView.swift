@@ -577,6 +577,16 @@ struct MainShell: View {
             router.selection = .home
             router.homePath = NavigationPath()
             router.homePath.append(GradesRoute())
+        case .captureItem:
+            // US-1134: "Snap to value" Siri/Shortcut → photo-first capture. Rest
+            // to Home so the intake pushes onto a predictable stack.
+            router.selection = .home
+            router.homePath = NavigationPath()
+            router.startIntake(.photoFirst)
+        case .addItem:
+            // US-1134: "Add an item" Siri/Shortcut → the add-method chooser sheet.
+            router.selection = .home
+            router.showingAddSheet = true
         }
     }
 

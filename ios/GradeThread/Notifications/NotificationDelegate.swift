@@ -144,6 +144,12 @@ public enum DeepLinkRoute: Equatable {
     /// Opens the Grades list — used when a grade-ready push has no item id so
     /// the tap still lands somewhere useful (US-999).
     case gradesList
+    /// US-1134: "Snap to value" Siri/Shortcut → straight into the photo-first
+    /// capture-and-grade flow. No push uses this; it's driven by App Intents.
+    case captureItem
+    /// US-1134: "Add an item" Siri/Shortcut → the add-method chooser. App Intents
+    /// only.
+    case addItem
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.

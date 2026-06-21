@@ -656,6 +656,19 @@ memory — not a progress log (the harness records progress separately).
   edge `ebayPublicPhotoUrl` helper in `flipdesk-ebay.ts` mirrors the sensitive
   set so private photos are skipped (not turned into a 404 item-photos URL).
 
+## iOS App Intents / Siri / widgets (US-1134)
+- App Intents live in `ios/GradeThread/Intents/`; one `AppShortcutsProvider`
+  (`GradeThreadAppShortcuts`) auto-registers them for Siri/Spotlight — no
+  Info.plist/entitlement needed. Navigation intents set `openAppWhenRun = true`
+  + `@MainActor perform()` and reuse `DeepLinkRouter.post(_:)` (the same bus as
+  push + the widget), gated on signed-in by ContentView; value-returning intents
+  (`openAppWhenRun = false`) read `WidgetSnapshotStore.read()`. Keep spoken-copy
+  formatting in a PURE helper (`SoldTodaySummary`) so it unit-tests with no Siri
+  runtime. Lock Screen accessory widgets just add `.accessory{Rectangular,Inline,
+  Circular}` to `supportedFamilies` + family-switch views; StandBy = the
+  `.systemSmall` family with `@Environment(\.showsWidgetContainerBackground)`
+  false → render a full-bleed treatment.
+
 ## iOS pipeline auto-advance (US-815)
 - Status auto-advance + the prep checklist are PURE in `ios/GradeThread/
   Inventory/ItemWorkflow.swift` (`ItemWorkflow.resolveStatus`/`earnedStatus`/
