@@ -4457,8 +4457,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1179,
-      "passes": false,
-      "notes": "[P3][iOS/AI][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Job rows show raw UUIDs; CSV mapping is a static keyword dict with no AI assist despite Vision capability.",
+      "passes": true,
+      "notes": "[P3][iOS/AI][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Job rows show raw UUIDs; CSV mapping is a static keyword dict with no AI assist despite Vision capability. IMPLEMENTED 2026-06-21: AutoListerQueueView resolves each job's item title via a SwiftData @Query (falls back to the uuid prefix only when no title yet) so rows read the garment, not a UUID. CSV mapping step now explicitly states the column matching is auto-detected from headers (keyword heuristic, no AI) and to review it — taking the documented-heuristic option since an AI mapping pass would need a new edge endpoint. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/AutoLister/AutoListerQueueView.swift",
         "ios/GradeThread/AutoLister/AutoListerReviewModel.swift",

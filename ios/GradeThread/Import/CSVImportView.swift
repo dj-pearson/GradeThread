@@ -124,7 +124,13 @@ struct CSVImportView: View {
                         }
                     }
                 } header: {
-                    Text("Map your columns")
+                    // US-1179: be explicit that the mapping is auto-detected from
+                    // the headers (keyword heuristic, no AI), so users review it.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Map your columns")
+                        Text("We auto-matched these from your column names — double-check each before importing.")
+                            .font(.caption).textCase(nil).foregroundStyle(.secondary)
+                    }
                 } footer: {
                     if !store.hasTitleMapping {
                         Text("Map one column to \"Item title\" — it's required.")
