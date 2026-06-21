@@ -10,6 +10,11 @@ struct CSVImportView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var store = ImportStore()
 
+    /// US-1166: reject oversized files up front so we never read a huge sheet
+    /// fully into memory + parse it (OOM/freeze risk). ~5 MB of CSV is already
+    /// tens of thousands of rows.
+    private static let maxImportBytes = 5 * 1024 * 1024
+
     @State private var sheetURL = ""
     @State private var showingFileImporter = false
 
@@ -248,6 +253,12 @@ struct CSVImportView: View {
             guard let url = urls.first else { return }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            // US-1166: reject oversized files before reading them into memory.
+            if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               size > Self.maxImportBytes {
+                store.errorBanner = "That file is too large to import (max 5 MB). Split it into smaller files."
+                return
+            }
             do {
                 // The file read stays synchronous (so the security-scoped URL is
                 // still valid); the off-main parse (US-1165) runs on the in-memory

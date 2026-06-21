@@ -131,6 +131,7 @@ final class DraftsBulkEditStore {
             var drafts = try await service.fetchDrafts().filter { $0.batchId != nil }
             if let batchId { drafts = drafts.filter { $0.batchId == batchId } }
             rows = drafts.map(DraftEditRow.init(from:))
+            rebuildRowIndex() // US-1166: O(1) row lookups for the grid
             titles = (try? await service.fetchItemTitles(ids: drafts.map(\.inventoryItemId))) ?? [:]
             phase = .ready
         } catch {
@@ -150,8 +151,25 @@ final class DraftsBulkEditStore {
 
     // MARK: - Per-row edit
 
+    // US-1166: id→index map so the grid's per-field reads/writes are O(1)
+    // instead of a `first(where:)` linear scan per field per render (O(n^2)).
+    // Field edits never change row order/ids, so the map stays valid between
+    // structural reloads; rebuild it only when `rows` is reassigned.
+    private var indexById: [String: Int] = [:]
+
+    private func rebuildRowIndex() {
+        indexById = Dictionary(
+            rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    func row(id: String) -> DraftEditRow? {
+        guard let i = indexById[id], rows.indices.contains(i) else { return nil }
+        return rows[i]
+    }
+
     func update(_ id: String, _ mutate: (inout DraftEditRow) -> Void) {
-        guard let i = rows.firstIndex(where: { $0.id == id }) else { return }
+        guard let i = indexById[id], rows.indices.contains(i) else { return }
         mutate(&rows[i])
         rows[i].dirty = true
     }

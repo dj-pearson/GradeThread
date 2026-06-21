@@ -4195,7 +4195,7 @@
       ],
       "priority": 1166,
       "passes": false,
-      "notes": "[P2][iOS/Performance][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Sequential bulk writes, O(n^2) draft grid, 500-row silent cap, eager lists, unbounded caches. Headless-codeable.",
+      "notes": "[P2][iOS/Performance][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Sequential bulk writes, O(n^2) draft grid, 500-row silent cap, eager lists, unbounded caches. Headless-codeable. PARTIAL 2026-06-21 (perf-correctness wins DONE; parallelization DEFERRED, passes stays false): DONE — DraftsBulkEditStore now keeps an id->index map so the grid is O(1) per field read/write (was O(n^2) via first(where:)); ScoutView results use LazyVStack (AutoLister reviewList already did); CompsService category cache is bounded (FIFO cap 200) and skips empty responses; EdgeAPI cache eviction sorts once by recency instead of O(n) min() per drop; CSV import rejects files >5MB (pre-read size check) and >20k rows; DraftsLibrary shows a \"most recent drafts\" notice when the 500-row fetch cap is hit. DEFERRED — parallelizing the sequential Drafts bulk field-apply writes and the CSV per-row inserts (TaskGroup): both currently work correctly (just sequential); parallelizing safely involves @Sendable existential-service captures + the CSV seenSkus dedup dependency, which carry compile/runtime risk best verified on CI. List is already a lazy container.",
       "relevantPaths": [
         "ios/GradeThread/AutoLister/Drafts/DraftsLibraryStore.swift",
         "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditView.swift",

@@ -17,6 +17,22 @@ final class CompsService: CompsProviding {
     /// category-suggest hop. Static so it persists across short-lived service
     /// instances; accessed only from this `@MainActor` type.
     private static var categoryCache: [String: CategorySuggestResponse] = [:]
+    // US-1166: bound the cache (FIFO) and skip caching empty responses so it
+    // can't grow without limit over a long session.
+    private static var categoryCacheOrder: [String] = []
+    private static let categoryCacheCap = 200
+
+    private static func cacheCategory(_ key: String, _ value: CategorySuggestResponse) {
+        guard !value.suggestions.isEmpty else { return }
+        if categoryCache[key] == nil {
+            categoryCacheOrder.append(key)
+            if categoryCacheOrder.count > categoryCacheCap {
+                let evicted = categoryCacheOrder.removeFirst()
+                categoryCache[evicted] = nil
+            }
+        }
+        categoryCache[key] = value
+    }
 
     init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -39,7 +55,7 @@ final class CompsService: CompsProviding {
                 path: "/api/flipdesk/ebay/category/suggest",
                 query: [URLQueryItem(name: "q", value: query)]
             )
-            Self.categoryCache[cacheKey] = suggestion
+            Self.cacheCategory(cacheKey, suggestion)
         }
         guard let top = suggestion.suggestions.first else { return nil }
 

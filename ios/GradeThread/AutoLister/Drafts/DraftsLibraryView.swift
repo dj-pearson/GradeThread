@@ -348,6 +348,14 @@ struct DraftsLibraryView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if store.hitFetchCap {
+                    // US-1166: the fetch caps at 500 rows; tell the user some older
+                    // drafts may not be shown rather than silently dropping them.
+                    Label("Showing your most recent drafts — older ones may not appear.",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section {

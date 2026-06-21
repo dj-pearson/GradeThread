@@ -369,11 +369,17 @@ public actor EdgeAPI {
 
     /// Evicts the least-recently-used entry until both caps are satisfied.
     private func evictUntilWithinCaps() {
-        while responseCache.count > Self.cacheMaxEntries
-            || responseCacheBytes > Self.cacheMaxBytes {
-            guard let oldest = responseCache.min(by: { $0.value.lastAccess < $1.value.lastAccess })?.key
-            else { break }
-            removeCacheEntry(oldest)
+        guard responseCache.count > Self.cacheMaxEntries
+            || responseCacheBytes > Self.cacheMaxBytes else { return }
+        // US-1166: sort by recency once and drop the oldest prefix, instead of
+        // an O(n) min() per evicted entry (O(n^2) when many must be dropped).
+        let oldestFirst = responseCache.sorted { $0.value.lastAccess < $1.value.lastAccess }
+        var index = 0
+        while (responseCache.count > Self.cacheMaxEntries
+            || responseCacheBytes > Self.cacheMaxBytes),
+            index < oldestFirst.count {
+            removeCacheEntry(oldestFirst[index].key)
+            index += 1
         }
     }
 

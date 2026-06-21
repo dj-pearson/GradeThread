@@ -14,6 +14,9 @@ final class ImportStore {
         case done
     }
 
+    /// US-1166: hard row cap for an imported sheet (memory guard).
+    static let maxImportRows = 20_000
+
     private let sheets: SheetsImporting
     private let importer: InventoryImportService
 
@@ -54,6 +57,11 @@ final class ImportStore {
         }
         guard !parsed.rows.isEmpty else {
             errorBanner = "That file has headers but no data rows."
+            return
+        }
+        // US-1166: cap the row count so a pathological file can't blow up memory.
+        guard parsed.rows.count <= Self.maxImportRows else {
+            errorBanner = "That file has too many rows (max \(Self.maxImportRows)). Split it into smaller files."
             return
         }
         sheet = parsed

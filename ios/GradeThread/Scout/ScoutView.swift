@@ -105,8 +105,12 @@ struct ScoutView: View {
                 emptyResults(note: response.note)
             } else {
                 resultsHeader(scanned: response.scanned)
-                ForEach(store.displayedCandidates) { candidate in
-                    ScoutCandidateRow(candidate: candidate)
+                // US-1166: lazy so rows + their CachedThumbnail network images
+                // don't all instantiate eagerly inside the ScrollView.
+                LazyVStack(spacing: 12) {
+                    ForEach(store.displayedCandidates) { candidate in
+                        ScoutCandidateRow(candidate: candidate)
+                    }
                 }
             }
         }

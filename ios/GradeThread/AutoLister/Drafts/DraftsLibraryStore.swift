@@ -32,6 +32,9 @@ final class DraftsLibraryStore {
     /// AutoLister drafts only (batch_id != nil), newest first.
     private(set) var drafts: [DraftListing] = []
     private(set) var titles: [String: String] = [:]
+    /// US-1166: true when the server fetch hit its row cap (500), so the view can
+    /// tell the user they're seeing only the most recent drafts.
+    private(set) var hitFetchCap = false
     /// US-964: selected draft (listing) ids for bulk-publish.
     var selected: Set<String> = []
     /// US-964: bulk-publish progress + the published-vs-skipped summary string
@@ -78,6 +81,9 @@ final class DraftsLibraryStore {
         phase = .loading
         do {
             let all = try await service.fetchDrafts()
+            // fetchDrafts caps at 500 rows server-side; if we got exactly that,
+            // there may be older drafts not shown (US-1166).
+            hitFetchCap = all.count >= 500
             drafts = all.filter { $0.batchId != nil }
             titles = (try? await service.fetchItemTitles(ids: drafts.map(\.inventoryItemId))) ?? [:]
             // Drop selections for drafts that no longer exist (e.g. just published).
