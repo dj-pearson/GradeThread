@@ -3613,7 +3613,7 @@
         "If removed: update passport.ts (~L47) comment and any references; deno check/lint/test pass"
       ],
       "priority": 1055,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Passport][EPIC: Web↔iOS Gaps & Polish 2026-06-20] garment_events enum (00256_garment_passport_core.sql) defines 'fingerprinted' and passport.ts (~L47) claims it's written, but nothing inserts it — only 'graded' and 'sold' are emitted. If touching DB enum, follow migration conventions (idempotent + EXPECTED_SCHEMA_VERSION bump + applied_migrations footer).",
       "relevantPaths": [
         "services/edge-functions/src/routes/passport.ts",

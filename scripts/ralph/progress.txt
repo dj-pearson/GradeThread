@@ -3794,3 +3794,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  1:48:39 AM
 ---
+## US-1137: Passport: implement or remove the orphaned 'fingerprinted' event
+- Status: COMPLETE
+- Timestamp: Sun, Jun 21, 2026  1:52:04 AM
+---
