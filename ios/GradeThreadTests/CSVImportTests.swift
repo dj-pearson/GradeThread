@@ -59,6 +59,15 @@ final class CSVImportTests: XCTestCase {
         XCTAssertNil(ImportValue.price(nil))
     }
 
+    // US-1162: a CSV can be in a comma-decimal locale; the right-most separator
+    // is the decimal, the other is grouping. The old filter corrupted these.
+    func test_price_localeAwareDecimalAndGrouping() {
+        XCTAssertEqual(ImportValue.price("1.299,00"), 1299.00) // EU: dot grouping, comma decimal
+        XCTAssertEqual(ImportValue.price("5,00"), 5.00)        // EU decimal comma
+        XCTAssertEqual(ImportValue.price("1,000,000"), 1_000_000) // US grouping only
+        XCTAssertEqual(ImportValue.price("€1.234,56"), 1234.56)
+    }
+
     func test_status_normalization() {
         XCTAssertEqual(ImportValue.status("Active"), "listed")
         XCTAssertEqual(ImportValue.status("SOLD"), "sold")
@@ -109,9 +118,9 @@ final class CSVImportTests: XCTestCase {
     }
 
     @MainActor
-    func test_store_loadCSV_guessesMappingAndPreviews() {
+    func test_store_loadCSV_guessesMappingAndPreviews() async {
         let store = ImportStore(sheets: FakeSheets())
-        store.loadCSV("Item Title,SKU,Cost\nNike Tee,A1,$10\n,B2,$5")
+        await store.loadCSV("Item Title,SKU,Cost\nNike Tee,A1,$10\n,B2,$5")
         XCTAssertEqual(store.phase, .mapping)
         XCTAssertEqual(store.mapping, [.title, .sku, .purchasePrice])
         XCTAssertTrue(store.hasTitleMapping)
@@ -121,17 +130,17 @@ final class CSVImportTests: XCTestCase {
     }
 
     @MainActor
-    func test_store_loadCSV_emptyShowsBanner() {
+    func test_store_loadCSV_emptyShowsBanner() async {
         let store = ImportStore(sheets: FakeSheets())
-        store.loadCSV("")
+        await store.loadCSV("")
         XCTAssertEqual(store.phase, .source)
         XCTAssertNotNil(store.errorBanner)
     }
 
     @MainActor
-    func test_store_cannotCommitWithoutTitleMapping() {
+    func test_store_cannotCommitWithoutTitleMapping() async {
         let store = ImportStore(sheets: FakeSheets())
-        store.loadCSV("foo,bar\n1,2")
+        await store.loadCSV("foo,bar\n1,2")
         store.mapping = [.skip, .skip]
         XCTAssertFalse(store.hasTitleMapping)
         XCTAssertFalse(store.canCommit)

@@ -187,6 +187,10 @@ public final class EbayPublishService {
             return .failed(message: parsed?.message ?? "Validation failed.")
         case 409:
             return .noOfferId
+        case 401, 403:
+            // US-1163: an expired/!authorized session shouldn't read as a raw
+            // "Unexpected error (HTTP 401)". Guide the user to re-auth.
+            return .failed(message: "Your session expired. Sign in again, then retry publishing.")
         default:
             let parsed = try? JSONDecoder().decode(EdgeErrorBody.self, from: error.body)
             return .failed(message: parsed?.message ?? "Unexpected error (HTTP \(error.statusCode)).")

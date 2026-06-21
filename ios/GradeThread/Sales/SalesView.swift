@@ -8,6 +8,9 @@ import SwiftUI
 struct SalesView: View {
     @Query(sort: \LocalSale.saleDate, order: .reverse) private var sales: [LocalSale]
     @Query private var items: [LocalInventoryItem]
+    // US-1163: distinguish "first sync still running" from "genuinely no sales"
+    // so a fresh install doesn't read the empty state as a dead business.
+    @Environment(SyncStatusStore.self) private var syncStatus
     private let currency = CurrencyFormatter()
 
     private var titlesByItemId: [String: String] {
@@ -34,11 +37,17 @@ struct SalesView: View {
     @ViewBuilder
     private var content: some View {
         if sales.isEmpty {
-            ContentUnavailableView(
-                "No sales yet",
-                systemImage: "dollarsign.circle",
-                description: Text("Sold items from your synced marketplaces show up here.")
-            )
+            if syncStatus.phase == .syncing {
+                // First pull hasn't populated the cache yet — show a skeleton,
+                // not the "no sales" empty state.
+                ScrollView { SkeletonRows(count: 6).padding(.top) }
+            } else {
+                ContentUnavailableView(
+                    "No sales yet",
+                    systemImage: "dollarsign.circle",
+                    description: Text("Sold items from your synced marketplaces show up here.")
+                )
+            }
         } else {
             List {
                 Section {

@@ -141,8 +141,8 @@ struct AnalyticsView: View {
             TextField("Amount", text: $budgetDraft)
                 .keyboardType(.decimalPad)
             Button("Save") {
-                let cleaned = budgetDraft.filter { $0.isNumber || $0 == "." }
-                let value = Double(cleaned)
+                // US-1162: locale-aware parse (accepts comma decimals / grouping).
+                let value = CurrencyFormatter().parse(budgetDraft)
                 AppPreferences.sourcingBudget = value
                 sourcingBudget = AppPreferences.sourcingBudget
             }
@@ -448,7 +448,8 @@ struct AnalyticsView: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                         Spacer()
                         Button("Edit") {
-                            budgetDraft = String(Int(status.budget))
+                            // US-1162: seed with the locale formatter so it round-trips.
+                            budgetDraft = CurrencyFormatter().formatRaw(status.budget)
                             showingBudgetEditor = true
                         }
                         .font(.caption.weight(.semibold))

@@ -56,13 +56,15 @@ final class OnboardingStateTests: XCTestCase {
         XCTAssertTrue(reread.pendingFirstAction, "a chosen use case queues the one-shot first action")
     }
 
-    func test_complete_skipped_completesButQueuesNothing() {
+    func test_complete_skipped_completesAndQueuesGentleNudge() {
         let state = OnboardingState(defaults: defaults)
         state.complete(useCase: nil)
         let reread = OnboardingState(defaults: defaults)
         XCTAssertTrue(reread.hasCompleted)
         XCTAssertNil(reread.selectedUseCase)
-        XCTAssertFalse(reread.pendingFirstAction, "skipping doesn't drop the user anywhere")
+        // US-1178: skip now also queues a first action (no use case → the shell
+        // nudges toward adding the first item rather than a bare dashboard).
+        XCTAssertTrue(reread.pendingFirstAction, "skipping queues a gentle add-item nudge")
     }
 
     func test_pendingFirstAction_isOneShot() {

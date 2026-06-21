@@ -56,18 +56,25 @@ final class InventoryImportService {
     ) async -> Result {
         var result = Result()
         var seenSkus = await loadExistingSkus(userId: userId, drafts: drafts)
+        let total = drafts.count
+        var done = 0
 
-        for (index, entry) in drafts.enumerated() {
-            progress?(index + 1, drafts.count)
+        // US-1166: Phase 1 (sequential, no network) — resolve the SKU dedup
+        // (which is order-dependent for in-batch collisions) and build the
+        // payloads to insert. Phase 2 then inserts them in bounded-concurrency
+        // chunks instead of one round-trip at a time.
+        var toInsert: [(row: Int, payload: ItemInsert)] = []
+        for entry in drafts {
             let draft = entry.draft
             let sku = draft.sku?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-
             if let sku, seenSkus.contains(sku) {
                 result.skippedDuplicates += 1
+                done += 1
+                progress?(done, total)
                 continue
             }
-
-            let payload = ItemInsert(
+            if let sku { seenSkus.insert(sku) }
+            toInsert.append((entry.row, ItemInsert(
                 user_id: userId,
                 title: draft.title,
                 sku: sku,
@@ -82,17 +89,45 @@ final class InventoryImportService {
                 target_price: draft.targetPrice,
                 acquired_date: draft.acquiredDate,
                 description: draft.conditionNotes
-            )
-            do {
-                try await supabase.from("inventory_items").insert(payload).execute()
-                result.inserted += 1
-                if let sku { seenSkus.insert(sku) }
-            } catch {
-                result.errors.append((row: entry.row, message: friendly(error)))
+            )))
+        }
+
+        // Phase 2: parallel inserts (independent rows, no shared state).
+        let supabase = self.supabase
+        for chunk in toInsert.chunked(into: Self.insertConcurrency) {
+            let outcomes = await withTaskGroup(of: (row: Int, error: String?).self) { group -> [(row: Int, error: String?)] in
+                for item in chunk {
+                    let payload = item.payload
+                    let row = item.row
+                    group.addTask {
+                        do {
+                            try await supabase.from("inventory_items").insert(payload).execute()
+                            return (row, nil)
+                        } catch {
+                            return (row, Self.friendly(error))
+                        }
+                    }
+                }
+                var acc: [(row: Int, error: String?)] = []
+                for await o in group { acc.append(o) }
+                return acc
+            }
+            // Fold results back in row order for a stable error list.
+            for o in outcomes.sorted(by: { $0.row < $1.row }) {
+                done += 1
+                if let message = o.error {
+                    result.errors.append((row: o.row, message: message))
+                } else {
+                    result.inserted += 1
+                }
+                progress?(done, total)
             }
         }
         return result
     }
+
+    /// US-1166: how many import inserts run concurrently.
+    static let insertConcurrency = 4
 
     /// Pre-loads the user's existing SKUs that appear in the import so dedup is
     /// a membership check rather than a per-row round-trip.
@@ -121,7 +156,9 @@ final class InventoryImportService {
         }
     }
 
-    private func friendly(_ error: Error) -> String {
+    // US-1166: nonisolated + static so it can map errors from inside the
+    // concurrent insert tasks (off the @MainActor service).
+    nonisolated static func friendly(_ error: Error) -> String {
         let lower = error.localizedDescription.lowercased()
         if lower.contains("duplicate") || lower.contains("23505") {
             return "Duplicate SKU"
@@ -135,4 +172,14 @@ final class InventoryImportService {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+// US-1166: bounded-concurrency chunking for the parallel insert phase.
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
+    }
 }

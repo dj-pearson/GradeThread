@@ -198,12 +198,34 @@ final class PriceSuggestionsStore {
         }
     }
 
+    /// US-1167: the most-recently dismissed row, so a mis-tap can be undone from
+    /// the banner before it times out.
+    private(set) var lastDismissed: (id: String, previous: RowState)?
+
     /// Hides a row for the rest of the session (no server write).
     func dismiss(_ row: Row) {
         guard let index = rows.firstIndex(where: { $0.id == row.id }) else { return }
+        lastDismissed = (row.id, rows[index].state)
         rows[index].state = .dismissed
         rowErrors[row.id] = nil
+        actionBanner = "Suggestion dismissed"
         HapticFeedback.light()
+    }
+
+    /// US-1167: restore the last-dismissed row.
+    func undoDismiss() {
+        guard let last = lastDismissed,
+              let index = rows.firstIndex(where: { $0.id == last.id }) else { return }
+        rows[index].state = last.previous
+        lastDismissed = nil
+        actionBanner = nil
+        HapticFeedback.light()
+    }
+
+    /// Called when the banner times out — also closes the undo window.
+    func bannerTimedOut() {
+        actionBanner = nil
+        lastDismissed = nil
     }
 
     /// Per-row comps error, if any.

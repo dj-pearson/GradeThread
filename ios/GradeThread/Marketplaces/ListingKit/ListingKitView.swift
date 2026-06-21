@@ -9,17 +9,18 @@ import UIKit
 // no-API marketplaces from their phone. eBay's publish path is untouched.
 
 struct ListingKitView: View {
-    @StateObject private var store: ListingKitStore
+    // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
+    @State private var store: ListingKitStore
     /// The field key currently showing a transient "Copied" confirmation.
     @State private var copiedKey: String?
 
     init(itemId: String, itemTitle: String) {
-        _store = StateObject(wrappedValue: ListingKitStore(itemId: itemId, itemTitle: itemTitle))
+        _store = State(initialValue: ListingKitStore(itemId: itemId, itemTitle: itemTitle))
     }
 
     /// Test/preview seam: inject a pre-built store (e.g. with a fake service).
     init(store: ListingKitStore) {
-        _store = StateObject(wrappedValue: store)
+        _store = State(initialValue: store)
     }
 
     var body: some View {

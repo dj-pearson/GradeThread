@@ -10,6 +10,11 @@ struct CSVImportView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var store = ImportStore()
 
+    /// US-1166: reject oversized files up front so we never read a huge sheet
+    /// fully into memory + parse it (OOM/freeze risk). ~5 MB of CSV is already
+    /// tens of thousands of rows.
+    private static let maxImportBytes = 5 * 1024 * 1024
+
     @State private var sheetURL = ""
     @State private var showingFileImporter = false
 
@@ -124,7 +129,13 @@ struct CSVImportView: View {
                         }
                     }
                 } header: {
-                    Text("Map your columns")
+                    // US-1179: be explicit that the mapping is auto-detected from
+                    // the headers (keyword heuristic, no AI), so users review it.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Map your columns")
+                        Text("We auto-matched these from your column names — double-check each before importing.")
+                            .font(.caption).textCase(nil).foregroundStyle(.secondary)
+                    }
                 } footer: {
                     if !store.hasTitleMapping {
                         Text("Map one column to \"Item title\" — it's required.")
@@ -204,8 +215,17 @@ struct CSVImportView: View {
                         .cardStyle(.flush)
                     }
                 }
-                Button("Done") { dismiss() }
-                    .buttonStyle(.brandPrimary)
+                // US-1163: if nothing imported, don't dead-end on "Done" — let
+                // the user jump back to remap columns (keeping the loaded sheet).
+                if let result = store.result, result.inserted == 0 {
+                    Button("Back to mapping") { store.backToMapping() }
+                        .buttonStyle(.brandPrimary)
+                    Button("Done") { dismiss() }
+                        .buttonStyle(.brandSecondary)
+                } else {
+                    Button("Done") { dismiss() }
+                        .buttonStyle(.brandPrimary)
+                }
             }
             .padding(16)
         }
@@ -233,14 +253,23 @@ struct CSVImportView: View {
             guard let url = urls.first else { return }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            // US-1166: reject oversized files before reading them into memory.
+            if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               size > Self.maxImportBytes {
+                store.errorBanner = "That file is too large to import (max 5 MB). Split it into smaller files."
+                return
+            }
             do {
+                // The file read stays synchronous (so the security-scoped URL is
+                // still valid); the off-main parse (US-1165) runs on the in-memory
+                // string, so releasing the scoped resource on return is safe.
                 let text = try String(contentsOf: url, encoding: .utf8)
-                store.loadCSV(text)
+                Task { await store.loadCSV(text) }
             } catch {
                 // Fall back to a lenient encoding for sheets exported as Latin-1.
                 if let data = try? Data(contentsOf: url),
                    let text = String(data: data, encoding: .isoLatin1) {
-                    store.loadCSV(text)
+                    Task { await store.loadCSV(text) }
                 } else {
                     store.errorBanner = "Couldn't read that file: \(error.localizedDescription)"
                 }

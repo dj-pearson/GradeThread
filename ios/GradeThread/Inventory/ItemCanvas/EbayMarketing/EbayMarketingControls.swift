@@ -78,7 +78,14 @@ struct EbayMarketingControls: View {
             case .loading:
                 HStack { ProgressView(); Text("Loading promotion…").foregroundStyle(.secondary) }
             case .failed(let message):
-                Text(message).font(.caption).foregroundStyle(.secondary)
+                // US-1163: a transient load failure shouldn't permanently hide
+                // the promote/sale controls — offer a retry.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                    Button("Try again") { Task { await store.load() } }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.bordered)
+                }
             case .ready:
                 if let status = store.status {
                     if isOffline {
@@ -111,6 +118,11 @@ struct EbayMarketingControls: View {
             Text("Ad rate: \(rate, specifier: "%.1f")%")
         }
         .onAppear { rate = status.ratePct ?? status.suggestedRatePct }
+        // US-1175: re-seed the stepper when the store reloads a new rate after a
+        // promote/update (.onAppear won't refire), so it never shows a stale value.
+        .onChange(of: status.ratePct) { _, newValue in
+            rate = newValue ?? status.suggestedRatePct
+        }
         HStack {
             Button(promoted ? "Update rate" : "Promote") {
                 Task { await store.promote(ratePct: rate) }

@@ -18,6 +18,10 @@ final class PostSaleStore {
     private(set) var disputes: [EbayPaymentDispute] = []
     var actionError: String?
     var actionBanner: String?
+    /// US-1178: paymentDisputeId of an evidence upload currently in flight, so
+    /// the dispute row can show a progress indicator (multi-MB uploads otherwise
+    /// look frozen with the picker already dismissed).
+    private(set) var evidenceUploadingId: String?
 
     /// US-1146: a dispute-evidence upload that failed, retained so the UI can
     /// offer an explicit Retry rather than losing the (non-idempotent, so
@@ -134,6 +138,8 @@ final class PostSaleStore {
     /// attaches it to the dispute. The seller can attach evidence and then
     /// contest.
     func uploadDisputeEvidence(_ d: EbayPaymentDispute, imageData: Data) async {
+        evidenceUploadingId = d.paymentDisputeId
+        defer { evidenceUploadingId = nil }
         do {
             try await service.addDisputeEvidence(
                 disputeId: d.paymentDisputeId,

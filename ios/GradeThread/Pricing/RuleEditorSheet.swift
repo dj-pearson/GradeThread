@@ -84,7 +84,7 @@ struct RuleEditorSheet: View {
             HStack {
                 Text("Floor price")
                 Spacer()
-                Text("$").foregroundStyle(.secondary)
+                Text(CurrencyFormatter().symbol).foregroundStyle(.secondary)
                 TextField("none", text: $draft.floorPrice)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)

@@ -89,7 +89,9 @@ struct AIExtractView: View {
             ProgressView().tint(Color.brandNavy).scaleEffect(1.4)
             Text("AI is reading your photos…")
                 .font(.brandHeadline)
-            Text("~10 seconds")
+            // US-1178: don't promise a hard "~10 seconds" — it reads as broken on
+            // a slow network. Keep it qualitative.
+            Text("This usually only takes a few seconds")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             // Animated progress dots — gives a sense of motion while the
@@ -274,7 +276,9 @@ struct AIExtractView: View {
                     measurements: nil,
                     model: nil,
                     logId: nil,
-                    actionsRemaining: -1
+                    // US-1178: this is the offline Live Text fallback — there was
+                    // no server call, so the remaining-action quota is unknown.
+                    actionsRemaining: AIExtractResponse.actionsRemainingUnknown
                 )
                 store.applyResponse(synthetic)
                 store.liveTextFallbackUsed = true
@@ -423,7 +427,12 @@ struct AIExtractView: View {
         guard let tagEntry = photos.first(where: { $0.slot == .tag }) else {
             return [:]
         }
-        guard let image = UIImage(data: tagEntry.capture.imageData) else {
+        // US-1165: decode the full-res tag JPEG off the main actor (this runs in
+        // the @MainActor view) before handing it to the recognizer.
+        let imageData = tagEntry.capture.imageData
+        guard let image = await Task.detached(priority: .userInitiated, operation: {
+            UIImage(data: imageData)
+        }).value else {
             return [:]
         }
         let recognizer = TagTextRecognizer()

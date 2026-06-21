@@ -125,12 +125,12 @@ private struct SmallView: View {
                 label: "Sold today",
                 value: "\(snapshot.soldTodayCount)",
                 detail: snapshot.soldTodayCount > 0
-                    ? CurrencyText.string(snapshot.soldTodayGross)
+                    ? CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)
                     : nil
             )
             Metric(
                 label: "Payout waiting",
-                value: CurrencyText.string(snapshot.pendingPayoutNet),
+                value: CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode),
                 detail: snapshot.pendingPayoutCount > 0
                     ? "\(snapshot.pendingPayoutCount) sale\(snapshot.pendingPayoutCount == 1 ? "" : "s")"
                     : nil
@@ -169,13 +169,13 @@ private struct MediumView: View {
                     label: "Sold today",
                     value: "\(snapshot.soldTodayCount)",
                     detail: snapshot.soldTodayCount > 0
-                        ? CurrencyText.string(snapshot.soldTodayGross)
+                        ? CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)
                         : "—"
                 )
                 Divider()
                 Metric(
                     label: "Payout",
-                    value: CurrencyText.string(snapshot.pendingPayoutNet),
+                    value: CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode),
                     detail: "\(snapshot.pendingPayoutCount) waiting"
                 )
             }
@@ -206,7 +206,7 @@ private struct StandByView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
-            Text("\(CurrencyText.string(snapshot.pendingPayoutNet)) payout waiting")
+            Text("\(CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)) payout waiting")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(Color.brandNavyLiteral)
                 .minimumScaleFactor(0.7)
@@ -227,7 +227,7 @@ private struct AccessoryInlineView: View {
     var body: some View {
         if snapshot.isSignedIn {
             Label(
-                "\(snapshot.soldTodayCount) sold · \(CurrencyText.string(snapshot.pendingPayoutNet)) payout",
+                "\(snapshot.soldTodayCount) sold · \(CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)) payout",
                 systemImage: "shippingbox.fill"
             )
         } else {
@@ -273,7 +273,7 @@ private struct AccessoryRectangularView: View {
             if snapshot.isSignedIn {
                 Text(soldLine)
                     .font(.caption2)
-                Text("\(CurrencyText.string(snapshot.pendingPayoutNet)) payout waiting")
+                Text("\(CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)) payout waiting")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
@@ -288,7 +288,7 @@ private struct AccessoryRectangularView: View {
 
     private var soldLine: String {
         if snapshot.soldTodayCount > 0 {
-            return "\(snapshot.soldTodayCount) sold today · \(CurrencyText.string(snapshot.soldTodayGross))"
+            return "\(snapshot.soldTodayCount) sold today · \(CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode))"
         }
         return "Nothing sold yet today"
     }
@@ -347,12 +347,14 @@ private struct UpdatedFootnote: View {
 /// when there are no cents so "$184" reads cleaner than "$184.00" at
 /// widget sizes.
 private enum CurrencyText {
-    static func string(_ amount: Double) -> String {
+    // US-1161: format in the snapshot's currency (the user's override) when set;
+    // otherwise follow the device locale rather than forcing USD.
+    static func string(_ amount: Double, code: String? = nil) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
+        if let code { formatter.currencyCode = code }
         formatter.maximumFractionDigits = amount.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "$\(Int(amount))"
+        return formatter.string(from: NSNumber(value: amount)) ?? "\(formatter.currencySymbol ?? "$")\(Int(amount))"
     }
 }
 

@@ -34,6 +34,12 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
     /// Net of those pending sales: sale price minus platform fees.
     public let pendingPayoutNet: Double
 
+    /// US-1161: the user's currency override (ISO 4217), or nil to follow the
+    /// device locale. Plumbed through so the widget + Siri summary format money
+    /// in the same currency as the in-app surfaces instead of forcing USD.
+    /// Optional so snapshots written before this field still decode.
+    public let currencyCode: String?
+
     public init(
         generatedAt: Date,
         isSignedIn: Bool,
@@ -41,7 +47,8 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         soldTodayCount: Int,
         soldTodayGross: Double,
         pendingPayoutCount: Int,
-        pendingPayoutNet: Double
+        pendingPayoutNet: Double,
+        currencyCode: String? = nil
     ) {
         self.generatedAt = generatedAt
         self.isSignedIn = isSignedIn
@@ -50,6 +57,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         self.soldTodayGross = soldTodayGross
         self.pendingPayoutCount = pendingPayoutCount
         self.pendingPayoutNet = pendingPayoutNet
+        self.currencyCode = currencyCode
     }
 
     /// True when every rollup figure matches `other`, ignoring `generatedAt`.
@@ -62,6 +70,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
             && soldTodayGross == other.soldTodayGross
             && pendingPayoutCount == other.pendingPayoutCount
             && pendingPayoutNet == other.pendingPayoutNet
+            && currencyCode == other.currencyCode
     }
 
     /// Signed-out placeholder. Distinct from an all-zero signed-in

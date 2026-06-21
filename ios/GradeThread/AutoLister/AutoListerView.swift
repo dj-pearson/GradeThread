@@ -18,6 +18,8 @@ struct AutoListerView: View {
     // US-674: optional listing template applied to every generated draft.
     @State private var templateStore = TemplateStore()
     @State private var selectedTemplateId: String?
+    // US-1160: confirm before discarding a group's imported photos.
+    @State private var pendingGroupDelete: ReviewGroup?
 
     var body: some View {
         content
@@ -46,6 +48,21 @@ struct AutoListerView: View {
                 Button("OK", role: .cancel) { model.actionError = nil }
             } message: {
                 Text(model.actionError ?? "")
+            }
+            .confirmationDialog(
+                "Delete group?",
+                isPresented: Binding(
+                    get: { pendingGroupDelete != nil }, set: { if !$0 { pendingGroupDelete = nil } }
+                ),
+                presenting: pendingGroupDelete
+            ) { group in
+                Button("Delete group", role: .destructive) {
+                    pendingGroupDelete = nil
+                    model.deleteGroup(group.id)
+                }
+                Button("Cancel", role: .cancel) { pendingGroupDelete = nil }
+            } message: { group in
+                Text("This removes this item and its \(group.photoIds.count) imported photo\(group.photoIds.count == 1 ? "" : "s") from the batch.")
             }
             .navigationDestination(
                 isPresented: Binding(
@@ -154,7 +171,7 @@ struct AutoListerView: View {
                     .foregroundStyle(.secondary)
                 Menu {
                     Button(role: .destructive) {
-                        model.deleteGroup(group.id)
+                        pendingGroupDelete = group
                     } label: {
                         Label("Delete group", systemImage: "trash")
                     }

@@ -1,11 +1,14 @@
 import Foundation
+import Observation
 
 // US-745: the Listing Kit's view model. Loads the per-platform variants for one
-// item and exposes the load phase to the view. @MainActor + ObservableObject +
-// injected protocol service, matching AutolisterBatchStore / TemplateStore.
+// item and exposes the load phase to the view. @MainActor + injected protocol
+// service, matching AutolisterBatchStore / TemplateStore.
+// US-1180: migrated to @Observable (was ObservableObject) for consistency.
 
 @MainActor
-final class ListingKitStore: ObservableObject {
+@Observable
+final class ListingKitStore {
     enum Phase: Equatable {
         case idle
         case loading
@@ -13,8 +16,8 @@ final class ListingKitStore: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var variants: [PlatformVariant] = []
+    private(set) var phase: Phase = .idle
+    private(set) var variants: [PlatformVariant] = []
 
     let itemId: String
     let itemTitle: String

@@ -111,7 +111,7 @@ struct AutomationsView: View {
             } else {
                 Section("Rules") {
                     ForEach(store.rules) { rule in
-                        RuleRow(rule: rule) {
+                        RuleRow(rule: rule, isToggling: store.togglingIds.contains(rule.id)) {
                             Task { await store.toggleActive(rule) }
                         }
                         .contentShape(Rectangle())
@@ -172,6 +172,7 @@ struct AutomationsView: View {
 
 private struct RuleRow: View {
     let rule: AutomationRule
+    var isToggling: Bool = false
     let onToggle: () -> Void
 
     var body: some View {
@@ -200,6 +201,7 @@ private struct RuleRow: View {
             Toggle("", isOn: Binding(get: { rule.isActive }, set: { _ in onToggle() }))
                 .labelsHidden()
                 .tint(Color.brandNavy)
+                .disabled(isToggling) // US-1175: ignore taps while a toggle is in flight
         }
         .padding(.vertical, 2)
     }

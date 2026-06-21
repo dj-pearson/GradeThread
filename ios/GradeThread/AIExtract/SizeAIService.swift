@@ -33,7 +33,10 @@ final class SizeAIService {
     }
 
     func estimate(itemId: String) async throws -> Response {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        // US-1164: guard instead of force-unwrapping a malformed base URL.
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw EdgeAPIError.network("Could not build request URL")
+        }
         components.path = "/api/flipdesk/ai/size"
         guard let url = components.url else {
             throw EdgeAPIError.network("Could not build URL")

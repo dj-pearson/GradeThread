@@ -19,7 +19,9 @@ struct QuickPriceSheet: View {
 
     init(item: LocalInventoryItem) {
         self.item = item
-        _priceText = State(initialValue: item.targetPrice.map { String(format: "%.2f", $0) } ?? "")
+        // US-1162: seed with the locale formatter so the value round-trips on save
+        // (the field is parsed back with CurrencyFormatter.parse).
+        _priceText = State(initialValue: item.targetPrice.map { CurrencyFormatter().formatRaw($0) } ?? "")
     }
 
     var body: some View {
@@ -72,7 +74,8 @@ struct QuickPriceSheet: View {
             HapticFeedback.success()
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            // US-1174: friendly copy instead of a raw PostgREST/Supabase error.
+            errorMessage = FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't update the price. Please try again.")
             HapticFeedback.error()
         }
     }

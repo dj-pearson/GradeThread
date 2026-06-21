@@ -113,6 +113,10 @@ struct AIExtractResponse: Decodable, Equatable {
     let logId: String?
     /// `-1` means unlimited.
     let actionsRemaining: Int
+    /// US-1178: sentinel for "unknown" — e.g. the offline Live Text fallback made
+    /// no server call, so the quota isn't known. Distinct from -1 ("unlimited");
+    /// any future quota UI should treat this as "not available", not a count.
+    static let actionsRemainingUnknown = Int.min
     /// nil when the server skipped the eBay phase (no category resolvable,
     /// AI budget exhausted, taxonomy hiccup, or an older edge build).
     /// Defaulted `var` so the synthesized memberwise init keeps working for
@@ -168,7 +172,7 @@ extension AIExtractResponse {
 
 /// One row in the review screen. Renderable directly + decoupled from the
 /// wire shape so the UI can re-order or filter independently.
-struct FieldSuggestionEntry: Identifiable, Equatable {
+struct FieldSuggestionEntry: Identifiable, Equatable, Codable {
     let id: String         // field name, doubles as Identifiable
     let field: String
     let suggestion: FieldSuggestion

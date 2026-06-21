@@ -157,8 +157,23 @@ final class EdgeAPITests: XCTestCase {
     func test_parseRetryAfter_rejectsNonNumericAndNil() {
         XCTAssertNil(EdgeAPI.parseRetryAfter(nil))
         XCTAssertNil(EdgeAPI.parseRetryAfter(""))
-        // HTTP-date form is intentionally unsupported → falls back to backoff.
-        XCTAssertNil(EdgeAPI.parseRetryAfter("Wed, 21 Oct 2026 07:28:00 GMT"))
+        XCTAssertNil(EdgeAPI.parseRetryAfter("soon"))
+    }
+
+    // US-1164: the HTTP-date form is now honored, converted to a relative delay.
+    func test_parseRetryAfter_httpDateForm() {
+        // A future GMT date → a positive delay (the caller caps it).
+        let future = Date().addingTimeInterval(120)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        let value = formatter.string(from: future)
+        let parsed = EdgeAPI.parseRetryAfter(value)
+        XCTAssertNotNil(parsed)
+        XCTAssertGreaterThan(parsed ?? 0, 60)
+        // A past date clamps to 0 (never negative).
+        XCTAssertEqual(EdgeAPI.parseRetryAfter("Wed, 21 Oct 2015 07:28:00 GMT"), 0)
     }
 
     func test_isTransient_includesRateLimitedNotBadRequest() {
@@ -167,6 +182,21 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertTrue(EdgeAPI.isTransient(.serverError(detail: nil)))
         XCTAssertFalse(EdgeAPI.isTransient(.badRequest(detail: nil)))
         XCTAssertFalse(EdgeAPI.isTransient(.unauthorized))
+    }
+
+    // US-1164: a 5xx on a non-idempotent POST/PATCH must NOT be retried (it may
+    // already have been applied → duplicate sale/listing); 429 + network still
+    // retry for any method, and idempotent methods still retry 5xx.
+    func test_shouldRetry_does_not_retry_5xx_on_POST() {
+        XCTAssertFalse(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "POST"))
+        XCTAssertFalse(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "PATCH"))
+        XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "PUT"))
+        XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "GET"))
+        XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "DELETE"))
+        // Rejected-not-processed + network blips retry for any method.
+        XCTAssertTrue(EdgeAPI.shouldRetry(.rateLimited, method: "POST"))
+        XCTAssertTrue(EdgeAPI.shouldRetry(.network("x"), method: "POST"))
+        XCTAssertFalse(EdgeAPI.shouldRetry(.badRequest(detail: nil), method: "POST"))
     }
 
     // US-1146: a 401 triggers exactly one forced refresh + retry; if the retry

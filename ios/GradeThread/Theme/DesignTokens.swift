@@ -114,6 +114,9 @@ struct BrandPrimaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
             .padding(.horizontal, Spacing.md)
+            // US-1173: guarantee the 44pt hit-target floor regardless of label
+            // length / Dynamic Type so every brand CTA stays comfortably tappable.
+            .frame(minHeight: 44)
             .background(Color.brandNavy.opacity(isEnabled ? 1 : 0.4))
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)
@@ -132,6 +135,9 @@ struct BrandSecondaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
             .padding(.horizontal, Spacing.md)
+            // US-1173: guarantee the 44pt hit-target floor regardless of label
+            // length / Dynamic Type so every brand CTA stays comfortably tappable.
+            .frame(minHeight: 44)
             .background(Color.brandNavy.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)
@@ -150,6 +156,9 @@ struct BrandDestructiveButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
             .padding(.horizontal, Spacing.md)
+            // US-1173: guarantee the 44pt hit-target floor regardless of label
+            // length / Dynamic Type so every brand CTA stays comfortably tappable.
+            .frame(minHeight: 44)
             .background(Color.brandRed.opacity(isEnabled ? 1 : 0.4))
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)

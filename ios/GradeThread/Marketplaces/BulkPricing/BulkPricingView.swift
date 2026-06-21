@@ -115,7 +115,7 @@ struct BulkPricingView: View {
                     }
                 }
                 Spacer()
-                Text(listing.price.formatted(.currency(code: "USD")))
+                Text(CurrencyFormatter().formatDisplay(listing.price))
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                 if let qty = listing.quantity {
                     Text("×\(qty)").font(.caption).foregroundStyle(.tertiary)

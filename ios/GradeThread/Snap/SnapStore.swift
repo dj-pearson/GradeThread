@@ -1,18 +1,22 @@
+import Observation
 import SwiftUI
 
 /// View-model for Snap-to-Value (US-613). Holds the picked photo + optional
 /// brand/item hint, calls ``SnapService``, and exposes the result/error for the
 /// view. Compresses the image (and strips EXIF) before upload via
 /// ``PhotoCompressor`` — the same path the capture flow uses.
+///
+/// US-1180: migrated to `@Observable` (was `ObservableObject`) for consistency.
 @MainActor
-final class SnapStore: ObservableObject {
+@Observable
+final class SnapStore {
 
-    @Published var image: UIImage?
-    @Published var brand: String = ""
-    @Published var keyword: String = ""
-    @Published var isLoading = false
-    @Published var result: SnapResponse?
-    @Published var errorMessage: String?
+    var image: UIImage?
+    var brand: String = ""
+    var keyword: String = ""
+    var isLoading = false
+    var result: SnapResponse?
+    var errorMessage: String?
 
     private let service: SnapService
 

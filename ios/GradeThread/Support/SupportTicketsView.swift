@@ -193,6 +193,14 @@ private struct SupportTicketComposer: View {
     var body: some View {
         NavigationStack {
             Form {
+                // US-1174: on a failed send, keep the composer open and show the
+                // error inline so the user's typed subject/body isn't discarded.
+                if let actionError = store.actionError {
+                    Section {
+                        Label(actionError, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(Color.brandRed)
+                    }
+                }
                 Section("Subject") {
                     TextField("Briefly, what do you need help with?", text: $subject)
                         .disabled(isSending)
@@ -225,7 +233,9 @@ private struct SupportTicketComposer: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(isSending)
+                    // US-1174: clear any inline error so it doesn't re-surface as
+                    // the parent's alert after the composer closes.
+                    Button("Cancel") { store.actionError = nil; dismiss() }.disabled(isSending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -252,8 +262,8 @@ private struct SupportTicketComposer: View {
             onOpened(id)
         } else {
             HapticFeedback.error()
-            // store.actionError is surfaced by the parent's alert.
-            dismiss()
+            // US-1174: keep the composer open so the typed draft survives; the
+            // error is shown inline (store.actionError) at the top of the Form.
         }
     }
 }

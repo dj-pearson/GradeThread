@@ -138,6 +138,9 @@ final class BulkGradeStore {
                 "failed": response.failed,
                 "tier": tier.rawValue,
             ])
+            // US-1176: bulk grading doesn't poll, so kick a sync now to pull the
+            // grades onto each item sooner instead of waiting for the next cycle.
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
             HapticFeedback.success()
         } catch {
             phase = .failed(message(from: error))

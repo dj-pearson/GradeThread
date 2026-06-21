@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Live progress for an AutoLister run: the prep pipeline (create items + upload
@@ -13,6 +14,16 @@ struct AutoListerQueueView: View {
     @StateObject private var generator = AutoListerGenerator()
     @State private var didStart = false
     @Environment(\.dismiss) private var dismiss
+    // US-1179: resolve each job's item title so a row reads the garment, not a
+    // raw UUID prefix. The cataloging step has already created the items locally.
+    @Query private var items: [LocalInventoryItem]
+
+    private var titlesById: [String: String] {
+        Dictionary(
+            items.compactMap { $0.title.isEmpty ? nil : ($0.id, $0.title) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
 
     var body: some View {
         content
@@ -209,9 +220,15 @@ struct AutoListerQueueView: View {
             statusIcon(job.status)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Item \(job.inventoryItemId.prefix(8))")
-                    .font(.subheadline)
-                    .monospaced()
+                if let title = titlesById[job.inventoryItemId] {
+                    Text(title)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                } else {
+                    Text("Item \(job.inventoryItemId.prefix(8))")
+                        .font(.subheadline)
+                        .monospaced()
+                }
                 if job.status == .failed, let error = job.error {
                     Text(error)
                         .font(.caption)
@@ -221,7 +238,7 @@ struct AutoListerQueueView: View {
             }
             Spacer()
         }
-        .accessibilityLabel("Item \(job.inventoryItemId.prefix(8)), \(job.status.rawValue)")
+        .accessibilityLabel("\(titlesById[job.inventoryItemId] ?? "Item \(job.inventoryItemId.prefix(8))"), \(job.status.rawValue)")
     }
 
     @ViewBuilder

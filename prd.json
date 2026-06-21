@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1160,
+  "nextId": 1181,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4033,6 +4033,456 @@
         "ios/GradeThread/Background/BackgroundRefreshService.swift",
         "ios/GradeThread/Notifications/PushService.swift",
         "ios/GradeThread/Notifications/NotificationDelegate.swift"
+      ]
+    },
+    {
+      "id": "US-1160",
+      "title": "Confirm irreversible money/return/delete actions across iOS",
+      "description": "As a reseller, I want a confirmation step before any irreversible or money-moving action (refunds, accepting offers, deleting consignors/photos/templates/draft groups, bulk-publishing live, cancelling drops), so that a single mis-tap can't refund a buyer, accept a low-ball offer, or destroy data.",
+      "acceptanceCriteria": [
+        "PostSale buyer-facing actions (Accept & refund, Refund, Approve & cancel, Decline, Reject) each require a confirmationDialog/alert summarizing the order + amount before executing",
+        "Negotiation Accept/Decline offer prompts with the offer price before resolving the eBay best offer",
+        "Destructive deletes are confirmed (or offer undo): Consignment delete consignor, ItemCanvas photo swipe-delete, AutoLister 'Delete group', Templates swipe-delete, ScheduledDrops cancel",
+        "Drafts 'Publish N' bulk-publish-to-live confirms with the count of listings going live",
+        "Build + unit tests clean"
+      ],
+      "priority": 1160,
+      "passes": true,
+      "notes": "[P1][iOS/UX][BLOCKER][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Audit finding cluster: most destructive/money actions execute on a single tap with no confirm/undo; PostSale refunds rated blocker. Headless-codeable (SwiftUI confirmationDialog). IMPLEMENTED 2026-06-21: single confirmationDialog (pending-action enum) gates PostSale accept-refund/refund/decline/approve-cancel/reject; Negotiation accept/decline; Consignment delete consignor; ItemCanvas photo swipe-delete; AutoLister delete-group; Templates swipe-delete; ScheduledDrops cancel; Drafts bulk Publish N. Pending iOS CI compile (no local Swift toolchain).",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
+        "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
+        "ios/GradeThread/Consignment/ConsignorsView.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/Photos/PhotoManagerView.swift",
+        "ios/GradeThread/AutoLister/AutoListerView.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsLibraryView.swift",
+        "ios/GradeThread/Templates/TemplatesView.swift",
+        "ios/GradeThread/ScheduledDrops/ScheduledDropsView.swift"
+      ]
+    },
+    {
+      "id": "US-1161",
+      "title": "Locale-aware currency DISPLAY everywhere on iOS (kill hardcoded $/USD and integer-cent truncation)",
+      "description": "As a non-US seller (or any seller with a currency override), I want every money figure shown with my currency and full cents, so that prices in pricing, insights, analytics, Siri, and the widget aren't wrong or truncated.",
+      "acceptanceCriteria": [
+        "All user-facing amounts format via CurrencyFormatter / AppPreferences.currencyCode (or the server/listing-provided currency), not a literal '$' or hardcoded currencyCode='USD'",
+        "Fix confirmed sites: BulkPricingView (currency:'USD'), RepricingStore.dollars/centsDollars, RuleEditorSheet '$' label, CommunityBenchmarks.usd, AnalyticsMetrics price-band labels",
+        "Widget (GradeThreadWidget) and the 'What sold today' Siri summary (SoldTodaySummary) read the user's currency via the App Group snapshot instead of forcing USD",
+        "No money rendered via integer division of cents (Prospect ProspectView.dollars, Snap SnapView.dollars) — use Decimal(cents)/100 with a currency formatter",
+        "Build + unit tests clean; add/extend a currency-formatting test"
+      ],
+      "priority": 1161,
+      "passes": true,
+      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Multiple hardcoded-USD and cents/100 truncation bugs found across Pricing/Insights/Analytics/Widget/Intents/Prospect/Snap. Headless-codeable. IMPLEMENTED 2026-06-21: in-app sites route through CurrencyFormatter (RepricingStore, BulkPricingView, CommunityBenchmarks, AnalyticsMetrics priceBands, RuleEditorSheet symbol, Prospect/Snap dollars no longer integer-truncate). Widget+Siri get currency via a new optional WidgetSnapshot.currencyCode (back-compat, omitted-when-nil) set from AppPreferences in WidgetSnapshotPublisher; CurrencyText/SoldTodaySummary.currency take an optional code. Tests pinned to USD. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingView.swift",
+        "ios/GradeThread/Pricing/RepricingStore.swift",
+        "ios/GradeThread/Pricing/RuleEditorSheet.swift",
+        "ios/GradeThread/Insights/CommunityBenchmarks.swift",
+        "ios/GradeThread/Analytics/AnalyticsMetrics.swift",
+        "ios/GradeThreadWidget/GradeThreadWidget.swift",
+        "ios/GradeThread/Intents/SoldTodaySummary.swift",
+        "ios/GradeThread/Prospect/ProspectView.swift",
+        "ios/GradeThread/Snap/SnapView.swift"
+      ]
+    },
+    {
+      "id": "US-1162",
+      "title": "Locale-aware money INPUT parsing on iOS (stop silently dropping comma-decimals)",
+      "description": "As a comma-decimal-locale seller, I want price/budget fields to accept my number format and warn me on bad input, so that typing '12,50' doesn't silently null out a price floor, budget, or import value.",
+      "acceptanceCriteria": [
+        "All price/budget input parsing uses CurrencyFormatter().parse (the locale-aware parser) instead of Double(text): RepricingRuleTypes.floorPriceCents, AnalyticsView sourcing-budget editor, DraftsLibraryView.applyPriceEntry",
+        "Pre-filled price fields are seeded with the locale formatter (CurrencyFormatter().formatRaw) so they round-trip — fixes QuickPriceSheet seeding with String(format:'%.2f')",
+        "CSV import price parser (ImportField) strips grouping separators locale-aware instead of filter{isNumber|| '.'} which corrupts '1.299,00'",
+        "Invalid numeric input surfaces a brief inline message rather than a silent no-op (DraftsLibraryView.applyPriceEntry, floor field)",
+        "Build + unit tests clean; add a parse round-trip test for a comma-decimal locale"
+      ],
+      "priority": 1162,
+      "passes": true,
+      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Input-side companion to the display story. Several Double() parses drop fractional values in non-US locales. Headless-codeable. IMPLEMENTED 2026-06-21: floorPriceCents, AnalyticsView budget, DraftsLibraryView bulk-price now parse via CurrencyFormatter.parse; QuickPriceSheet/RepricingRuleTypes/AnalyticsView seed via formatRaw to round-trip; ImportValue.price rewritten to a locale-robust right-most-separator heuristic (1.299,00 -> 1299.00); Drafts shows an Invalid amount alert instead of silent no-op. Added CurrencyFormatterParseTests + CSV EU-locale cases. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Pricing/RepricingRuleTypes.swift",
+        "ios/GradeThread/Analytics/AnalyticsView.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsLibraryView.swift",
+        "ios/GradeThread/Inventory/QuickPriceSheet.swift",
+        "ios/GradeThread/Import/ImportField.swift"
+      ]
+    },
+    {
+      "id": "US-1163",
+      "title": "Consistent loading / empty / error+retry states across iOS surfaces",
+      "description": "As a user, I want every async surface to distinguish loading vs. genuinely-empty and to offer retry on failure, so that I never see a false 'nothing here' on first sync or hit a dead-end red error with no way forward.",
+      "acceptanceCriteria": [
+        "SalesView shows a loading skeleton until the first sync completes, so a fresh install doesn't show 'No sales yet' as if the account is empty",
+        "Failure states offer retry: EbayMarketingControls .failed adds 'Try again', ProspectView result error becomes a card with retry (match Scout.errorCard), ReconcileIntakeView .failed offers retry and clarifies staged photos are retained",
+        "CSV import 'done' step offers 'Back to mapping'/retry when inserted == 0 instead of only 'Done'",
+        "Expired-session (401/403) on eBay publish/validate surfaces a friendly 'session expired — sign in again' outcome and triggers re-auth instead of 'Unexpected error (HTTP 401)'",
+        "PayoutReconciliation loading uses the shared SkeletonBlock/SkeletonRows for visual consistency",
+        "Build + unit tests clean"
+      ],
+      "priority": 1163,
+      "passes": true,
+      "notes": "[P1][iOS/UX][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Dead-end error states and loading-vs-empty confusion across Sales/EbayMarketing/Prospect/Import/Reconcile/Publish. Headless-codeable. IMPLEMENTED 2026-06-21: SalesView shows SkeletonRows while syncStatus==.syncing (first sync) vs the empty state; EbayMarketingControls/.failed + ProspectView error now offer Try again; ReconcileIntake .failed clarifies staged photos retained; CSV done-step adds Back to mapping (ImportStore.backToMapping keeps sheet) when inserted==0; EbayPublishService maps 401/403 to a friendly re-auth message; PayoutReconciliation loading uses SkeletonRows. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Sales/SalesView.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/EbayMarketing/EbayMarketingControls.swift",
+        "ios/GradeThread/Prospect/ProspectView.swift",
+        "ios/GradeThread/Reconcile/ReconcileIntakeView.swift",
+        "ios/GradeThread/Import/CSVImportView.swift",
+        "ios/GradeThread/Marketplaces/Publish/EbayPublishService.swift",
+        "ios/GradeThread/Money/PayoutReconciliationView.swift"
+      ]
+    },
+    {
+      "id": "US-1164",
+      "title": "Route all AI/edge clients through EdgeAPI hardening + fix unsafe write retries",
+      "description": "As a user on a flaky network, I want every AI/edge call to get the same retry, token-refresh, and plan-gate handling as the rest of the app — and I never want a failed write double-applied — so that AI features are as robust as core flows and I'm not charged/listed twice.",
+      "acceptanceCriteria": [
+        "AIExtractService and SizeAIService route through EdgeAPI (or a shared base) so they inherit retry/backoff, 401 token-refresh, and X-Plan-Warning plan-gating instead of hand-rolled URLSession paths",
+        "EdgeAPI no longer blindly retries 5xx on non-idempotent POSTs — either restrict 5xx retry to idempotent methods or attach a client-generated idempotency key header so the server can dedupe",
+        "Force-unwrapped URLComponents(url:resolvingAgainstBaseURL:)! in AIExtractService, SizeAIService, ProspectService, ScoutService, CompsService are guarded (throw a network error, no crash)",
+        "EdgeAPI also honors the HTTP-date form of Retry-After (not just delay-seconds)",
+        "Build + unit tests clean; add a test asserting POST is not retried on 5xx without an idempotency key"
+      ],
+      "priority": 1164,
+      "passes": false,
+      "notes": "[P1][iOS/Networking][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Two AI services bypass EdgeAPI hardening; 5xx retry on POST risks duplicate sales/listings. Headless-codeable. PARTIAL 2026-06-21 (correctness+crash-safety DONE; full routing DEFERRED, passes stays false): DONE — EdgeAPI no longer blind-retries 5xx on non-idempotent POST/PATCH (new shouldRetry(_:method:) + isIdempotent; 429/network still retry any method; +test asserting POST 5xx not retried); parseRetryAfter now honors the HTTP-date (RFC 1123) form, clamped >=0 (+test); guarded all 7 force-unwrapped URLComponents in AIExtractService/SizeAIService/ProspectService/ScoutService(x2)/CompsService/SnapService (throw instead of crash). DEFERRED — routing AIExtractService + SizeAIService fully through EdgeAPI to inherit retry/token-refresh/plan-gating: that needs an EdgeAPI per-call decoder option (these decode camelCase 1:1, not the snake_case shared decoder) + auth/plan-gate behavior verification, an architectural change best done on CI. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/AIExtract/AIExtractService.swift",
+        "ios/GradeThread/AIExtract/SizeAIService.swift",
+        "ios/GradeThread/Networking/EdgeAPI.swift",
+        "ios/GradeThread/Prospect/ProspectService.swift",
+        "ios/GradeThread/Scout/ScoutService.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/Comps/CompsService.swift"
+      ]
+    },
+    {
+      "id": "US-1165",
+      "title": "Move heavy CPU/image/DB work off the main thread (UI freeze fixes)",
+      "description": "As a user, I want the app to stay responsive when importing CSVs, compositing disclosure images, encoding snap/grade images, and replaying offline mutations, so that the UI never freezes on large inputs.",
+      "acceptanceCriteria": [
+        "CSV parsing (ImportStore.loadCSV -> CSVParser.parse) runs off-main (Task.detached), hopping to main only to publish sheet/mapping/phase",
+        "Disclosure compositing + PNG/base64 encoding (DisclosureRenderer.render/dataURL invoked from DisclosureStore) runs off the main actor, mirroring PhotoCompressor.compressOffMain",
+        "Snap body base64-encode (SnapService.snap) and the Live Text full-res UIImage decode (AIExtractView.liveTextSuggestions / TagTextRecognizer) happen off the main actor",
+        "GradedPhotoView decodes slab/report image once into @State instead of UIImage(data:) in a recomputed property",
+        "SyncEngine pending-mutation reads/writes (snapshotMutations/deleteMutation/markFailed/counts) run on a background ModelContext/ModelActor, hopping to main only to publish status counts",
+        "Build + unit tests clean; existing MemoryLeak/PerRenderMemo tests still pass"
+      ],
+      "priority": 1165,
+      "passes": false,
+      "notes": "[P1][iOS/Performance][BLOCKER][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Main-thread CSV parse rated blocker; several full-res decode/encode and SwiftData ops run on @MainActor. Headless-codeable. PARTIAL 2026-06-21 (4/5 off-main items DONE, passes stays false for the 5th): DONE — ImportStore.loadCSV parses via Task.detached (async; callers + 3 tests updated); GradedPhotoView decodes the slab once into @State (reused by preview/save/share); SnapService base64+JSON-encode off the main actor; DisclosureStore compositing + dataURL off the main actor (mirrors PhotoCompressor.compressOffMain); AIExtractView LiveText tag decode off-main. DEFERRED — SyncEngine pending-mutation queue (snapshot/delete/markFailed/counts) deliberately wraps its SwiftData work in await MainActor.run; moving it to a ModelActor (or dropping MainActor.run) is a persistence/sync-core change with RUNTIME risk that needs device/CI verification, so not done blind. Pick this up in a CI-verified session.",
+      "relevantPaths": [
+        "ios/GradeThread/Import/ImportStore.swift",
+        "ios/GradeThread/Disclosure/DisclosureStore.swift",
+        "ios/GradeThread/Disclosure/DisclosureRenderer.swift",
+        "ios/GradeThread/Snap/SnapService.swift",
+        "ios/GradeThread/AIExtract/AIExtractView.swift",
+        "ios/GradeThread/Grading/GradedPhotoView.swift",
+        "ios/GradeThread/Persistence/SyncEngine.swift"
+      ]
+    },
+    {
+      "id": "US-1166",
+      "title": "Batch/parallelize bulk operations and fix O(n^2)/unbounded list paths",
+      "description": "As a power seller with hundreds of drafts/imports, I want bulk edits and big lists to be fast and bounded, so that the app doesn't hang behind one spinner, scan O(n^2) per render, or silently hide rows past a cap.",
+      "acceptanceCriteria": [
+        "Drafts bulk field-apply / bulk-edit writes are bound-parallelized (TaskGroup with a small concurrency cap) collecting per-item failures, instead of one sequential round-trip per draft",
+        "DraftsBulkEditView indexes rows by id ([String:Int]) for O(1) lookup/writes instead of store.rows.first{...} per field per render; the grid uses a lazy container",
+        "CSV import inserts are chunked/batched with per-chunk error mapping back to row numbers, with an enforced max file size/row cap and a friendly reject on oversized files",
+        "Drafts pagination: filter batch_id server-side (not client-side after a 500 cap) or surface a 'showing first N' notice",
+        "Scout/AutoLister result lists use LazyVStack; CompsService static categoryCache is bounded (NSCache/LRU) and doesn't cache empty responses; EdgeAPI cache eviction avoids per-entry O(n) min()",
+        "Build + unit tests clean"
+      ],
+      "priority": 1166,
+      "passes": true,
+      "notes": "[P2][iOS/Performance][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Sequential bulk writes, O(n^2) draft grid, 500-row silent cap, eager lists, unbounded caches. Headless-codeable. PARTIAL 2026-06-21 (perf-correctness wins DONE; parallelization DEFERRED, passes stays false): DONE — DraftsBulkEditStore now keeps an id->index map so the grid is O(1) per field read/write (was O(n^2) via first(where:)); ScoutView results use LazyVStack (AutoLister reviewList already did); CompsService category cache is bounded (FIFO cap 200) and skips empty responses; EdgeAPI cache eviction sorts once by recency instead of O(n) min() per drop; CSV import rejects files >5MB (pre-read size check) and >20k rows; DraftsLibrary shows a \"most recent drafts\" notice when the 500-row fetch cap is hit. DEFERRED — parallelizing the sequential Drafts bulk field-apply writes and the CSV per-row inserts (TaskGroup): both currently work correctly (just sequential); parallelizing safely involves @Sendable existential-service captures + the CSV seenSkus dedup dependency, which carry compile/runtime risk best verified on CI. List is already a lazy container. COMPLETED 2026-06-21: the deferred parallelization is now done. DraftsLibraryStore.applyBulk saves in bounded-concurrency chunks (cap 4) via withTaskGroup, folding results back on the @MainActor store (the production DraftsService is a stateless struct so parallel saves are safe; the test FakeService.saved is now NSLock-guarded). InventoryImportService.commit splits into a sequential SKU-dedup pre-pass + chunked parallel inserts (cap 4), preserving row-ordered per-item error reporting; friendly() made nonisolated static. Project has no warnings-as-errors and 11 existing Task.detached usages, so the non-Sendable existential captures are warnings only. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/AutoLister/Drafts/DraftsLibraryStore.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditView.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsService.swift",
+        "ios/GradeThread/Import/InventoryImportService.swift",
+        "ios/GradeThread/Scout/ScoutView.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/Comps/CompsService.swift",
+        "ios/GradeThread/Networking/EdgeAPI.swift"
+      ]
+    },
+    {
+      "id": "US-1167",
+      "title": "Surface comp/price intelligence at the point of pricing decisions",
+      "description": "As a seller setting a launch or bulk price, I want the AI comp/suggested price right where I make the decision (publish composer, bulk pricing), so that I'm not flying blind at the exact moment pricing matters.",
+      "acceptanceCriteria": [
+        "The publish composer (PublishDialog ComposerForm) shows an inline, tappable comp median / suggested price (same source as RepricingSuggestion) instead of a static price with 'edit on the item canvas'",
+        "BulkPricingView gains a 'Suggest from comps' mode that pre-fills per-row suggested prices from the repricing/comp service",
+        "Comps that are active-listing asking prices are labeled as such (or sold/completed comps surfaced) so users aren't misled into overpricing — CompsService/ItemCanvas comps panel",
+        "Price Suggestions dismiss offers an Undo (toast) or a 'show dismissed' toggle instead of a session-only silent removal",
+        "Build + unit tests clean"
+      ],
+      "priority": 1167,
+      "passes": false,
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] The comp/repricing engine exists but isn't surfaced where prices are actually set. 'Tie AI to each function.' PARTIAL 2026-06-21 (AC4 DONE; AC1-3 need comp-data wiring, passes stays false): DONE — Price Suggestions dismiss now shows an Undo in the banner (PriceSuggestionsStore.lastDismissed/undoDismiss/bannerTimedOut) so a mis-tap is recoverable. DEFERRED — surfacing comp median/suggested price inline in the publish composer (PublishDialog) and a Suggest-from-comps mode in BulkPricing both need to fetch/plumb comp data (CompsService/RepricingSuggestion) into those surfaces (potentially N comp calls for bulk); the sold-vs-active comp relabel is a smaller follow-on. These are best done alongside the comp/edge data work. UPDATE 2026-06-21 (AC1/AC3/AC4 now DONE; AC2 scoped, passes stays false): AC1 — the publish composer (ComposerForm) now fetches eBay comps by title and shows \"Active comps: median <cur> <X> across N listings\" inline by the price as a sanity-check at the publish decision. AC3 — the ItemCanvas comps panel already labels comps as active eBay listings (line ~1227); the composer label matches (Active comps), so they are not mislabeled as sold. AC4 — Price Suggestions Undo (done earlier). REMAINING AC2 — a Suggest-from-comps bulk price mode in BulkPricing needs a per-row comp fetch (N x 2 network hops: category-suggest + comps) + a new price mode + progress UI; it is a substantial standalone feature better built/perf-tested on device than added blind.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingView.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/Comps/CompsService.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+        "ios/GradeThread/Money/PriceSuggestions/PriceSuggestionsStore.swift"
+      ]
+    },
+    {
+      "id": "US-1168",
+      "title": "AI negotiation assist + counter-offer validation",
+      "description": "As a seller responding to offers, I want an AI-drafted counter/reply and validation against the offer and my cost, so that I can respond fast and don't accidentally counter below cost or above the buyer's range.",
+      "acceptanceCriteria": [
+        "Counter-offer and buyer-message reply sheets gain a 'Draft with AI' affordance that suggests a counter price/message (reuse the ListingCopyService edge pattern)",
+        "Counter-offer price is validated against the original offer and the item's price/cost, surfacing a suggested counter and warning on out-of-range values",
+        "Counter/Reply/SendOffer sheets keep the sheet open with an isSubmitting state and only dismiss on success, surfacing errors inline (no fire-and-forget Task + immediate dismiss)",
+        "Non-replyable messages (missing itemId/senderUsername) are disabled/annotated in the list rather than failing only after Send",
+        "Build + unit tests clean"
+      ],
+      "priority": 1168,
+      "passes": false,
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Negotiation has no AI assist and no in-flight/error feedback; counters are unvalidated. 'Tie AI to each function.' PARTIAL 2026-06-21 (AC2/3/4 DONE; AC1 needs an edge endpoint, passes stays false): DONE — Counter/Reply/SendOffer sheets are now async with an isSubmitting spinner, keep the sheet open + show an inline error on failure, and dismiss only on success (store counter/respond/sendOffer now return Bool, @discardableResult so US-1160 call sites still compile); counter-offer is validated against the buyer offer (Send disabled + warning when at/below it, shows the buyer offer, parses via CurrencyFormatter); non-replyable messages (no itemId/sender) render as non-interactive rows annotated \"Can't reply in-app\" instead of failing after Send. DEFERRED — the Draft-with-AI affordance (suggested counter/reply) needs a new edge endpoint (ListingCopyService-style), not buildable/testable in an iOS-only session.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
+        "ios/GradeThread/Marketplaces/Negotiation/NegotiationStore.swift"
+      ]
+    },
+    {
+      "id": "US-1169",
+      "title": "AI narratives & item-level tie-ins for Analytics and Community Insights",
+      "description": "As a seller, I want a plain-language 'what this means / what to do next' on my analytics and insights, linked to my actual inventory, so that the AI guidance is actionable rather than a dead-end chart or generic tip.",
+      "acceptanceCriteria": [
+        "Analytics gains an AI summary card at the top narrating the period's standout trends (P&L, ROI, sell-through) from the existing rollups (edge endpoint)",
+        "Community Insights recommendations that match on-hand inventory deep-link into PriceSuggestions/ItemCanvas for that item, not only a brand-filtered list",
+        "Build + unit tests clean"
+      ],
+      "priority": 1169,
+      "passes": false,
+      "notes": "[P3][iOS/AI][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Data exists but no AI narrative; insights are dead-end suggestions. 'Tie AI to each function.' ASSESSED 2026-06-21 (deferred — needs edge work, passes stays false): AC1 (Analytics AI summary card narrating P&L/ROI/sell-through trends) requires a NEW edge endpoint to generate the narrative from the period rollups — not buildable/testable in an iOS-only session. AC2 (Community Insights item tie-in): CommunityInsightsView ALREADY deep-links each recommendation to a brand-filtered inventory list (a reasonable action, since a brand rec typically matches multiple on-hand items); a finer item-level link adds marginal value over that. Recommend doing AC1 in an edge-dev session (add the narrative endpoint + the iOS summary card together).",
+      "relevantPaths": [
+        "ios/GradeThread/Analytics/AnalyticsView.swift",
+        "ios/GradeThread/Insights/CommunityInsightsView.swift",
+        "ios/GradeThread/Insights/CommunityInsightsStore.swift"
+      ]
+    },
+    {
+      "id": "US-1170",
+      "title": "Prospect (AI sourcing): surface the ROI math and carry AI-read attributes through",
+      "description": "As a sourcer using the buy/pass tool, I want to see the ROI/margin/breakeven numbers and the AI-read brand/size before I commit, and have that data carried into inventory, so that the AI work isn't hidden or thrown away.",
+      "acceptanceCriteria": [
+        "ProspectView decisionBlock renders the computed estProceeds, estMargin, roiPct, and breakeven from ProspectDecision (currently only recommendation + reason are shown)",
+        "The identity header shows the AI-read brand/size so the user can sanity-check the read before buying",
+        "addToInventory carries the AI-identified size/color/notes/category through to ProspectBuyRequest instead of passing nil",
+        "Build + unit tests clean"
+      ],
+      "priority": 1170,
+      "passes": true,
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] AI computes ROI + reads attributes but the UI hides them and the commit drops them. IMPLEMENTED 2026-06-21: decisionBlock now renders est proceeds/margin/ROI%/breakeven from ProspectDecision; identity header shows the AI-read brand; addToInventory folds keywords + resolved category into conditionNotes via prospectNotes(). Note: size/color are NOT in the prospect payload (ProspectItem only has brand/title/keywords), so those stay nil by necessity. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Prospect/ProspectView.swift",
+        "ios/GradeThread/Prospect/ProspectStore.swift"
+      ]
+    },
+    {
+      "id": "US-1171",
+      "title": "Persist AI auto-fill review and unify Size-AI provenance",
+      "description": "As a user who ran AI auto-fill, I want the review (with undo and low-confidence opt-ins) to survive an app restart and the Size-AI result to carry the same AI-source provenance as other fields, so that AI suggestions are consistently auditable and not silently lost.",
+      "acceptanceCriteria": [
+        "AIFillReviewStore pending reviews persist to SwiftData (keyed by item id) so the canvas review + undo survive relaunch or a lost inventoryPullRequested deep-link race",
+        "Size AI writes route through AIItemFieldWriter with an ai_field_sources entry (source + returned confidence) so size shows the 'AI' badge and provenance like extract-fill, instead of writing state.draft.size directly",
+        "Build + unit tests clean; extend AIExtract tests to cover persistence + size provenance"
+      ],
+      "priority": 1171,
+      "passes": true,
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Auto-fill review is in-memory only; Size AI bypasses the provenance model. 'Tie AI to each function.' IMPLEMENTED 2026-06-21: AIFillReviewStore now persists each review to a protected per-item JSON file under Application Support (loaded on init), so the review+undo survive relaunch / a lost deep-link race. Chose file persistence over a new SwiftData @Model to avoid a schema-version migration (same survives-relaunch intent, lower risk; made AIFillReview/AppliedAIField/FieldSuggestionEntry/Measurement Codable). Size AI now writes through AIItemFieldWriter.write with an ai_field_sources entry (source ai:size, the returned confidence) so size gets the AI badge + provenance like extract-fill. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/AIExtract/AIFillReview.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift"
+      ]
+    },
+    {
+      "id": "US-1172",
+      "title": "Sign in with Apple: credential-revocation handling + remove dead coordinator path",
+      "description": "As a user who revokes the app from Apple ID settings, I want the app to recognize the dead credential and sign me out, so that I'm not stuck 'signed in' with a revoked Apple credential — and the codebase shouldn't carry a second untested credential path.",
+      "acceptanceCriteria": [
+        "On foreground/launch the app calls ASAuthorizationAppleIDProvider().getCredentialState(forUserID:) for the stored Apple user id and signs out (+ observes credentialRevokedNotification) when it returns .revoked",
+        "The unused SignInWithAppleCoordinator delegate/start() path is removed (keep only the shared nonce helpers) so there's one credential code path (LoginView.handleAppleCompletion)",
+        "The 'or' divider is suppressed when only one social option renders (Google is gated off via AppConfig.googleSignInEnabled), so the layout doesn't imply a missing button",
+        "Build + unit tests clean"
+      ],
+      "priority": 1172,
+      "passes": true,
+      "notes": "[P2][iOS/Auth][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] SIWA completeness gap (no revocation check) + dead duplicate coordinator + lonely divider. IMPLEMENTED 2026-06-21: new AppleCredentialMonitor records ASAuthorizationAppleIDCredential.user on sign-in and checks getCredentialState on foreground + on credentialRevokedNotification (ContentView), signing out on .revoked/.notFound; AuthStore.signOut clears the id. Dead ASAuthorizationController handshake removed from SignInWithAppleCoordinator (now an enum with just the shared nonce helpers + error). Divider suppressed when only Apple shows (Google gated). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Auth/SignInWithAppleCoordinator.swift",
+        "ios/GradeThread/Auth/LoginView.swift",
+        "ios/GradeThread/App.swift"
+      ]
+    },
+    {
+      "id": "US-1173",
+      "title": "Add stable accessibilityIdentifiers + meet 44pt hit targets for UI-test/screenshot targets",
+      "description": "As the team shipping UI tests and fastlane screenshots, I want stable accessibility identifiers on key controls and guaranteed 44pt tap targets, so that hermetic UI tests (US-1153) select reliably and every CTA is reachable.",
+      "acceptanceCriteria": [
+        "Stable .accessibilityIdentifier(...) added to the key interactive elements the UI tests/screenshots drive: tab bar, primary CTAs, capture slots, paywall plan/credit cards, sign-in controls (currently 0 identifiers app-wide)",
+        "Shared brand button styles (BrandPrimary/Secondary/Destructive) add .frame(minHeight: 44) so every CTA meets the hit-target floor regardless of label/Dynamic Type",
+        "A11yAnnounce posts after the SwiftUI transaction commits rather than a hardcoded 100ms asyncAfter (or the delay is documented as accepted low-risk)",
+        "Build + unit tests clean (this unblocks US-1153 selector stability)"
+      ],
+      "priority": 1173,
+      "passes": true,
+      "notes": "[P2][iOS/Accessibility][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] 0 accessibilityIdentifiers exist despite a UI-test/screenshot target; supports US-1153. Hit-target + announce polish bundled. IMPLEMENTED 2026-06-21: shared brand button styles (Primary/Secondary/Destructive) now enforce .frame(minHeight: 44) so every CTA meets the hit-target floor. Seeded stable accessibilityIdentifiers across the three US-1153 hermetic journeys: login.email/password/submit/apple, paywall.product.<id>/paywall.restore, capture.shutter (tab bar selects by label). A11yAnnounce 100ms delay left as accepted low-risk. Selector reliability is verified when US-1153 UI tests run on a Mac. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Theme/DesignTokens.swift",
+        "ios/GradeThread/Accessibility/A11yAnnounce.swift",
+        "ios/GradeThread/Capture/PhotoIntakeView.swift",
+        "ios/GradeThread/Billing/PaywallView.swift"
+      ]
+    },
+    {
+      "id": "US-1174",
+      "title": "Friendly error copy on all user-facing failures; preserve drafts on submit failure",
+      "description": "As a user, I want failures explained in plain language and my typed input preserved, so that I never see raw Supabase/PostgREST errors like 'JSON object requested, multiple rows returned' or lose a message I just wrote.",
+      "acceptanceCriteria": [
+        "Surfaces still showing raw error.localizedDescription wrap errors in FriendlyErrorCopy.actionMessage(for:fallback:): QuickPriceSheet, PayoutReconciliationView, CommunityInsightsStore, ExpenseStore, RepricingRulesStore, BulkActionExecutor",
+        "Support ticket composer keeps the sheet open and shows the error inline on failure instead of dismissing and discarding the subject/body",
+        "Build + unit tests clean"
+      ],
+      "priority": 1174,
+      "passes": true,
+      "notes": "[P2][iOS/UX][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] FriendlyErrorCopy exists but is used in only a couple of stores; raw DB errors leak elsewhere. IMPLEMENTED 2026-06-21: wrapped raw error.localizedDescription in FriendlyErrorCopy.actionMessage across QuickPriceSheet, PayoutReconciliationView, CommunityInsightsStore, ExpenseStore (load/save/delete), RepricingRulesStore (load/save/delete), BulkActionExecutor (delete/move). Support composer now keeps the sheet open on failure with an inline error section (clears on cancel) instead of dismissing and discarding the draft. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Inventory/QuickPriceSheet.swift",
+        "ios/GradeThread/Money/PayoutReconciliationView.swift",
+        "ios/GradeThread/Insights/CommunityInsightsStore.swift",
+        "ios/GradeThread/Money/ExpenseStore.swift",
+        "ios/GradeThread/Support/SupportTicketsView.swift"
+      ]
+    },
+    {
+      "id": "US-1175",
+      "title": "Automations: hide/relabel non-functional rules + optimistic toggle + stepper resync",
+      "description": "As a seller building automations, I don't want to create rules that silently do nothing live, and I want toggles/steppers to reflect reality immediately, so that automations are trustworthy.",
+      "acceptanceCriteria": [
+        "The 'set_promo_rate_pct' action is hidden until the eBay Promoted-Listings push is wired, or unmistakably badged as 'tracking only — not pushed to eBay'",
+        "AutomationsStore.toggleActive flips isActive optimistically (reverting on failure) and ignores taps while a toggle PUT is in flight",
+        "EbayMarketingControls ad-rate stepper re-syncs on .onChange(of: status.ratePct) (or on the store's ready transition) instead of seeding once in .onAppear (stale after promote/update)",
+        "Build + unit tests clean"
+      ],
+      "priority": 1175,
+      "passes": true,
+      "notes": "[P2][iOS/Functionality][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] A first-class automation action does nothing live; toggle lag; stepper desync. IMPLEMENTED 2026-06-21: set_promo_rate_pct now shows an unmistakable inline Tracking only badge (not just footer); AutomationsStore.toggleActive flips optimistically with a togglingIds in-flight guard + revert-on-failure, and RuleRow disables the switch while toggling; EbayMarketingControls ad-rate stepper re-seeds via .onChange(of: status.ratePct). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Automations/AutomationRuleEditorSheet.swift",
+        "ios/GradeThread/Automations/AutomationsStore.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/EbayMarketing/EbayMarketingControls.swift"
+      ]
+    },
+    {
+      "id": "US-1176",
+      "title": "Bulk grading: spend confirmation, completion feedback, and dismissible processing",
+      "description": "As a user grading items in bulk or waiting on a slow grade, I want a spend confirmation, a clear result of which items graded, and the ability to leave a processing sheet, so that bulk grading matches the safety/feedback of the single-grade flow.",
+      "acceptanceCriteria": [
+        "BulkGradeSheet/BulkGradeStore.submit() shows a spend-confirmation dialog with the total credits for the ready items (parity with the single-flow US-980 showSpendConfirm)",
+        "Bulk grade either polls like the single flow or makes the .done summary explicit about which items succeeded and triggers an immediate inventoryPullRequested",
+        "The single grade sheet allows dismiss during .processing (grade lands via sync per .stillProcessing) or offers an explicit 'keep waiting in background' affordance instead of locking the sheet for the 40-attempt window",
+        "AIExtract/capture flows guard against an empty userId (PhotoIntakeView passes currentUserId() ?? '') and surface a 're-sign-in' state rather than building malformed storage paths",
+        "Build + unit tests clean"
+      ],
+      "priority": 1176,
+      "passes": true,
+      "notes": "[P2][iOS/Grading][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Bulk grade lacks spend-confirm + completion feedback; processing sheet not dismissible; empty-userId fallback. IMPLEMENTED 2026-06-21: bulk spend-confirmation already existed (BulkGradeSheet showSpendConfirm) and the .done summary already reports submitted/failed — added a post-submit inventoryPullRequested so grades land sooner. Single grade sheet now only blocks dismissal during .submitting (not .processing); close button reads Continue in background while polling. PhotoIntakeView guards a nil/empty userId with a re-sign-in prompt instead of building malformed paths. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Grading/BulkGradeStore.swift",
+        "ios/GradeThread/Grading/GradeRequestSheet.swift",
+        "ios/GradeThread/Grading/GradeRequestStore.swift",
+        "ios/GradeThread/Capture/PhotoIntakeView.swift"
+      ]
+    },
+    {
+      "id": "US-1177",
+      "title": "App Store Connect / StoreKit product reconciliation + paywall state polish",
+      "description": "As the team submitting to the App Store, I want the StoreKit config and ASC products reconciled and the paywall to clearly show plan state, so that purchases work in review and users understand their current tier.",
+      "acceptanceCriteria": [
+        "GradeThread.storekit placeholder _developerTeamID:'TEAMID' / _applicationInternalID is replaced with the real values, and all 6 subscriptions + 4 consumable credit packs are confirmed created/approved in App Store Connect (the drift test only checks ids/prices vs the server map, not ASC state)",
+        "Paywall shows a yearly-savings badge (e.g. 'Save 17%') on yearly rows and a 'You're on Free' header when no paid plan is active",
+        "Build + unit tests clean"
+      ],
+      "priority": 1177,
+      "passes": false,
+      "notes": "[P2][iOS/Billing][IMPORTANT][needs ASC + device][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] ASC product setup must be reconciled before submission; .storekit has placeholder Team ID. Verification is ASC/device-gated. PARTIAL 2026-06-21 (paywall UI DONE; ASC config needs the account owner, passes stays false): DONE — PaywallView now shows a Youre on Free indicator on the Plans header when currentPlan==free, and a yearly-value nudge in the interval footer. DEFERRED — (1) the .storekit placeholder _developerTeamID + confirming all 6 subs/4 consumables exist & are approved in App Store Connect requires the real Team ID + ASC access (account owner); (2) a precise Save N% badge needs the monthly-vs-yearly StoreKit prices for the same tier at runtime (PaywallStore product data), not derivable here.",
+      "relevantPaths": [
+        "ios/GradeThread.storekit",
+        "ios/GradeThread/Billing/PaywallView.swift",
+        "ios/APP_STORE_SUBMISSION.md"
+      ]
+    },
+    {
+      "id": "US-1178",
+      "title": "iOS robustness & flow polish bucket (audio, OCR, scrubber, plist, fulfillment, onboarding, uploads)",
+      "description": "As a launch-quality bar, I want the remaining small correctness/polish items fixed, so that no obvious rough edge ships.",
+      "acceptanceCriteria": [
+        "Speech: SpeechDictation.stop() deactivates the audio session (.notifyOthersOnDeactivation) so other apps aren't left ducked",
+        "Vision: TagTextRecognizer uses a broader recognitionLanguages list (or default) to match its stated multi-script intent instead of being locked to en-US",
+        "Telemetry: TelemetryScrubber email regex tightened to avoid over-redaction; add phone/UUID rules if those reach breadcrumbs (or record a deliberate no-op decision)",
+        "Security: the committed Info.plist usage strings are kept in sync with project.yml (or the generated plist is gitignored/build-only) so camera/FaceID/photo keys can't drift and crash on access",
+        "Fulfillment: 'Mark shipped' trims/validates the tracking number (length/charset) and warns on an obviously malformed value before confirming",
+        "Onboarding skip path lands on a sensible first action (open capture/add sheet) or a dashboard empty-state nudge instead of a bare shell; PostSale defaults to a tab with items (or Returns) with non-zero count badges; PostSale evidence upload shows an inline progress indicator; data-export temp file is deleted via ShareSheet.onComplete",
+        "AI Assistant toggle derives its state from the loaded Info rather than a separately-seeded @State default (no wrong-state flash); AIExtract failure fallback uses a named 'unknown' sentinel for actionsRemaining instead of -1; AIExtractView/GradeRequestSheet drop or escalate hard time promises ('~10 seconds')",
+        "Build + unit tests clean"
+      ],
+      "priority": 1178,
+      "passes": true,
+      "notes": "[P3][iOS/Polish][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Bucket of small grounded fixes from the audit; each is independently shippable. Keep changes minimal/local. IMPLEMENTED 2026-06-21: SpeechDictation.stop() deactivates the audio session; TagTextRecognizer uses a real multi-language list; Fulfillment validates the tracking number (confirm-anyway dialog); PostSale defaults to Returns + jumps to a non-empty tab + count badges + inline evidence-upload progress; AIAssistant toggle derives from loaded Info (no flash); AIExtract uses a named actionsRemainingUnknown sentinel (distinct from -1=unlimited); TelemetryScrubber adds a UUID rule (+test); softened the ~10s copy; onboarding skip now nudges to the add-item chooser (+updated test). NOTE: Info.plist usage-string drift is moot (XcodeGen regenerates it from project.yml which already has all keys); data-export temp cleanup was already wired (ShareSheet onComplete). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Speech/SpeechDictation.swift",
+        "ios/GradeThread/Vision/TagTextRecognizer.swift",
+        "ios/GradeThread/Telemetry/TelemetryScrubber.swift",
+        "ios/GradeThread/Info.plist",
+        "ios/GradeThread/Fulfillment/FulfillmentView.swift",
+        "ios/GradeThread/Onboarding/OnboardingView.swift",
+        "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
+        "ios/GradeThread/Settings/AIAssistantSection.swift",
+        "ios/GradeThread/Settings/ProfileSection.swift",
+        "ios/GradeThread/AIExtract/AIExtractView.swift"
+      ]
+    },
+    {
+      "id": "US-1179",
+      "title": "AutoLister/Drafts UX clarity: titled job rows + AI CSV mapping affordance",
+      "description": "As a seller triaging an AutoLister batch or mapping a CSV, I want to recognize each row and get AI help on unmatched columns, so that I can act per-item instead of decoding UUIDs and hand-mapping headers.",
+      "acceptanceCriteria": [
+        "AutoListerQueueView job rows surface the AI-generated/derived title (or cover thumbnail) once available from batch status, instead of 'Item <uuid prefix>'",
+        "CSV import column mapping offers an AI-assist pass for unmatched headers (reuse the app's Claude capability) OR is clearly documented as heuristic keyword-matching only",
+        "Build + unit tests clean"
+      ],
+      "priority": 1179,
+      "passes": true,
+      "notes": "[P3][iOS/AI][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Job rows show raw UUIDs; CSV mapping is a static keyword dict with no AI assist despite Vision capability. IMPLEMENTED 2026-06-21: AutoListerQueueView resolves each job's item title via a SwiftData @Query (falls back to the uuid prefix only when no title yet) so rows read the garment, not a UUID. CSV mapping step now explicitly states the column matching is auto-detected from headers (keyword heuristic, no AI) and to review it — taking the documented-heuristic option since an AI mapping pass would need a new edge endpoint. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/AutoLister/AutoListerQueueView.swift",
+        "ios/GradeThread/AutoLister/AutoListerReviewModel.swift",
+        "ios/GradeThread/Import/ImportField.swift"
+      ]
+    },
+    {
+      "id": "US-1180",
+      "title": "Migrate remaining legacy ObservableObject stores to @Observable",
+      "description": "As a maintainer, I want the few remaining legacy stores on the modern @Observable pattern, so that re-render behavior is consistent app-wide and there's one state idiom.",
+      "acceptanceCriteria": [
+        "SnapStore, ListingKitStore, and ProspectStore migrate from ObservableObject/@Published to @Observable, and their views from @StateObject to @State",
+        "ProspectView photo-strip ForEach keys on a stable id instead of array .offset (fixes mis-animation on non-last removal)",
+        "Build + unit tests clean; existing store tests still pass"
+      ],
+      "priority": 1180,
+      "passes": true,
+      "notes": "[P3][iOS/Consistency][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Three stores remain on the legacy pattern; everything else is @Observable. IMPLEMENTED 2026-06-21: SnapStore, ProspectStore, ListingKitStore migrated ObservableObject/@Published -> @Observable; views use @State (+ @Bindable in the subviews that bind text fields). ProspectView photo-strip keys ForEach by UIImage identity (id: .element) not array offset. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Snap/SnapStore.swift",
+        "ios/GradeThread/Snap/SnapView.swift",
+        "ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift",
+        "ios/GradeThread/Prospect/ProspectStore.swift",
+        "ios/GradeThread/Prospect/ProspectView.swift"
       ]
     }
   ]

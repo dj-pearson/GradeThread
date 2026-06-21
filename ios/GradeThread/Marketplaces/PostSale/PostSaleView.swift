@@ -7,10 +7,16 @@ import UIKit
 /// actions (approve/decline/refund, approve/reject, accept/contest).
 struct PostSaleView: View {
     @State private var store = PostSaleStore()
-    @State private var tab: Tab = .disputes
+    // US-1178: Returns are far more common than Disputes — open there, and
+    // after load jump to whichever tab actually has items so the screen isn't
+    // empty on arrival.
+    @State private var tab: Tab = .returns
     @State private var contesting: EbayPaymentDispute?
     @State private var evidenceTarget: EbayPaymentDispute?
     @State private var showingEvidencePicker = false
+    // US-1160: irreversible, money-moving actions are gated behind a single
+    // confirmation dialog so a mis-tap can't refund/decline/cancel an order.
+    @State private var pendingAction: PendingAction?
 
     enum Tab: String, CaseIterable, Identifiable {
         case disputes = "Disputes"
@@ -19,10 +25,66 @@ struct PostSaleView: View {
         var id: String { rawValue }
     }
 
+    /// One of the irreversible buyer-facing actions, captured so it can be
+    /// confirmed before it runs. The associated value carries the target row.
+    private enum PendingAction: Identifiable {
+        case acceptDispute(EbayPaymentDispute)
+        case declineReturn(EbayReturn)
+        case refundReturn(EbayReturn)
+        case approveCancellation(EbayCancellation)
+        case rejectCancellation(EbayCancellation)
+
+        var id: String {
+            switch self {
+            case .acceptDispute(let d): return "acceptDispute-\(d.id)"
+            case .declineReturn(let r): return "declineReturn-\(r.id)"
+            case .refundReturn(let r): return "refundReturn-\(r.id)"
+            case .approveCancellation(let c): return "approveCancellation-\(c.id)"
+            case .rejectCancellation(let c): return "rejectCancellation-\(c.id)"
+            }
+        }
+
+        var confirmTitle: String {
+            switch self {
+            case .acceptDispute: return "Accept & refund?"
+            case .declineReturn: return "Decline return?"
+            case .refundReturn: return "Refund buyer?"
+            case .approveCancellation: return "Approve & cancel order?"
+            case .rejectCancellation: return "Reject cancellation?"
+            }
+        }
+
+        var confirmButton: String {
+            switch self {
+            case .acceptDispute: return "Accept & refund"
+            case .declineReturn: return "Decline"
+            case .refundReturn: return "Refund"
+            case .approveCancellation: return "Approve & cancel"
+            case .rejectCancellation: return "Reject"
+            }
+        }
+
+        var confirmMessage: String {
+            switch self {
+            case .acceptDispute(let d):
+                let amount = d.amount?.formatted(.currency(code: d.currency ?? "USD"))
+                return "This refunds the buyer\(amount.map { " \($0)" } ?? "") and closes the dispute. This can't be undone."
+            case .declineReturn:
+                return "This declines the buyer's return request. This can't be undone."
+            case .refundReturn:
+                return "This issues a refund to the buyer. This can't be undone."
+            case .approveCancellation:
+                return "This cancels the order and refunds the buyer. This can't be undone."
+            case .rejectCancellation:
+                return "This rejects the buyer's cancellation request. This can't be undone."
+            }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("Section", selection: $tab) {
-                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(Tab.allCases) { Text(tabLabel($0)).tag($0) }
             }
             .pickerStyle(.segmented)
             .padding()
@@ -35,7 +97,15 @@ struct PostSaleView: View {
         }
         .navigationTitle("Returns & disputes")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await store.loadAll() }
+        .task {
+            await store.loadAll()
+            // Land on a tab that has items (returns first, then cancellations,
+            // then disputes) so the user doesn't arrive on an empty section.
+            if store.returns.isEmpty {
+                if !store.cancellations.isEmpty { tab = .cancellations }
+                else if !store.disputes.isEmpty { tab = .disputes }
+            }
+        }
         .sheet(item: $contesting) { dispute in
             ContestSheet(dispute: dispute) { note in
                 Task { await store.contestDispute(dispute, note: note) }
@@ -45,6 +115,21 @@ struct PostSaleView: View {
             PhotoLibraryPicker(selectionLimit: 1) { results in
                 handleEvidencePick(results)
             }
+        }
+        .confirmationDialog(
+            pendingAction?.confirmTitle ?? "",
+            isPresented: Binding(
+                get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }
+            ),
+            presenting: pendingAction
+        ) { action in
+            Button(action.confirmButton, role: .destructive) {
+                pendingAction = nil
+                Task { await perform(action) }
+            }
+            Button("Cancel", role: .cancel) { pendingAction = nil }
+        } message: { action in
+            Text(action.confirmMessage)
         }
         .alert("Something went wrong", isPresented: Binding(
             get: { store.actionError != nil }, set: { if !$0 { store.actionError = nil } }
@@ -110,15 +195,24 @@ struct PostSaleView: View {
             if let buyer = d.buyerUsername {
                 Text("Order \(d.orderId ?? "—") · \(buyer)").font(.caption).foregroundStyle(.secondary)
             }
+            // US-1178: show an inline progress row while an evidence upload is
+            // in flight (the picker is already dismissed, so it'd look frozen).
+            if store.evidenceUploadingId == d.paymentDisputeId {
+                HStack(spacing: 6) {
+                    ProgressView()
+                    Text("Uploading evidence…").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             HStack(spacing: 10) {
                 Button("Evidence") {
                     evidenceTarget = d
                     showingEvidencePicker = true
                 }
                 .buttonStyle(.bordered)
+                .disabled(store.evidenceUploadingId == d.paymentDisputeId)
                 Button("Contest") { contesting = d }
                     .buttonStyle(.bordered)
-                Button("Accept & refund", role: .destructive) { Task { await store.acceptDispute(d) } }
+                Button("Accept & refund", role: .destructive) { pendingAction = .acceptDispute(d) }
                     .buttonStyle(.borderedProminent)
             }
             .font(.caption.weight(.semibold))
@@ -155,11 +249,11 @@ struct PostSaleView: View {
                 Text(humanize(state) ?? state).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 10) {
-                Button("Decline", role: .destructive) { Task { await store.declineReturn(r) } }
+                Button("Decline", role: .destructive) { pendingAction = .declineReturn(r) }
                     .buttonStyle(.bordered)
                 Button("Approve") { Task { await store.approveReturn(r) } }
                     .buttonStyle(.bordered)
-                Button("Refund") { Task { await store.refundReturn(r) } }
+                Button("Refund") { pendingAction = .refundReturn(r) }
                     .buttonStyle(.borderedProminent)
             }
             .font(.caption.weight(.semibold))
@@ -195,15 +289,37 @@ struct PostSaleView: View {
             Text("Order \(ca.orderId ?? "—")\(ca.requestorType.map { " · \($0.lowercased())" } ?? "")")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
-                Button("Reject", role: .destructive) { Task { await store.rejectCancellation(ca) } }
+                Button("Reject", role: .destructive) { pendingAction = .rejectCancellation(ca) }
                     .buttonStyle(.bordered)
-                Button("Approve & cancel") { Task { await store.approveCancellation(ca) } }
+                Button("Approve & cancel") { pendingAction = .approveCancellation(ca) }
                     .buttonStyle(.borderedProminent)
             }
             .font(.caption.weight(.semibold))
             .padding(.top, 2)
         }
         .padding(.vertical, 4)
+    }
+
+    /// US-1178: segment label with a non-zero count so open work is visible.
+    private func tabLabel(_ tab: Tab) -> String {
+        let count: Int
+        switch tab {
+        case .disputes: count = store.disputes.count
+        case .returns: count = store.returns.count
+        case .cancellations: count = store.cancellations.count
+        }
+        return count > 0 ? "\(tab.rawValue) (\(count))" : tab.rawValue
+    }
+
+    /// Runs the confirmed irreversible action against the store.
+    private func perform(_ action: PendingAction) async {
+        switch action {
+        case .acceptDispute(let d): await store.acceptDispute(d)
+        case .declineReturn(let r): await store.declineReturn(r)
+        case .refundReturn(let r): await store.refundReturn(r)
+        case .approveCancellation(let c): await store.approveCancellation(c)
+        case .rejectCancellation(let c): await store.rejectCancellation(c)
+        }
     }
 
     // MARK: - Evidence

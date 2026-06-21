@@ -25,6 +25,8 @@ struct PhotoManagerView: View {
     @State private var isSyncing = false
     @State private var syncSucceeded = false
     @State private var errorMessage: String?
+    // US-1160: confirm before a swipe permanently deletes a photo + its bytes.
+    @State private var pendingPhotoDelete: LocalItemPhoto?
 
     var body: some View {
         NavigationStack {
@@ -150,6 +152,21 @@ struct PhotoManagerView: View {
             } message: {
                 Text("The new photo order is now live on your eBay listing.")
             }
+            .confirmationDialog(
+                "Delete photo?",
+                isPresented: Binding(
+                    get: { pendingPhotoDelete != nil }, set: { if !$0 { pendingPhotoDelete = nil } }
+                ),
+                presenting: pendingPhotoDelete
+            ) { photo in
+                Button("Delete photo", role: .destructive) {
+                    pendingPhotoDelete = nil
+                    confirmPhotoDelete(photo)
+                }
+                Button("Cancel", role: .cancel) { pendingPhotoDelete = nil }
+            } message: { _ in
+                Text("This permanently removes the photo. This can't be undone.")
+            }
         }
         .onAppear {
             if working.isEmpty { working = photos }
@@ -173,8 +190,13 @@ struct PhotoManagerView: View {
 
     private func deleteAt(_ offsets: IndexSet) {
         guard let index = offsets.first, working.indices.contains(index) else { return }
-        let photo = working[index]
-        working.remove(atOffsets: offsets)
+        // Capture the target and confirm; the actual delete happens on confirm.
+        pendingPhotoDelete = working[index]
+    }
+
+    private func confirmPhotoDelete(_ photo: LocalItemPhoto) {
+        guard let index = working.firstIndex(where: { $0.id == photo.id }) else { return }
+        working.remove(at: index)
         Task { await runDelete(photo) }
     }
 

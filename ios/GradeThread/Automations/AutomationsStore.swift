@@ -21,6 +21,9 @@ final class AutomationsStore {
     var actionError: String?
     var banner: String?
     var isRunning = false
+    /// US-1175: rule ids with an in-flight enable/disable toggle, so the row can
+    /// disable the switch and overlapping taps can't race conflicting PUTs.
+    private(set) var togglingIds: Set<String> = []
 
     init(service: AutomationsProviding = AutomationsService()) {
         self.service = service
@@ -71,11 +74,25 @@ final class AutomationsStore {
         }
     }
 
-    /// Flip a rule's active flag (full-replace PUT through an editor draft).
+    /// US-1175: flip a rule's active flag optimistically so the switch responds
+    /// instantly, guard against overlapping toggles racing conflicting PUTs, and
+    /// revert if the save fails. The full-replace PUT goes through an editor draft.
     func toggleActive(_ rule: AutomationRule) async {
+        guard !togglingIds.contains(rule.id) else { return }
+        togglingIds.insert(rule.id)
+        defer { togglingIds.remove(rule.id) }
+
+        let newValue = !rule.isActive
+        if let i = rules.firstIndex(where: { $0.id == rule.id }) {
+            rules[i].isActive = newValue
+        }
         var draft = AutomationDraft(from: rule)
-        draft.isActive.toggle()
-        await save(draft, editingId: rule.id)
+        draft.isActive = newValue
+        let ok = await save(draft, editingId: rule.id)
+        if !ok, let i = rules.firstIndex(where: { $0.id == rule.id }) {
+            // Revert the optimistic flip on failure.
+            rules[i].isActive = !newValue
+        }
     }
 
     /// Run the caller's active rules immediately and refresh.

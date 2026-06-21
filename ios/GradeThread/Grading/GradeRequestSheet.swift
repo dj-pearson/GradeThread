@@ -97,13 +97,20 @@ struct GradeRequestSheet: View {
     private var closeButtonTitle: String {
         switch store?.phase {
         case .completed?, .stillProcessing?: return "Done"
+        // US-1176: dismissing while polling doesn't abort the grade (it lands via
+        // sync), so make that explicit rather than the ambiguous "Cancel".
+        case .processing?: return "Continue in background"
         default: return "Cancel"
         }
     }
 
+    /// US-1176: only the initial submit blocks dismissal — once the grade is
+    /// accepted and we're polling (.processing), it's already running
+    /// server-side and lands via the next sync (as .stillProcessing explains),
+    /// so the user shouldn't be trapped waiting out the poll window.
     private var isWorking: Bool {
         switch store?.phase {
-        case .submitting?, .processing?: return true
+        case .submitting?: return true
         default: return false
         }
     }

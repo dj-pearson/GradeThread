@@ -14,6 +14,9 @@ final class ImportStore {
         case done
     }
 
+    /// US-1166: hard row cap for an imported sheet (memory guard).
+    static let maxImportRows = 20_000
+
     private let sheets: SheetsImporting
     private let importer: InventoryImportService
 
@@ -41,14 +44,24 @@ final class ImportStore {
 
     /// Parses raw CSV/TSV text, auto-guesses the per-column mapping, and moves
     /// to the mapping step. Surfaces a banner if the text has no usable rows.
-    func loadCSV(_ text: String) {
-        let parsed = CSVParser.parseSheet(text)
+    /// US-1165: the parse (which scans every character + builds per-cell arrays)
+    /// runs off the main actor so a multi-thousand-row sheet doesn't freeze the
+    /// UI; we hop back to main only to publish the result.
+    func loadCSV(_ text: String) async {
+        let parsed = await Task.detached(priority: .userInitiated) {
+            CSVParser.parseSheet(text)
+        }.value
         guard !parsed.headers.isEmpty else {
             errorBanner = "That file didn't contain any columns."
             return
         }
         guard !parsed.rows.isEmpty else {
             errorBanner = "That file has headers but no data rows."
+            return
+        }
+        // US-1166: cap the row count so a pathological file can't blow up memory.
+        guard parsed.rows.count <= Self.maxImportRows else {
+            errorBanner = "That file has too many rows (max \(Self.maxImportRows)). Split it into smaller files."
             return
         }
         sheet = parsed
@@ -63,7 +76,7 @@ final class ImportStore {
         defer { isFetching = false }
         do {
             let csv = try await sheets.fetchCSV(url: url)
-            loadCSV(csv)
+            await loadCSV(csv)
         } catch {
             errorBanner = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -121,5 +134,18 @@ final class ImportStore {
         errorBanner = nil
         progressDone = 0
         progressTotal = 0
+    }
+
+    /// US-1163: return to the mapping step keeping the loaded sheet + column map
+    /// so the user can fix a bad mapping after a failed import, instead of
+    /// restarting from file selection. Falls back to a full reset if the sheet
+    /// is somehow gone.
+    func backToMapping() {
+        guard sheet != nil else { reset(); return }
+        result = nil
+        errorBanner = nil
+        progressDone = 0
+        progressTotal = 0
+        phase = .mapping
     }
 }

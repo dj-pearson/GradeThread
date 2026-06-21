@@ -168,10 +168,10 @@ struct PhotoIntakeView: View {
                 set: { if !$0 { draftItemId = nil } }
             )
         ) {
-            if let itemId = draftItemId {
+            if let itemId = draftItemId, let userId = currentUserId(), !userId.isEmpty {
                 AIExtractView(
                     inventoryItemId: itemId,
-                    userId: currentUserId() ?? "",
+                    userId: userId,
                     photos: capturedEntries(),
                     onComplete: {
                         // US-682: once the AI step finishes (Apply / Skip /
@@ -187,6 +187,18 @@ struct PhotoIntakeView: View {
                         DeepLinkRouter.post(.inventoryItem(id: itemId))
                     }
                 )
+            } else {
+                // US-1176: never build the AI step with an empty user id — that
+                // produces malformed storage/signed-URL paths and a silent
+                // failure. Surface a re-sign-in prompt instead.
+                ContentUnavailableView {
+                    Label("Sign in again", systemImage: "person.crop.circle.badge.exclamationmark")
+                } description: {
+                    Text("Your session expired. Sign in again to run AI extraction on these photos.")
+                } actions: {
+                    Button("OK") { draftItemId = nil }
+                        .buttonStyle(.borderedProminent)
+                }
             }
         }
         .sheet(isPresented: $showingStagingTray, onDismiss: {
@@ -482,6 +494,7 @@ struct PhotoIntakeView: View {
             }
             .disabled(permissionState != .granted || isCapturing)
             .accessibilityLabel("Capture photo")
+            .accessibilityIdentifier("capture.shutter") // US-1173: stable UI-test selector
             .accessibilityHint("\(store.photos.count) of \(store.visibleSlots.count) slots filled")
             .accessibilityFocused($captureControlFocused)
 

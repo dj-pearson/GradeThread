@@ -22,7 +22,7 @@ final class AIExtractStore {
         let conditionSummary: String?
     }
 
-    struct Measurement: Identifiable, Equatable {
+    struct Measurement: Identifiable, Equatable, Codable {
         let id: String   // field key, e.g. "chest"
         let key: String
         let valueInches: Double

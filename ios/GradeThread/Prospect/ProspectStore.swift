@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 /// View-model for Item Prospecting (US-1107). Holds up to two captured photos
@@ -5,21 +6,25 @@ import SwiftUI
 /// ``ProspectService``, and exposes the result/error for the view. Images are
 /// compressed (and EXIF-stripped) off the main actor via ``PhotoCompressor``
 /// before upload — the same path Snap-to-Value uses.
+///
+/// US-1180: migrated to `@Observable` (was `ObservableObject`) for consistency
+/// with the rest of the app's stores and finer-grained view invalidation.
 @MainActor
-final class ProspectStore: ObservableObject {
+@Observable
+final class ProspectStore {
 
     /// Up to two source photos: the front and (ideally) the brand/size tag.
-    @Published var images: [UIImage] = []
+    var images: [UIImage] = []
     /// Optional cost entry, in dollars, that unlocks the ROI verdict.
-    @Published var costText: String = ""
-    @Published var isLoading = false
-    @Published var result: ProspectResponse?
-    @Published var errorMessage: String?
+    var costText: String = ""
+    var isLoading = false
+    var result: ProspectResponse?
+    var errorMessage: String?
 
     /// Set once the user commits the prospect into inventory, so the view can
     /// confirm + offer a jump to the inventory tab.
-    @Published var isAdding = false
-    @Published var addedItemId: String?
+    var isAdding = false
+    var addedItemId: String?
 
     static let maxPhotos = 2
 
@@ -100,6 +105,10 @@ final class ProspectStore: ObservableObject {
         errorMessage = nil
         defer { isAdding = false }
 
+        // US-1170: don't discard the AI's read on commit. size/color aren't in
+        // the prospect payload (ProspectItem only carries brand/title/keywords),
+        // but the keywords + resolved category are — fold them into notes so the
+        // catalog step starts from the AI's read instead of a blank item.
         let request = ProspectBuyRequest(
             title: title,
             brand: result.item.brand,
@@ -109,7 +118,7 @@ final class ProspectStore: ObservableObject {
             targetCents: result.stats?.medianCents,
             gradeValue: result.grade?.value,
             gradeLabel: result.grade?.tier,
-            conditionNotes: nil
+            conditionNotes: prospectNotes(result)
         )
         do {
             let response = try await service.buy(request)
@@ -117,5 +126,19 @@ final class ProspectStore: ObservableObject {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    /// US-1170: distill the AI's read (keywords + resolved category) into a
+    /// notes string so it carries into the new inventory item. Returns nil when
+    /// there's nothing useful to record.
+    private func prospectNotes(_ result: ProspectResponse) -> String? {
+        var parts: [String] = []
+        if !result.item.keywords.isEmpty {
+            parts.append(result.item.keywords.joined(separator: ", "))
+        }
+        if let path = result.category?.path, !path.isEmpty {
+            parts.append("Category: \(path)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

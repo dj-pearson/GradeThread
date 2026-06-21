@@ -443,6 +443,19 @@ private struct ComposerForm: View {
     @State private var aiError: String?
     private let copyService: ListingCopyGenerating = ListingCopyService()
 
+    // US-1167: surface eBay comp context right at the publish decision (the
+    // price is set on the canvas, so this is an informational sanity-check).
+    @State private var comps: CompStats?
+    @State private var compsLoaded = false
+
+    private func loadComps() async {
+        guard !compsLoaded else { return }
+        compsLoaded = true
+        if let lookup = try? await CompsService().lookup(title: summary.title, brand: nil, size: nil) {
+            comps = lookup.stats
+        }
+    }
+
     // US-674: listing templates, selectable to pre-fill the draft.
     @State private var templateStore = TemplateStore()
     /// US-972: a template the user picked that would overwrite existing content,
@@ -556,9 +569,20 @@ private struct ComposerForm: View {
                         .foregroundStyle(Color.brandNavy)
                 }
                 profitEstimate
+                // US-1167: comp context (median + spread) from eBay so the seller
+                // can sanity-check the price before publishing.
+                if let stats = comps, stats.count > 0, let median = stats.median {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chart.bar.xaxis").font(.caption2)
+                        Text("Active comps: median \(stats.currency) \(MoneyFieldValidation.twoDecimalDisplay(String(median))) across \(stats.count) listing\(stats.count == 1 ? "" : "s")")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(Color.brandNavy)
+                }
                 Text("Edit price on the item canvas.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .task { await loadComps() }
 
                 if NetworkMonitor.isOffline(networkMonitor) {
                     OfflineNotice(intent: .blocked, detail: "to publish to eBay")

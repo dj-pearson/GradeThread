@@ -8,7 +8,8 @@ import PhotosUI
 struct ProspectView: View {
     let router: AppRouter
 
-    @StateObject private var store = ProspectStore()
+    // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
+    @State private var store = ProspectStore()
     @Environment(\.dismiss) private var dismiss
     @State private var showCamera = false
     @State private var showLibrary = false
@@ -44,9 +45,16 @@ struct ProspectView: View {
                     .disabled(!store.canRun)
 
                     if let message = store.errorMessage {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(Color.brandRed)
+                        // US-1163: offer a retry instead of a dead-end red line.
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(message)
+                                .font(.footnote)
+                                .foregroundStyle(Color.brandRed)
+                            Button("Try again") { Task { await store.run() } }
+                                .font(.footnote.weight(.semibold))
+                                .buttonStyle(.bordered)
+                                .disabled(!store.canRun)
+                        }
                     }
 
                     if let result = store.result {
@@ -99,7 +107,10 @@ struct ProspectView: View {
                 }
         } else {
             HStack(spacing: 10) {
-                ForEach(Array(store.images.enumerated()), id: \.offset) { index, image in
+                // US-1180: key by the UIImage's (identity-based) hash, not the
+                // array offset, so removing a non-last photo doesn't mis-animate
+                // / reuse identities.
+                ForEach(Array(store.images.enumerated()), id: \.element) { index, image in
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -146,7 +157,9 @@ struct ProspectView: View {
     }
 
     private var costField: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        // US-1180: @Bindable yields a two-way binding from the @Observable store.
+        @Bindable var store = store
+        return VStack(alignment: .leading, spacing: 4) {
             TextField("What would you pay? (optional)", text: $store.costText)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
@@ -207,6 +220,14 @@ struct ProspectView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(result.item.title ?? result.item.brand ?? "Item")
                 .font(.brandTitle2)
+            // US-1170: show the brand the AI read off the tag so the user can
+            // sanity-check the identification before committing a purchase.
+            if let brand = result.item.brand, !brand.isEmpty,
+               brand.caseInsensitiveCompare(result.item.title ?? "") != .orderedSame {
+                Text(brand)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.brandNavy)
+            }
             HStack(spacing: 8) {
                 if let path = result.category?.path {
                     Text(path)
@@ -275,6 +296,26 @@ struct ProspectView: View {
             Text(decision.reason)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            // US-1170: surface the ROI math the AI computed (only present once a
+            // cost was entered) instead of hiding it behind the verdict.
+            if decision.estProceedsCents != nil || decision.estMarginCents != nil
+                || decision.roiPct != nil || decision.breakevenCents != nil {
+                VStack(spacing: 2) {
+                    if let p = decision.estProceedsCents { metricRow("Est. proceeds", dollars(p)) }
+                    if let m = decision.estMarginCents { metricRow("Est. margin", dollars(m)) }
+                    if let r = decision.roiPct { metricRow("ROI", "\(Int(r.rounded()))%") }
+                    if let b = decision.breakevenCents { metricRow("Breakeven price", dollars(b)) }
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func metricRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).font(.caption.weight(.semibold)).monospacedDigit()
         }
     }
 
@@ -310,7 +351,8 @@ struct ProspectView: View {
 
     private func dollars(_ cents: Int?) -> String {
         guard let cents else { return "—" }
-        return "$\(cents / 100)"
+        // US-1161: full cents + locale currency, not integer-truncated "$".
+        return CurrencyFormatter().formatDisplay(Double(cents) / 100)
     }
 
     private func sellThroughColor(_ label: String) -> Color {

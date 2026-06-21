@@ -63,7 +63,13 @@ struct LoginView: View {
 
                 primaryButton
 
-                divider
+                // US-1172: the "or" divider implies a choice of social buttons.
+                // Google is gated off (AppConfig.googleSignInEnabled), leaving
+                // only Apple, so suppress the divider unless there's a second
+                // option to separate from email/password.
+                if AppConfig.googleSignInEnabled {
+                    divider
+                }
 
                 socialButtons
 
@@ -136,6 +142,7 @@ struct LoginView: View {
                     .textFieldStyle(.roundedBorder)
             }
             TextField("Email", text: $email)
+                .accessibilityIdentifier("login.email") // US-1173: stable UI-test selector
                 .keyboardType(.emailAddress)
                 // `.username` (not `.emailAddress`) is the login-identity content
                 // type AutoFill pairs with `.password` to surface a saved
@@ -150,6 +157,7 @@ struct LoginView: View {
                 validationHint(emailValidationHint)
             }
             SecureField("Password", text: $password)
+                .accessibilityIdentifier("login.password") // US-1173: stable UI-test selector
                 .textContentType(mode == .signUp ? .newPassword : .password)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityHint(passwordValidationHint.map { Text($0) } ?? Text(""))
@@ -188,6 +196,7 @@ struct LoginView: View {
             .foregroundStyle(.white)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
         }
+        .accessibilityIdentifier("login.submit") // US-1173: stable UI-test selector
         .disabled(!canSubmit || isSubmitting)
         .opacity(!canSubmit || isSubmitting ? 0.5 : 1)
     }
@@ -229,6 +238,7 @@ struct LoginView: View {
                 handleAppleCompletion(result)
             }
             .signInWithAppleButtonStyle(.black)
+            .accessibilityIdentifier("login.apple") // US-1173: stable UI-test selector
             .frame(height: Self.socialButtonHeight)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             // The native button already exposes the `.button` trait and a
@@ -499,6 +509,9 @@ struct LoginView: View {
                 return
             }
             let fullName = credential.fullName
+            // US-1172: remember the Apple user id so the foreground check can
+            // detect a later revocation under Settings → Apple ID.
+            AppleCredentialMonitor.record(userId: credential.user)
             Task {
                 await authStore.signInWithApple(idToken: idToken, nonce: nonce, fullName: fullName)
                 appleNonce = nil

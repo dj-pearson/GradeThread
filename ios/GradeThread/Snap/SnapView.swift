@@ -7,7 +7,8 @@ import PhotosUI
 struct SnapView: View {
     let router: AppRouter
 
-    @StateObject private var store = SnapStore()
+    // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
+    @State private var store = SnapStore()
     @Environment(\.dismiss) private var dismiss
     @State private var showCamera = false
     @State private var showLibrary = false
@@ -127,7 +128,9 @@ struct SnapView: View {
     }
 
     private var hintFields: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // US-1180: @Bindable yields two-way bindings from the @Observable store.
+        @Bindable var store = store
+        return VStack(alignment: .leading, spacing: 8) {
             TextField("Brand (optional — unlocks value)", text: $store.brand)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
@@ -229,7 +232,8 @@ struct SnapView: View {
 
     private func dollars(_ cents: Int?) -> String {
         guard let cents else { return "—" }
-        return "$\(cents / 100)"
+        // US-1161: full cents + locale currency, not integer-truncated "$".
+        return CurrencyFormatter().formatDisplay(Double(cents) / 100)
     }
 
     private func valueText(_ value: SnapValue?) -> String {

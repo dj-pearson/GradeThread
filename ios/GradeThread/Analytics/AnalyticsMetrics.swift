@@ -244,14 +244,19 @@ enum AnalyticsRollup {
 
     // MARK: Grading ROI (US-665)
 
-    static let priceBands: [(label: String, range: Range<Double>)] = [
-        ("Under $50", 0..<50),
-        ("$50–150", 50..<150),
-        ("$150+", 150..<Double.greatestFiniteMagnitude),
-    ]
+    // US-1161: band thresholds are fixed numbers, but the symbol follows the
+    // user's currency override / locale rather than a hardcoded "$".
+    static var priceBands: [(label: String, range: Range<Double>)] {
+        let s = CurrencyFormatter().symbol
+        return [
+            ("Under \(s)50", 0..<50),
+            ("\(s)50–150", 50..<150),
+            ("\(s)150+", 150..<Double.greatestFiniteMagnitude),
+        ]
+    }
 
     private static func priceBand(_ price: Double) -> String {
-        priceBands.first { $0.range.contains(price) }?.label ?? "$150+"
+        priceBands.first { $0.range.contains(price) }?.label ?? "\(CurrencyFormatter().symbol)150+"
     }
 
     /// Graded-vs-ungraded net profit by sale-price band over the window.

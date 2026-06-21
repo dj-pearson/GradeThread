@@ -23,7 +23,10 @@ final class SnapService {
     }
 
     func snap(imageData: Data, brand: String?, keyword: String?) async throws -> SnapResponse {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        // US-1164: guard instead of force-unwrapping a malformed base URL.
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw EdgeAPIError.network("Could not build URL")
+        }
         components.path = "/api/grade/snap"
         guard let url = components.url else {
             throw EdgeAPIError.network("Could not build URL")
@@ -37,14 +40,19 @@ final class SnapService {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        let dataURI = "data:image/jpeg;base64," + imageData.base64EncodedString()
-        let body = SnapRequest(
-            image: dataURI,
-            brand: (brand?.isEmpty == false) ? brand : nil,
-            keyword: (keyword?.isEmpty == false) ? keyword : nil
-        )
         do {
-            req.httpBody = try JSONEncoder().encode(body)
+            // US-1165: base64-encode the (large) JPEG and JSON-encode the body off
+            // the main actor — this service is @MainActor, so doing it inline would
+            // block the UI on a big image.
+            req.httpBody = try await Task.detached(priority: .userInitiated) {
+                let dataURI = "data:image/jpeg;base64," + imageData.base64EncodedString()
+                let body = SnapRequest(
+                    image: dataURI,
+                    brand: (brand?.isEmpty == false) ? brand : nil,
+                    keyword: (keyword?.isEmpty == false) ? keyword : nil
+                )
+                return try JSONEncoder().encode(body)
+            }.value
         } catch {
             throw EdgeAPIError.decoding("Encoding snap request failed: \(error.localizedDescription)")
         }

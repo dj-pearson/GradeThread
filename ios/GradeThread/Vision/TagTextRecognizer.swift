@@ -59,8 +59,11 @@ actor TagTextRecognizer {
             // Tags are usually English-printed, but allow multi-language
             // recognition so we don't lose imported brands (Levi's,
             // Uniqlo, etc.) when the tag mixes scripts.
+            // US-1178: actually pass a multi-language list (was locked to en-US,
+            // which contradicted the comment). Vision uses whatever models are
+            // available; en stays first so it's preferred.
             request.usesLanguageCorrection = true
-            request.recognitionLanguages = ["en-US"]
+            request.recognitionLanguages = ["en-US", "fr-FR", "es-ES", "de-DE", "it-IT", "pt-BR", "ja-JP"]
             // Don't restrict character set — tag content includes punctuation
             // ('Size 12 / W30 L32', care symbols).
 

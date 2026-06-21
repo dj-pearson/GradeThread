@@ -37,7 +37,8 @@ final class RepricingRulesStore {
             actions = await loadActions(fallback: [])
             phase = .ready
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            // US-1174: friendly copy instead of a raw service error.
+            phase = .failed(message: FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't load repricing rules. Please try again."))
         }
     }
 
@@ -57,7 +58,7 @@ final class RepricingRulesStore {
             }
             return true
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't save the rule. Please try again.")
             return false
         }
     }
@@ -67,7 +68,7 @@ final class RepricingRulesStore {
         do {
             try await service.delete(id: rule.id)
         } catch {
-            actionError = error.localizedDescription
+            actionError = FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't delete the rule. Please try again.")
             await load()
         }
     }

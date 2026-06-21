@@ -16,7 +16,13 @@ final class DraftsTests: XCTestCase {
         /// US-820: ids whose save throws, so per-item failure reporting is
         /// testable (the global `saveError` fails every row).
         var saveErrorIds: Set<String> = []
-        private(set) var saved: [DraftEdit] = []
+        // US-1166: applyBulk now saves concurrently, so guard the recorded saves
+        // against a data race (the production DraftsService is a stateless struct).
+        private let savedLock = NSLock()
+        private var _saved: [DraftEdit] = []
+        var saved: [DraftEdit] {
+            savedLock.lock(); defer { savedLock.unlock() }; return _saved
+        }
 
         init(drafts: [DraftListing], titles: [String: String] = [:]) {
             self.drafts = drafts
@@ -31,7 +37,7 @@ final class DraftsTests: XCTestCase {
         func save(_ edit: DraftEdit) async throws {
             if saveErrorIds.contains(edit.id) { throw EdgeAPIError.rateLimited }
             if let saveError { throw saveError }
-            saved.append(edit)
+            savedLock.lock(); _saved.append(edit); savedLock.unlock()
         }
     }
 

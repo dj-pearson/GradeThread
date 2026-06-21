@@ -16,7 +16,8 @@ struct PayoutReconciliationView: View {
         Group {
             switch store.phase {
             case .idle, .loading where store.entries.isEmpty:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                // US-1163: skeleton loading, consistent with Repricing/Dashboard.
+                ScrollView { SkeletonRows(count: 6).padding() }
             case .failed(let message):
                 // US-971: shared error state keeps the retry affordance uniform
                 // with the other data screens.
@@ -106,7 +107,8 @@ struct PayoutReconciliationView: View {
             }
             Task { await store.importCsv(text) }
         case .failure(let error):
-            store.actionError = error.localizedDescription
+            // US-1174: friendly copy instead of a raw file-import error.
+            store.actionError = FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't read that file. Please try again.")
         }
     }
 

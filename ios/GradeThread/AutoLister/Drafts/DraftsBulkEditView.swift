@@ -203,7 +203,7 @@ private struct DraftEditRowView: View {
     let store: DraftsBulkEditStore
     let rowId: String
 
-    private var row: DraftEditRow? { store.rows.first { $0.id == rowId } }
+    private var row: DraftEditRow? { store.row(id: rowId) } // US-1166: O(1)
 
     var body: some View {
         if let row {
@@ -298,7 +298,7 @@ private struct DraftEditRowView: View {
     /// marking the row dirty on every keystroke.
     private func stringBinding(_ keyPath: WritableKeyPath<DraftEditRow, String>) -> Binding<String> {
         Binding(
-            get: { store.rows.first(where: { $0.id == rowId })?[keyPath: keyPath] ?? "" },
+            get: { store.row(id: rowId)?[keyPath: keyPath] ?? "" }, // US-1166: O(1)
             set: { newValue in store.update(rowId) { $0[keyPath: keyPath] = newValue } }
         )
     }
