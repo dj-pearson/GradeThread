@@ -3209,7 +3209,7 @@
         "Empty/loading/error states present; no PII exposed; python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1093,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Parity][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: grep for 'passport' across ios/GradeThread/*.swift returns ZERO matches — iOS has no passport viewer at all, while web has passport.tsx/passport-claim.tsx and the chain API (passport.ts, passport-identity.ts) is live. NOTE: iOS already shares the public CERTIFICATE (GradeReportView.swift ShareLink) — this story is the PASSPORT timeline only. Depends on done US-1089..US-1095.",
       "relevantPaths": [
         "ios/GradeThread/Grading/GradeReportView.swift",

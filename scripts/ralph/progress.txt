@@ -3722,3 +3722,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 10:43:53 PM
 ---
+## US-1115: iOS: Garment Passport timeline viewer + share/claim
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 10:53:20 PM
+---
