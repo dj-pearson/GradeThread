@@ -4098,8 +4098,8 @@
         "Build + unit tests clean; add a parse round-trip test for a comma-decimal locale"
       ],
       "priority": 1162,
-      "passes": false,
-      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Input-side companion to the display story. Several Double() parses drop fractional values in non-US locales. Headless-codeable.",
+      "passes": true,
+      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Input-side companion to the display story. Several Double() parses drop fractional values in non-US locales. Headless-codeable. IMPLEMENTED 2026-06-21: floorPriceCents, AnalyticsView budget, DraftsLibraryView bulk-price now parse via CurrencyFormatter.parse; QuickPriceSheet/RepricingRuleTypes/AnalyticsView seed via formatRaw to round-trip; ImportValue.price rewritten to a locale-robust right-most-separator heuristic (1.299,00 -> 1299.00); Drafts shows an Invalid amount alert instead of silent no-op. Added CurrencyFormatterParseTests + CSV EU-locale cases. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Pricing/RepricingRuleTypes.swift",
         "ios/GradeThread/Analytics/AnalyticsView.swift",

@@ -59,6 +59,15 @@ final class CSVImportTests: XCTestCase {
         XCTAssertNil(ImportValue.price(nil))
     }
 
+    // US-1162: a CSV can be in a comma-decimal locale; the right-most separator
+    // is the decimal, the other is grouping. The old filter corrupted these.
+    func test_price_localeAwareDecimalAndGrouping() {
+        XCTAssertEqual(ImportValue.price("1.299,00"), 1299.00) // EU: dot grouping, comma decimal
+        XCTAssertEqual(ImportValue.price("5,00"), 5.00)        // EU decimal comma
+        XCTAssertEqual(ImportValue.price("1,000,000"), 1_000_000) // US grouping only
+        XCTAssertEqual(ImportValue.price("€1.234,56"), 1234.56)
+    }
+
     func test_status_normalization() {
         XCTAssertEqual(ImportValue.status("Active"), "listed")
         XCTAssertEqual(ImportValue.status("SOLD"), "sold")

@@ -69,13 +69,38 @@ enum ImportField: String, CaseIterable, Identifiable, Equatable {
 
 /// Pure value-parsing helpers shared by the mapper.
 enum ImportValue {
-    /// Parses a price-ish string ("$19.99", "1,299", "(5.00)") to a Double.
+    /// Parses a price-ish string ("$19.99", "1,299", "(5.00)", "1.299,00") to a
+    /// Double. US-1162: a CSV can be in any locale, so rather than blindly
+    /// stripping everything but ".", we treat the right-most '.'/',' as the
+    /// decimal separator and the other as grouping. That parses both
+    /// "1,299" -> 1299 and "1.299,00" -> 1299.00 (the old filter corrupted the
+    /// latter to 1.29900).
     static func price(_ raw: String?) -> Double? {
         guard let raw else { return nil }
         let negative = raw.contains("(") && raw.contains(")")
-        let cleaned = raw.filter { $0.isNumber || $0 == "." }
-        guard let value = Double(cleaned) else { return nil }
-        return negative ? -value : value
+        var s = String(raw.filter { $0.isNumber || $0 == "." || $0 == "," || $0 == "-" })
+        guard !s.isEmpty else { return nil }
+
+        let lastDot = s.lastIndex(of: ".")
+        let lastComma = s.lastIndex(of: ",")
+        if let dot = lastDot, let comma = lastComma {
+            // Both present: the right-most is the decimal separator.
+            let decimalIsDot = dot > comma
+            s.removeAll { $0 == (decimalIsDot ? "," : ".") }
+            if !decimalIsDot { s = s.replacingOccurrences(of: ",", with: ".") }
+        } else if lastComma != nil {
+            // Only commas: a single comma with 1–2 trailing digits is a decimal
+            // ("5,00"); anything else is grouping ("1,299" / "1,000,000").
+            let parts = s.split(separator: ",", omittingEmptySubsequences: false)
+            if parts.count == 2, parts[1].count <= 2 {
+                s = s.replacingOccurrences(of: ",", with: ".")
+            } else {
+                s.removeAll { $0 == "," }
+            }
+        }
+
+        guard let value = Double(s) else { return nil }
+        return negative ? -abs(value) : value
     }
 
     /// Normalizes a free-text status to a valid `item_status`, else nil.

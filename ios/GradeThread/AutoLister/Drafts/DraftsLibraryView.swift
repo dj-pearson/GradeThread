@@ -21,6 +21,8 @@ struct DraftsLibraryView: View {
     @State private var showPaywall = false
     // US-1160: bulk publish pushes drafts live on eBay (irreversible) — confirm first.
     @State private var showPublishConfirm = false
+    // US-1162: invalid bulk-price input message (system alert can't show inline).
+    @State private var priceEntryError: String?
     private let currency = CurrencyFormatter()
 
     /// Which bulk price prompt is showing (drives one shared `.alert`).
@@ -111,6 +113,17 @@ struct DraftsLibraryView: View {
                      ? "Positive marks up, negative marks down. Applies to \(store.selected.count) selected."
                      : "Applies to \(store.selected.count) selected draft\(store.selected.count == 1 ? "" : "s").")
             }
+            // US-1162: invalid price-entry feedback (the entry alert can't show it inline).
+            .alert(
+                "Invalid amount",
+                isPresented: Binding(
+                    get: { priceEntryError != nil }, set: { if !$0 { priceEntryError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { priceEntryError = nil }
+            } message: {
+                Text(priceEntryError ?? "")
+            }
             // US-820 / US-805: in-app paywall when the user opts to upgrade.
             .sheet(isPresented: $showPaywall) {
                 if let userId = currentUserId {
@@ -122,9 +135,14 @@ struct DraftsLibraryView: View {
     /// Parses the price-entry text and runs the matching bulk price edit.
     private func applyPriceEntry(_ kind: BulkPriceKind) {
         let text = priceText.trimmingCharacters(in: .whitespaces)
-        priceText = ""
-        priceKind = nil
-        guard let value = Double(text) else { return }
+        // US-1162: locale-aware parse, and surface a message instead of a silent
+        // no-op when the input can't be read.
+        guard let value = CurrencyFormatter().parse(text) else {
+            priceEntryError = kind == .percent
+                ? "Enter a percentage like -10 or 15."
+                : "Enter an amount like 19.99."
+            return
+        }
         Task {
             switch kind {
             case .absolute: await store.applyBulk(.price(.absolute(value)))
