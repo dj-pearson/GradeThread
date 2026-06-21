@@ -19,6 +19,8 @@ struct DraftsLibraryView: View {
     @State private var priceKind: BulkPriceKind?
     @State private var priceText = ""
     @State private var showPaywall = false
+    // US-1160: bulk publish pushes drafts live on eBay (irreversible) — confirm first.
+    @State private var showPublishConfirm = false
     private let currency = CurrencyFormatter()
 
     /// Which bulk price prompt is showing (drives one shared `.alert`).
@@ -207,11 +209,7 @@ struct DraftsLibraryView: View {
 
     private var publishButton: some View {
         Button {
-            Task {
-                let published = await store.publishSelected()
-                applyOptimisticPublish(listingIds: published)
-                if !published.isEmpty { editMode = .inactive }
-            }
+            showPublishConfirm = true
         } label: {
             HStack(spacing: 8) {
                 if store.isPublishing {
@@ -229,6 +227,22 @@ struct DraftsLibraryView: View {
             .clipShape(Capsule())
         }
         .disabled(store.isPublishing || store.isApplying)
+        .confirmationDialog(
+            "Publish \(store.selected.count) draft\(store.selected.count == 1 ? "" : "s")?",
+            isPresented: $showPublishConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Publish \(store.selected.count) live", role: .destructive) {
+                Task {
+                    let published = await store.publishSelected()
+                    applyOptimisticPublish(listingIds: published)
+                    if !published.isEmpty { editMode = .inactive }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This lists the selected draft\(store.selected.count == 1 ? "" : "s") live on eBay.")
+        }
     }
 
     /// Transient "Updating n/N…" pill above the bar during a bulk field-apply.

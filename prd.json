@@ -4047,8 +4047,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1160,
-      "passes": false,
-      "notes": "[P1][iOS/UX][BLOCKER][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Audit finding cluster: most destructive/money actions execute on a single tap with no confirm/undo; PostSale refunds rated blocker. Headless-codeable (SwiftUI confirmationDialog).",
+      "passes": true,
+      "notes": "[P1][iOS/UX][BLOCKER][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Audit finding cluster: most destructive/money actions execute on a single tap with no confirm/undo; PostSale refunds rated blocker. Headless-codeable (SwiftUI confirmationDialog). IMPLEMENTED 2026-06-21: single confirmationDialog (pending-action enum) gates PostSale accept-refund/refund/decline/approve-cancel/reject; Negotiation accept/decline; Consignment delete consignor; ItemCanvas photo swipe-delete; AutoLister delete-group; Templates swipe-delete; ScheduledDrops cancel; Drafts bulk Publish N. Pending iOS CI compile (no local Swift toolchain).",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
         "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",

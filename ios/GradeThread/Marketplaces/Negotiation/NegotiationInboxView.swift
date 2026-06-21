@@ -20,6 +20,41 @@ struct NegotiationInboxView: View {
     @State private var countering: BestOffer?
     @State private var replying: BuyerMessage?
     @State private var showSendOffer = false
+    // US-1160: accepting/declining an offer resolves the eBay best offer
+    // irreversibly, so it's gated behind a confirmation showing the price.
+    @State private var pendingOfferAction: PendingOfferAction?
+
+    /// Accept/decline of a specific best offer, captured for confirmation.
+    private enum PendingOfferAction: Identifiable {
+        case accept(BestOffer)
+        case decline(BestOffer)
+
+        var id: String {
+            switch self {
+            case .accept(let o): return "accept-\(o.id)"
+            case .decline(let o): return "decline-\(o.id)"
+            }
+        }
+
+        var offer: BestOffer {
+            switch self {
+            case .accept(let o), .decline(let o): return o
+            }
+        }
+
+        var isAccept: Bool { if case .accept = self { return true } else { return false } }
+
+        var confirmTitle: String { isAccept ? "Accept offer?" : "Decline offer?" }
+        var confirmButton: String { isAccept ? "Accept" : "Decline" }
+
+        var confirmMessage: String {
+            let priceText = offer.price.map { $0.formatted(.currency(code: offer.currency)) }
+            if isAccept {
+                return "This accepts the buyer's offer\(priceText.map { " of \($0)" } ?? "") and commits the sale. This can't be undone."
+            }
+            return "This declines the buyer's offer\(priceText.map { " of \($0)" } ?? ""). This can't be undone."
+        }
+    }
 
     private var visibleOffers: [BestOffer] {
         guard let filterItemId else { return store.offers }
@@ -80,6 +115,24 @@ struct NegotiationInboxView: View {
                 Task { await store.sendOfferToAllEligible(discountPercentage: pct, message: message) }
             }
         }
+        .confirmationDialog(
+            pendingOfferAction?.confirmTitle ?? "",
+            isPresented: Binding(
+                get: { pendingOfferAction != nil }, set: { if !$0 { pendingOfferAction = nil } }
+            ),
+            presenting: pendingOfferAction
+        ) { action in
+            Button(action.confirmButton, role: action.isAccept ? nil : .destructive) {
+                pendingOfferAction = nil
+                Task {
+                    if action.isAccept { await store.accept(action.offer) }
+                    else { await store.decline(action.offer) }
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingOfferAction = nil }
+        } message: { action in
+            Text(action.confirmMessage)
+        }
         .alert("Something went wrong", isPresented: Binding(
             get: { store.actionError != nil }, set: { if !$0 { store.actionError = nil } }
         )) {
@@ -137,11 +190,11 @@ struct NegotiationInboxView: View {
                 Text(message).font(.caption).foregroundStyle(.secondary).italic()
             }
             HStack(spacing: 10) {
-                Button("Accept") { Task { await store.accept(offer) } }
+                Button("Accept") { pendingOfferAction = .accept(offer) }
                     .buttonStyle(.borderedProminent).tint(.brandEmerald)
                 Button("Counter") { countering = offer }
                     .buttonStyle(.bordered)
-                Button("Decline", role: .destructive) { Task { await store.decline(offer) } }
+                Button("Decline", role: .destructive) { pendingOfferAction = .decline(offer) }
                     .buttonStyle(.bordered)
             }
             .font(.caption.weight(.semibold))

@@ -11,12 +11,71 @@ struct PostSaleView: View {
     @State private var contesting: EbayPaymentDispute?
     @State private var evidenceTarget: EbayPaymentDispute?
     @State private var showingEvidencePicker = false
+    // US-1160: irreversible, money-moving actions are gated behind a single
+    // confirmation dialog so a mis-tap can't refund/decline/cancel an order.
+    @State private var pendingAction: PendingAction?
 
     enum Tab: String, CaseIterable, Identifiable {
         case disputes = "Disputes"
         case returns = "Returns"
         case cancellations = "Cancellations"
         var id: String { rawValue }
+    }
+
+    /// One of the irreversible buyer-facing actions, captured so it can be
+    /// confirmed before it runs. The associated value carries the target row.
+    private enum PendingAction: Identifiable {
+        case acceptDispute(EbayPaymentDispute)
+        case declineReturn(EbayReturn)
+        case refundReturn(EbayReturn)
+        case approveCancellation(EbayCancellation)
+        case rejectCancellation(EbayCancellation)
+
+        var id: String {
+            switch self {
+            case .acceptDispute(let d): return "acceptDispute-\(d.id)"
+            case .declineReturn(let r): return "declineReturn-\(r.id)"
+            case .refundReturn(let r): return "refundReturn-\(r.id)"
+            case .approveCancellation(let c): return "approveCancellation-\(c.id)"
+            case .rejectCancellation(let c): return "rejectCancellation-\(c.id)"
+            }
+        }
+
+        var confirmTitle: String {
+            switch self {
+            case .acceptDispute: return "Accept & refund?"
+            case .declineReturn: return "Decline return?"
+            case .refundReturn: return "Refund buyer?"
+            case .approveCancellation: return "Approve & cancel order?"
+            case .rejectCancellation: return "Reject cancellation?"
+            }
+        }
+
+        var confirmButton: String {
+            switch self {
+            case .acceptDispute: return "Accept & refund"
+            case .declineReturn: return "Decline"
+            case .refundReturn: return "Refund"
+            case .approveCancellation: return "Approve & cancel"
+            case .rejectCancellation: return "Reject"
+            }
+        }
+
+        var confirmMessage: String {
+            switch self {
+            case .acceptDispute(let d):
+                let amount = d.amount?.formatted(.currency(code: d.currency ?? "USD"))
+                return "This refunds the buyer\(amount.map { " \($0)" } ?? "") and closes the dispute. This can't be undone."
+            case .declineReturn:
+                return "This declines the buyer's return request. This can't be undone."
+            case .refundReturn:
+                return "This issues a refund to the buyer. This can't be undone."
+            case .approveCancellation:
+                return "This cancels the order and refunds the buyer. This can't be undone."
+            case .rejectCancellation:
+                return "This rejects the buyer's cancellation request. This can't be undone."
+            }
+        }
     }
 
     var body: some View {
@@ -45,6 +104,21 @@ struct PostSaleView: View {
             PhotoLibraryPicker(selectionLimit: 1) { results in
                 handleEvidencePick(results)
             }
+        }
+        .confirmationDialog(
+            pendingAction?.confirmTitle ?? "",
+            isPresented: Binding(
+                get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }
+            ),
+            presenting: pendingAction
+        ) { action in
+            Button(action.confirmButton, role: .destructive) {
+                pendingAction = nil
+                Task { await perform(action) }
+            }
+            Button("Cancel", role: .cancel) { pendingAction = nil }
+        } message: { action in
+            Text(action.confirmMessage)
         }
         .alert("Something went wrong", isPresented: Binding(
             get: { store.actionError != nil }, set: { if !$0 { store.actionError = nil } }
@@ -118,7 +192,7 @@ struct PostSaleView: View {
                 .buttonStyle(.bordered)
                 Button("Contest") { contesting = d }
                     .buttonStyle(.bordered)
-                Button("Accept & refund", role: .destructive) { Task { await store.acceptDispute(d) } }
+                Button("Accept & refund", role: .destructive) { pendingAction = .acceptDispute(d) }
                     .buttonStyle(.borderedProminent)
             }
             .font(.caption.weight(.semibold))
@@ -155,11 +229,11 @@ struct PostSaleView: View {
                 Text(humanize(state) ?? state).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 10) {
-                Button("Decline", role: .destructive) { Task { await store.declineReturn(r) } }
+                Button("Decline", role: .destructive) { pendingAction = .declineReturn(r) }
                     .buttonStyle(.bordered)
                 Button("Approve") { Task { await store.approveReturn(r) } }
                     .buttonStyle(.bordered)
-                Button("Refund") { Task { await store.refundReturn(r) } }
+                Button("Refund") { pendingAction = .refundReturn(r) }
                     .buttonStyle(.borderedProminent)
             }
             .font(.caption.weight(.semibold))
@@ -195,15 +269,26 @@ struct PostSaleView: View {
             Text("Order \(ca.orderId ?? "—")\(ca.requestorType.map { " · \($0.lowercased())" } ?? "")")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 10) {
-                Button("Reject", role: .destructive) { Task { await store.rejectCancellation(ca) } }
+                Button("Reject", role: .destructive) { pendingAction = .rejectCancellation(ca) }
                     .buttonStyle(.bordered)
-                Button("Approve & cancel") { Task { await store.approveCancellation(ca) } }
+                Button("Approve & cancel") { pendingAction = .approveCancellation(ca) }
                     .buttonStyle(.borderedProminent)
             }
             .font(.caption.weight(.semibold))
             .padding(.top, 2)
         }
         .padding(.vertical, 4)
+    }
+
+    /// Runs the confirmed irreversible action against the store.
+    private func perform(_ action: PendingAction) async {
+        switch action {
+        case .acceptDispute(let d): await store.acceptDispute(d)
+        case .declineReturn(let r): await store.declineReturn(r)
+        case .refundReturn(let r): await store.refundReturn(r)
+        case .approveCancellation(let c): await store.approveCancellation(c)
+        case .rejectCancellation(let c): await store.rejectCancellation(c)
+        }
     }
 
     // MARK: - Evidence

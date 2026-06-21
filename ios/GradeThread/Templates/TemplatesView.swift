@@ -6,6 +6,8 @@ import SwiftUI
 struct TemplatesView: View {
     @State private var store = TemplateStore()
     @State private var editing: EditorTarget?
+    // US-1160: confirm before a swipe permanently deletes a preset.
+    @State private var pendingDelete: ListingTemplate?
 
     var body: some View {
         content
@@ -101,12 +103,27 @@ struct TemplatesView: View {
                 .buttonStyle(.plain)
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
-                        Task { await store.delete(template) }
+                        pendingDelete = template
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete template?",
+            isPresented: Binding(
+                get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }
+            ),
+            presenting: pendingDelete
+        ) { template in
+            Button("Delete \(template.name)", role: .destructive) {
+                pendingDelete = nil
+                Task { await store.delete(template) }
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { template in
+            Text("This permanently deletes the “\(template.name)” preset.")
         }
     }
 }

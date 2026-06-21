@@ -121,6 +121,7 @@ struct ConsignorEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = ConsignorDraft()
     @State private var isSaving = false
+    @State private var showDeleteConfirm = false
 
     private var editingId: String? {
         if case .existing(let c) = target { return c.id }
@@ -158,12 +159,24 @@ struct ConsignorEditorSheet: View {
                 if case .existing(let consignor) = target {
                     Section {
                         Button(role: .destructive) {
-                            Task {
-                                await store.delete(consignor)
-                                dismiss()
-                            }
+                            showDeleteConfirm = true
                         } label: {
                             Label("Delete consignor", systemImage: "trash")
+                        }
+                        .confirmationDialog(
+                            "Delete consignor?",
+                            isPresented: $showDeleteConfirm,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Delete consignor", role: .destructive) {
+                                Task {
+                                    await store.delete(consignor)
+                                    dismiss()
+                                }
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("This removes \(consignor.name). Linked items keep their sale history but lose the consignor link.")
                         }
                     } footer: {
                         Text("Items currently linked to this consignor keep their sale history; they just lose the consignor link.")

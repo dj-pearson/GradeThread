@@ -7,6 +7,8 @@ import SwiftUI
 struct ScheduledDropsView: View {
     @State private var store = ScheduledDropsStore()
     @State private var rescheduling: ScheduledDrop?
+    // US-1160: confirm before cancelling a scheduled drop.
+    @State private var pendingCancel: ScheduledDrop?
     private let currency = CurrencyFormatter()
 
     var body: some View {
@@ -37,6 +39,21 @@ struct ScheduledDropsView: View {
             ) { _ in
                 Button("OK", role: .cancel) { store.actionError = nil }
             } message: { Text($0) }
+            .confirmationDialog(
+                "Cancel scheduled drop?",
+                isPresented: Binding(
+                    get: { pendingCancel != nil }, set: { if !$0 { pendingCancel = nil } }
+                ),
+                presenting: pendingCancel
+            ) { drop in
+                Button("Cancel drop", role: .destructive) {
+                    pendingCancel = nil
+                    Task { await store.cancel(drop) }
+                }
+                Button("Keep drop", role: .cancel) { pendingCancel = nil }
+            } message: { _ in
+                Text("This unschedules the drop. The item stays in your inventory.")
+            }
     }
 
     @ViewBuilder
@@ -78,7 +95,7 @@ struct ScheduledDropsView: View {
                     .onTapGesture { rescheduling = drop }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            Task { await store.cancel(drop) }
+                            pendingCancel = drop
                         } label: {
                             Label("Cancel", systemImage: "calendar.badge.minus")
                         }
