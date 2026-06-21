@@ -70,6 +70,12 @@ function money(n: number | null | undefined): string {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
+// US-1123: signed delta (reconciled actual − estimate) for the discrepancy hint.
+function signedMoney(n: number | null | undefined): string {
+  const v = Number(n) || 0;
+  return `${v >= 0 ? "+" : "−"}$${Math.abs(v).toFixed(2)}`;
+}
+
 interface FormState {
   id: string | null;
   name: string;
@@ -107,12 +113,16 @@ export function FlipdeskConsignmentPage() {
     let owed = 0;
     let gross = 0;
     let paid = 0;
+    let shareDelta = 0;
+    let unreconciled = 0;
     for (const c of consignors) {
       owed += Number(c.pnl?.balance_owed ?? 0);
       gross += Number(c.pnl?.gross_revenue ?? 0);
       paid += Number(c.pnl?.payouts_paid ?? 0);
+      shareDelta += Number(c.pnl?.consignor_share_delta ?? 0);
+      unreconciled += Number(c.pnl?.items_unreconciled ?? 0);
     }
-    return { owed, gross, paid };
+    return { owed, gross, paid, shareDelta, unreconciled };
   }, [consignors]);
 
   function refresh() {
@@ -185,6 +195,29 @@ export function FlipdeskConsignmentPage() {
           </CardHeader>
         </Card>
       </div>
+
+      {(Math.abs(totals.shareDelta) >= 0.005 || totals.unreconciled > 0) && (
+        <div className="rounded-md border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+          Shares are computed from reconciled marketplace payouts when available.
+          {Math.abs(totals.shareDelta) >= 0.005 && (
+            <>
+              {" "}
+              Reconciled vs. estimated adjustment across all consignors:{" "}
+              <span
+                className={
+                  totals.shareDelta >= 0 ? "text-green-600" : "text-brand-red"
+                }
+              >
+                {signedMoney(totals.shareDelta)}
+              </span>
+              .
+            </>
+          )}
+          {totals.unreconciled > 0 && (
+            <> {totals.unreconciled} sold item{totals.unreconciled === 1 ? "" : "s"} still on estimates (awaiting payout reconciliation).</>
+          )}
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -264,6 +297,19 @@ export function FlipdeskConsignmentPage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {money(c.pnl?.balance_owed)}
+                      {Math.abs(Number(c.pnl?.consignor_share_delta ?? 0)) >=
+                        0.005 && (
+                        <div
+                          className={`text-xs font-normal ${
+                            Number(c.pnl?.consignor_share_delta) >= 0
+                              ? "text-green-600"
+                              : "text-brand-red"
+                          }`}
+                          title="Reconciled payout vs. sale-price estimate"
+                        >
+                          {signedMoney(c.pnl?.consignor_share_delta)} vs est.
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       {c.intake_signed_at ? (

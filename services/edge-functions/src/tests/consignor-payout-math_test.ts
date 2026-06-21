@@ -9,7 +9,7 @@ import {
 } from "../lib/consignor-payout-math.ts";
 
 Deno.test("computeConsignorShare: net = price − fees, share = net × split", () => {
-  const { netProceeds, share } = computeConsignorShare({
+  const { netProceeds, share, netSource } = computeConsignorShare({
     salePrice: 100,
     platformFees: 10,
     paymentProcessingFees: 5,
@@ -17,6 +17,49 @@ Deno.test("computeConsignorShare: net = price − fees, share = net × split", (
   });
   assertEquals(netProceeds, 85);
   assertEquals(share, 51); // 85 × 0.60
+  assertEquals(netSource, "estimate");
+});
+
+Deno.test("computeConsignorShare: reconciled payout overrides the estimate (US-1123)", () => {
+  // The estimate would be 100 − 10 − 5 = 85, but the marketplace actually
+  // deposited 80 — pay the consignor on the real number.
+  const { netProceeds, share, netSource } = computeConsignorShare({
+    salePrice: 100,
+    platformFees: 10,
+    paymentProcessingFees: 5,
+    splitPct: 60,
+    reconciledNet: 80,
+  });
+  assertEquals(netProceeds, 80);
+  assertEquals(share, 48); // 80 × 0.60
+  assertEquals(netSource, "reconciled");
+});
+
+Deno.test("computeConsignorShare: a null/undefined reconciledNet falls back to the estimate", () => {
+  for (const reconciledNet of [null, undefined]) {
+    const r = computeConsignorShare({
+      salePrice: 100,
+      platformFees: 10,
+      paymentProcessingFees: 5,
+      splitPct: 60,
+      reconciledNet,
+    });
+    assertEquals(r.netProceeds, 85);
+    assertEquals(r.netSource, "estimate");
+  }
+});
+
+Deno.test("computeConsignorShare: a reconciled $0 payout pays nothing (real number wins)", () => {
+  const { netProceeds, share, netSource } = computeConsignorShare({
+    salePrice: 100,
+    platformFees: 0,
+    paymentProcessingFees: 0,
+    splitPct: 50,
+    reconciledNet: 0,
+  });
+  assertEquals(netProceeds, 0);
+  assertEquals(share, 0);
+  assertEquals(netSource, "reconciled");
 });
 
 Deno.test("computeConsignorShare: clamps a fee-heavy sale to a $0 payout", () => {

@@ -126,12 +126,31 @@ export async function processSaleConsignorPayout(
   } | null;
   if (!consignor) return skip("consignor_not_found");
 
+  // US-1123: if this sale's marketplace payout has been reconciled, pay the
+  // consignor on the REAL net deposited (sum of matched reconciled payout_imports
+  // rows), not the sale_price-minus-fees estimate. Falls back to the estimate
+  // when unreconciled — mirrors the consignor_pnl view. Tenant-scoped by user_id.
+  const { data: reconciledRaw } = await supabaseAdmin
+    .from("payout_imports")
+    .select("amount")
+    .eq("sale_id", saleId)
+    .eq("user_id", ownerId)
+    .eq("reconciled", true);
+  const reconciledRows = (reconciledRaw ?? []) as Array<{ amount: number | null }>;
+  const reconciledNet = reconciledRows.length
+    ? reconciledRows.reduce(
+        (acc, r) => acc + (typeof r.amount === "number" ? r.amount : 0),
+        0,
+      )
+    : null;
+
   const splitPct = item.consignment_split_pct ?? consignor.default_split_pct;
   const { share } = computeConsignorShare({
     salePrice: sale.sale_price,
     platformFees: sale.platform_fees,
     paymentProcessingFees: sale.payment_processing_fees,
     splitPct,
+    reconciledNet,
   });
 
   // Existing AUTO payout for this sale (idempotency unit).
@@ -156,6 +175,14 @@ export async function processSaleConsignorPayout(
       return skip(plan.reason);
 
     case "requeue":
+      // The share may have changed since the row was created (e.g. the sale was
+      // reconciled after an estimate-based row). Keep the queued amount truthful.
+      await supabaseAdmin
+        .from("consignor_payouts")
+        .update({ amount: share })
+        .eq("id", plan.payoutId)
+        .eq("user_id", ownerId)
+        .in("status", ["pending", "failed"]);
       return { outcome: "queued", saleId, payoutId: plan.payoutId, amount: share };
 
     case "transfer":
@@ -267,6 +294,9 @@ async function fireTransfer(args: {
     await supabaseAdmin
       .from("consignor_payouts")
       .update({
+        // Pin the ledger amount to what we actually transferred (the share may
+        // have been recomputed from a reconciled payout after row creation).
+        amount,
         status: "paid",
         stripe_transfer_id: transfer.id,
         paid_at: new Date().toISOString(),

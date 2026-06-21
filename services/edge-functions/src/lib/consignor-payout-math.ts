@@ -29,11 +29,19 @@ export interface ShareInput {
   // Per-item split override (consignment_split_pct) when set, else the
   // consignor's default_split_pct. 0–100.
   splitPct: number | null | undefined;
+  // US-1123: the REAL net the marketplace deposited, from a reconciled
+  // payout_imports row matched to this sale. When present (a finite number) it
+  // overrides the sale_price-minus-fees estimate so the consignor is paid on
+  // actuals, not a guess. Mirrors the consignor_pnl view's COALESCE(reconciled,
+  // estimate). null/undefined ⇒ unreconciled ⇒ use the estimate.
+  reconciledNet?: number | null | undefined;
 }
 
 export interface ShareResult {
   netProceeds: number; // rounded to cents, clamped ≥ 0
   share: number; // consignor's cut, rounded to cents, clamped ≥ 0
+  // Where netProceeds came from: the reconciled payout vs the sale-price estimate.
+  netSource: "reconciled" | "estimate";
 }
 
 function num(v: number | null | undefined): number {
@@ -41,14 +49,18 @@ function num(v: number | null | undefined): number {
 }
 
 export function computeConsignorShare(input: ShareInput): ShareResult {
-  const gross = num(input.salePrice);
-  const fees = num(input.platformFees) + num(input.paymentProcessingFees);
-  const netRaw = gross - fees;
+  const reconciled =
+    typeof input.reconciledNet === "number" && Number.isFinite(input.reconciledNet);
+  // Reconciled payout (real net) wins over the sale_price-minus-fees estimate.
+  const netRaw = reconciled
+    ? (input.reconciledNet as number)
+    : num(input.salePrice) -
+      (num(input.platformFees) + num(input.paymentProcessingFees));
   // A payout is never negative — if fees exceed proceeds there's nothing to pay.
   const netProceeds = roundCents(Math.max(0, netRaw));
   const split = Math.min(100, Math.max(0, num(input.splitPct)));
   const share = roundCents(Math.max(0, (netProceeds * split) / 100));
-  return { netProceeds, share };
+  return { netProceeds, share, netSource: reconciled ? "reconciled" : "estimate" };
 }
 
 // ── Idempotency + onboarding-gate decision (pure) ───────────────────────────

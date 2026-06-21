@@ -1163,6 +1163,17 @@ export interface ConsignorPnlRow {
   payouts_paid: number;
   payouts_pending: number;
   balance_owed: number;
+  // US-1123: reconciled-payout transparency. consignor_share / net_proceeds now
+  // use the real reconciled marketplace payout when a sale is matched, falling
+  // back to the estimate when unreconciled. estimated_* mirror the pre-reconciled
+  // numbers and *_delta = actual − estimate so over/under-payments are visible.
+  items_reconciled: number;
+  items_unreconciled: number;
+  estimated_net_proceeds: number;
+  reconciled_net_proceeds: number;
+  estimated_consignor_share: number;
+  net_proceeds_delta: number;
+  consignor_share_delta: number;
 }
 
 export interface ConsignorPayoutRow {
@@ -1177,6 +1188,9 @@ export interface ConsignorPayoutRow {
   note: string | null;
   error: string | null;
   paid_at: string | null;
+  // US-1123: id of the reconciled payout_imports row this payout is backed by,
+  // back-filled by reconciliation. NULL while the sale is unreconciled.
+  payout_reference: string | null;
   created_at: string;
   updated_at: string;
 }
