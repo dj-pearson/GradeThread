@@ -4475,8 +4475,8 @@
         "Build + unit tests clean; existing store tests still pass"
       ],
       "priority": 1180,
-      "passes": false,
-      "notes": "[P3][iOS/Consistency][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Three stores remain on the legacy pattern; everything else is @Observable.",
+      "passes": true,
+      "notes": "[P3][iOS/Consistency][POLISH][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Three stores remain on the legacy pattern; everything else is @Observable. IMPLEMENTED 2026-06-21: SnapStore, ProspectStore, ListingKitStore migrated ObservableObject/@Published -> @Observable; views use @State (+ @Bindable in the subviews that bind text fields). ProspectView photo-strip keys ForEach by UIImage identity (id: .element) not array offset. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Snap/SnapStore.swift",
         "ios/GradeThread/Snap/SnapView.swift",

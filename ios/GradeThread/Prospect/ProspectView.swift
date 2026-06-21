@@ -8,7 +8,8 @@ import PhotosUI
 struct ProspectView: View {
     let router: AppRouter
 
-    @StateObject private var store = ProspectStore()
+    // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
+    @State private var store = ProspectStore()
     @Environment(\.dismiss) private var dismiss
     @State private var showCamera = false
     @State private var showLibrary = false
@@ -106,7 +107,10 @@ struct ProspectView: View {
                 }
         } else {
             HStack(spacing: 10) {
-                ForEach(Array(store.images.enumerated()), id: \.offset) { index, image in
+                // US-1180: key by the UIImage's (identity-based) hash, not the
+                // array offset, so removing a non-last photo doesn't mis-animate
+                // / reuse identities.
+                ForEach(Array(store.images.enumerated()), id: \.element) { index, image in
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -153,7 +157,9 @@ struct ProspectView: View {
     }
 
     private var costField: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        // US-1180: @Bindable yields a two-way binding from the @Observable store.
+        @Bindable var store = store
+        return VStack(alignment: .leading, spacing: 4) {
             TextField("What would you pay? (optional)", text: $store.costText)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
