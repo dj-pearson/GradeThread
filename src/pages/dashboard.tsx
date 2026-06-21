@@ -50,6 +50,7 @@ const GradeCharts = lazy(() =>
   })),
 );
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
+import { ActivationChecklist } from "@/components/onboarding/activation-checklist";
 import { FlipdeskPromoCard } from "@/components/flipdesk/flipdesk-promo-card";
 import { InviteFriendCard } from "@/components/referral/invite-friend-card";
 import { UsageMeters } from "@/components/billing/usage-meter";
@@ -420,8 +421,14 @@ export function DashboardPage() {
         }
       />
 
-      {/* Persona-tailored zero-data first run (US-1118) */}
-      {isFirstRun && (
+      {/* App-wide, persona-aware activation checklist (US-1122). Self-hides once
+          every step is done or the user dismisses it; renders nothing for the
+          buyer persona (the first-run card below covers them). */}
+      <ActivationChecklist />
+
+      {/* Persona-tailored zero-data first run (US-1118). Suppressed for personas
+          that get the multi-step activation checklist above to avoid overlap. */}
+      {isFirstRun && useCase === "buyer" && (
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">

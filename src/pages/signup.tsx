@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Rocket } from "lucide-react";
+import { Rocket, Check } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
@@ -13,6 +13,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Separator } from "@/components/ui/separator";
 import { FieldError } from "@/components/ui/form-feedback";
 import { validateEmail, validateRequired } from "@/lib/validation";
+import { USE_CASE_OPTIONS } from "@/lib/use-cases";
+import { cn } from "@/lib/utils";
+import type { UserUseCase } from "@/types/database";
 import { toast } from "sonner";
 
 // Mirrors the constant in components/launch-banner.tsx. The signup notice
@@ -30,6 +33,10 @@ export function SignupPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState(invitedEmail);
   const [password, setPassword] = useState("");
+  // US-1122: persona captured up front so the dashboard personalizes on first
+  // paint. Optional here (the post-signup OnboardingFlow still confirms it), but
+  // when picked it rides along signup metadata → handle_new_user stamps it.
+  const [useCase, setUseCase] = useState<UserUseCase | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isConfirmation, setIsConfirmation] = useState(false);
   // US-444: inline, screen-reader-associated field errors that persist until
@@ -83,8 +90,15 @@ export function SignupPage() {
     }
     setIsLoading(true);
     try {
-      const data = await signUpWithEmail(email, password, fullName, captchaToken ?? undefined);
+      const data = await signUpWithEmail(
+        email,
+        password,
+        fullName,
+        captchaToken ?? undefined,
+        useCase ?? undefined,
+      );
       setIsConfirmation(true);
+      if (useCase) track("onboarding.use_case_selected", { use_case: useCase, at: "signup" });
 
       // US-219: every new signup is granted a 14-day Pro trial by the
       // handle_new_user trigger. Record the trial start (consent-gated no-op
@@ -242,6 +256,36 @@ export function SignupPage() {
             />
             <FieldError id="password-error">{errors.password}</FieldError>
             <p id="password-hint" className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
+          </div>
+          {/* US-1122: capture the persona up front so the dashboard tailors its
+              first paint. Optional — skipping it just defers capture to the
+              post-signup onboarding flow. */}
+          <div className="space-y-2">
+            <Label>What brings you here? <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <div className="grid grid-cols-2 gap-2">
+              {USE_CASE_OPTIONS.map((option) => {
+                const selected = useCase === option.value;
+                const Icon = option.icon;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setUseCase((prev) => (prev === option.value ? null : option.value))}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border-2 p-2.5 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      selected
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/40",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 flex-shrink-0 text-primary" />
+                    <span className="flex-1 font-medium">{option.label}</span>
+                    {selected && <Check className="h-4 w-4 flex-shrink-0 text-primary" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <TurnstileWidget
             onVerify={setCaptchaToken}

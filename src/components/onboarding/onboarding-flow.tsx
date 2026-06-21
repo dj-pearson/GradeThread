@@ -2,10 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sparkles,
-  Tag,
-  ShoppingBag,
-  Store,
-  Code,
   FileText,
   Package,
   BarChart3,
@@ -27,39 +23,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
+import { USE_CASE_OPTIONS } from "@/lib/use-cases";
 import type { UserUpdate, UserUseCase } from "@/types/database";
-
-const USE_CASES: {
-  value: UserUseCase;
-  label: string;
-  description: string;
-  icon: React.ElementType;
-}[] = [
-  {
-    value: "seller",
-    label: "Reselling",
-    description: "I sell pre-owned clothing and want condition grades.",
-    icon: Tag,
-  },
-  {
-    value: "buyer",
-    label: "Buying",
-    description: "I buy pre-owned clothing and want to verify condition.",
-    icon: ShoppingBag,
-  },
-  {
-    value: "consignment",
-    label: "Consignment",
-    description: "I run a consignment shop or grading service.",
-    icon: Store,
-  },
-  {
-    value: "developer",
-    label: "Developer",
-    description: "I want to integrate grading through the API.",
-    icon: Code,
-  },
-];
 
 const TOUR_STEPS: {
   icon: React.ElementType;
@@ -236,7 +201,7 @@ export function OnboardingFlow() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-2 sm:grid-cols-2">
-              {USE_CASES.map((option) => {
+              {USE_CASE_OPTIONS.map((option) => {
                 const selected = useCase === option.value;
                 return (
                   <button

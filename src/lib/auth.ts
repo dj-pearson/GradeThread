@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { LEGAL_VERSIONS } from "./constants";
+import type { UserUseCase } from "@/types/database";
 
 // US-368: `captchaToken` is the Cloudflare Turnstile token from the auth pages.
 // GoTrue requires it on signup/login/reset once captcha is enabled; it's
@@ -9,11 +10,16 @@ import { LEGAL_VERSIONS } from "./constants";
 // in options.data (raw_user_meta_data). The handle_new_user trigger reads them
 // to stamp the user's accepted versions and append an audit row at account
 // creation — recording consent server-side for email signups.
+//
+// US-1122: an optional `useCase` (the persona the user picked on the signup
+// form) rides along the same way so handle_new_user can stamp users.use_case at
+// account creation — letting the dashboard personalize on first paint.
 export async function signUpWithEmail(
   email: string,
   password: string,
   fullName: string,
   captchaToken?: string,
+  useCase?: UserUseCase,
 ) {
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -24,6 +30,7 @@ export async function signUpWithEmail(
         tos_version: LEGAL_VERSIONS.tos,
         privacy_version: LEGAL_VERSIONS.privacy,
         legal_accepted_at: new Date().toISOString(),
+        ...(useCase ? { use_case: useCase } : {}),
       },
       emailRedirectTo: `${window.location.origin}/auth/callback`,
       captchaToken,
