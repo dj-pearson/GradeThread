@@ -3726,3 +3726,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 10:53:20 PM
 ---
+## US-1116: iOS: top-level error + retry states for PriceSuggestions, AutoLister, Snap
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 10:59:24 PM
+---

@@ -3228,7 +3228,7 @@
         "Existing loading/empty states preserved; python3 ios/Scripts/no-ungated-print.py passes"
       ],
       "priority": 1092,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/UX][EPIC: Web↔iOS Gaps & Polish 2026-06-20] From iOS audit. Three money/activation-critical surfaces dead-end on failure. Use the existing ErrorStateView component pattern.",
       "relevantPaths": [
         "ios/GradeThread/Money/PriceSuggestions/PriceSuggestionsView.swift",
