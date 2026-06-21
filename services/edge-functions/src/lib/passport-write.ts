@@ -60,9 +60,20 @@ export async function createSingleHopPassport(
     }
 
     // 1. Pseudonymous origin seller node (chain position 0 → "Seller A").
+    //    US-1125: link the node to the grading account (uuid linkage only — no
+    //    PII). This stays pseudonymous by default: a reveal is the AND of the
+    //    per-hop `identity_revealed` consent (false here) AND a live public
+    //    verified profile (effectiveRevealedIdentity), so setting linked_user_id
+    //    alone leaks nothing — it only lets a seller who LATER reveals identity
+    //    surface their Verified badge at the passport origin. Mirrors the buyer
+    //    node in transferToNewBuyer.
     const { data: node, error: nodeErr } = await supabaseAdmin
       .from("owner_nodes")
-      .insert({ pseudonymous_label: pseudonymousLabel("seller", 0), kind: "seller" })
+      .insert({
+        pseudonymous_label: pseudonymousLabel("seller", 0),
+        kind: "seller",
+        linked_user_id: input.createdByUserId,
+      })
       .select("id")
       .single();
     if (nodeErr || !node) {
