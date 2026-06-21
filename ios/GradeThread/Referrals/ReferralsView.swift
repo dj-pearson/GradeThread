@@ -101,16 +101,37 @@ struct ReferralsView: View {
 
     // MARK: - Stats
 
+    @ViewBuilder
     private var statsSection: some View {
         Section("Your referrals") {
-            HStack(spacing: 0) {
-                stat("Referred", value: store.me?.stats.total ?? 0)
-                Divider()
-                stat("In progress", value: store.inProgress)
-                Divider()
-                stat("Rewarded", value: store.me?.stats.granted ?? 0)
+            if (store.me?.stats.total ?? 0) == 0 {
+                // US-1129: explain the program instead of three lonely zeros
+                // before the user has referred anyone.
+                VStack(spacing: 8) {
+                    Image(systemName: "person.2.wave.2")
+                        .font(.title)
+                        .foregroundStyle(Color.brandNavy)
+                    Text("No referrals yet")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Share your link above. Once a friend signs up and grades their first item, they'll show up here and you'll both earn a reward.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("No referrals yet. Share your link to get started.")
+            } else {
+                HStack(spacing: 0) {
+                    stat("Referred", value: store.me?.stats.total ?? 0)
+                    Divider()
+                    stat("In progress", value: store.inProgress)
+                    Divider()
+                    stat("Rewarded", value: store.me?.stats.granted ?? 0)
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
     }
 

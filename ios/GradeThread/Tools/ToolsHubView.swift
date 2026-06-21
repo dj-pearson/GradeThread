@@ -28,6 +28,7 @@ struct ToolsHubView: View {
                 sourcingSection
                 captureSection
                 listGradeSection
+                manageSection
                 reconcileSection
                 growSection
             }
@@ -117,6 +118,51 @@ struct ToolsHubView: View {
         }
     }
 
+    /// US-1129: surface the secondary "manage" modules that were previously only
+    /// reachable from Settings → Data (Templates/Consignors/Sources) or buried
+    /// inside the Money tab (Repricing/Community Insights).
+    private var manageSection: some View {
+        Section {
+            NavigationLink(value: ToolRoute.templates) {
+                ToolRow(
+                    icon: "doc.on.doc",
+                    title: "Listing templates",
+                    subtitle: "Reusable description, condition + policy presets"
+                )
+            }
+            NavigationLink(value: ToolRoute.consignors) {
+                ToolRow(
+                    icon: "person.2.badge.gearshape",
+                    title: "Consignors",
+                    subtitle: "Manage consignors + their payout splits"
+                )
+            }
+            NavigationLink(value: ToolRoute.sources) {
+                ToolRow(
+                    icon: "mappin.and.ellipse",
+                    title: "Sources",
+                    subtitle: "Organize where your inventory comes from"
+                )
+            }
+            NavigationLink(value: ToolRoute.repricing) {
+                ToolRow(
+                    icon: "tag.fill",
+                    title: "Repricing",
+                    subtitle: "Condition-aware price suggestions for live listings"
+                )
+            }
+            NavigationLink(value: ToolRoute.communityInsights) {
+                ToolRow(
+                    icon: "chart.bar.xaxis",
+                    title: "Community Insights",
+                    subtitle: "Anonymized sourcing + pricing benchmarks"
+                )
+            }
+        } header: {
+            Text("Manage")
+        }
+    }
+
     private var reconcileSection: some View {
         Section {
             NavigationLink(value: ToolRoute.reconciliation) {
@@ -178,6 +224,16 @@ struct ToolsHubView: View {
             ReconciliationView()
         case .reconcileIntake:
             ReconcileIntakeView(ownerId: WorkspaceScope.tenantOwnerId(selfId: currentUserId() ?? ""))
+        case .templates:
+            TemplatesView()
+        case .consignors:
+            ConsignorsView()
+        case .sources:
+            SourcesView()
+        case .repricing:
+            RepricingView()
+        case .communityInsights:
+            CommunityInsightsView()
         case .referrals:
             ReferralsView()
         case .verified:
@@ -207,6 +263,11 @@ private enum ToolRoute: Hashable {
     case scheduledDrops
     case reconciliation
     case reconcileIntake
+    case templates
+    case consignors
+    case sources
+    case repricing
+    case communityInsights
     case referrals
     case verified
 }

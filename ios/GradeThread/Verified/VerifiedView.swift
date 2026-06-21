@@ -6,6 +6,8 @@ import SwiftUI
 struct VerifiedView: View {
     @State private var store = VerifiedStore()
     @State private var handleCheckTask: Task<Void, Never>?
+    /// US-1129: reveal the claim form when an unclaimed seller taps "Get started".
+    @State private var showingForm = false
 
     var body: some View {
         Form {
@@ -14,11 +16,15 @@ struct VerifiedView: View {
                 loadingRow
             case .failed(let message):
                 failed(message)
+            case .ready where isUnclaimed && !showingForm:
+                unclaimedSection
             case .ready:
                 handleSection
                 detailsSection
                 visibilitySection
-                statsSection
+                if (store.stats?.totalGraded ?? 0) > 0 {
+                    statsSection
+                }
                 if store.original?.enabled == true, store.publicProfileURL != nil {
                     shareSection
                 }
@@ -49,6 +55,48 @@ struct VerifiedView: View {
                 Telemetry.event("verified_opened")
                 await store.load()
             }
+        }
+    }
+
+    // MARK: - Unclaimed empty state
+
+    /// True when the seller hasn't claimed a handle and the profile is private —
+    /// the "before you've set anything up" state. We explain the value first
+    /// rather than dropping the user into a form full of 0s and "—".
+    private var isUnclaimed: Bool {
+        (store.original?.handle ?? "").isEmpty && store.original?.enabled != true
+    }
+
+    private var unclaimedSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 16) {
+                Image(systemName: "checkmark.shield.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(Color.brandNavy)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+                Text("Become a Verified seller")
+                    .font(.title3.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                Text("Claim a public handle and earn a trust badge. Buyers see your verified grades, average condition score, and how long you've been on GradeThread — proof your listings are graded to a standard.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                Button {
+                    HapticFeedback.light()
+                    showingForm = true
+                } label: {
+                    Text("Claim your handle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.brandNavy)
+                .controlSize(.large)
+            }
+            .padding(.vertical, 8)
+            .listRowBackground(Color.clear)
         }
     }
 
