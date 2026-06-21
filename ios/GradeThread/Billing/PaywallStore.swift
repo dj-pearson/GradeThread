@@ -79,7 +79,12 @@ final class PaywallStore {
     /// Observes ``StoreKitService/entitlementsDidChangeNotification`` so an
     /// out-of-band renewal/refund/revoke (delivered to the transaction listener)
     /// re-fetches billing state and clears stale paid features.
-    private var entitlementObserver: Task<Void, Never>?
+    ///
+    /// `nonisolated(unsafe)` so the nonisolated `deinit` can cancel it: `Task` is
+    /// `Sendable` and `cancel()` is safe from any context, the property is only
+    /// mutated on the main actor (in `init`), and `deinit` reads it exactly once
+    /// at dealloc — there's no actual race to guard against.
+    nonisolated(unsafe) private var entitlementObserver: Task<Void, Never>?
 
     init(
         userId: UUID,

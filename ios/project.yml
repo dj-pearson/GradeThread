@@ -184,7 +184,13 @@ targets:
     platform: iOS
     sources:
       - path: GradeThreadTests
-      - path: Shared            # Inbox unit tests run against the shared module (US-189)
+      # NOTE: do NOT add `- path: Shared` here. Shared/ is already compiled into
+      # the GradeThread app target (below), so tests reach IntakeInbox /
+      # WidgetSnapshot / WidgetDeepLink (all public) via `@testable import
+      # GradeThread`. Listing Shared here too compiled a SECOND copy of those
+      # types into the test module, so e.g. a test-built WidgetSnapshot no longer
+      # matched the app's WidgetSnapshot? parameter ("cannot convert value of
+      # type 'WidgetSnapshot' to expected argument type 'WidgetSnapshot?'").
     dependencies:
       - target: GradeThread
     settings:
