@@ -4276,8 +4276,8 @@
         "Build + unit tests clean"
       ],
       "priority": 1170,
-      "passes": false,
-      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] AI computes ROI + reads attributes but the UI hides them and the commit drops them.",
+      "passes": true,
+      "notes": "[P2][iOS/AI][IMPORTANT][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] AI computes ROI + reads attributes but the UI hides them and the commit drops them. IMPLEMENTED 2026-06-21: decisionBlock now renders est proceeds/margin/ROI%/breakeven from ProspectDecision; identity header shows the AI-read brand; addToInventory folds keywords + resolved category into conditionNotes via prospectNotes(). Note: size/color are NOT in the prospect payload (ProspectItem only has brand/title/keywords), so those stay nil by necessity. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Prospect/ProspectView.swift",
         "ios/GradeThread/Prospect/ProspectStore.swift"

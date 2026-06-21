@@ -100,6 +100,10 @@ final class ProspectStore: ObservableObject {
         errorMessage = nil
         defer { isAdding = false }
 
+        // US-1170: don't discard the AI's read on commit. size/color aren't in
+        // the prospect payload (ProspectItem only carries brand/title/keywords),
+        // but the keywords + resolved category are — fold them into notes so the
+        // catalog step starts from the AI's read instead of a blank item.
         let request = ProspectBuyRequest(
             title: title,
             brand: result.item.brand,
@@ -109,7 +113,7 @@ final class ProspectStore: ObservableObject {
             targetCents: result.stats?.medianCents,
             gradeValue: result.grade?.value,
             gradeLabel: result.grade?.tier,
-            conditionNotes: nil
+            conditionNotes: prospectNotes(result)
         )
         do {
             let response = try await service.buy(request)
@@ -117,5 +121,19 @@ final class ProspectStore: ObservableObject {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    /// US-1170: distill the AI's read (keywords + resolved category) into a
+    /// notes string so it carries into the new inventory item. Returns nil when
+    /// there's nothing useful to record.
+    private func prospectNotes(_ result: ProspectResponse) -> String? {
+        var parts: [String] = []
+        if !result.item.keywords.isEmpty {
+            parts.append(result.item.keywords.joined(separator: ", "))
+        }
+        if let path = result.category?.path, !path.isEmpty {
+            parts.append("Category: \(path)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

@@ -214,6 +214,14 @@ struct ProspectView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(result.item.title ?? result.item.brand ?? "Item")
                 .font(.brandTitle2)
+            // US-1170: show the brand the AI read off the tag so the user can
+            // sanity-check the identification before committing a purchase.
+            if let brand = result.item.brand, !brand.isEmpty,
+               brand.caseInsensitiveCompare(result.item.title ?? "") != .orderedSame {
+                Text(brand)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.brandNavy)
+            }
             HStack(spacing: 8) {
                 if let path = result.category?.path {
                     Text(path)
@@ -282,6 +290,26 @@ struct ProspectView: View {
             Text(decision.reason)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            // US-1170: surface the ROI math the AI computed (only present once a
+            // cost was entered) instead of hiding it behind the verdict.
+            if decision.estProceedsCents != nil || decision.estMarginCents != nil
+                || decision.roiPct != nil || decision.breakevenCents != nil {
+                VStack(spacing: 2) {
+                    if let p = decision.estProceedsCents { metricRow("Est. proceeds", dollars(p)) }
+                    if let m = decision.estMarginCents { metricRow("Est. margin", dollars(m)) }
+                    if let r = decision.roiPct { metricRow("ROI", "\(Int(r.rounded()))%") }
+                    if let b = decision.breakevenCents { metricRow("Breakeven price", dollars(b)) }
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func metricRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).font(.caption.weight(.semibold)).monospacedDigit()
         }
     }
 
