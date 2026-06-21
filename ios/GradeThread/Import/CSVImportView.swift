@@ -249,13 +249,16 @@ struct CSVImportView: View {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
+                // The file read stays synchronous (so the security-scoped URL is
+                // still valid); the off-main parse (US-1165) runs on the in-memory
+                // string, so releasing the scoped resource on return is safe.
                 let text = try String(contentsOf: url, encoding: .utf8)
-                store.loadCSV(text)
+                Task { await store.loadCSV(text) }
             } catch {
                 // Fall back to a lenient encoding for sheets exported as Latin-1.
                 if let data = try? Data(contentsOf: url),
                    let text = String(data: data, encoding: .isoLatin1) {
-                    store.loadCSV(text)
+                    Task { await store.loadCSV(text) }
                 } else {
                     store.errorBanner = "Couldn't read that file: \(error.localizedDescription)"
                 }

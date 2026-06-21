@@ -69,7 +69,14 @@ final class DisclosureStore {
     private func renderAll() async {
         for photo in defectPhotos where rendered[photo.id] == nil {
             if let image = await downloadImage(photo.url) {
-                rendered[photo.id] = DisclosureRenderer.render(image: image, annotations: photo.annotations)
+                // US-1165: the composite is a full-res UIGraphicsImageRenderer
+                // draw — run it off the main actor (mirrors
+                // PhotoCompressor.compressOffMain) and hop back to store it.
+                let annotations = photo.annotations
+                let composite = await Task.detached(priority: .userInitiated) {
+                    DisclosureRenderer.render(image: image, annotations: annotations)
+                }.value
+                rendered[photo.id] = composite
             }
         }
     }
@@ -78,8 +85,12 @@ final class DisclosureStore {
     /// inserts the row). Triggers a sync pull so the new photo lands locally.
     @discardableResult
     func save(_ photo: DisclosurePhoto) async -> Bool {
-        guard let image = rendered[photo.id],
-              let dataURL = DisclosureRenderer.dataURL(for: image) else { return false }
+        guard let image = rendered[photo.id] else { return false }
+        // US-1165: PNG-encode + base64 off the main actor before the upload.
+        let dataURL = await Task.detached(priority: .userInitiated) {
+            DisclosureRenderer.dataURL(for: image)
+        }.value
+        guard let dataURL else { return false }
         savingPhotoIds.insert(photo.id)
         defer { savingPhotoIds.remove(photo.id) }
         do {

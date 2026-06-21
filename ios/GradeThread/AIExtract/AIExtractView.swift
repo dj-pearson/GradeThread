@@ -427,7 +427,12 @@ struct AIExtractView: View {
         guard let tagEntry = photos.first(where: { $0.slot == .tag }) else {
             return [:]
         }
-        guard let image = UIImage(data: tagEntry.capture.imageData) else {
+        // US-1165: decode the full-res tag JPEG off the main actor (this runs in
+        // the @MainActor view) before handing it to the recognizer.
+        let imageData = tagEntry.capture.imageData
+        guard let image = await Task.detached(priority: .userInitiated, operation: {
+            UIImage(data: imageData)
+        }).value else {
             return [:]
         }
         let recognizer = TagTextRecognizer()

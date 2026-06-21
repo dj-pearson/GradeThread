@@ -17,6 +17,9 @@ struct GradedPhotoView: View {
     @State private var format: SlabFormat = .square
     @State private var phase: LoadPhase = .loading
     @State private var saveState: SaveState = .idle
+    // US-1165: decode the slab image once when it loads instead of re-running
+    // UIImage(data:) in a computed property on every render (scroll / format swap).
+    @State private var decodedImage: UIImage?
 
     enum LoadPhase: Equatable {
         case loading
@@ -32,10 +35,7 @@ struct GradedPhotoView: View {
         SlabImageURL.url(certificateURL: certificateURL, format: format)
     }
 
-    private var loadedImage: UIImage? {
-        if case let .loaded(data) = phase { return UIImage(data: data) }
-        return nil
-    }
+    private var loadedImage: UIImage? { decodedImage }
 
     var body: some View {
         NavigationStack {
@@ -83,8 +83,8 @@ struct GradedPhotoView: View {
             switch phase {
             case .loading:
                 ProgressView()
-            case let .loaded(data):
-                if let image = UIImage(data: data) {
+            case .loaded:
+                if let image = loadedImage {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
@@ -173,17 +173,19 @@ struct GradedPhotoView: View {
     // MARK: - Load + save
 
     private func loadSlab() async {
-        guard let slabURL else { phase = .failed; return }
+        guard let slabURL else { phase = .failed; decodedImage = nil; return }
         phase = .loading
+        decodedImage = nil
         // Reset the save affordance for the newly-selected format.
         saveState = .idle
         do {
             let (data, response) = try await URLSession.shared.data(from: slabURL)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  UIImage(data: data) != nil else {
+                  let image = UIImage(data: data) else {
                 phase = .failed
                 return
             }
+            decodedImage = image // US-1165: decode once, reused by preview/save/share
             phase = .loaded(data)
         } catch {
             phase = .failed

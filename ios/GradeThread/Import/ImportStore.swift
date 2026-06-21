@@ -41,8 +41,13 @@ final class ImportStore {
 
     /// Parses raw CSV/TSV text, auto-guesses the per-column mapping, and moves
     /// to the mapping step. Surfaces a banner if the text has no usable rows.
-    func loadCSV(_ text: String) {
-        let parsed = CSVParser.parseSheet(text)
+    /// US-1165: the parse (which scans every character + builds per-cell arrays)
+    /// runs off the main actor so a multi-thousand-row sheet doesn't freeze the
+    /// UI; we hop back to main only to publish the result.
+    func loadCSV(_ text: String) async {
+        let parsed = await Task.detached(priority: .userInitiated) {
+            CSVParser.parseSheet(text)
+        }.value
         guard !parsed.headers.isEmpty else {
             errorBanner = "That file didn't contain any columns."
             return
@@ -63,7 +68,7 @@ final class ImportStore {
         defer { isFetching = false }
         do {
             let csv = try await sheets.fetchCSV(url: url)
-            loadCSV(csv)
+            await loadCSV(csv)
         } catch {
             errorBanner = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }

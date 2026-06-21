@@ -4170,7 +4170,7 @@
       ],
       "priority": 1165,
       "passes": false,
-      "notes": "[P1][iOS/Performance][BLOCKER][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Main-thread CSV parse rated blocker; several full-res decode/encode and SwiftData ops run on @MainActor. Headless-codeable.",
+      "notes": "[P1][iOS/Performance][BLOCKER][EPIC: iOS Launch Readiness Deep-Dive 2026-06-21] Main-thread CSV parse rated blocker; several full-res decode/encode and SwiftData ops run on @MainActor. Headless-codeable. PARTIAL 2026-06-21 (4/5 off-main items DONE, passes stays false for the 5th): DONE — ImportStore.loadCSV parses via Task.detached (async; callers + 3 tests updated); GradedPhotoView decodes the slab once into @State (reused by preview/save/share); SnapService base64+JSON-encode off the main actor; DisclosureStore compositing + dataURL off the main actor (mirrors PhotoCompressor.compressOffMain); AIExtractView LiveText tag decode off-main. DEFERRED — SyncEngine pending-mutation queue (snapshot/delete/markFailed/counts) deliberately wraps its SwiftData work in await MainActor.run; moving it to a ModelActor (or dropping MainActor.run) is a persistence/sync-core change with RUNTIME risk that needs device/CI verification, so not done blind. Pick this up in a CI-verified session.",
       "relevantPaths": [
         "ios/GradeThread/Import/ImportStore.swift",
         "ios/GradeThread/Disclosure/DisclosureStore.swift",

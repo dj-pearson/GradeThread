@@ -118,9 +118,9 @@ final class CSVImportTests: XCTestCase {
     }
 
     @MainActor
-    func test_store_loadCSV_guessesMappingAndPreviews() {
+    func test_store_loadCSV_guessesMappingAndPreviews() async {
         let store = ImportStore(sheets: FakeSheets())
-        store.loadCSV("Item Title,SKU,Cost\nNike Tee,A1,$10\n,B2,$5")
+        await store.loadCSV("Item Title,SKU,Cost\nNike Tee,A1,$10\n,B2,$5")
         XCTAssertEqual(store.phase, .mapping)
         XCTAssertEqual(store.mapping, [.title, .sku, .purchasePrice])
         XCTAssertTrue(store.hasTitleMapping)
@@ -130,17 +130,17 @@ final class CSVImportTests: XCTestCase {
     }
 
     @MainActor
-    func test_store_loadCSV_emptyShowsBanner() {
+    func test_store_loadCSV_emptyShowsBanner() async {
         let store = ImportStore(sheets: FakeSheets())
-        store.loadCSV("")
+        await store.loadCSV("")
         XCTAssertEqual(store.phase, .source)
         XCTAssertNotNil(store.errorBanner)
     }
 
     @MainActor
-    func test_store_cannotCommitWithoutTitleMapping() {
+    func test_store_cannotCommitWithoutTitleMapping() async {
         let store = ImportStore(sheets: FakeSheets())
-        store.loadCSV("foo,bar\n1,2")
+        await store.loadCSV("foo,bar\n1,2")
         store.mapping = [.skip, .skip]
         XCTAssertFalse(store.hasTitleMapping)
         XCTAssertFalse(store.canCommit)
