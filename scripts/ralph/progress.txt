@@ -3718,3 +3718,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 20, 2026 10:31:37 PM
 ---
+## US-1113: Buyer-guarantee claim → grader calibration feedback loop
+- Status: COMPLETE
+- Timestamp: Sat, Jun 20, 2026 10:43:53 PM
+---

@@ -3168,7 +3168,7 @@
         "Tenant-scoping and audit logging preserved; deno check/lint/test pass; document the loop briefly in code comments"
       ],
       "priority": 1095,
-      "passes": false,
+      "passes": true,
       "hard": true,
       "notes": "[P1][Grading/Trust][EPIC: Web↔iOS Gaps & Polish 2026-06-20] Verified: guarantee-public.ts captures claims with grade_report_id + claimed_issues; admin-claims.ts is review-only ('No payout in v1' ~L235) ending at a status flip + audit log. accuracy infra exists (lib/accuracy-tracking.ts, components/admin/grading-calibration-panel.tsx) but claims never feed it. Accuracy + a buyer guarantee is the core pitch — close the loop. (Claim→refund money movement is intentionally out of scope here.)",
       "relevantPaths": [
