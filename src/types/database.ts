@@ -2846,6 +2846,21 @@ export interface ContentSettingsRow {
   updated_at: string;
 }
 
+// ─── Garment Passport (US-1089, migration 00256) ───────────────────
+// Client reads are RLS-scoped to created_by = auth.uid(); all writes are
+// service-role only (no client INSERT/UPDATE policy exists).
+
+export interface GarmentRow {
+  id: string;
+  public_passport_slug: string;
+  sku_class: Record<string, unknown>;
+  current_owner_node_id: string | null;
+  status: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -2870,6 +2885,11 @@ export interface Database {
         Row: GradeReportRow;
         Insert: GradeReportInsert;
         Update: GradeReportUpdate;
+      };
+      garments: {
+        Row: GarmentRow;
+        Insert: Partial<GarmentRow>;
+        Update: Partial<GarmentRow>;
       };
       disputes: {
         Row: DisputeRow;

@@ -7,7 +7,14 @@ import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import { PLANS, getStatusBadgeClasses, getScoreColor } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
-import type { SubmissionRow, GradeReportRow, InventoryItemRow, ListingRow } from "@/types/database";
+import type {
+  SubmissionRow,
+  GradeReportRow,
+  InventoryItemRow,
+  ListingRow,
+  GarmentRow,
+  UserUseCase,
+} from "@/types/database";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +27,15 @@ import {
   KeyRound,
   Package,
   DollarSign,
+  ScanLine,
+  ShieldCheck,
+  Shield,
+  BadgeCheck,
+  Stamp,
+  Handshake,
+  Code,
+  ArrowRight,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChartSkeleton } from "@/components/ui/skeletons";
@@ -47,6 +63,181 @@ function formatLabel(value: string): string {
     .split(/[-_]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+// ─── Persona-aware dashboard config (US-1118) ──────────────────────────
+// The authenticated dashboard tailors its quick actions, feature entry
+// points, and zero-data first-run CTA to the user's onboarding `use_case`
+// (seller / buyer / consignment / developer) instead of showing three
+// unconditional reseller cards to everyone.
+
+interface QuickAction {
+  key: string;
+  icon: LucideIcon;
+  label: string;
+  sublabel: string;
+  to: string;
+}
+
+interface FeatureCard {
+  key: string;
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  to: string;
+  cta: string;
+}
+
+interface FeatureContext {
+  verifiedEnabled: boolean;
+  verifiedHandle: string | null;
+  passportCount: number;
+  latestPassportSlug: string | null;
+}
+
+interface FirstRunHint {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  cta: string;
+  to: string;
+}
+
+function quickActionsFor(useCase: UserUseCase | null): QuickAction[] {
+  switch (useCase) {
+    case "buyer":
+      return [
+        { key: "scan", icon: ScanLine, label: "Scan a Passport", sublabel: "Check an item before you buy", to: "/scan" },
+        { key: "verify", icon: ShieldCheck, label: "Verify a Certificate", sublabel: "Confirm a grade is authentic", to: "/verify" },
+        { key: "verified", icon: BadgeCheck, label: "Verified Sellers", sublabel: "Browse trusted sellers", to: "/verified" },
+      ];
+    case "developer":
+      return [
+        { key: "keys", icon: KeyRound, label: "API Keys", sublabel: "Create & manage keys", to: "/dashboard/api-keys" },
+        { key: "docs", icon: Code, label: "API Docs", sublabel: "Integrate grading", to: "/developers" },
+        { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
+      ];
+    case "consignment":
+      return [
+        { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
+        { key: "consign", icon: Handshake, label: "Consignment", sublabel: "Consignors & payouts", to: "/dashboard/flipdesk/consignment" },
+        { key: "finances", icon: DollarSign, label: "View Finances", sublabel: "Profit & payouts", to: "/dashboard/finances" },
+      ];
+    case "seller":
+    default:
+      return [
+        { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
+        { key: "inventory", icon: Package, label: "Add Inventory Item", sublabel: "Track a new item", to: "/dashboard/inventory/new" },
+        { key: "finances", icon: DollarSign, label: "View Finances", sublabel: "Profit & analytics", to: "/dashboard/finances" },
+      ];
+  }
+}
+
+function featureCardsFor(useCase: UserUseCase | null, ctx: FeatureContext): FeatureCard[] {
+  const verified: FeatureCard = ctx.verifiedEnabled
+    ? {
+        key: "verified",
+        icon: BadgeCheck,
+        title: "Verified Seller profile",
+        description: ctx.verifiedHandle
+          ? `Your public trust profile is live — @${ctx.verifiedHandle}.`
+          : "Your public trust profile is live.",
+        to: "/dashboard/flipdesk/verified",
+        cta: "Manage profile",
+      }
+    : {
+        key: "verified",
+        icon: BadgeCheck,
+        title: "Become a Verified Seller",
+        description: "Build buyer trust with a public, grade-backed seller profile.",
+        to: "/dashboard/flipdesk/verified",
+        cta: "Set up",
+      };
+
+  const passport: FeatureCard = ctx.passportCount > 0 && ctx.latestPassportSlug
+    ? {
+        key: "passport",
+        icon: Stamp,
+        title: "Garment Passports",
+        description: `${ctx.passportCount} ${ctx.passportCount === 1 ? "passport" : "passports"} created — view a verified provenance timeline.`,
+        to: `/passport/${ctx.latestPassportSlug}`,
+        cta: "View latest",
+      }
+    : {
+        key: "passport",
+        icon: Stamp,
+        title: "Garment Passports",
+        description: "Every grade creates a public provenance passport for the item.",
+        to: "/dashboard/submissions/new",
+        cta: "Grade an item",
+      };
+
+  const guarantee: FeatureCard = {
+    key: "guarantee",
+    icon: Shield,
+    title: "Buyer Guarantee",
+    description: "Grade-accuracy protection that travels with every item you list.",
+    to: "/buyer-guarantee",
+    cta: "Learn more",
+  };
+
+  const buyerGuarantee: FeatureCard = {
+    key: "guarantee",
+    icon: Shield,
+    title: "Buyer Guarantee",
+    description: "Every GradeThread-graded purchase is backed by our accuracy guarantee.",
+    to: "/buyer-guarantee",
+    cta: "See coverage",
+  };
+
+  switch (useCase) {
+    case "buyer":
+      return [buyerGuarantee];
+    case "developer":
+      return [passport];
+    case "consignment":
+    case "seller":
+    default:
+      return [verified, passport, guarantee];
+  }
+}
+
+function firstRunFor(useCase: UserUseCase | null): FirstRunHint {
+  switch (useCase) {
+    case "buyer":
+      return {
+        icon: ScanLine,
+        title: "Scan before you buy",
+        description: "Check the verified condition and provenance of any GradeThread-graded item before you purchase it.",
+        cta: "Scan a Passport",
+        to: "/scan",
+      };
+    case "developer":
+      return {
+        icon: KeyRound,
+        title: "Integrate condition grading",
+        description: "Create an API key and start grading garments programmatically from your own app.",
+        cta: "Create an API key",
+        to: "/dashboard/api-keys",
+      };
+    case "consignment":
+      return {
+        icon: Handshake,
+        title: "Take in your first consignment",
+        description: "Grade and catalog an item, then track payouts to your consignors automatically.",
+        cta: "Grade an item",
+        to: "/dashboard/submissions/new",
+      };
+    case "seller":
+    default:
+      return {
+        icon: Plus,
+        title: "Grade your first garment",
+        description: "Upload a few photos to get an AI-powered condition grade you can list with confidence.",
+        cta: "New Submission",
+        to: "/dashboard/submissions/new",
+      };
+  }
 }
 
 export function DashboardPage() {
@@ -180,8 +371,41 @@ export function DashboardPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // US-1118: the user's own Garment Passports. RLS scopes `garments` to
+  // created_by = auth.uid(), so this returns only passports they created.
+  const { data: passportData } = useQuery({
+    queryKey: ["dashboard-passports"],
+    queryFn: async () => {
+      const { data, count } = await supabase
+        .from("garments")
+        .select("public_passport_slug", { count: "exact" })
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const rows = (data ?? []) as unknown as Pick<GarmentRow, "public_passport_slug">[];
+      return { count: count ?? 0, latestSlug: rows[0]?.public_passport_slug ?? null };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const totalCount = submissionData?.totalCount ?? 0;
   const recentSubmissions = submissionData?.recentSubmissions ?? [];
+
+  const useCase = profile?.use_case ?? null;
+  const inventoryCount = inventoryData?.totalItemCount ?? 0;
+  const quickActions = quickActionsFor(useCase);
+  const featureCards = featureCardsFor(useCase, {
+    verifiedEnabled: profile?.verified_enabled ?? false,
+    verifiedHandle: profile?.verified_handle ?? null,
+    passportCount: passportData?.count ?? 0,
+    latestPassportSlug: passportData?.latestSlug ?? null,
+  });
+  const firstRun = firstRunFor(useCase);
+  const FirstRunIcon = firstRun.icon;
+  // Zero-data first run: no submissions AND no inventory yet (don't flash it
+  // while the submission count is still loading).
+  const isFirstRun = !isLoading && totalCount === 0 && inventoryCount === 0;
+  // The FlipDesk reseller promo is only relevant to selling personas.
+  const showFlipdeskPromo = useCase !== "buyer" && useCase !== "developer";
 
   return (
     <div className="space-y-6">
@@ -196,49 +420,48 @@ export function DashboardPage() {
         }
       />
 
-      {/* Quick Actions */}
+      {/* Persona-tailored zero-data first run (US-1118) */}
+      {isFirstRun && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
+                <FirstRunIcon className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">{firstRun.title}</p>
+                <p className="text-xs text-muted-foreground">{firstRun.description}</p>
+              </div>
+            </div>
+            <Button onClick={() => navigate(firstRun.to)} className="sm:flex-shrink-0">
+              {firstRun.cta}
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Quick Actions — tailored to the user's use case (US-1118) */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <Button
-          variant="outline"
-          className="h-auto justify-start gap-3 py-3"
-          onClick={() => navigate("/dashboard/submissions/new")}
-        >
-          <Plus className="h-5 w-5 text-primary" />
-          <span className="text-left">
-            <span className="block text-sm font-medium">New Submission</span>
-            <span className="block text-xs text-muted-foreground">
-              Grade a garment
-            </span>
-          </span>
-        </Button>
-        <Button
-          variant="outline"
-          className="h-auto justify-start gap-3 py-3"
-          onClick={() => navigate("/dashboard/inventory/new")}
-        >
-          <Package className="h-5 w-5 text-primary" />
-          <span className="text-left">
-            <span className="block text-sm font-medium">
-              Add Inventory Item
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              Track a new item
-            </span>
-          </span>
-        </Button>
-        <Button
-          variant="outline"
-          className="h-auto justify-start gap-3 py-3"
-          onClick={() => navigate("/dashboard/finances")}
-        >
-          <DollarSign className="h-5 w-5 text-primary" />
-          <span className="text-left">
-            <span className="block text-sm font-medium">View Finances</span>
-            <span className="block text-xs text-muted-foreground">
-              Profit &amp; analytics
-            </span>
-          </span>
-        </Button>
+        {quickActions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <Button
+              key={action.key}
+              variant="outline"
+              className="h-auto justify-start gap-3 py-3"
+              onClick={() => navigate(action.to)}
+            >
+              <Icon className="h-5 w-5 text-primary" />
+              <span className="text-left">
+                <span className="block text-sm font-medium">{action.label}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {action.sublabel}
+                </span>
+              </span>
+            </Button>
+          );
+        })}
       </div>
 
       {/* Plan usage meters (US-214) */}
@@ -247,38 +470,52 @@ export function DashboardPage() {
         <UsageMeters />
       </div>
 
-      {/* FlipDesk cross-promotion (zero-inventory users only) */}
-      <FlipdeskPromoCard itemCount={inventoryData?.totalItemCount} />
-
-      {/* US-862: invite a friend — amplifies the existing referral program */}
-      <InviteFriendCard />
-
-      {/* Use-case tailored quick start */}
-      {profile?.use_case === "developer" && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="rounded-md bg-primary/10 p-2">
-                <KeyRound className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Developer quick start</p>
-                <p className="text-xs text-muted-foreground">
-                  Generate an API key and start grading garments
-                  programmatically.
-                </p>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate("/dashboard/api-keys")}
-            >
-              Manage API Keys
-            </Button>
-          </CardContent>
-        </Card>
+      {/* FlipDesk cross-promotion (selling personas, zero-inventory users only) */}
+      {showFlipdeskPromo && (
+        <FlipdeskPromoCard itemCount={inventoryData?.totalItemCount} />
       )}
+
+      {/* Discover GradeThread — persona-relevant feature entry points (US-1118):
+          Garment Passports, Verified Seller, Buyer Guarantee. */}
+      {featureCards.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Discover GradeThread
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {featureCards.map((feature) => {
+              const Icon = feature.icon;
+              return (
+                <Card key={feature.key} className="flex flex-col">
+                  <CardContent className="flex flex-1 flex-col gap-3 py-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
+                        <Icon className="h-4 w-4 text-primary" />
+                      </div>
+                      <p className="text-sm font-medium">{feature.title}</p>
+                    </div>
+                    <p className="flex-1 text-xs text-muted-foreground">
+                      {feature.description}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      onClick={() => navigate(feature.to)}
+                    >
+                      {feature.cta}
+                      <ArrowRight className="ml-1.5 h-3 w-3" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* US-862: invite a friend — the referral program entry point (US-1118) */}
+      <InviteFriendCard />
 
       {/* Stats cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

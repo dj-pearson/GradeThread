@@ -614,6 +614,11 @@ memory — not a progress log (the harness records progress separately).
   toast. Icons from `lucide-react` only. Named exports + `@/` imports.
 - New public static page → register in `src/lib/seo/public-routes.ts` AND
   `src/prerender/entry-server.tsx`, or the prerender sync-guard test fails.
+- The `garments` table (Garment Passports, 00256) is now in the frontend
+  `Database` type (`GarmentRow`, US-1118). Client reads are RLS-scoped to
+  `created_by = auth.uid()` (no client writes), so `supabase.from("garments")`
+  returns only the user's own passports — no manual `.eq` needed. `tsc -b`
+  resolves `.data` as `never`, so cast `as unknown as Pick<GarmentRow,…>[]`.
 - `react-helmet-async` v3 renders no SSR head; add structured data via `<SEO
   jsonLd=…>` AND mirror it in `src/lib/seo/head-builder.ts` `jsonLdForRoute()`.
 - Unified Inventory surface (US-958): `/dashboard/flipdesk/inventory` hosts the
