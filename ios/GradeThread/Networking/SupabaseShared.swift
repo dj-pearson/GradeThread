@@ -37,6 +37,27 @@ public enum SupabaseShared {
         return customSchemeRedirectURL
     }
 
+    /// Bounded session for ALL Supabase SDK traffic (auth + PostgREST). The SDK
+    /// defaults to `URLSession.shared` (60s request timeout); on a stalled
+    /// connection that hangs any `load()` that awaits a `SupabaseShared.client`
+    /// fetch behind its spinner for up to a minute — the same App Store 2.1(b)
+    /// reject pattern that bit the paywall (whose `refreshBilling()` reads the
+    /// `users` row directly). The 20s idle (`timeoutIntervalForRequest`) timeout
+    /// fails a stalled request fast as `URLError.timedOut`; `timeoutIntervalFor
+    /// Resource` is left at the SDK default so a slow-but-progressing transfer
+    /// isn't truncated. Mirrors `EdgeNetwork`'s bounding for the edge client, so
+    /// every direct-Supabase loading path fails fast instead of hanging.
+    ///
+    /// Realtime is unaffected: the SDK's `RealtimeClientV2` uses its own
+    /// websocket transport (not this `global.session`, which backs only the HTTP
+    /// PostgREST/Auth clients), and its periodic heartbeat keeps the socket from
+    /// tripping an idle timeout regardless.
+    private static let boundedSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        return URLSession(configuration: config)
+    }()
+
     public static let client: SupabaseClient = {
         SupabaseClient(
             supabaseURL: AppConfig.supabaseURL,
@@ -46,7 +67,8 @@ public enum SupabaseShared {
                     storage: KeychainLocalStorage(),
                     redirectToURL: redirectURL,
                     flowType: .pkce
-                )
+                ),
+                global: SupabaseClientOptions.GlobalOptions(session: boundedSession)
             )
         )
     }()

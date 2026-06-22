@@ -77,3 +77,39 @@ all match — there is no ID drift.
 > recoverable retry instead of an error. A new build is attached.
 
 (Edit the bracketed parts to match the operator actions actually taken.)
+
+---
+
+## Pre-resubmission broad sweep (proactive hardening)
+
+After the two cited fixes, four read-only audits swept the iOS app for the same
+bug *classes* (network hangs, stuck/dead-end load states, crashes, iPad, auth/IAP
+completeness) so we don't bounce off review again. Crash-risk and iPad came back
+clean (very defensive codebase; size-class NavigationSplitView, guarded camera,
+ShareLink-based sharing). Fixes applied:
+
+**Network hangs (UI stuck on a spinner ~60s — same class as the paywall reject):**
+- `SupabaseShared.client` now uses a **bounded session (20s idle timeout)** — the
+  SDK defaulted to `URLSession.shared` (60s). This was a *second* hang vector in
+  the paywall (`refreshBilling()` reads the `users` row directly) and protects
+  ~45 other direct-Supabase loading screens at the root. Realtime is unaffected
+  (separate websocket transport + heartbeat).
+- `GradedPhotoView` slab fetch, `DisclosureStore` defect-photo fetch →
+  `EdgeNetwork.shared` (bounded) instead of `URLSession.shared`.
+- `CachedThumbnail` loader and `PhotoSignedURLProvider` sessions → 20s idle
+  timeout (these back every remote thumbnail / private-bucket image).
+
+**Stuck / dead-end load states (screen with no recovery — the reject pattern):**
+- `BulkPricingView` `.failed` had **no retry** (a true first-load dead-end) → now
+  the standardized `ErrorStateView` with in-place retry.
+- `EbayAccountsView` `.failed` → `ErrorStateView` (was a bare message).
+- `DisclosureView` showed an **indefinite per-photo spinner** when a photo failed
+  to load → now tracks failures and offers a per-row "Retry".
+- `ListingPerformanceStore.load()` gained a re-entrancy guard (overlapping
+  `.task` + `.refreshable` could show stale rows).
+
+**Permissions safety net:** mirrored the camera/photo/Face ID `NS*UsageDescription`
+strings into the committed `Info.plist`. The archive was already safe (release CI
+runs `xcodegen generate`, and `project.yml` holds all keys), but this prevents a
+manual archive that skips xcodegen from shipping without them and crashing.
+

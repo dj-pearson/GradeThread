@@ -25,11 +25,12 @@ struct EbayAccountsView: View {
                 Section { ProgressView().frame(maxWidth: .infinity) }
             case .failed(let message):
                 Section {
-                    ContentUnavailableView(
-                        "Couldn't load accounts",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(message)
-                    )
+                    // US-971: explicit in-place retry (the standardized pattern)
+                    // rather than relying on an undiscoverable pull-to-refresh.
+                    ErrorStateView(
+                        title: "Couldn't load accounts",
+                        message: message,
+                        retry: { await store.load() })
                 }
             case .ready:
                 accountsSection

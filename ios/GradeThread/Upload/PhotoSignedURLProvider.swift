@@ -45,6 +45,9 @@ actor PhotoSignedURLProvider {
 
     static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
+        // Bounded idle timeout (vs. 60s default) so a stalled sign-URL request
+        // fails fast instead of delaying private-bucket thumbnails ~60s.
+        config.timeoutIntervalForRequest = 20
         config.urlCache = nil
         config.httpCookieStorage = nil
         config.httpShouldSetCookies = false
