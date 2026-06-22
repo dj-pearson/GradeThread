@@ -42,7 +42,11 @@ final class CatalogService: CatalogProviding {
     private let session: URLSession
     private let cacheKey = "iap_catalog_cache_v1"
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-992 parity: use the bounded `EdgeNetwork.shared` session (20s idle
+    // timeout), NOT `URLSession.shared` (60s). The paywall `await`s this fetch
+    // before StoreKit, so a stalled catalog request must fail fast instead of
+    // hanging the paywall behind its spinner for up to a minute (App Store 2.1b).
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
     }

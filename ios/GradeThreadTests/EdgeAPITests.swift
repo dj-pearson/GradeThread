@@ -267,6 +267,18 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .unauthorized)
     }
 
+    // US-1182: the auth middleware's unconfirmed-email 403 uses the short `code`
+    // key and must map to its own `.emailUnverified` case (actionable message,
+    // no pointless token refresh), not the generic session-expired `.unauthorized`.
+    func test_403_emailUnverified_mapsToEmailUnverified() {
+        let body = Data(
+            #"{"error":"Email not verified. Please confirm your email to continue.","code":"email_unverified"}"#
+                .utf8
+        )
+        XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .emailUnverified)
+        XCTAssertNotEqual(EdgeAPIError.emailUnverified, .unauthorized)
+    }
+
     func test_networkFailure_mapsToNetwork() async {
         MockURLProtocol.handler = { _ in
             throw URLError(.notConnectedToInternet)

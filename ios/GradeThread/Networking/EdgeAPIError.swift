@@ -4,6 +4,14 @@ import Foundation
 /// the right message + recovery action instead of a raw HTTP code.
 public enum EdgeAPIError: LocalizedError, Equatable {
     case unauthorized
+    /// US-1182: the edge auth middleware rejected the request because the
+    /// account's email isn't confirmed (403 `{ code: "email_unverified" }`).
+    /// Distinct from `.unauthorized` so the UI shows an actionable "verify your
+    /// email" message instead of the misleading "session expired" — and so the
+    /// client doesn't burn a pointless token refresh (a fresh token is still
+    /// unverified). The classic App Store rejection trip-wire when a demo /
+    /// review account signs in via email-password without confirming.
+    case emailUnverified
     case rateLimited
     case notFound(detail: String?)
     case badRequest(detail: String?)
@@ -21,6 +29,8 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return "You no longer have access to that workspace — switched to your own account."
         case .unauthorized:
             return "Your session expired. Sign in again to continue."
+        case .emailUnverified:
+            return "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
         case .rateLimited:
             return "You're going a little too fast. Try again in a moment."
         case .notFound(let detail):
@@ -38,11 +48,17 @@ public enum EdgeAPIError: LocalizedError, Equatable {
 
     /// JSON error shape used by the edge service: `{ "error": "...", "detail": "...",
     /// "error_code": "..." }`. `error_code` is the machine-readable discriminator
-    /// (US-794) used to map specific 4xx responses to typed cases.
+    /// (US-794) used to map specific 4xx responses to typed cases. The auth
+    /// middleware uses the shorter `code` key (e.g. `email_unverified`), so we
+    /// decode both and treat them interchangeably.
     struct WirePayload: Decodable {
         let error: String?
         let detail: String?
         let error_code: String?
+        let code: String?
+
+        /// The machine-readable discriminator, from whichever key the edge used.
+        var discriminator: String? { error_code ?? code }
     }
 
     /// Maps `(statusCode, body)` to a typed error. The body is best-effort
@@ -54,8 +70,14 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         // US-794: a revoked workspace membership comes back as a 403 with this
         // code — surface it as its own case so the client can drop the stale
         // scope rather than treating it as a session-expired 401/403.
-        if statusCode == 403, payload?.error_code == "workspace_access_revoked" {
+        if statusCode == 403, payload?.discriminator == "workspace_access_revoked" {
             return .workspaceAccessRevoked
+        }
+        // US-1182: an unconfirmed-email 403 — surface an actionable "verify your
+        // email" message instead of "session expired", and (since it's not
+        // `.unauthorized`) skip the futile token-refresh + retry.
+        if statusCode == 403, payload?.discriminator == "email_unverified" {
+            return .emailUnverified
         }
         switch statusCode {
         case 401, 403: return .unauthorized
