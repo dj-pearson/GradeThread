@@ -143,6 +143,29 @@ final class AIExtractStore {
         phase = .failed(message: message)
     }
 
+    /// Best-effort listing title from the extraction, IGNORING the auto-apply
+    /// confidence bar, so a successful extract never lands the user on a bare
+    /// "Untitled item" — even when nothing cleared the ≥0.8 threshold. That
+    /// happens routinely when the capture has no readable care/brand tag: the
+    /// extract prompt is told to return brand/size with LOW confidence rather
+    /// than guess, so the core fields land below 0.8 and none auto-apply.
+    /// Prefers an explicit `title` suggestion, else composes brand + style/size.
+    /// Returns nil only when the extraction surfaced nothing nameable.
+    func bestTitleSeed() -> String? {
+        guard case let .ready(result) = phase else { return nil }
+        func value(_ field: String) -> String? {
+            guard let raw = result.entries.first(where: { $0.field == field })?.value else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let title = value("title") { return title }
+        let seed = [value("brand"), value("style") ?? value("size")]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return seed.isEmpty ? nil : seed
+    }
+
     // MARK: - Auto-fill review (US-686)
 
     /// Partitions the ready result into an auto-applied set (high-confidence,

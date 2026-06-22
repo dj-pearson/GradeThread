@@ -80,9 +80,32 @@ final class AIFillReviewStore {
 
     private(set) var reviews: [String: AIFillReview] = [:]
 
-    func register(_ review: AIFillReview) {
+    /// Item ids whose review should AUTO-PRESENT as a sheet the next time their
+    /// canvas appears, instead of waiting for a tap on the (easy-to-miss) banner.
+    /// Set at post-intake registration so the extracted fields surface as a
+    /// dialog — the behavior users expect from the web's review panel. Transient
+    /// (in-memory): after an app restart the persisted review still shows via the
+    /// banner, so nothing is lost; we just don't force the popup across launches.
+    private var autoPresentQueue: Set<String> = []
+
+    /// - Parameter autoPresent: when true, the item canvas pops the review sheet
+    ///   on its next appearance (used by the post-intake auto-fill so a fresh
+    ///   extraction is never silently hidden behind a bare "Untitled item").
+    func register(_ review: AIFillReview, autoPresent: Bool = false) {
         reviews[review.itemId] = review
+        if autoPresent { autoPresentQueue.insert(review.itemId) }
         Self.persist(review)
+    }
+
+    /// True exactly once per registration: the canvas should pop the review
+    /// sheet for this item now. Caller must follow a `true` with
+    /// ``markAutoPresented(_:)`` so it doesn't re-pop on later reopens.
+    func shouldAutoPresent(_ itemId: String) -> Bool {
+        autoPresentQueue.contains(itemId)
+    }
+
+    func markAutoPresented(_ itemId: String) {
+        autoPresentQueue.remove(itemId)
     }
 
     func review(for itemId: String) -> AIFillReview? {
@@ -98,6 +121,7 @@ final class AIFillReviewStore {
 
     func clear(for itemId: String) {
         reviews[itemId] = nil
+        autoPresentQueue.remove(itemId)
         Self.deleteFromDisk(itemId)
     }
 

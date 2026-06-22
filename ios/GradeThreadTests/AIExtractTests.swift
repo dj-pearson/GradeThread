@@ -311,6 +311,129 @@ final class AIExtractTests: XCTestCase {
         XCTAssertNil(store.review(for: "item-42"))
     }
 
+    // MARK: - Title seed (US-682: never land on a bare "Untitled item")
+
+    /// An explicit `title` suggestion wins, even at low confidence — so a
+    /// no-tag / moderate-confidence capture still names the item.
+    func test_bestTitleSeed_prefersTitleSuggestion() {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: [
+                "title": .init(value: "Vintage Wool Coat", confidence: 0.41, source: "photo:front"),
+                "brand": .init(value: "Pendleton", confidence: 0.5, source: "photo:front"),
+            ],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        XCTAssertEqual(store.bestTitleSeed(), "Vintage Wool Coat")
+    }
+
+    /// With no title field, compose brand + style (preferred) or brand + size —
+    /// regardless of confidence — so the seed is non-nil whenever there's any
+    /// nameable signal.
+    func test_bestTitleSeed_composesBrandAndStyleOrSize() {
+        let withStyle = AIExtractStore()
+        withStyle.applyResponse(AIExtractResponse(
+            suggestions: [
+                "brand": .init(value: "Levi's", confidence: 0.3, source: "photo:front"),
+                "style": .init(value: "501", confidence: 0.3, source: "photo:front"),
+                "size": .init(value: "32", confidence: 0.3, source: "photo:front"),
+            ],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        // style is preferred over size for the second token.
+        XCTAssertEqual(withStyle.bestTitleSeed(), "Levi's 501")
+
+        let withSizeOnly = AIExtractStore()
+        withSizeOnly.applyResponse(AIExtractResponse(
+            suggestions: [
+                "brand": .init(value: "Nike", confidence: 0.2, source: "photo:front"),
+                "size": .init(value: "L", confidence: 0.2, source: "photo:front"),
+            ],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        XCTAssertEqual(withSizeOnly.bestTitleSeed(), "Nike L")
+    }
+
+    func test_bestTitleSeed_nilWhenNothingNameable() {
+        let empty = AIExtractStore()
+        empty.applyResponse(AIExtractResponse(
+            suggestions: [
+                "color": .init(value: "blue", confidence: 0.9, source: "photo:front"),
+            ],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        XCTAssertNil(empty.bestTitleSeed())
+
+        let notReady = AIExtractStore()  // still waiting for uploads
+        XCTAssertNil(notReady.bestTitleSeed())
+    }
+
+    /// The explicit title seed names the row even when NO field cleared the
+    /// auto-apply bar (so brand/style/size columns are all nil) — the
+    /// silent-"Untitled" case.
+    func test_seededTitle_explicitNamesRowWhenNoColumnsApplied() {
+        XCTAssertEqual(
+            AIItemFieldWriter.seededTitle(brand: nil, style: nil, size: nil, explicit: "Carhartt Jacket"),
+            "Carhartt Jacket"
+        )
+    }
+
+    /// An explicit seed wins over the composed brand/size fallback; with no
+    /// explicit seed, compose from the applied columns; nil when nothing.
+    func test_seededTitle_explicitWinsThenComposesThenNil() {
+        XCTAssertEqual(
+            AIItemFieldWriter.seededTitle(brand: "Nike", style: nil, size: "M", explicit: "Nike Dri-FIT Tee"),
+            "Nike Dri-FIT Tee"
+        )
+        XCTAssertEqual(
+            AIItemFieldWriter.seededTitle(brand: "Nike", style: nil, size: "M", explicit: nil),
+            "Nike M"
+        )
+        XCTAssertEqual(
+            AIItemFieldWriter.seededTitle(brand: "Levi's", style: "501", size: "32", explicit: "   "),
+            "Levi's 501"
+        )
+        XCTAssertNil(
+            AIItemFieldWriter.seededTitle(brand: nil, style: nil, size: nil, explicit: nil)
+        )
+    }
+
+    // MARK: - Auto-present queue (US-686 follow-up)
+
+    func test_fillReviewStore_autoPresentQueue_isOnceOnly() {
+        let store = AIFillReviewStore.shared
+        store.clear(for: "item-ap")
+
+        let review = AIFillReview(
+            itemId: "item-ap",
+            applied: [],
+            lowConfidence: [
+                FieldSuggestionEntry(id: "brand", field: "brand", suggestion: .init(value: "Nike", confidence: 0.4, source: "photo:front")),
+            ],
+            measurements: [], measurementsApplied: false,
+            conditionSummary: nil, usedLiveTextFallback: false
+        )
+
+        // Registered WITHOUT auto-present: banner only, no popup.
+        store.register(review)
+        XCTAssertFalse(store.shouldAutoPresent("item-ap"))
+
+        // Registered WITH auto-present (post-intake): pops once, then not again.
+        store.register(review, autoPresent: true)
+        XCTAssertTrue(store.shouldAutoPresent("item-ap"))
+        store.markAutoPresented("item-ap")
+        XCTAssertFalse(store.shouldAutoPresent("item-ap"))
+
+        // Clearing also drops any pending auto-present.
+        store.register(review, autoPresent: true)
+        store.clear(for: "item-ap")
+        XCTAssertFalse(store.shouldAutoPresent("item-ap"))
+    }
+
     /// Undo writes must null restored-empty columns explicitly (the sparse fill
     /// encoder would otherwise skip them), and clear the AI bookkeeping.
     func test_revertUpdate_encodesExplicitNullsAndRestoredValues() throws {
