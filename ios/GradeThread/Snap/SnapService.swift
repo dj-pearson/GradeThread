@@ -11,7 +11,10 @@ final class SnapService {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // Long-idle AI session: Snap is a vision model call that streams nothing
+    // until done, so a short idle timeout would falsely time it out (see
+    // EdgeNetwork.aiSession).
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
         self.baseURL = baseURL
         self.session = session
     }
