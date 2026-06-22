@@ -153,6 +153,14 @@ final class AIExtractionManager {
         }
 
         await finish(itemId: itemId, store: store)
+
+        // finish() wrote the auto-applied title/fields to the SERVER row only
+        // (AIItemFieldWriter hits Supabase, never local SwiftData). Pull so the
+        // LOCAL item refreshes — without this the background path leaves the row
+        // "Untitled" with no info: its dismiss-time pull ran ~immediately, long
+        // before this ~40s extraction's write landed, and nothing else re-syncs.
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+
         phases[itemId] = .ready
     }
 
