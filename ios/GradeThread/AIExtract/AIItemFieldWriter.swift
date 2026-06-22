@@ -144,7 +144,12 @@ enum AIItemFieldWriter {
                 try container.encodeNil(forKey: DynamicKey("measurements"))
             }
             if clearAISources {
-                try container.encodeNil(forKey: DynamicKey("ai_field_sources"))
+                // `ai_field_sources` is NOT NULL DEFAULT '{}'::jsonb (migration
+                // 00024) — reset it to an EMPTY OBJECT, never SQL NULL, which
+                // would violate the constraint and fail the whole save (the
+                // "null value in column ai_field_sources" error). `ai_enriched_at`
+                // is nullable, so clearing it to NULL is fine.
+                try container.encode([String: String](), forKey: DynamicKey("ai_field_sources"))
                 try container.encodeNil(forKey: DynamicKey("ai_enriched_at"))
             }
         }
