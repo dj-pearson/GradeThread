@@ -106,6 +106,24 @@ struct DisclosureView: View {
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .accessibilityLabel("Annotated \(photo.imageType) photo, \(photo.annotations.count) flagged defects")
+        } else if store.didRenderFail(photo) {
+            // The photo download/composite failed — offer a retry rather than an
+            // indefinite spinner (the old behavior left the row stuck forever).
+            HStack {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .foregroundStyle(.secondary)
+                    Text("Couldn't load this photo")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Retry") { Task { await store.retryRender(photo) } }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.bordered)
+                }
+                Spacer()
+            }
+            .frame(minHeight: 120)
         } else {
             HStack { Spacer(); ProgressView(); Spacer() }
                 .frame(minHeight: 120)

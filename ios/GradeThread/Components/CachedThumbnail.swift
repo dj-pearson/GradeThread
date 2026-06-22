@@ -96,6 +96,10 @@ final class ThumbnailLoader {
 
     private init() {
         let config = URLSessionConfiguration.default
+        // Bounded idle timeout (vs. the 60s default): this loader backs every
+        // remote thumbnail in the app, so a stalled fetch must fail fast to the
+        // tap-to-retry state rather than spin ~60s per thumbnail.
+        config.timeoutIntervalForRequest = 20
         config.requestCachePolicy = .returnCacheDataElseLoad
         config.urlCache = URLCache(
             memoryCapacity: 16 * 1024 * 1024,

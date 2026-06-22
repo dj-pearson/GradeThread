@@ -103,17 +103,42 @@ final class PaywallStoreTests: XCTestCase {
             plan: "pro", interval: "monthly", credits: nil,
             title: "Pro", blurb: "", referencePriceCents: 6900,
             referencePriceDisplay: "$69/mo")
-        let s = store(catalog: [entry])
+        // StoreKit resolved at least one product (so the paywall is ready) but not
+        // pro.monthly — the server catalog reference price wins over the hardcoded
+        // IAPProduct fallback ("$59/mo") for the gap.
+        let fake = FakeStoreKit(); fake.prices = ["com.gradethread.credits.10": "$24.99"]
+        let s = store(service: fake, catalog: [entry])
         await s.load()
-        // StoreKit gave no price, so the server catalog reference price wins over
-        // the hardcoded IAPProduct fallback ("$59/mo").
+        XCTAssertEqual(s.phase, .ready)
         XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "$69/mo")
     }
 
     func test_load_emptyCatalogKeepsHardcodedFallback() async {
-        let s = store(catalog: [])
+        let fake = FakeStoreKit(); fake.prices = ["com.gradethread.credits.10": "$24.99"]
+        let s = store(service: fake, catalog: [])
         await s.load()
+        XCTAssertEqual(s.phase, .ready)
         XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "$59/mo")
+    }
+
+    // App Store 2.1(b): when StoreKit resolves NO products for any id, the paywall
+    // must show a recoverable failure (retry) rather than landing on `.ready` with
+    // fallback-priced rows that dead-end with "this item is unavailable" on tap.
+    func test_load_noStoreKitProducts_failsRecoverablyInsteadOfReady() async {
+        let fake = FakeStoreKit() // prices = [:] — StoreKit knows nothing
+        let s = store(service: fake, catalog: [])
+        await s.load()
+        guard case .failed = s.phase else {
+            return XCTFail("Expected .failed when StoreKit returns no products, got \(s.phase)")
+        }
+    }
+
+    // A partial StoreKit result (some products resolved) is still a usable paywall.
+    func test_load_partialStoreKitProducts_isReady() async {
+        let fake = FakeStoreKit(); fake.prices = ["com.gradethread.sub.pro.monthly": "$59.00"]
+        let s = store(service: fake, catalog: [])
+        await s.load()
+        XCTAssertEqual(s.phase, .ready)
     }
 
     func test_buy_success_refreshesBilling() async {

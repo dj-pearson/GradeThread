@@ -24,6 +24,10 @@ final class DisclosureStore {
     var data: DisclosureData?
     /// Composited annotated images keyed by `DisclosurePhoto.id`.
     var rendered: [String: UIImage] = [:]
+    /// Photo ids whose download/composite failed — drives a per-row retry in the
+    /// view instead of an indefinite spinner (a stalled/failed photo fetch
+    /// previously left that row spinning forever with its Save button disabled).
+    var renderFailed: Set<String> = []
     var savedPhotoIds: Set<String> = []
     var isApplyingText = false
     var appliedText = false
@@ -50,6 +54,7 @@ final class DisclosureStore {
 
     func isSaving(_ photo: DisclosurePhoto) -> Bool { savingPhotoIds.contains(photo.id) }
     func isSaved(_ photo: DisclosurePhoto) -> Bool { savedPhotoIds.contains(photo.id) }
+    func didRenderFail(_ photo: DisclosurePhoto) -> Bool { renderFailed.contains(photo.id) }
 
     // MARK: - Lifecycle
 
@@ -68,17 +73,31 @@ final class DisclosureStore {
     /// Download + composite each defect photo (skips ones already rendered).
     private func renderAll() async {
         for photo in defectPhotos where rendered[photo.id] == nil {
-            if let image = await downloadImage(photo.url) {
-                // US-1165: the composite is a full-res UIGraphicsImageRenderer
-                // draw — run it off the main actor (mirrors
-                // PhotoCompressor.compressOffMain) and hop back to store it.
-                let annotations = photo.annotations
-                let composite = await Task.detached(priority: .userInitiated) {
-                    DisclosureRenderer.render(image: image, annotations: annotations)
-                }.value
-                rendered[photo.id] = composite
-            }
+            await renderOne(photo)
         }
+    }
+
+    /// Download + composite a single photo, recording a failure (for the per-row
+    /// retry) instead of leaving the row spinning. Public entry is ``retryRender``.
+    private func renderOne(_ photo: DisclosurePhoto) async {
+        renderFailed.remove(photo.id)
+        guard let image = await downloadImage(photo.url) else {
+            renderFailed.insert(photo.id)
+            return
+        }
+        // US-1165: the composite is a full-res UIGraphicsImageRenderer draw — run
+        // it off the main actor (mirrors PhotoCompressor.compressOffMain) and hop
+        // back to store it.
+        let annotations = photo.annotations
+        let composite = await Task.detached(priority: .userInitiated) {
+            DisclosureRenderer.render(image: image, annotations: annotations)
+        }.value
+        rendered[photo.id] = composite
+    }
+
+    /// Retry a single failed photo render (download + composite) from the view.
+    func retryRender(_ photo: DisclosurePhoto) async {
+        await renderOne(photo)
     }
 
     /// Save the composited image to the item's listing photos (server uploads +
@@ -128,7 +147,9 @@ final class DisclosureStore {
     private func downloadImage(_ urlString: String) async -> UIImage? {
         guard let url = URL(string: urlString) else { return nil }
         do {
-            let (bytes, _) = try await URLSession.shared.data(from: url)
+            // Bounded session (20s) so a stalled defect-photo fetch fails fast to
+            // the per-row retry instead of spinning ~60s (URLSession.shared).
+            let (bytes, _) = try await EdgeNetwork.shared.data(from: url)
             return UIImage(data: bytes)
         } catch {
             return nil

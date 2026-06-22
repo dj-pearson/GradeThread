@@ -156,6 +156,21 @@ final class PaywallStore {
         }
         prices = await service.loadPrices(ids: IAPCatalog.allIds)
         await refreshBilling()
+        // App Store 2.1(b): when StoreKit resolves NO products for any id, the
+        // IAP layer is unavailable (offline, sandbox/App Store Connect misconfig,
+        // or products not yet in a reviewable state). Surface a recoverable
+        // failure with a retry instead of rendering a paywall of fallback-priced
+        // rows that dead-end on "this item is unavailable" when tapped. A partial
+        // result (some products resolved) still renders — gaps fall back to the
+        // server catalog / hardcoded reference prices.
+        if prices.isEmpty {
+            Telemetry.backgroundBreadcrumb(
+                "Paywall: StoreKit returned 0 of \(IAPCatalog.allIds.count) products — IAP unavailable",
+                category: "iap")
+            phase = .failed(
+                "We couldn't reach the App Store to load plans. Check your connection and try again.")
+            return
+        }
         phase = .ready
     }
 

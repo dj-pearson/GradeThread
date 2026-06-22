@@ -82,12 +82,18 @@ final class ListingPerformanceStore {
     private(set) var lastSyncedAt: Date?
 
     private let service: ListingPerformanceProviding
+    /// Guards against an overlapping `.task` + `.refreshable` double-load, where
+    /// the later-finishing fetch could win and show stale rows / flicker.
+    private var isLoading = false
 
     init(service: ListingPerformanceProviding = ListingPerformanceService()) {
         self.service = service
     }
 
     func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
         phase = .loading
         do {
             // Rows are the primary content — load them first; a failure here

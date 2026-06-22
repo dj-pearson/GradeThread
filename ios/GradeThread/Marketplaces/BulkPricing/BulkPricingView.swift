@@ -78,7 +78,12 @@ struct BulkPricingView: View {
         case .loading:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            ContentUnavailableView("Couldn't load listings", systemImage: "exclamationmark.triangle", description: Text(message))
+            // US-971: in-place retry — a first-load failure here had no recovery
+            // affordance (refreshable lives only on the ready list), a dead-end.
+            ErrorStateView(
+                title: "Couldn't load listings",
+                message: message,
+                retry: { await store.load() })
         case .ready:
             if store.listings.isEmpty {
                 ContentUnavailableView("No active eBay listings", systemImage: "tag", description: Text("Listings with a live eBay offer will show up here."))

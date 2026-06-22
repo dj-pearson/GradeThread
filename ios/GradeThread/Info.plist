@@ -66,6 +66,19 @@
     <string>GradeThread uses speech recognition so you can dictate notes hands-free while sourcing items.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>GradeThread needs the microphone to capture your voice for dictation.</string>
+    <!-- Camera + photo-library + Face ID usage strings. The build's source of
+         truth is project.yml's info.properties (XcodeGen regenerates this file
+         from it); these are mirrored here verbatim so a manual archive that
+         skips `xcodegen generate` can't ship without them and crash on first
+         camera/photo access. Keep in sync with project.yml. -->
+    <key>NSCameraUsageDescription</key>
+    <string>GradeThread uses the camera to capture garment photos for grading and to scan SKU barcodes when cataloging items.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>GradeThread imports photos from your library so you can grade existing garment shots.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>GradeThread saves your certified graded photo to your library so you can post it with your listings.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>GradeThread can use Face ID to lock the app so your sales, payouts, and account stay private.</string>
     <!-- Custom URL scheme so Supabase OAuth redirects (Google + the eventual
          magic-link flow) come back to the app instead of staying in Safari.
          Matches supabaseRedirectURL in AppConfig. -->

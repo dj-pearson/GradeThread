@@ -179,7 +179,9 @@ struct GradedPhotoView: View {
         // Reset the save affordance for the newly-selected format.
         saveState = .idle
         do {
-            let (data, response) = try await URLSession.shared.data(from: slabURL)
+            // Bounded session (20s) so a stalled slab fetch fails fast to the
+            // `.failed`/retry state instead of spinning ~60s (URLSession.shared).
+            let (data, response) = try await EdgeNetwork.shared.data(from: slabURL)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                   let image = UIImage(data: data) else {
                 phase = .failed
