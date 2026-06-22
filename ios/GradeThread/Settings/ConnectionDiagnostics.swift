@@ -95,26 +95,32 @@ struct ConnectionDiagnostics {
     }
 
     /// Replicates ``PhotoUploadService``'s manual Storage request so an upload
-    /// failure surfaces as a concrete HTTP status + body.
+    /// failure surfaces as a concrete HTTP status + body. Uploads a tiny REAL
+    /// JPEG with `image/jpeg` (not text/plain) so it actually exercises what a
+    /// photo upload does — the buckets enforce an image-only MIME allowlist, so
+    /// a text probe always 415s and never tests the true path. Cleans up after.
     private func probeStorage(userId: String?, into lines: inout [String]) async {
         guard let userId else { lines.append("skipped: no user id"); return }
         guard let token = await SupabaseShared.currentAccessToken() else {
             lines.append("no access token (currentAccessToken returned nil)")
             return
         }
+        // Minimal valid 1x1 JPEG — the exact content-type a real upload sends.
+        let jpeg = Data(base64Encoded:
+            "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAC//EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AfwD/2Q=="
+        ) ?? Data()
+        let path = "/storage/v1/object/item-photos/\(userId.lowercased())/diagnostics/probe.jpg"
         var components = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
-        // Lowercase to match auth.uid() (the storage RLS check) — same fix as
-        // the real upload path in PhotoUploadService.
-        components.path = "/storage/v1/object/item-photos/\(userId.lowercased())/diagnostics/probe.txt"
+        components.path = path
         guard let url = components.url else { lines.append("bad storage url"); return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
-        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
-        request.httpBody = Data("diag".utf8)
+        request.httpBody = jpeg
 
         do {
             // Bounded session (US-992): a connectivity probe must fail fast
@@ -122,7 +128,16 @@ struct ConnectionDiagnostics {
             let (data, response) = try await EdgeNetwork.shared.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             let body = String(data: data, encoding: .utf8)?.prefix(200) ?? ""
-            lines.append("HTTP \(code): \(body)")
+            lines.append("image upload HTTP \(code): \(body.isEmpty ? "(ok)" : String(body))")
+
+            // Best-effort cleanup so the probe object doesn't linger.
+            if (200..<300).contains(code) {
+                var del = URLRequest(url: url)
+                del.httpMethod = "DELETE"
+                del.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                del.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+                _ = try? await EdgeNetwork.shared.data(for: del)
+            }
         } catch {
             lines.append("ERROR: \(error.localizedDescription)")
         }
