@@ -173,6 +173,16 @@ struct ItemCanvasView: View {
             if state == nil {
                 state = ItemCanvasState(item: item, currencyFormatter: currencyFormatter)
             }
+            // US-686 follow-up: pop the post-intake AI review as a sheet (not just
+            // a banner that's easy to miss) so a fresh extraction surfaces its
+            // results as a dialog. Once-only via the store's transient queue, so
+            // it never re-pops when the user simply reopens the item.
+            if aiReviewStore.shouldAutoPresent(item.id),
+               let review = aiReviewStore.review(for: item.id),
+               review.hasSomethingToReview {
+                aiReviewStore.markAutoPresented(item.id)
+                showingAIReview = true
+            }
         }
         // US-682: when a sync pull (or realtime push) updates the underlying
         // row's editable fields while the canvas is open, fold the new values

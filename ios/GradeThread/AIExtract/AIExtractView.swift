@@ -305,25 +305,33 @@ struct AIExtractView: View {
             return
         }
 
+        // US-682: seed a usable title from the best available extraction —
+        // regardless of confidence — so a no-tag / moderate-confidence capture
+        // never lands on a bare "Untitled item" with nothing behind the review.
+        let titleSeed = store.bestTitleSeed()
+
         // Write the confident fields (+ measurements) when there's anything to
-        // persist. A review with only low-confidence suggestions writes nothing.
-        if !review.applied.isEmpty || review.measurementsApplied {
+        // persist — INCLUDING just a title seed, which the prior guard dropped
+        // whenever no field cleared the auto-apply bar (the silent-empty case).
+        if !review.applied.isEmpty || review.measurementsApplied || titleSeed != nil {
             do {
-                try await writeAutoApplied(review)
+                try await writeAutoApplied(review, titleSeed: titleSeed)
             } catch {
-                // Persisting failed — keep the user moving but don't claim a
-                // fill happened.
+                // Persisting failed — DON'T discard the extraction. Fall through
+                // to register the review so the user can still apply it from the
+                // canvas instead of silently losing everything the AI found.
                 Telemetry.breadcrumb(
                     "AI auto-apply write failed: \(error.localizedDescription)",
                     category: "ai-extract"
                 )
-                complete()
-                return
             }
         }
 
+        // US-686 follow-up: auto-present the review as a sheet (not just a
+        // banner) so the extracted fields surface as a dialog the user can act
+        // on — the behavior the web's review panel has and users expect.
         if review.hasSomethingToReview {
-            AIFillReviewStore.shared.register(review)
+            AIFillReviewStore.shared.register(review, autoPresent: true)
         }
 
         // US-826: persist the confirmed high-value attributes LAST so its
@@ -356,7 +364,9 @@ struct AIExtractView: View {
     }
 
     /// Writes the auto-applied fields + measurements with their `ai_field_sources`.
-    private func writeAutoApplied(_ review: AIFillReview) async throws {
+    /// `titleSeed` lets the caller pass a best-available title (any confidence)
+    /// so the row is never left "Untitled item" even when nothing auto-applied.
+    private func writeAutoApplied(_ review: AIFillReview, titleSeed: String?) async throws {
         var fields: [(field: String, value: String)] = []
         var sources: [String: AIItemFieldWriter.SourceEntry] = [:]
         for field in review.applied {
@@ -389,7 +399,8 @@ struct AIExtractView: View {
             sources: sources,
             // US-682: seed a usable title from brand/style so the new item
             // isn't left as "Untitled item".
-            seedTitle: true
+            seedTitle: true,
+            titleSeed: titleSeed
         )
     }
 

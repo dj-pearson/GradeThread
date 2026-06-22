@@ -175,7 +175,12 @@ enum AIItemFieldWriter {
         fields: [(field: String, value: String)],
         measurements: [String: Double]?,
         sources: [String: SourceEntry],
-        seedTitle: Bool
+        seedTitle: Bool,
+        // US-682: an explicit best-available title seed (may be lower-confidence
+        // than the auto-applied `fields`), used so a successful extract never
+        // leaves the row "Untitled item" even when nothing cleared the auto-apply
+        // bar. Falls back to composing from the high-confidence fields applied.
+        titleSeed: String? = nil
     ) async throws {
         var update = FieldUpdate()
         for entry in fields {
@@ -186,12 +191,9 @@ enum AIItemFieldWriter {
         if let measurements, !measurements.isEmpty {
             update.measurements = measurements
         }
-        if seedTitle, update.title == nil {
-            let seed = [update.brand, update.style ?? update.size]
-                .compactMap { $0 }
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespaces)
-            if !seed.isEmpty { update.title = seed }
+        if seedTitle, update.title == nil,
+           let seed = seededTitle(brand: update.brand, style: update.style, size: update.size, explicit: titleSeed) {
+            update.title = seed
         }
         if !sources.isEmpty {
             update.aiFieldSources = sources
@@ -202,6 +204,22 @@ enum AIItemFieldWriter {
             .update(update)
             .eq("id", value: itemId)
             .execute()
+    }
+
+    /// US-682 title-seed rule, pure + side-effect-free so the "never land on a
+    /// bare Untitled item" guarantee is unit-testable without a network write.
+    /// An explicit best-available seed (from the full extraction, any confidence)
+    /// wins; otherwise compose brand + style/size from the auto-applied columns.
+    /// Returns nil only when there's nothing nameable.
+    static func seededTitle(brand: String?, style: String?, size: String?, explicit: String?) -> String? {
+        if let explicit = explicit?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        let composed = [brand, style ?? size]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return composed.isEmpty ? nil : composed
     }
 
     // MARK: - Canonical attributes (US-826)
