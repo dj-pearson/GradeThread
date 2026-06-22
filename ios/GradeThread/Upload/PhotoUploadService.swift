@@ -231,11 +231,21 @@ public final class PhotoUploadService {
     private func start(_ task: PhotoUploadTask) {
         Task { @MainActor in
             guard let accessToken = await SupabaseShared.currentAccessToken() else {
+                Telemetry.event("photo_upload_failed", props: [
+                    "reason": "not_signed_in",
+                    "slot": task.slot.serverPhotoType,
+                    "item_id": task.inventoryItemId,
+                ])
                 store.updatePhase(task.id, to: .failed(error: "Not signed in"))
                 return
             }
 
             guard let url = storageURL(for: task.storagePath, bucket: task.slot.storageBucket) else {
+                Telemetry.event("photo_upload_failed", props: [
+                    "reason": "bad_storage_url",
+                    "slot": task.slot.serverPhotoType,
+                    "item_id": task.inventoryItemId,
+                ])
                 store.updatePhase(task.id, to: .failed(error: "Storage isn't configured correctly"))
                 return
             }
@@ -291,10 +301,24 @@ public final class PhotoUploadService {
 
         guard let response, (200..<300).contains(response.statusCode) else {
             let code = response?.statusCode ?? -1
+            // The #1 diagnostic for "photos missing → Untitled": a 401/403 here
+            // means the storage POST was rejected (expired token / per-user
+            // folder RLS), so nothing lands and the AI run has nothing to read.
+            Telemetry.event("photo_upload_failed", props: [
+                "reason": "http_\(code)",
+                "slot": task.slot.serverPhotoType,
+                "bucket": task.slot.storageBucket,
+                "item_id": task.inventoryItemId,
+            ])
             store.updatePhase(id, to: .failed(error: "Storage upload failed (HTTP \(code))"))
             startNextIfPossible()
             return
         }
+
+        Telemetry.event("photo_upload_ok", props: [
+            "slot": task.slot.serverPhotoType,
+            "item_id": task.inventoryItemId,
+        ])
 
         // Storage upload OK. Finish the second phase — insert the
         // item_photos row — then finalize.
@@ -392,6 +416,12 @@ public final class PhotoUploadService {
     // MARK: - Failure handling
 
     private func handleNetworkFailure(_ task: PhotoUploadTask, message: String) {
+        Telemetry.event("photo_upload_failed", props: [
+            "reason": "network",
+            "slot": task.slot.serverPhotoType,
+            "item_id": task.inventoryItemId,
+            "message": message,
+        ])
         store.updatePhase(task.id, to: .failed(error: message))
         enqueuePendingMutation(for: task, message: message)
     }
