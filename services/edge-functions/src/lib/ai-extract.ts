@@ -413,6 +413,115 @@ function buildUserPrompt(input: ExtractInput): string {
   return parts.join("\n\n");
 }
 
+// Anthropic's per-image limit is ~5 MB of source bytes; stay under it (base64
+// inflates ~33%, but the API measures the decoded bytes). Oversized photos are
+// skipped rather than risking a hard API rejection.
+const MAX_IMAGE_FETCH_BYTES = 4_500_000;
+const IMAGE_FETCH_TIMEOUT_MS = 10_000;
+
+type AnthropicImageMediaType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/gif"
+  | "image/webp";
+
+// Sniff the media type from magic bytes — DON'T trust the Content-Type header
+// (Supabase storage can serve application/octet-stream). Mirrors the upload
+// validator's sniffing. Returns null for anything Anthropic can't accept.
+function sniffImageMediaType(b: Uint8Array): AnthropicImageMediaType | null {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    b.length >= 8 &&
+    b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  if (
+    b.length >= 12 &&
+    b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  if (b.length >= 4 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) {
+    return "image/gif";
+  }
+  return null;
+}
+
+// Base64-encode bytes via the global btoa (no extra dependency, so the frozen
+// edge lockfile stays untouched). Chunked so String.fromCharCode never gets an
+// argument list big enough to overflow for multi-MB photos.
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Fetches each photo in the edge and returns labelled Anthropic content blocks
+ * with the image bytes inlined as base64.
+ *
+ * We deliberately do NOT hand Anthropic the raw URLs: a single signed/expired/
+ * unreachable URL makes the whole `messages.create` fail with a 400 "Unable to
+ * download the file", which previously sank the ENTIRE extraction (one bad photo
+ * → user gets nothing). Fetching here lets us SKIP an individual bad/oversized/
+ * non-image photo and proceed with the rest, and the edge shares infra with
+ * storage so it fetches reliably. Order is preserved; skipped photos are logged.
+ */
+export async function buildPhotoContent(
+  photos: ExtractPhoto[],
+): Promise<Anthropic.ContentBlockParam[]> {
+  const fetched = await Promise.all(
+    photos.map(async (photo, i) => {
+      try {
+        const res = await fetch(photo.url, {
+          signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+          console.warn(`[flipdesk-ai] image ${i} fetch HTTP ${res.status} — skipping`);
+          return null;
+        }
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_FETCH_BYTES) {
+          console.warn(`[flipdesk-ai] image ${i} size ${bytes.byteLength}B out of range — skipping`);
+          return null;
+        }
+        const mediaType = sniffImageMediaType(bytes);
+        if (!mediaType) {
+          console.warn(`[flipdesk-ai] image ${i} not a supported image — skipping`);
+          return null;
+        }
+        return { photo, mediaType, data: bytesToBase64(bytes) };
+      } catch (err) {
+        console.warn(
+          `[flipdesk-ai] image ${i} fetch failed: ${err instanceof Error ? err.message : String(err)} — skipping`,
+        );
+        return null;
+      }
+    }),
+  );
+
+  const content: Anthropic.ContentBlockParam[] = [];
+  fetched.forEach((entry, i) => {
+    if (!entry) return;
+    content.push({
+      type: "text",
+      text: `Photo ${i + 1}${entry.photo.type ? ` (${entry.photo.type})` : ""}:`,
+    });
+    content.push({
+      type: "image",
+      source: { type: "base64", media_type: entry.mediaType, data: entry.data },
+    });
+  });
+  return content;
+}
+
 /**
  * Extracts structured item attributes from text and/or photos, routing to
  * Haiku (text-only) or Sonnet (any photo). Throws on transport/parse errors
@@ -428,16 +537,9 @@ export async function extractItemFields(
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
 
-  const content: Anthropic.ContentBlockParam[] = [];
-  // Interleave a labelled caption before each image so the model knows
-  // which shot is the tag, the front, etc.
-  photos.forEach((photo, i) => {
-    content.push({
-      type: "text",
-      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
-    });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
-  });
+  // Fetch + inline the images (skips any unreachable one rather than failing the
+  // whole call); each block is captioned with its slot (tag/front/…).
+  const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
   content.push({ type: "text", text: buildUserPrompt(input) });
 
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
@@ -823,14 +925,7 @@ export async function extractEbayAspects(
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
 
-  const content: Anthropic.ContentBlockParam[] = [];
-  photos.forEach((photo, i) => {
-    content.push({
-      type: "text",
-      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
-    });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
-  });
+  const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
   content.push({ type: "text", text: buildAspectUserPrompt(input) });
 
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
@@ -982,14 +1077,7 @@ export async function generateListingCopy(
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
 
-  const content: Anthropic.ContentBlockParam[] = [];
-  photos.forEach((photo, i) => {
-    content.push({
-      type: "text",
-      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
-    });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
-  });
+  const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
 
   const lines: string[] = [
     "ITEM ATTRIBUTES:",
@@ -1155,14 +1243,7 @@ export async function rewriteListingCopy(
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
 
-  const content: Anthropic.ContentBlockParam[] = [];
-  photos.forEach((photo, i) => {
-    content.push({
-      type: "text",
-      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
-    });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
-  });
+  const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
 
   const lines: string[] = [`ACTION:\n${REWRITE_INSTRUCTIONS[input.action]}`];
   if (input.title && input.title.trim()) {
