@@ -58,7 +58,8 @@ final class AIExtractionManager {
         guard tasks[itemId] == nil else { return }
         phases[itemId] = .running
         let task = Task { [weak self] in
-            await self?.run(
+            guard let self else { return }
+            await self.run(
                 itemId: itemId,
                 userId: userId,
                 photos: photos,
