@@ -160,6 +160,16 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertNil(EdgeAPI.parseRetryAfter("soon"))
     }
 
+    // `Double("inf")` / `Double("nan")` parse successfully; if accepted they
+    // would flow into `Int(...)` (breadcrumb) and `UInt64(...)` (sleep), both of
+    // which TRAP on a non-finite value. A hostile/buggy server must not crash us.
+    func test_parseRetryAfter_rejectsNonFinite() {
+        XCTAssertNil(EdgeAPI.parseRetryAfter("inf"))
+        XCTAssertNil(EdgeAPI.parseRetryAfter("-inf"))
+        XCTAssertNil(EdgeAPI.parseRetryAfter("nan"))
+        XCTAssertNil(EdgeAPI.parseRetryAfter("Infinity"))
+    }
+
     // US-1164: the HTTP-date form is now honored, converted to a relative delay.
     func test_parseRetryAfter_httpDateForm() {
         // A future GMT date → a positive delay (the caller caps it).

@@ -57,8 +57,13 @@ struct FieldSuggestionRow: View {
         }
     }
 
+    /// Defensive clamp to the documented 0…1 contract. A backend that emits an
+    /// out-of-range confidence (negative in particular) would otherwise drive a
+    /// NEGATIVE SwiftUI frame width below, which traps at layout time.
+    private var clampedConfidence: Double { min(max(entry.confidence, 0), 1) }
+
     private var confidenceBadge: some View {
-        let pct = Int((entry.confidence * 100).rounded())
+        let pct = Int((clampedConfidence * 100).rounded())
         return Text("\(pct)%")
             .font(.caption2.weight(.semibold))
             .foregroundStyle(confidenceColor)
@@ -75,7 +80,7 @@ struct FieldSuggestionRow: View {
                     .fill(.secondary.opacity(0.15))
                 Capsule()
                     .fill(confidenceColor)
-                    .frame(width: proxy.size.width * entry.confidence)
+                    .frame(width: proxy.size.width * clampedConfidence)
             }
         }
         .frame(height: 4)

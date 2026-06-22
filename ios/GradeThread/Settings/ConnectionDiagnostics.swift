@@ -117,7 +117,9 @@ struct ConnectionDiagnostics {
         request.httpBody = Data("diag".utf8)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            // Bounded session (US-992): a connectivity probe must fail fast
+            // rather than hang ~60s on URLSession.shared's default timeout.
+            let (data, response) = try await EdgeNetwork.shared.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             let body = String(data: data, encoding: .utf8)?.prefix(200) ?? ""
             lines.append("HTTP \(code): \(body)")

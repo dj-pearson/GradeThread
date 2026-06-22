@@ -335,7 +335,11 @@ public actor EdgeAPI {
     /// (US-1145).
     static func parseRetryAfter(_ value: String?) -> TimeInterval? {
         guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
-        if let seconds = Double(value) { return max(0, seconds) }
+        // `Double("nan")` / `Double("inf")` parse successfully — a malformed or
+        // hostile `Retry-After: inf` would otherwise flow into `Int($0)` (the
+        // breadcrumb) and `UInt64(...)` (the sleep), both of which TRAP on a
+        // non-finite value. Only accept finite seconds; fall through otherwise.
+        if let seconds = Double(value), seconds.isFinite { return max(0, seconds) }
         // US-1164: also accept the HTTP-date form (RFC 1123), converting it to a
         // relative delay from now (clamped to >= 0). The caller caps the result.
         if let date = httpDateFormatter.date(from: value) {

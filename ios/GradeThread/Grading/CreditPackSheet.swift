@@ -46,6 +46,18 @@ struct CreditPackSheet: View {
             } message: {
                 Text(store.purchaseError ?? "")
             }
+            // Ask to Buy / SCA deferral (US-1144): the purchase needs approval
+            // before it completes, so `buy()` returns without an entitlement.
+            // Tell the user instead of letting the sheet silently no-op (which
+            // invites a confused re-tap → a second pending purchase).
+            .alert("Purchase pending approval", isPresented: Binding(
+                get: { store.purchasePending },
+                set: { if !$0 { store.purchasePending = false } }
+            )) {
+                Button("OK", role: .cancel) { store.purchasePending = false }
+            } message: {
+                Text("Your purchase needs approval before it completes. Once it's approved, your credits are added automatically — no need to buy again.")
+            }
             .task {
                 if store.phase == .loading {
                     Telemetry.event("grade.credit_pack_opened")
@@ -103,6 +115,12 @@ struct CreditPackSheet: View {
             Spacer(minLength: 8)
             if store.purchasingId == entry.productId {
                 ProgressView()
+            } else if !store.hasResolvedPrice(entry) {
+                // StoreKit didn't return this pack — show "Unavailable" rather
+                // than a tappable fallback price that dead-ends on tap (2.1(b)).
+                Text("Unavailable")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
             } else {
                 Button {
                     Task { await buy(entry) }

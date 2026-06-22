@@ -12,9 +12,14 @@ final class PaywallStoreTests: XCTestCase {
         billing: PaywallStore.BillingSnapshot? = nil,
         catalog: [CatalogProduct] = []
     ) -> PaywallStore {
-        PaywallStore(
+        let s = PaywallStore(
             userId: uid, service: service,
             billingFetcher: { billing }, catalogLoader: { catalog })
+        // Default to a fully-loaded StoreKit catalog (every product priced), the
+        // common case. Tests exercising an unresolved/partial catalog override
+        // `s.prices` directly or drive it through `load()` (which replaces it).
+        s.prices = Dictionary(uniqueKeysWithValues: IAPCatalog.allIds.map { ($0, "$0.00") })
+        return s
     }
 
     private func sub(_ id: String) -> IAPCatalogEntry { IAPCatalog.entry(for: id)! }
@@ -63,6 +68,11 @@ final class PaywallStoreTests: XCTestCase {
 
     func test_canPurchase_subscriptionGating() {
         let s = store()
+        // StoreKit resolved real prices for these products (loaded paywall).
+        s.prices = [
+            "com.gradethread.sub.pro.monthly": "$59.00",
+            "com.gradethread.sub.business.monthly": "$99.00",
+        ]
         // Free user, no Stripe → can buy Pro.
         XCTAssertTrue(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
 
@@ -79,8 +89,24 @@ final class PaywallStoreTests: XCTestCase {
 
     func test_canPurchase_consumablesAlwaysAllowed() {
         let s = store()
+        s.prices = ["com.gradethread.credits.25": "$24.99"] // StoreKit resolved it
         s.billingSource = "stripe"; s.subscriptionStatus = "active" // managed on web
         XCTAssertTrue(s.canPurchase(pack("com.gradethread.credits.25")))
+    }
+
+    // App Store 2.1(b): a product StoreKit couldn't resolve (e.g. the
+    // subscription group not attached to the reviewed version while the
+    // consumables are) must NOT be purchasable — otherwise its row renders a
+    // tappable fallback price that dead-ends on "this item is unavailable."
+    func test_canPurchase_falseWhenStoreKitPriceUnresolved() {
+        let s = store()
+        // Consumable priced, subscription NOT (partial catalog load).
+        s.prices = ["com.gradethread.credits.25": "$24.99"]
+        XCTAssertTrue(s.hasResolvedPrice(pack("com.gradethread.credits.25")))
+        XCTAssertTrue(s.canPurchase(pack("com.gradethread.credits.25")))
+
+        XCTAssertFalse(s.hasResolvedPrice(sub("com.gradethread.sub.pro.monthly")))
+        XCTAssertFalse(s.canPurchase(sub("com.gradethread.sub.pro.monthly")))
     }
 
     func test_canPurchase_blockedWhilePurchasing() {
@@ -92,6 +118,7 @@ final class PaywallStoreTests: XCTestCase {
 
     func test_price_fallsBackWhenUnpriced() {
         let s = store()
+        s.prices = [:] // StoreKit hasn't resolved anything yet
         XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "$59/mo")
         s.prices = ["com.gradethread.sub.pro.monthly": "£55.00"]
         XCTAssertEqual(s.price(for: sub("com.gradethread.sub.pro.monthly")), "£55.00")
