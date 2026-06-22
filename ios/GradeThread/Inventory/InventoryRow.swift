@@ -6,6 +6,9 @@ import SwiftUI
 struct InventoryRow: View {
     let item: LocalInventoryItem
     private let currencyFormatter = CurrencyFormatter()
+    /// US-686: drives the "AI processing… / Review ready" pill.
+    @State private var aiManager = AIExtractionManager.shared
+    @State private var reviewStore = AIFillReviewStore.shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -38,6 +41,7 @@ struct InventoryRow: View {
                         .foregroundStyle(Color.brandEmerald)
                         .padding(.top, 1)
                 }
+                aiStatusPill
             }
 
             Spacer(minLength: 8)
@@ -61,6 +65,27 @@ struct InventoryRow: View {
             maxDimension: 56
         ) {
             placeholderThumbnail
+        }
+    }
+
+    /// US-686: AI-extraction status. "AI processing…" while a background
+    /// extraction runs, then "Review ready" while a pending review is waiting to
+    /// be opened (tapping the row pops it). Nothing once reviewed/cleared.
+    @ViewBuilder
+    private var aiStatusPill: some View {
+        if aiManager.isRunning(item.id) {
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.mini).tint(Color.brandNavy)
+                Text("AI processing…")
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.brandNavy)
+            .padding(.top, 1)
+        } else if reviewStore.review(for: item.id)?.hasSomethingToReview == true {
+            Label("Review ready", systemImage: "sparkles")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color.brandNavy)
+                .padding(.top, 1)
         }
     }
 
@@ -116,6 +141,11 @@ struct InventoryRow: View {
             parts.append("Certified grade \(String(format: "%.1f", grade))")
         }
         parts.append("Status \(StatusBadge.label(for: item.status))")
+        if aiManager.isRunning(item.id) {
+            parts.append("AI processing")
+        } else if reviewStore.review(for: item.id)?.hasSomethingToReview == true {
+            parts.append("AI review ready")
+        }
         return parts.joined(separator: ". ")
     }
 }

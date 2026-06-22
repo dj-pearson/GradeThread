@@ -467,6 +467,18 @@ final class AIExtractTests: XCTestCase {
         XCTAssertTrue(review.hasSomethingToReview)
     }
 
+    // MARK: - Background extraction manager (US-686 follow-up)
+
+    func test_extractionManager_unknownItem_isIdleAndClearIsSafe() {
+        let mgr = AIExtractionManager.shared
+        let id = "no-such-item-\(UUID().uuidString)"
+        XCTAssertNil(mgr.phase(for: id))
+        XCTAssertFalse(mgr.isRunning(id))
+        mgr.clear(for: id)            // must be a safe no-op for an unknown id
+        XCTAssertNil(mgr.phase(for: id))
+        XCTAssertFalse(mgr.isRunning(id))
+    }
+
     // MARK: - Auto-present queue (US-686 follow-up)
 
     func test_fillReviewStore_autoPresentQueue_isOnceOnly() {

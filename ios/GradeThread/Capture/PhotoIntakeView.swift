@@ -185,6 +185,17 @@ struct PhotoIntakeView: View {
                         dismiss()
                         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
                         DeepLinkRouter.post(.inventoryItem(id: itemId))
+                    },
+                    onBackground: {
+                        // The extraction keeps running in AIExtractionManager;
+                        // drop the user on the inventory list where the new item
+                        // shows a "processing → review ready" pill. Opening it
+                        // later pops the same review.
+                        store.reset()
+                        draftItemId = nil
+                        dismiss()
+                        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                        DeepLinkRouter.post(.inventoryTab)
                     }
                 )
             } else {
