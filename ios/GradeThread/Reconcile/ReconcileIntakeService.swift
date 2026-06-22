@@ -118,7 +118,10 @@ struct ReconcileIntakeService: ReconcileIntakeProviding {
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
-        let (_, response) = try await URLSession.shared.upload(for: request, from: jpeg)
+        // US-992: bounded session (20s idle / 60s resource), NOT URLSession.shared
+        // (60s) — this upload blocks the "Syncing X/Y…" spinner, so a stalled
+        // photo must fail fast instead of hanging the flow (the rejection class).
+        let (_, response) = try await EdgeNetwork.shared.upload(for: request, from: jpeg)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ServiceError.uploadFailed(status: http.statusCode)
         }

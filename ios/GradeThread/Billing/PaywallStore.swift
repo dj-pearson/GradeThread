@@ -128,8 +128,26 @@ final class PaywallStore {
         currentPlan.lowercased() == plan.lowercased()
     }
 
+    /// True when StoreKit resolved a real, purchasable product/price for this
+    /// entry. When false the product is NOT purchasable — `Product.products(for:)`
+    /// returned nothing for its id (StoreKit offline, sandbox/App Store Connect
+    /// misconfig, or — the likely review case — the subscription group not
+    /// attached to the reviewed version while the consumables are). Tapping such
+    /// a row dead-ends in `StoreKitService.purchase`'s `guard products.first`
+    /// with "this item is unavailable" — the exact App Store 2.1(b) reject
+    /// pattern. The display price still falls back to the catalog for context;
+    /// the buy affordance must be suppressed (see `PaywallView.trailing`).
+    func hasResolvedPrice(_ entry: IAPCatalogEntry) -> Bool {
+        prices[entry.productId] != nil
+    }
+
     func canPurchase(_ entry: IAPCatalogEntry) -> Bool {
         guard purchasingId == nil else { return false }
+        // A product StoreKit couldn't resolve can't be bought — gate it here
+        // (defense-in-depth behind the view's "Unavailable" label) so a
+        // partially-loaded catalog never offers a tappable, fallback-priced row
+        // that dead-ends on tap (App Store 2.1(b)).
+        guard hasResolvedPrice(entry) else { return false }
         switch entry.kind {
         case let .subscription(plan, _):
             return !managedOnWeb && !isCurrentPlan(plan)

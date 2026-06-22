@@ -316,6 +316,15 @@ struct PaywallView: View {
         } else if store.purchasingId == entry.productId {
             ProgressView()
                 .accessibilityLabel("Purchasing \(entry.title)")
+        } else if !store.hasResolvedPrice(entry) {
+            // StoreKit didn't return this product (e.g. the subscription group
+            // isn't attached to the reviewed version while credit packs are).
+            // Show "Unavailable" rather than a tappable fallback price that
+            // dead-ends on "this item is unavailable" (App Store 2.1(b)).
+            Text("Unavailable")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("\(entry.title) is currently unavailable")
         } else {
             Button {
                 Task { await buy(entry) }
