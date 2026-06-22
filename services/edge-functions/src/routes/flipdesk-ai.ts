@@ -322,6 +322,18 @@ flipdeskAiRoutes.post("/extract", async (c) => {
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
       latencyMs,
+      // Diagnostics: the actual high-value field values + brand confidence/source,
+      // so a "brand is wrong" report is diagnosable from one log line (Claude's
+      // value? on-device OCR fallback?) without querying ai_enrichment_log.
+      fields: {
+        title: result.suggestions.title?.value,
+        brand: result.suggestions.brand?.value,
+        brandConf: result.suggestions.brand?.confidence,
+        brandSrc: result.suggestions.brand?.source,
+        style: result.suggestions.style?.value,
+        size: result.suggestions.size?.value,
+        material: result.suggestions.material?.value,
+      },
     })
   );
 
