@@ -409,33 +409,39 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     }
   }
 
-  // One-call listing prep: resolve the eBay category + fill its
-  // item-specifics, persisting both onto the item. Best-effort — never
-  // fails the core extraction.
-  let ebay: EbayAspectsBlock | null = null;
-  let extraActions = 0;
-  if (includeEbayAspects && itemId) {
-    try {
-      const phase = await runEbayAspectsPhase({
-        userId,
-        itemId,
-        limit,
-        photos: cappedPhotos,
-        extraction: result,
-      });
-      ebay = phase.block;
-      extraActions = phase.actionsSpent;
-    } catch (err) {
-      console.error(
-        "[flipdesk-ai] eBay aspects phase failed:",
-        err instanceof Error ? err.message : String(err)
-      );
-    }
+  // One-call listing prep: resolve the eBay category + fill its item-specifics
+  // and persist them onto the item — but DON'T block the response on it. That
+  // phase runs a SECOND model call (~20s) which previously doubled the extract
+  // latency to ~40s; deferring it lets the core extraction return in ~16s. The
+  // persisted category/aspects are read by the specifics editor on demand, so
+  // the client no longer needs them inline. Best-effort — failures are logged,
+  // never surfaced. Fire-and-forget on the persistent edge event loop.
+  const ebayPending = includeEbayAspects && itemId != null;
+  if (ebayPending) {
+    const bgItemId = itemId as string;
+    void (async () => {
+      try {
+        await runEbayAspectsPhase({
+          userId,
+          itemId: bgItemId,
+          limit,
+          photos: cappedPhotos,
+          extraction: result,
+        });
+      } catch (err) {
+        console.error(
+          "[flipdesk-ai] background eBay aspects phase failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    })();
   }
 
-  // Action(s) already reserved atomically above (US-387).
+  // Action already reserved atomically above (US-387). The background eBay pass
+  // reserves its OWN action when it runs, so it isn't subtracted from this
+  // response's remaining count.
   const actionsRemaining =
-    limit === -1 ? -1 : Math.max(0, limit - used - 1 - extraActions);
+    limit === -1 ? -1 : Math.max(0, limit - used - 1);
 
   return c.json({
     suggestions: result.suggestions,
@@ -450,7 +456,11 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     model: result.model,
     log_id: logRow?.id ?? null,
     actions_remaining: actionsRemaining,
-    ebay,
+    // eBay category/aspects now resolve in the background (see above); the
+    // client reads them from the item once persisted. `ebay_pending` lets a
+    // client show a "resolving category…" hint if it wants to.
+    ebay: null,
+    ebay_pending: ebayPending,
   });
 });
 
