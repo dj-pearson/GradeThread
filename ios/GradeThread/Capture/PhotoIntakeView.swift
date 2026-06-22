@@ -22,6 +22,11 @@ struct PhotoIntakeView: View {
     @State private var startupError: String?
     @State private var slotForPreview: PhotoSlotType?
     @State private var showingExitConfirmation = false
+    /// US-686: tag-photo quality pre-flight (nudge to retake a blurry/low-res
+    /// tag before spending an AI action). `isCheckingTag` covers the brief OCR
+    /// pass; `pendingPoorTag` drives the retake prompt.
+    @State private var isCheckingTag = false
+    @State private var pendingPoorTag: TagPhotoQuality.Reason?
 
     // US-646: photo-capture draft recovery.
     @State private var seededWithInitialPhotos: Bool
@@ -127,6 +132,27 @@ struct PhotoIntakeView: View {
             announce("\(slot.label). \(slot.hint)")
         }
         .onDisappear { camera.stop() }
+        // US-686: nudge to retake a blurry/low-res tag before AI runs.
+        .alert(
+            "Tag photo looks hard to read",
+            isPresented: Binding(
+                get: { pendingPoorTag != nil },
+                set: { if !$0 { pendingPoorTag = nil } }
+            )
+        ) {
+            Button("Retake tag photo") {
+                pendingPoorTag = nil
+                store.clearPhoto(at: .tag)
+                store.setActiveSlot(.tag)
+            }
+            Button("Use anyway", role: .destructive) {
+                pendingPoorTag = nil
+                Task { await startIntakeFlow() }
+            }
+            Button("Cancel", role: .cancel) { pendingPoorTag = nil }
+        } message: {
+            Text(pendingPoorTag.map(TagPhotoQuality.message(for:)) ?? "")
+        }
         .confirmationDialog(
             "Discard captured photos?",
             isPresented: $showingExitConfirmation,
@@ -298,10 +324,10 @@ struct PhotoIntakeView: View {
             if store.allRequiredFilled {
                 Button {
                     AppRouter.haptic()
-                    Task { await startIntakeFlow() }
+                    Task { await handleDone() }
                 } label: {
                     HStack(spacing: 6) {
-                        if isCreatingItem {
+                        if isCreatingItem || isCheckingTag {
                             ProgressView().tint(.white)
                         }
                         Text("Done")
@@ -313,7 +339,7 @@ struct PhotoIntakeView: View {
                     .background(Color.brandNavy)
                     .clipShape(Capsule())
                 }
-                .disabled(uploadService == nil || isCreatingItem)
+                .disabled(uploadService == nil || isCreatingItem || isCheckingTag)
             }
         }
         .padding(.horizontal, 16)
@@ -635,6 +661,23 @@ struct PhotoIntakeView: View {
             return user.id.uuidString
         }
         return nil
+    }
+
+    /// US-686: gate the hand-off on a tag-photo quality check. If a tag was
+    /// captured but is too low-res / unreadable, prompt to retake BEFORE
+    /// creating the item + spending an AI action; otherwise proceed straight in.
+    /// No tag captured → nothing to check, proceed.
+    private func handleDone() async {
+        if let tag = store.photos[.tag] {
+            isCheckingTag = true
+            let assessment = await TagPhotoQuality.assess(tag)
+            isCheckingTag = false
+            if case .poor(let reason) = assessment {
+                pendingPoorTag = reason
+                return
+            }
+        }
+        await startIntakeFlow()
     }
 
     /// End-to-end intake hand-off:
