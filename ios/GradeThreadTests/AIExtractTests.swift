@@ -515,7 +515,10 @@ final class AIExtractTests: XCTestCase {
         XCTAssertTrue(json["brand"] is NSNull)
         XCTAssertEqual(json["size"] as? String, "M")
         XCTAssertTrue(json["measurements"] is NSNull)
-        XCTAssertTrue(json["ai_field_sources"] is NSNull)
+        // ai_field_sources is NOT NULL DEFAULT '{}' — cleared to an empty object,
+        // never SQL NULL (which would violate the constraint).
+        XCTAssertEqual((json["ai_field_sources"] as? [String: Any])?.isEmpty, true)
+        XCTAssertFalse(json["ai_field_sources"] is NSNull)
         XCTAssertTrue(json["ai_enriched_at"] is NSNull)
     }
 }
