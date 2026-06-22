@@ -56,43 +56,30 @@ enum SizeTagInference {
     // MARK: - Brand
 
     static func detectBrand(in lines: [String]) -> String? {
-        // 1. Known-brand whitelist — substring match against the joined
-        //    lowercase form so multi-word brands ('the north face') don't
-        //    get split. Pick the LONGEST match: `knownBrands` is a Set with
-        //    overlapping entries ('north face' ⊂ 'the north face',
-        //    'levis' ⊂ "levi's"), and iterating it in hash order would return
-        //    a non-deterministic, often-truncated brand.
+        // Known-brand whitelist ONLY — substring match against the joined
+        // lowercase form so multi-word brands ('the north face') don't get
+        // split. Pick the LONGEST match: `knownBrands` is a Set with overlapping
+        // entries ('north face' ⊂ 'the north face', 'levis' ⊂ "levi's"), and
+        // iterating it in hash order would return a non-deterministic,
+        // often-truncated brand.
+        //
+        // We intentionally do NOT fall back to a "first prominent uppercase
+        // line" heuristic: on a real care/brand tag that line is just as often a
+        // COLLECTION or STYLE name ("BETTER SWEATER", "HERITAGE", a model name)
+        // as the brand, so the heuristic confidently surfaced a style name AS
+        // the brand — exactly the OCR garbage this fallback should avoid. When
+        // OCR can't match a known brand, return nil (leave brand empty) rather
+        // than guess; Claude Vision is the primary brand source and the canvas
+        // still lets the user fill it.
         let joinedLower = lines.joined(separator: " ").lowercased()
-        if let brand = knownBrands
+        guard let brand = knownBrands
             .filter({ joinedLower.contains($0) })
-            .max(by: { $0.count < $1.count }) {
-            return brand
-                .split(separator: " ")
-                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-                .joined(separator: " ")
-        }
-
-        // 2. Uppercase heuristic — the first line that's 2–25 chars,
-        //    >=70% uppercase letters, and isn't size-y (avoids matching
-        //    "SIZE M" or "MADE IN USA" as a brand). Care-tag brands are
-        //    almost always printed in caps at the top.
-        for line in lines.prefix(4) {
-            let letters = line.filter { $0.isLetter || $0 == "'" || $0 == "." || $0 == " " }
-            guard letters.count >= 2, letters.count <= 25 else { continue }
-            let uppercase = letters.filter { $0.isUppercase || !$0.isLetter }
-            let uppercaseRatio = letters.isEmpty ? 0 : Double(uppercase.count) / Double(letters.count)
-            guard uppercaseRatio >= 0.7 else { continue }
-            // Reject lines that read as care/size instructions.
-            let lower = line.lowercased()
-            if lower.contains("size") || lower.contains("made in") || lower.contains("wash") {
-                continue
-            }
-            // Reject lines that are just alpha-size tokens.
-            if alphaSizes.contains(line.uppercased()) { continue }
-            return line.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        return nil
+            .max(by: { $0.count < $1.count })
+        else { return nil }
+        return brand
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 
     // MARK: - Size

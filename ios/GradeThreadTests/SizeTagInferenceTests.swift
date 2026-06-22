@@ -19,10 +19,19 @@ final class SizeTagInferenceTests: XCTestCase {
         XCTAssertEqual(result.brand, "Adidas")
     }
 
-    func test_brand_uppercaseHeuristic_picksTopLine() {
+    func test_brand_whitelistMatchesWithinNoisyLine() {
         let lines = ["PATAGONIA INC", "Synchilla", "Made in USA", "L"]
         let result = SizeTagInference.infer(lines: lines)
-        XCTAssertEqual(result.brand, "Patagonia") // whitelist beats heuristic
+        XCTAssertEqual(result.brand, "Patagonia") // matched inside "PATAGONIA INC"
+    }
+
+    func test_brand_styleNameIsNotReturnedAsBrand() {
+        // The regression this fallback caused: a prominent uppercase COLLECTION /
+        // style line (no recognizable brand present) was confidently returned as
+        // the brand. Whitelist-only now returns nil rather than a style name.
+        XCTAssertNil(SizeTagInference.infer(lines: ["SYNCHILLA", "SNAP-T", "Made in USA"]).brand)
+        XCTAssertNil(SizeTagInference.infer(lines: ["HERITAGE", "REGULAR FIT", "Cotton"]).brand)
+        XCTAssertNil(SizeTagInference.infer(lines: ["VINTAGE", "AUTHENTIC"]).brand)
     }
 
     func test_brand_rejectsSizeLines() {
