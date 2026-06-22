@@ -62,6 +62,9 @@ struct AIFillReviewSheet: View {
                     Text(summary).font(.body)
                 }
             }
+            if let ebay = review.ebayCategory {
+                ebaySection(ebay)
+            }
             if !review.applied.isEmpty {
                 appliedSection(review)
             }
@@ -96,6 +99,35 @@ struct AIFillReviewSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// US-822: read-only summary of the eBay category + item-specifics the
+    /// server resolved and already saved onto the item during extraction. The
+    /// dedicated specifics editor (opened from the canvas) is where the user
+    /// edits them — this just confirms they were set.
+    private func ebaySection(_ ebay: AIFillReview.EbaySummary) -> some View {
+        Section {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "tag")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ebay.displayName)
+                        .font(.subheadline.weight(.semibold))
+                    Text(ebay.filledAspectCount > 0
+                        ? "\(ebay.filledAspectCount) item specific\(ebay.filledAspectCount == 1 ? "" : "s") filled"
+                        : "Category set — add item specifics on the item")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+        } header: {
+            Text("eBay category")
+        } footer: {
+            Text("Auto-selected and saved. Edit the category or its specifics from the item's Specifics section.")
+                .font(.caption)
         }
     }
 

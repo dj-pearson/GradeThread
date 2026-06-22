@@ -107,7 +107,7 @@ final class AIExtractTests: XCTestCase {
         let response = AIExtractResponse(
             suggestions: [
                 "brand": .init(value: "Nike", confidence: 0.95, source: "photo:tag"),
-                "color": .init(value: "blue", confidence: 0.55, source: "photo:front"),
+                "color": .init(value: "blue", confidence: 0.45, source: "photo:front"),
             ],
             conditionSummary: nil,
             conflicts: [],
@@ -124,7 +124,8 @@ final class AIExtractTests: XCTestCase {
         XCTAssertEqual(result.entries.count, 2)
         XCTAssertEqual(result.measurements.count, 1)
 
-        // Auto-acceptance: high-confidence (≥0.8) rows checked by default.
+        // Auto-acceptance: medium-and-up (≥0.5) rows checked by default; the
+        // 0.45 color stays below the bar.
         XCTAssertTrue(store.isAccepted("brand"))
         XCTAssertFalse(store.isAccepted("color"))
         // Measurements default-on when present.
@@ -158,7 +159,7 @@ final class AIExtractTests: XCTestCase {
         let store = AIExtractStore()
         let response = AIExtractResponse(
             suggestions: [
-                "brand": .init(value: "Carhartt", confidence: 0.6, source: "photo:tag")
+                "brand": .init(value: "Carhartt", confidence: 0.4, source: "photo:tag")
             ],
             conditionSummary: nil,
             conflicts: [],
@@ -180,7 +181,7 @@ final class AIExtractTests: XCTestCase {
             suggestions: [
                 "brand": .init(value: "A", confidence: 0.3, source: "text"),
                 "size": .init(value: "B", confidence: 0.4, source: "text"),
-                "color": .init(value: "C", confidence: 0.5, source: "text"),
+                "color": .init(value: "C", confidence: 0.45, source: "text"),
             ],
             conditionSummary: nil,
             conflicts: [],
@@ -188,7 +189,7 @@ final class AIExtractTests: XCTestCase {
             model: nil, logId: nil, actionsRemaining: 0
         )
         store.applyResponse(response)
-        // Low-confidence rows aren't default-accepted.
+        // All rows below the 0.5 bar — none default-accepted.
         XCTAssertEqual(store.acceptedFields.count, 0)
 
         store.acceptAll()
@@ -230,7 +231,7 @@ final class AIExtractTests: XCTestCase {
             suggestions: [
                 "brand": .init(value: "Nike", confidence: 0.95, source: "photo:tag"),
                 "size": .init(value: "M", confidence: 0.82, source: "photo:tag"),
-                "color": .init(value: "blue", confidence: 0.55, source: "photo:front"),
+                "color": .init(value: "blue", confidence: 0.45, source: "photo:front"),
             ],
             conditionSummary: "Light wear.",
             conflicts: [],
@@ -244,6 +245,7 @@ final class AIExtractTests: XCTestCase {
         let review = try XCTUnwrap(store.buildFillReview(itemId: "item-1", snapshot: snapshot))
 
         XCTAssertEqual(review.itemId, "item-1")
+        // brand 0.95 + size 0.82 clear the 0.5 bar; color 0.45 stays opt-in.
         XCTAssertEqual(Set(review.applied.map(\.field)), ["brand", "size"])
         XCTAssertEqual(review.lowConfidence.map(\.field), ["color"])
         XCTAssertEqual(review.conditionSummary, "Light wear.")
@@ -400,6 +402,69 @@ final class AIExtractTests: XCTestCase {
         XCTAssertNil(
             AIItemFieldWriter.seededTitle(brand: nil, style: nil, size: nil, explicit: nil)
         )
+    }
+
+    // MARK: - Lowered auto-apply bar (0.5) + resolved eBay category (US-822)
+
+    /// Medium-confidence fields (≥0.5) now auto-apply; the bar is exclusive at
+    /// 0.5 so a 0.49 field stays an opt-in suggestion.
+    func test_buildFillReview_appliesMediumConfidence_aboveLoweredBar() throws {
+        XCTAssertEqual(AIExtractStore.autoApplyConfidenceThreshold, 0.5, accuracy: 0.0001)
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: [
+                "brand": .init(value: "Patagonia", confidence: 0.55, source: "photo:front"),
+                "size":  .init(value: "M",         confidence: 0.49, source: "photo:front"),
+            ],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot()))
+        XCTAssertEqual(review.applied.map(\.field), ["brand"])
+        XCTAssertEqual(review.lowConfidence.map(\.field), ["size"])
+    }
+
+    func test_ebaySummary_nilWhenNoBlockOrEmptyId() {
+        XCTAssertNil(AIFillReview.EbaySummary(from: nil))
+        XCTAssertNil(AIFillReview.EbaySummary(
+            from: AIExtractEbayBlock(categoryId: "", categoryPath: "Men > Shirts", aspects: [:])
+        ))
+    }
+
+    func test_ebaySummary_displayNameLeafAndAspectCount() throws {
+        let block = AIExtractEbayBlock(
+            categoryId: "57988",
+            categoryPath: "Clothing, Shoes & Accessories > Men > Shirts",
+            aspects: ["Brand": ["Nike"], "Size": ["M"], "Color": []]  // empty value isn't counted
+        )
+        let summary = try XCTUnwrap(AIFillReview.EbaySummary(from: block))
+        XCTAssertEqual(summary.displayName, "Shirts")
+        XCTAssertEqual(summary.filledAspectCount, 2)
+        XCTAssertEqual(summary.categoryId, "57988")
+    }
+
+    func test_ebaySummary_displayNameFallsBackToIdWhenNoPath() throws {
+        let summary = try XCTUnwrap(AIFillReview.EbaySummary(
+            from: AIExtractEbayBlock(categoryId: "11450", categoryPath: nil, aspects: [:])
+        ))
+        XCTAssertEqual(summary.displayName, "eBay category 11450")
+        XCTAssertEqual(summary.filledAspectCount, 0)
+    }
+
+    /// The resolved/persisted eBay category rides along in the review so it's
+    /// visible right after intake, and on its own makes the review worth showing.
+    func test_buildFillReview_includesResolvedEbayCategory() throws {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: ["brand": .init(value: "Nike", confidence: 0.9, source: "photo:tag")],
+            conditionSummary: nil, conflicts: [], measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0,
+            ebay: AIExtractEbayBlock(categoryId: "57988", categoryPath: "Men > Shirts", aspects: ["Brand": ["Nike"]])
+        ))
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i1", snapshot: AIItemFieldWriter.Snapshot()))
+        XCTAssertEqual(review.ebayCategory?.categoryId, "57988")
+        XCTAssertEqual(review.ebayCategory?.displayName, "Shirts")
+        XCTAssertTrue(review.hasSomethingToReview)
     }
 
     // MARK: - Auto-present queue (US-686 follow-up)

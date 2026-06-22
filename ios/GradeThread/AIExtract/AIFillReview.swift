@@ -25,8 +25,42 @@ struct AppliedAIField: Identifiable, Equatable, Codable {
 /// the user gets a reversible "AI filled N fields — review" entry point instead
 /// of a blocking confirm screen (US-686).
 struct AIFillReview: Equatable, Codable {
+    /// US-822: the eBay category + item-specifics the server resolved AND
+    /// persisted onto the item during the extract pass. Display-only in the
+    /// review (the specifics editor reads the saved values) — it just makes the
+    /// "selected eBay category / required info" visible right after intake.
+    struct EbaySummary: Equatable, Codable {
+        let categoryId: String
+        let categoryPath: String?
+        /// Number of item-specifics (aspects) filled for this category.
+        let filledAspectCount: Int
+
+        /// Leaf category name from the tree path (eBay paths are delimited by
+        /// '>' or '|'); falls back to the raw path, then the id.
+        var displayName: String {
+            guard let path = categoryPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !path.isEmpty else {
+                return "eBay category \(categoryId)"
+            }
+            let leaf = path
+                .components(separatedBy: CharacterSet(charactersIn: ">|"))
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .last { !$0.isEmpty }
+            return leaf ?? path
+        }
+
+        /// nil when the server skipped/failed the eBay phase (no category
+        /// resolvable, AI budget exhausted, taxonomy hiccup, or an older build).
+        init?(from block: AIExtractEbayBlock?) {
+            guard let block, !block.categoryId.isEmpty else { return nil }
+            categoryId = block.categoryId
+            categoryPath = block.categoryPath
+            filledAspectCount = block.aspects.values.reduce(0) { $0 + ($1.isEmpty ? 0 : 1) }
+        }
+    }
+
     let itemId: String
-    /// High-confidence (>=0.8) fields written automatically.
+    /// Fields written automatically (confidence ≥ the auto-apply threshold).
     var applied: [AppliedAIField]
     /// Low-confidence suggestions surfaced for opt-in — never auto-applied.
     var lowConfidence: [FieldSuggestionEntry]
@@ -37,15 +71,22 @@ struct AIFillReview: Equatable, Codable {
     var conditionSummary: String?
     /// True when on-device OCR (Live Text, US-177) produced the suggestions.
     var usedLiveTextFallback: Bool
+    /// US-822: eBay category + specifics resolved+persisted server-side this pass.
+    /// Optional + defaulted so (a) the synthesized Decodable tolerates its absence
+    /// in reviews persisted before this field existed (US-1171 disk cache), and
+    /// (b) the memberwise init stays callable without it (tests / synthetic uses).
+    var ebayCategory: EbaySummary? = nil
 
     /// Count shown in the entry point — applied fields plus applied measurements.
     var appliedCount: Int {
         applied.count + (measurementsApplied ? measurements.count : 0)
     }
 
-    /// Nothing to show once everything's been reviewed away.
+    /// Nothing to show once everything's been reviewed away. A resolved eBay
+    /// category counts: it's worth surfacing that the listing's category +
+    /// specifics were set even when no editable field needs review.
     var hasSomethingToReview: Bool {
-        !applied.isEmpty || !lowConfidence.isEmpty || measurementsApplied
+        !applied.isEmpty || !lowConfidence.isEmpty || measurementsApplied || ebayCategory != nil
     }
 
     /// Canvas entry-point label. Reads "AI filled N fields — review" when

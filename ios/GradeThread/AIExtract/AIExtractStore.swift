@@ -28,6 +28,15 @@ final class AIExtractStore {
         let valueInches: Double
     }
 
+    /// Confidence at/above which an extracted field is APPLIED automatically;
+    /// below it the field is surfaced for opt-in in the (now auto-presenting)
+    /// review. Lowered from 0.8 to 0.5 — "medium and up", matching the web's
+    /// confidence tiers — so a no-tag / moderate-confidence capture actually
+    /// fills the listing instead of landing on a near-empty item. Safe because
+    /// the review sheet now pops automatically and every applied field is
+    /// one-tap reversible there.
+    static let autoApplyConfidenceThreshold = 0.5
+
     var phase: Phase = .waitingForUploads(complete: 0, total: 0)
     /// Field names the user has checked for acceptance.
     var acceptedFields: Set<String> = []
@@ -103,9 +112,8 @@ final class AIExtractStore {
             conditionSummary: result.conditionSummary
         ))
         liveTextFallbackUsed = true
-        // Don't auto-accept fallback suggestions — 0.4 confidence is
-        // below the default-accept threshold (0.8). The user can opt in
-        // explicitly.
+        // Don't auto-accept fallback suggestions — 0.4 confidence is below the
+        // default-accept threshold. The user can opt in explicitly.
     }
 
     func applyResponse(_ response: AIExtractResponse) {
@@ -124,9 +132,9 @@ final class AIExtractStore {
             .sorted { $0.key < $1.key }
             .map { Measurement(id: $0.key, key: $0.key, valueInches: $0.value) }
 
-        // Default-accept high-confidence rows (≥0.8). The user can flip any
+        // Default-accept medium-and-up rows (≥ threshold). The user can flip any
         // off before tapping Apply.
-        acceptedFields = Set(entries.filter { $0.confidence >= 0.8 }.map(\.field))
+        acceptedFields = Set(entries.filter { $0.confidence >= Self.autoApplyConfidenceThreshold }.map(\.field))
         // Measurements default-on per AC.
         acceptMeasurements = !measurements.isEmpty
         ebayPrep = response.ebay
@@ -145,10 +153,10 @@ final class AIExtractStore {
 
     /// Best-effort listing title from the extraction, IGNORING the auto-apply
     /// confidence bar, so a successful extract never lands the user on a bare
-    /// "Untitled item" — even when nothing cleared the ≥0.8 threshold. That
-    /// happens routinely when the capture has no readable care/brand tag: the
-    /// extract prompt is told to return brand/size with LOW confidence rather
-    /// than guess, so the core fields land below 0.8 and none auto-apply.
+    /// "Untitled item" — even when nothing cleared the auto-apply threshold.
+    /// That happens when the capture has no readable care/brand tag: the extract
+    /// prompt is told to return brand/size with LOW confidence rather than guess,
+    /// so the core fields can land below the bar and none auto-apply.
     /// Prefers an explicit `title` suggestion, else composes brand + style/size.
     /// Returns nil only when the extraction surfaced nothing nameable.
     func bestTitleSeed() -> String? {
@@ -168,16 +176,17 @@ final class AIExtractStore {
 
     // MARK: - Auto-fill review (US-686)
 
-    /// Partitions the ready result into an auto-applied set (high-confidence,
-    /// >=0.8) and the low-confidence remainder surfaced for opt-in, so the
-    /// intake can write the confident fields and hand a reversible review to
-    /// the item canvas. `snapshot` provides the pre-fill column values used to
-    /// make each applied field's undo restore the prior value. Returns nil when
-    /// the store isn't in the ready phase.
+    /// Partitions the ready result into an auto-applied set (confidence ≥
+    /// ``autoApplyConfidenceThreshold``) and the low-confidence remainder
+    /// surfaced for opt-in, so the intake can write the confident fields and
+    /// hand a reversible review to the item canvas. `snapshot` provides the
+    /// pre-fill column values used to make each applied field's undo restore the
+    /// prior value. Returns nil when the store isn't in the ready phase.
     func buildFillReview(itemId: String, snapshot: AIItemFieldWriter.Snapshot) -> AIFillReview? {
         guard case let .ready(result) = phase else { return nil }
+        let threshold = Self.autoApplyConfidenceThreshold
         let applied = result.entries
-            .filter { $0.confidence >= 0.8 }
+            .filter { $0.confidence >= threshold }
             .map { entry in
                 AppliedAIField(
                     field: entry.field,
@@ -187,7 +196,7 @@ final class AIExtractStore {
                     source: entry.source
                 )
             }
-        let lowConfidence = result.entries.filter { $0.confidence < 0.8 }
+        let lowConfidence = result.entries.filter { $0.confidence < threshold }
         let measurementsApplied = acceptMeasurements && !result.measurements.isEmpty
         return AIFillReview(
             itemId: itemId,
@@ -196,7 +205,12 @@ final class AIExtractStore {
             measurements: result.measurements,
             measurementsApplied: measurementsApplied,
             conditionSummary: result.conditionSummary,
-            usedLiveTextFallback: liveTextFallbackUsed
+            usedLiveTextFallback: liveTextFallbackUsed,
+            // US-822: the eBay category + specifics the server resolved AND
+            // persisted server-side during this extract pass, surfaced read-only
+            // in the review so "selected eBay category / required info" is
+            // visible right after intake (it's already saved on the item).
+            ebayCategory: AIFillReview.EbaySummary(from: ebayPrep)
         )
     }
 
