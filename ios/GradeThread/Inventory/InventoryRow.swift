@@ -86,6 +86,13 @@ struct InventoryRow: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(Color.brandNavy)
                 .padding(.top, 1)
+        } else if case .failed = aiManager.phase(for: item.id) {
+            // Don't leave a silent "Untitled" item — show that AI didn't finish
+            // (e.g. uploads timed out) so it's not mistaken for "still working".
+            Label("AI didn't finish", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color.brandAmber)
+                .padding(.top, 1)
         }
     }
 
@@ -145,6 +152,8 @@ struct InventoryRow: View {
             parts.append("AI processing")
         } else if reviewStore.review(for: item.id)?.hasSomethingToReview == true {
             parts.append("AI review ready")
+        } else if case .failed = aiManager.phase(for: item.id) {
+            parts.append("AI didn't finish")
         }
         return parts.joined(separator: ". ")
     }

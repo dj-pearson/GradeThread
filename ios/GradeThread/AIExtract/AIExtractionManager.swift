@@ -28,7 +28,11 @@ final class AIExtractionManager {
     private(set) var phases: [String: Phase] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
 
-    private static let waitTimeoutSeconds: Double = 60
+    /// How long to wait for the photo uploads to finish before giving up. The
+    /// extraction sends the uploaded photos' URLs, so it can't run until they
+    /// land; on a slow connection 60s wasn't enough and the run bailed with
+    /// nothing to send, leaving an "Untitled" item (US-686 follow-up).
+    private static let waitTimeoutSeconds: Double = 180
 
     func phase(for itemId: String) -> Phase? { phases[itemId] }
 
@@ -87,7 +91,14 @@ final class AIExtractionManager {
             if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) }
         }
 
+        Telemetry.event("ai_extract_run_begin", props: [
+            "item_id": itemId,
+            "captured": photos.count,
+            "offline": isOffline,
+        ])
+
         if isOffline {
+            Telemetry.event("ai_extract_bail", props: ["reason": "offline", "item_id": itemId])
             phases[itemId] = .failed(
                 "You're offline. Reconnect and reopen this item to let AI read your photos — they're saved and waiting."
             )
@@ -117,8 +128,23 @@ final class AIExtractionManager {
             extractPhotos.append(ExtractPhoto(url: url, type: entry.slot.serverPhotoType))
         }
 
+        // Diagnostic: how many of the captured photos actually reached the
+        // server by the time the wait ended. A short count here is the tell for
+        // "AI processing… → Untitled": the uploads didn't finish, so there was
+        // nothing to send and the server was never called (US-686 follow-up).
+        Telemetry.event("ai_extract_photos_ready", props: [
+            "item_id": itemId,
+            "ready": extractPhotos.count,
+            "captured": photos.count,
+        ])
+
         guard !extractPhotos.isEmpty else {
-            phases[itemId] = .failed("No photos uploaded yet — can't read them. Try again once uploads finish.")
+            Telemetry.event("ai_extract_bail", props: [
+                "reason": "no_uploads",
+                "item_id": itemId,
+                "captured": photos.count,
+            ])
+            phases[itemId] = .failed("Your photos didn't finish uploading in time — check your connection and reopen this item to try again.")
             return
         }
 
@@ -151,6 +177,11 @@ final class AIExtractionManager {
             phases[itemId] = .failed(error.localizedDescription)
             return
         }
+
+        Telemetry.event("ai_extract_succeeded", props: [
+            "item_id": itemId,
+            "photos_sent": extractPhotos.count,
+        ])
 
         await finish(itemId: itemId, store: store)
 
