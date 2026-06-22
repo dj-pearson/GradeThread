@@ -12,9 +12,12 @@ final class AIExtractService {
     private let baseURL: URL
     private let session: URLSession
 
-    // US-992: defaults to the bounded-timeout edge session so an extract call
-    // can't hang ~60s behind a spinner on flaky cellular.
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
+    // Uses the long-idle AI session (EdgeNetwork.aiSession), NOT the 20s-idle
+    // shared edge session: the extract does ~20-40s of server-side model work
+    // (vision pass + the eBay-aspects second pass) and streams nothing until the
+    // JSON lands, so the short idle timeout would kill a request that's actually
+    // succeeding — surfacing as a false "AI couldn't read these photos".
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
         self.baseURL = baseURL
         self.session = session
     }
