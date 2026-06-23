@@ -21,6 +21,10 @@ public struct ItemDraft: Equatable {
     /// Per-item consignor split override as a 0–100 string ("" = use the
     /// consignor's default).
     public var consignmentSplitText: String
+    /// Editable flat garment measurements keyed by canonical key (see
+    /// ``MeasurementCatalog``). LENGTH values are inches. Edited in the canvas
+    /// Measurements section; encoded to the `measurements` jsonb column on save.
+    public var measurements: [String: Double]
 
     public init(
         title: String = "",
@@ -36,7 +40,8 @@ public struct ItemDraft: Equatable {
         acquiredPriceText: String = "",
         locationBin: String = "",
         consignorId: String? = nil,
-        consignmentSplitText: String = ""
+        consignmentSplitText: String = "",
+        measurements: [String: Double] = [:]
     ) {
         self.title = title
         self.brand = brand
@@ -52,6 +57,7 @@ public struct ItemDraft: Equatable {
         self.locationBin = locationBin
         self.consignorId = consignorId
         self.consignmentSplitText = consignmentSplitText
+        self.measurements = measurements
     }
 
     /// Populate from a LocalInventoryItem. The numeric fields go through
@@ -78,6 +84,7 @@ public struct ItemDraft: Equatable {
             // Whole numbers print without a trailing ".0".
             $0 == $0.rounded() ? String(Int($0)) : String($0)
         } ?? ""
+        self.measurements = ItemCanvasView.decodeMeasurements(item.measurementsJSON) ?? [:]
     }
 }
 
