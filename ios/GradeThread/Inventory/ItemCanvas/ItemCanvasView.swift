@@ -34,6 +34,10 @@ struct ItemCanvasView: View {
     /// reads a cached value instead of re-decoding JSON on every `body` pass.
     /// Rebuilt via `.onChange(of: item.measurementsJSON)`.
     @State private var measurements: [String: Double]?
+    // Draft fields for the "Add comp" row in the saved-comps editor.
+    @State private var newCompPriceText = ""
+    @State private var newCompSource = ""
+    @State private var newCompURL = ""
     @State private var showingDiscardConfirmation = false
     @State private var showingPublishDialog = false
     @State private var showingPhotoManager = false
@@ -343,6 +347,7 @@ struct ItemCanvasView: View {
                 .id(ItemPrepChecklist.Step.measurements)
             compsSection(state: state)
                 .id(ItemPrepChecklist.Step.comps)
+            compSetSection(state: state)
             notesSection(state: state)
             descriptionSection(state: state)
             statusSection(state: state)
@@ -992,6 +997,10 @@ struct ItemCanvasView: View {
             TextField("Sourced by", text: $state.draft.sourcedBy)
                 .textInputAutocapitalization(.words)
 
+            TextField("Container", text: $state.draft.container)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+
             Picker("Consignor", selection: $state.draft.consignorId) {
                 Text("None").tag(String?.none)
                 ForEach(consignorStore.consignors) { consignor in
@@ -1059,6 +1068,24 @@ struct ItemCanvasView: View {
                 ) {
                     Text(help).font(.footnote).foregroundStyle(.secondary)
                 }
+            }
+            // Acquisition date (web parity). Optional — the toggle controls
+            // whether a date is set so an unset item doesn't default to today.
+            Toggle("Set acquired date", isOn: Binding(
+                get: { state.draft.acquiredDate != nil },
+                set: { on in
+                    state.draft.acquiredDate = on ? (state.draft.acquiredDate ?? Date()) : nil
+                }
+            ))
+            if let acquired = state.draft.acquiredDate {
+                DatePicker(
+                    "Acquired date",
+                    selection: Binding(
+                        get: { acquired },
+                        set: { state.draft.acquiredDate = $0 }
+                    ),
+                    displayedComponents: .date
+                )
             }
         }
     }
@@ -1341,6 +1368,74 @@ struct ItemCanvasView: View {
             }
             .padding(.vertical, 2)
         }
+    }
+
+    /// Hand-curated comparable sales stored on the item (`comp_set`, web parity),
+    /// distinct from the live "Get eBay comps" lookup above. Add price + optional
+    /// source/URL; swipe a row to remove it.
+    private func compSetSection(state: ItemCanvasState) -> some View {
+        @Bindable var state = state
+        return Section {
+            if state.draft.compSet.isEmpty {
+                Text("No saved comps yet. Add comparable sales you want to keep with this item.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(state.draft.compSet) { comp in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(currencyFormatter.formatDisplay(comp.price))
+                            .font(.subheadline.weight(.semibold))
+                        if let source = comp.source, !source.isEmpty {
+                            Text(source).font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let url = comp.url, !url.isEmpty {
+                            Text(url).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                .onDelete { offsets in
+                    AppRouter.haptic()
+                    state.draft.compSet.remove(atOffsets: offsets)
+                }
+            }
+            VStack(spacing: 8) {
+                HStack {
+                    Text(currencyFormatter.symbol).foregroundStyle(.secondary)
+                    TextField("Price", text: $newCompPriceText)
+                        .keyboardType(.decimalPad)
+                }
+                TextField("Source (e.g. eBay sold)", text: $newCompSource)
+                    .textInputAutocapitalization(.words)
+                TextField("URL (optional)", text: $newCompURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                Button {
+                    addComp(state: state)
+                } label: {
+                    Label("Add comp", systemImage: "plus.circle")
+                }
+                .disabled((currencyFormatter.parse(newCompPriceText) ?? 0) <= 0)
+            }
+        } header: {
+            Text("Saved comps")
+        } footer: {
+            Text("Comparable sales kept with this item — separate from the live eBay comp lookup above.")
+                .font(.caption)
+        }
+    }
+
+    private func addComp(state: ItemCanvasState) {
+        guard let price = currencyFormatter.parse(newCompPriceText), price > 0 else { return }
+        AppRouter.haptic()
+        state.draft.compSet.append(ItemComp(
+            price: price,
+            source: newCompSource.nonEmpty,
+            url: newCompURL.nonEmpty
+        ))
+        newCompPriceText = ""
+        newCompSource = ""
+        newCompURL = ""
     }
 
     private func compStat(_ label: String, _ value: Double?) -> some View {
@@ -1884,6 +1979,9 @@ struct ItemCanvasView: View {
         let description: String?
         let style: String?
         let sourced_by: String?
+        let acquired_date: String?
+        let container: String?
+        let comp_set: [ItemComp]
         let location_bin: String?
         let consignor_id: String?
         let consignment_split_pct: Double?
@@ -1911,6 +2009,9 @@ struct ItemCanvasView: View {
             description: state.draft.itemDescription.nonEmpty,
             style: state.draft.style.nonEmpty,
             sourced_by: state.draft.sourcedBy.nonEmpty,
+            acquired_date: Self.acquiredDateString(state.draft.acquiredDate),
+            container: state.draft.container.nonEmpty,
+            comp_set: state.draft.compSet,
             location_bin: state.draft.locationBin.nonEmpty,
             consignor_id: state.draft.consignorId,
             consignment_split_pct: Self.parseSplit(state),
@@ -1931,6 +2032,20 @@ struct ItemCanvasView: View {
         guard state.draft.category == .clothing else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// `acquired_date` is a calendar date — serialize to "yyyy-MM-dd" at UTC so
+    /// it round-trips the timestamptz/date column without timezone drift.
+    private static let acquiredDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static func acquiredDateString(_ date: Date?) -> String? {
+        date.map { acquiredDateFormatter.string(from: $0) }
     }
 
     /// Parses the per-item split override. Only meaningful when a consignor is
@@ -1960,6 +2075,9 @@ struct ItemCanvasView: View {
         item.itemDescription = state.draft.itemDescription.nonEmpty
         item.style = state.draft.style.nonEmpty
         item.sourcedBy = state.draft.sourcedBy.nonEmpty
+        item.acquiredDate = state.draft.acquiredDate
+        item.container = state.draft.container.nonEmpty
+        item.compSetJSON = ItemComp.encodeList(state.draft.compSet)
         item.locationBin = state.draft.locationBin.nonEmpty
         item.consignorId = state.draft.consignorId
         item.consignmentSplitPct = Self.parseSplit(state)
@@ -2004,6 +2122,9 @@ struct ItemCanvasView: View {
         hasher.combine(item.itemDescription)
         hasher.combine(item.style)
         hasher.combine(item.sourcedBy)
+        hasher.combine(item.acquiredDate)
+        hasher.combine(item.container)
+        hasher.combine(item.compSetJSON)
         hasher.combine(item.status)
         hasher.combine(item.targetPrice)
         hasher.combine(item.acquiredPrice)
