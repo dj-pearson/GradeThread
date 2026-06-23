@@ -13,6 +13,10 @@ public struct ItemDraft: Equatable {
     public var conditionNotes: String
     public var status: String
     public var category: FlipdeskCategory?
+    /// Clothing classification raw values ("" = unset). Required to grade a
+    /// clothing item; only edited when `category == .clothing`.
+    public var garmentType: String
+    public var garmentCategory: String
     public var targetPriceText: String
     public var acquiredPriceText: String
     /// US-676: storage location / bin label and consignment link.
@@ -36,6 +40,8 @@ public struct ItemDraft: Equatable {
         conditionNotes: String = "",
         status: String = "cataloged",
         category: FlipdeskCategory? = nil,
+        garmentType: String = "",
+        garmentCategory: String = "",
         targetPriceText: String = "",
         acquiredPriceText: String = "",
         locationBin: String = "",
@@ -52,6 +58,8 @@ public struct ItemDraft: Equatable {
         self.conditionNotes = conditionNotes
         self.status = status
         self.category = category
+        self.garmentType = garmentType
+        self.garmentCategory = garmentCategory
         self.targetPriceText = targetPriceText
         self.acquiredPriceText = acquiredPriceText
         self.locationBin = locationBin
@@ -72,10 +80,12 @@ public struct ItemDraft: Equatable {
         self.material = item.material ?? ""
         self.conditionNotes = item.conditionNotes ?? ""
         self.status = item.status
-        // category isn't on LocalInventoryItem today — sync engine pulls
-        // it as part of item_category later. For now leave nil and let
-        // the user pick when they edit.
-        self.category = nil
+        // Seed the category from the synced `item_category` so the picker shows
+        // the real value (and a save round-trips it instead of nulling it out),
+        // and so the clothing-only garment pickers gate correctly.
+        self.category = item.itemCategory.flatMap(FlipdeskCategory.init(rawValue:))
+        self.garmentType = item.garmentType ?? ""
+        self.garmentCategory = item.garmentCategory ?? ""
         self.targetPriceText = item.targetPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.acquiredPriceText = item.acquiredPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.locationBin = item.locationBin ?? ""

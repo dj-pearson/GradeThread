@@ -909,6 +909,28 @@ struct ItemCanvasView: View {
                     Text(cat.label).tag(Optional(cat))
                 }
             }
+            // Garment type/category are REQUIRED to grade a clothing item
+            // (flipdesk-grading.ts validate). Only relevant for Clothing —
+            // other categories grade on item_category alone (web parity).
+            if state.draft.category == .clothing {
+                Picker("Garment type", selection: $state.draft.garmentType) {
+                    Text("—").tag("")
+                    ForEach(GarmentClassification.types, id: \.self) { type in
+                        Text(GarmentClassification.label(type)).tag(type)
+                    }
+                }
+                Picker("Garment category", selection: $state.draft.garmentCategory) {
+                    Text("—").tag("")
+                    ForEach(GarmentClassification.categories, id: \.self) { cat in
+                        Text(GarmentClassification.label(cat)).tag(cat)
+                    }
+                }
+                if state.draft.garmentType.isEmpty || state.draft.garmentCategory.isEmpty {
+                    Text("Garment type & category are required to submit this item for grading.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -1833,6 +1855,8 @@ struct ItemCanvasView: View {
         let target_price: Double?
         let acquired_price: Double?
         let item_category: String?
+        let garment_type: String?
+        let garment_category: String?
         let location_bin: String?
         let consignor_id: String?
         let consignment_split_pct: Double?
@@ -1855,6 +1879,8 @@ struct ItemCanvasView: View {
             target_price: target,
             acquired_price: cost,
             item_category: state.draft.category?.rawValue,
+            garment_type: Self.garmentValue(state.draft.garmentType, state: state),
+            garment_category: Self.garmentValue(state.draft.garmentCategory, state: state),
             location_bin: state.draft.locationBin.nonEmpty,
             consignor_id: state.draft.consignorId,
             consignment_split_pct: Self.parseSplit(state),
@@ -1866,6 +1892,15 @@ struct ItemCanvasView: View {
     /// filled" and should never be persisted. Pure.
     static func cleanedMeasurements(_ state: ItemCanvasState) -> [String: Double] {
         state.draft.measurements.filter { $0.value > 0 }
+    }
+
+    /// Garment type/category only persist for clothing — and only when set.
+    /// Returns nil otherwise so a non-clothing item never carries a stray value
+    /// (and switching away from Clothing clears them on the next save).
+    private static func garmentValue(_ raw: String, state: ItemCanvasState) -> String? {
+        guard state.draft.category == .clothing else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Parses the per-item split override. Only meaningful when a consignor is
@@ -1889,6 +1924,9 @@ struct ItemCanvasView: View {
         item.status = state.draft.status
         item.targetPrice = target
         item.acquiredPrice = cost
+        item.itemCategory = state.draft.category?.rawValue
+        item.garmentType = Self.garmentValue(state.draft.garmentType, state: state)
+        item.garmentCategory = Self.garmentValue(state.draft.garmentCategory, state: state)
         item.locationBin = state.draft.locationBin.nonEmpty
         item.consignorId = state.draft.consignorId
         item.consignmentSplitPct = Self.parseSplit(state)
@@ -1927,6 +1965,9 @@ struct ItemCanvasView: View {
         hasher.combine(item.color)
         hasher.combine(item.material)
         hasher.combine(item.conditionNotes)
+        hasher.combine(item.itemCategory)
+        hasher.combine(item.garmentType)
+        hasher.combine(item.garmentCategory)
         hasher.combine(item.status)
         hasher.combine(item.targetPrice)
         hasher.combine(item.acquiredPrice)

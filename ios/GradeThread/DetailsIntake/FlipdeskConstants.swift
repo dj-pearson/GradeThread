@@ -38,6 +38,32 @@ public enum FlipdeskCategory: String, CaseIterable, Identifiable {
     }
 }
 
+/// Clothing classification (`garment_type` / `garment_category` on
+/// `inventory_items`). Raw values mirror `GARMENT_TYPES` / `GARMENT_CATEGORIES`
+/// in `src/lib/constants.ts` exactly so they round-trip through PostgREST and
+/// satisfy the grading validate gate. Only relevant when `item_category ==
+/// clothing`.
+public enum GarmentClassification {
+    public static let types: [String] = [
+        "tops", "bottoms", "outerwear", "dresses", "footwear", "accessories",
+    ]
+
+    public static let categories: [String] = [
+        "t-shirt", "shirt", "blouse", "sweater", "hoodie", "jacket", "coat",
+        "jeans", "pants", "shorts", "skirt", "dress", "sneakers", "boots",
+        "sandals", "hat", "bag", "belt", "scarf", "other",
+    ]
+
+    /// Human label for a raw value: split on "-"/"_" and capitalize each word
+    /// ("t-shirt" → "T Shirt"). The stored value is always the raw string.
+    public static func label(_ raw: String) -> String {
+        raw
+            .split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == " " })
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+}
+
 /// Subset of `item_status` surfaced in the intake form. The full lifecycle
 /// includes statuses like 'shipped' / 'sold' that aren't valid starting
 /// points — those are reached via downstream flows.

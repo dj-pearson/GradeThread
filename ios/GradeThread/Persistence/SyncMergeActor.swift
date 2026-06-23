@@ -421,6 +421,8 @@ actor SyncMergeActor {
         local.color = ConflictPolicy.resolveUserOwned(local: local.color, server: remote.color, hasLocalChanges: local.hasLocalChanges)
         local.material = ConflictPolicy.resolveUserOwned(local: local.material, server: remote.material, hasLocalChanges: local.hasLocalChanges)
         local.itemCategory = ConflictPolicy.resolveUserOwned(local: local.itemCategory, server: remote.item_category, hasLocalChanges: local.hasLocalChanges)
+        local.garmentType = ConflictPolicy.resolveUserOwned(local: local.garmentType, server: remote.garment_type, hasLocalChanges: local.hasLocalChanges)
+        local.garmentCategory = ConflictPolicy.resolveUserOwned(local: local.garmentCategory, server: remote.garment_category, hasLocalChanges: local.hasLocalChanges)
         local.sourceId = ConflictPolicy.resolveUserOwned(local: local.sourceId, server: remote.source_id, hasLocalChanges: local.hasLocalChanges)
         local.locationBin = ConflictPolicy.resolveUserOwned(local: local.locationBin, server: remote.location_bin, hasLocalChanges: local.hasLocalChanges)
         local.consignorId = ConflictPolicy.resolveUserOwned(local: local.consignorId, server: remote.consignor_id, hasLocalChanges: local.hasLocalChanges)
