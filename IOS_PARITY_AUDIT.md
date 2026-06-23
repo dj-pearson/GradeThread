@@ -44,9 +44,9 @@ Fields the web item-canvas can edit, checked against the iOS canvas.
 | description | ✅ added ("Listing description" section) |
 | style | ✅ added |
 | sourced_by | ✅ added |
-| **acquired_date** | ⏳ **deferred** — needs an optional date-picker + date-only ("YYYY-MM-DD") (de)serialization through the sync layer. Analytics-only; low risk to ship later. |
-| **comp_set (manual entry)** | ⏳ **deferred** — iOS can fetch eBay comps + "use median" but can't hand-curate the `comp_set` array like the web `CompEditor`. Larger UI feature; medium value. |
-| container | ⚠️ intentionally skipped — overlaps iOS `location_bin`; confirm whether they're distinct before adding to avoid two competing "where is it" fields. |
+| **acquired_date** | ✅ added — optional date-picker in Pricing; serialized "YYYY-MM-DD" at UTC through the sync layer. |
+| **comp_set (manual entry)** | ✅ added — "Saved comps" editor (add price + optional source/URL, swipe-to-delete). Stored as `comp_set` jsonb via `ItemComp`. Inline per-field editing of existing comps is intentionally out of scope (delete + re-add); fetched eBay comps remain a separate lookup. |
+| container | ✅ added — confirmed it's a **distinct column** from `location_bin` (web edits `container`, iOS only had `location_bin`, so the same concept was split across two columns). iOS now edits both. |
 
 Side fix: `ItemDraft` never seeded `category` from `item_category` (stale
 comment), so the picker showed "—" and a save could **null the category**. Now
@@ -73,19 +73,22 @@ above live above the unit layer. Recommended, in priority order:
 1. **Source-guards for contracts** (cheap, deterministic) — done for Class A.
    Consider a similar guard asserting the iOS sync `itemColumns` select stays in
    sync with the columns the canvas writes.
-2. **XCUITest smoke target wired into `ios-ci.yml`** — the real "Playwright for
-   iOS". A `GradeThreadUITests` folder already exists (used only by the
-   screenshots workflow today) but is **not** a CI test target. To make the 3
-   critical flows (edit field → eBay specifics; edit measurement; submit a
-   tagged item for grading) testable it needs **either** a seeded test backend /
-   test account **or** a mockable network layer (launch-arg that swaps the
-   Supabase/edge clients for fixtures). Not added here because an unverified new
-   build target / a backend-dependent UI test would be flaky and could break CI
-   for everyone — this needs a small infra decision first.
+2. **XCUITest smoke** ✅ added — `GradeThreadUITests/SmokeUITests` (launch smoke,
+   backend-independent) runs in a **separate, non-required** `ios-smoke.yml`
+   workflow via `-only-testing` (so it never triggers the fastlane snapshot
+   capture and never slows/blocks the unit gate). Promote it to a required check
+   once it's proven green on the macOS runner.
+   - **Still open:** auth'd **seam-flow** UITests (edit field → eBay specifics;
+     edit measurement; garment fields → grading). These need either a seeded
+     test account (the `TEST_RUNNER_UITEST_*` creds the screenshots lane uses) or
+     a mockable network layer — a small infra decision before they're worth
+     wiring.
 
 ## Open follow-ups (quick list)
 
-- [ ] iOS: `acquired_date` editor (Class B).
-- [ ] iOS: manual `comp_set` editor (Class B).
-- [ ] Decide `container` vs `location_bin` (Class B).
-- [ ] iOS UITest smoke target + test-backend/mock decision (CI).
+- [x] iOS: `acquired_date` editor (Class B).
+- [x] iOS: manual `comp_set` editor (Class B).
+- [x] Decide `container` vs `location_bin` (Class B) — distinct columns; both now editable on iOS.
+- [x] iOS UITest launch smoke + non-required CI job (`ios-smoke.yml`).
+- [ ] Auth'd seam-flow UITests — needs a seeded test account or mock network layer.
+- [ ] Inline per-field editing of existing saved comps (currently delete + re-add).
