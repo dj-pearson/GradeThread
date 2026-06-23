@@ -339,7 +339,7 @@ struct ItemCanvasView: View {
                     : nil
             )
             .id(ItemPrepChecklist.Step.grade)
-            measurementsSection
+            measurementsSection(state: state)
                 .id(ItemPrepChecklist.Step.measurements)
             compsSection(state: state)
                 .id(ItemPrepChecklist.Step.comps)
@@ -1143,26 +1143,84 @@ struct ItemCanvasView: View {
         .accessibilityLabel("\(FlipdeskPhotoType.label(for: photo.photoType)) photo")
     }
 
-    private var measurementsSection: some View {
-        Section {
-            if let measurements, !measurements.isEmpty {
-                ForEach(Array(measurements.keys.sorted()), id: \.self) { key in
-                    // US-753: shared DataRow — figures align down the column via
-                    // the brand tabular-data font, and the pair reads as one
-                    // element to VoiceOver.
-                    DataRow(
-                        label: key.capitalized,
-                        value: String(format: "%.1f in", measurements[key] ?? 0)
-                    )
+    private func measurementsSection(state: ItemCanvasState) -> some View {
+        @Bindable var state = state
+        // Existing measurements first (canonical order), then any catalog fields
+        // the user can still add for this item's category.
+        let presentKeys = MeasurementCatalog.ordered(state.draft.measurements.keys)
+        let addableKeys = MeasurementCatalog.suggestedKeys(forCategory: item.itemCategory)
+            .filter { state.draft.measurements[$0] == nil }
+        return Section {
+            ForEach(presentKeys, id: \.self) { key in
+                measurementRow(key: key, state: state)
+            }
+            .onDelete { offsets in
+                AppRouter.haptic()
+                for index in offsets where index < presentKeys.count {
+                    state.draft.measurements[presentKeys[index]] = nil
                 }
-            } else {
-                Text("No measurements recorded. Run AI extract or add manually from the web.")
+            }
+            if !addableKeys.isEmpty {
+                Menu {
+                    ForEach(addableKeys, id: \.self) { key in
+                        Button(MeasurementCatalog.label(for: key)) {
+                            AppRouter.haptic()
+                            // Seed at 0 so an editable row appears; the user types
+                            // the real value. Saved-as-is (0 reads as "unset").
+                            state.draft.measurements[key] = 0
+                        }
+                    }
+                } label: {
+                    Label("Add measurement", systemImage: "plus.circle")
+                }
+            }
+            if presentKeys.isEmpty {
+                Text("No measurements yet. Tap “Add measurement” to record flat measurements, or run AI extract.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         } header: {
             Text("Measurements")
+        } footer: {
+            Text("Flat measurements (garment laid flat). Lengths in inches; swipe a row to remove it.")
+                .font(.caption)
         }
+    }
+
+    /// One editable measurement row: label + decimal field + unit suffix. Binds
+    /// straight to the draft so edits mark the form dirty and persist on save.
+    private func measurementRow(key: String, state: ItemCanvasState) -> some View {
+        @Bindable var state = state
+        let kind = MeasurementCatalog.kind(for: key)
+        return HStack {
+            Text(MeasurementCatalog.label(for: key))
+            Spacer()
+            TextField(
+                "0",
+                text: Binding(
+                    get: {
+                        guard let v = state.draft.measurements[key], v > 0 else { return "" }
+                        return MeasurementCatalog.trimmed(v)
+                    },
+                    set: { newValue in
+                        let cleaned = newValue.trimmingCharacters(in: .whitespaces)
+                        if cleaned.isEmpty {
+                            state.draft.measurements[key] = 0
+                        } else if let parsed = Double(cleaned), parsed >= 0 {
+                            state.draft.measurements[key] = parsed
+                        }
+                    }
+                )
+            )
+            .keyboardType(.decimalPad)
+            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: 90)
+            Text(kind.unitSuffix)
+                .foregroundStyle(.secondary)
+                .frame(width: 28, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(MeasurementCatalog.label(for: key)) measurement, \(kind.unitSuffix)")
     }
 
     private func compsSection(state: ItemCanvasState) -> some View {
@@ -1511,6 +1569,19 @@ struct ItemCanvasView: View {
             )
         }()
 
+        // Keep the eBay item specifics in sync with the item's own fields: when
+        // an aspect-feeding field changes, the "Auto"-derived specifics (Brand/
+        // Size/Color/Material…) are re-derived after the save so the seller
+        // doesn't have to re-enter them in "Category & eBay specifics". Captured
+        // against the original BEFORE the draft becomes the new baseline.
+        let aspectsNeedSync: Bool = {
+            let o = state.original
+            let d = state.draft
+            return d.brand != o.brand || d.size != o.size
+                || d.color != o.color || d.material != o.material
+                || d.category != o.category
+        }()
+
         let payload = buildUpdatePayload(state: state)
         do {
             try await SupabaseShared.client
@@ -1559,6 +1630,14 @@ struct ItemCanvasView: View {
                         "Saved on your device, but the eBay update failed: \(message)"
                     syncFailed = true
                 }
+            }
+            // Best-effort, fire-and-forget: re-derive the item-owned eBay
+            // specifics from the just-saved fields. Reads/writes the server row
+            // directly (which now has our values), so it never blocks the save
+            // and a failure leaves the existing specifics untouched.
+            if aspectsNeedSync {
+                let syncId = item.id
+                Task { await InventoryAspectSync.reassertDerivedAspects(itemId: syncId) }
             }
             HapticFeedback.success()
             // US-972: when we stay on the canvas (not auto-dismissing, and the
@@ -1757,6 +1836,9 @@ struct ItemCanvasView: View {
         let location_bin: String?
         let consignor_id: String?
         let consignment_split_pct: Double?
+        // Flat garment measurements (jsonb), keyed by canonical key. Zero/blank
+        // entries are dropped so an untouched "Add" row never persists a 0.
+        let measurements: [String: Double]
     }
 
     private func buildUpdatePayload(state: ItemCanvasState) -> ItemCanvasUpdate {
@@ -1775,8 +1857,15 @@ struct ItemCanvasView: View {
             item_category: state.draft.category?.rawValue,
             location_bin: state.draft.locationBin.nonEmpty,
             consignor_id: state.draft.consignorId,
-            consignment_split_pct: Self.parseSplit(state)
+            consignment_split_pct: Self.parseSplit(state),
+            measurements: Self.cleanedMeasurements(state)
         )
+    }
+
+    /// Drop zero/non-positive measurement entries — a 0 means "added but not yet
+    /// filled" and should never be persisted. Pure.
+    static func cleanedMeasurements(_ state: ItemCanvasState) -> [String: Double] {
+        state.draft.measurements.filter { $0.value > 0 }
     }
 
     /// Parses the per-item split override. Only meaningful when a consignor is
@@ -1803,6 +1892,13 @@ struct ItemCanvasView: View {
         item.locationBin = state.draft.locationBin.nonEmpty
         item.consignorId = state.draft.consignorId
         item.consignmentSplitPct = Self.parseSplit(state)
+        // Mirror measurements into the local cache so the section + checklist
+        // reflect the edit immediately, not just after the next sync pull.
+        let cleaned = Self.cleanedMeasurements(state)
+        item.measurementsJSON = cleaned.isEmpty
+            ? nil
+            : (try? JSONSerialization.data(withJSONObject: cleaned))
+                .flatMap { String(data: $0, encoding: .utf8) }
         item.hasLocalChanges = false  // server now has our write
         item.updatedAt = .now
     }
@@ -1837,6 +1933,9 @@ struct ItemCanvasView: View {
         hasher.combine(item.locationBin)
         hasher.combine(item.consignorId)
         hasher.combine(item.consignmentSplitPct)
+        // Measurements are draft-mirrored now, so a server-side change should
+        // re-seed the canvas (when not dirty) just like the other fields.
+        hasher.combine(item.measurementsJSON)
         return hasher.finalize()
     }
 }

@@ -100,17 +100,43 @@ final class SpecificsEditorTests: XCTestCase {
         XCTAssertTrue(part.dropped.isEmpty)
     }
 
-    func test_mergeDerived_fillsOnlyBlanks_neverOverwrites() {
-        let current = ["Brand": ["Nike"], "Size": [""]]
-        let derived = [
-            "Brand": ["Adidas"],        // present → must NOT overwrite
-            "Size": ["Medium"],         // blank → filled
-            "Sleeve Length": ["Long Sleeve"], // missing → filled
+    func test_reconcileDerived_refreshesAutoAndBlanks_preservesUserAndAI() {
+        // Brand was previously auto-derived → a changed item field re-derives it;
+        // Color was typed by the user and Style came from AI → both untouched;
+        // Size is blank → filled; Sleeve Length is new → filled (and Auto).
+        let current = [
+            "Brand": ["Nike"],
+            "Color": ["Red"],
+            "Style": ["Bomber"],
+            "Size": [""],
         ]
-        let merged = SpecificsEditorModel.mergeDerived(into: current, derived: derived)
-        XCTAssertEqual(merged["Brand"], ["Nike"])
-        XCTAssertEqual(merged["Size"], ["Medium"])
-        XCTAssertEqual(merged["Sleeve Length"], ["Long Sleeve"])
+        let sources: [String: AspectProvenance] = [
+            "Brand": .inventoryDerived,
+            "Color": .manual,
+            "Style": .aiExtracted,
+        ]
+        let derived = [
+            "Brand": ["Adidas"],              // Auto → refreshed from the item
+            "Color": ["Blue"],               // would change, but it's user-set → ignored
+            "Style": ["Parka"],              // AI-set → ignored
+            "Size": ["Medium"],              // blank → filled
+            "Sleeve Length": ["Long Sleeve"], // new → filled
+        ]
+        let result = SpecificsEditorModel.reconcileDerived(
+            into: current, sources: sources, derived: derived
+        )
+        XCTAssertEqual(result.values["Brand"], ["Adidas"])
+        XCTAssertEqual(result.values["Color"], ["Red"])
+        XCTAssertEqual(result.values["Style"], ["Bomber"])
+        XCTAssertEqual(result.values["Size"], ["Medium"])
+        XCTAssertEqual(result.values["Sleeve Length"], ["Long Sleeve"])
+        // Refreshed/filled aspects are stamped inventory_derived; the user/AI
+        // provenance is preserved unchanged.
+        XCTAssertEqual(result.sources["Brand"], .inventoryDerived)
+        XCTAssertEqual(result.sources["Size"], .inventoryDerived)
+        XCTAssertEqual(result.sources["Sleeve Length"], .inventoryDerived)
+        XCTAssertEqual(result.sources["Color"], .manual)
+        XCTAssertEqual(result.sources["Style"], .aiExtracted)
     }
 
     // MARK: - US-825: provenance persistence

@@ -180,23 +180,22 @@ final class SpecificsEditorModel {
         pendingCategoryChange = nil
     }
 
-    /// Deterministic, NO-AI gap fill from the item's columns + US-821 attributes
-    /// (server maps them through the shared registry + US-823 normalization).
-    /// Never overwrites values already present. Best-effort: a failure leaves the
-    /// user to fill manually or via AI.
+    /// Deterministic, NO-AI re-derive from the item's columns + US-821 attributes
+    /// (server maps them through the shared registry + US-823 normalization). The
+    /// item's own fields OWN their aspects: a value that is blank OR previously
+    /// auto-derived ("Auto") is refreshed from the current item data, so editing
+    /// brand/size/color/material on the item flows into the specifics here on
+    /// open. Anything the user typed ("You") or AI filled ("AI") is preserved —
+    /// it's passed to the server as `known` so those aspects are never re-derived.
+    /// Best-effort: a failure leaves the user to fill manually or via AI.
     private func refillDerived(categoryId: String) async {
         do {
             let res = try await service.deriveAspects(
-                itemId: itemId, categoryId: categoryId, known: nonEmptyValues()
+                itemId: itemId, categoryId: categoryId, known: preservedValues()
             )
-            let before = values
-            values = Self.mergeDerived(into: values, derived: res.derived)
-            // US-825: anything the merge newly filled is inventory_derived.
-            for name in values.keys where (before[name]?.contains { !$0.isEmpty } != true) {
-                if (values[name]?.contains { !$0.isEmpty }) == true {
-                    sources[name] = .inventoryDerived
-                }
-            }
+            let result = Self.reconcileDerived(into: values, sources: sources, derived: res.derived)
+            values = result.values
+            sources = result.sources
         } catch {
             // Non-fatal — the spec is loaded and the user can still fill manually.
         }
@@ -344,19 +343,29 @@ final class SpecificsEditorModel {
         return (kept, dropped)
     }
 
-    /// Merge server-derived (deterministic, pre-normalized) values into the
-    /// current map: only fills aspects that are still blank — a present value
-    /// (user-set or carried over) always wins. Pure.
-    nonisolated static func mergeDerived(
-        into current: [String: [String]], derived: [String: [String]]
-    ) -> [String: [String]] {
+    /// Reconcile server-derived (deterministic, pre-normalized) values into the
+    /// current map+sources. The item's own fields own their aspects, so a derived
+    /// value overwrites an aspect that is blank OR already `inventory_derived`
+    /// ("Auto") — and stamps it `inventory_derived`. A `manual` ("You") or
+    /// `ai_extracted` ("AI") value is never touched (the caller also excludes
+    /// those from the server `known` so they aren't re-derived). Pure.
+    nonisolated static func reconcileDerived(
+        into current: [String: [String]],
+        sources: [String: AspectProvenance],
+        derived: [String: [String]]
+    ) -> (values: [String: [String]], sources: [String: AspectProvenance]) {
         var values = current
+        var newSources = sources
         for (name, vals) in derived {
+            let nonEmpty = vals.filter { !$0.isEmpty }
+            guard !nonEmpty.isEmpty else { continue }
             let existing = values[name]?.filter { !$0.isEmpty } ?? []
-            guard existing.isEmpty, !vals.isEmpty else { continue }
-            values[name] = vals
+            let prov = sources[name]
+            guard existing.isEmpty || prov == .inventoryDerived else { continue }
+            values[name] = nonEmpty
+            newSources[name] = .inventoryDerived
         }
-        return values
+        return (values, newSources)
     }
 
     /// Merge AI suggestions into the current values: only fills aspects that are
@@ -392,6 +401,19 @@ final class SpecificsEditorModel {
             let cleaned = v.filter { !$0.isEmpty }
             return cleaned.isEmpty ? nil : cleaned
         }
+    }
+
+    /// The user-/AI-owned aspects (`manual` + `ai_extracted`) with a non-empty
+    /// value — passed to the server as `known` so a re-derive refreshes only the
+    /// item-owned ("Auto") and blank aspects and never clobbers these.
+    private func preservedValues() -> [String: [String]] {
+        var out: [String: [String]] = [:]
+        for (name, v) in values {
+            let cleaned = v.filter { !$0.isEmpty }
+            guard !cleaned.isEmpty else { continue }
+            if sources[name] == .manual || sources[name] == .aiExtracted { out[name] = cleaned }
+        }
+        return out
     }
 
     private func message(_ error: Error) -> String {
