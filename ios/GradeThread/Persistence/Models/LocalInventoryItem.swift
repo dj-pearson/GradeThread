@@ -42,6 +42,14 @@ final class LocalInventoryItem {
     /// the details form / canvas), same conflict policy as the other metadata.
     var itemCategory: String?
 
+    /// Clothing classification (`inventory_items.garment_type` /
+    /// `garment_category`). REQUIRED to grade a clothing item — the grading
+    /// validate gate (flipdesk-grading.ts) blocks on a missing value. Only
+    /// meaningful when `itemCategory == "clothing"`; user-owned on sync, edited
+    /// in the canvas. Web parity (item-canvas.tsx garment pickers).
+    var garmentType: String?
+    var garmentCategory: String?
+
     /// `sources.id` this item was acquired from, when known. Powers the
     /// per-source ROI rollup (US-677). Optional — legacy/manual rows may have
     /// no source. Treated as a user-owned field on sync.
