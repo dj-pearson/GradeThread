@@ -22,6 +22,11 @@ public struct ItemDraft: Equatable {
     public var itemDescription: String
     public var style: String
     public var sourcedBy: String
+    /// Acquisition date (nil = unset), storage/acquisition container label, and
+    /// the hand-curated comparable sales (web parity).
+    public var acquiredDate: Date?
+    public var container: String
+    public var compSet: [ItemComp]
     public var targetPriceText: String
     public var acquiredPriceText: String
     /// US-676: storage location / bin label and consignment link.
@@ -50,6 +55,9 @@ public struct ItemDraft: Equatable {
         itemDescription: String = "",
         style: String = "",
         sourcedBy: String = "",
+        acquiredDate: Date? = nil,
+        container: String = "",
+        compSet: [ItemComp] = [],
         targetPriceText: String = "",
         acquiredPriceText: String = "",
         locationBin: String = "",
@@ -71,6 +79,9 @@ public struct ItemDraft: Equatable {
         self.itemDescription = itemDescription
         self.style = style
         self.sourcedBy = sourcedBy
+        self.acquiredDate = acquiredDate
+        self.container = container
+        self.compSet = compSet
         self.targetPriceText = targetPriceText
         self.acquiredPriceText = acquiredPriceText
         self.locationBin = locationBin
@@ -100,6 +111,9 @@ public struct ItemDraft: Equatable {
         self.itemDescription = item.itemDescription ?? ""
         self.style = item.style ?? ""
         self.sourcedBy = item.sourcedBy ?? ""
+        self.acquiredDate = item.acquiredDate
+        self.container = item.container ?? ""
+        self.compSet = ItemComp.decodeList(item.compSetJSON)
         self.targetPriceText = item.targetPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.acquiredPriceText = item.acquiredPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.locationBin = item.locationBin ?? ""
