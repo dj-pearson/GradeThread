@@ -58,6 +58,14 @@ final class LocalInventoryItem {
     var style: String?
     var sourcedBy: String?
 
+    /// Acquisition date (`inventory_items.acquired_date`) and storage/acquisition
+    /// container label (`container`, distinct from `location_bin`). Both
+    /// user-owned, web parity. Comp set (`comp_set` jsonb) is round-tripped as a
+    /// raw JSON array string, same as `measurementsJSON`.
+    var acquiredDate: Date?
+    var container: String?
+    var compSetJSON: String?
+
     /// `sources.id` this item was acquired from, when known. Powers the
     /// per-source ROI rollup (US-677). Optional — legacy/manual rows may have
     /// no source. Treated as a user-owned field on sync.

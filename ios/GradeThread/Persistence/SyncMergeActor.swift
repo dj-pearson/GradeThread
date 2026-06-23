@@ -426,6 +426,9 @@ actor SyncMergeActor {
         local.itemDescription = ConflictPolicy.resolveUserOwned(local: local.itemDescription, server: remote.description, hasLocalChanges: local.hasLocalChanges)
         local.style = ConflictPolicy.resolveUserOwned(local: local.style, server: remote.style, hasLocalChanges: local.hasLocalChanges)
         local.sourcedBy = ConflictPolicy.resolveUserOwned(local: local.sourcedBy, server: remote.sourced_by, hasLocalChanges: local.hasLocalChanges)
+        local.container = ConflictPolicy.resolveUserOwned(local: local.container, server: remote.container, hasLocalChanges: local.hasLocalChanges)
+        local.acquiredDate = ConflictPolicy.resolveUserOwned(local: local.acquiredDate, server: parseAcquiredDate(remote.acquired_date), hasLocalChanges: local.hasLocalChanges)
+        local.compSetJSON = serializeCompSet(remote.comp_set, fallback: local.compSetJSON)
         local.sourceId = ConflictPolicy.resolveUserOwned(local: local.sourceId, server: remote.source_id, hasLocalChanges: local.hasLocalChanges)
         local.locationBin = ConflictPolicy.resolveUserOwned(local: local.locationBin, server: remote.location_bin, hasLocalChanges: local.hasLocalChanges)
         local.consignorId = ConflictPolicy.resolveUserOwned(local: local.consignorId, server: remote.consignor_id, hasLocalChanges: local.hasLocalChanges)
@@ -448,5 +451,28 @@ actor SyncMergeActor {
         return (try? JSONSerialization.data(withJSONObject: remote))
             .flatMap { String(data: $0, encoding: .utf8) }
             ?? fallback
+    }
+
+    /// Serialize the server `comp_set` array back to the raw JSON string the
+    /// local cache stores. Keeps the local value when the server sends nothing
+    /// (mirrors `serializeMeasurements`).
+    private static func serializeCompSet(_ remote: [ItemComp]?, fallback: String?) -> String? {
+        guard let remote, !remote.isEmpty else { return fallback }
+        return ItemComp.encodeList(remote) ?? fallback
+    }
+
+    /// Parse `inventory_items.acquired_date` (a "YYYY-MM-DD" date, possibly with
+    /// a time/zone suffix) into a Date at UTC midnight. Lenient — nil on failure.
+    private static let acquiredDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static func parseAcquiredDate(_ raw: String?) -> Date? {
+        guard let raw, raw.count >= 10 else { return nil }
+        return acquiredDateFormatter.date(from: String(raw.prefix(10)))
     }
 }
