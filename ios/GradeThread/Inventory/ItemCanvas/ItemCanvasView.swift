@@ -344,6 +344,7 @@ struct ItemCanvasView: View {
             compsSection(state: state)
                 .id(ItemPrepChecklist.Step.comps)
             notesSection(state: state)
+            descriptionSection(state: state)
             statusSection(state: state)
             if !itemListings.isEmpty {
                 listingsSection
@@ -903,6 +904,9 @@ struct ItemCanvasView: View {
             TextField("Material", text: $state.draft.material)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+            TextField("Style", text: $state.draft.style)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
             Picker("Category", selection: $state.draft.category) {
                 Text("—").tag(FlipdeskCategory?.none)
                 ForEach(FlipdeskCategory.allCases) { cat in
@@ -984,6 +988,9 @@ struct ItemCanvasView: View {
             TextField("Location / bin", text: $state.draft.locationBin)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
+
+            TextField("Sourced by", text: $state.draft.sourcedBy)
+                .textInputAutocapitalization(.words)
 
             Picker("Consignor", selection: $state.draft.consignorId) {
                 Text("None").tag(String?.none)
@@ -1361,9 +1368,26 @@ struct ItemCanvasView: View {
 
     private func notesSection(state: ItemCanvasState) -> some View {
         @Bindable var state = state
-        return Section("Notes") {
+        return Section {
             TextField("Condition notes…", text: $state.draft.conditionNotes, axis: .vertical)
                 .lineLimit(3...6)
+        } header: {
+            Text("Notes")
+        }
+    }
+
+    /// Buyer-facing listing description (`inventory_items.description`) — the copy
+    /// pushed to marketplaces, distinct from the internal condition notes above.
+    private func descriptionSection(state: ItemCanvasState) -> some View {
+        @Bindable var state = state
+        return Section {
+            TextField("Listing description…", text: $state.draft.itemDescription, axis: .vertical)
+                .lineLimit(4...10)
+        } header: {
+            Text("Listing description")
+        } footer: {
+            Text("Shown to buyers on the marketplace listing.")
+                .font(.caption)
         }
     }
 
@@ -1857,6 +1881,9 @@ struct ItemCanvasView: View {
         let item_category: String?
         let garment_type: String?
         let garment_category: String?
+        let description: String?
+        let style: String?
+        let sourced_by: String?
         let location_bin: String?
         let consignor_id: String?
         let consignment_split_pct: Double?
@@ -1881,6 +1908,9 @@ struct ItemCanvasView: View {
             item_category: state.draft.category?.rawValue,
             garment_type: Self.garmentValue(state.draft.garmentType, state: state),
             garment_category: Self.garmentValue(state.draft.garmentCategory, state: state),
+            description: state.draft.itemDescription.nonEmpty,
+            style: state.draft.style.nonEmpty,
+            sourced_by: state.draft.sourcedBy.nonEmpty,
             location_bin: state.draft.locationBin.nonEmpty,
             consignor_id: state.draft.consignorId,
             consignment_split_pct: Self.parseSplit(state),
@@ -1927,6 +1957,9 @@ struct ItemCanvasView: View {
         item.itemCategory = state.draft.category?.rawValue
         item.garmentType = Self.garmentValue(state.draft.garmentType, state: state)
         item.garmentCategory = Self.garmentValue(state.draft.garmentCategory, state: state)
+        item.itemDescription = state.draft.itemDescription.nonEmpty
+        item.style = state.draft.style.nonEmpty
+        item.sourcedBy = state.draft.sourcedBy.nonEmpty
         item.locationBin = state.draft.locationBin.nonEmpty
         item.consignorId = state.draft.consignorId
         item.consignmentSplitPct = Self.parseSplit(state)
@@ -1968,6 +2001,9 @@ struct ItemCanvasView: View {
         hasher.combine(item.itemCategory)
         hasher.combine(item.garmentType)
         hasher.combine(item.garmentCategory)
+        hasher.combine(item.itemDescription)
+        hasher.combine(item.style)
+        hasher.combine(item.sourcedBy)
         hasher.combine(item.status)
         hasher.combine(item.targetPrice)
         hasher.combine(item.acquiredPrice)

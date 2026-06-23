@@ -17,6 +17,7 @@
 // public item-photos bucket. No private grading image is ever fetched or exposed.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { downloadItemPhoto } from "./item-photo-storage.ts";
 import { computePhashFromImage } from "./perceptual-hash.ts";
 import { sniffImageFormat } from "./upload-validation.ts";
 import {
@@ -56,11 +57,11 @@ export async function ensureItemPhotoHashes(
     }
     if (!p.storage_path) continue;
     try {
-      const { data: blob, error } = await supabaseAdmin.storage
-        .from("item-photos")
-        .download(p.storage_path);
-      if (error || !blob) continue;
-      const bytes = new Uint8Array(await blob.arrayBuffer());
+      // Resolve across both buckets (US-979): a sensitive photo lives in the
+      // private bucket. Best-effort — an unreadable photo is simply skipped.
+      const dl = await downloadItemPhoto(p.storage_path);
+      if ("error" in dl) continue;
+      const bytes = new Uint8Array(await dl.blob.arrayBuffer());
       const format = sniffImageFormat(bytes);
       if (!format) continue;
       const phash = await computePhashFromImage(bytes, format);
