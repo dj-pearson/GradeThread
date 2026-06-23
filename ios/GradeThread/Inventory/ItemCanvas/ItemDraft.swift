@@ -17,6 +17,11 @@ public struct ItemDraft: Equatable {
     /// clothing item; only edited when `category == .clothing`.
     public var garmentType: String
     public var garmentCategory: String
+    /// Buyer-facing listing copy, style/variant note, and who sourced the item
+    /// (web parity). Free-form; empty saves as NULL.
+    public var itemDescription: String
+    public var style: String
+    public var sourcedBy: String
     public var targetPriceText: String
     public var acquiredPriceText: String
     /// US-676: storage location / bin label and consignment link.
@@ -42,6 +47,9 @@ public struct ItemDraft: Equatable {
         category: FlipdeskCategory? = nil,
         garmentType: String = "",
         garmentCategory: String = "",
+        itemDescription: String = "",
+        style: String = "",
+        sourcedBy: String = "",
         targetPriceText: String = "",
         acquiredPriceText: String = "",
         locationBin: String = "",
@@ -60,6 +68,9 @@ public struct ItemDraft: Equatable {
         self.category = category
         self.garmentType = garmentType
         self.garmentCategory = garmentCategory
+        self.itemDescription = itemDescription
+        self.style = style
+        self.sourcedBy = sourcedBy
         self.targetPriceText = targetPriceText
         self.acquiredPriceText = acquiredPriceText
         self.locationBin = locationBin
@@ -86,6 +97,9 @@ public struct ItemDraft: Equatable {
         self.category = item.itemCategory.flatMap(FlipdeskCategory.init(rawValue:))
         self.garmentType = item.garmentType ?? ""
         self.garmentCategory = item.garmentCategory ?? ""
+        self.itemDescription = item.itemDescription ?? ""
+        self.style = item.style ?? ""
+        self.sourcedBy = item.sourcedBy ?? ""
         self.targetPriceText = item.targetPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.acquiredPriceText = item.acquiredPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.locationBin = item.locationBin ?? ""

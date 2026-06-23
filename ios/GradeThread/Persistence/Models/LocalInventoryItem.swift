@@ -50,6 +50,14 @@ final class LocalInventoryItem {
     var garmentType: String?
     var garmentCategory: String?
 
+    /// Buyer-facing listing copy (`inventory_items.description`), the seller's
+    /// style/variant note (`style`), and who sourced the item (`sourced_by`).
+    /// All free-form, user-owned on sync (web parity — item-canvas.tsx). Named
+    /// `itemDescription` to avoid shadowing `CustomStringConvertible.description`.
+    var itemDescription: String?
+    var style: String?
+    var sourcedBy: String?
+
     /// `sources.id` this item was acquired from, when known. Powers the
     /// per-source ROI rollup (US-677). Optional — legacy/manual rows may have
     /// no source. Treated as a user-owned field on sync.

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { SENSITIVE_ITEM_PHOTO_TYPES } from "../lib/item-photo-storage.ts";
 import { maybeFireImmediateConsignorPayout } from "../lib/consignor-payout.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { resolveItemAspects } from "../lib/aspect-registry.ts";
@@ -4463,15 +4464,6 @@ flipdeskEbayRoutes.get("/marketing/promoted/overview", async (c) => {
 function toEbayImageUrls(urls: Array<string | null | undefined>): string[] {
   return dedupeAndCapImages(urls).urls;
 }
-
-// US-979: sensitive close-ups (care/size labels, second tags, grading
-// certificates) live in the PRIVATE `submission-images` bucket and have NO
-// permanent public URL. Mirror of iOS `PhotoStorageBucket.sensitiveServerTypes`.
-const SENSITIVE_ITEM_PHOTO_TYPES = new Set<string>([
-  "tag",
-  "tag_2",
-  "certificate",
-]);
 
 /// Resolves the PUBLIC URL eBay should fetch for an `item_photos` row, or null
 /// when the photo can't (and must not) be exposed publicly. Existing rows that

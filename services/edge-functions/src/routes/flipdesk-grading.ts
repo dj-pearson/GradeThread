@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { downloadItemPhoto } from "../lib/item-photo-storage.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import { validateJson, z } from "../lib/validation.ts";
@@ -316,40 +317,6 @@ function mapPhotoTypeForGrading(t: string): string | null {
   return null;
 }
 
-// US-979: sensitive close-ups (size/care labels, second tags, grading certs)
-// are uploaded by iOS to the PRIVATE `submission-images` bucket, while the web
-// puts every item photo in the public `item-photos` bucket. The grading copy
-// must therefore look in BOTH — try the bucket the photo_type implies, then
-// fall back to the other — so a tag photo captured on either platform copies in
-// instead of failing with "object not found". Mirror of iOS
-// `PhotoStorageBucket.sensitiveServerTypes`.
-const SENSITIVE_GRADING_PHOTO_TYPES = new Set<string>([
-  "tag",
-  "tag_2",
-  "certificate",
-]);
-
-async function downloadItemPhotoForGrading(
-  storagePath: string,
-  photoType: string,
-): Promise<{ blob: Blob } | { error: string }> {
-  const primary = SENSITIVE_GRADING_PHOTO_TYPES.has(photoType)
-    ? "submission-images"
-    : "item-photos";
-  const fallback = primary === "item-photos"
-    ? "submission-images"
-    : "item-photos";
-  let lastErr = "no body";
-  for (const bucket of [primary, fallback]) {
-    const { data: blob, error } = await supabaseAdmin.storage
-      .from(bucket)
-      .download(storagePath);
-    if (!error && blob) return { blob };
-    lastErr = error?.message ?? lastErr;
-  }
-  return { error: lastErr };
-}
-
 // Submit one or many inventory items for grading.
 // Body: { items: Array<{ inventory_item_id: string; tier: "standard" | "premium" | "express" }> }
 //
@@ -521,7 +488,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
       }> = [];
       for (let i = 0; i < eligible.length; i++) {
         const photo = eligible[i]!;
-        const dl = await downloadItemPhotoForGrading(
+        const dl = await downloadItemPhoto(
           photo.storage_path,
           photo.photo_type,
         );
