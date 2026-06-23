@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { downloadItemPhoto } from "../lib/item-photo-storage.ts";
 import {
   headR2Object,
   isR2Configured,
@@ -78,7 +79,7 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
   const { data: row, error: loadErr } = await supabaseAdmin
     .from("item_photos")
     .select(
-      "id, inventory_item_id, storage_path, photo_url, sort_order, inventory_items!inner(user_id)",
+      "id, inventory_item_id, photo_type, storage_path, photo_url, sort_order, inventory_items!inner(user_id)",
     )
     .eq("id", photoId)
     .maybeSingle();
@@ -88,6 +89,7 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
   const photo = row as unknown as {
     id: string;
     inventory_item_id: string;
+    photo_type: string | null;
     storage_path: string | null;
     photo_url: string;
     sort_order: number;
@@ -105,10 +107,11 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
 
   // Download original from Supabase Storage so we hit remove.bg with a
   // direct blob upload (faster + works even if the public URL isn't
-  // reachable from remove.bg's IP block).
-  const { data: srcBlob, error: dlErr } = await supabaseAdmin.storage
-    .from("item-photos")
-    .download(photo.storage_path);
+  // reachable from remove.bg's IP block). Resolve across both buckets — a
+  // sensitive photo (US-979) lives in the private bucket on iOS.
+  const dl = await downloadItemPhoto(photo.storage_path, photo.photo_type);
+  const srcBlob = "error" in dl ? null : dl.blob;
+  const dlErr = "error" in dl ? { message: dl.error } : null;
   if (dlErr || !srcBlob) {
     return c.json(
       {
@@ -219,6 +222,7 @@ const ARCHIVAL_STATUSES = ["sold", "shipped", "completed", "returned", "archived
 interface PhotoToArchive {
   id: string;
   inventory_item_id: string;
+  photo_type: string | null;
   photo_url: string;
   storage_path: string | null;
   bytes: number | null;
@@ -241,7 +245,7 @@ flipdeskImageRoutes.post("/archive", async (c) => {
   const { data: rows, error } = await supabaseAdmin
     .from("item_photos")
     .select(
-      "id, inventory_item_id, photo_url, storage_path, bytes, inventory_items!inner(user_id, status, updated_at)",
+      "id, inventory_item_id, photo_type, photo_url, storage_path, bytes, inventory_items!inner(user_id, status, updated_at)",
     )
     .eq("archived_to_r2", false)
     .eq("inventory_items.user_id", userId)
@@ -273,15 +277,13 @@ flipdeskImageRoutes.post("/archive", async (c) => {
   for (const p of eligible) {
     try {
       const storagePath = p.storage_path!;
-      // 1. Download original from Supabase Storage.
-      const { data: blob, error: dlErr } = await supabaseAdmin.storage
-        .from("item-photos")
-        .download(storagePath);
-      if (dlErr || !blob) {
-        throw new Error(
-          `Supabase download failed: ${dlErr?.message ?? "no body"}`,
-        );
+      // 1. Download original from Supabase Storage (resolves across both
+      //    buckets — a sensitive photo lives in the private bucket, US-979).
+      const dl = await downloadItemPhoto(storagePath, p.photo_type);
+      if ("error" in dl) {
+        throw new Error(`Supabase download failed: ${dl.error}`);
       }
+      const blob = dl.blob;
       const arrayBuf = await blob.arrayBuffer();
       const contentType = blob.type || "application/octet-stream";
 
