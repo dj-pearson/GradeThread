@@ -5,66 +5,59 @@
 //   deno test src/tests/ai-extract-photos_test.ts
 import { assertEquals } from "@std/assert";
 import { buildPhotoContent } from "../lib/ai-extract.ts";
+import type { safeFetch } from "../lib/ssrf.ts";
 
 // Minimal valid magic-byte headers.
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 
-function stubFetch(handler: (url: string) => Response): () => void {
-  const original = globalThis.fetch;
-  globalThis.fetch = ((input: string | URL | Request) =>
-    Promise.resolve(handler(String(input)))) as typeof fetch;
-  return () => {
-    globalThis.fetch = original;
-  };
+// buildPhotoContent fetches via the SSRF-safe `safeFetch` (resolves DNS + refuses
+// private ranges), which ignores a stubbed `globalThis.fetch`. So inject a stub
+// fetcher matching safeFetch's `{ status, bytes, contentType }` contract instead.
+function fetcherReturning(
+  handler: (url: string) => { status: number; bytes: Uint8Array },
+): typeof safeFetch {
+  return ((url: string) => {
+    const { status, bytes } = handler(String(url));
+    return Promise.resolve({ status, bytes, contentType: null });
+  }) as typeof safeFetch;
 }
 
 Deno.test("buildPhotoContent skips an unreachable image and inlines the rest", async () => {
-  const restore = stubFetch((url) =>
+  const fetcher = fetcherReturning((url) =>
     url.includes("bad")
-      ? new Response("nope", { status: 404 })
-      : new Response(JPEG, { status: 200 })
+      ? { status: 404, bytes: new Uint8Array() }
+      : { status: 200, bytes: JPEG }
   );
-  try {
-    const content = await buildPhotoContent([
-      { url: "https://x/good.jpg", type: "front" },
-      { url: "https://x/bad.jpg", type: "tag" },
-    ]);
-    // good → caption + image (2 blocks); bad → dropped entirely.
-    assertEquals(content.length, 2);
-    assertEquals(content[0].type, "text");
-    assertEquals(content[1].type, "image");
-    const img = content[1] as {
-      source: { type: string; media_type: string; data: string };
-    };
-    assertEquals(img.source.type, "base64");
-    assertEquals(img.source.media_type, "image/jpeg"); // sniffed, not header-trusted
-    assertEquals(img.source.data.length > 0, true);
-  } finally {
-    restore();
-  }
+  const content = await buildPhotoContent([
+    { url: "https://x/good.jpg", type: "front" },
+    { url: "https://x/bad.jpg", type: "tag" },
+  ], fetcher);
+  // good → caption + image (2 blocks); bad → dropped entirely.
+  assertEquals(content.length, 2);
+  assertEquals(content[0].type, "text");
+  assertEquals(content[1].type, "image");
+  const img = content[1] as {
+    source: { type: string; media_type: string; data: string };
+  };
+  assertEquals(img.source.type, "base64");
+  assertEquals(img.source.media_type, "image/jpeg"); // sniffed, not header-trusted
+  assertEquals(img.source.data.length > 0, true);
 });
 
 Deno.test("buildPhotoContent drops a non-image payload (sniff fails)", async () => {
-  const restore = stubFetch(() =>
-    new Response(new Uint8Array([0x01, 0x02, 0x03, 0x04]), { status: 200 })
-  );
-  try {
-    const content = await buildPhotoContent([{ url: "https://x/x.bin", type: "front" }]);
-    assertEquals(content.length, 0);
-  } finally {
-    restore();
-  }
+  const fetcher = fetcherReturning(() => ({
+    status: 200,
+    bytes: new Uint8Array([0x01, 0x02, 0x03, 0x04]),
+  }));
+  const content = await buildPhotoContent([{ url: "https://x/x.bin", type: "front" }], fetcher);
+  assertEquals(content.length, 0);
 });
 
 Deno.test("buildPhotoContent returns empty when every image fails (no throw)", async () => {
-  const restore = stubFetch(() => new Response("err", { status: 500 }));
-  try {
-    const content = await buildPhotoContent([
-      { url: "https://x/a.jpg", type: "front" },
-      { url: "https://x/b.jpg", type: "back" },
-    ]);
-    assertEquals(content.length, 0); // caller proceeds (text-only) instead of 502
-  } finally {
-    restore();
-  }
+  const fetcher = fetcherReturning(() => ({ status: 500, bytes: new Uint8Array() }));
+  const content = await buildPhotoContent([
+    { url: "https://x/a.jpg", type: "front" },
+    { url: "https://x/b.jpg", type: "back" },
+  ], fetcher);
+  assertEquals(content.length, 0); // caller proceeds (text-only) instead of 502
 });

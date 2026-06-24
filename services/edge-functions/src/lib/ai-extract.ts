@@ -478,6 +478,9 @@ function bytesToBase64(bytes: Uint8Array): string {
  */
 export async function buildPhotoContent(
   photos: ExtractPhoto[],
+  // Injectable so tests can stub the network without reaching the SSRF guard /
+  // real DNS. Defaults to the SSRF-safe fetcher in production.
+  fetcher: typeof safeFetch = safeFetch,
 ): Promise<Anthropic.ContentBlockParam[]> {
   const fetched = await Promise.all(
     photos.map(async (photo, i) => {
@@ -488,7 +491,7 @@ export async function buildPhotoContent(
         // private / loopback / link-local / cloud-metadata range, and every
         // redirect hop re-validated, BEFORE the socket opens. safeFetch also
         // enforces the byte cap (throws SsrfError past maxBytes → skipped below).
-        const res = await safeFetch(photo.url, {
+        const res = await fetcher(photo.url, {
           timeoutMs: IMAGE_FETCH_TIMEOUT_MS,
           maxBytes: MAX_IMAGE_FETCH_BYTES,
         });

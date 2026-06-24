@@ -73,7 +73,7 @@ final class MoneyRollupTests: XCTestCase {
 
     // US-1194: net must fold in shipping collected, processing fees, and seller
     // costs — matching SalePnL, not the old `salePrice - platformFees - cogs`.
-    func test_financialExport_netUsesFullSalePnLFormula() {
+    func test_financialExport_netUsesFullSalePnLFormula() throws {
         let item = makeItem(id: "a", cost: 10)
         let sale = makeSale(itemId: "a", price: 100, fees: 15, date: Date(timeIntervalSince1970: 1_700_000_000))
         sale.shippingCollected = 8
@@ -85,8 +85,9 @@ final class MoneyRollupTests: XCTestCase {
         let end = Date(timeIntervalSince1970: 1_701_000_000)
 
         let txns = FinancialExport.transactions(sales: [sale], items: [item], start: start, end: end)
+        let txn = try XCTUnwrap(txns.first)
         // revenue 108 − fees 18 − sellerCosts 9 − cogs 10 = 71
-        XCTAssertEqual(txns.first?.net, 71, accuracy: 0.001)
+        XCTAssertEqual(txn.net, 71, accuracy: 0.001)
 
         let summary = FinancialExport.summary(txns)
         XCTAssertEqual(summary.grossRevenue, 108, accuracy: 0.001)
