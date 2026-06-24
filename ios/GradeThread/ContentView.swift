@@ -390,6 +390,9 @@ struct MainShell: View {
     /// tab switch + lands the user on the same intake surface the Add
     /// sheet would.
     @State private var sharedIntakeBatch: ShareInboxConsumer.DrainedBatch?
+    /// US-1181: when a shared batch fully fails to decode we used to consume it
+    /// silently, so the user shared photos and got no signal. Drives an alert.
+    @State private var shareImportError: String?
 
     /// US-804: the one-time post-signup plan-selection step. Set on first
     /// sign-in when ``PlanSelectionState`` says this fresh account hasn't been
@@ -548,6 +551,15 @@ struct MainShell: View {
         // US-805: shell-level upgrade prompt (402 hard cap) + soft warning banner
         // (80% X-Plan-Warning), fed by EdgeAPI's centralized plan-gate interceptor.
         .planGatePresentation()
+        // US-1181: tell the user when shared photos couldn't be read.
+        .alert(
+            "Couldn't read the shared photos",
+            isPresented: Binding(get: { shareImportError != nil }, set: { if !$0 { shareImportError = nil } })
+        ) {
+            Button("OK") { shareImportError = nil }
+        } message: {
+            Text(shareImportError ?? "")
+        }
     }
 
     /// US-804: present the one-time plan step to a freshly-signed-up account.
@@ -570,9 +582,11 @@ struct MainShell: View {
     private func drainSharedInboxIfNeeded() {
         guard sharedIntakeBatch == nil else { return }
         guard let drained = ShareInboxConsumer.popNext() else { return }
-        // Empty drain (every photo failed to decode) — finish + recurse.
+        // Empty drain (every photo failed to decode) — finish, tell the user
+        // (US-1181: previously silent), then recurse to the next batch.
         guard !drained.slotPhotos.isEmpty else {
             ShareInboxConsumer.finish(drained)
+            shareImportError = "We couldn't read the photos you shared. Try sharing them again from the Photos app."
             drainSharedInboxIfNeeded()
             return
         }

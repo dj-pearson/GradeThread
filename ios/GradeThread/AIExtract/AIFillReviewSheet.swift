@@ -23,6 +23,9 @@ struct AIFillReviewSheet: View {
     @State private var keepMeasurements = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    // US-1182: brief on-screen confirmation shown before the sheet dismisses,
+    // so a successful apply isn't only a haptic.
+    @State private var didApply = false
 
     var body: some View {
         NavigationStack {
@@ -41,8 +44,24 @@ struct AIFillReviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { finish() }
+                    // US-1182: a plain dismiss must NOT clear the pending review —
+                    // otherwise tapping the only toolbar button after toggling a
+                    // field silently discards every edit and destroys the review.
+                    // "Cancel" just dismisses; the review stays pending so it can
+                    // be reopened. "Apply changes" is the path that consumes it.
+                    Button("Cancel") { dismiss() }
                         .disabled(isSaving)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if didApply {
+                    Text("Changes applied")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Color.brandNavy, in: Capsule())
+                        .padding(.bottom, 24)
+                        .transition(.opacity)
                 }
             }
         }
@@ -339,6 +358,10 @@ struct AIFillReviewSheet: View {
         }
         if dropMeasurements { item.measurementsJSON = nil }
         commitLocal()
+        // US-1182: confirm visibly (and to VoiceOver) before tearing down.
+        A11yAnnounce.announce("AI suggestions applied")
+        withAnimation { didApply = true }
+        try? await Task.sleep(nanoseconds: 700_000_000)
         finish()
     }
 

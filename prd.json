@@ -4498,8 +4498,8 @@
         "Share Extension intake surfaces a toast/alert when a shared batch fully fails to decode instead of returning silently to the dashboard"
       ],
       "priority": 1181,
-      "passes": false,
-      "notes": "[P1][iOS/Capture][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit found errors set on `startupError` (PhotoIntakeView lines ~707/822/843/858) are only rendered in the `.unknown` permission branch, so capture/compress/save failures never show; library/Snap/share-extension import paths `continue` past failures silently.",
+      "passes": true,
+      "notes": "[P1][iOS/Capture][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit found errors set on `startupError` (PhotoIntakeView lines ~707/822/843/858) are only rendered in the `.unknown` permission branch, so capture/compress/save failures never show; library/Snap/share-extension import paths `continue` past failures silently. IMPLEMENTED 2026-06-24: PhotoIntakeView now routes runtime (granted-state) failures — item create, library import, compression, capture — to a new captureError .alert (startupError kept for the camera-bootstrap placeholder); library import reports dropped picks (\"Couldn't load N of M\") and opens the tray after the alert. SnapView gates camera on AVCaptureDevice authorization (denied -> Open Settings alert) and surfaces a nil library load. BarcodeScanView startup error routes through FriendlyErrorCopy. ContentView surfaces a fully-failed shared batch via an alert. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Capture/PhotoIntakeView.swift",
         "ios/GradeThread/Snap/SnapView.swift",
@@ -4519,8 +4519,8 @@
         "AIExtractView `.failed` state offers a \"Try again\" action (clear + re-invoke `manager.start`) alongside the existing \"Skip — I'll fill in manually\""
       ],
       "priority": 1182,
-      "passes": false,
-      "notes": "[P1][iOS/Grading][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: AIFillReviewSheet `finish()` calls clear()+dismiss() without applying, so \"Done\" silently discards edits and destroys the review; AIExtractView failure has no in-place retry.",
+      "passes": true,
+      "notes": "[P1][iOS/Grading][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: AIFillReviewSheet `finish()` calls clear()+dismiss() without applying, so \"Done\" silently discards edits and destroys the review; AIExtractView failure has no in-place retry. IMPLEMENTED 2026-06-24: AIFillReviewSheet toolbar \"Done\" -> \"Cancel\" that only dismisses (no clear), so a plain dismiss preserves the pending review; apply() shows a \"Changes applied\" toast + VoiceOver announce before finishing. AIExtractView .failed adds a \"Try again\" (clear + re-start) with Skip demoted to secondary. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/AIExtract/AIFillReviewSheet.swift",
         "ios/GradeThread/AIExtract/AIExtractView.swift"
@@ -4535,8 +4535,8 @@
         "DisputeSheet submit error is shown via an `.alert` or an inline section row, not a free-floating bottom overlay that can sit on top of / overlap the Submit button under Dynamic Type"
       ],
       "priority": 1183,
-      "passes": false,
-      "notes": "[P1][iOS/Grading][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: after a successful dispute insert the sheet dismisses but nothing updates item.disputeStatus, so the user can immediately re-file and sees no confirmation; the failure message is a bottom overlay that overlaps the submit button.",
+      "passes": true,
+      "notes": "[P1][iOS/Grading][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: after a successful dispute insert the sheet dismisses but nothing updates item.disputeStatus, so the user can immediately re-file and sees no confirmation; the failure message is a bottom overlay that overlaps the submit button. IMPLEMENTED 2026-06-24: DisputeSheet gained an onSubmitted callback (fired on successful insert) and renders its error inline as a Section above the submit button (was a bottom overlay overlapping it). ItemGradeReportSheet optimistically sets item.disputeStatus=\"open\", saves, posts .inventoryPullRequested, and hides the dispute affordance when already disputed. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Grading/DisputeSheet.swift",
         "ios/GradeThread/Grading/GradesListView.swift",
@@ -4918,8 +4918,8 @@
         "Entering a cap and tapping Done / tapping away persists the cap instead of falling back to the plan default"
       ],
       "priority": 1204,
-      "passes": false,
-      "notes": "[P1][iOS/Settings][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: cap TextField uses .numberPad and commits only via .onSubmit; numberPad has no Return key and the Done toolbar does not trigger onSubmit, so the typed cap is silently discarded.",
+      "passes": true,
+      "notes": "[P1][iOS/Settings][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: cap TextField uses .numberPad and commits only via .onSubmit; numberPad has no Return key and the Done toolbar does not trigger onSubmit, so the typed cap is silently discarded. IMPLEMENTED 2026-06-24: AIAssistantSection monthly-cap field now commits on focus loss via @FocusState (.onChange) in addition to .onSubmit, so tapping the shared Done toolbar / tapping away persists the cap instead of silently discarding it. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Settings/AIAssistantSection.swift",
         "ios/GradeThread/Components/KeyboardToolbar.swift"

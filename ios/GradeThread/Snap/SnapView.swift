@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import AVFoundation
 
 /// Snap-to-Value (US-613): point the camera at a garment → instant condition
 /// grade estimate + a condition-adjusted resale value range. Free + signup-
@@ -12,6 +13,10 @@ struct SnapView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showCamera = false
     @State private var showLibrary = false
+    // US-1181: recover gracefully when camera access was previously denied, and
+    // surface a library pick that fails to load instead of a silent no-op.
+    @State private var showCameraDeniedAlert = false
+    @State private var loadError: String?
 
     private var cameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
@@ -69,6 +74,11 @@ struct SnapView: View {
                     Task {
                         if let img = await first.loadImage() {
                             await MainActor.run { store.setImage(img) }
+                        } else {
+                            // US-1181: don't silently swallow a failed load.
+                            await MainActor.run {
+                                loadError = "Couldn't load that photo — it may still be downloading from iCloud. Try again or pick another."
+                            }
                         }
                     }
                 }
@@ -77,6 +87,24 @@ struct SnapView: View {
             .fullScreenCover(isPresented: $showCamera) {
                 CameraPicker { img in store.setImage(img) }
                     .ignoresSafeArea()
+            }
+            .alert("Camera access is off", isPresented: $showCameraDeniedAlert) {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Allow camera access in Settings to take a photo, or choose one from your library instead.")
+            }
+            .alert(
+                "Couldn't load photo",
+                isPresented: Binding(get: { loadError != nil }, set: { if !$0 { loadError = nil } })
+            ) {
+                Button("OK") { loadError = nil }
+            } message: {
+                Text(loadError ?? "")
             }
         }
     }
@@ -110,7 +138,7 @@ struct SnapView: View {
             if cameraAvailable {
                 Button {
                     AppRouter.haptic()
-                    showCamera = true
+                    presentCamera()
                 } label: {
                     Label("Take photo", systemImage: "camera.fill").frame(maxWidth: .infinity)
                 }
@@ -226,6 +254,24 @@ struct SnapView: View {
     }
 
     // MARK: - Helpers
+
+    /// US-1181: only the photo-intake/barcode flows handled denied camera access;
+    /// Snap checked hardware availability but not authorization, so a user who
+    /// previously denied got the system picker's blank/denial UI with no in-app
+    /// path to Settings. Gate on the auth status and route denied → Settings.
+    private func presentCamera() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            showCamera = true
+        case .notDetermined:
+            // The image picker will trigger the system prompt itself.
+            showCamera = true
+        case .denied, .restricted:
+            showCameraDeniedAlert = true
+        @unknown default:
+            showCamera = true
+        }
+    }
 
     // US-653: grade→color now flows through the canonical GradeScale.color(for:)
     // brand mapping rather than a local green/orange/red map.

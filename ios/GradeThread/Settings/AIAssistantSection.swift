@@ -101,6 +101,10 @@ struct AIAssistantSection: View {
     // to `true` before load resolves.
     @State private var enabledOverride: Bool?
     @State private var limitText = ""
+    // US-1204: the numberPad cap field has no Return key, and the shared "Done"
+    // toolbar only resigns first responder — it never fires `.onSubmit`. Commit
+    // on focus loss so tapping Done / tapping away actually saves the cap.
+    @FocusState private var capFieldFocused: Bool
 
     private var userId: String? {
         if case let .signedIn(user) = authStore.phase { return user.id.uuidString }
@@ -176,7 +180,15 @@ struct AIAssistantSection: View {
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 100)
+                .focused($capFieldFocused)
                 .onSubmit { commitLimit() }
+                // US-1204: numberPad has no Return key and the shared Done
+                // toolbar only resigns first responder (never fires .onSubmit),
+                // so commit when focus leaves the field — that covers tapping
+                // Done and tapping away, instead of silently dropping the cap.
+                .onChange(of: capFieldFocused) { _, focused in
+                    if !focused { commitLimit() }
+                }
                 // numberPad has no Return key — give it a shared Done accessory
                 // (this Section lives inside the Settings list, so attach at the
                 // field rather than a container we don't own here). US-969.

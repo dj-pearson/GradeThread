@@ -133,11 +133,13 @@ struct AIExtractView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
+            // US-1182: a transient/offline failure shouldn't force abandoning the
+            // AI flow — offer an in-place retry, keeping Skip as the secondary out.
             Button {
-                manager.clear(for: inventoryItemId)
-                onComplete()
+                AppRouter.haptic()
+                retry()
             } label: {
-                Text("Skip — I'll fill in manually")
+                Text("Try again")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
@@ -146,9 +148,29 @@ struct AIExtractView: View {
                     .clipShape(Capsule())
             }
             .padding(.top, 8)
+
+            Button {
+                manager.clear(for: inventoryItemId)
+                onComplete()
+            } label: {
+                Text("Skip — I'll fill in manually")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.brandNavy)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    private func retry() {
+        manager.clear(for: inventoryItemId)
+        manager.start(
+            itemId: inventoryItemId,
+            userId: userId,
+            photos: photos,
+            uploadStore: uploadStore,
+            isOffline: NetworkMonitor.isOffline(networkMonitor)
+        )
     }
 
     @ToolbarContentBuilder
