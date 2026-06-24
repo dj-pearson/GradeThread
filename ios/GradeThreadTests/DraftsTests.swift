@@ -186,7 +186,7 @@ final class DraftsTests: XCTestCase {
     }
 
     @MainActor
-    func test_bulk_saveFailureSurfacesErrorAndReloads() async {
+    func test_bulk_saveFailureKeepsEditsForRetry() async {
         let fake = FakeService(drafts: [draft("a", price: 10)])
         fake.saveError = EdgeAPIError.rateLimited
         let store = DraftsBulkEditStore(service: fake)
@@ -195,9 +195,10 @@ final class DraftsTests: XCTestCase {
         await store.save()
         XCTAssertNotNil(store.actionError)
         XCTAssertTrue(fake.saved.isEmpty)
-        // reload restored server truth (price back to "10", clean)
-        XCTAssertEqual(store.rows.first?.price, "10")
-        XCTAssertEqual(store.dirtyCount, 0)
+        // US-1191: a failed save no longer reloads/wipes — the edit is kept and the
+        // row stays dirty so the user can fix and retry without re-typing.
+        XCTAssertEqual(store.rows.first?.price, "12")
+        XCTAssertEqual(store.dirtyCount, 1)
     }
 
     // MARK: - Provenance (US-1086)
