@@ -596,11 +596,21 @@ private struct ComposerForm: View {
                     .foregroundStyle(.secondary)
                     .task { await loadComps() }
 
+                // US-1190: price is read-only here, so an empty/zero price can't
+                // be fixed in this dialog — disable Push with a clear notice
+                // instead of enabling it into a repeating `invalidPrice` failure.
+                let priceInvalid = Money.cents(CurrencyFormatter().parse(summary.priceValue) ?? 0) <= 0
+                if priceInvalid {
+                    Label("Set a price on the item canvas before publishing.", systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(Color.brandRed)
+                }
+
                 if NetworkMonitor.isOffline(networkMonitor) {
                     OfflineNotice(intent: .blocked, detail: "to publish to eBay")
                 }
 
-                let pushDisabled = trimmedTitle.isEmpty || NetworkMonitor.isOffline(networkMonitor)
+                let pushDisabled = trimmedTitle.isEmpty || priceInvalid || NetworkMonitor.isOffline(networkMonitor)
                 Button {
                     onPush(ComposerEdits(
                         title: trimmedTitle,

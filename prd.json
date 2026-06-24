@@ -4662,8 +4662,8 @@
         "EbayPublishService `revise()` routes failures through the same outcome mapping as publish/validate so 402/401/403 trigger the upgrade prompt / re-auth guidance rather than \"Unexpected error (HTTP …)\""
       ],
       "priority": 1190,
-      "passes": false,
-      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: pushDisabled ignores price (read-only in composer) -> invalidPrice loop; specifics errorMessage set but never rendered; AI-fill gives identical feedback on success/no-match/error; revise() only special-cases 409.",
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: pushDisabled ignores price (read-only in composer) -> invalidPrice loop; specifics errorMessage set but never rendered; AI-fill gives identical feedback on success/no-match/error; revise() only special-cases 409. IMPLEMENTED 2026-06-24: PublishDialog validates price when building the composer — Push is disabled with a \"Set a price on the item canvas\" notice when price <= 0 (was a repeating invalidPrice loop). EbayCategorySpecificsView binds model.errorMessage to an alert (save/search/AI-fill failures were silent); fillWithAI returns the count filled so feedback branches success/no-match/error. EbayPublishService.revise routes failures through outcome(from:) so 402/401/403 get plan-limit/re-auth handling. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
         "ios/GradeThread/Marketplaces/Publish/ListingDraftService.swift",
@@ -4683,8 +4683,8 @@
         "BulkPricing clears `rowErrors[id]` on selection toggle and on price/qty edits so a stale failure message doesn't cling to a row the user is actively re-editing"
       ],
       "priority": 1191,
-      "passes": false,
-      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: bulk-edit uses raw Double() (nil on \"19,99\") disabling Apply; save() reloads all rows on any failure, wiping other edits; Publish has no confirm (library does); BulkPricing rowErrors never cleared on re-edit.",
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: bulk-edit uses raw Double() (nil on \"19,99\") disabling Apply; save() reloads all rows on any failure, wiping other edits; Publish has no confirm (library does); BulkPricing rowErrors never cleared on re-edit. IMPLEMENTED 2026-06-24: DraftsBulkEdit markup/set-price parse + Apply-disabled checks route through CurrencyFormatter().parse (comma-decimal locales no longer stuck); save() keeps other dirty rows on a single failure (tracks savedIds, no full reload); Publish is gated behind a confirmationDialog. BulkPricingStore clears rowErrors on toggle/toggleAll and on price/qty text changes. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditView.swift",
         "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditStore.swift",
@@ -4702,8 +4702,8 @@
         "ReconciliationView consolidates its two separate alerts (bulk result + action error) into one alert driven by a single enum so near-simultaneous events can't silently drop feedback"
       ],
       "priority": 1192,
-      "passes": false,
-      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: ContestSheet calls onSubmit then unconditionally dismisses (contest fires detached); Accept has role nil while Decline is .destructive; two .alert modifiers on one view collide.",
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: ContestSheet calls onSubmit then unconditionally dismisses (contest fires detached); Accept has role nil while Decline is .destructive; two .alert modifiers on one view collide. IMPLEMENTED 2026-06-24: PostSale ContestSheet onSubmit is async->Bool with submitting/error state — only dismisses on success, keeping the typed note on failure (PostSaleStore.resolve/contestDispute now return Bool). Negotiation Accept gets the weighted (destructive) styling vs a plain Decline. ReconciliationView consolidates its two alerts into one (error prioritized over bulk-result). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
         "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
@@ -4720,8 +4720,8 @@
         "TemplateEditorSheet tracks dirtiness, shows a \"Discard changes?\" confirmation on Cancel, and sets `.interactiveDismissDisabled(hasChanges)` so a swipe-down can't silently lose edits"
       ],
       "priority": 1193,
-      "passes": false,
-      "notes": "[P3][iOS/Marketplaces][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: Listing Kit copy swaps label only (no haptic/VO); nudges show UUID prefix though titlesById exists; template editor has no unsaved-changes guard.",
+      "passes": true,
+      "notes": "[P3][iOS/Marketplaces][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: Listing Kit copy swaps label only (no haptic/VO); nudges show UUID prefix though titlesById exists; template editor has no unsaved-changes guard. IMPLEMENTED 2026-06-24: ListingKit copy fires HapticFeedback.success + A11yAnnounce(\"Copied\"). AutoLister photo-QA nudges resolve item titles via titlesById (UUID prefix only as fallback). TemplateEditorSheet tracks dirtiness, confirms \"Discard changes?\" on Cancel, and sets interactiveDismissDisabled(hasChanges). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift",
         "ios/GradeThread/AutoLister/AutoListerQueueView.swift",

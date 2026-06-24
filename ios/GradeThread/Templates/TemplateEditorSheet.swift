@@ -14,23 +14,37 @@ struct TemplateEditorSheet: View {
     /// nil = "No default" (the template won't set a condition).
     @State private var conditionSelection: EbayCondition?
     @State private var isSaving = false
+    // US-1193: guard against losing typed work on an accidental swipe/Cancel.
+    @State private var confirmingDiscard = false
+
+    /// Snapshot of the initial state to detect unsaved edits.
+    private let originalDraft: TemplateDraft
+    private let originalSpecifics: [SpecificPair]
+    private let originalCondition: EbayCondition?
 
     init(existing: ListingTemplate?, store: TemplateStore) {
         self.existing = existing
         self.store = store
         let d = existing.map(TemplateDraft.init(from:)) ?? TemplateDraft()
+        let specs = d.itemSpecifics
+            .map { SpecificPair(name: $0.key, value: $0.value) }
+            .sorted { $0.name.lowercased() < $1.name.lowercased() }
+        let cond = d.ebayCondition.isEmpty ? nil : EbayCondition(rawValue: d.ebayCondition)
         _draft = State(initialValue: d)
-        _specifics = State(
-            initialValue: d.itemSpecifics
-                .map { SpecificPair(name: $0.key, value: $0.value) }
-                .sorted { $0.name.lowercased() < $1.name.lowercased() }
-        )
-        _conditionSelection = State(
-            initialValue: d.ebayCondition.isEmpty ? nil : EbayCondition(rawValue: d.ebayCondition)
-        )
+        _specifics = State(initialValue: specs)
+        _conditionSelection = State(initialValue: cond)
+        originalDraft = d
+        originalSpecifics = specs
+        originalCondition = cond
     }
 
     private var canSave: Bool { draft.isValid && !isSaving }
+
+    private var hasChanges: Bool {
+        draft != originalDraft
+            || specifics != originalSpecifics
+            || conditionSelection != originalCondition
+    }
 
     var body: some View {
         NavigationStack {
@@ -92,13 +106,25 @@ struct TemplateEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if hasChanges { confirmingDiscard = true } else { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
                         .fontWeight(.semibold)
                         .disabled(!canSave)
                 }
+            }
+            // US-1193: don't let a swipe-down silently drop unsaved edits.
+            .interactiveDismissDisabled(hasChanges)
+            .confirmationDialog(
+                "Discard changes?",
+                isPresented: $confirmingDiscard,
+                titleVisibility: .visible
+            ) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep editing", role: .cancel) {}
             }
         }
     }

@@ -10,6 +10,9 @@ struct DraftsBulkEditView: View {
     @State private var markupPct: String = ""
     @State private var absolutePrice: String = ""
     @State private var bulkCategory: String = ""
+    // US-1191: confirm before pushing drafts live on eBay (mirrors the library).
+    @State private var confirmingPublish = false
+    private let priceParser = CurrencyFormatter()
 
     init(batchId: String? = nil) {
         _store = State(initialValue: DraftsBulkEditStore(batchId: batchId))
@@ -24,7 +27,7 @@ struct DraftsBulkEditView: View {
                 // US-681: publish the selection (or all rows) straight to eBay.
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        Task { await store.publishSelected() }
+                        confirmingPublish = true
                     } label: {
                         if store.isPublishing {
                             ProgressView()
@@ -52,6 +55,17 @@ struct DraftsBulkEditView: View {
             .task {
                 await store.load()
                 await templateStore.load()
+            }
+            // US-1191: publishing pushes drafts live on eBay — confirm first.
+            .confirmationDialog(
+                "Publish \(store.publishTargetCount) draft\(store.publishTargetCount == 1 ? "" : "s") live on eBay?",
+                isPresented: $confirmingPublish,
+                titleVisibility: .visible
+            ) {
+                Button("Publish to eBay") { Task { await store.publishSelected() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This creates live eBay listings. You can end them from eBay or the item canvas afterward.")
             }
             .alert(
                 "Couldn't save",
@@ -141,7 +155,8 @@ struct DraftsBulkEditView: View {
                     .textFieldStyle(.roundedBorder)
                 Button("Apply") { store.applyMarkup(markupPct) }
                     .buttonStyle(.bordered)
-                    .disabled(Double(markupPct.trimmingCharacters(in: .whitespaces)) == nil)
+                    // US-1191: locale-aware parse (comma-decimal "12,5" failed Double()).
+                    .disabled(priceParser.parse(markupPct) == nil)
                 Button("Round .99") { store.applyRound99() }
                     .buttonStyle(.bordered)
             }
@@ -154,7 +169,8 @@ struct DraftsBulkEditView: View {
                     .textFieldStyle(.roundedBorder)
                 Button("Apply") { store.applyAbsolutePrice(absolutePrice) }
                     .buttonStyle(.bordered)
-                    .disabled(Double(absolutePrice.trimmingCharacters(in: .whitespaces)) == nil)
+                    // US-1191: locale-aware parse (comma-decimal "19,99" failed Double()).
+                    .disabled(priceParser.parse(absolutePrice) == nil)
             }
 
             // Condition

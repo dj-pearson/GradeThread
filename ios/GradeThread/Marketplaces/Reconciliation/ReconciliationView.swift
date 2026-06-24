@@ -68,23 +68,17 @@ struct ReconciliationView: View {
         } message: {
             Text("We'll insert a new inventory item for each listing using the eBay title, SKU, and price. You can edit them afterwards.")
         }
+        // US-1192: a single alert (was two on one view, where SwiftUI presents
+        // only one and can silently drop the other). An action error takes
+        // priority over a bulk-result summary; dismiss clears both.
         .alert(
-            store.lastBulkResult?.summary ?? "",
+            store.lastActionError ?? store.lastBulkResult?.summary ?? "",
             isPresented: Binding(
-                get: { store.lastBulkResult != nil },
-                set: { if !$0 { store.lastBulkResult = nil } }
+                get: { store.lastActionError != nil || store.lastBulkResult != nil },
+                set: { if !$0 { store.lastActionError = nil; store.lastBulkResult = nil } }
             )
         ) {
-            Button("OK") {}
-        }
-        .alert(
-            store.lastActionError ?? "",
-            isPresented: Binding(
-                get: { store.lastActionError != nil },
-                set: { if !$0 { store.lastActionError = nil } }
-            )
-        ) {
-            Button("OK") {}
+            Button("OK") { store.lastActionError = nil; store.lastBulkResult = nil }
         }
     }
 

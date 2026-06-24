@@ -213,8 +213,11 @@ final class SpecificsEditorModel {
         }
     }
 
-    func fillWithAI() async {
-        guard let cat = selectedCategoryId else { return }
+    /// US-1190: returns the number of specifics newly filled (0 on a no-op or
+    /// error), so the view can give distinct feedback instead of a flat haptic.
+    @discardableResult
+    func fillWithAI() async -> Int {
+        guard let cat = selectedCategoryId else { return 0 }
         isFillingAI = true
         defer { isFillingAI = false }
         do {
@@ -229,8 +232,10 @@ final class SpecificsEditorModel {
             aiFilled.formUnion(merged.filled)
             // US-825: AI-filled aspects carry ai_extracted provenance.
             for name in merged.filled { sources[name] = .aiExtracted }
+            return merged.filled.count
         } catch {
             errorMessage = message(error)
+            return 0
         }
     }
 
