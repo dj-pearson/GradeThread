@@ -84,6 +84,10 @@ const IMAGE_TYPES = [
   "measurement_sleeve", "measurement_inseam",
 ] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
+// Hard ceiling on images per submission — one Claude Vision call is issued per
+// image but the submission is billed as a single grade, so an uncapped count is
+// an AI-cost multiplier. Mirrors grade.ts MAX_IMAGES_PER_SUBMISSION. (HIGH-1)
+const MAX_IMAGES_PER_SUBMISSION = IMAGE_TYPES.length;
 
 type GarmentType = (typeof GARMENT_TYPES)[number];
 type GarmentCategory = (typeof GARMENT_CATEGORIES)[number];
@@ -144,8 +148,11 @@ apiV1Routes.post("/grades", async (c) => {
   // Validate images array
   if (!images || !Array.isArray(images) || images.length === 0) {
     errors.push("images array is required and must not be empty");
+  } else if (images.length > MAX_IMAGES_PER_SUBMISSION) {
+    errors.push(`images array may contain at most ${MAX_IMAGES_PER_SUBMISSION} images`);
   } else {
     const imageTypes: string[] = [];
+    const seenTypes = new Set<string>();
 
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
@@ -154,6 +161,14 @@ apiV1Routes.post("/grades", async (c) => {
         errors.push(`images[${i}].image_type must be one of: ${IMAGE_TYPES.join(", ")}`);
         continue;
       }
+
+      // Reject duplicate slots: each image_type is graded once, so a repeat only
+      // multiplies vision-call cost without adding garment coverage.
+      if (seenTypes.has(img.image_type)) {
+        errors.push(`images[${i}].image_type '${img.image_type}' is a duplicate; each image type may appear at most once`);
+        continue;
+      }
+      seenTypes.add(img.image_type);
 
       if (!img.url && !img.base64) {
         errors.push(`images[${i}] must provide either url or base64`);

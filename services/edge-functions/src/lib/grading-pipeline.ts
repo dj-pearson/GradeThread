@@ -694,6 +694,20 @@ export async function processSubmission(submissionId: string) {
       throw new Error(`No images found for submission ${submissionId}`);
     }
 
+    // Defense-in-depth cost cap (HIGH-1): the submit endpoints already bound and
+    // de-dupe images per submission, but one Claude Vision call is issued per row
+    // below while the submission is billed as a single grade. Hard-cap here too so
+    // no future write path (or backfill) can turn a single paid grade into an
+    // unbounded number of vision calls. MAX_PIPELINE_IMAGES matches the distinct
+    // image-type slots accepted at submit.
+    const MAX_PIPELINE_IMAGES = 14;
+    if (images.length > MAX_PIPELINE_IMAGES) {
+      console.warn(
+        `[Pipeline] Submission ${submissionId} has ${images.length} images; capping to ${MAX_PIPELINE_IMAGES} for analysis`,
+      );
+      images.length = MAX_PIPELINE_IMAGES;
+    }
+
     console.log(`[Pipeline] Found ${images.length} images for submission ${submissionId}`);
 
     // Seller-declared design features (e.g. distressed, raw-hem) flow through

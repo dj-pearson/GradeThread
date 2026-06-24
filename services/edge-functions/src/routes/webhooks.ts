@@ -29,6 +29,7 @@ import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
+import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
 import { recordDripConversion } from "../lib/drip-conversion.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
@@ -152,15 +153,32 @@ webhookRoutes.post("/ses", async (c) => {
     return c.json({ received: true, ignored: true });
   }
 
+  // Signature verification (fail closed). This endpoint is unauthenticated and
+  // acts on arbitrary recipient addresses, so a forged bounce/complaint would be
+  // a deliverability DoS (suppress an arbitrary recipient). Mirrors the canonical
+  // /api/email/ses-notifications receiver; verifying the SNS signature here also
+  // makes the SubscribeURL fetch below safe (the URL is then AWS-attested).
+  const skipVerify = Deno.env.get("SES_SNS_SKIP_VERIFICATION")?.trim() === "true";
+  if (!skipVerify) {
+    const valid = await verifySnsSignature(envelope as SnsMessage);
+    if (!valid) {
+      recordMetric("email.sns_signature_rejected", 1);
+      console.warn(`[Webhook] Rejected SES/SNS message with invalid signature (type=${String(envelope.Type ?? "?")})`);
+      return c.json({ error: "Invalid SNS signature" }, 403);
+    }
+  }
+
   const snsType =
     c.req.header("x-amz-sns-message-type") ?? (envelope.Type as string | undefined);
 
   // SNS subscription handshake: confirm the subscription by fetching SubscribeURL.
+  // Safe to fetch directly only because the envelope signature was verified above.
   if (snsType === "SubscriptionConfirmation") {
     const subscribeUrl = envelope.SubscribeURL as string | undefined;
     if (subscribeUrl) {
       try {
-        await fetch(subscribeUrl);
+        const res = await fetch(subscribeUrl);
+        await res.body?.cancel();
       } catch (err) {
         captureException(err, { route: "webhook.ses.confirm" });
       }

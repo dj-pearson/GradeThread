@@ -365,6 +365,14 @@ app.use("/api/flipdesk/disclosure/*", authMiddleware);
 app.use("/api/flipdesk/consignment/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
 app.use("/api/flipdesk/automations/*", authMiddleware);
+// US-268 hardening: these two routers were mounted (below) but were missing
+// from this per-path auth whitelist, so they were silently reachable
+// unauthenticated despite in-file comments claiming otherwise. forecast reads
+// tenant data → needs auth + workspace context; photo-profiles serves config
+// consumed inside the authed app. (See the deny-by-default guard test that now
+// fails the build if a new /api/flipdesk/* router is added without auth.)
+app.use("/api/flipdesk/forecast/*", authMiddleware);
+app.use("/api/flipdesk/photo-profiles/*", authMiddleware);
 
 // US-585: waitlist / beta access gate. Mounted AFTER authMiddleware for each
 // path (so userId/user are set) on the core "do work" surfaces — grading and
@@ -476,6 +484,7 @@ app.use("/api/flipdesk/disclosure/*", workspaceMiddleware);
 app.use("/api/flipdesk/consignment/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/flipdesk/automations/*", workspaceMiddleware);
+app.use("/api/flipdesk/forecast/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
 
 // US-584: cron-run ledger. Every /api/jobs/* hit that presents the internal
@@ -584,6 +593,15 @@ app.use("/api/passport-identity/*", rateLimiter(30, 60_000, "passport-identity")
 app.use(
   "/api/grade/*",
   rateLimiter((_) => getSettingSync<number>("rate_limit_grade_per_min", 60), 60_000, "grade"),
+);
+// Snap-to-Value (/api/grade/snap) is a FREE, uncertified Claude Vision call. The
+// monthly SNAP_CAP bounds total volume, but the "business" tier is monthly-
+// unlimited — so without a per-minute bound a single account could sustain the
+// whole 60/min grade budget on free vision calls. Pin snap to a much tighter
+// dedicated burst limit (this runs IN ADDITION to the grade-group limiter).
+app.use(
+  "/api/grade/snap",
+  rateLimiter((_) => getSettingSync<number>("rate_limit_snap_per_min", 10), 60_000, "grade-snap", undefined, { methods: ["POST"] }),
 );
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));

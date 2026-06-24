@@ -5,6 +5,7 @@ import {
   signContentBody,
 } from "../lib/content-webhook.ts";
 import { normalizeEnabledPlatforms } from "../lib/social-platforms.ts";
+import { assertPublicUrl, SsrfError } from "../lib/ssrf.ts";
 
 // Singleton settings table (id=1). The dashboard's Content Settings page
 // reads/writes here for webhook URLs, auto-publish toggles, cadence,
@@ -90,6 +91,31 @@ contentSettingsRoutes.patch("/", async (c) => {
   // US-870: keep the enable list to known platforms in canonical order.
   if ("social_platforms" in patch) {
     patch.social_platforms = normalizeEnabledPlatforms(patch.social_platforms);
+  }
+
+  // SSRF: these URLs are later fetched server-side (dispatchContentWebhook +
+  // the /test-webhook route). Validate at write time that each resolves to a
+  // public address so an admin (or a compromised admin session) can't point a
+  // webhook at 169.254.169.254 / internal hosts. Delivery re-validates too,
+  // since DNS can change after this check.
+  const webhookKeys: (keyof SettingsPatch)[] = [
+    "make_webhook_blog",
+    "make_webhook_social_long",
+    "make_webhook_social_short",
+    "make_webhook_social",
+  ];
+  for (const k of webhookKeys) {
+    const val = (patch as Record<string, unknown>)[k];
+    if (typeof val === "string" && val.trim() !== "") {
+      try {
+        await assertPublicUrl(val);
+      } catch (err) {
+        if (err instanceof SsrfError) {
+          return c.json({ error: `${k} is not an allowed URL: ${err.message}` }, 400);
+        }
+        throw err;
+      }
+    }
   }
 
   const { data, error } = await supabaseAdmin
@@ -296,6 +322,15 @@ contentSettingsRoutes.post("/webhooks/test", async (c) => {
   if (!url) {
     return c.json({ error: `No URL configured for ${body.target}` }, 400);
   }
+  // SSRF re-check at fire time (DNS can change after the URL was saved).
+  try {
+    await assertPublicUrl(url);
+  } catch (e) {
+    if (e instanceof SsrfError) {
+      return c.json({ error: `Configured URL is not allowed: ${e.message}` }, 400);
+    }
+    throw e;
+  }
 
   // The test payload MUST mirror the real publish payload shape exactly
   // (plus `test: true` as the discriminator). Make.com scenarios determine
@@ -366,6 +401,7 @@ contentSettingsRoutes.post("/webhooks/test", async (c) => {
         ...(format ? { "X-Content-Format": format } : {}),
       },
       body: serialized,
+      redirect: "manual", // never follow a redirect to an internal host
       signal: AbortSignal.timeout(10_000),
     });
     httpStatus = res.status;

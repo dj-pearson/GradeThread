@@ -352,7 +352,6 @@ workspaceRoutes.get("/mfa-policy", async (c) => {
 // { required_role: 'viewer'|'member'|'listing_manager'|'admin'|null }.
 workspaceRoutes.put("/mfa-policy", async (c) => {
   const ownerId = c.get("workspaceOwnerId");
-  const userId = c.get("userId");
   const role = c.get("workspaceRole");
 
   if (role !== "owner") {
@@ -397,7 +396,10 @@ workspaceRoutes.put("/mfa-policy", async (c) => {
   const { error } = await supabaseAdmin
     .from("users")
     .update({ workspace_mfa_required_role: requiredRole })
-    .eq("id", userId); // owner updates their own row
+    // Key on ownerId (the policy's subject), consistent with the read/audit
+    // above. Today the route is owner-only so ownerId === userId, but keying on
+    // ownerId keeps the write correct if the gate is ever loosened. (US-268)
+    .eq("id", ownerId);
   if (error) {
     console.error("[workspace] mfa-policy update failed", error);
     return c.json({ error: "Failed to update MFA policy" }, 500);

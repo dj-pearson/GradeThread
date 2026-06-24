@@ -65,6 +65,14 @@ const IMAGE_TYPES = [
 ] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
 
+// Hard ceiling on images accepted per submission. The grading pipeline issues
+// one Claude Vision call PER image, but a submission is billed as a single
+// grade — so an uncapped image count is a direct AI-cost multiplier (a caller
+// could attach dozens of photos for the price of one grade). The cap matches
+// the number of distinct IMAGE_TYPES slots; duplicate types are also rejected
+// below so cost scales with garment coverage, not attacker choice. (HIGH-1)
+const MAX_IMAGES_PER_SUBMISSION = IMAGE_TYPES.length;
+
 // Optional seller-declared intentional design features. Passed to the grader
 // as a hint so factory distressing isn't read as damage. Allowlist keeps the
 // hint clean (free text would let sellers game the grade). Mirror of
@@ -261,13 +269,22 @@ gradeRoutes.post("/submit", async (c) => {
   // the client opted in. Consumed only if RETAIN_ORIGINAL_IMAGES is set.
   const allOriginals = formData.getAll("original_images");
 
+  const seenTypes = new Set<string>();
   for (let i = 0; i < allEntries.length; i++) {
     const entry = allEntries[i];
     const type = allTypes[i] as string | undefined;
     if (entry instanceof File && entry.size > 0) {
       if (!type || !IMAGE_TYPES.includes(type as ImageType)) {
         errors.push(`image_types[${i}] must be one of: ${IMAGE_TYPES.join(", ")}`);
+      } else if (seenTypes.has(type)) {
+        // Reject duplicate slots: each image_type is graded once, so a repeated
+        // type only multiplies vision-call cost without adding garment coverage.
+        errors.push(`image_types[${i}] '${type}' is a duplicate; each image type may appear at most once`);
+      } else if (imageFiles.length >= MAX_IMAGES_PER_SUBMISSION) {
+        errors.push(`A submission may include at most ${MAX_IMAGES_PER_SUBMISSION} images`);
+        break;
       } else {
+        seenTypes.add(type);
         imageFiles.push(entry);
         imageTypes.push(type);
         imageExif.push(sanitizeExif(allExif[i]));
