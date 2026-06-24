@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1206,
+  "nextId": 1227,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4945,6 +4945,418 @@
         "ios/GradeThread/Settings/ProfileSection.swift",
         "ios/GradeThread/Settings/PlanSection.swift",
         "ios/GradeThread/Billing/PaywallView.swift"
+      ]
+    },
+    {
+      "id": "US-1206",
+      "title": "iOS: wire real App Review demo credentials into the release pipeline + pre-submit sign-in smoke",
+      "description": "The App Review demo account is still a placeholder and the release lane ships it as-is. ios/fastlane/metadata/review_information/demo_user.txt = REVIEW_DEMO_EMAIL_PLACEHOLDER@gradethread.com and demo_password.txt = REVIEW_DEMO_PASSWORD_PLACEHOLDER. The release lane (ios/fastlane/Fastfile ~68-77) calls deliver(submit_for_review: true) with no step substituting real credentials, and Deliverfile precheck only scans visible metadata. The app gates everything behind sign-in (LoginView), so a non-working demo account is an automatic Guideline 2.1 rejection — the exact root cause cited in ios/APP_STORE_REJECTION_RESPONSE.md. US-786 only declared that a demo account exists; it never wired working, email-confirmed credentials into submission.",
+      "acceptanceCriteria": [
+        "Real, email-confirmed demo credentials are injected into review_information/demo_user.txt + demo_password.txt at release time from CI secrets/Infisical (mirror the SUPABASE_ANON_KEY injection), never committed in plaintext",
+        "A pre-submit smoke step signs in with the demo credentials against prod (or a review-safe environment) and fails the release if login fails",
+        "The demo account has representative seeded data (a graded item, a draft, sample sales) so reviewers can exercise the core flows",
+        "Placeholder strings no longer appear in any shipped metadata"
+      ],
+      "priority": 1206,
+      "passes": false,
+      "notes": "[P1][AppStore/Blocking] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/fastlane/Fastfile",
+        "ios/fastlane/Deliverfile",
+        "ios/fastlane/metadata/review_information/demo_user.txt",
+        "ios/fastlane/metadata/review_information/demo_password.txt",
+        "ios/APP_STORE_REJECTION_RESPONSE.md"
+      ]
+    },
+    {
+      "id": "US-1207",
+      "title": "iOS: free users must not be routed to web Stripe subscription purchase (Guideline 3.1.1 anti-steering)",
+      "description": "In Settings, for any user who is not billedOnAppStore — which INCLUDES free users (PlanStore.swift ~28-31, since free users have billing_source != \"appstore\") — the \"Manage plan & billing\" button opens SafariView to https://gradethread.com/dashboard/billing (PlanSection.swift ~122-130). That page creates Stripe checkout sessions (services/edge-functions/src/routes/payments.ts ~441/539/663), i.e. it sells digital subscriptions outside IAP. A free iOS user reaching an in-app web view that sells subscriptions via Stripe is a classic 3.1.1 violation and directly contradicts the review note (\"the app never directs users to purchase outside the App Store\"). The StoreKit PaywallView is correct; this Settings path bypasses it.",
+      "acceptanceCriteria": [
+        "For free users (no active Stripe subscription), the Settings billing entry routes ONLY to the StoreKit PaywallView, never to web billing/checkout",
+        "The web billing link is reserved strictly for users whose billing_source == \"stripe\" (existing web-billed subscribers managing an existing sub)",
+        "The \"View past invoices on the web\" footer (PlanSection.swift ~68) is hidden for free/App Store-billed users",
+        "No in-app surface links to a page that can initiate a Stripe purchase of a digital subscription for an iOS user"
+      ],
+      "priority": 1207,
+      "passes": false,
+      "notes": "[P1][AppStore/Blocking] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Settings/PlanSection.swift",
+        "ios/GradeThread/Billing/PlanStore.swift",
+        "services/edge-functions/src/routes/payments.ts"
+      ]
+    },
+    {
+      "id": "US-1208",
+      "title": "iOS: offline UPDATE/DELETE replay must not run ahead of a still-pending CREATE (silent data loss)",
+      "description": "flushPending() (SyncEngine.swift ~764-785) drains queued mutations FIFO but does NOT stop on failure: apply() catches all errors and calls markFailed (SyncEngine.swift ~821-824), then continues to the next mutation. So when an item is created offline (queued) and then edited offline (queued), if the CREATE is failing/stuck, the later UPDATE runs UPDATE ... WHERE id=... against a row the server does not have yet. PostgREST returns HTTP 200 affecting 0 rows (no error), apply() treats it as success and dequeues the mutation — the user edit is permanently lost with nothing surfaced. Same for an UPDATE/DELETE that sails through after its CREATE exhausts the 6-retry budget.",
+      "acceptanceCriteria": [
+        "UPDATE/DELETE replays for a targetId cannot flush ahead of a still-pending CREATE of that same id (dependency ordering), OR",
+        "replayUpdate requires Prefer: return=representation and treats 0 affected rows as a retryable failure rather than success",
+        "A CREATE that is failing/stuck blocks (or defers) dependent UPDATE/DELETE mutations for the same row instead of letting them dequeue against nothing",
+        "A regression test reproduces create-then-edit-offline with a failing create and asserts the edit is not lost"
+      ],
+      "priority": 1208,
+      "passes": false,
+      "notes": "[P1][Sync/DataLoss] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/SyncEngine.swift",
+        "ios/GradeThreadTests/SyncTests.swift"
+      ]
+    },
+    {
+      "id": "US-1209",
+      "title": "iOS: low-confidence (<0.75) grades must not be presented as certified/shareable",
+      "description": "CLAUDE.md grading spec: confidence < 0.75 -> human review. On device, applyGradeToItem (GradeRequestSheet.swift ~455-465) stamps item.gradeValue, item.gradeLabel, item.certificateURL and sets status=\"graded\" UNCONDITIONALLY — no confidence gate. GradeReportView shows amber \"flagged for human review\" copy (~221-240), yet the same item simultaneously appears in the \"Certified grades\" list (GradesListView.swift ~14-20,181-187) and exposes a shareable public certificate. A buyer could be shown a \"certified\" grade the system itself flagged for review — contradictory, trust-damaging state.",
+      "acceptanceCriteria": [
+        "When report.confidenceScore < 0.75, the item is treated as provisional: status is not stamped \"graded\" and certificateURL is not stored (or is held back) until review clears",
+        "Flagged grades are visually distinguished in GradesListView (e.g. \"Pending review\" badge) and not labeled as Certified",
+        "The Share Certificate CTA is suppressed/disabled for sub-0.75 grades until review clears, matching the web behavior",
+        "Behavior matches the web low-confidence handling; a unit test covers the <0.75 path"
+      ],
+      "priority": 1209,
+      "passes": false,
+      "notes": "[P1][Grading/Trust] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Grading/GradeRequestSheet.swift",
+        "ios/GradeThread/Grading/GradeReportView.swift",
+        "ios/GradeThread/Grading/GradesListView.swift",
+        "ios/GradeThread/Grading/GradeRequestStore.swift"
+      ]
+    },
+    {
+      "id": "US-1210",
+      "title": "iOS: delta watermark must not advance past resiliently-dropped rows (permanent row loss)",
+      "description": "SyncEngine.pull advances each cursor to the max updated_at of SUCCESSFULLY DECODED rows (SyncEngine.swift ~168-172), while decodeItemsResiliently / the Failable wrapper (~693-710) silently drop undecodable rows. If a page contains a row that fails to decode sitting at a lower updated_at than rows that decode cleanly, the watermark jumps past it — the dropped row is now permanently below the cursor and never re-fetched on any delta pull (only a full backfill on sign-out or schema-version bump recovers it). This is a silent data-loss window distinct from US-1003 (which only logs the drop).",
+      "acceptanceCriteria": [
+        "The watermark advances to the max of the raw JSON page (jsonArrayCount already parses it), not just the decoded subset — OR is clamped to min(maxDecoded, minDroppedTimestamp - epsilon) so a dropped row keeps the cursor behind it",
+        "A row that fails to decode is re-fetched on the next delta pull once decodable, rather than requiring a full backfill",
+        "Dropped-row drops are still logged (US-1003 behavior preserved)",
+        "A unit test injects an undecodable low-timestamp row among decodable higher-timestamp rows and asserts the cursor does not skip it"
+      ],
+      "priority": 1210,
+      "passes": false,
+      "notes": "[P2][Sync/DataLoss] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/SyncEngine.swift",
+        "ios/GradeThreadTests/SyncTests.swift"
+      ]
+    },
+    {
+      "id": "US-1211",
+      "title": "iOS: Realtime must follow the active workspace, re-subscribe on switch, and catch-up pull on reconnect",
+      "description": "Three related realtime gaps. (1) The Realtime channel is scoped to the signed-in user (RealtimeService.swift ~75/82-86 filters user_id={selfUserId}) while pulls scope to WorkspaceScope.activeOwnerId ?? selfId; .workspaceDidChange (ContentView.swift ~136-140) resets watermarks but never touches realtimeService, and the guard `channel == nil else return` (~67) blocks re-subscription — so a workspace member gets live updates only for their OWN rows, never the owner workspace. (2) applyStatus (~196-210) maps socket status to a UI phase only — nothing triggers a catch-up pull() on the .subscribing->.subscribed transition, so events emitted during a disconnect (token expiry, cellular handoff, backgrounding) are lost until the next foreground. (3) clearLocalTenantCache (ContentView.swift ~283-293) deletes Local* rows but not LocalPendingMutation.",
+      "acceptanceCriteria": [
+        "The Realtime channel is scoped to WorkspaceScope.tenantOwnerId(selfId:) and is torn down + re-subscribed on .workspaceDidChange (stop() then start(userId: activeOwnerId))",
+        "Every .subscribed transition (including re-subscribes after a drop) kicks a SyncEngine.pull() to reconcile any events missed during the gap",
+        "Workspace switch clears or correctly re-homes LocalPendingMutation so a queued mutation from the prior workspace does not flush unexpectedly into the new one",
+        "A member switched into an owner workspace sees another member's concurrent edit without a manual refresh"
+      ],
+      "priority": 1211,
+      "passes": false,
+      "notes": "[P2][Sync/Realtime/Workspace] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/RealtimeService.swift",
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/Persistence/SyncEngine.swift",
+        "ios/GradeThread/Team/WorkspaceContext.swift"
+      ]
+    },
+    {
+      "id": "US-1212",
+      "title": "iOS: surface photo-upload failures at the capture -> AI handoff (don't route to canvas silently)",
+      "description": "startIntakeFlow (PhotoIntakeView.swift ~756-765) enqueues uploads then immediately sets draftItemId and presents AIExtractView. AIExtractView advances to onComplete() purely off the EXTRACTION phase (AIExtractView.swift ~51-55), never inspecting uploadStore task phases; onComplete dismisses + deep-links to the canvas (PhotoIntakeView.swift ~230-243). The only per-slot upload-retry affordance (retryUpload, ~799-805) is destroyed on dismiss. So if a photo upload fails (flaky network, expired token, iCloud-not-downloaded) the item is created and the user is whisked to the canvas with no warning — then the grade flow later blocks on requiredPhotoTypesMissing with no explanation of why a photo they captured is \"missing.\" US-998/US-1001 cover timeout-warning and DB-link-insert retry, not this AI-handoff completion check.",
+      "acceptanceCriteria": [
+        "Before firing onComplete, the flow checks uploadStore for .failed tasks on this item and surfaces a \"Some photos didn't upload — retry?\" prompt (or carries the failure into the canvas with a visible banner + retry)",
+        "onComplete is gated on uploads reaching a terminal state, or upload failures are explicitly announced rather than silently dropped",
+        "A user can recover failed uploads without losing the captured photos",
+        "The downstream grade blocker no longer presents a \"missing photo\" the user actually captured but failed to upload"
+      ],
+      "priority": 1212,
+      "passes": false,
+      "notes": "[P2][CoreFlow/SilentFailure] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Capture/PhotoIntakeView.swift",
+        "ios/GradeThread/AIExtract/AIExtractView.swift",
+        "ios/GradeThread/Upload/PhotoUploadService.swift"
+      ]
+    },
+    {
+      "id": "US-1213",
+      "title": "iOS: Scout/Prospect 402 plan-gate must route to the upgrade/paywall flow, not a dead-end retry",
+      "description": "The app has a centralized 402 -> UpgradePromptView -> PaywallView path (PlanGateNotifier.swift ~76-82, PlanGatePresentation.swift ~49-51) but it only fires for calls routed through EdgeAPI. Scout (ScoutService.swift ~94-128) and Prospect (ProspectService.swift ~73-82) roll their own URLSession transport and decode the gate body into a string-only error. A free user entering ScoutAI/Prospect (primary monetization surfaces) is told to \"upgrade in Settings\" with no tappable path, and the only button (\"Try again\", ScoutView.swift ~160-171) loops the same failure — an entitlement-gating conversion hole distinct from US-1116 (transient network retry).",
+      "acceptanceCriteria": [
+        "On HTTP 402, ScoutService.send and ProspectService.send decode via PlanGateError and route to PlanGateNotifier.shared.present(gate) — the same hook EdgeAPI uses",
+        "Feature-lock (402) errors present the upgrade/paywall flow with a working CTA, not a \"Try again\" that re-runs the gated call",
+        "The useless \"Try again\" is suppressed for feature-lock errors (still shown for transient network errors)",
+        "Routing Scout/Prospect through EdgeAPI (or sharing its 402 handling) is preferred over the bespoke transport if feasible"
+      ],
+      "priority": 1213,
+      "passes": false,
+      "notes": "[P2][Monetization/PlanGate] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Scout/ScoutService.swift",
+        "ios/GradeThread/Scout/ScoutView.swift",
+        "ios/GradeThread/Prospect/ProspectService.swift",
+        "ios/GradeThread/Billing/PlanGateNotifier.swift"
+      ]
+    },
+    {
+      "id": "US-1214",
+      "title": "iOS: reconcile analytics default with the App Privacy \"opt-in\" claim (consent before collection)",
+      "description": "The privacy manifest and metadata describe PostHog product analytics as \"opt-in\" (PrivacyInfo.xcprivacy ~96-97, ios/fastlane/metadata/PRIVACY_LABELS.md ~22,34) but Telemetry.isAnalyticsEnabled defaults to true (Telemetry.swift ~47-50: `... ?? true`) and its own comment calls it \"opt-out — default ON.\" So ProductInteraction is collected on first launch before any consent. A label-vs-behavior mismatch is a privacy misrepresentation under App Review and EU/GDPR scrutiny.",
+      "acceptanceCriteria": [
+        "The code and the privacy labels/notes AGREE: either default the toggle to false and gate first collection behind an explicit consent prompt (true opt-in, matching labels), or correct the labels/review notes to say \"opt-out, on by default\"",
+        "If keeping opt-out, PRIVACY_LABELS.md, PrivacyInfo.xcprivacy commentary, and review notes are updated to remove the \"opt-in\" wording",
+        "If switching to opt-in, no PostHog events fire before consent is granted",
+        "Sentry crash reporting behavior is documented separately from product analytics consent"
+      ],
+      "priority": 1214,
+      "passes": false,
+      "notes": "[P2][Privacy/AppStore] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Telemetry/Telemetry.swift",
+        "ios/GradeThread/PrivacyInfo.xcprivacy",
+        "ios/fastlane/metadata/PRIVACY_LABELS.md"
+      ]
+    },
+    {
+      "id": "US-1215",
+      "title": "iOS: App Store metadata honesty — keyword/feature claims and app-name consistency",
+      "description": "Two metadata-review risks. (1) keywords.txt = \"...,poshmark,...,crosslist,...\" but the only cross-platform feature is Listing Kit, which generates copy/share text only (ListingKitService/ListingKitView) — it does NOT post to Poshmark or cross-list; actual publishing is eBay-only. Keywords/terms implying functionality the app lacks risk a Guideline 2.3.7/2.3.x rejection (US-1114 gated Depop/remove-bg/Sheets in-product but not the keyword set). (2) App Store name \"FlipDesk by GradeThread\" (name.txt) vs on-device CFBundleDisplayName \"GradeThread\" (project.yml ~86) and in-product \"GradeThread\" branding — a Guideline 2.3.8 consistency nit.",
+      "acceptanceCriteria": [
+        "Remove \"poshmark\" and \"crosslist\" (and avoid Mercari/Grailed/Depop trademarks) from keywords unless real posting exists; keep generic terms (resell, thrift, listing)",
+        "The App Store name and the installed app name (CFBundleDisplayName) are aligned (pick one of FlipDesk / GradeThread and apply consistently)",
+        "The app description does not claim cross-posting/crosslisting capability that the app does not have",
+        "Metadata review (Deliverfile precheck) passes with the corrected terms"
+      ],
+      "priority": 1215,
+      "passes": false,
+      "notes": "[P2][AppStore/Metadata] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/fastlane/metadata/en-US/keywords.txt",
+        "ios/fastlane/metadata/en-US/name.txt",
+        "ios/fastlane/metadata/en-US/description.txt",
+        "ios/project.yml"
+      ]
+    },
+    {
+      "id": "US-1216",
+      "title": "iOS: multi-account eBay correctness — sync poller and bulk pricing target the right connection",
+      "description": "Two multi-account (US-671) correctness bugs. (1) EbaySyncService.fetchConnectionSnapshot (~210-222) selects the active eBay connection by created_at DESC limit 1, but the edge /listings/pull advances the PRIMARY connection (flipdesk-ebay.ts ~2620 orders is_primary DESC) and EbayConnectionService.fetchActiveConnection also uses is_primary DESC. If the primary store is not the most-recently-created connection, the sync modal polls the wrong row's last_synced_at -> didAdvance stays false -> the modal hits .timedOut after 90s even though sync succeeded (and masks a real refresh_error on the primary). (2) BulkPricingService (~81-102) lists listings filtered only by platform=ebay + active (no account scoping) but the edge bulk endpoint pushes every update through the PRIMARY token (flipdesk-ebay.ts ~3488-3491) — so with two stores, secondary-store listings fail or collide on same-SKU offers, with the UX silently mixing accounts.",
+      "acceptanceCriteria": [
+        "fetchConnectionSnapshot orders by is_primary DESC, updated_at DESC to mirror the edge token resolver and fetchActiveConnection (no false sync timeout for multi-store users)",
+        "Bulk pricing scopes its listings query to the selected/primary connection (by marketplace_connection_id where present), or the account is made explicit in the UI so users don't mix stores",
+        "A multi-store user can run sync and bulk pricing without per-row failures caused by account mismatch",
+        "Behavior is verified with two connected eBay connections where the primary is not the newest"
+      ],
+      "priority": 1216,
+      "passes": false,
+      "notes": "[P2][eBay/MultiAccount] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/EbaySyncService.swift",
+        "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingService.swift",
+        "ios/GradeThread/Marketplaces/EbayConnectionService.swift",
+        "services/edge-functions/src/routes/flipdesk-ebay.ts"
+      ]
+    },
+    {
+      "id": "US-1217",
+      "title": "iOS: AI-extract conflicts and Size-AI department must be surfaced/persisted, not silently picked or discarded",
+      "description": "Two AI-attribute dead-ends that feed mis-sized listings (a top reseller pain). (1) AI extraction conflicts (text-vs-photo disagreements) are decoded (AIExtractTypes.swift ~31-43, ~110/162) but applyResponse (AIExtractStore.swift ~119-148) consumes everything EXCEPT response.conflicts, and AIFillReviewSheet has no conflict UI — so when tag OCR and photo vision disagree on size/brand, the app silently resolves to whichever value landed in suggestions, defeating the documented two-candidate review affordance. (2) Size AI infers gender/department and shows it in a transient OK-only alert (ItemCanvasView.swift ~948-987) but only writes r.size — the inferred department (an almost-always-required eBay aspect) is discarded when the alert dismisses, so the listing ships without it.",
+      "acceptanceCriteria": [
+        "AIExtract conflicts are threaded through to AIFillReviewSheet with a two-candidate picker per FieldConflict (or, at minimum, size/brand conflicts prefer the tag value at lowered confidence so they land in the opt-in review list)",
+        "Size AI persists an inferred department via AIItemFieldWriter (source \"ai:size\", confidence r.confidence) alongside the size write, instead of only showing it in a transient alert",
+        "No high-error field (size/brand/department) is silently resolved without either user choice or persistence",
+        "Unit coverage for conflict threading and department persistence"
+      ],
+      "priority": 1217,
+      "passes": false,
+      "notes": "[P2][AI/Attributes] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/AIExtract/AIExtractTypes.swift",
+        "ios/GradeThread/AIExtract/AIExtractStore.swift",
+        "ios/GradeThread/AIExtract/AIFillReviewSheet.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift"
+      ]
+    },
+    {
+      "id": "US-1218",
+      "title": "iOS: move at-rest PII (intake drafts, recent searches, manifest) off plaintext UserDefaults to file-protected storage",
+      "description": "Several sensitive items are persisted at the weakest at-rest tier, contradicting the app's own US-658 file-protection posture (which protects the photo draft right alongside). (1) IntakeDraftStore.save (IntakeDraftStore.swift ~64-68) writes a Draft with notes, purchasePriceText, brand, sku, sourcedBy to UserDefaults.standard (unencrypted plist, readable after first unlock, captured in unencrypted backups). (2) The PhotoDraftStore manifest.json (~136) is written with .atomic only (no protection class) and its directory (~107-109) is created without .protectionKey, while the photos it references ARE protected. (3) RecentSearchStore (RecentSearchStore.swift ~43) persists global-search terms (which can include consignor/buyer names) to UserDefaults.standard.",
+      "acceptanceCriteria": [
+        "Intake drafts persist to Application Support with .completeFileProtectionUntilFirstUserAuthentication (same pattern as PhotoDraftStore) or to the Keychain — not UserDefaults",
+        "manifest.json is written with .completeFileProtectionUntilFirstUserAuthentication and its directory is created with the .protectionKey attribute",
+        "Recent search terms are not persisted in plaintext: either not persisted, capped+scrubbed, or moved to a file-protected store",
+        "No free-text PII (notes, costs, names) remains in UserDefaults.standard or in unencrypted backups"
+      ],
+      "priority": 1218,
+      "passes": false,
+      "notes": "[P2][Security/AtRest] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/DetailsIntake/IntakeDraftStore.swift",
+        "ios/GradeThread/Inventory/RecentSearchStore.swift"
+      ]
+    },
+    {
+      "id": "US-1219",
+      "title": "iOS: fail-closed OAuth state nonce on RNG failure + remove JWT-at-rest in the background upload session",
+      "description": "Two crypto/secret-handling hardening items. (1) EbayConnectionService.generateStateNonce (~240-247) discards the SecRandomCopyBytes return value (`_ =`); on CSPRNG failure the buffer stays all-zeros and emits a predictable base64 state — the client-side CSRF defense for the eBay connect callback degrades to a constant. The SIWA path right next door does it correctly (SignInWithAppleCoordinator.randomNonce ~27-28 uses precondition on the result). (2) PhotoUploadService (~252-261, ~74-86) sets Authorization: Bearer <jwt> on a request handed to a BACKGROUND URLSession, which serializes the full request (headers included) to the system background-transfer DB on disk outside the Keychain; queued requests built with a now-expired token also 401 on resume with no refresh path (PhotoSignedURLProvider avoids this with an ephemeral session).",
+      "acceptanceCriteria": [
+        "generateStateNonce fails closed: guard SecRandomCopyBytes(...) == errSecSuccess and abort the connect (or precondition) instead of returning a zero/predictable nonce — mirroring the SIWA pattern",
+        "The background photo upload no longer persists a long-lived bearer JWT in the background-session task DB: prefer a short-TTL signed/pre-authorized upload URL (no Authorization header), or refresh-and-rebuild the request on resume",
+        "Expired-token uploads on background-session resume have a refresh/retry path rather than a silent 401",
+        "Both behaviors are covered by tests where feasible"
+      ],
+      "priority": 1219,
+      "passes": false,
+      "notes": "[P2][Security/Crypto] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/EbayConnectionService.swift",
+        "ios/GradeThread/Auth/SignInWithAppleCoordinator.swift",
+        "ios/GradeThread/Upload/PhotoUploadService.swift"
+      ]
+    },
+    {
+      "id": "US-1220",
+      "title": "iOS: bulk-pricing input validation — reject >=100% reductions and computed price <= 0",
+      "description": "BulkPricingStore (~56-77) validates priceValue only as v > 0 (no upper bound). In .reduce mode targetPrice = row.price * (1 - v/100), so entering 100 yields 0.00 and >100 yields a negative price; the local guard never catches it (it checks the absolute input, not the computed result). The eBay edge rejects price <= 0 (flipdesk-ebay.ts ~3441) so it fails server-side, but the user gets a confusing per-row \"Failed\" with no reason, and a 99% reduction to a few cents silently succeeds.",
+      "acceptanceCriteria": [
+        "In .reduce mode the percent is constrained to 0 < v < 100 with inline feedback",
+        "The computed targetPrice is floored (reject < 0.01) before building the update, with a row-level message",
+        "A 100%/150% reduction is blocked client-side with a clear explanation instead of a generic server \"Failed\"",
+        "Unit test covers reduce-mode bounds"
+      ],
+      "priority": 1220,
+      "passes": false,
+      "notes": "[P3][eBay/Validation] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingStore.swift",
+        "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingService.swift"
+      ]
+    },
+    {
+      "id": "US-1221",
+      "title": "iOS: sync hygiene — delete/tombstone propagation, watermark the listings full-pull, consistent flush/pull order, classify replay retries",
+      "description": "A bucket of delta-sync hygiene gaps (each distinct from prior sync stories). (1) Sales/expenses/listings/photos merges are upsert-only (SyncMergeActor mergeSales ~192-236, mergeExpenses ~243-276, mergeListings ~283-323; photos prune only on full backfill), and Realtime delete handling exists only for inventory_items (RealtimeService ~146-148) — so a row deleted server-side lingers forever, inflating Money totals, dashboard rollups, and the widget snapshot. (2) listings is re-fetched in full (up to 50k rows) on every pull (SyncEngine ~541-547, watermark: nil) — the one un-watermarked table, O(total listings) per pass (distinct from US-986 which optimized the merge fetch). (3) The connectivity path flushes-then-pulls but manual sync() pulls-then-flushes (SyncEngine ~88-91 vs ~124-130), creating a nondeterministic resurrection/clobber window. (4) markFailed burns the shared 6-retry budget for permanent replay errors (missingTarget/missingLocalFile/invalidStorageURL) the same as transient network failures (~822-824, ~1046-1064).",
+      "acceptanceCriteria": [
+        "Server-side deletes propagate to the local mirror for sales/expenses/listings/photos (deleted_at tombstone the delta acts on, periodic id-reconciliation, or extend Realtime delete handling to those tables)",
+        "listings is watermarked on updated_at like inventory_items (latest-price derivation fed from the delta + cached LocalListing rows) instead of a full pull every pass",
+        "Both connectivity and manual sync paths use the same order (flush-then-pull) so local intent is pushed before server state merges down",
+        "Replay errors are classified: terminal SyncReplayError cases mark stuck/needs-attention immediately without consuming the transient retry budget; only network/5xx consume retries"
+      ],
+      "priority": 1221,
+      "passes": false,
+      "notes": "[P3][Sync/Hygiene] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/SyncMergeActor.swift",
+        "ios/GradeThread/Persistence/SyncEngine.swift",
+        "ios/GradeThread/Persistence/RealtimeService.swift"
+      ]
+    },
+    {
+      "id": "US-1222",
+      "title": "iOS: Widget and Share Extension accessibility + robustness",
+      "description": "New extension surfaces (US-1134/US-189) missed by the in-app a11y sweeps. (1) GradeThreadWidget.swift has ZERO accessibility annotations: the Metric view (~312-335) stacks label/value/detail as 3 separate Texts with no children:.combine; SmallView/MediumView/StandByView and all three Lock Screen accessory views (~224-295) have no accessibilityLabel — VoiceOver reads disconnected fragments and the circular complication reads a bare number. (2) ShareViewController presents an empty intake view when no image loads (~59, present called unconditionally) and swallows a failed App Group write (~85, `_ = try? IntakeInbox.writeBatch(...)` then complete() regardless) so the user believes the share succeeded. (3) The extension reads file URLs with synchronous Data(contentsOf:) inside the provider callback (~46) with no security-scoped resource access — large/iCloud URLs fail silently or risk a jetsam kill.",
+      "acceptanceCriteria": [
+        "Widget views add .accessibilityElement(children:.combine) + composed .accessibilityLabel per Metric and per accessory view (e.g. \"3 items sold today, $184 gross. $410 payout waiting.\")",
+        "ShareViewController guards present on !images.isEmpty (else shows \"No images to import\" and completes) and surfaces a failure alert when writeBatch throws before completing",
+        "Share file-URL reads use startAccessingSecurityScopedResource / loadFileRepresentation off the callback thread instead of synchronous Data(contentsOf:)",
+        "Widget snapshot/extension a11y verified with VoiceOver"
+      ],
+      "priority": 1222,
+      "passes": false,
+      "notes": "[P3][A11y/Extensions] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThreadWidget/GradeThreadWidget.swift",
+        "ios/ShareExtension/ShareViewController.swift",
+        "ios/Shared"
+      ]
+    },
+    {
+      "id": "US-1223",
+      "title": "iOS: accessibility pass on post-US-1163 surfaces (ScheduledDrops, Team, Consignment, ListingPerformance)",
+      "description": "Surfaces shipped after the US-1151/1163 sweeps have concrete VoiceOver/contrast gaps. (1) ScheduledDropsView DropRow tap-to-reschedule is an onTapGesture (~94-95) on a combined a11y element (~192) with no .accessibilityAction/.isButton — VoiceOver users cannot reschedule. (2) TeamView role Picker uses .labelsHidden() with no per-member label (~208-214; whole file has 0 accessibility modifiers) — a VoiceOver user hears bare role pickers with no idea whose role they change (access-affecting). (3) ConsignorsView Save button shows no in-progress spinner while saving (~196-204) and the split Slider (~150) has no accessibilityValue/Label. (4) Loading states on Team/Verified/ListingPerformance (TeamView SkeletonRows ~65-68; ListingPerformanceView ~49-58) emit no spoken \"Loading\" cue. (5) ListingPerformanceView sparkline (~284) is labeled \"7-day view trend\" but conveys rising/falling by color only — inaccessible to color-blind/VoiceOver users.",
+      "acceptanceCriteria": [
+        "ScheduledDrops reschedule is a Button (or has .accessibilityAction(named:\"Reschedule\") + .isButton); the swipe cancel remains exposed",
+        "Each Team member role Picker has .accessibilityLabel(\"<name> role\") and the member name is combined into the row element",
+        "Consignor Save shows a ProgressView while saving; the split Slider has accessibilityLabel + accessibilityValue",
+        "Shared loading primitive speaks a \"Loading\" cue; the ListingPerformance trend direction is in the combined a11y label (not color-only) and/or an AXChartDescriptor"
+      ],
+      "priority": 1223,
+      "passes": false,
+      "notes": "[P3][A11y/Surfaces] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/ScheduledDrops/ScheduledDropsView.swift",
+        "ios/GradeThread/Team/TeamView.swift",
+        "ios/GradeThread/Consignment/ConsignorsView.swift",
+        "ios/GradeThread/Analytics/ListingPerformanceView.swift",
+        "ios/GradeThread/Verified/VerifiedView.swift"
+      ]
+    },
+    {
+      "id": "US-1224",
+      "title": "iOS: close unit-test coverage gaps (Prospect ROI, Vision/Speech OCR) and add extension/string CI guards",
+      "description": "Test/CI gaps. (1) Several money/parsing-relevant feature areas have NO unit tests: GradeThread/Prospect/ (AI sourcing / ROI math — US-1170 logic), GradeThread/Vision/ (OCR), GradeThread/Speech/, GradeThread/Snap/, GradeThread/Tools/. Prospect ROI and Vision/Speech extraction are pure numeric/parsing logic where regressions are silent and money-relevant. (2) CI (.github/workflows/ios-ci.yml) builds -scheme GradeThread only; the Widget and Share Extension compile as embedded deps with no dedicated build/test step and no extension unit tests. (3) There is no lint for hardcoded user-facing strings (localization readiness, US-1155) — every new surface adds dozens of raw Text(\"…\") literals unnoticed.",
+      "acceptanceCriteria": [
+        "Add unit tests for Prospect ROI rollup and Vision/Speech text-extraction parsers (deterministic, fixture-driven)",
+        "CI builds the Widget and Share Extension targets (a smoke build at minimum) so an extension-only break is caught",
+        "A string-literal lint flags NEW bare Text(\"…\")/Label(\"…\") in migrated directories (allow-listing the existing backlog) — coordinated with US-1155",
+        "New tests run in the existing fast unit lane"
+      ],
+      "priority": 1224,
+      "passes": false,
+      "notes": "[P3][Tests/CI] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThreadTests",
+        "ios/.github/workflows/ios-ci.yml",
+        "ios/GradeThread/Prospect",
+        "ios/GradeThread/Vision",
+        "ios/GradeThread/Speech"
+      ]
+    },
+    {
+      "id": "US-1225",
+      "title": "iOS: core-flow UX consistency bucket (Prospect verdict/retry/silent-load, Verified length, Disclosure banner, defect badge, passport relink)",
+      "description": "A bucket of verified single-surface UX correctness fixes. (1) Prospect: entering a cost AFTER running produces no buy/skip verdict because the decision block is gated on result.costCents != nil and nothing watches costText (ProspectView ~159-170/194, ProspectStore ~42-55) — recompute on costText change or relabel the CTA. (2) Prospect: an add-to-inventory failure renders in the top error card whose \"Try again\" calls store.run() (re-running the billable identify+comp pipeline) because addToInventory and run share errorMessage (ProspectView ~47-58, ProspectStore ~122-128) — give addToInventory its own error+retry. (3) Prospect library-pick load failures are silently swallowed (ProspectView ~77-84, no else) where Snap was fixed under US-1181 — mirror Snap's loadError alert. (4) Verified bio/display-name over-limit shows a red counter that looks blocking but canSave never checks length (VerifiedStore ~113-120) and the server truncates then overwrites the draft (content lost) — add length to canSave + a display-name counter. (5) Disclosure error banner is cleared only in load() (DisclosureStore ~125/140, ~63) so it stays pinned after a successful retry — clear it at the start/success of save()/applyText(). (6) Defect callout badge is clipped off-canvas for edge-positioned defects (DisclosureRenderer ~55-58, no clamp) — clamp the badge center inward. (7) Passport handoff link cannot be regenerated once minted in-session (PassportTimelineView ~271-310) though the server supports re-minting — keep a \"Regenerate link\" button visible.",
+      "acceptanceCriteria": [
+        "Prospect recomputes the buy/skip verdict + ROI when cost is entered after a result (or the CTA is relabeled to prompt a re-run); add-to-inventory has its own error state whose retry calls addToInventory(); a failed library load surfaces a loadError alert",
+        "Verified Save is disabled when bio/display-name exceed limits (real block, not a misleading counter) and a display-name counter exists; no silent server truncation overwrites the draft",
+        "The Disclosure error banner clears on a successful retry; defect callout badges are clamped within the composite bounds so edge defects render fully",
+        "A Passport \"Regenerate link\" affordance remains available after the first handoff link is minted"
+      ],
+      "priority": 1225,
+      "passes": false,
+      "notes": "[P3][CoreFlow/UX] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Prospect/ProspectView.swift",
+        "ios/GradeThread/Prospect/ProspectStore.swift",
+        "ios/GradeThread/Verified/VerifiedStore.swift",
+        "ios/GradeThread/Disclosure/DisclosureStore.swift",
+        "ios/GradeThread/Disclosure/DisclosureRenderer.swift",
+        "ios/GradeThread/Passport/PassportTimelineView.swift"
+      ]
+    },
+    {
+      "id": "US-1226",
+      "title": "iOS: minor perf/consistency/hardening bucket (ISO formatters, export session, reconcile scoping, Turnstile nav, export-compliance)",
+      "description": "Low-risk consistency items. (1) MarketplacesView.humanRelative allocates two ISO8601DateFormatters per render (~689-699) and ReconciliationService.upsertEbayListingRow allocates one per insert (~250) — hoist to private static (mirror the US-1007 fix in EbaySyncService), and use .withFractionalSeconds to match server writes. (2) AccountExportService uses URLSession.shared (60s, ~12) — the same hang class the rejection-response branch moved everything else off; route through the bounded EdgeAPI/EdgeNetwork session (20s). (3) ReconciliationService.ignore()/markMatched() update flipdesk_ebay_listings by id alone (~131-135, ~270-277) with no user_id scope — RLS protects it today but it diverges from the project's explicit-scoping convention (US-268); add .eq(\"user_id\", value: userId). (4) TurnstileView WKWebView loads any popup navigation into the main frame with no origin allowlist (~158, ~187-197) — add a WKNavigationDelegate that allowlists gradethread.com / *.cloudflare.com. (5) Verify ITSAppUsesNonExemptEncryption=false (project.yml ~106, Deliverfile ~36) is accurate given any on-device CryptoKit usage; set true + file the self-classification if non-exempt crypto ships.",
+      "acceptanceCriteria": [
+        "ISO8601DateFormatters in MarketplacesView and ReconciliationService are hoisted to statics (with .withFractionalSeconds where they write timestamps)",
+        "AccountExportService routes through the bounded EdgeAPI/EdgeNetwork session (~20s) instead of URLSession.shared, so data export cannot hang ~60s with no recovery",
+        "Reconciliation ignore()/markMatched() add .eq(\"user_id\", value: userId) for defense-in-depth consistency with US-268",
+        "TurnstileView allowlists navigations to gradethread.com / *.cloudflare.com via a WKNavigationDelegate; ITSAppUsesNonExemptEncryption is confirmed accurate (or corrected + self-classification filed)"
+      ],
+      "priority": 1226,
+      "passes": false,
+      "notes": "[P3][Perf/Consistency/Hardening] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/MarketplacesView.swift",
+        "ios/GradeThread/Marketplaces/Reconciliation/ReconciliationService.swift",
+        "ios/GradeThread/Settings/AccountExportService.swift",
+        "ios/GradeThread/Auth/TurnstileView.swift",
+        "ios/project.yml"
       ]
     }
   ]
