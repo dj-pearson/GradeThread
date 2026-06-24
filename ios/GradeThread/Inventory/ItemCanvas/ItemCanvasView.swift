@@ -1315,6 +1315,13 @@ struct ItemCanvasView: View {
                         .foregroundStyle(.secondary)
                     Button("Try again") { fetchComps(state: state) }
                         .font(.subheadline)
+                        // US-1186: don't fire a network retry while offline.
+                        .disabled(NetworkMonitor.isOffline(networkMonitor))
+                    if NetworkMonitor.isOffline(networkMonitor) {
+                        OfflineNotice(intent: .blocked, detail: "to pull eBay comps")
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                    }
                 }
             }
         } header: {
@@ -1336,9 +1343,28 @@ struct ItemCanvasView: View {
                     .foregroundStyle(.secondary)
                 Button("Search again") { fetchComps(state: state) }
                     .font(.subheadline)
+                    // US-1186: don't fire a network retry while offline.
+                    .disabled(NetworkMonitor.isOffline(networkMonitor))
+                if NetworkMonitor.isOffline(networkMonitor) {
+                    OfflineNotice(intent: .blocked, detail: "to pull eBay comps")
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 10) {
+                // US-1186: flag comps that no longer match the edited draft so
+                // the displayed prices/category aren't silently stale.
+                if compsStore.fetchedKey != nil,
+                   compsStore.fetchedKey != CompsStore.key(
+                       title: state.draft.title,
+                       brand: state.draft.brand,
+                       size: state.draft.size
+                   ) {
+                    Label("Title changed since these comps — search again for current results.", systemImage: "clock.arrow.circlepath")
+                        .font(.caption2)
+                        .foregroundStyle(Color.brandAmber)
+                }
                 HStack(spacing: 0) {
                     compStat("Low", lookup.stats.min)
                     Divider()

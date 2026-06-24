@@ -110,6 +110,10 @@ struct InventoryFilterSheet: View {
                 if draft.isActive {
                     Button {
                         AppRouter.haptic()
+                        // US-1185: prefill with the matched view's name so
+                        // "Update saved view…" overwrites it instead of opening a
+                        // blank field that creates a duplicate.
+                        saveName = savedFilters.matchingName(for: draft) ?? ""
                         showingSaveAlert = true
                     } label: {
                         Label(

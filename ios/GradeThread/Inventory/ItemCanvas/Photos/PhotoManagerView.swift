@@ -41,6 +41,19 @@ struct PhotoManagerView: View {
         .onAppear {
             if working.isEmpty { working = photos }
         }
+        // US-1186: if a background sync (or the canvas's own "Add photos")
+        // changes the photo set while this sheet is open, re-seed the working
+        // copy so the user isn't editing/reordering a stale snapshot — but only
+        // when we're not mid-save, so an in-flight mutation isn't clobbered.
+        .onChange(of: photosSignature) {
+            if !isSaving { working = photos }
+        }
+    }
+
+    /// Stable signature of the incoming photo set (id + order + type) so the
+    /// re-seed fires only when the photos actually change.
+    private var photosSignature: String {
+        photos.map { "\($0.id)|\($0.sortOrder)|\($0.photoType)" }.joined(separator: ",")
     }
 
     private var photoList: some View {

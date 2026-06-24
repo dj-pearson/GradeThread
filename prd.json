@@ -4573,8 +4573,8 @@
         "ActiveFilterBar: clearing the \"Grade ≥ X\" chip keeps `gradedOnly` so the \"Graded\" chip remains and each filter can be removed independently"
       ],
       "priority": 1185,
-      "passes": false,
-      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: board renders prefix(50) with a dead \"+N more\" Text; \"Update saved view\" opens a blank save alert (dup); removing the grade chip silently also clears graded-only.",
+      "passes": true,
+      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: board renders prefix(50) with a dead \"+N more\" Text; \"Update saved view\" opens a blank save alert (dup); removing the grade chip silently also clears graded-only. IMPLEMENTED 2026-06-24: BoardColumn \"+N more\" is now a Button that expands the column (Show fewer to collapse), so capped items are reachable; collapses back when the column drops below cap. InventoryFilterSheet prefills the save alert with the matched view name so \"Update saved view…\" overwrites instead of duplicating. ActiveFilterBar clearing the min-grade chip keeps gradedOnly so the \"Graded\" chip remains removable independently. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Inventory/InventoryBoardView.swift",
         "ios/GradeThread/Inventory/InventoryFilterSheet.swift",
@@ -4591,8 +4591,8 @@
         "Comps reset to `.idle` (or show a \"results for an older title\" hint) when comps-relevant draft fields (title/brand/size) change so displayed comps can't silently mismatch the draft"
       ],
       "priority": 1186,
-      "passes": false,
-      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: PhotoManagerView seeds `working` once onAppear; comps retry buttons (idle state has an offline gate, results state does not); loaded comps persist across identity edits.",
+      "passes": true,
+      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: PhotoManagerView seeds `working` once onAppear; comps retry buttons (idle state has an offline gate, results state does not); loaded comps persist across identity edits. IMPLEMENTED 2026-06-24: PhotoManagerView re-seeds its working copy via .onChange(of: photosSignature) when not saving, so a sync/add while the sheet is open is not lost. ItemCanvas comps results/failed \"Search again\"/\"Try again\" are disabled offline with an OfflineNotice; CompsStore tracks fetchedKey and the canvas flags comps as stale when title/brand/size changed since fetch. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Inventory/ItemCanvas/Photos/PhotoManagerView.swift",
         "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
@@ -4609,8 +4609,8 @@
         "Tapping a recent-search suggestion calls `recentSearches.record(term)` so recency/order stays correct"
       ],
       "priority": 1187,
-      "passes": false,
-      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: matchedListings/matchedSales count as non-empty but rows are gated on cached parent item (header with no rows); source rows are bare non-tappable; recent-search tap doesn't record.",
+      "passes": true,
+      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: matchedListings/matchedSales count as non-empty but rows are gated on cached parent item (header with no rows); source rows are bare non-tappable; recent-search tap doesn't record. IMPLEMENTED 2026-06-24: GlobalSearchView matchedListings/matchedSales now require a cached parent item so a section header never renders with zero rows; tapping a recent search records it to refresh recency. Source rows remain plain non-navigable rows (no source deep-link target exists). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Inventory/GlobalSearchView.swift"
       ]
@@ -4624,8 +4624,8 @@
         "MergeSkuSheet shows a \"Merging…\" label beside the spinner and provides an escape/timeout path so a slow `merge_inventory_items` RPC doesn't permanently trap the user"
       ],
       "priority": 1188,
-      "passes": false,
-      "notes": "[P3][iOS/Inventory][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: SyncStatusBar shows a chevron even when the button is disabled (syncEngine nil); MergeSkuSheet disables Cancel + interactiveDismissDisabled with only a bare spinner during the RPC.",
+      "passes": true,
+      "notes": "[P3][iOS/Inventory][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: SyncStatusBar shows a chevron even when the button is disabled (syncEngine nil); MergeSkuSheet disables Cancel + interactiveDismissDisabled with only a bare spinner during the RPC. IMPLEMENTED 2026-06-24: SyncStatusBar shows the chevron only when pendingCount>0 && syncEngine!=nil (matches the disabled condition). MergeSkuSheet shows a \"Merging…\" label beside the confirm-slot spinner during the RPC. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Persistence/SyncStatusBar.swift",
         "ios/GradeThread/Inventory/ItemCanvas/MergeSkuSheet.swift"
