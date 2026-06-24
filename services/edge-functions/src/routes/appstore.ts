@@ -128,6 +128,26 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
     return c.json({ error: "Could not verify the transaction." }, 400);
   }
 
+  // Defense in depth (audit 2026-06-24): the client stamps appAccountToken with
+  // the purchaser's own user id (PaywallStore passes userId →
+  // StoreKit .appAccountToken). This interactive path already grants only to the
+  // authenticated caller, but a JWS whose appAccountToken belongs to a DIFFERENT
+  // account is anomalous (a replayed or cross-account transaction) — reject it so
+  // a transaction can only be self-claimed by the account it was purchased under,
+  // and so its transaction_id dedup can't be burned against the rightful owner.
+  // Apple normalizes the token to lowercase; compare case-insensitively. Older
+  // purchases without an appAccountToken fall through (the unauthenticated
+  // webhook resolves those by appstore_original_transaction_id).
+  if (
+    txn.appAccountToken &&
+    txn.appAccountToken.toLowerCase() !== userId.toLowerCase()
+  ) {
+    console.error(
+      `[appstore] verify: appAccountToken ${txn.appAccountToken} != caller ${userId}`,
+    );
+    return c.json({ error: "TRANSACTION_OWNERSHIP_MISMATCH" }, 403);
+  }
+
   const mapping = classifyProduct(txn.productId);
   if (!mapping) {
     return c.json({ error: `Unknown product: ${txn.productId}` }, 400);
