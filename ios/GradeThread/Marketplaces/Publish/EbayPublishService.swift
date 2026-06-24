@@ -116,10 +116,12 @@ public final class EbayPublishService {
             )
             return .revised(response)
         } catch let error as PublishHTTPError {
-            // US-1190: route through the shared mapper so revise gets the same
-            // plan-limit (402) upgrade prompt and expired-session (401/403)
-            // guidance as publish/validate, not a raw "Unexpected error (HTTP …)".
-            return outcome(from: error)
+            // US-1190: route through the revise-specific mapper so revise gets
+            // the same plan-limit (402) upgrade prompt and expired-session
+            // (401/403) guidance as publish/validate, not a raw "Unexpected
+            // error (HTTP …)". ReviseOutcome has no planLimit/blockers cases, so
+            // those fold into .failed (see reviseOutcome(from:)).
+            return reviseOutcome(from: error)
         } catch {
             return .failed(message: Self.networkFailureMessage(error))
         }
@@ -163,6 +165,28 @@ public final class EbayPublishService {
     private struct PublishHTTPError: Error {
         let statusCode: Int
         let body: Data
+    }
+
+    /// US-1190: `revise()` returns ``ReviseOutcome``, which has no `planLimit`
+    /// or `blockers` cases, so it can't reuse ``outcome(from:)`` (that returns
+    /// ``PublishOutcome``). Map the shared HTTP statuses here — still firing the
+    /// 402 upgrade prompt and giving 401/403 re-auth guidance — folding
+    /// plan-limit / validation failures into `.failed`.
+    private func reviseOutcome(from error: PublishHTTPError) -> ReviseOutcome {
+        switch error.statusCode {
+        case 402:
+            if let gate = PlanGateError.decode(from: error.body) {
+                PlanGateNotifier.shared.present(gate)
+            }
+            return .failed(message: PlanGateBody.planLimitMessage(from: error.body))
+        case 409:
+            return .noOfferId
+        case 401, 403:
+            return .failed(message: "Your session expired. Sign in again, then retry publishing.")
+        default:
+            let parsed = try? JSONDecoder().decode(EdgeErrorBody.self, from: error.body)
+            return .failed(message: parsed?.message ?? "Unexpected error (HTTP \(error.statusCode)).")
+        }
     }
 
     private func outcome(from error: PublishHTTPError) -> PublishOutcome {
