@@ -871,15 +871,22 @@ private struct SidebarSplitView: View {
     private var contentColumn: some View {
         switch router.selection {
         case .home:
+            // Home/Inventory use value-based NavigationLinks resolved by the
+            // detail column's NavigationStack — they stay unwrapped.
             DashboardView(router: router)
         case .inventory:
             InventoryListView()
+        // US-1199: Money/Marketplaces/Settings use destination-closure
+        // NavigationLinks (e.g. MoneyView "Profit by item"), which need an
+        // enclosing NavigationStack. Without one they dead-ended on iPad. Wrap
+        // each in its own stack so in-view taps push within the content column;
+        // deep links (per-section paths) still resolve in the detail column.
         case .sales:
-            MoneyPlaceholder()
+            NavigationStack { MoneyPlaceholder() }
         case .marketplaces:
-            MarketplacesPlaceholder()
+            NavigationStack { MarketplacesPlaceholder() }
         case .settings:
-            SettingsView()
+            NavigationStack { SettingsView() }
         case .add:
             EmptyView()
         }

@@ -9,20 +9,26 @@ import UIKit
 /// offline. Pure + value-typed so the math is unit-testable without any view.
 enum FinancialExport {
 
+    /// US-1194: the per-line components mirror ``SalePnL`` exactly so the export
+    /// foots to the same net the Money tab and Profit-by-item show. `grossRevenue`
+    /// folds in shipping collected; `fees` folds in payment-processing fees;
+    /// `sellerCosts` covers shipping/grading/other costs; `cogs` is the cost basis.
     struct Transaction: Equatable {
         let date: Date
         let itemTitle: String
-        let salePrice: Double
+        let grossRevenue: Double
         let fees: Double
+        let sellerCosts: Double
         let cogs: Double
-        var net: Double { salePrice - fees - cogs }
+        var net: Double { grossRevenue - fees - sellerCosts - cogs }
     }
 
     struct Summary: Equatable {
         let grossRevenue: Double
         let platformFees: Double
+        let sellerCosts: Double
         let cogs: Double
-        var netProfit: Double { grossRevenue - platformFees - cogs }
+        var netProfit: Double { grossRevenue - platformFees - sellerCosts - cogs }
     }
 
     /// Sales whose `saleDate` falls within [start, end], joined to their item
@@ -39,11 +45,14 @@ enum FinancialExport {
             .sorted { $0.saleDate > $1.saleDate }
             .map { sale in
                 let item = itemsById[sale.inventoryItemId]
+                // US-1194: source every component from SalePnL (the single
+                // source of truth) so the CSV agrees with the rest of the app.
                 return Transaction(
                     date: sale.saleDate,
                     itemTitle: item?.title ?? "—",
-                    salePrice: sale.salePrice,
-                    fees: sale.platformFees,
+                    grossRevenue: SalePnL.revenue(sale),
+                    fees: SalePnL.fees(sale),
+                    sellerCosts: SalePnL.sellerCosts(sale),
                     cogs: item?.acquiredPrice ?? 0
                 )
             }
@@ -52,8 +61,9 @@ enum FinancialExport {
     static func summary(_ transactions: [Transaction]) -> Summary {
         // US-790: exact-Decimal sums — a financial export must foot to the cent.
         Summary(
-            grossRevenue: Money.sum(transactions) { $0.salePrice },
+            grossRevenue: Money.sum(transactions) { $0.grossRevenue },
             platformFees: Money.sum(transactions) { $0.fees },
+            sellerCosts: Money.sum(transactions) { $0.sellerCosts },
             cogs: Money.sum(transactions) { $0.cogs }
         )
     }
@@ -75,18 +85,20 @@ enum FinancialExport {
         lines.append("")
         lines.append("SUMMARY")
         lines.append("Gross Revenue,\(money(totals.grossRevenue))")
-        lines.append("Platform Fees,\(money(totals.platformFees))")
+        lines.append("Fees,\(money(totals.platformFees))")
+        lines.append("Seller Costs,\(money(totals.sellerCosts))")
         lines.append("Cost of Goods (COGS),\(money(totals.cogs))")
         lines.append("Net Profit,\(money(totals.netProfit))")
         lines.append("")
         lines.append("TRANSACTION DETAILS")
-        lines.append("Date,Item,Sale Price,Fees,COGS,Net")
+        lines.append("Date,Item,Gross Revenue,Fees,Seller Costs,COGS,Net")
         for t in txns {
             lines.append([
                 df.string(from: t.date),
                 escape(t.itemTitle),
-                money(t.salePrice),
+                money(t.grossRevenue),
                 money(t.fees),
+                money(t.sellerCosts),
                 money(t.cogs),
                 money(t.net),
             ].joined(separator: ","))

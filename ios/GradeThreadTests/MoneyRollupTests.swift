@@ -71,6 +71,31 @@ final class MoneyRollupTests: XCTestCase {
         XCTAssertEqual(summary.netProfit, 75)
     }
 
+    // US-1194: net must fold in shipping collected, processing fees, and seller
+    // costs — matching SalePnL, not the old `salePrice - platformFees - cogs`.
+    func test_financialExport_netUsesFullSalePnLFormula() {
+        let item = makeItem(id: "a", cost: 10)
+        let sale = makeSale(itemId: "a", price: 100, fees: 15, date: Date(timeIntervalSince1970: 1_700_000_000))
+        sale.shippingCollected = 8
+        sale.paymentProcessingFees = 3
+        sale.shippingCost = 6
+        sale.gradingCost = 2
+        sale.otherCosts = 1
+        let start = Date(timeIntervalSince1970: 1_699_000_000)
+        let end = Date(timeIntervalSince1970: 1_701_000_000)
+
+        let txns = FinancialExport.transactions(sales: [sale], items: [item], start: start, end: end)
+        // revenue 108 − fees 18 − sellerCosts 9 − cogs 10 = 71
+        XCTAssertEqual(txns.first?.net, 71, accuracy: 0.001)
+
+        let summary = FinancialExport.summary(txns)
+        XCTAssertEqual(summary.grossRevenue, 108, accuracy: 0.001)
+        XCTAssertEqual(summary.platformFees, 18, accuracy: 0.001)
+        XCTAssertEqual(summary.sellerCosts, 9, accuracy: 0.001)
+        XCTAssertEqual(summary.cogs, 10, accuracy: 0.001)
+        XCTAssertEqual(summary.netProfit, 71, accuracy: 0.001)
+    }
+
     func test_financialExport_csvHasSummaryAndTransactionSections() {
         let item = makeItem(id: "a", cost: 5)
         let sale = makeSale(itemId: "a", price: 50, fees: 5, date: Date(timeIntervalSince1970: 1_700_000_000))

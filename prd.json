@@ -4738,8 +4738,8 @@
         "A sale with shipping and processing fees shows the same net in the export, the Money preview, and the Profit-by-item list"
       ],
       "priority": 1194,
-      "passes": false,
-      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: FinancialExport net = salePrice - fees - cogs and MoneyView preview net = salePrice - platformFees both drop shipping/processing/seller costs, diverging from SalePnL.net (the mandated single source of truth).",
+      "passes": true,
+      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: FinancialExport net = salePrice - fees - cogs and MoneyView preview net = salePrice - platformFees both drop shipping/processing/seller costs, diverging from SalePnL.net (the mandated single source of truth). IMPLEMENTED 2026-06-24: FinancialExport.Transaction/Summary now source every component from SalePnL (grossRevenue incl shipping collected, fees incl payment processing, sellerCosts = shipping+grading+other, cogs = cost basis); net = revenue-fees-sellerCosts-cogs. CSV gained Seller Costs summary line + a Gross Revenue/Fees/Seller Costs/COGS/Net transaction header. MoneyView recent-sales preview nets via SalePnL.net(costBasis:) instead of salePrice-platformFees. Added MoneyRollupTests.test_financialExport_netUsesFullSalePnLFormula. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Money/FinancialExport.swift",
         "ios/GradeThread/Money/MoneyView.swift",
@@ -4826,8 +4826,8 @@
         "Verified on iPad regular width: \"Profit by item\" and the other content-column links push their destinations"
       ],
       "priority": 1199,
-      "passes": false,
-      "notes": "[P1][iOS/iPad][IMPORTANT][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: on regular width only the detail column is wrapped in a NavigationStack; contentColumn renders MoneyView etc. directly, so their destination-closure NavigationLinks have no enclosing stack and do nothing.",
+      "passes": true,
+      "notes": "[P1][iOS/iPad][IMPORTANT][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: on regular width only the detail column is wrapped in a NavigationStack; contentColumn renders MoneyView etc. directly, so their destination-closure NavigationLinks have no enclosing stack and do nothing. IMPLEMENTED 2026-06-24: SidebarSplitView.contentColumn wraps the Money/Marketplaces/Settings sections (destination-closure NavigationLinks like \"Profit by item\") in their own NavigationStack so they no longer dead-end on iPad; Home/Inventory stay unwrapped because they use value-based links resolved by the detail column, and per-section deep links still resolve in the detail column. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/ContentView.swift",
         "ios/GradeThread/Money/MoneyView.swift"
