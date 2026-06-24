@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Create or edit a repricing automation rule (US-672): scope (brand / category
@@ -8,8 +9,18 @@ struct RuleEditorSheet: View {
     let store: RepricingRulesStore
 
     @Environment(\.dismiss) private var dismiss
+    @Query private var items: [LocalInventoryItem]   // US-1198: resolve item title
     @State private var draft: RuleDraft
     @State private var isSaving = false
+
+    /// US-1198: human title for an item-scoped rule (falls back to the id).
+    private var scopedItemTitle: String? {
+        guard let id = draft.inventoryItemId else { return nil }
+        if let item = items.first(where: { $0.id == id }), !item.title.isEmpty {
+            return item.title
+        }
+        return "Item \(id.prefix(8))"
+    }
 
     init(existing: RepricingRule?, store: RepricingRulesStore) {
         self.existing = existing
@@ -54,7 +65,13 @@ struct RuleEditorSheet: View {
     private var scopeSection: some View {
         Section {
             if isItemScoped {
-                LabeledContent("Scope", value: "A single item")
+                // US-1198: name the target item and offer to convert to a
+                // workspace-wide filter rule, instead of an opaque static row.
+                LabeledContent("Item", value: scopedItemTitle ?? "A single item")
+                Button("Convert to a filter rule") {
+                    draft.inventoryItemId = nil
+                }
+                .foregroundStyle(Color.brandNavy)
             } else {
                 TextField("Brand (optional)", text: $draft.filterBrand)
                     .autocorrectionDisabled()

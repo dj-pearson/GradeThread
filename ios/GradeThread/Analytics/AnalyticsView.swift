@@ -142,8 +142,10 @@ struct AnalyticsView: View {
                 .keyboardType(.decimalPad)
             Button("Save") {
                 // US-1162: locale-aware parse (accepts comma decimals / grouping).
-                let value = CurrencyFormatter().parse(budgetDraft)
-                AppPreferences.sourcingBudget = value
+                // US-1196: treat <= 0 (or garbage → 0) as "no budget" so a zero
+                // budget doesn't render "Over budget" against an empty bar.
+                let parsed = CurrencyFormatter().parse(budgetDraft)
+                AppPreferences.sourcingBudget = parsed.flatMap { $0 > 0 ? $0 : nil }
                 sourcingBudget = AppPreferences.sourcingBudget
             }
             if sourcingBudget != nil {
@@ -503,6 +505,13 @@ struct AnalyticsView: View {
                             }
                             .font(.caption2).foregroundStyle(.secondary)
                         }
+                    }
+                    // US-1198: note the rows hidden by the top-8 cap so a reseller
+                    // with more sources knows the list is truncated.
+                    if sourceROI.count > 8 {
+                        Text("+\(sourceROI.count - 8) more source\(sourceROI.count - 8 == 1 ? "" : "s")")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }

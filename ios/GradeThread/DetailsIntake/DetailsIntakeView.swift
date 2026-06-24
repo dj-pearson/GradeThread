@@ -664,7 +664,9 @@ struct DetailsIntakeView: View {
             color: resolved.color.nonEmpty,
             material: resolved.material.nonEmpty,
             item_category: resolved.category?.rawValue,
-            acquired_price: currencyFormatter.parse(resolved.acquiredPriceText),
+            // US-1184: a pasted "-5" parses negative (decimalPad has no minus,
+            // but paste bypasses it) — clamp acquisition price to >= 0.
+            acquired_price: currencyFormatter.parse(resolved.acquiredPriceText).map { max(0, $0) },
             style: gapFill(form.style, into: existing.style),
             container: gapFill(form.container, into: existing.container),
             sourced_by: gapFill(form.sourcedBy, into: existing.sourced_by),
@@ -788,7 +790,8 @@ struct DetailsIntakeView: View {
             acquired_date: ISO8601DateFormatter()
                 .string(from: form.purchaseDate)
                 .components(separatedBy: "T").first,
-            acquired_price: currencyFormatter.parse(form.purchasePriceText),
+            // US-1184: clamp a pasted negative acquisition price to >= 0.
+            acquired_price: currencyFormatter.parse(form.purchasePriceText).map { max(0, $0) },
             description: form.notes.nonEmpty
         )
     }

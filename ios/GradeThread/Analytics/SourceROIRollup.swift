@@ -47,7 +47,9 @@ struct SourcingBudgetStatus: Equatable {
     var remaining: Double { budget - spent }
     /// 0…1 progress (clamped) for a meter.
     var fraction: Double { budget > 0 ? min(spent / budget, 1) : 0 }
-    var isOver: Bool { spent > budget }
+    // US-1196: a zero/unset budget isn't "over budget" — require a positive
+    // budget so a garbage/empty input doesn't render "Over budget" + empty bar.
+    var isOver: Bool { budget > 0 && spent > budget }
 }
 
 // MARK: - Rollup

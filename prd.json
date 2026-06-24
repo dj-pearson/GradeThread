@@ -4553,8 +4553,8 @@
         "GradedPhotoView drops the \"save still works once it loads\" copy on the `.failed` state (Save is disabled there); negative acquisition prices are rejected (clamp `>= 0` or drop `-` from the allowed set in CurrencyFormatter parse)"
       ],
       "priority": 1184,
-      "passes": false,
-      "notes": "[P2][iOS/Grading][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: BulkGrade empty selection loops on Try again; skipped list shows only first blocker and truncates; GradedPhotoView promises save on failure; CurrencyFormatter.parse keeps \"-\" allowing pasted negative prices.",
+      "passes": true,
+      "notes": "[P2][iOS/Grading][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: BulkGrade empty selection loops on Try again; skipped list shows only first blocker and truncates; GradedPhotoView promises save on failure; CurrencyFormatter.parse keeps \"-\" allowing pasted negative prices. IMPLEMENTED 2026-06-24: BulkGradeStore gained a non-retryable .empty phase for \"nothing selected\" (sheet shows only Close, no looping Try again); the skipped list shows ALL blockers and lets the reason wrap. GradedPhotoView fallback drops the \"save still works\" clause. DetailsIntake clamps a pasted negative acquisition price to >= 0 (both save paths). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Grading/BulkGradeStore.swift",
         "ios/GradeThread/Grading/BulkGradeSheet.swift",
@@ -4755,8 +4755,8 @@
         "ListingPerformanceView CTR display is verified against the unit the edge sync stores and the extra `* 100` removed if the value is already a percentage (no \"320.0%\")"
       ],
       "priority": 1195,
-      "passes": false,
-      "notes": "[P2][iOS/Sales][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: SalesView content only branches empty/syncing (no failed); refreshable is fire-and-forget. CTR text multiplies by 100 assuming a 0-1 fraction, but eBay CTR is often already a percent.",
+      "passes": true,
+      "notes": "[P2][iOS/Sales][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: SalesView content only branches empty/syncing (no failed); refreshable is fire-and-forget. CTR text multiplies by 100 assuming a 0-1 fraction, but eBay CTR is often already a percent. IMPLEMENTED 2026-06-24: SalesView adds an offline empty-state (distinct from \"No sales yet\") so a blocked initial pull does not look like an empty account. CTR: verified the edge stores click_through_rate as a 0-1 fraction (tests show 0.05, 12/400), so the existing *100 is correct — no change needed.",
       "relevantPaths": [
         "ios/GradeThread/Sales/SalesView.swift",
         "ios/GradeThread/Analytics/ListingPerformanceView.swift"
@@ -4773,8 +4773,8 @@
         "A parsed sourcing budget of `<= 0` is treated as nil on save (and/or excluded from the status) so a zero/garbage budget doesn't show \"Over budget\" against an empty bar"
       ],
       "priority": 1196,
-      "passes": false,
-      "notes": "[P2][iOS/Money][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: custom reschedule picker has no `in:` range; CurrencyFormatter.formatDisplay(nil) returns \"\" (blank price); ScoutCandidateRow.dollars() prepends \"$\" before the minus; budget 0 makes isOver true with fraction 0.",
+      "passes": true,
+      "notes": "[P2][iOS/Money][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: custom reschedule picker has no `in:` range; CurrencyFormatter.formatDisplay(nil) returns \"\" (blank price); ScoutCandidateRow.dollars() prepends \"$\" before the minus; budget 0 makes isOver true with fraction 0. IMPLEMENTED 2026-06-24: ScheduledDropsView custom reschedule DatePicker constrained to Date()... (no past publish); unpriced drops show \"No price\" not a blank. ScoutCandidateRow.dollars routes through CurrencyFormatter (no \"$-5.00\"). SourceROIRollup.isOver requires budget>0; AnalyticsView treats a <=0 sourcing budget as nil on save. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/ScheduledDrops/ScheduledDropsView.swift",
         "ios/GradeThread/Scout/ScoutCandidateRow.swift",
@@ -4791,8 +4791,8 @@
         "Reconcile photo ingest tracks and surfaces \"Couldn't load N photos\" and shows progress during ingest, instead of silently `continue`-ing past failures"
       ],
       "priority": 1197,
-      "passes": false,
-      "notes": "[P2][iOS/Money][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: on .completed `staged` is cleared so the only button is disabled and the user is frozen with no link/reset; ingest silently skips photos that fail to load/compress.",
+      "passes": true,
+      "notes": "[P2][iOS/Money][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: on .completed `staged` is cleared so the only button is disabled and the user is frozen with no link/reset; ingest silently skips photos that fail to load/compress. IMPLEMENTED 2026-06-24: ReconcileIntakeView .completed offers a web-board Link + \"Start another batch\" (resets phase/staged) instead of a frozen success; ingest reports dropped picks (\"Couldn't load N photos\") and shows a loading state. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Reconcile/ReconcileIntakeView.swift"
       ]
@@ -4807,8 +4807,8 @@
         "The \"Avg grade\" tile and the grade-distribution chart use one predicate so their counts reconcile; source-ROI lists note/expose entries beyond the prefix(8) cap"
       ],
       "priority": 1198,
-      "passes": false,
-      "notes": "[P3][iOS/Money][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: toggle mutates only on save success (no optimistic/rollback) and delete has no confirm; item-scoped rule not editable; avg-grade uses gradeValue!=nil while chart uses non-empty gradeLabel; source-ROI prefix(8) silently truncates.",
+      "passes": true,
+      "notes": "[P3][iOS/Money][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: toggle mutates only on save success (no optimistic/rollback) and delete has no confirm; item-scoped rule not editable; avg-grade uses gradeValue!=nil while chart uses non-empty gradeLabel; source-ROI prefix(8) silently truncates. IMPLEMENTED 2026-06-24: Repricing toggle flips optimistically and rolls back on failure; swipe-delete confirms first. RuleEditorSheet shows an item-scoped rule's title and offers \"Convert to a filter rule\". AnalyticsMetrics.gradeDistribution uses gradeValue!=nil (matching gradedCount), with an \"Other\" bucket for missing labels. Source-ROI cards (Analytics + Money) note \"+N more sources\" beyond the top-8 cap. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Pricing/RepricingRulesView.swift",
         "ios/GradeThread/Pricing/RepricingRulesStore.swift",

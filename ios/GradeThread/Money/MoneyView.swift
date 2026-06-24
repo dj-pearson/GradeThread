@@ -374,6 +374,12 @@ struct MoneyView: View {
                 }
                 .chartXAxis(.hidden)
                 .frame(height: CGFloat(rows.count) * 34 + 24)
+                // US-1198: note sources hidden by the top-8 cap.
+                if sourceROI.count > 8 {
+                    Text("+\(sourceROI.count - 8) more source\(sourceROI.count - 8 == 1 ? "" : "s")")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }

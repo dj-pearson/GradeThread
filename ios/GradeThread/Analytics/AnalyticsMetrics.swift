@@ -146,11 +146,15 @@ enum AnalyticsRollup {
 
     /// Graded items grouped by tier, ordered high → low grade.
     static func gradeDistribution(items: [LocalInventoryItem]) -> [GradeBucket] {
-        let graded = items.filter { ($0.gradeLabel?.isEmpty == false) }
+        // US-1198: use the SAME "is graded" predicate as gradedCount/averageGrade
+        // (gradeValue != nil) so the chart total reconciles with the header
+        // count; items missing a tier label fall into an "Other" bucket rather
+        // than silently dropping out of the distribution.
+        let graded = items.filter { $0.gradeValue != nil }
         var counts: [String: Int] = [:]
         var scoreSum: [String: Double] = [:]
         for item in graded {
-            guard let tier = item.gradeLabel else { continue }
+            let tier = (item.gradeLabel?.isEmpty == false) ? item.gradeLabel! : "Other"
             counts[tier, default: 0] += 1
             scoreSum[tier, default: 0] += (item.gradeValue ?? 0)
         }

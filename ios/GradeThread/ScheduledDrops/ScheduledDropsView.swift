@@ -176,9 +176,17 @@ private struct DropRow: View {
                 }
             }
             Spacer(minLength: 0)
-            Text(currency.formatDisplay(drop.priceDollars))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.brandNavy)
+            // US-1196: an unpriced drop rendered a blank gap (formatDisplay(nil)
+            // returns "") — show "No price" instead.
+            if let price = drop.priceDollars {
+                Text(currency.formatDisplay(price))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.brandNavy)
+            } else {
+                Text("No price")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
@@ -253,6 +261,9 @@ private struct RescheduleSheet: View {
                     DatePicker(
                         "Custom time",
                         selection: $customDate,
+                        // US-1196: constrain to the future so a past time can't be
+                        // saved and then published almost immediately by the cron.
+                        in: Date()...,
                         displayedComponents: [.date, .hourAndMinute]
                     )
                     .environment(\.timeZone, resolvedZone)

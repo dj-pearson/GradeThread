@@ -75,9 +75,17 @@ final class RepricingRulesStore {
 
     /// Flip a rule's enabled flag (full-replace PUT through the editor draft).
     func toggleEnabled(_ rule: RepricingRule) async {
-        var draft = RuleDraft(from: rule)
-        draft.enabled.toggle()
-        await save(draft, editingId: rule.id)
+        // US-1198: flip optimistically so the switch moves immediately, then roll
+        // back if the save fails (save sets actionError).
+        guard let i = rules.firstIndex(where: { $0.id == rule.id }) else { return }
+        let previous = rules[i].enabled
+        rules[i].enabled.toggle()
+        var draft = RuleDraft(from: rules[i])
+        draft.enabled = rules[i].enabled
+        let ok = await save(draft, editingId: rule.id)
+        if !ok, let j = rules.firstIndex(where: { $0.id == rule.id }) {
+            rules[j].enabled = previous
+        }
     }
 
     /// Run the caller's rules immediately and refresh the feed.
