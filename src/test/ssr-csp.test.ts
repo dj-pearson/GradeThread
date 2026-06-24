@@ -15,7 +15,7 @@ import {
 describe("ssrSecurityHeaders", () => {
   it("builds a nonce-scoped script-src with no unsafe-inline / unsafe-eval", () => {
     const h = ssrSecurityHeaders("ABC123");
-    const csp = h["Content-Security-Policy"];
+    const csp = h["Content-Security-Policy"] ?? "";
     expect(csp).toContain("script-src 'self' 'nonce-ABC123'");
     // 'unsafe-inline' in script-src would defeat the nonce (CSP3 ignores it when
     // a nonce is present, but assert it's absent so it can't be added). style-src
