@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 /// Manual intake form. Reachable from the Add tab → "Details-first
 /// (manual form)" sheet. Mirrors the web `src/pages/flipdesk/intake.tsx`
@@ -190,6 +191,15 @@ struct DetailsIntakeView: View {
         notesAnchorBeforeDictation = form.notes
         AppRouter.haptic()
         await dictation.start()
+    }
+
+    /// US-1201: true when the dictation failure is a denied mic/speech
+    /// permission, which is only recoverable via Settings.
+    private func isDictationPermissionDenied(_ error: Error) -> Bool {
+        switch error as? SpeechDictation.DictationError {
+        case .speechPermissionDenied, .microphonePermissionDenied: return true
+        default: return false
+        }
     }
 
     // MARK: - Sections
@@ -401,9 +411,21 @@ struct DetailsIntakeView: View {
             Text("Notes")
         } footer: {
             if let error = dictation.lastError {
-                Text(error.localizedDescription)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(error.localizedDescription)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                    // US-1201: a denied mic/speech permission can only be undone
+                    // in Settings — give the user a direct path, not just a hint.
+                    if isDictationPermissionDenied(error) {
+                        Button("Open Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .font(.footnote.weight(.semibold))
+                    }
+                }
             } else if dictation.isRecording {
                 Text("Listening — tap the mic to stop.")
                     .font(.footnote)

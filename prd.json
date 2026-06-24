@@ -4842,8 +4842,8 @@
         "Verified/Team/Passport/Consignors/Support `.loading` branches use `SkeletonRows`/`SkeletonBlock` and `.failed` branches use `ErrorStateView`, replacing bare centered ProgressViews and hand-rolled error UIs"
       ],
       "priority": 1200,
-      "passes": false,
-      "notes": "[P2][iOS/Consistency][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: these screens fall back to a bare ProgressView for loading and hand-roll error UIs though SkeletonRows/SkeletonBlock and ErrorStateView ship and are used elsewhere; ConsignorsView .failed has no retry button.",
+      "passes": true,
+      "notes": "[P2][iOS/Consistency][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: these screens fall back to a bare ProgressView for loading and hand-roll error UIs though SkeletonRows/SkeletonBlock and ErrorStateView ship and are used elsewhere; ConsignorsView .failed has no retry button. IMPLEMENTED 2026-06-24: ConsignorsView .failed now uses ErrorStateView (was a no-retry dead end) and .loading uses SkeletonRows. VerifiedView/TeamView swap bare ProgressView -> SkeletonRows and ContentUnavailableView -> ErrorStateView. PassportTimelineView loading -> SkeletonBlock, failed -> ErrorStateView. SupportTicketsView loading -> SkeletonRows (matching its existing ErrorStateView error branch). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Consignment/ConsignorsView.swift",
         "ios/GradeThread/Verified/VerifiedView.swift",
@@ -4862,8 +4862,8 @@
         "Speech dictation, on a permission-denied error, shows an alert/inline button that opens Settings (`UIApplication.openSettingsURLString`) rather than only a tiny scrollable footer"
       ],
       "priority": 1201,
-      "passes": false,
-      "notes": "[P2][iOS/Safety][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: Automations delete fires immediately; Sign out fires immediately and wipes unsynced offline mutations with no confirm; denied speech permission has no in-app path to Settings.",
+      "passes": true,
+      "notes": "[P2][iOS/Safety][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: Automations delete fires immediately; Sign out fires immediately and wipes unsynced offline mutations with no confirm; denied speech permission has no in-app path to Settings. IMPLEMENTED 2026-06-24: Automations swipe-delete now confirms; Settings Sign out confirms (\"unsynced changes will be cleared\") + shows an in-progress spinner; DetailsIntake dictation surfaces an \"Open Settings\" button when mic/speech permission is denied. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Automations/AutomationsView.swift",
         "ios/GradeThread/ContentView.swift",
@@ -4881,8 +4881,8 @@
         "ErrorStateView announces its retry-in-progress state to VoiceOver (e.g. `.accessibilityValue` or an A11yAnnounce); InfoCard's decorative title icon is `.accessibilityHidden(true)`"
       ],
       "priority": 1202,
-      "passes": false,
-      "notes": "[P2][iOS/Accessibility][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: StatusBadge is color-only with no a11y label; CachedThumbnail images are unlabeled and retry button is <44pt; ErrorStateView retry spinner keeps the static label; InfoCard icon is read before the title.",
+      "passes": true,
+      "notes": "[P2][iOS/Accessibility][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: StatusBadge is color-only with no a11y label; CachedThumbnail images are unlabeled and retry button is <44pt; ErrorStateView retry spinner keeps the static label; InfoCard icon is read before the title. IMPLEMENTED 2026-06-24: StatusBadge exposes \"Status: <label>\" to VoiceOver (color-only -> labeled). CachedThumbnail takes an optional accessibilityLabel (decorative when nil) and its retry button meets 44pt. ErrorStateView announces retry-in-progress via accessibilityValue. InfoCard decorative title icon is accessibilityHidden. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Components/StatusBadge.swift",
         "ios/GradeThread/Components/CachedThumbnail.swift",
@@ -4901,8 +4901,8 @@
         "PassportTimelineView `shareSection` is a `@ViewBuilder` that contributes nothing when `shareURL == nil` (matching `handoffSection`) so it doesn't inject an empty gap"
       ],
       "priority": 1203,
-      "passes": false,
-      "notes": "[P3][iOS/Visual][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: BrandAmber/BrandEmerald define no dark luminosity variant (badge contrast fails); FeedbackSheet success is an inline label with the sheet still open; shareSection injects an empty VStack when shareURL is nil.",
+      "passes": true,
+      "notes": "[P3][iOS/Visual][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: BrandAmber/BrandEmerald define no dark luminosity variant (badge contrast fails); FeedbackSheet success is an inline label with the sheet still open; shareSection injects an empty VStack when shareURL is nil. IMPLEMENTED 2026-06-24: BrandAmber/BrandEmerald colorsets gained dark (+ dark high-contrast) appearance variants. FeedbackSheet auto-dismisses ~1.2s after success (+ VoiceOver announce). PassportTimelineView shareSection is a @ViewBuilder that contributes nothing when shareURL is nil (no stray gap). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Components/StatusBadge.swift",
         "ios/GradeThread/Feedback/FeedbackSheet.swift",

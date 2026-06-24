@@ -134,6 +134,12 @@ struct FeedbackSheet: View {
                 isError: false
             )
             message = ""
+            // US-1203: confirm briefly, then auto-dismiss so a user who taps
+            // Close immediately doesn't feel like nothing happened.
+            A11yAnnounce.announce("Feedback sent")
+            try? await Task.sleep(for: .seconds(1.2))
+            dismiss()
+            return
         } catch let error as EdgeAPIError {
             HapticFeedback.error()
             resultMessage = ResultMessage(

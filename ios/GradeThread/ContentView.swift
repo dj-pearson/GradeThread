@@ -1187,6 +1187,10 @@ struct SettingsView: View {
     // US-818 account/info surfaces
     @State private var showingChangePassword = false
     @State private var showingGradingGuide = false
+    // US-1201: confirm sign-out — it wipes local SwiftData + the offline
+    // mutation queue, so an accidental tap shouldn't discard unsynced work.
+    @State private var confirmingSignOut = false
+    @State private var signingOut = false
     @State private var legalLink: LegalLink?
     // US-648 preferences
     @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
@@ -1236,9 +1240,26 @@ struct SettingsView: View {
                 }
                 .accessibilityLabel("Change password")
                 Button(role: .destructive) {
-                    Task { await authStore.signOut() }
+                    confirmingSignOut = true
                 } label: {
-                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    HStack {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                        if signingOut { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(signingOut)
+                .confirmationDialog(
+                    "Sign out?",
+                    isPresented: $confirmingSignOut,
+                    titleVisibility: .visible
+                ) {
+                    Button("Sign out", role: .destructive) {
+                        signingOut = true
+                        Task { await authStore.signOut() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Any changes on this device that haven't synced yet will be cleared.")
                 }
             }
 

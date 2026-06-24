@@ -62,14 +62,16 @@ struct PassportTimelineView: View {
 
     // MARK: - Phases
 
+    // US-1200: shared skeleton instead of a bare centered spinner.
     private var loadingState: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-            Text("Loading provenance history…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            SkeletonBlock().frame(height: 80)
+            SkeletonBlock().frame(height: 110)
+            SkeletonBlock().frame(height: 150)
+            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
@@ -82,15 +84,13 @@ struct PassportTimelineView: View {
     }
 
     private func failedState(_ message: String) -> some View {
-        ContentUnavailableView {
-            Label("Couldn't load passport", systemImage: "wifi.exclamationmark")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Try again") { Task { await model.load() } }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.brandNavy)
-        }
+        // US-1200: shared error component (consistent retry affordance).
+        ErrorStateView(
+            title: "Couldn't load passport",
+            message: message,
+            systemImage: "wifi.exclamationmark",
+            retry: { await model.load() }
+        )
     }
 
     // MARK: - Loaded
@@ -234,9 +234,12 @@ struct PassportTimelineView: View {
         }
     }
 
+    // US-1203: @ViewBuilder so it contributes nothing (no empty VStack adding a
+    // stray gap into the parent's spacing) when there's no share URL.
+    @ViewBuilder
     private var shareSection: some View {
-        VStack(spacing: 10) {
-            if let url = model.shareURL {
+        if let url = model.shareURL {
+            VStack(spacing: 10) {
                 ShareLink(item: url) {
                     Label("Share passport", systemImage: "square.and.arrow.up")
                         .font(.subheadline.weight(.semibold))

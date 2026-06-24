@@ -29,6 +29,9 @@ struct InfoCard<Content: View, Accessory: View>: View {
                                 if let systemImage {
                                     Image(systemName: systemImage)
                                         .foregroundStyle(Color.brandNavy)
+                                        // US-1202: decorative — don't let VoiceOver
+                                        // read the SF Symbol name before the title.
+                                        .accessibilityHidden(true)
                                 }
                             }
                             .labelStyle(IconLeadingLabelStyle(hasIcon: systemImage != nil))

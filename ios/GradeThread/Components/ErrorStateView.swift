@@ -48,6 +48,9 @@ struct ErrorStateView: View {
             .buttonStyle(.brandSecondary)
             .disabled(isRetrying)
             .accessibilityLabel(retryTitle)
+            // US-1202: the spinner keeps the static label, so tell VoiceOver
+            // the button is now loading.
+            .accessibilityValue(isRetrying ? "Loading" : "")
 
             if let secondaryTitle, let secondaryAction {
                 Button(secondaryTitle, action: secondaryAction)

@@ -17,6 +17,10 @@ struct StatusBadge: View {
             .padding(.vertical, 3)
             .background(Self.tone(for: status).opacity(0.12))
             .clipShape(Capsule())
+            // US-1202: status is conveyed by color here, so expose it explicitly
+            // to VoiceOver (color-blind / non-sighted users otherwise lose it).
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Status: \(Self.label(for: status))")
     }
 
     /// Human-readable label (snake_case → Title Case), e.g. "to_list" → "To List".

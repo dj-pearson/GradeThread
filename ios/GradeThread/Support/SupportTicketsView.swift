@@ -65,7 +65,9 @@ struct SupportTicketsView: View {
     private var content: some View {
         switch store.phase {
         case .loading where store.isEmpty:
-            ProgressView("Loading…")
+            // US-1200: shared skeleton (the error branch already uses
+            // ErrorStateView — match it on the loading side).
+            ScrollView { SkeletonRows(count: 6).padding(.top) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(uiColor: .systemGroupedBackground))
         case .failed(let message) where store.isEmpty:
