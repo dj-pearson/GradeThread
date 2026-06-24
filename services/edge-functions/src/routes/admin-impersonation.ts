@@ -15,12 +15,14 @@ import { requireStepUp } from "../lib/step-up.ts";
 //   • impersonating another admin / super_admin is refused (privilege confusion).
 //   • every start AND stop is written to admin_audit_log (AC #3).
 //
-// Mechanism: /start mints a one-time magic-link token for the target via the
-// GoTrue admin API and returns its hashed_token. The browser exchanges it with
-// supabase.auth.verifyOtp() to swap into the target's session, having first
-// stashed the admin's own tokens so the "Exit" button can restore them. /stop
-// is called once the admin session is restored, so it is itself audited under
-// the admin's identity.
+// Mechanism: /start mints TWO one-time magic-link tokens via the GoTrue admin
+// API — one for the target (the browser redeems it with verifyOtp() to swap into
+// the target's session) and one RESUME token for the admin themselves. The
+// browser stashes only the admin's resume token_hash (single-use, short-lived),
+// NOT the admin's long-lived refresh token, so an XSS during impersonation can't
+// capture a credential that mints admin sessions indefinitely. "Exit" redeems
+// the resume token to restore the admin session, then calls /stop — which is
+// therefore audited under the admin's own identity.
 
 type AdminEnv = {
   Variables: {
@@ -66,6 +68,19 @@ adminImpersonationRoutes.post("/start/:id", async (c: Context<AdminEnv>) => {
     );
   }
 
+  // The admin's own email — needed to mint a one-time RESUME token so the
+  // browser never has to stash the admin's long-lived refresh token to get back
+  // (US-581 hardening). Look it up rather than trusting anything client-supplied.
+  const { data: actor, error: actorErr } = await supabaseAdmin
+    .from("users")
+    .select("email")
+    .eq("id", actorId)
+    .maybeSingle();
+  if (actorErr || !actor?.email) {
+    console.error("[impersonation] actor lookup failed:", actorErr?.message ?? "no email");
+    return c.json({ error: "Internal error" }, 500);
+  }
+
   // Mint a one-time magic-link token the browser can redeem for the target's
   // session. generateLink does NOT email anything and does not mutate the user.
   const { data: link, error: linkErr } = await supabaseAdmin.auth.admin
@@ -74,6 +89,22 @@ adminImpersonationRoutes.post("/start/:id", async (c: Context<AdminEnv>) => {
     console.error(
       "[impersonation] generateLink failed:",
       linkErr?.message ?? "no hashed_token",
+    );
+    return c.json({ error: "Internal error" }, 500);
+  }
+
+  // Mint a second one-time token for the ADMIN: "Exit" redeems THIS to restore
+  // the admin session, so the admin's refresh token is never written to web
+  // storage. This token is single-use and short-lived (GoTrue OTP TTL) — a far
+  // smaller blast radius than a stashed long-lived refresh token if an XSS fires
+  // mid-impersonation. (If it expires before Exit, the client falls back to a
+  // normal re-login.)
+  const { data: resumeLink, error: resumeErr } = await supabaseAdmin.auth.admin
+    .generateLink({ type: "magiclink", email: actor.email });
+  if (resumeErr || !resumeLink?.properties?.hashed_token) {
+    console.error(
+      "[impersonation] admin resume generateLink failed:",
+      resumeErr?.message ?? "no hashed_token",
     );
     return c.json({ error: "Internal error" }, 500);
   }
@@ -87,6 +118,7 @@ adminImpersonationRoutes.post("/start/:id", async (c: Context<AdminEnv>) => {
 
   return c.json({
     token_hash: link.properties.hashed_token,
+    admin_resume_token_hash: resumeLink.properties.hashed_token,
     target: {
       id: target.id,
       email: target.email,

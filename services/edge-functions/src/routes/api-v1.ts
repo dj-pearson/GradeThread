@@ -13,6 +13,8 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
+import { isFeatureEnabled } from "../lib/feature-flags.ts";
+import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
@@ -106,6 +108,16 @@ export const apiV1Routes = new Hono<ApiV1Env>();
 apiV1Routes.post("/grades", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "submit")) {
     return c.json(scopeDenied("submit"), 403);
+  }
+  // Honor the grading kill-switch + inline AI budget breach on the public API
+  // too (this path charges before grading, so block before any charge). Without
+  // this, the API would be a way to keep spending after the budget tripped.
+  if (!(await isFeatureEnabled("grading")) || (await isAiBudgetExhausted("grading"))) {
+    return c.json({
+      data: null,
+      error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
+      meta: null,
+    }, 503);
   }
   const userId = c.get("userId");
 

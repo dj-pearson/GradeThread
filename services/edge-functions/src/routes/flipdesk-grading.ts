@@ -3,6 +3,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { downloadItemPhoto } from "../lib/item-photo-storage.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
+import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { validateJson, z } from "../lib/validation.ts";
 import {
   computeBatchCredits,
@@ -334,6 +336,12 @@ function mapPhotoTypeForGrading(t: string): string | null {
 flipdeskGradingRoutes.post("/submit", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const role = c.get("workspaceRole") ?? "owner";
+
+  // Grading kill-switch + inline AI budget breach — block before any charge so
+  // the FlipDesk grading entry can't keep spending after the budget tripped.
+  if (!(await isFeatureEnabled("grading")) || (await isAiBudgetExhausted("grading"))) {
+    return c.json(featureDisabledBody("grading"), 503);
+  }
 
   if (role === "viewer") {
     return c.json(

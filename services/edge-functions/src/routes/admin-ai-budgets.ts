@@ -22,6 +22,7 @@ import { jsonError } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { clearFeatureFlagCache } from "../lib/feature-flags.ts";
+import { clearAiBudgetGateCache } from "../lib/ai-budget-gate.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
@@ -198,6 +199,9 @@ adminAiBudgetsRoutes.put("/:id", async (c) => {
     console.error("[admin-ai-budgets] update failed:", error.message);
     return jsonError(c, 500, "Failed to update budget");
   }
+  // Raising a limit / disabling a budget should clear the inline gate now so an
+  // operator can un-pause grading immediately (others heal within the TTL).
+  clearAiBudgetGateCache();
 
   await writeAuditLog(c, {
     action: "ai_budget.update",
@@ -231,6 +235,10 @@ adminAiBudgetsRoutes.delete("/:id", async (c) => {
     console.error("[admin-ai-budgets] delete failed:", error.message);
     return jsonError(c, 500, "Failed to delete budget");
   }
+  // Reflect the change on the inline budget gate immediately on this replica
+  // (others pick it up within the gate's TTL) so an emergency budget change
+  // takes effect without waiting out the cache.
+  clearAiBudgetGateCache();
 
   await writeAuditLog(c, {
     action: "ai_budget.delete",
@@ -285,6 +293,9 @@ adminAiBudgetsRoutes.post("/breaches/:id/resolve", async (c) => {
     }
     reEnabled = (flagRow?.length ?? 0) > 0;
     if (reEnabled) clearFeatureFlagCache();
+    // Also drop the inline budget gate so resolving a breach un-pauses grading
+    // promptly (it will re-pause within the TTL if spend is still over limit).
+    clearAiBudgetGateCache();
   }
 
   const userId = c.get("userId");

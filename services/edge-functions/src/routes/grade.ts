@@ -1,5 +1,8 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { clientIp } from "../middleware/rate-limit.ts";
+import { getSettingSync } from "../lib/system-settings.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
@@ -13,6 +16,7 @@ import {
 } from "../lib/grade-billing.ts";
 import { captureException } from "../lib/observability.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
+import { aiBudgetExceededBody, isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { classifyGarment, type GarmentClassification } from "../lib/ai-extract.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
@@ -196,6 +200,12 @@ gradeRoutes.post("/submit", async (c) => {
   // pipeline during an outage/cost spike without a redeploy.
   if (!(await isFeatureEnabled("grading"))) {
     return c.json(featureDisabledBody("grading"), 503);
+  }
+  // Inline AI budget kill-switch: pause grading within seconds (not at the cron
+  // interval) if the hard USD grading budget is breached. Checked BEFORE any
+  // payment/credit reservation so an over-budget breach never charges the user.
+  if (await isAiBudgetExhausted("grading")) {
+    return c.json(aiBudgetExceededBody("grading"), 503);
   }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
@@ -575,6 +585,11 @@ gradeRoutes.post("/pay/:id", async (c) => {
   if (!(await isFeatureEnabled("grading"))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
+  // Inline AI budget kill-switch (see /submit) — block before charging for the
+  // pay-then-grade path too.
+  if (await isAiBudgetExhausted("grading")) {
+    return c.json(aiBudgetExceededBody("grading"), 503);
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const submissionId = c.req.param("id");
@@ -729,6 +744,10 @@ gradeRoutes.post("/snap", async (c) => {
   if (!(await isFeatureEnabled("grading"))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
+  // Inline AI budget kill-switch (see /submit) — snap rides grading vision too.
+  if (await isAiBudgetExhausted("grading")) {
+    return c.json(aiBudgetExceededBody("grading"), 503);
+  }
 
   let body: { image?: unknown; brand?: unknown; keyword?: unknown };
   try {
@@ -768,6 +787,38 @@ gradeRoutes.post("/snap", async (c) => {
     (planRow?.past_due_since as string | null) ?? null,
   );
   const snapCap = SNAP_CAP[effPlan] ?? SNAP_CAP.free;
+
+  // Anti-account-farming: the monthly snap cap is per-account, so signing up N
+  // free accounts multiplies free vision calls. Add a per-IP DAILY ceiling on
+  // the FREE tier (a second, non-account dimension) so one network can't farm
+  // free Snaps across many fresh accounts. Keyed on the Cloudflare-attested IP
+  // (un-spoofable; X-Forwarded-For is not trusted in prod). Checked BEFORE the
+  // monthly reservation so a blocked request doesn't consume the monthly count.
+  // No trusted IP (dev / direct-origin) → skip, matching the rate limiter.
+  if (effPlan === "free") {
+    const ip = clientIp(c as unknown as Context);
+    if (ip) {
+      const ipDailyCap = getSettingSync<number>("snap_ip_daily_cap", 30);
+      const dayStart = new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const { data: ipCount } = await supabaseAdmin.rpc("increment_rate_limit", {
+        p_bucket_key: `snap-ip:${ip}`,
+        p_window_start: dayStart.toISOString(),
+      });
+      if (typeof ipCount === "number" && ipCount > ipDailyCap) {
+        return c.json(
+          {
+            error:
+              "Daily free Snap-to-Value limit reached for your network. Try again tomorrow, or upgrade for more.",
+            code: "SNAP_IP_LIMIT_REACHED",
+            action: "upgrade",
+          },
+          429,
+        );
+      }
+    }
+  }
+
   const { data: reserved } = await supabaseAdmin.rpc("reserve_snap", {
     p_user_id: ownerId,
     p_limit: snapCap,

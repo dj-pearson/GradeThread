@@ -113,17 +113,35 @@ unlimited "business" tier had no per-minute bound.
 
 ---
 
-## Recommended follow-ups (not in this change — need product/ops decisions)
+## Follow-ups — now implemented
 
-- **Free-tier multi-account abuse:** AI quotas are per-account; consider a per-IP
-  daily cap on free Snap and a lower AI allowance for unverified emails. Keep the
-  existing waitlist gate enabled during launch.
-- **AI budget kill-switch latency:** USD budget guardrails are cron-evaluated;
-  consider an inline cached `ai_budget_status` check on the high-volume grading
-  path so a hard USD breach short-circuits in seconds, not minutes.
-- **Admin impersonation token storage:** the admin's **refresh** token is stashed
-  in `sessionStorage` during "view as". Prefer a server-side resume handoff (or
-  persist only the short-lived access token) so an XSS during impersonation can't
-  capture a long-lived admin refresh token.
+### Free-tier multi-account abuse → per-IP daily Snap cap
+Free Snap monthly caps are per-account, so farming many accounts multiplied free
+vision calls. Added a per-IP **daily** ceiling on the free tier (`snap_ip_daily_cap`,
+default 30), keyed on the Cloudflare-attested IP (un-spoofable; XFF untrusted in
+prod), checked before the monthly reservation. *Note:* the "lower allowance for
+unverified emails" idea turned out moot — the edge `authMiddleware` already
+**blocks every unverified-email account** from all authenticated routes (US-366),
+which is stronger than a reduced allowance.
+
+### AI budget kill-switch latency → inline cached gate
+Added `lib/ai-budget-gate.ts`: a cached (30s TTL) `isAiBudgetExhausted(feature)`
+reading the same `ai_budget_status()` source the cron uses, fail-open on error.
+Wired into every grading entry (`grade.ts` submit/pay/snap, `api-v1.ts`,
+`flipdesk-grading.ts`) so a hard USD breach pauses grading within seconds, before
+any charge — not at the cron interval. Also extends the grading kill-switch to the
+public API + FlipDesk grading entries, which previously didn't check it. Admin
+budget mutations clear the gate cache for immediate effect.
+
+### Admin impersonation → server-side resume handoff (no refresh token in storage)
+`/start` now mints a **second** one-time magic-link token for the admin; the
+client stashes only that single-use, short-lived resume `token_hash` (never the
+admin's long-lived refresh token). "Exit" redeems it via `verifyOtp` to restore
+the admin session, falling back to a clean sign-out if it expired. An XSS during
+impersonation can no longer lift a credential that mints admin sessions
+indefinitely.
+
+## Remaining recommendation (optional)
+
 - **Blog rendering defense-in-depth:** with `body_html` now sanitized on every
   write path, consider also a strict CSP on blog/cert pages as a second line.
