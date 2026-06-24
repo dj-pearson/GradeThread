@@ -6,5 +6,14 @@
     <array>
         <string>group.com.gradethread.app</string>
     </array>
+    <!-- US-1015: Data Protection floor. Mirrors the main app
+         (GradeThread.entitlements, US-658) and ShareExtension so any file the
+         widget extension materializes from the shared App Group container
+         defaults to NSFileProtectionCompleteUntilFirstUserAuthentication
+         rather than the weaker .none class. "Until first user authentication"
+         (not "complete") keeps reads working after the first post-boot unlock
+         so timeline refreshes don't fail on a locked device. -->
+    <key>com.apple.developer.default-data-protection</key>
+    <string>NSFileProtectionCompleteUntilFirstUserAuthentication</string>
 </dict>
 </plist>
