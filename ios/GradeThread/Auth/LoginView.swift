@@ -20,7 +20,6 @@ struct LoginView: View {
     @State private var fullName = ""
 
     @State private var isSubmitting = false
-    @State private var showingPasswordReset = false
     @State private var infoMessage: String?
     @State private var captchaRequest: CaptchaRequest?
 
@@ -98,11 +97,6 @@ struct LoginView: View {
             .padding(.bottom, 40)
         }
         .background(Color(uiColor: .systemBackground))
-        .sheet(isPresented: $showingPasswordReset) {
-            if let url = URL(string: "https://gradethread.com/auth/reset-password") {
-                SafariView(url: url).ignoresSafeArea()
-            }
-        }
         .sheet(item: $captchaRequest) { request in
             TurnstileSheet(siteKey: request.siteKey) { result in
                 captchaRequest = nil
@@ -426,10 +420,10 @@ struct LoginView: View {
         }
         await authStore.resetPassword(email: trimmed, captchaToken: captchaToken)
         if authStore.lastError == nil {
-            // Open the web reset page in case the user prefers to handle it
-            // there. The deep link in the email also lands here.
-            showingPasswordReset = true
-            infoMessage = "We sent you a reset link."
+            // US-1205: just confirm — the reset link is in the email. Don't
+            // auto-launch a web Safari page the user didn't ask for (the
+            // explicit "Reset on the web" affordance remains available).
+            infoMessage = "We sent you a reset link. Check your email."
         } else {
             reportAuthFailure(context: "reset_password")
         }
@@ -533,10 +527,14 @@ struct LoginView: View {
         }
     }
 
-    /// Carries the unwrapped underlying reason into the on-screen error region.
+    /// US-1205: surface friendly copy on-screen (US-1025 convention); the raw
+    /// `detail` is kept only for the Sentry breadcrumb/event logged above, not
+    /// shown to the user as an opaque "error 1000 / NSUnderlyingError…".
     private struct AppleSignInFailure: LocalizedError {
         let detail: String
-        var errorDescription: String? { "Sign in with Apple failed.\n\(detail)" }
+        var errorDescription: String? {
+            "Sign in with Apple didn't complete. Please try again."
+        }
     }
 }
 

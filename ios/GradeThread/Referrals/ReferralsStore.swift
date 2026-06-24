@@ -68,7 +68,12 @@ final class ReferralsStore {
         defer { isRedeeming = false }
         do {
             let res = try await service.redeem(code: code)
-            guard res.ok else { return false }
+            guard res.ok else {
+                // US-1205: ok:false (invalid/expired/self code) used to return
+                // silently — give the user a reason instead of a bare error buzz.
+                redeemError = "That code isn't valid. Double-check it and try again."
+                return false
+            }
             redeemSucceeded = true
             redeemCode = ""
             await load()

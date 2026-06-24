@@ -10,6 +10,9 @@ struct ProfileSection: View {
     @State private var store = ProfileStore()
     @State private var nameDraft: String = ""
     @State private var isSavingName = false
+    // US-1205: transient "Saved" confirmation (was haptic-only — invisible with
+    // haptics off / to VoiceOver).
+    @State private var nameSaved = false
     @State private var isExporting = false
     @State private var errorMessage: String?
     @State private var exportFile: ExportFile?
@@ -63,6 +66,13 @@ struct ProfileSection: View {
                     if isSavingName {
                         Spacer()
                         ProgressView()
+                    } else if nameSaved {
+                        Spacer()
+                        Label("Saved", systemImage: "checkmark.circle.fill")
+                            .labelStyle(.titleAndIcon)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.brandEmerald)
+                            .transition(.opacity)
                     }
                 }
             }
@@ -118,18 +128,21 @@ struct ProfileSection: View {
     }
 
     private var planSection: some View {
-        Section("Plan & usage") {
+        // US-1205: this is the GRADING plan/usage; the FlipDesk PlanSection shows
+        // the reseller plan. Label it distinctly so the two "Plan" rows in
+        // Settings don't read as contradictory.
+        Section("Grading & usage") {
             switch store.phase {
             case .loading:
                 HStack {
-                    Text("Plan")
+                    Text("Grading plan")
                     Spacer()
                     ProgressView()
                 }
             case .failed(let message):
                 Text(message).font(.footnote).foregroundStyle(.secondary)
             case .ready(let profile):
-                LabeledContent("Plan", value: profile.planLabel)
+                LabeledContent("Grading plan", value: profile.planLabel)
                 LabeledContent("Grades this month", value: "\(profile.gradesUsedThisMonth)")
                 if let reset = profile.resetDate {
                     LabeledContent(
@@ -174,6 +187,12 @@ struct ProfileSection: View {
             HapticFeedback.error()
         } else {
             HapticFeedback.success()
+            // US-1205: visible confirmation (the Save button re-disables on
+            // success since nameChanged flips false, so without this nothing
+            // signals the save worked).
+            withAnimation { nameSaved = true }
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation { nameSaved = false }
         }
     }
 

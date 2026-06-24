@@ -4936,8 +4936,8 @@
         "Forgot-password success shows the confirmation without auto-presenting the web Safari reset page (make it an explicit \"Reset on the web\" button); the onboarding \"Continue with Free\" affordance reads clearly as a tappable button"
       ],
       "priority": 1205,
-      "passes": false,
-      "notes": "[P2][iOS/Auth][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: LoginView surfaces raw Apple error detail; redeem returns false without setting redeemError on ok:false; profile save is haptic-only; ProfileSection (plan) vs PlanSection (flipdesk_plan) can disagree; forgot-password auto-opens Safari; free path uses .plain style.",
+      "passes": true,
+      "notes": "[P2][iOS/Auth][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: LoginView surfaces raw Apple error detail; redeem returns false without setting redeemError on ok:false; profile save is haptic-only; ProfileSection (plan) vs PlanSection (flipdesk_plan) can disagree; forgot-password auto-opens Safari; free path uses .plain style. IMPLEMENTED 2026-06-24: LoginView Apple sign-in shows friendly copy (raw detail stays in telemetry); forgot-password no longer auto-launches a web Safari sheet (removed the dead sheet/state) — just confirms via the email. ReferralsStore sets a user-facing redeemError on ok:false. ProfileSection shows a transient \"Saved\" confirmation after a name save and relabels the grading plan row (\"Grading & usage\" / \"Grading plan\") to disambiguate from the FlipDesk PlanSection. PaywallView \"Continue with Free\" is now a bordered button with a chevron. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Auth/LoginView.swift",
         "ios/GradeThread/Referrals/ReferralsStore.swift",
