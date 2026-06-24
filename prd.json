@@ -4643,8 +4643,8 @@
         "The `.failed` connection state shows a distinct error pill instead of the neutral \"—\" used for loading"
       ],
       "priority": 1189,
-      "passes": false,
-      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: main-card Disconnect fires immediately (accounts screen confirms); disconnect failure restores .connected with no error; Sync button has no in-flight disable; inactive accounts are a dead end; .failed maps to \"—\" pill.",
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: main-card Disconnect fires immediately (accounts screen confirms); disconnect failure restores .connected with no error; Sync button has no in-flight disable; inactive accounts are a dead end; .failed maps to \"—\" pill. IMPLEMENTED 2026-06-24: MarketplacesView main-card Disconnect now goes through a confirmationDialog; \"Sync now\" disables + shows \"Syncing…\" while a run is live (isSyncing flag in runSync); .failed status shows a red \"Error\" pill (was neutral \"—\"). MarketplaceConnectionStore.disconnect sets actionError on failure (surfaced via an alert) instead of silently restoring \"Connected\". EbayAccountsStore gained reconnect(); inactive/refresh-flagged accounts expose a \"Reconnect\" swipe + a11y action. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/MarketplacesView.swift",
         "ios/GradeThread/Marketplaces/MarketplaceConnectionStore.swift",
