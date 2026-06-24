@@ -116,12 +116,17 @@ final class PostSaleStore {
 
     // MARK: - Disputes
 
-    func acceptDispute(_ d: EbayPaymentDispute) async { await resolve(d, action: "accept", note: nil) }
-    func contestDispute(_ d: EbayPaymentDispute, note: String?) async {
+    @discardableResult
+    func acceptDispute(_ d: EbayPaymentDispute) async -> Bool { await resolve(d, action: "accept", note: nil) }
+    // US-1192: returns success so the contest sheet can stay open + keep the
+    // typed note on failure instead of dismissing into a lost error.
+    @discardableResult
+    func contestDispute(_ d: EbayPaymentDispute, note: String?) async -> Bool {
         await resolve(d, action: "contest", note: note)
     }
 
-    private func resolve(_ d: EbayPaymentDispute, action: String, note: String?) async {
+    @discardableResult
+    private func resolve(_ d: EbayPaymentDispute, action: String, note: String?) async -> Bool {
         do {
             try await service.resolveDispute(
                 disputeId: d.paymentDisputeId, action: action, note: note, orderId: d.orderId
@@ -129,8 +134,10 @@ final class PostSaleStore {
             disputes.removeAll { $0.paymentDisputeId == d.paymentDisputeId }
             actionBanner = action == "accept" ? "Dispute accepted (buyer refunded)." : "Dispute contested."
             await loadDisputes()
+            return true
         } catch {
             actionError = error.localizedDescription
+            return false
         }
     }
 

@@ -184,11 +184,27 @@ struct EbayAccountsView: View {
                     makingPrimary = conn
                 }
             }
+            // US-1189: inactive / refresh-flagged stores can be re-authorized.
+            if !conn.isActive || conn.refreshError != nil {
+                Button("Reconnect") { Task { await store.reconnect(conn) } }
+            }
             Button("Rename") {
                 renameText = conn.label ?? ""
                 renaming = conn
             }
             Button("Disconnect") { disconnecting = conn }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            // US-1189: a "Disconnected" / "Reconnect needed" row used to be a
+            // dead end (tap is a no-op); offer in-place re-authorization.
+            if !conn.isActive || conn.refreshError != nil {
+                Button {
+                    Task { await store.reconnect(conn) }
+                } label: {
+                    Label("Reconnect", systemImage: "arrow.clockwise")
+                }
+                .tint(Color.brandNavy)
+            }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {

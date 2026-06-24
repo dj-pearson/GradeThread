@@ -20,6 +20,15 @@ struct PhotoIntakeView: View {
     @State private var permissionState: PermissionState = .unknown
     @State private var isCapturing = false
     @State private var startupError: String?
+    // US-1181: runtime failures that happen AFTER the camera is up (item
+    // creation, library import, compression, capture) — `startupError` is only
+    // rendered in the camera-bootstrap (.unknown) placeholder, so those were
+    // set but never shown. This drives an alert visible in the .granted state.
+    @State private var captureError: String?
+    /// US-1181: when a library import partially fails we still want to open the
+    /// staging tray, but only after the "couldn't load N photos" alert is
+    /// dismissed (presenting an alert + sheet in the same tick is unreliable).
+    @State private var openTrayAfterAlert = false
     @State private var slotForPreview: PhotoSlotType?
     @State private var showingExitConfirmation = false
     /// US-686: tag-photo quality pre-flight (nudge to retake a blurry/low-res
@@ -132,6 +141,26 @@ struct PhotoIntakeView: View {
             announce("\(slot.label). \(slot.hint)")
         }
         .onDisappear { camera.stop() }
+        // US-1181: surface runtime capture/import/save failures that occur while
+        // the camera preview is showing (the .unknown placeholder text never
+        // appears in the .granted state).
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { captureError != nil },
+                set: { if !$0 { captureError = nil } }
+            )
+        ) {
+            Button("OK") {
+                captureError = nil
+                if openTrayAfterAlert {
+                    openTrayAfterAlert = false
+                    if !stagedPhotos.isEmpty { showingStagingTray = true }
+                }
+            }
+        } message: {
+            Text(captureError ?? "")
+        }
         // US-686: nudge to retake a blurry/low-res tag before AI runs.
         .alert(
             "Tag photo looks hard to read",
@@ -704,7 +733,7 @@ struct PhotoIntakeView: View {
             let detail = FriendlyErrorCopy.rawDetail(for: error)
             Telemetry.breadcrumb("Create draft item failed: \(detail)", category: "intake")
             Telemetry.event("intake_save_error", props: ["detail": detail])
-            startupError = FriendlyErrorCopy.actionMessage(
+            captureError = FriendlyErrorCopy.actionMessage(
                 for: error,
                 fallback: "Couldn't create your item. Please try again."
             )
@@ -819,11 +848,19 @@ struct PhotoIntakeView: View {
             )
         }
         guard !staged.isEmpty else {
-            startupError = "Couldn't read those photos. Try again or pick different ones."
+            captureError = "Couldn't read those photos. They may still be downloading from iCloud — try again or pick different ones."
             return
         }
         stagedPhotos = staged
-        showingStagingTray = true
+        // US-1181: tell the user when some picks were dropped (e.g. still
+        // downloading from iCloud) instead of silently staging fewer than picked.
+        let dropped = results.count - staged.count
+        if dropped > 0 {
+            openTrayAfterAlert = true
+            captureError = "Couldn't load \(dropped) of \(results.count) photos. They may still be downloading from iCloud. We added the \(staged.count) that loaded."
+        } else {
+            showingStagingTray = true
+        }
     }
 
     private func capture() {
@@ -840,7 +877,7 @@ struct PhotoIntakeView: View {
                 let image = try await camera.capturePhoto()
                 // US-636: compress off the main actor.
                 guard let output = await PhotoCompressor.compressOffMain(image) else {
-                    startupError = "Couldn't compress the photo."
+                    captureError = "Couldn't process the photo. Please try again."
                     return
                 }
                 let photo = PhotoCapture(
@@ -855,7 +892,7 @@ struct PhotoIntakeView: View {
                 // US-1025: friendly copy on-screen; raw detail to Sentry.
                 let detail = FriendlyErrorCopy.rawDetail(for: error)
                 Telemetry.breadcrumb("Photo capture failed: \(detail)", category: "capture")
-                startupError = FriendlyErrorCopy.actionMessage(
+                captureError = FriendlyErrorCopy.actionMessage(
                     for: error,
                     fallback: "Couldn't capture the photo. Please try again."
                 )

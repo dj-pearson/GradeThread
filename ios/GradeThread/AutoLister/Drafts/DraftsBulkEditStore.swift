@@ -177,13 +177,15 @@ final class DraftsBulkEditStore {
     // MARK: - Bulk apply
 
     func applyMarkup(_ pctText: String) {
-        guard let pct = Double(pctText.trimmingCharacters(in: .whitespaces)) else { return }
+        // US-1191: locale-aware parse so comma-decimal markups ("12,5") work.
+        guard let pct = CurrencyFormatter().parse(pctText) else { return }
         applyPrice(.percent(pct))
     }
 
     /// US-820: set every target draft to one absolute price.
     func applyAbsolutePrice(_ priceText: String) {
-        guard let price = Double(priceText.trimmingCharacters(in: .whitespaces)) else { return }
+        // US-1191: locale-aware parse so comma-decimal prices ("19,99") work.
+        guard let price = CurrencyFormatter().parse(priceText) else { return }
         applyPrice(.absolute(price))
     }
 
@@ -244,22 +246,27 @@ final class DraftsBulkEditStore {
         isSaving = true
         defer { isSaving = false }
         var saved = 0
+        // US-1191: track which rows actually persisted so a single failure keeps
+        // the OTHER dirty rows' edits instead of reloading and wiping them all.
+        var savedIds = Set<String>()
         for row in dirty {
             // eBay-originated listings are locked read-only mirrors (US-1086).
             // Silently discard the local edit; the next sync re-asserts eBay's values.
-            if row.isEbayOriginated { continue }
+            if row.isEbayOriginated { savedIds.insert(row.id); continue }
             do {
                 try await service.save(row.toEdit())
                 saved += 1
+                savedIds.insert(row.id)
             } catch {
-                actionError = error.localizedDescription
-                // Re-pull server truth (keeps the rows that did save).
-                await load()
-                return
+                actionError = "Couldn't save \(displayTitle(row)): \(error.localizedDescription). Your other edits are kept — fix and try again."
+                break
             }
         }
         lastSavedCount = saved
-        for i in rows.indices { rows[i].dirty = false }
+        // Clear dirty only on rows that saved; the rest stay editable for retry.
+        for i in rows.indices where savedIds.contains(rows[i].id) {
+            rows[i].dirty = false
+        }
     }
 
     // MARK: - Publish (US-681)

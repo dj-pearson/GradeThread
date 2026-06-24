@@ -12,6 +12,12 @@ struct ReconcileIntakeView: View {
     @State private var store: ReconcileIntakeStore
     @State private var staged: [PhotoCapture] = []
     @State private var showPicker = false
+    // US-1197: feedback when some picks fail to load, and a non-dead-end success.
+    @State private var ingesting = false
+    @State private var ingestDropped = 0
+
+    /// The web reconcile board that finishes clustering the synced photos.
+    private static let webBoardURL = URL(string: "https://gradethread.com/dashboard/flipdesk/reconciliation")!
 
     init(ownerId: String) {
         self.ownerId = ownerId
@@ -26,11 +32,21 @@ struct ReconcileIntakeView: View {
                 } label: {
                     Label("Select photos", systemImage: "photo.on.rectangle.angled")
                 }
-                .disabled(store.isSyncing)
+                .disabled(store.isSyncing || ingesting)
+                if ingesting {
+                    HStack { ProgressView(); Text("Loading photos…").foregroundStyle(.secondary) }
+                        .font(.subheadline)
+                }
                 if !staged.isEmpty {
                     Text("\(staged.count) photo\(staged.count == 1 ? "" : "s") staged")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                }
+                if ingestDropped > 0 {
+                    // US-1197: surface skipped picks instead of a silent no-op.
+                    Label("Couldn't load \(ingestDropped) photo\(ingestDropped == 1 ? "" : "s") — they may still be downloading from iCloud.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color.brandAmber)
                 }
             } footer: {
                 Text("Pick a batch of photos from a sourcing haul. They sync into a reconcile session — open the web board to group them into items and finish.")
@@ -63,8 +79,24 @@ struct ReconcileIntakeView: View {
                         Text("Syncing \(done)/\(total)…")
                     }
                 case .completed(let count):
-                    Label("Synced \(count) photo\(count == 1 ? "" : "s") to a reconcile session. Open the web board to cluster + finish.", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.brandEmerald)
+                    // US-1197: not a dead end — offer the web board link and a
+                    // way to start another batch instead of a frozen success.
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Synced \(count) photo\(count == 1 ? "" : "s") to a reconcile session.", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.brandEmerald)
+                        Link(destination: Self.webBoardURL) {
+                            Label("Open the web board to cluster + finish", systemImage: "arrow.up.right.square")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        Button {
+                            staged = []
+                            ingestDropped = 0
+                            store.phase = .idle
+                        } label: {
+                            Label("Start another batch", systemImage: "plus.circle")
+                        }
+                        .font(.subheadline)
+                    }
                 case .failed(let message):
                     // US-1163: the staged photos are retained on failure (only
                     // cleared on success), so make the retry path explicit.
@@ -100,10 +132,18 @@ struct ReconcileIntakeView: View {
     /// Compresses + EXIF-strips each pick, capturing the original PHAsset
     /// creationDate BEFORE the strip (US-289) so the web board can time-cluster.
     private func ingest(_ results: [PHPickerResult]) async {
+        guard !results.isEmpty else { return }
+        ingesting = true
+        ingestDropped = 0
+        defer { ingesting = false }
+        var dropped = 0
         for result in results {
             let capturedAt = result.creationDate() ?? .now
             guard let image = await result.loadImage(),
-                  let output = await PhotoCompressor.compressOffMain(image) else { continue }
+                  let output = await PhotoCompressor.compressOffMain(image) else {
+                dropped += 1   // US-1197: count rather than silently skip
+                continue
+            }
             staged.append(
                 PhotoCapture(
                     imageData: output.imageData,
@@ -113,5 +153,6 @@ struct ReconcileIntakeView: View {
                 )
             )
         }
+        ingestDropped = dropped
     }
 }

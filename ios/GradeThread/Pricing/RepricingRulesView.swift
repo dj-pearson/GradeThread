@@ -5,6 +5,8 @@ import SwiftUI
 struct RepricingRulesView: View {
     @State private var store = RepricingRulesStore()
     @State private var editing: RuleEditorTarget?
+    // US-1198: confirm before deleting a configured rule.
+    @State private var pendingDelete: RepricingRule?
     private let currency = CurrencyFormatter()
 
     var body: some View {
@@ -53,6 +55,23 @@ struct RepricingRulesView: View {
             ) { _ in
                 Button("OK", role: .cancel) { store.actionError = nil }
             } message: { Text($0) }
+            // US-1198: confirm before destroying a configured rule.
+            .confirmationDialog(
+                "Delete this rule?",
+                isPresented: Binding(
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
+                ),
+                presenting: pendingDelete
+            ) { rule in
+                Button("Delete", role: .destructive) {
+                    Task { await store.delete(rule) }
+                    pendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) { pendingDelete = nil }
+            } message: { rule in
+                Text("“\(rule.name)” will be removed. This can't be undone.")
+            }
     }
 
     @ViewBuilder
@@ -108,7 +127,7 @@ struct RepricingRulesView: View {
                         .onTapGesture { editing = .edit(rule) }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
-                                Task { await store.delete(rule) }
+                                pendingDelete = rule
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }

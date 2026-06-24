@@ -41,6 +41,15 @@ struct SalesView: View {
                 // First pull hasn't populated the cache yet — show a skeleton,
                 // not the "no sales" empty state.
                 ScrollView { SkeletonRows(count: 6).padding(.top) }
+            } else if syncStatus.phase == .offline {
+                // US-1195: a failed/blocked initial pull shouldn't masquerade as
+                // a genuinely empty account — distinguish the offline case with a
+                // retry hint instead of "No sales yet".
+                ContentUnavailableView {
+                    Label("You're offline", systemImage: "wifi.slash")
+                } description: {
+                    Text("Sales will appear once you reconnect. Pull down to retry.")
+                }
             } else {
                 ContentUnavailableView(
                     "No sales yet",

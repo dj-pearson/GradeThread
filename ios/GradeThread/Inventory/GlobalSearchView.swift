@@ -68,6 +68,9 @@ struct GlobalSearchView: View {
                     Button {
                         query = term
                         debounced = term
+                        // US-1187: re-running an old search via the list should
+                        // refresh its recency, like submitting from the field.
+                        recentSearches.record(term)
                     } label: {
                         Label(term, systemImage: "clock.arrow.circlepath")
                             .foregroundStyle(.primary)
@@ -160,12 +163,20 @@ struct GlobalSearchView: View {
             .prefix(20).map { $0 }
     }
     private var matchedListings: [LocalListing] {
-        listings.filter { matches([$0.platform, $0.listingStatus, itemsById[$0.inventoryItemId]?.title]) }
-            .prefix(20).map { $0 }
+        // US-1187: only count listings whose parent item is cached — the rows are
+        // gated on the same lookup, so otherwise a header renders with no rows.
+        listings.filter {
+            itemsById[$0.inventoryItemId] != nil
+                && matches([$0.platform, $0.listingStatus, itemsById[$0.inventoryItemId]?.title])
+        }
+        .prefix(20).map { $0 }
     }
     private var matchedSales: [LocalSale] {
-        sales.filter { matches([$0.buyerUsername, itemsById[$0.inventoryItemId]?.title]) }
-            .prefix(20).map { $0 }
+        sales.filter {
+            itemsById[$0.inventoryItemId] != nil
+                && matches([$0.buyerUsername, itemsById[$0.inventoryItemId]?.title])
+        }
+        .prefix(20).map { $0 }
     }
     private var matchedSources: [LocalSource] {
         sources.filter { matches([$0.name, $0.notes, $0.sourceType]) }

@@ -16,6 +16,9 @@ final class BulkGradeStore {
         case submitting
         case done
         case failed(String)
+        // US-1184: a non-retryable terminal state (e.g. nothing selected) so the
+        // sheet shows only "Close" instead of a "Try again" that re-fails forever.
+        case empty(String)
     }
 
     let itemIds: [String]
@@ -70,7 +73,7 @@ final class BulkGradeStore {
 
     private func runValidation() async {
         guard !itemIds.isEmpty else {
-            phase = .failed("No items selected.")
+            phase = .empty("No items selected. Close this and pick at least one item to grade.")
             return
         }
         do {

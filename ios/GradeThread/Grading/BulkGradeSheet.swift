@@ -79,6 +79,21 @@ struct BulkGradeSheet: View {
             doneContent(store)
         case let .failed(message):
             failedContent(store, message)
+        case let .empty(message):
+            emptyContent(message)
+        }
+    }
+
+    // US-1184: terminal "nothing to grade" state — no "Try again" to loop on.
+    private func emptyContent(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("Nothing to grade", systemImage: "tray")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Close") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.brandNavy)
         }
     }
 
@@ -261,10 +276,15 @@ struct BulkGradeSheet: View {
                     Text(item.title ?? "Untitled item")
                         .font(.footnote.weight(.medium))
                         .lineLimit(1)
-                    Text(item.blockers.first.map(humanize) ?? "Not ready")
+                    // US-1184: show ALL blockers (matching GradeRequestSheet) and
+                    // let the reason wrap, so fixing the one shown blocker doesn't
+                    // leave the item still mysteriously skipped.
+                    Text(item.blockers.isEmpty
+                         ? "Not ready"
+                         : item.blockers.map(humanize).joined(separator: " · "))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

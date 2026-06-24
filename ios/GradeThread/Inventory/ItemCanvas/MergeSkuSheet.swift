@@ -90,7 +90,12 @@ struct MergeSkuSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if merging {
-                        ProgressView()
+                        // US-1188: label the spinner so a slow merge_inventory_items
+                        // RPC doesn't leave the user staring at a bare wheel.
+                        HStack(spacing: 6) {
+                            ProgressView()
+                            Text("Merging…").font(.footnote).foregroundStyle(.secondary)
+                        }
                     } else {
                         Button(confirmLabel) {
                             let chosen = Set(

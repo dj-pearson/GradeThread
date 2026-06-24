@@ -107,7 +107,7 @@ struct GradedPhotoView: View {
             Image(systemName: "photo")
                 .font(.title2)
                 .foregroundStyle(.secondary)
-            Text("Couldn't load the preview. Try again, or save still works once it loads.")
+            Text("Couldn't load the preview. Tap Retry to try again.")
                 .font(.brandCaption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

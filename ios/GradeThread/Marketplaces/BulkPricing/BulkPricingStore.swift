@@ -19,8 +19,10 @@ final class BulkPricingStore {
     private(set) var listings: [BulkListing] = []
     var selected: Set<String> = []
     var priceMode: PriceMode = .none
-    var priceText = ""
-    var quantityText = ""
+    // US-1191: clear stale per-row failures when the user re-edits the inputs, so
+    // a previous apply's error doesn't cling to a row being actively re-edited.
+    var priceText = "" { didSet { if priceText != oldValue { rowErrors.removeAll() } } }
+    var quantityText = "" { didSet { if quantityText != oldValue { rowErrors.removeAll() } } }
     var busy = false
     var actionError: String?
     var actionBanner: String?
@@ -43,10 +45,12 @@ final class BulkPricingStore {
 
     func toggle(_ id: String) {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+        rowErrors[id] = nil  // US-1191: drop a stale failure on the toggled row
     }
 
     func toggleAll() {
         selected = selected.count == listings.count ? [] : Set(listings.map(\.id))
+        rowErrors.removeAll()  // US-1191
     }
 
     private var priceValue: Double? {

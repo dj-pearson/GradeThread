@@ -130,7 +130,11 @@ struct NegotiationInboxView: View {
             ),
             presenting: pendingOfferAction
         ) { action in
-            Button(action.confirmButton, role: action.isAccept ? nil : .destructive) {
+            // US-1192: Accept commits the sale and can't be undone, so it — not
+            // Decline — gets the weighted (destructive-styled) treatment. A
+            // declined offer is recoverable (the buyer can re-offer), so it reads
+            // as the plain action.
+            Button(action.confirmButton, role: action.isAccept ? .destructive : nil) {
                 pendingOfferAction = nil
                 Task {
                     if action.isAccept { await store.accept(action.offer) }

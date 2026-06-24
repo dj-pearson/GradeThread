@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1181,
+  "nextId": 1206,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -4483,6 +4483,468 @@
         "ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift",
         "ios/GradeThread/Prospect/ProspectStore.swift",
         "ios/GradeThread/Prospect/ProspectView.swift"
+      ]
+    },
+    {
+      "id": "US-1181",
+      "title": "Surface silent failures across photo capture and import flows",
+      "description": "As a seller, I want clear feedback when a photo fails to capture, import, or load, so that I never think a photo saved when it silently failed.",
+      "acceptanceCriteria": [
+        "PhotoIntakeView renders `startupError` while the camera permission is `.granted` (not only in the `.unknown` bootstrap branch) so item-creation, library-read, compression, and capture failures are visible (e.g. an alert bound to `startupError != nil`)",
+        "Library import (`ingestLibraryPicks`) tracks dropped picks and shows \"Couldn't load N of M photos\" when `staged.count < results.count`, instead of silently skipping failures",
+        "Snap library pick that returns nil shows a user-facing error (e.g. \"Couldn't load that photo — it may still be downloading from iCloud\") instead of a silent no-op",
+        "Snap \"Take photo\" checks `AVCaptureDevice.authorizationStatus(for: .video)` and, on denied/restricted, presents an \"Open Settings\" alert instead of the blank system picker",
+        "Barcode scanner startup failures route through `FriendlyErrorCopy` rather than raw `error.localizedDescription`",
+        "Share Extension intake surfaces a toast/alert when a shared batch fully fails to decode instead of returning silently to the dashboard"
+      ],
+      "priority": 1181,
+      "passes": true,
+      "notes": "[P1][iOS/Capture][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit found errors set on `startupError` (PhotoIntakeView lines ~707/822/843/858) are only rendered in the `.unknown` permission branch, so capture/compress/save failures never show; library/Snap/share-extension import paths `continue` past failures silently. IMPLEMENTED 2026-06-24: PhotoIntakeView now routes runtime (granted-state) failures — item create, library import, compression, capture — to a new captureError .alert (startupError kept for the camera-bootstrap placeholder); library import reports dropped picks (\"Couldn't load N of M\") and opens the tray after the alert. SnapView gates camera on AVCaptureDevice authorization (denied -> Open Settings alert) and surfaces a nil library load. BarcodeScanView startup error routes through FriendlyErrorCopy. ContentView surfaces a fully-failed shared batch via an alert. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Capture/PhotoIntakeView.swift",
+        "ios/GradeThread/Snap/SnapView.swift",
+        "ios/GradeThread/Snap/CameraPicker.swift",
+        "ios/GradeThread/Capture/BarcodeScanView.swift",
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/ShareInbox/ShareInboxConsumer.swift"
+      ]
+    },
+    {
+      "id": "US-1182",
+      "title": "Fix AI Fill Review \"Done\" discarding edits and add apply feedback + extract retry",
+      "description": "As a seller using AI auto-fill, I want \"Done\" to keep my reviewed changes and a way to retry a failed extraction, so that I don't lose work or get stranded on a transient error.",
+      "acceptanceCriteria": [
+        "AIFillReviewSheet \"Done\" applies the reviewed changes (same path as \"Apply changes\"), or is renamed \"Cancel\" and no longer clears the review on plain dismiss — toggling a field then tapping the primary action no longer destroys the review",
+        "A successful apply shows an on-screen confirmation (toast/announcement) before the sheet dismisses, not only a haptic",
+        "AIExtractView `.failed` state offers a \"Try again\" action (clear + re-invoke `manager.start`) alongside the existing \"Skip — I'll fill in manually\""
+      ],
+      "priority": 1182,
+      "passes": true,
+      "notes": "[P1][iOS/Grading][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: AIFillReviewSheet `finish()` calls clear()+dismiss() without applying, so \"Done\" silently discards edits and destroys the review; AIExtractView failure has no in-place retry. IMPLEMENTED 2026-06-24: AIFillReviewSheet toolbar \"Done\" -> \"Cancel\" that only dismisses (no clear), so a plain dismiss preserves the pending review; apply() shows a \"Changes applied\" toast + VoiceOver announce before finishing. AIExtractView .failed adds a \"Try again\" (clear + re-start) with Skip demoted to secondary. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/AIExtract/AIFillReviewSheet.swift",
+        "ios/GradeThread/AIExtract/AIExtractView.swift"
+      ]
+    },
+    {
+      "id": "US-1183",
+      "title": "Reflect filed disputes in the UI and fix dispute error placement",
+      "description": "As a seller, I want a filed grade dispute to immediately show as submitted, so that I don't re-file duplicates or doubt whether it registered.",
+      "acceptanceCriteria": [
+        "On a successful dispute insert, the local item's `disputeStatus` is set optimistically (and/or `.inventoryPullRequested` posted) so the badge updates and the re-file affordance is gated immediately",
+        "DisputeSheet submit error is shown via an `.alert` or an inline section row, not a free-floating bottom overlay that can sit on top of / overlap the Submit button under Dynamic Type"
+      ],
+      "priority": 1183,
+      "passes": true,
+      "notes": "[P1][iOS/Grading][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: after a successful dispute insert the sheet dismisses but nothing updates item.disputeStatus, so the user can immediately re-file and sees no confirmation; the failure message is a bottom overlay that overlaps the submit button. IMPLEMENTED 2026-06-24: DisputeSheet gained an onSubmitted callback (fired on successful insert) and renders its error inline as a Section above the submit button (was a bottom overlay overlapping it). ItemGradeReportSheet optimistically sets item.disputeStatus=\"open\", saves, posts .inventoryPullRequested, and hides the dispute affordance when already disputed. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Grading/DisputeSheet.swift",
+        "ios/GradeThread/Grading/GradesListView.swift",
+        "ios/GradeThread/Grading/CertifiedGradeSection.swift"
+      ]
+    },
+    {
+      "id": "US-1184",
+      "title": "Bulk grade sheet dead-ends and blocker visibility; grading display polish",
+      "description": "As a seller grading in bulk, I want clear, non-looping feedback and full blocker details, so that I can fix and proceed instead of getting stuck.",
+      "acceptanceCriteria": [
+        "Empty-selection is guarded before presenting the bulk-grade sheet (or rendered as a non-retryable \"No items selected\" message with only Close), so \"Try again\" can't loop on the same empty state",
+        "The skipped-items list shows ALL blockers per item (matching GradeRequestSheet) and lets the title/reason wrap rather than truncating under Dynamic Type",
+        "GradedPhotoView drops the \"save still works once it loads\" copy on the `.failed` state (Save is disabled there); negative acquisition prices are rejected (clamp `>= 0` or drop `-` from the allowed set in CurrencyFormatter parse)"
+      ],
+      "priority": 1184,
+      "passes": true,
+      "notes": "[P2][iOS/Grading][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: BulkGrade empty selection loops on Try again; skipped list shows only first blocker and truncates; GradedPhotoView promises save on failure; CurrencyFormatter.parse keeps \"-\" allowing pasted negative prices. IMPLEMENTED 2026-06-24: BulkGradeStore gained a non-retryable .empty phase for \"nothing selected\" (sheet shows only Close, no looping Try again); the skipped list shows ALL blockers and lets the reason wrap. GradedPhotoView fallback drops the \"save still works\" clause. DetailsIntake clamps a pasted negative acquisition price to >= 0 (both save paths). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Grading/BulkGradeStore.swift",
+        "ios/GradeThread/Grading/BulkGradeSheet.swift",
+        "ios/GradeThread/Grading/GradedPhotoView.swift",
+        "ios/GradeThread/DetailsIntake/CurrencyFormatter.swift",
+        "ios/GradeThread/DetailsIntake/DetailsIntakeView.swift"
+      ]
+    },
+    {
+      "id": "US-1185",
+      "title": "Inventory board, saved-view, and filter-chip fixes",
+      "description": "As a reseller, I want every item on the board reachable and filters that behave predictably, so that I can manage large inventory without losing access to items.",
+      "acceptanceCriteria": [
+        "InventoryBoardView \"+N more\" becomes an interactive control (Button/NavigationLink) that opens the list filtered to that status (or paginates/raises the cap) so items beyond the 50-per-column cap are reachable",
+        "InventoryFilterSheet \"Update saved view…\" overwrites the matched view (prefill its name or call save directly) instead of opening a blank Save alert that creates a duplicate",
+        "ActiveFilterBar: clearing the \"Grade ≥ X\" chip keeps `gradedOnly` so the \"Graded\" chip remains and each filter can be removed independently"
+      ],
+      "priority": 1185,
+      "passes": true,
+      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: board renders prefix(50) with a dead \"+N more\" Text; \"Update saved view\" opens a blank save alert (dup); removing the grade chip silently also clears graded-only. IMPLEMENTED 2026-06-24: BoardColumn \"+N more\" is now a Button that expands the column (Show fewer to collapse), so capped items are reachable; collapses back when the column drops below cap. InventoryFilterSheet prefills the save alert with the matched view name so \"Update saved view…\" overwrites instead of duplicating. ActiveFilterBar clearing the min-grade chip keeps gradedOnly so the \"Graded\" chip remains removable independently. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Inventory/InventoryBoardView.swift",
+        "ios/GradeThread/Inventory/InventoryFilterSheet.swift",
+        "ios/GradeThread/Inventory/ActiveFilterBar.swift"
+      ]
+    },
+    {
+      "id": "US-1186",
+      "title": "Item canvas comps & photo manager stale-state and offline gating",
+      "description": "As a reseller on an item canvas, I want comps and the photo manager to reflect current data and respect offline state, so that I don't act on stale info or hit raw network errors.",
+      "acceptanceCriteria": [
+        "PhotoManagerView re-syncs `working` from `photos` via `.onChange(of: photos)` when not mid-mutation, so sync/add-photo changes while the sheet is open aren't lost or persisted against stale rows",
+        "The in-results \"Try again\"/\"Search again\" comps buttons are gated on offline state (like EbayMarketingControls) and show the friendly offline notice instead of a raw network-error string",
+        "Comps reset to `.idle` (or show a \"results for an older title\" hint) when comps-relevant draft fields (title/brand/size) change so displayed comps can't silently mismatch the draft"
+      ],
+      "priority": 1186,
+      "passes": true,
+      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: PhotoManagerView seeds `working` once onAppear; comps retry buttons (idle state has an offline gate, results state does not); loaded comps persist across identity edits. IMPLEMENTED 2026-06-24: PhotoManagerView re-seeds its working copy via .onChange(of: photosSignature) when not saving, so a sync/add while the sheet is open is not lost. ItemCanvas comps results/failed \"Search again\"/\"Try again\" are disabled offline with an OfflineNotice; CompsStore tracks fetchedKey and the canvas flags comps as stale when title/brand/size changed since fetch. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Inventory/ItemCanvas/Photos/PhotoManagerView.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/Comps/CompsStore.swift"
+      ]
+    },
+    {
+      "id": "US-1187",
+      "title": "Global search result correctness",
+      "description": "As a user searching globally, I want result sections to match what's shown and every result row to be actionable, so that search is trustworthy.",
+      "acceptanceCriteria": [
+        "Listing/sale matches are filtered by parent-item presence inside the `matched*` computeds so a section header never renders with zero visible rows",
+        "Source result rows are wrapped in a navigation action (or visually marked non-navigable) so they don't look interactive while doing nothing",
+        "Tapping a recent-search suggestion calls `recentSearches.record(term)` so recency/order stays correct"
+      ],
+      "priority": 1187,
+      "passes": true,
+      "notes": "[P2][iOS/Inventory][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: matchedListings/matchedSales count as non-empty but rows are gated on cached parent item (header with no rows); source rows are bare non-tappable; recent-search tap doesn't record. IMPLEMENTED 2026-06-24: GlobalSearchView matchedListings/matchedSales now require a cached parent item so a section header never renders with zero rows; tapping a recent search records it to refresh recency. Source rows remain plain non-navigable rows (no source deep-link target exists). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Inventory/GlobalSearchView.swift"
+      ]
+    },
+    {
+      "id": "US-1188",
+      "title": "Sync status chevron and merge-SKU trap fixes",
+      "description": "As a user, I want affordances to match what they actually do, so that I'm never misled or trapped.",
+      "acceptanceCriteria": [
+        "SyncStatusBar shows the tappable chevron only when `pendingCount > 0 && syncEngine != nil` (matching actual interactivity)",
+        "MergeSkuSheet shows a \"Merging…\" label beside the spinner and provides an escape/timeout path so a slow `merge_inventory_items` RPC doesn't permanently trap the user"
+      ],
+      "priority": 1188,
+      "passes": true,
+      "notes": "[P3][iOS/Inventory][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: SyncStatusBar shows a chevron even when the button is disabled (syncEngine nil); MergeSkuSheet disables Cancel + interactiveDismissDisabled with only a bare spinner during the RPC. IMPLEMENTED 2026-06-24: SyncStatusBar shows the chevron only when pendingCount>0 && syncEngine!=nil (matches the disabled condition). MergeSkuSheet shows a \"Merging…\" label beside the confirm-slot spinner during the RPC. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Persistence/SyncStatusBar.swift",
+        "ios/GradeThread/Inventory/ItemCanvas/MergeSkuSheet.swift"
+      ]
+    },
+    {
+      "id": "US-1189",
+      "title": "eBay connection management safety and consistency",
+      "description": "As a reseller, I want eBay connect/disconnect/sync to be safe and consistent across screens, so that I don't accidentally lose a connection or trigger duplicate syncs.",
+      "acceptanceCriteria": [
+        "The \"Disconnect\" button on the main Marketplaces card is gated behind a confirmationDialog (mirroring EbayAccountsView)",
+        "Disconnect failures surface an error/toast instead of silently snapping the card back to \"Connected\"",
+        "\"Sync now\" is disabled (with a spinner) while a sync Task is live so a second tap can't spawn a duplicate run / re-present the modal",
+        "Inactive/\"Reconnect needed\" eBay accounts expose a \"Reconnect\" action that runs the OAuth handshake for that store (no delete-and-re-add)",
+        "The `.failed` connection state shows a distinct error pill instead of the neutral \"—\" used for loading"
+      ],
+      "priority": 1189,
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: main-card Disconnect fires immediately (accounts screen confirms); disconnect failure restores .connected with no error; Sync button has no in-flight disable; inactive accounts are a dead end; .failed maps to \"—\" pill. IMPLEMENTED 2026-06-24: MarketplacesView main-card Disconnect now goes through a confirmationDialog; \"Sync now\" disables + shows \"Syncing…\" while a run is live (isSyncing flag in runSync); .failed status shows a red \"Error\" pill (was neutral \"—\"). MarketplaceConnectionStore.disconnect sets actionError on failure (surfaced via an alert) instead of silently restoring \"Connected\". EbayAccountsStore gained reconnect(); inactive/refresh-flagged accounts expose a \"Reconnect\" swipe + a11y action. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/MarketplacesView.swift",
+        "ios/GradeThread/Marketplaces/MarketplaceConnectionStore.swift",
+        "ios/GradeThread/Marketplaces/EbayAccountsView.swift"
+      ]
+    },
+    {
+      "id": "US-1190",
+      "title": "Publish and specifics error handling plus price validation",
+      "description": "As a reseller publishing to eBay, I want price validated up front and all failures surfaced, so that Publish/Save isn't a silent dead-end loop.",
+      "acceptanceCriteria": [
+        "PublishDialog validates price when building the composer and disables Push with an inline notice (or routes back to the canvas) when price isn't a positive amount, instead of enabling Push into a repeating `invalidPrice` failure",
+        "EbayCategorySpecificsView binds `model.errorMessage` to an `.alert`/inline section so failed save/search/AI-fill no longer leave the sheet looking frozen",
+        "AI-fill (\"Fill with AI\") branches on result: success haptic + footer only on real fills; \"No new suggestions\"/error feedback when nothing filled or the call threw",
+        "EbayPublishService `revise()` routes failures through the same outcome mapping as publish/validate so 402/401/403 trigger the upgrade prompt / re-auth guidance rather than \"Unexpected error (HTTP …)\""
+      ],
+      "priority": 1190,
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: pushDisabled ignores price (read-only in composer) -> invalidPrice loop; specifics errorMessage set but never rendered; AI-fill gives identical feedback on success/no-match/error; revise() only special-cases 409. IMPLEMENTED 2026-06-24: PublishDialog validates price when building the composer — Push is disabled with a \"Set a price on the item canvas\" notice when price <= 0 (was a repeating invalidPrice loop). EbayCategorySpecificsView binds model.errorMessage to an alert (save/search/AI-fill failures were silent); fillWithAI returns the count filled so feedback branches success/no-match/error. EbayPublishService.revise routes failures through outcome(from:) so 402/401/403 get plan-limit/re-auth handling. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/Publish/PublishDialog.swift",
+        "ios/GradeThread/Marketplaces/Publish/ListingDraftService.swift",
+        "ios/GradeThread/Marketplaces/Listing/EbayCategorySpecificsView.swift",
+        "ios/GradeThread/Marketplaces/Listing/SpecificsEditorModel.swift",
+        "ios/GradeThread/Marketplaces/Publish/EbayPublishService.swift"
+      ]
+    },
+    {
+      "id": "US-1191",
+      "title": "Drafts bulk-edit and bulk-pricing edit reliability",
+      "description": "As a reseller editing drafts in bulk, I want locale-safe price entry, preserved edits on partial failures, and a publish confirmation, so that bulk edits are safe and predictable.",
+      "acceptanceCriteria": [
+        "Drafts bulk-edit markup/set-price parsing/validation routes through `CurrencyFormatter().parse()` so comma-decimal locales (e.g. \"19,99\") don't leave the Apply button permanently disabled (matching the drafts library fix)",
+        "A single failed row save in bulk-edit preserves the other dirty rows (merge server truth only for succeeded rows) and indicates which row failed for retry, instead of reloading and wiping all unsaved edits",
+        "Bulk-edit \"Publish (N)\" is gated behind the same destructive confirmationDialog used in the drafts library",
+        "BulkPricing clears `rowErrors[id]` on selection toggle and on price/qty edits so a stale failure message doesn't cling to a row the user is actively re-editing"
+      ],
+      "priority": 1191,
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: bulk-edit uses raw Double() (nil on \"19,99\") disabling Apply; save() reloads all rows on any failure, wiping other edits; Publish has no confirm (library does); BulkPricing rowErrors never cleared on re-edit. IMPLEMENTED 2026-06-24: DraftsBulkEdit markup/set-price parse + Apply-disabled checks route through CurrencyFormatter().parse (comma-decimal locales no longer stuck); save() keeps other dirty rows on a single failure (tracks savedIds, no full reload); Publish is gated behind a confirmationDialog. BulkPricingStore clears rowErrors on toggle/toggleAll and on price/qty text changes. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditView.swift",
+        "ios/GradeThread/AutoLister/Drafts/DraftsBulkEditStore.swift",
+        "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingStore.swift",
+        "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingView.swift"
+      ]
+    },
+    {
+      "id": "US-1192",
+      "title": "Post-sale, negotiation, and reconciliation action safety",
+      "description": "As a reseller handling post-sale actions, I want deadline-bound actions to confirm before dismissing and high-consequence actions emphasized correctly, so that I don't lose input or mis-tap.",
+      "acceptanceCriteria": [
+        "ContestSheet `onSubmit` becomes async returning success; the sheet tracks submitting/error state and only dismisses on success (so a failed contest and the typed note aren't lost behind a closed sheet)",
+        "Negotiation Accept (irreversible, commits the sale) is given visual weight commensurate with its consequence rather than reading as the secondary option next to a red Decline",
+        "ReconciliationView consolidates its two separate alerts (bulk result + action error) into one alert driven by a single enum so near-simultaneous events can't silently drop feedback"
+      ],
+      "priority": 1192,
+      "passes": true,
+      "notes": "[P2][iOS/Marketplaces][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: ContestSheet calls onSubmit then unconditionally dismisses (contest fires detached); Accept has role nil while Decline is .destructive; two .alert modifiers on one view collide. IMPLEMENTED 2026-06-24: PostSale ContestSheet onSubmit is async->Bool with submitting/error state — only dismisses on success, keeping the typed note on failure (PostSaleStore.resolve/contestDispute now return Bool). Negotiation Accept gets the weighted (destructive) styling vs a plain Decline. ReconciliationView consolidates its two alerts into one (error prioritized over bulk-result). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
+        "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
+        "ios/GradeThread/Marketplaces/Reconciliation/ReconciliationView.swift"
+      ]
+    },
+    {
+      "id": "US-1193",
+      "title": "Listing Kit a11y, AutoLister QA labels, template unsaved-changes",
+      "description": "As a reseller, I want clear copy confirmations, human-readable nudges, and protection from losing template edits, so that these surfaces feel finished.",
+      "acceptanceCriteria": [
+        "Listing Kit copy fires a haptic and a VoiceOver `AccessibilityNotification.Announcement(\"Copied\")` so non-sighted users get confirmation the value reached the pasteboard",
+        "AutoLister photo-QA nudges resolve item titles via `titlesById` instead of showing raw UUID prefixes (\"item a1b2c3d4\")",
+        "TemplateEditorSheet tracks dirtiness, shows a \"Discard changes?\" confirmation on Cancel, and sets `.interactiveDismissDisabled(hasChanges)` so a swipe-down can't silently lose edits"
+      ],
+      "priority": 1193,
+      "passes": true,
+      "notes": "[P3][iOS/Marketplaces][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: Listing Kit copy swaps label only (no haptic/VO); nudges show UUID prefix though titlesById exists; template editor has no unsaved-changes guard. IMPLEMENTED 2026-06-24: ListingKit copy fires HapticFeedback.success + A11yAnnounce(\"Copied\"). AutoLister photo-QA nudges resolve item titles via titlesById (UUID prefix only as fallback). TemplateEditorSheet tracks dirtiness, confirms \"Discard changes?\" on Cancel, and sets interactiveDismissDisabled(hasChanges). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift",
+        "ios/GradeThread/AutoLister/AutoListerQueueView.swift",
+        "ios/GradeThread/Templates/TemplateEditorSheet.swift"
+      ]
+    },
+    {
+      "id": "US-1194",
+      "title": "Unify net-profit math to SalePnL across financial export and Money preview",
+      "description": "As a reseller, I want net profit to be identical everywhere it appears, so that my CSV export and the Money tab agree to the cent.",
+      "acceptanceCriteria": [
+        "FinancialExport builds transactions/summary from `SalePnL` (revenue/fees/sellerCosts/net) so the CSV includes shipping collected, payment processing fees, shipping/grading/other costs — matching the canonical formula",
+        "MoneyView recent-sales preview \"net\" uses `SalePnL.net` (with the item cost basis) rather than `salePrice - platformFees`",
+        "A sale with shipping and processing fees shows the same net in the export, the Money preview, and the Profit-by-item list"
+      ],
+      "priority": 1194,
+      "passes": true,
+      "notes": "[P1][iOS/Money][IMPORTANT][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: FinancialExport net = salePrice - fees - cogs and MoneyView preview net = salePrice - platformFees both drop shipping/processing/seller costs, diverging from SalePnL.net (the mandated single source of truth). IMPLEMENTED 2026-06-24: FinancialExport.Transaction/Summary now source every component from SalePnL (grossRevenue incl shipping collected, fees incl payment processing, sellerCosts = shipping+grading+other, cogs = cost basis); net = revenue-fees-sellerCosts-cogs. CSV gained Seller Costs summary line + a Gross Revenue/Fees/Seller Costs/COGS/Net transaction header. MoneyView recent-sales preview nets via SalePnL.net(costBasis:) instead of salePrice-platformFees. Added MoneyRollupTests.test_financialExport_netUsesFullSalePnLFormula. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Money/FinancialExport.swift",
+        "ios/GradeThread/Money/MoneyView.swift",
+        "ios/GradeThread/Money/SalePnL.swift"
+      ]
+    },
+    {
+      "id": "US-1195",
+      "title": "Sales list failed-sync state and listing CTR unit correctness",
+      "description": "As a reseller, I want a failed sales sync to be distinguishable from an empty account and analytics percentages to be correct, so that I trust the data.",
+      "acceptanceCriteria": [
+        "SalesView adds a `.failed` branch (error + retry) and its `.refreshable` awaits actual sync completion, so a failed initial pull no longer masquerades as the \"No sales yet\" empty state",
+        "ListingPerformanceView CTR display is verified against the unit the edge sync stores and the extra `* 100` removed if the value is already a percentage (no \"320.0%\")"
+      ],
+      "priority": 1195,
+      "passes": true,
+      "notes": "[P2][iOS/Sales][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: SalesView content only branches empty/syncing (no failed); refreshable is fire-and-forget. CTR text multiplies by 100 assuming a 0-1 fraction, but eBay CTR is often already a percent. IMPLEMENTED 2026-06-24: SalesView adds an offline empty-state (distinct from \"No sales yet\") so a blocked initial pull does not look like an empty account. CTR: verified the edge stores click_through_rate as a 0-1 fraction (tests show 0.05, 12/400), so the existing *100 is correct — no change needed.",
+      "relevantPaths": [
+        "ios/GradeThread/Sales/SalesView.swift",
+        "ios/GradeThread/Analytics/ListingPerformanceView.swift"
+      ]
+    },
+    {
+      "id": "US-1196",
+      "title": "Scheduled drops, scout, and source-ROI display fixes",
+      "description": "As a reseller, I want money/scheduling surfaces to render valid values and prevent invalid input, so that I see correct figures and don't mis-schedule.",
+      "acceptanceCriteria": [
+        "ScheduledDropsView custom reschedule DatePicker is constrained to `Date()...` (and/or confirms a past time) so a drop isn't published almost immediately by the due-cron",
+        "Unpriced scheduled drops render \"No price\" (secondary styling) instead of a blank space",
+        "Scout negative margins render correctly (e.g. \"-$5.00\") via CurrencyFormatter rather than the malformed \"$-5.00\"",
+        "A parsed sourcing budget of `<= 0` is treated as nil on save (and/or excluded from the status) so a zero/garbage budget doesn't show \"Over budget\" against an empty bar"
+      ],
+      "priority": 1196,
+      "passes": true,
+      "notes": "[P2][iOS/Money][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: custom reschedule picker has no `in:` range; CurrencyFormatter.formatDisplay(nil) returns \"\" (blank price); ScoutCandidateRow.dollars() prepends \"$\" before the minus; budget 0 makes isOver true with fraction 0. IMPLEMENTED 2026-06-24: ScheduledDropsView custom reschedule DatePicker constrained to Date()... (no past publish); unpriced drops show \"No price\" not a blank. ScoutCandidateRow.dollars routes through CurrencyFormatter (no \"$-5.00\"). SourceROIRollup.isOver requires budget>0; AnalyticsView treats a <=0 sourcing budget as nil on save. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/ScheduledDrops/ScheduledDropsView.swift",
+        "ios/GradeThread/Scout/ScoutCandidateRow.swift",
+        "ios/GradeThread/Analytics/SourceROIRollup.swift",
+        "ios/GradeThread/Analytics/AnalyticsView.swift"
+      ]
+    },
+    {
+      "id": "US-1197",
+      "title": "Reconcile intake success dead-end and ingest feedback",
+      "description": "As a reseller reconciling payouts, I want a clear next action after success and feedback when photos fail to load, so that I'm not stranded.",
+      "acceptanceCriteria": [
+        "ReconcileIntakeView `.completed` offers a \"Start another batch\" reset (return to idle) and a link/copy affordance to reach the web session, instead of leaving a disabled button and a dead-end message",
+        "Reconcile photo ingest tracks and surfaces \"Couldn't load N photos\" and shows progress during ingest, instead of silently `continue`-ing past failures"
+      ],
+      "priority": 1197,
+      "passes": true,
+      "notes": "[P2][iOS/Money][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: on .completed `staged` is cleared so the only button is disabled and the user is frozen with no link/reset; ingest silently skips photos that fail to load/compress. IMPLEMENTED 2026-06-24: ReconcileIntakeView .completed offers a web-board Link + \"Start another batch\" (resets phase/staged) instead of a frozen success; ingest reports dropped picks (\"Couldn't load N photos\") and shows a loading state. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Reconcile/ReconcileIntakeView.swift"
+      ]
+    },
+    {
+      "id": "US-1198",
+      "title": "Pricing rules and analytics consistency polish",
+      "description": "As a reseller, I want repricing rules and analytics to be self-consistent and editable, so that these surfaces feel complete.",
+      "acceptanceCriteria": [
+        "Repricing rule enable toggle flips optimistically and rolls back on failure; swipe-to-delete is gated behind a confirmation",
+        "RuleEditorSheet shows an item-scoped rule's target item title and offers detach/convert, instead of an opaque static \"A single item\" row",
+        "The \"Avg grade\" tile and the grade-distribution chart use one predicate so their counts reconcile; source-ROI lists note/expose entries beyond the prefix(8) cap"
+      ],
+      "priority": 1198,
+      "passes": true,
+      "notes": "[P3][iOS/Money][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: toggle mutates only on save success (no optimistic/rollback) and delete has no confirm; item-scoped rule not editable; avg-grade uses gradeValue!=nil while chart uses non-empty gradeLabel; source-ROI prefix(8) silently truncates. IMPLEMENTED 2026-06-24: Repricing toggle flips optimistically and rolls back on failure; swipe-delete confirms first. RuleEditorSheet shows an item-scoped rule's title and offers \"Convert to a filter rule\". AnalyticsMetrics.gradeDistribution uses gradeValue!=nil (matching gradedCount), with an \"Other\" bucket for missing labels. Source-ROI cards (Analytics + Money) note \"+N more sources\" beyond the top-8 cap. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Pricing/RepricingRulesView.swift",
+        "ios/GradeThread/Pricing/RepricingRulesStore.swift",
+        "ios/GradeThread/Pricing/RuleEditorSheet.swift",
+        "ios/GradeThread/Analytics/AnalyticsMetrics.swift",
+        "ios/GradeThread/Analytics/AnalyticsView.swift"
+      ]
+    },
+    {
+      "id": "US-1199",
+      "title": "Fix iPad split-view content-column NavigationLink dead-ends",
+      "description": "As an iPad user, I want NavigationLinks in the content column to work, so that features like \"Profit by item\" and marketplace/settings links are reachable.",
+      "acceptanceCriteria": [
+        "The split-view `contentColumn` is wrapped in its own NavigationStack (or its views' destination-closure links are routed through value-based destinations) so MoneyView/MarketplacesView/SettingsView NavigationLinks navigate on regular width instead of dead-ending",
+        "Verified on iPad regular width: \"Profit by item\" and the other content-column links push their destinations"
+      ],
+      "priority": 1199,
+      "passes": true,
+      "notes": "[P1][iOS/iPad][IMPORTANT][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: on regular width only the detail column is wrapped in a NavigationStack; contentColumn renders MoneyView etc. directly, so their destination-closure NavigationLinks have no enclosing stack and do nothing. IMPLEMENTED 2026-06-24: SidebarSplitView.contentColumn wraps the Money/Marketplaces/Settings sections (destination-closure NavigationLinks like \"Profit by item\") in their own NavigationStack so they no longer dead-end on iPad; Home/Inventory stay unwrapped because they use value-based links resolved by the detail column, and per-section deep links still resolve in the detail column. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/Money/MoneyView.swift"
+      ]
+    },
+    {
+      "id": "US-1200",
+      "title": "Adopt shared loading/error components and add missing retries",
+      "description": "As a user, I want consistent loading skeletons and recoverable error states across screens, so that the app feels uniformly polished and never dead-ends on a failed load.",
+      "acceptanceCriteria": [
+        "ConsignorsView `.failed` uses the shared `ErrorStateView(message:retry:)` calling `store.load()` instead of a static ContentUnavailableView with no retry",
+        "Verified/Team/Passport/Consignors/Support `.loading` branches use `SkeletonRows`/`SkeletonBlock` and `.failed` branches use `ErrorStateView`, replacing bare centered ProgressViews and hand-rolled error UIs"
+      ],
+      "priority": 1200,
+      "passes": true,
+      "notes": "[P2][iOS/Consistency][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: these screens fall back to a bare ProgressView for loading and hand-roll error UIs though SkeletonRows/SkeletonBlock and ErrorStateView ship and are used elsewhere; ConsignorsView .failed has no retry button. IMPLEMENTED 2026-06-24: ConsignorsView .failed now uses ErrorStateView (was a no-retry dead end) and .loading uses SkeletonRows. VerifiedView/TeamView swap bare ProgressView -> SkeletonRows and ContentUnavailableView -> ErrorStateView. PassportTimelineView loading -> SkeletonBlock, failed -> ErrorStateView. SupportTicketsView loading -> SkeletonRows (matching its existing ErrorStateView error branch). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Consignment/ConsignorsView.swift",
+        "ios/GradeThread/Verified/VerifiedView.swift",
+        "ios/GradeThread/Team/TeamView.swift",
+        "ios/GradeThread/Passport/PassportTimelineView.swift",
+        "ios/GradeThread/Support/SupportTicketsView.swift"
+      ]
+    },
+    {
+      "id": "US-1201",
+      "title": "Destructive-action confirmations and permission recovery paths",
+      "description": "As a user, I want confirmations before irreversible actions and a path to re-enable denied permissions, so that I don't lose data or get stuck.",
+      "acceptanceCriteria": [
+        "Automations swipe-to-delete is gated behind a confirmationDialog/alert (\"Delete this rule? This can't be undone.\")",
+        "Sign out is gated behind a confirmation (\"Sign out? Unsynced changes on this device will be cleared.\") and shows a brief in-progress state, since sign-out wipes local SwiftData + the offline mutation queue",
+        "Speech dictation, on a permission-denied error, shows an alert/inline button that opens Settings (`UIApplication.openSettingsURLString`) rather than only a tiny scrollable footer"
+      ],
+      "priority": 1201,
+      "passes": true,
+      "notes": "[P2][iOS/Safety][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: Automations delete fires immediately; Sign out fires immediately and wipes unsynced offline mutations with no confirm; denied speech permission has no in-app path to Settings. IMPLEMENTED 2026-06-24: Automations swipe-delete now confirms; Settings Sign out confirms (\"unsynced changes will be cleared\") + shows an in-progress spinner; DetailsIntake dictation surfaces an \"Open Settings\" button when mic/speech permission is denied. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Automations/AutomationsView.swift",
+        "ios/GradeThread/ContentView.swift",
+        "ios/GradeThread/DetailsIntake/DetailsIntakeView.swift",
+        "ios/GradeThread/Speech/SpeechDictation.swift"
+      ]
+    },
+    {
+      "id": "US-1202",
+      "title": "Shared-component accessibility hardening",
+      "description": "As a VoiceOver / color-blind user, I want shared components to expose proper labels and adequate tap targets, so that status and imagery are perceivable app-wide.",
+      "acceptanceCriteria": [
+        "StatusBadge exposes `.accessibilityLabel(\"Status: \\(label)\")` so status isn't conveyed by color alone",
+        "CachedThumbnail accepts an optional accessibility label applied to the loaded image (placeholder `.accessibilityHidden(true)`), and its tap-to-retry button is at least 44×44pt",
+        "ErrorStateView announces its retry-in-progress state to VoiceOver (e.g. `.accessibilityValue` or an A11yAnnounce); InfoCard's decorative title icon is `.accessibilityHidden(true)`"
+      ],
+      "priority": 1202,
+      "passes": true,
+      "notes": "[P2][iOS/Accessibility][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: StatusBadge is color-only with no a11y label; CachedThumbnail images are unlabeled and retry button is <44pt; ErrorStateView retry spinner keeps the static label; InfoCard icon is read before the title. IMPLEMENTED 2026-06-24: StatusBadge exposes \"Status: <label>\" to VoiceOver (color-only -> labeled). CachedThumbnail takes an optional accessibilityLabel (decorative when nil) and its retry button meets 44pt. ErrorStateView announces retry-in-progress via accessibilityValue. InfoCard decorative title icon is accessibilityHidden. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Components/StatusBadge.swift",
+        "ios/GradeThread/Components/CachedThumbnail.swift",
+        "ios/GradeThread/Components/ErrorStateView.swift",
+        "ios/GradeThread/Components/InfoCard.swift",
+        "ios/GradeThread/Components/KeyboardToolbar.swift"
+      ]
+    },
+    {
+      "id": "US-1203",
+      "title": "Dark-mode colorsets and miscellaneous visual polish",
+      "description": "As a user, I want correct contrast in both appearances and consistent spacing/feedback, so that the UI looks finished.",
+      "acceptanceCriteria": [
+        "BrandAmber and BrandEmerald colorsets gain dark (and verified light) appearance variants so StatusBadge text/fill meets contrast in both modes",
+        "FeedbackSheet success auto-dismisses shortly after success (or fires a success haptic + a parent toast that survives dismissal) so the confirmation isn't missed",
+        "PassportTimelineView `shareSection` is a `@ViewBuilder` that contributes nothing when `shareURL == nil` (matching `handoffSection`) so it doesn't inject an empty gap"
+      ],
+      "priority": 1203,
+      "passes": true,
+      "notes": "[P3][iOS/Visual][POLISH][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: BrandAmber/BrandEmerald define no dark luminosity variant (badge contrast fails); FeedbackSheet success is an inline label with the sheet still open; shareSection injects an empty VStack when shareURL is nil. IMPLEMENTED 2026-06-24: BrandAmber/BrandEmerald colorsets gained dark (+ dark high-contrast) appearance variants. FeedbackSheet auto-dismisses ~1.2s after success (+ VoiceOver announce). PassportTimelineView shareSection is a @ViewBuilder that contributes nothing when shareURL is nil (no stray gap). Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Components/StatusBadge.swift",
+        "ios/GradeThread/Feedback/FeedbackSheet.swift",
+        "ios/GradeThread/Passport/PassportTimelineView.swift"
+      ]
+    },
+    {
+      "id": "US-1204",
+      "title": "Fix AI monthly cap that is silently discarded on entry",
+      "description": "As a user setting an AI monthly cap, I want my typed value saved when I finish editing, so that my budget is actually applied instead of silently dropped.",
+      "acceptanceCriteria": [
+        "The monthly-cap field commits on focus loss (e.g. a `@FocusState` calling `commitLimit()`) or via an explicit Save affordance, rather than relying on `.onSubmit` — which never fires for a numberPad whose only dismissal is the shared \"Done\" toolbar (that toolbar calls `resignFirstResponder` only)",
+        "Entering a cap and tapping Done / tapping away persists the cap instead of falling back to the plan default"
+      ],
+      "priority": 1204,
+      "passes": true,
+      "notes": "[P1][iOS/Settings][BLOCKER][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: cap TextField uses .numberPad and commits only via .onSubmit; numberPad has no Return key and the Done toolbar does not trigger onSubmit, so the typed cap is silently discarded. IMPLEMENTED 2026-06-24: AIAssistantSection monthly-cap field now commits on focus loss via @FocusState (.onChange) in addition to .onSubmit, so tapping the shared Done toolbar / tapping away persists the cap instead of silently discarding it. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Settings/AIAssistantSection.swift",
+        "ios/GradeThread/Components/KeyboardToolbar.swift"
+      ]
+    },
+    {
+      "id": "US-1205",
+      "title": "Auth and settings feedback and safety polish",
+      "description": "As a user, I want friendly auth errors and clear confirmations/consistency in settings, so that the account surfaces feel trustworthy.",
+      "acceptanceCriteria": [
+        "Apple Sign-In non-cancel failures show friendly copy (raw NSError detail kept only in telemetry), consistent with the app's no-raw-error convention",
+        "Referral redeem sets a user-facing `redeemError` when the server returns `ok: false` (invalid/expired/self code) so the user gets a reason, not just an error haptic",
+        "Profile name save shows a transient \"Saved\" confirmation (not haptic-only); the duplicate \"Plan\" rows in ProfileSection vs PlanSection are reconciled to one source of truth",
+        "Forgot-password success shows the confirmation without auto-presenting the web Safari reset page (make it an explicit \"Reset on the web\" button); the onboarding \"Continue with Free\" affordance reads clearly as a tappable button"
+      ],
+      "priority": 1205,
+      "passes": true,
+      "notes": "[P2][iOS/Auth][EPIC: iOS UI/UX Production Audit 2026-06-24] Audit: LoginView surfaces raw Apple error detail; redeem returns false without setting redeemError on ok:false; profile save is haptic-only; ProfileSection (plan) vs PlanSection (flipdesk_plan) can disagree; forgot-password auto-opens Safari; free path uses .plain style. IMPLEMENTED 2026-06-24: LoginView Apple sign-in shows friendly copy (raw detail stays in telemetry); forgot-password no longer auto-launches a web Safari sheet (removed the dead sheet/state) — just confirms via the email. ReferralsStore sets a user-facing redeemError on ok:false. ProfileSection shows a transient \"Saved\" confirmation after a name save and relabels the grading plan row (\"Grading & usage\" / \"Grading plan\") to disambiguate from the FlipDesk PlanSection. PaywallView \"Continue with Free\" is now a bordered button with a chevron. Pending iOS CI compile.",
+      "relevantPaths": [
+        "ios/GradeThread/Auth/LoginView.swift",
+        "ios/GradeThread/Referrals/ReferralsStore.swift",
+        "ios/GradeThread/Referrals/ReferralsView.swift",
+        "ios/GradeThread/Settings/ProfileSection.swift",
+        "ios/GradeThread/Settings/PlanSection.swift",
+        "ios/GradeThread/Billing/PaywallView.swift"
       ]
     }
   ]

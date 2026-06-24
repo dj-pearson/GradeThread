@@ -8,6 +8,8 @@ struct AutomationsView: View {
     @State private var store = AutomationsStore()
     @State private var editing: AutomationEditorTarget?
     @State private var sheet: AutomationRuleSheet?
+    // US-1201: confirm before a swipe permanently deletes a configured rule.
+    @State private var pendingDelete: AutomationRule?
 
     var body: some View {
         content
@@ -63,6 +65,23 @@ struct AutomationsView: View {
             ) { _ in
                 Button("OK", role: .cancel) { store.actionError = nil }
             } message: { Text($0) }
+            // US-1201: confirm rule deletion (it's irreversible).
+            .confirmationDialog(
+                "Delete this rule?",
+                isPresented: Binding(
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
+                ),
+                presenting: pendingDelete
+            ) { rule in
+                Button("Delete", role: .destructive) {
+                    Task { await store.delete(rule) }
+                    pendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) { pendingDelete = nil }
+            } message: { rule in
+                Text("“\(rule.name)” will be removed. This can't be undone.")
+            }
     }
 
     @ViewBuilder
@@ -118,7 +137,7 @@ struct AutomationsView: View {
                         .onTapGesture { editing = .edit(rule) }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
-                                Task { await store.delete(rule) }
+                                pendingDelete = rule
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }

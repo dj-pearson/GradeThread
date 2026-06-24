@@ -184,6 +184,7 @@ struct CertifiedGradeSection: View {
 /// through the canvas.
 struct ItemGradeReportSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     let item: LocalInventoryItem
 
     @Query private var photos: [LocalItemPhoto]
@@ -258,7 +259,11 @@ struct ItemGradeReportSheet: View {
                         certificateURL: url,
                         title: item.title,
                         photoURLs: photoURLs,
-                        onDispute: GradeDisputeWindow.isOpen(createdAt: report.createdAt)
+                        // US-1183: hide the dispute affordance once a dispute is
+                        // already on file (optimistically set below) so the user
+                        // can't immediately re-file the same dispute.
+                        onDispute: (GradeDisputeWindow.isOpen(createdAt: report.createdAt)
+                            && !DisputeStatusDisplay.isDisputed(item.disputeStatus))
                             ? { disputeTarget = DisputeTarget(gradeReportId: report.id) }
                             : nil
                     )
@@ -290,7 +295,15 @@ struct ItemGradeReportSheet: View {
             .task { await load() }
             .task(id: photoSignature) { await resolvePhotoURLs() }
             .sheet(item: $disputeTarget) { target in
-                DisputeSheet(gradeReportId: target.gradeReportId)
+                DisputeSheet(gradeReportId: target.gradeReportId) {
+                    // US-1183: optimistically mark the item disputed so the badge
+                    // shows and the affordance is gated immediately; request a
+                    // pull to reconcile with the server's authoritative status.
+                    item.disputeStatus = "open"
+                    item.updatedAt = .now
+                    modelContext.saveOrLog("disputeFiled")
+                    NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                }
             }
         }
     }

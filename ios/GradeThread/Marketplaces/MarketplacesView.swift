@@ -14,6 +14,10 @@ struct MarketplacesView: View {
     @State private var showingSyncModal = false
     // US-1007: retained so dismissing the modal cancels the poll loop promptly.
     @State private var syncTask: Task<Void, Never>?
+    // US-1189: gate "Sync now" while a sync is live (prevents duplicate runs)
+    // and confirm before disconnecting from the main card.
+    @State private var isSyncing = false
+    @State private var confirmingDisconnect = false
 
     // US-186 reconciliation count badge — refreshed alongside connection
     // state so the link only shows up when there's actually orphan work.
@@ -78,6 +82,18 @@ struct MarketplacesView: View {
                 store: syncStore,
                 onDismiss: { cancelSync() }
             )
+        }
+        // US-1189: surface a failed disconnect (the store restores .connected).
+        .alert(
+            "Couldn't complete that",
+            isPresented: Binding(
+                get: { store.actionError != nil },
+                set: { if !$0 { store.actionError = nil } }
+            )
+        ) {
+            Button("OK") { store.actionError = nil }
+        } message: {
+            Text(store.actionError ?? "")
         }
     }
 
@@ -509,8 +525,12 @@ struct MarketplacesView: View {
                     syncTask = Task { await runSync(userId: userId) }
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                        Text("Sync now")
+                        if isSyncing {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text(isSyncing ? "Syncing…" : "Sync now")
                     }
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 14)
@@ -519,10 +539,14 @@ struct MarketplacesView: View {
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
                 }
+                // US-1189: don't let a second tap spawn a duplicate sync run.
+                .disabled(isSyncing)
 
                 connectButton(userId: userId, label: "Reconnect")
                 Button(role: .destructive) {
-                    Task { await store.disconnect(userId: userId) }
+                    // US-1189: confirm before tearing down the connection
+                    // (mirrors the multi-account screen).
+                    confirmingDisconnect = true
                 } label: {
                     Text("Disconnect")
                         .font(.subheadline.weight(.semibold))
@@ -535,9 +559,25 @@ struct MarketplacesView: View {
             }
             .padding(.top, 4)
         }
+        .confirmationDialog(
+            "Disconnect eBay?",
+            isPresented: $confirmingDisconnect,
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                Task { await store.disconnect(userId: userId) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This stops syncing and publishing until you reconnect.")
+        }
     }
 
     private func runSync(userId: String) async {
+        // US-1189: mark the button busy for the whole run so a second tap can't
+        // start a duplicate sync.
+        isSyncing = true
+        defer { isSyncing = false }
         // Show the modal up front so the rotating-stage UI starts
         // before the network call returns.
         syncStore.beginSync()
@@ -626,8 +666,12 @@ struct MarketplacesView: View {
                 pill(text: "Reconnect required", color: .brandAmber)
             case .disconnected:
                 pill(text: "Setup required", color: .secondary)
-            case .loading, .failed:
+            case .loading:
                 pill(text: "—", color: .secondary)
+            case .failed:
+                // US-1189: a failed check shouldn't read as the neutral loading
+                // placeholder — it has an error body + retry below.
+                pill(text: "Error", color: .brandRed)
             }
         }
     }

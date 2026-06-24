@@ -374,6 +374,12 @@ struct MoneyView: View {
                 }
                 .chartXAxis(.hidden)
                 .frame(height: CGFloat(rows.count) * 34 + 24)
+                // US-1198: note sources hidden by the top-8 cap.
+                if sourceROI.count > 8 {
+                    Text("+\(sourceROI.count - 8) more source\(sourceROI.count - 8 == 1 ? "" : "s")")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
@@ -633,12 +639,19 @@ struct MoneyView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             } else {
+                // US-1194: net through SalePnL (the single source of truth) so
+                // the preview matches Profit-by-item and the export, instead of
+                // the partial `salePrice - platformFees`.
+                let acquiredByItemId = Dictionary(
+                    items.map { ($0.id, $0.acquiredPrice ?? 0) },
+                    uniquingKeysWith: { a, _ in a }
+                )
                 ForEach(Array(sales.prefix(5))) { sale in
                     SalePreviewRow(
                         title: titlesByItemId[sale.inventoryItemId] ?? "Untitled item",
                         date: sale.saleDate,
                         price: sale.salePrice,
-                        net: sale.salePrice - sale.platformFees,
+                        net: SalePnL.net(sale, costBasis: acquiredByItemId[sale.inventoryItemId] ?? 0),
                         currency: currency
                     )
                     Divider().padding(.leading, 14)

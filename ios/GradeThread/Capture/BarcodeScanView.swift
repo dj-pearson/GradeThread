@@ -153,7 +153,13 @@ struct BarcodeScanView: View {
         } catch BarcodeScanner.BarcodeError.permissionDenied {
             permissionState = .denied
         } catch {
-            startupError = error.localizedDescription
+            // US-1181: friendly copy (matching PhotoIntakeView.bootstrap) instead
+            // of the raw, often-cryptic localizedDescription.
+            Telemetry.breadcrumb("Barcode scanner start failed: \(FriendlyErrorCopy.rawDetail(for: error))", category: "capture")
+            startupError = FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't start the scanner. Please try again."
+            )
         }
     }
 }

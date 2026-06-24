@@ -116,7 +116,8 @@ struct PostSaleView: View {
         }
         .sheet(item: $contesting) { dispute in
             ContestSheet(dispute: dispute) { note in
-                Task { await store.contestDispute(dispute, note: note) }
+                // US-1192: await the result; the sheet only dismisses on success.
+                await store.contestDispute(dispute, note: note)
             }
         }
         .sheet(isPresented: $showingEvidencePicker) {
@@ -369,9 +370,13 @@ struct PostSaleView: View {
 
 private struct ContestSheet: View {
     let dispute: EbayPaymentDispute
-    let onSubmit: (String?) -> Void
+    /// US-1192: async + returns success so the sheet stays open (keeping the
+    /// typed note) when a deadline-bound contest fails, mirroring the
+    /// CounterOffer / MessageReply sheets.
+    let onSubmit: (String?) async -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var note = ""
+    @State private var submitting = false
 
     var body: some View {
         NavigationStack {
@@ -383,16 +388,29 @@ private struct ContestSheet: View {
                 Section("Note (optional)") {
                     TextField("e.g. Tracking shows delivered…", text: $note, axis: .vertical)
                         .lineLimit(3...6)
+                        .disabled(submitting)
                 }
             }
             .navigationTitle("Contest dispute")
             .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(submitting)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.disabled(submitting)
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Contest") {
-                        onSubmit(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note)
-                        dismiss()
+                    if submitting {
+                        ProgressView()
+                    } else {
+                        Button("Contest") {
+                            let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+                            submitting = true
+                            Task {
+                                let ok = await onSubmit(trimmed.isEmpty ? nil : trimmed)
+                                submitting = false
+                                if ok { dismiss() }
+                            }
+                        }
                     }
                 }
             }

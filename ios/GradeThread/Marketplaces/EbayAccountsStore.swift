@@ -62,6 +62,13 @@ final class EbayAccountsStore {
         }
     }
 
+    /// US-1189: re-authorize an inactive / refresh-flagged store via the OAuth
+    /// handshake (eBay identifies the account on login), instead of forcing the
+    /// user to delete and re-add — which would lose the store's label.
+    func reconnect(_ connection: RemoteMarketplaceConnection) async {
+        await addAccount()
+    }
+
     func rename(_ connection: RemoteMarketplaceConnection, to label: String) async {
         do {
             try await service.setLabel(connectionId: connection.id, userId: userId, label: label)

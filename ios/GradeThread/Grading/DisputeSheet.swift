@@ -8,6 +8,9 @@ struct DisputeSheet: View {
     @Environment(AuthStore.self) private var authStore
 
     let gradeReportId: String
+    /// US-1183: invoked on a successful insert so the caller can optimistically
+    /// reflect the dispute (badge + gate re-filing) without waiting for a sync.
+    var onSubmitted: (() -> Void)? = nil
 
     @State private var reason: DisputeReason = .gradeTooLow
     @State private var details: String = ""
@@ -34,16 +37,14 @@ struct DisputeSheet: View {
             Group {
                 switch phase {
                 case .editing, .submitting:
-                    form
+                    form()
                 case .done:
                     doneState
                 case let .failed(message):
-                    form.overlay(alignment: .bottom) {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .padding()
-                    }
+                    // US-1183: render the error as an inline section above the
+                    // submit button (see `form`), not a free-floating bottom
+                    // overlay that sits on top of / overlaps the button.
+                    form(errorMessage: message)
                 }
             }
             .navigationTitle("Dispute grade")
@@ -57,8 +58,15 @@ struct DisputeSheet: View {
         .interactiveDismissDisabled(phase == .submitting)
     }
 
-    private var form: some View {
+    private func form(errorMessage: String? = nil) -> some View {
         Form {
+            if let errorMessage {
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
             Section {
                 Picker("Reason", selection: $reason) {
                     ForEach(DisputeReason.allCases) { reason in
@@ -144,6 +152,7 @@ struct DisputeSheet: View {
                 .execute()
             Telemetry.event("grade.dispute_filed", props: ["reason": reason.rawValue])
             HapticFeedback.success()
+            onSubmitted?()
             phase = .done
         } catch {
             HapticFeedback.error()

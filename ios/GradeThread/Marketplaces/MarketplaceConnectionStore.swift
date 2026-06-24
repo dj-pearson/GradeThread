@@ -16,6 +16,9 @@ public final class MarketplaceConnectionStore {
 
     var phase: Phase = .loading
     public var isConnecting: Bool = false
+    /// US-1189: surfaced to the user when an action (e.g. disconnect) fails but
+    /// the phase is restored, so a failure isn't silently swallowed.
+    public var actionError: String?
 
     private let service: EbayConnectionService
 
@@ -74,9 +77,11 @@ public final class MarketplaceConnectionStore {
             try await service.disconnect(connectionId: conn.id, userId: userId)
             phase = .disconnected
         } catch {
-            // Failed disconnect — restore the previous state so the
-            // user can retry.
+            // Failed disconnect — restore the previous state so the user can
+            // retry, and surface the failure (US-1189) instead of silently
+            // snapping the card back to "Connected".
             phase = .connected(conn)
+            actionError = "Couldn't disconnect eBay. Check your connection and try again."
         }
     }
 }

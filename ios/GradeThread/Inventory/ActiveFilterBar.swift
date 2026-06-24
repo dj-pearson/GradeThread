@@ -84,8 +84,10 @@ struct ActiveFilterBar: View {
 
         if let floor = criteria.minGrade {
             out.append(Chip(id: "grade", label: "Grade ≥ \(String(format: "%.1f", floor))") {
+                // US-1185: clearing the min-grade chip keeps `gradedOnly` so the
+                // now-visible "Graded" chip lets the user drop that filter
+                // independently (was clearing both with one tap).
                 criteria.minGrade = nil
-                criteria.gradedOnly = false
             })
         } else if criteria.gradedOnly {
             out.append(Chip(id: "graded", label: "Graded") {

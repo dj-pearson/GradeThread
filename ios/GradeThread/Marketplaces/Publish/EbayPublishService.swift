@@ -116,9 +116,10 @@ public final class EbayPublishService {
             )
             return .revised(response)
         } catch let error as PublishHTTPError {
-            if error.statusCode == 409 { return .noOfferId }
-            let parsed = try? JSONDecoder().decode(EdgeErrorBody.self, from: error.body)
-            return .failed(message: parsed?.message ?? "Unexpected error (HTTP \(error.statusCode)).")
+            // US-1190: route through the shared mapper so revise gets the same
+            // plan-limit (402) upgrade prompt and expired-session (401/403)
+            // guidance as publish/validate, not a raw "Unexpected error (HTTP …)".
+            return outcome(from: error)
         } catch {
             return .failed(message: Self.networkFailureMessage(error))
         }

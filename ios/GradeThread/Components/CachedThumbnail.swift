@@ -22,6 +22,9 @@ struct CachedThumbnail<Placeholder: View>: View {
     /// `maxDimension * displayScale` pixels.
     var maxDimension: CGFloat
     var contentMode: ContentMode = .fill
+    /// US-1202: VoiceOver label for the loaded image. When nil the image is
+    /// treated as decorative (hidden) instead of announcing a bare "Image".
+    var accessibilityLabel: String? = nil
     @ViewBuilder var placeholder: () -> Placeholder
 
     @Environment(\.displayScale) private var displayScale
@@ -36,8 +39,13 @@ struct CachedThumbnail<Placeholder: View>: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
+                    // US-1202: announce the caller-supplied label, or hide a
+                    // decorative thumbnail rather than VoiceOver reading "Image".
+                    .accessibilityLabel(accessibilityLabel ?? "")
+                    .accessibilityHidden(accessibilityLabel == nil)
             } else {
                 placeholder()
+                    .accessibilityHidden(true)
                     .overlay {
                         if didFail {
                             Button {
@@ -48,6 +56,9 @@ struct CachedThumbnail<Placeholder: View>: View {
                                     .font(.title3)
                                     .foregroundStyle(.secondary)
                                     .padding(6)
+                                    // US-1202: meet the 44pt minimum tap target.
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
                             }
                             .accessibilityLabel("Retry loading image")
                         }

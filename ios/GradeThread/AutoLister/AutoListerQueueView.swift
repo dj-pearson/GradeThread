@@ -281,7 +281,10 @@ struct AutoListerQueueView: View {
 
     private func nudgeMessage(_ result: PhotoQaResult) -> String {
         if let issue = result.issues.first { return issue.message }
-        if result.score < 0 { return "Couldn't assess photos for item \(result.itemId.prefix(8))." }
-        return "Photos for item \(result.itemId.prefix(8)) scored low — consider reshooting."
+        // US-1193: show the human title (titlesById) rather than a raw UUID
+        // prefix; fall back to the prefix only when the title isn't cached.
+        let name = titlesById[result.itemId] ?? "item \(result.itemId.prefix(8))"
+        if result.score < 0 { return "Couldn't assess photos for \(name)." }
+        return "Photos for \(name) scored low — consider reshooting."
     }
 }

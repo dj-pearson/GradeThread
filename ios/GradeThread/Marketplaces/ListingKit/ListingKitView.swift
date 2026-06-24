@@ -100,6 +100,11 @@ struct ListingKitView: View {
     private func copy(_ value: String, key: String) {
         UIPasteboard.general.string = value
         copiedKey = key
+        // US-1193: copy is the kit's whole purpose — confirm it for non-sighted
+        // users (the "Copied" label swap is invisible to VoiceOver) and add a
+        // tactile confirmation.
+        HapticFeedback.success()
+        A11yAnnounce.announce("Copied")
         Task {
             try? await Task.sleep(nanoseconds: 1_400_000_000)
             await MainActor.run { if copiedKey == key { copiedKey = nil } }

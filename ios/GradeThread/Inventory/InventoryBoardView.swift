@@ -94,6 +94,10 @@ private struct BoardColumn: View {
     /// sourced items) can't stall layout. Mirrors the web `COLUMN_CAP`.
     private static let cap = 50
 
+    /// US-1185: items beyond the cap used to be an unreachable "+N more" label.
+    /// Tapping it now reveals the rest so capped items can be opened/moved.
+    @State private var showingAll = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -108,6 +112,11 @@ private struct BoardColumn: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
+        // Collapse back to the cap when this column drops below it (e.g. items
+        // moved out) so the expanded state doesn't get stuck.
+        .onChange(of: items.count) { _, count in
+            if count <= Self.cap { showingAll = false }
+        }
     }
 
     private var header: some View {
@@ -145,9 +154,10 @@ private struct BoardColumn: View {
     }
 
     private var cards: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        let visible = showingAll ? items : Array(items.prefix(Self.cap))
+        return ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 8) {
-                ForEach(Array(items.prefix(Self.cap)), id: \.id) { item in
+                ForEach(visible, id: \.id) { item in
                     NavigationLink(value: item) {
                         BoardCard(item: item)
                     }
@@ -155,11 +165,16 @@ private struct BoardColumn: View {
                     .contextMenu { moveMenu(for: item) }
                 }
                 if items.count > Self.cap {
-                    Text("+\(items.count - Self.cap) more")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                    Button {
+                        withAnimation { showingAll.toggle() }
+                    } label: {
+                        Text(showingAll ? "Show fewer" : "+\(items.count - Self.cap) more")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.brandNavy)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(10)

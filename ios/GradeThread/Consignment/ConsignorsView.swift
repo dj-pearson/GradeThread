@@ -24,13 +24,16 @@ struct ConsignorsView: View {
 
             switch store.phase {
             case .loading:
-                Section { ProgressView().frame(maxWidth: .infinity) }
+                // US-1200: shared skeleton instead of a bare spinner.
+                Section { SkeletonRows(count: 4) }
             case .failed(let message):
+                // US-1200: the shared error state has an in-place retry — the
+                // ContentUnavailableView here had none, a dead end.
                 Section {
-                    ContentUnavailableView(
-                        "Couldn't load consignors",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(message)
+                    ErrorStateView(
+                        title: "Couldn't load consignors",
+                        message: message,
+                        retry: { await store.load() }
                     )
                 }
             case .ready:

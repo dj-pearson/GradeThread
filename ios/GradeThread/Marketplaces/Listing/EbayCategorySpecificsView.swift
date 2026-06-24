@@ -7,6 +7,8 @@ import SwiftUI
 struct EbayCategorySpecificsView: View {
     @State private var model: SpecificsEditorModel
     @State private var searchDebounce: Task<Void, Never>?
+    /// US-1190: transient "no new suggestions" note after an empty AI fill.
+    @State private var aiFillEmptyNote = false
     @Environment(\.dismiss) private var dismiss
 
     init(itemId: String) {
@@ -57,6 +59,19 @@ struct EbayCategorySpecificsView: View {
         .task {
             Telemetry.event("ebay_specifics_opened")
             await model.start()
+        }
+        // US-1190: surface save/search/AI-fill failures (model.errorMessage was
+        // set but never rendered, leaving the sheet looking frozen).
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { model.errorMessage != nil },
+                set: { if !$0 { model.errorMessage = nil } }
+            )
+        ) {
+            Button("OK") { model.errorMessage = nil }
+        } message: {
+            Text(model.errorMessage ?? "")
         }
         // US-824: confirm before discarding specifics that don't carry over to
         // a newly chosen category — never drop the seller's work silently.
@@ -154,9 +169,20 @@ struct EbayCategorySpecificsView: View {
             Section {
                 Button {
                     Task {
-                        await model.fillWithAI()
-                        HapticFeedback.light()
-                        Telemetry.event("ebay_specifics_ai_fill", props: ["filled": model.aiFilled.count])
+                        aiFillEmptyNote = false
+                        let filled = await model.fillWithAI()
+                        // US-1190: distinct feedback per outcome instead of an
+                        // always-"light" haptic that looks identical on success,
+                        // no-match, and error.
+                        if model.errorMessage != nil {
+                            HapticFeedback.error()   // alert handles the message
+                        } else if filled == 0 {
+                            aiFillEmptyNote = true
+                            HapticFeedback.warning()
+                        } else {
+                            HapticFeedback.success()
+                        }
+                        Telemetry.event("ebay_specifics_ai_fill", props: ["filled": filled])
                     }
                 } label: {
                     if model.isFillingAI {
@@ -168,7 +194,9 @@ struct EbayCategorySpecificsView: View {
                 .disabled(model.isFillingAI)
                 .accessibilityHint("Suggests item-specific values from the item's details and photos.")
             } footer: {
-                if !model.aiFilled.isEmpty {
+                if aiFillEmptyNote {
+                    Text("No new suggestions — enter the specifics below.")
+                } else if !model.aiFilled.isEmpty {
                     Text("AI filled \(model.aiFilled.count) specific\(model.aiFilled.count == 1 ? "" : "s"). Review before saving.")
                 }
             }

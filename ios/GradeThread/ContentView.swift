@@ -390,6 +390,9 @@ struct MainShell: View {
     /// tab switch + lands the user on the same intake surface the Add
     /// sheet would.
     @State private var sharedIntakeBatch: ShareInboxConsumer.DrainedBatch?
+    /// US-1181: when a shared batch fully fails to decode we used to consume it
+    /// silently, so the user shared photos and got no signal. Drives an alert.
+    @State private var shareImportError: String?
 
     /// US-804: the one-time post-signup plan-selection step. Set on first
     /// sign-in when ``PlanSelectionState`` says this fresh account hasn't been
@@ -548,6 +551,15 @@ struct MainShell: View {
         // US-805: shell-level upgrade prompt (402 hard cap) + soft warning banner
         // (80% X-Plan-Warning), fed by EdgeAPI's centralized plan-gate interceptor.
         .planGatePresentation()
+        // US-1181: tell the user when shared photos couldn't be read.
+        .alert(
+            "Couldn't read the shared photos",
+            isPresented: Binding(get: { shareImportError != nil }, set: { if !$0 { shareImportError = nil } })
+        ) {
+            Button("OK") { shareImportError = nil }
+        } message: {
+            Text(shareImportError ?? "")
+        }
     }
 
     /// US-804: present the one-time plan step to a freshly-signed-up account.
@@ -570,9 +582,11 @@ struct MainShell: View {
     private func drainSharedInboxIfNeeded() {
         guard sharedIntakeBatch == nil else { return }
         guard let drained = ShareInboxConsumer.popNext() else { return }
-        // Empty drain (every photo failed to decode) — finish + recurse.
+        // Empty drain (every photo failed to decode) — finish, tell the user
+        // (US-1181: previously silent), then recurse to the next batch.
         guard !drained.slotPhotos.isEmpty else {
             ShareInboxConsumer.finish(drained)
+            shareImportError = "We couldn't read the photos you shared. Try sharing them again from the Photos app."
             drainSharedInboxIfNeeded()
             return
         }
@@ -857,15 +871,22 @@ private struct SidebarSplitView: View {
     private var contentColumn: some View {
         switch router.selection {
         case .home:
+            // Home/Inventory use value-based NavigationLinks resolved by the
+            // detail column's NavigationStack — they stay unwrapped.
             DashboardView(router: router)
         case .inventory:
             InventoryListView()
+        // US-1199: Money/Marketplaces/Settings use destination-closure
+        // NavigationLinks (e.g. MoneyView "Profit by item"), which need an
+        // enclosing NavigationStack. Without one they dead-ended on iPad. Wrap
+        // each in its own stack so in-view taps push within the content column;
+        // deep links (per-section paths) still resolve in the detail column.
         case .sales:
-            MoneyPlaceholder()
+            NavigationStack { MoneyPlaceholder() }
         case .marketplaces:
-            MarketplacesPlaceholder()
+            NavigationStack { MarketplacesPlaceholder() }
         case .settings:
-            SettingsView()
+            NavigationStack { SettingsView() }
         case .add:
             EmptyView()
         }
@@ -1166,6 +1187,10 @@ struct SettingsView: View {
     // US-818 account/info surfaces
     @State private var showingChangePassword = false
     @State private var showingGradingGuide = false
+    // US-1201: confirm sign-out — it wipes local SwiftData + the offline
+    // mutation queue, so an accidental tap shouldn't discard unsynced work.
+    @State private var confirmingSignOut = false
+    @State private var signingOut = false
     @State private var legalLink: LegalLink?
     // US-648 preferences
     @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
@@ -1215,9 +1240,26 @@ struct SettingsView: View {
                 }
                 .accessibilityLabel("Change password")
                 Button(role: .destructive) {
-                    Task { await authStore.signOut() }
+                    confirmingSignOut = true
                 } label: {
-                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    HStack {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                        if signingOut { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(signingOut)
+                .confirmationDialog(
+                    "Sign out?",
+                    isPresented: $confirmingSignOut,
+                    titleVisibility: .visible
+                ) {
+                    Button("Sign out", role: .destructive) {
+                        signingOut = true
+                        Task { await authStore.signOut() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Any changes on this device that haven't synced yet will be cleared.")
                 }
             }
 

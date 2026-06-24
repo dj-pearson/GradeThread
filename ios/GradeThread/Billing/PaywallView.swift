@@ -194,13 +194,19 @@ struct PaywallView: View {
                 Button {
                     onboarding.onContinueFree()
                 } label: {
-                    Text("Continue with Free")
-                        .font(.brandHeadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                    // US-1205: clearer button affordance (bordered + chevron) so
+                    // the always-available free path doesn't read as a caption.
+                    HStack(spacing: 4) {
+                        Text("Continue with Free")
+                            .font(.brandHeadline)
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.brandNavy)
+                .buttonStyle(.bordered)
+                .tint(Color.brandNavy)
                 .padding(.horizontal, 20)
                 .padding(.top, 6)
                 .accessibilityHint("Skip choosing a plan and start on the free tier")

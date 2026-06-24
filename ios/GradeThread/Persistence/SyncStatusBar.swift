@@ -21,7 +21,11 @@ struct SyncStatusBar: View {
                     descriptor.icon
                     Text(descriptor.label).font(.footnote.weight(.medium))
                     Spacer()
-                    if status.pendingCount > 0 {
+                    // US-1188: show the chevron only when the row is actually
+                    // tappable (matches the .disabled condition below), so a
+                    // "pending changes" row with no engine doesn't dangle a
+                    // chevron that does nothing.
+                    if status.pendingCount > 0, syncEngine != nil {
                         Image(systemName: "chevron.right").font(.caption2)
                     }
                 }

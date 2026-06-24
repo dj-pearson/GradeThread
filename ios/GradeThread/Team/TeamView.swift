@@ -61,21 +61,19 @@ struct TeamView: View {
 
     // MARK: - Loading / failed
 
+    // US-1200: shared skeleton + error components for a consistent load/fail UX.
     private var loadingRow: some View {
-        HStack { Spacer(); ProgressView(); Spacer() }
+        SkeletonRows(count: 4)
             .listRowBackground(Color.clear)
     }
 
     private func failed(_ message: String) -> some View {
         Section {
-            ContentUnavailableView {
-                Label("Couldn't load your team", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try again") { Task { await store.load() } }
-                    .buttonStyle(.borderedProminent)
-            }
+            ErrorStateView(
+                title: "Couldn't load your team",
+                message: message,
+                retry: { await store.load() }
+            )
         }
     }
 
