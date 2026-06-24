@@ -31,7 +31,9 @@ struct ConnectionDiagnostics {
             let session = try await SupabaseShared.client.auth.session
             userId = session.user.id.uuidString
             lines.append("user_id: \(session.user.id.uuidString)")
-            lines.append("email: \(session.user.email ?? "nil")")
+            // Security (audit 2026-06-24): email omitted — user_id is enough to
+            // trace an RLS / empty-data issue, and this output is copyable. The
+            // section is also internal-build-only (see DiagnosticsSection).
             lines.append("token: present (\(session.accessToken.prefix(6))…)")
             lines.append("expires_at: \(session.expiresAt)")
         } catch {

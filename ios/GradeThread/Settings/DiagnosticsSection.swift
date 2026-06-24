@@ -4,12 +4,36 @@ import SwiftUI
 /// Temporary diagnostics surface for the empty-data / failed-upload issue.
 /// Runs ``ConnectionDiagnostics`` and shows the raw result so it can be
 /// copied and shared. Safe to remove once the connection issue is resolved.
+///
+/// Security (audit 2026-06-24): this dumps raw session/table/storage state to a
+/// copyable view. It's an internal field-support tool, NOT a production feature,
+/// so it renders ONLY in DEBUG and TestFlight (sandbox-receipt) builds — an App
+/// Store production build never surfaces session details. PII (email) is also
+/// dropped from the probe output itself (see ``ConnectionDiagnostics``) so even
+/// an internal build can't leak it.
 struct DiagnosticsSection: View {
     @Query private var localItems: [LocalInventoryItem]
     @State private var output = ""
     @State private var running = false
 
+    /// True for DEBUG builds and TestFlight betas (App Store receipts are named
+    /// `receipt`; sandbox/TestFlight receipts are `sandboxReceipt`). False for
+    /// App Store production, where the diagnostics surface stays hidden.
+    static var isInternalBuild: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }
+
     var body: some View {
+        if Self.isInternalBuild {
+            diagnosticsSection
+        }
+    }
+
+    private var diagnosticsSection: some View {
         Section {
             Button {
                 Task {
