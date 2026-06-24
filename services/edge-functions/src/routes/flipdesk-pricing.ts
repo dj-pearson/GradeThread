@@ -430,12 +430,15 @@ flipdeskPricingRoutes.post("/suggestions/:id/apply", async (c) => {
   const dollars = (suggestion as { suggested_price_cents: number }).suggested_price_cents / 100;
   const listingId = (suggestion as { listing_id: string }).listing_id;
 
-  // The listing is owned (suggestion.user_id === owner), so updating it by id
-  // is tenant-safe.
+  // Tenant isolation (US-268): `listings` has no user_id column, so don't trust
+  // listing_id by itself — re-verify ownership through the parent inventory_item
+  // (inner join + user_id filter) so the subsequent update-by-id is provably
+  // scoped to this tenant, not just relying on the suggestion-creation invariant.
   const { data: listing } = await supabaseAdmin
     .from("listings")
-    .select("id, platform_offer_id")
+    .select("id, platform_offer_id, inventory_items!inner(user_id)")
     .eq("id", listingId)
+    .eq("inventory_items.user_id", ownerId)
     .maybeSingle();
   if (!listing) return c.json({ error: "Listing not found" }, 404);
 

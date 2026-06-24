@@ -16,7 +16,7 @@ import {
   fetchJson,
   notFoundResponse,
   renderBreadcrumbs,
-  renderLayout,
+  renderSsrResponse,
   siteUrl,
   SSR_CACHE_CONTROL,
   formatDate,
@@ -287,8 +287,8 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
       }
     : null;
 
-  return new Response(
-    renderLayout({
+  return renderSsrResponse(
+    {
       title,
       description,
       canonicalUrl: canonical,
@@ -298,13 +298,7 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
         ? [profileLd, breadcrumbLd, listingsLd]
         : [profileLd, breadcrumbLd],
       bodyHtml,
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": SSR_CACHE_CONTROL,
-      },
     },
+    { cacheControl: SSR_CACHE_CONTROL },
   );
 }

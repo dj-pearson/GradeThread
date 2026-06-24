@@ -4,12 +4,16 @@ import { useImpersonationStore } from "@/stores/impersonation-store";
 
 // Client orchestration for admin "view as" / impersonation (US-581).
 //
-// startImpersonation(): stash the admin's own session, ask the edge service to
-// mint a one-time token for the target (super_admin + MFA step-up gated), then
-// redeem it to swap into the target's session.
+// startImpersonation(): ask the edge service (super_admin + MFA step-up gated)
+// to mint TWO one-time tokens — one for the target and one RESUME token for the
+// admin — then redeem the target token to swap into the target's session. Only
+// the admin's short-lived, single-use resume token_hash is stashed (never the
+// admin's long-lived refresh token).
 //
-// stopImpersonation(): restore the admin's stashed session and tell the edge
-// service to write the stop audit row (now attributable to the admin again).
+// stopImpersonation(): redeem the admin resume token to restore the admin
+// session, then tell the edge service to write the stop audit row (now
+// attributable to the admin again). If the resume token has expired, fall back
+// to a clean sign-out so the admin simply logs back in.
 
 export type StartResult =
   | { ok: true }
@@ -17,15 +21,13 @@ export type StartResult =
   | { ok: false; stepUpRequired: false; error: string };
 
 export async function startImpersonation(targetUserId: string): Promise<StartResult> {
-  // Snapshot the admin's current session BEFORE anything swaps it out.
+  // Snapshot only the admin's identity (NOT their tokens) before the swap.
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token || !session.refresh_token) {
+  if (!session?.access_token) {
     return { ok: false, stepUpRequired: false, error: "You must be signed in." };
   }
   const adminUserId = session.user.id;
   const adminEmail = session.user.email ?? null;
-  const adminAccessToken = session.access_token;
-  const adminRefreshToken = session.refresh_token;
 
   let res: Response;
   try {
@@ -59,20 +61,21 @@ export async function startImpersonation(targetUserId: string): Promise<StartRes
 
   const body = (await res.json().catch(() => ({}))) as {
     token_hash?: string;
+    admin_resume_token_hash?: string;
     target?: { id: string; email: string; full_name: string | null };
   };
-  if (!body.token_hash || !body.target) {
+  if (!body.token_hash || !body.admin_resume_token_hash || !body.target) {
     return { ok: false, stepUpRequired: false, error: "Malformed impersonation response." };
   }
 
-  // Record the impersonation (incl. admin tokens) BEFORE the session swap so a
-  // reload mid-swap can still recover the admin session.
+  // Record the impersonation (incl. the admin RESUME token, not refresh token)
+  // BEFORE the session swap so a reload mid-swap can still recover the admin
+  // session via "Exit".
   useImpersonationStore.getState().begin({
     target: { id: body.target.id, email: body.target.email, name: body.target.full_name },
     adminUserId,
     adminEmail,
-    adminAccessToken,
-    adminRefreshToken,
+    adminResumeTokenHash: body.admin_resume_token_hash,
     startedAt: new Date().toISOString(),
   });
 
@@ -94,11 +97,23 @@ export async function stopImpersonation(): Promise<void> {
   const record = useImpersonationStore.getState().record;
   if (!record) return;
 
-  // Restore the admin's session from the stashed tokens.
-  await supabase.auth.setSession({
-    access_token: record.adminAccessToken,
-    refresh_token: record.adminRefreshToken,
+  // Restore the admin's session by redeeming the one-time resume token. This
+  // swaps the browser out of the target's session and back into the admin's
+  // without ever having stored the admin's refresh token.
+  const { error } = await supabase.auth.verifyOtp({
+    token_hash: record.adminResumeTokenHash,
+    type: "magiclink",
   });
+
+  if (error) {
+    // The resume token was already used or has expired (it's single-use +
+    // short-lived). We can't silently restore the admin session, so fail safe:
+    // sign out completely and clear the record. The admin simply logs back in —
+    // strictly safer than leaving the browser in the target's session.
+    await supabase.auth.signOut().catch(() => {});
+    useImpersonationStore.getState().clear();
+    return;
+  }
 
   // Now running as the admin again — write the stop audit row. Best-effort:
   // the session restore is the important part; never block the exit on it.

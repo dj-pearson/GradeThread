@@ -7,6 +7,7 @@ import {
   isCachingEnabled,
 } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
+import { safeFetch, SsrfError } from "./ssrf.ts";
 
 // Model routing: text-only requests use the cheap lightweight model; any
 // request that includes a photo uses the vision-capable default model.
@@ -481,16 +482,23 @@ export async function buildPhotoContent(
   const fetched = await Promise.all(
     photos.map(async (photo, i) => {
       try {
-        const res = await fetch(photo.url, {
-          signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+        // SSRF-safe fetch: photo.url can be caller-supplied (POST
+        // /api/flipdesk/ai/extract accepts photo_urls in the request body), so
+        // the target hostname MUST be resolved and refused if it maps to a
+        // private / loopback / link-local / cloud-metadata range, and every
+        // redirect hop re-validated, BEFORE the socket opens. safeFetch also
+        // enforces the byte cap (throws SsrfError past maxBytes → skipped below).
+        const res = await safeFetch(photo.url, {
+          timeoutMs: IMAGE_FETCH_TIMEOUT_MS,
+          maxBytes: MAX_IMAGE_FETCH_BYTES,
         });
-        if (!res.ok) {
+        if (res.status < 200 || res.status >= 300) {
           console.warn(`[flipdesk-ai] image ${i} fetch HTTP ${res.status} — skipping`);
           return null;
         }
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        if (bytes.byteLength === 0 || bytes.byteLength > MAX_IMAGE_FETCH_BYTES) {
-          console.warn(`[flipdesk-ai] image ${i} size ${bytes.byteLength}B out of range — skipping`);
+        const bytes = res.bytes;
+        if (bytes.byteLength === 0) {
+          console.warn(`[flipdesk-ai] image ${i} empty body — skipping`);
           return null;
         }
         const mediaType = sniffImageMediaType(bytes);
@@ -500,6 +508,10 @@ export async function buildPhotoContent(
         }
         return { photo, mediaType, data: bytesToBase64(bytes) };
       } catch (err) {
+        if (err instanceof SsrfError) {
+          console.warn(`[flipdesk-ai] image ${i} rejected by SSRF guard: ${err.message} — skipping`);
+          return null;
+        }
         console.warn(
           `[flipdesk-ai] image ${i} fetch failed: ${err instanceof Error ? err.message : String(err)} — skipping`,
         );

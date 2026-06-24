@@ -48,6 +48,7 @@ interface ItemPhotoRow {
  */
 export async function ensureItemPhotoHashes(
   photos: ItemPhotoRow[],
+  inventoryItemId: string,
 ): Promise<string[]> {
   const hashes: string[] = [];
   for (const p of photos.slice(0, MAX_ITEM_PHOTOS)) {
@@ -68,10 +69,13 @@ export async function ensureItemPhotoHashes(
       if (!phash) continue;
       hashes.push(phash);
       // Cache so the next detection (or admin fraud sweep) reuses it.
+      // Scope the write to the owning item (US-268 defense-in-depth) so a stray
+      // photo id can never be re-pointed at another tenant's row.
       await supabaseAdmin
         .from("item_photos")
         .update({ phash })
         .eq("id", p.id)
+        .eq("inventory_item_id", inventoryItemId)
         .then(() => {}, () => {});
     } catch (e) {
       console.error(
@@ -146,7 +150,7 @@ export async function detectRelistCandidates(
   const photos = (photoRows ?? []) as ItemPhotoRow[];
   if (photos.length === 0) return { ok: true, reason: "no_item_photos", candidates: [] };
 
-  const queryHashes = await ensureItemPhotoHashes(photos);
+  const queryHashes = await ensureItemPhotoHashes(photos, inventoryItemId);
   if (queryHashes.length === 0) return { ok: true, reason: "no_hashes", candidates: [] };
 
   const skuClass = {

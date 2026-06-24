@@ -14,7 +14,7 @@ import {
   ga4MeasurementId,
   notFoundResponse,
   renderBreadcrumbs,
-  renderLayout,
+  renderSsrResponse,
   renderAuthorBio,
   renderAuthorCredentials,
   profilePageLd,
@@ -94,8 +94,8 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
   ${authors.length === 0 ? "<p>No authors yet.</p>" : cards}
 </main>`;
 
-  return new Response(
-    renderLayout({
+  return renderSsrResponse(
+    {
       title: "Authors — GradeThread",
       description:
         "The people behind the GradeThread condition-grading standard, blog, and Condition Index.",
@@ -106,14 +106,8 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
       twitterSite: twitterSiteHandle(env),
       jsonLd: [breadcrumbListLd(breadcrumbItems)],
       bodyHtml,
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": SSR_CACHE_CONTROL,
-      },
     },
+    { cacheControl: SSR_CACHE_CONTROL },
   );
 }
 
@@ -188,8 +182,8 @@ async function renderAuthor(env: PagesEnv, slug: string): Promise<Response> {
   ${postsHtml}
 </main>`;
 
-  return new Response(
-    renderLayout({
+  return renderSsrResponse(
+    {
       title: `${author.name} — GradeThread`,
       description,
       canonicalUrl: canonical,
@@ -203,14 +197,8 @@ async function renderAuthor(env: PagesEnv, slug: string): Promise<Response> {
         organizationLd(env),
       ],
       bodyHtml,
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": SSR_CACHE_CONTROL,
-      },
     },
+    { cacheControl: SSR_CACHE_CONTROL },
   );
 }
 

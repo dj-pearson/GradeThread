@@ -15,7 +15,7 @@ import {
   ga4MeasurementId,
   notFoundResponse,
   renderBreadcrumbs,
-  renderLayout,
+  renderSsrResponse,
   siteUrl,
   SSR_CACHE_CONTROL,
   twitterSiteHandle,
@@ -134,8 +134,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       ...(faqLd ? [faqLd] : []),
     ];
 
-    return new Response(
-      renderLayout({
+    return renderSsrResponse(
+      {
         title: `${curve.label} resale value by condition — GradeThread Condition Index`,
         description: `What a ${curve.label} sells for at each condition grade, from condition-matched comps. Updated ${formatDate(curve.refreshedAt)}.`,
         canonicalUrl: canonical,
@@ -143,8 +143,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         jsonLd,
         gaMeasurementId: ga,
         twitterSite: twitterSiteHandle(env),
-      }),
-      { headers: { "content-type": "text/html; charset=utf-8", "cache-control": SSR_CACHE_CONTROL } },
+      },
+      { cacheControl: SSR_CACHE_CONTROL },
     );
   }
 
@@ -185,8 +185,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       url: `${site}/condition-index`,
     };
 
-    return new Response(
-      renderLayout({
+    return renderSsrResponse(
+      {
         title: "The Condition Index — what used clothing is worth by condition · GradeThread",
         description: "See how much popular pre-owned clothing is worth at each condition grade, from condition-matched resale comps.",
         canonicalUrl: `${site}/condition-index`,
@@ -194,8 +194,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         jsonLd: [jsonLd],
         gaMeasurementId: ga,
         twitterSite: twitterSiteHandle(env),
-      }),
-      { headers: { "content-type": "text/html; charset=utf-8", "cache-control": SSR_CACHE_CONTROL } },
+      },
+      { cacheControl: SSR_CACHE_CONTROL },
     );
   }
 

@@ -181,7 +181,9 @@ contentBlogRoutes.post("/", async (c) => {
       product_focus: body.product_focus ?? "both",
       topic_id: body.topic_id ?? null,
       body_json: body.body_json ?? {},
-      body_html: body.body_html ?? "",
+      // Sanitize on store so the "body_html in the DB is always clean" invariant
+      // holds from creation (the public SSR injects it verbatim). Allowlist-based.
+      body_html: sanitizeHtml(body.body_html ?? ""),
       excerpt: body.excerpt ?? null,
       primary_keyword: body.primary_keyword ?? null,
       secondary_keywords: body.secondary_keywords ?? [],
@@ -206,6 +208,19 @@ contentBlogRoutes.patch("/:id", async (c) => {
   const { tags: _ignored, ...patch } = body;
 
   if (patch.slug) patch.slug = slugify(patch.slug);
+
+  // Stored-XSS defense: the public blog/cert SSR injects body_html verbatim,
+  // trusting that everything in the DB was sanitized at publish time. Editing an
+  // already-published post via this autosave path would otherwise persist RAW
+  // HTML (and below we purge the SSR cache for published posts, so it goes live).
+  // Sanitize here too so the "body_html in the DB is always clean" invariant
+  // holds on EVERY write path, not just /publish. Allowlist-based, so legitimate
+  // editor output is preserved.
+  if (typeof (patch as { body_html?: unknown }).body_html === "string") {
+    (patch as { body_html: string }).body_html = sanitizeHtml(
+      (patch as { body_html: string }).body_html,
+    );
+  }
 
   const { data, error } = await supabaseAdmin
     .from("blog_posts")

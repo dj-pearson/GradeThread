@@ -149,6 +149,30 @@ function startOfUtcDayIso(now: Date): string {
   return d.toISOString();
 }
 
+// Degraded process-local fallback for the global ceiling. When the shared
+// counter store is unavailable we must NOT simply allow the call (that would let
+// a counter-store outage remove the ONLY platform-wide volume cap and uncap AI
+// spend). Instead we enforce the ceiling against an in-memory per-process count
+// so grading keeps working but can't run away. During an outage the effective
+// global cap is roughly `ceiling × replica count` — far above normal but still
+// bounded, which is the right trade-off for a last-line spend guard.
+let localCeilingDayKey = "";
+let localCeilingCount = 0;
+
+function reserveLocalCeilingFallback(ceiling: number, now: Date): void {
+  const dayKey = startOfUtcDayIso(now);
+  if (dayKey !== localCeilingDayKey) {
+    localCeilingDayKey = dayKey;
+    localCeilingCount = 0;
+  }
+  localCeilingCount++;
+  if (localCeilingCount > ceiling) {
+    throw new AiCeilingError(
+      `Global daily AI call ceiling (${ceiling}) reached (degraded local count while the counter store is unavailable); try again later.`,
+    );
+  }
+}
+
 /**
  * Reserve one unit against the global daily ceiling. Returns the post-increment
  * count, or throws AiCeilingError if that would exceed the ceiling. Fails OPEN
@@ -165,10 +189,18 @@ export async function reserveGlobalDailyBudget(
   try {
     count = await counter("ai-global-daily", startOfUtcDayIso(now));
   } catch (err) {
+    // Counter store unavailable: do NOT fail fully open (that would uncap global
+    // spend). Fall back to the degraded per-process ceiling and surface a metric
+    // so the outage is visible. The semaphore still bounds concurrency.
     console.error(
-      "[ai-limiter] global ceiling counter unavailable — allowing (fail-open):",
+      "[ai-limiter] global ceiling counter unavailable — enforcing degraded local ceiling:",
       err instanceof Error ? err.message : String(err),
     );
+    try {
+      const { recordMetric } = await import("./observability.ts");
+      recordMetric("ai.global_ceiling_counter_unavailable", 1);
+    } catch { /* metrics are best-effort */ }
+    reserveLocalCeilingFallback(ceiling, now);
     return;
   }
   if (count > ceiling) {

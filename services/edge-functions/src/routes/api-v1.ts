@@ -13,6 +13,8 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
+import { isFeatureEnabled } from "../lib/feature-flags.ts";
+import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
@@ -84,6 +86,10 @@ const IMAGE_TYPES = [
   "measurement_sleeve", "measurement_inseam",
 ] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
+// Hard ceiling on images per submission — one Claude Vision call is issued per
+// image but the submission is billed as a single grade, so an uncapped count is
+// an AI-cost multiplier. Mirrors grade.ts MAX_IMAGES_PER_SUBMISSION. (HIGH-1)
+const MAX_IMAGES_PER_SUBMISSION = IMAGE_TYPES.length;
 
 type GarmentType = (typeof GARMENT_TYPES)[number];
 type GarmentCategory = (typeof GARMENT_CATEGORIES)[number];
@@ -102,6 +108,16 @@ export const apiV1Routes = new Hono<ApiV1Env>();
 apiV1Routes.post("/grades", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "submit")) {
     return c.json(scopeDenied("submit"), 403);
+  }
+  // Honor the grading kill-switch + inline AI budget breach on the public API
+  // too (this path charges before grading, so block before any charge). Without
+  // this, the API would be a way to keep spending after the budget tripped.
+  if (!(await isFeatureEnabled("grading")) || (await isAiBudgetExhausted("grading"))) {
+    return c.json({
+      data: null,
+      error: { message: "Grading is temporarily unavailable. Please try again shortly.", code: "GRADING_UNAVAILABLE", details: [] },
+      meta: null,
+    }, 503);
   }
   const userId = c.get("userId");
 
@@ -144,8 +160,11 @@ apiV1Routes.post("/grades", async (c) => {
   // Validate images array
   if (!images || !Array.isArray(images) || images.length === 0) {
     errors.push("images array is required and must not be empty");
+  } else if (images.length > MAX_IMAGES_PER_SUBMISSION) {
+    errors.push(`images array may contain at most ${MAX_IMAGES_PER_SUBMISSION} images`);
   } else {
     const imageTypes: string[] = [];
+    const seenTypes = new Set<string>();
 
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
@@ -154,6 +173,14 @@ apiV1Routes.post("/grades", async (c) => {
         errors.push(`images[${i}].image_type must be one of: ${IMAGE_TYPES.join(", ")}`);
         continue;
       }
+
+      // Reject duplicate slots: each image_type is graded once, so a repeat only
+      // multiplies vision-call cost without adding garment coverage.
+      if (seenTypes.has(img.image_type)) {
+        errors.push(`images[${i}].image_type '${img.image_type}' is a duplicate; each image type may appear at most once`);
+        continue;
+      }
+      seenTypes.add(img.image_type);
 
       if (!img.url && !img.base64) {
         errors.push(`images[${i}] must provide either url or base64`);

@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { captureServer } from "./posthog.ts";
 import { captureException, recordMetric } from "./observability.ts";
+import { assertPublicUrl, SsrfError } from "./ssrf.ts";
 
 // Outbound webhook dispatcher for the content module.
 //
@@ -196,6 +197,19 @@ export async function dispatchContentWebhook(
     return { delivered: false, attempts: 0, last_status: null };
   }
 
+  // SSRF: the target URL comes from admin-configured content_settings and is
+  // fetched server-side here. Re-validate at delivery time (DNS can change after
+  // it was saved) and refuse anything resolving to a private/internal address.
+  try {
+    await assertPublicUrl(target.url);
+  } catch (e) {
+    if (e instanceof SsrfError) {
+      console.warn(`[content-webhook] target URL rejected by SSRF guard: ${e.message} — skipping`);
+      return { delivered: false, attempts: 0, last_status: null };
+    }
+    throw e;
+  }
+
   const body = JSON.stringify(payload);
   const signature = await signContentBody(body);
 
@@ -219,6 +233,7 @@ export async function dispatchContentWebhook(
           ...(platform ? { "X-Content-Platform": platform } : {}),
         },
         body,
+        redirect: "manual", // never follow a redirect to an internal host
         signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
       });
       status = res.status;

@@ -10,6 +10,7 @@
 // never rolls back the issue's lifecycle.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { assertPublicUrl, SsrfError } from "./ssrf.ts";
 import { getSetting } from "./system-settings.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { emitOpsEvent } from "./ops-events.ts";
@@ -112,6 +113,18 @@ export async function dispatchNewsletterWebhook(
     return { delivered: false, attempts: 0, last_status: null };
   }
 
+  // SSRF: admin-configured URL fetched server-side — re-validate at delivery
+  // time and refuse private/internal targets (DNS can change after it was set).
+  try {
+    await assertPublicUrl(url);
+  } catch (e) {
+    if (e instanceof SsrfError) {
+      console.warn(`[newsletter-webhook] target URL rejected by SSRF guard: ${e.message} — skipping`);
+      return { delivered: false, attempts: 0, last_status: null };
+    }
+    throw e;
+  }
+
   const body = JSON.stringify(payload);
   const signature = await signNewsletterBody(body);
 
@@ -133,6 +146,7 @@ export async function dispatchNewsletterWebhook(
           "X-Newsletter-Event": payload.event,
         },
         body,
+        redirect: "manual", // never follow a redirect to an internal host
         signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
       });
       status = res.status;

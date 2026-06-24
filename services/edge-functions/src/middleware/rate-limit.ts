@@ -111,7 +111,7 @@ function cameThroughCloudflare(c: Context): boolean {
 // trusting it lets an attacker rotate the header to evade IP limits (US-354):
 // in production we don't trust it at all. In dev/local there is no Cloudflare
 // in front, so we keep the XFF fallback purely for developer convenience.
-function clientIp(c: Context): string | null {
+export function clientIp(c: Context): string | null {
   if (!cameThroughCloudflare(c)) return null;
   const cf = c.req.header("cf-connecting-ip")?.trim();
   if (cf) return cf;

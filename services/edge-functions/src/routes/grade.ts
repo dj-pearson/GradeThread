@@ -1,5 +1,8 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { clientIp } from "../middleware/rate-limit.ts";
+import { getSettingSync } from "../lib/system-settings.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
@@ -13,6 +16,7 @@ import {
 } from "../lib/grade-billing.ts";
 import { captureException } from "../lib/observability.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
+import { aiBudgetExceededBody, isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { classifyGarment, type GarmentClassification } from "../lib/ai-extract.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
@@ -64,6 +68,14 @@ const IMAGE_TYPES = [
   "measurement_sleeve", "measurement_inseam",
 ] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
+
+// Hard ceiling on images accepted per submission. The grading pipeline issues
+// one Claude Vision call PER image, but a submission is billed as a single
+// grade — so an uncapped image count is a direct AI-cost multiplier (a caller
+// could attach dozens of photos for the price of one grade). The cap matches
+// the number of distinct IMAGE_TYPES slots; duplicate types are also rejected
+// below so cost scales with garment coverage, not attacker choice. (HIGH-1)
+const MAX_IMAGES_PER_SUBMISSION = IMAGE_TYPES.length;
 
 // Optional seller-declared intentional design features. Passed to the grader
 // as a hint so factory distressing isn't read as damage. Allowlist keeps the
@@ -189,6 +201,12 @@ gradeRoutes.post("/submit", async (c) => {
   if (!(await isFeatureEnabled("grading"))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
+  // Inline AI budget kill-switch: pause grading within seconds (not at the cron
+  // interval) if the hard USD grading budget is breached. Checked BEFORE any
+  // payment/credit reservation so an over-budget breach never charges the user.
+  if (await isAiBudgetExhausted("grading")) {
+    return c.json(aiBudgetExceededBody("grading"), 503);
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const role = c.get("workspaceRole") ?? "owner";
@@ -261,13 +279,22 @@ gradeRoutes.post("/submit", async (c) => {
   // the client opted in. Consumed only if RETAIN_ORIGINAL_IMAGES is set.
   const allOriginals = formData.getAll("original_images");
 
+  const seenTypes = new Set<string>();
   for (let i = 0; i < allEntries.length; i++) {
     const entry = allEntries[i];
     const type = allTypes[i] as string | undefined;
     if (entry instanceof File && entry.size > 0) {
       if (!type || !IMAGE_TYPES.includes(type as ImageType)) {
         errors.push(`image_types[${i}] must be one of: ${IMAGE_TYPES.join(", ")}`);
+      } else if (seenTypes.has(type)) {
+        // Reject duplicate slots: each image_type is graded once, so a repeated
+        // type only multiplies vision-call cost without adding garment coverage.
+        errors.push(`image_types[${i}] '${type}' is a duplicate; each image type may appear at most once`);
+      } else if (imageFiles.length >= MAX_IMAGES_PER_SUBMISSION) {
+        errors.push(`A submission may include at most ${MAX_IMAGES_PER_SUBMISSION} images`);
+        break;
       } else {
+        seenTypes.add(type);
         imageFiles.push(entry);
         imageTypes.push(type);
         imageExif.push(sanitizeExif(allExif[i]));
@@ -558,6 +585,11 @@ gradeRoutes.post("/pay/:id", async (c) => {
   if (!(await isFeatureEnabled("grading"))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
+  // Inline AI budget kill-switch (see /submit) — block before charging for the
+  // pay-then-grade path too.
+  if (await isAiBudgetExhausted("grading")) {
+    return c.json(aiBudgetExceededBody("grading"), 503);
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const submissionId = c.req.param("id");
@@ -712,6 +744,10 @@ gradeRoutes.post("/snap", async (c) => {
   if (!(await isFeatureEnabled("grading"))) {
     return c.json(featureDisabledBody("grading"), 503);
   }
+  // Inline AI budget kill-switch (see /submit) — snap rides grading vision too.
+  if (await isAiBudgetExhausted("grading")) {
+    return c.json(aiBudgetExceededBody("grading"), 503);
+  }
 
   let body: { image?: unknown; brand?: unknown; keyword?: unknown };
   try {
@@ -751,6 +787,38 @@ gradeRoutes.post("/snap", async (c) => {
     (planRow?.past_due_since as string | null) ?? null,
   );
   const snapCap = SNAP_CAP[effPlan] ?? SNAP_CAP.free;
+
+  // Anti-account-farming: the monthly snap cap is per-account, so signing up N
+  // free accounts multiplies free vision calls. Add a per-IP DAILY ceiling on
+  // the FREE tier (a second, non-account dimension) so one network can't farm
+  // free Snaps across many fresh accounts. Keyed on the Cloudflare-attested IP
+  // (un-spoofable; X-Forwarded-For is not trusted in prod). Checked BEFORE the
+  // monthly reservation so a blocked request doesn't consume the monthly count.
+  // No trusted IP (dev / direct-origin) → skip, matching the rate limiter.
+  if (effPlan === "free") {
+    const ip = clientIp(c as unknown as Context);
+    if (ip) {
+      const ipDailyCap = getSettingSync<number>("snap_ip_daily_cap", 30);
+      const dayStart = new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const { data: ipCount } = await supabaseAdmin.rpc("increment_rate_limit", {
+        p_bucket_key: `snap-ip:${ip}`,
+        p_window_start: dayStart.toISOString(),
+      });
+      if (typeof ipCount === "number" && ipCount > ipDailyCap) {
+        return c.json(
+          {
+            error:
+              "Daily free Snap-to-Value limit reached for your network. Try again tomorrow, or upgrade for more.",
+            code: "SNAP_IP_LIMIT_REACHED",
+            action: "upgrade",
+          },
+          429,
+        );
+      }
+    }
+  }
+
   const { data: reserved } = await supabaseAdmin.rpc("reserve_snap", {
     p_user_id: ownerId,
     p_limit: snapCap,
