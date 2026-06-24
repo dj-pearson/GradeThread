@@ -3,6 +3,8 @@
 // runtime on the edge. Body HTML is already sanitized at publish time in the
 // edge service, so we can drop it into the template as-is.
 
+import { generateNonce, ssrSecurityHeaders } from "./security-headers";
+
 export interface PagesEnv {
   // Static-asset binding (present at runtime in Pages Functions; optional in the
   // type so test fixtures can build a PagesEnv without it). Structural fetch
@@ -307,15 +309,22 @@ interface LayoutInput {
   // US-877: extra <link rel="alternate"> tags (e.g. the clean-Markdown view of a
   // post for AI answer engines). Emitted verbatim into the head.
   alternates?: Array<{ type: string; href: string; title?: string }>;
+  // Defense-in-depth CSP nonce (see _shared/security-headers.ts). When set, the
+  // page's own inline scripts (GA config + JSON-LD) are stamped with it so a
+  // nonce-based script-src can run them while blocking anything injected via
+  // bodyHtml. The matching Content-Security-Policy header is set by the response
+  // wrapper (renderSsrResponse).
+  nonce?: string;
 }
 
 // GA4 snippet for the SSR <head>. Mirrors index.html exactly: Consent Mode v2
 // defaults everything to denied (GDPR/CCPA), queues config on the dataLayer,
 // and defers gtag.js to idle so it stays off the LCP path. No cookies are set
 // until consent is granted elsewhere.
-function ga4Snippet(measurementId: string): string {
+function ga4Snippet(measurementId: string, nonce?: string): string {
   const id = measurementId.replace(/[^A-Za-z0-9-]/g, "");
-  return `<script>(function(){window.dataLayer=window.dataLayer||[];function gtag(){window.dataLayer.push(arguments);}window.gtag=gtag;gtag("consent","default",{ad_storage:"denied",ad_user_data:"denied",ad_personalization:"denied",analytics_storage:"denied",wait_for_update:500});gtag("js",new Date());gtag("config","${id}");function load(){if(window.__gtagLoaded)return;window.__gtagLoaded=true;var s=document.createElement("script");s.async=true;s.src="https://www.googletagmanager.com/gtag/js?id=${id}";document.head.appendChild(s);}if("requestIdleCallback" in window){requestIdleCallback(load,{timeout:4000});}else{setTimeout(load,2500);}})();</script>`;
+  const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
+  return `<script${nonceAttr}>(function(){window.dataLayer=window.dataLayer||[];function gtag(){window.dataLayer.push(arguments);}window.gtag=gtag;gtag("consent","default",{ad_storage:"denied",ad_user_data:"denied",ad_personalization:"denied",analytics_storage:"denied",wait_for_update:500});gtag("js",new Date());gtag("config","${id}");function load(){if(window.__gtagLoaded)return;window.__gtagLoaded=true;var s=document.createElement("script");s.async=true;s.src="https://www.googletagmanager.com/gtag/js?id=${id}";document.head.appendChild(s);}if("requestIdleCallback" in window){requestIdleCallback(load,{timeout:4000});}else{setTimeout(load,2500);}})();</script>`;
 }
 
 // Inline base styles. Kept tiny on purpose. Inherits the brand colors
@@ -416,10 +425,11 @@ const BASE_STYLES = `
 `;
 
 export function renderLayout(input: LayoutInput): string {
+  const nonceAttr = input.nonce ? ` nonce="${input.nonce}"` : "";
   const ldScripts = (input.jsonLd ?? [])
     .map(
       (ld) =>
-        `<script type="application/ld+json">${jsonSafe(ld)}</script>`,
+        `<script type="application/ld+json"${nonceAttr}>${jsonSafe(ld)}</script>`,
     )
     .join("");
   const robots = input.noindex ? "noindex, nofollow" : "index, follow";
@@ -456,7 +466,7 @@ ${input.ogImage ? `<meta name="twitter:image" content="${escape(input.ogImage)}"
 ${input.twitterSite ? `<meta name="twitter:site" content="${escape(input.twitterSite)}">` : ""}
 ${ogType === "article" ? renderArticleMetaTags(input.articleMeta) : ""}
 <style>${BASE_STYLES}</style>
-${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId) : ""}
+${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId, input.nonce) : ""}
 ${ldScripts}
 </head>
 <body>
@@ -481,6 +491,29 @@ ${input.bodyHtml}
 </footer>
 </body>
 </html>`;
+}
+
+/**
+ * Render an SSR content page to a Response with a per-response CSP nonce and the
+ * full security-header set. Generates the nonce, stamps it onto the page's inline
+ * scripts (via renderLayout), and emits the matching Content-Security-Policy — so
+ * every SSR content page is XSS-hardened consistently without each Function
+ * re-deriving the headers. Pass `cacheControl`/`status` for the page's caching.
+ */
+export function renderSsrResponse(
+  input: Omit<LayoutInput, "nonce">,
+  opts: { cacheControl: string; status?: number } = { cacheControl: "no-store" },
+): Response {
+  const nonce = generateNonce();
+  const html = renderLayout({ ...input, nonce });
+  return new Response(html, {
+    status: opts.status ?? 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": opts.cacheControl,
+      ...ssrSecurityHeaders(nonce),
+    },
+  });
 }
 
 // ─── Breadcrumbs (US-433) ─────────────────────────────────────────────────

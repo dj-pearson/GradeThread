@@ -16,7 +16,7 @@ import {
   ga4MeasurementId,
   notFoundResponse,
   renderBreadcrumbs,
-  renderLayout,
+  renderSsrResponse,
   siteUrl,
   SSR_CACHE_CONTROL,
   buildTableOfContents,
@@ -179,8 +179,8 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
     organizationLd(env),
   ];
 
-  return new Response(
-    renderLayout({
+  return renderSsrResponse(
+    {
       title: "Blog — GradeThread",
       description:
         "Condition grading vocabulary, reseller workflows, and FlipDesk how-tos for clothing flippers.",
@@ -190,14 +190,8 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
       twitterSite: twitterSiteHandle(env),
       jsonLd,
       bodyHtml,
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": SSR_CACHE_CONTROL,
-      },
     },
+    { cacheControl: SSR_CACHE_CONTROL },
   );
 }
 
@@ -377,8 +371,8 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   // skipped — for non-procedural posts or when too few steps can be derived.
   const howToLd = buildPostHowToLd(post, canonical);
 
-  return new Response(
-    renderLayout({
+  return renderSsrResponse(
+    {
       title,
       description,
       canonicalUrl: canonical,
@@ -411,14 +405,8 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
         ...(howToLd ? [howToLd] : []),
       ],
       bodyHtml,
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": SSR_CACHE_CONTROL,
-      },
     },
+    { cacheControl: SSR_CACHE_CONTROL },
   );
 }
 
@@ -429,18 +417,15 @@ async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
     `/api/content/public/posts/preview/${encodeURIComponent(token)}`,
   );
   if (!data?.post) {
-    return new Response(
-      renderLayout({
+    return renderSsrResponse(
+      {
         title: "Preview unavailable — GradeThread",
         description: "This preview link has expired or is invalid.",
         canonicalUrl: `${siteUrl(env)}/blog`,
         noindex: true,
         bodyHtml: `<main class="container"><h1>Preview link expired</h1><p>Ask the post author for a fresh link, or check the token is intact.</p></main>`,
-      }),
-      {
-        status: 401,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
       },
+      { status: 401, cacheControl: "private, no-store, max-age=0" },
     );
   }
   const post = data.post;
@@ -464,22 +449,16 @@ async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
   <article>${post.body_html}</article>
 </main>`;
 
-  return new Response(
-    renderLayout({
+  // Never cache preview pages (private, no-store).
+  return renderSsrResponse(
+    {
       title: `Preview — ${post.title}`,
       description: post.excerpt ?? "Draft preview",
       canonicalUrl: canonical,
       noindex: true,
       bodyHtml,
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        // Never cache preview pages.
-        "Cache-Control": "private, no-store, max-age=0",
-      },
     },
+    { cacheControl: "private, no-store, max-age=0" },
   );
 }
 
@@ -514,8 +493,8 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
   ${posts.length === 0 ? `<p>No posts tagged <code>${escape(tag)}</code>.</p>` : cards}
 </main>`;
 
-  return new Response(
-    renderLayout({
+  return renderSsrResponse(
+    {
       title: `${tag} — GradeThread Blog`,
       description: `Articles tagged ${tag} on the GradeThread blog.`,
       canonicalUrl: canonical,
@@ -524,14 +503,8 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
       twitterSite: twitterSiteHandle(env),
       jsonLd: [breadcrumbListLd(breadcrumbItems)],
       bodyHtml,
-    }),
-    {
-      status: posts.length === 0 ? 404 : 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": SSR_CACHE_CONTROL,
-      },
     },
+    { status: posts.length === 0 ? 404 : 200, cacheControl: SSR_CACHE_CONTROL },
   );
 }
 

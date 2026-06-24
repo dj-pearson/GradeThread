@@ -17,7 +17,7 @@ import {
   fetchJson,
   notFoundResponse,
   renderBreadcrumbs,
-  renderLayout,
+  renderSsrResponse,
   siteUrl,
   SSR_CACHE_CONTROL,
   twitterSiteHandle,
@@ -175,8 +175,8 @@ async function renderCertificate(context: Ctx): Promise<Response> {
 
   const breadcrumbLd = breadcrumbListLd(breadcrumbItems);
 
-  return new Response(
-    renderLayout({
+  return renderSsrResponse(
+    {
       title,
       description,
       canonicalUrl: canonical,
@@ -186,14 +186,8 @@ async function renderCertificate(context: Ctx): Promise<Response> {
       ogType: "product",
       jsonLd: [productLd, breadcrumbLd],
       bodyHtml,
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": SSR_CACHE_CONTROL,
-      },
     },
+    { cacheControl: SSR_CACHE_CONTROL },
   );
 }
 

@@ -141,7 +141,19 @@ the admin session, falling back to a clean sign-out if it expired. An XSS during
 impersonation can no longer lift a credential that mints admin sessions
 indefinitely.
 
-## Remaining recommendation (optional)
+### Blog/cert SSR pages → nonce-based CSP (defense-in-depth)
+Discovered that Cloudflare `_headers` (the enforcing CSP in `public/_headers`)
+applies only to **static** assets, NOT to Pages **Function** responses — so the
+dynamic SSR pages that render server-injected HTML (blog, cert, passport,
+verified, condition-index, authors) shipped with **no CSP at all**, exactly the
+XSS-sensitive surface. Added `functions/_shared/security-headers.ts` (per-response
+nonce + tight CSP) and a `renderSsrResponse()` wrapper that stamps the nonce onto
+each page's own inline scripts (GA config, JSON-LD) while a nonce-only `script-src`
+(no `'unsafe-inline'`/`'unsafe-eval'`) blocks anything injected via `body_html`.
+Wired into all six SSR functions; the iframe-embeddable cert variants
+(embed/badge/slab) were deliberately left alone (a `frame-ancestors 'none'` CSP
+would break embedding). Unit-tested in `src/test/ssr-csp.test.ts`.
 
-- **Blog rendering defense-in-depth:** with `body_html` now sanitized on every
-  write path, consider also a strict CSP on blog/cert pages as a second line.
+## Status
+
+All audit findings and follow-ups are now addressed. No open items.
