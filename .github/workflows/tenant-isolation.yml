@@ -44,7 +44,7 @@ jobs:
       # with "captcha protection: request disallowed".
       SUPABASE_AUTH_CAPTCHA_SECRET: 1x0000000000000000000000000000000AA
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: supabase/setup-cli@v1
         with:

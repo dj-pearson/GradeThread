@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Import secrets from Infisical
         # SUPABASE_ANON_KEY (the screenshot build talks to the real backend)

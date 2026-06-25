@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Fetch full history so the release-notes step can diff against
           # the previous TestFlight tag.
