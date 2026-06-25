@@ -3830,3 +3830,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 25, 2026 12:32:31 PM
 ---
+## US-1165: Move heavy CPU/image/DB work off the main thread (UI freeze fixes)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 25, 2026 12:37:24 PM
+---
