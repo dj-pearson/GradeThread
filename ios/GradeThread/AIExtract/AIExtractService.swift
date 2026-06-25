@@ -1,69 +1,38 @@
 import Foundation
 
-/// Calls `POST /api/flipdesk/ai/extract`. Bypasses the generic ``EdgeAPI``
-/// because the response's `suggestions` dictionary has field-name keys
-/// (`brand`, `size`, `garment_category`) that we need to preserve verbatim
-/// — `EdgeAPI`'s shared decoder applies snake-to-camel conversion to every
-/// key in scope, which would mangle them. The auth-token attachment and
-/// error-mapping logic are still reused via ``SupabaseShared`` and
-/// ``EdgeAPIError``.
+/// Calls `POST /api/flipdesk/ai/extract`. Routes through ``EdgeAPI/sendRaw``
+/// (US-1164) so it inherits the same transient retry/backoff, one forced 401
+/// token-refresh, and `X-Plan-Warning` / 402 plan-gate handling as the rest of
+/// the app — but it owns its OWN encoder/decoder because the response's
+/// `suggestions` dictionary has field-name keys (`brand`, `size`,
+/// `garment_category`) that must be preserved verbatim. EdgeAPI's shared decoder
+/// applies snake-to-camel conversion, which would mangle them; `sendRaw` sends
+/// the bytes and returns the bytes, leaving codec to the caller.
+///
+/// Backed by ``EdgeAPI/aiShared`` (the long-idle `EdgeNetwork.aiSession`): the
+/// extract does ~20-40s of server-side model work and streams nothing until the
+/// JSON lands, so the 20s-idle shared session would kill a request that's
+/// actually succeeding — a false "AI couldn't read these photos".
 @MainActor
 final class AIExtractService {
-    private let baseURL: URL
-    private let session: URLSession
+    private let edge: EdgeAPI
 
-    // Uses the long-idle AI session (EdgeNetwork.aiSession), NOT the 20s-idle
-    // shared edge session: the extract does ~20-40s of server-side model work
-    // (vision pass + the eBay-aspects second pass) and streams nothing until the
-    // JSON lands, so the short idle timeout would kill a request that's actually
-    // succeeding — surfacing as a false "AI couldn't read these photos".
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
-        self.baseURL = baseURL
-        self.session = session
+    init(edge: EdgeAPI = .aiShared) {
+        self.edge = edge
     }
 
     func extract(_ request: AIExtractRequest) async throws -> AIExtractResponse {
-        // US-1164: guard instead of force-unwrapping a malformed base URL.
-        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            throw EdgeAPIError.network("Could not build request URL")
-        }
-        components.path = "/api/flipdesk/ai/extract"
-        guard let url = components.url else {
-            throw EdgeAPIError.network("Could not build URL")
-        }
-
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = await SupabaseShared.currentAccessToken() {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        // Request body has explicit CodingKeys → no global key strategy
-        // needed. Keep the encoder bare so we don't apply a strategy that
-        // would conflict with the keys we declared.
-        let encoder = JSONEncoder()
+        // Request body has explicit CodingKeys → keep the encoder bare so we
+        // don't apply a strategy that would conflict with the keys we declared.
+        let bodyData: Data
         do {
-            req.httpBody = try encoder.encode(request)
+            bodyData = try JSONEncoder().encode(request)
         } catch {
             throw EdgeAPIError.decoding("Encoding extract request failed: \(error.localizedDescription)")
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch {
-            throw EdgeAPIError.network(error.localizedDescription)
-        }
-
-        guard let http = response as? HTTPURLResponse else {
-            throw EdgeAPIError.network("Non-HTTP response")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
-        }
+        let data = try await edge.sendRaw(
+            method: "POST", path: "/api/flipdesk/ai/extract", bodyData: bodyData)
 
         // No key-conversion strategy — preserves the field-name keys in
         // `suggestions` and `measurements` exactly as the server emitted.

@@ -29,6 +29,13 @@ final class BulkPricingStore {
     /// Per-listing failure messages from the last apply.
     private(set) var rowErrors: [String: String] = [:]
 
+    /// US-1216: bulk edits all route through the user's PRIMARY eBay store on the
+    /// edge, and `listings` carries no per-store column, so when more than one
+    /// store is connected we name the target store in the UI rather than letting
+    /// the user unknowingly push secondary-store prices through the primary token.
+    private(set) var hasMultipleAccounts = false
+    private(set) var primaryAccountName: String?
+
     init(service: BulkPricingProviding = BulkPricingService()) {
         self.service = service
     }
@@ -40,7 +47,18 @@ final class BulkPricingStore {
             phase = .ready
         } catch {
             phase = .failed(error.localizedDescription)
+            return
         }
+        await loadAccountContext()
+    }
+
+    /// US-1216: resolve which eBay store bulk edits target. Best-effort — a
+    /// failure here must never block the listings the user came to edit, so it
+    /// just leaves the banner hidden.
+    private func loadAccountContext() async {
+        guard let accounts = try? await service.ebayAccounts() else { return }
+        hasMultipleAccounts = accounts.count > 1
+        primaryAccountName = (accounts.first(where: \.isPrimary) ?? accounts.first)?.displayName
     }
 
     func toggle(_ id: String) {

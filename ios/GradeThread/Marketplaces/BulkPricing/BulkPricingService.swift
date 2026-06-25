@@ -28,6 +28,18 @@ struct BulkPriceQtyResponse: Decodable {
     let total: Int
 }
 
+/// One connected eBay store, for the bulk-pricing account-context banner
+/// (US-1216). Bulk price/quantity edits all push through the PRIMARY
+/// connection's token on the edge (flipdesk-ebay.ts orders is_primary DESC),
+/// and `listings` carries no per-connection column, so when a user has more
+/// than one store we name the target store explicitly instead of silently
+/// mixing accounts.
+struct BulkPricingAccount: Equatable {
+    let id: String
+    let displayName: String
+    let isPrimary: Bool
+}
+
 /// Data layer for bulk price/quantity (US-1046 clean surface). Reads `listings`
 /// directly through supabase-swift (RLS scopes to the caller via inventory-item
 /// ownership) and applies updates via the consolidated edge endpoint, which
@@ -36,6 +48,10 @@ struct BulkPriceQtyResponse: Decodable {
 protocol BulkPricingProviding {
     func listings() async throws -> [BulkListing]
     func apply(updates: [BulkPriceQtyUpdate]) async throws -> BulkPriceQtyResponse
+    /// US-1216: the user's active eBay stores (primary first) so the editor can
+    /// name the store every bulk edit will route through when there's more than
+    /// one connected account.
+    func ebayAccounts() async throws -> [BulkPricingAccount]
 }
 
 struct BulkPricingService: BulkPricingProviding {
@@ -107,5 +123,23 @@ struct BulkPricingService: BulkPricingProviding {
             "/api/flipdesk/ebay/listings/bulk-price-quantity",
             body: Body(updates: updates)
         )
+    }
+
+    func ebayAccounts() async throws -> [BulkPricingAccount] {
+        // RLS scopes marketplace_connections to the signed-in user. Order mirrors
+        // the edge token resolver (is_primary DESC, then updated_at DESC) so the
+        // first row is exactly the store the bulk endpoint pushes through.
+        let rows: [RemoteMarketplaceConnection] = try await SupabaseShared.client
+            .from("marketplace_connections")
+            .select(EbayConnectionService.connectionColumns)
+            .eq("marketplace", value: "ebay")
+            .eq("is_active", value: true)
+            .order("is_primary", ascending: false)
+            .order("updated_at", ascending: false)
+            .execute()
+            .value
+        return rows.map {
+            BulkPricingAccount(id: $0.id, displayName: $0.displayName, isPrimary: $0.isPrimary)
+        }
     }
 }

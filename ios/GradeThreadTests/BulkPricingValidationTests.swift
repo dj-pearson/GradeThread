@@ -59,4 +59,38 @@ final class BulkPricingValidationTests: XCTestCase {
         XCTAssertFalse(store.priceActive)
         XCTAssertNotNil(store.priceInputError)
     }
+
+    // MARK: - US-1216: account-context banner (multi-store safety)
+
+    /// Fake provider so the store's account-context resolution can be exercised
+    /// without a live Supabase/edge.
+    private struct FakeProvider: BulkPricingProviding {
+        var accounts: [BulkPricingAccount]
+        func listings() async throws -> [BulkListing] { [] }
+        func apply(updates: [BulkPriceQtyUpdate]) async throws -> BulkPriceQtyResponse {
+            BulkPriceQtyResponse(results: [], succeeded: 0, total: 0)
+        }
+        func ebayAccounts() async throws -> [BulkPricingAccount] { accounts }
+    }
+
+    func test_singleAccount_noBannerAndNoMixingHint() async {
+        let store = BulkPricingStore(service: FakeProvider(accounts: [
+            BulkPricingAccount(id: "a", displayName: "Main Store", isPrimary: true),
+        ]))
+        await store.load()
+        XCTAssertFalse(store.hasMultipleAccounts)
+        XCTAssertEqual(store.primaryAccountName, "Main Store")
+    }
+
+    func test_multipleAccounts_namesPrimaryStore() async {
+        let store = BulkPricingStore(service: FakeProvider(accounts: [
+            BulkPricingAccount(id: "p", displayName: "Closet A", isPrimary: true),
+            BulkPricingAccount(id: "s", displayName: "Closet B", isPrimary: false),
+        ]))
+        await store.load()
+        XCTAssertTrue(store.hasMultipleAccounts)
+        // The named target is the PRIMARY store the edge bulk endpoint pushes
+        // through — not merely the first row.
+        XCTAssertEqual(store.primaryAccountName, "Closet A")
+    }
 }

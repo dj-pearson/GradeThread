@@ -41,6 +41,15 @@ public final class PhotoUploadService {
         Task { @MainActor in completion() }
     }
 
+    /// US-1219: mints a short-TTL signed upload URL so the background session
+    /// never persists a long-lived bearer JWT to its on-disk task DB. Injectable
+    /// so the signed-upload path can be exercised in tests without a live
+    /// Storage backend. Returns nil on mint failure → caller routes `.failed`
+    /// and queues a pending mutation that re-mints on the next sync.
+    var signedUploadURL: (_ bucket: String, _ path: String) async -> URL? = { bucket, path in
+        await SignedUploadURLProvider.shared.signedUploadURL(bucket: bucket, path: path)
+    }
+
     /// `URLSessionTask.taskIdentifier` → our `PhotoUploadTask.id`. Lives
     /// on the MainActor; the delegate only ever passes the int identifier
     /// across the actor boundary, never the dict itself, which keeps the
@@ -230,34 +239,28 @@ public final class PhotoUploadService {
 
     private func start(_ task: PhotoUploadTask) {
         Task { @MainActor in
-            guard let accessToken = await SupabaseShared.currentAccessToken() else {
+            // US-1219: mint a short-TTL signed upload URL up front (over an
+            // ephemeral session that is NOT persisted) rather than stamping a
+            // long-lived `Authorization: Bearer <user-jwt>` onto the request the
+            // background URLSession serializes to its on-disk task DB. The signed
+            // URL's single-object token lives only in the query string; an
+            // expired mint fails closed (mint returns nil) and routes to the same
+            // retry/queue path as a network error instead of a silent 401.
+            guard let url = await signedUploadURL(task.slot.storageBucket, task.storagePath) else {
                 Telemetry.event("photo_upload_failed", props: [
-                    "reason": "not_signed_in",
+                    "reason": "signed_upload_url_failed",
                     "slot": task.slot.serverPhotoType,
+                    "bucket": task.slot.storageBucket,
                     "item_id": task.inventoryItemId,
                 ])
-                store.updatePhase(task.id, to: .failed(error: "Not signed in"))
+                // Treat a mint failure like a transient network failure: mark
+                // `.failed` AND queue a pending mutation so the next SyncEngine
+                // pass re-mints a fresh signed URL and re-uploads from disk.
+                handleNetworkFailure(task, message: "Couldn't prepare a secure upload — will retry on the next sync.")
+                startNextIfPossible()
                 return
             }
-
-            guard let url = storageURL(for: task.storagePath, bucket: task.slot.storageBucket) else {
-                Telemetry.event("photo_upload_failed", props: [
-                    "reason": "bad_storage_url",
-                    "slot": task.slot.serverPhotoType,
-                    "item_id": task.inventoryItemId,
-                ])
-                store.updatePhase(task.id, to: .failed(error: "Storage isn't configured correctly"))
-                return
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
-            request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
-            // `x-upsert: true` matches the web client and makes retries
-            // idempotent — we never want a 409 on a re-uploaded shot.
-            request.setValue("true", forHTTPHeaderField: "x-upsert")
-
+            let request = Self.backgroundUploadRequest(signedURL: url)
             let upload = session.uploadTask(with: request, fromFile: task.localFileURL)
             sessionTaskIdToUploadId[upload.taskIdentifier] = task.id
             store.setSessionTaskId(task.id, sessionTaskId: upload.taskIdentifier)
@@ -266,10 +269,21 @@ public final class PhotoUploadService {
         }
     }
 
-    private func storageURL(for path: String, bucket: String) -> URL? {
-        // `/storage/v1/object/{bucket}/{path}` — same shape the web SDK uses.
-        // nil if the base URL is misconfigured; the caller routes a `.failed`.
-        StorageURL.object(base: AppConfig.supabaseURL, bucket: bucket, path: path)
+    /// Builds the background-session PUT request for a minted signed upload URL.
+    /// US-1219: deliberately carries NO `Authorization` header — the signed URL's
+    /// query-string token authorizes the upload, so the request the background
+    /// `URLSession` serializes to its on-disk task DB holds no long-lived bearer
+    /// JWT. `static` so the no-credential invariant is unit-testable.
+    static func backgroundUploadRequest(signedURL: URL) -> URLRequest {
+        var request = URLRequest(url: signedURL)
+        // PUT to the signed upload URL (matches supabase-js `uploadToSignedUrl`).
+        request.httpMethod = "PUT"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        // `x-upsert: true` matches the web client and makes retries idempotent —
+        // we never want a 409 on a re-uploaded shot.
+        request.setValue("true", forHTTPHeaderField: "x-upsert")
+        return request
     }
 
     // MARK: - Delegate callbacks (entered from a non-isolated bridge)
