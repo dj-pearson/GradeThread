@@ -4958,8 +4958,8 @@
         "Placeholder strings no longer appear in any shipped metadata"
       ],
       "priority": 1206,
-      "passes": false,
-      "notes": "[P1][AppStore/Blocking] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P1][AppStore/Blocking] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: release lane now injects real App Review demo creds from CI secrets/Infisical (REVIEW_DEMO_EMAIL/PASSWORD) into review_information/demo_user.txt+demo_password.txt at release time (never committed); a pre-submit sign-in smoke (Net::HTTP POST to Supabase /auth/v1/token?grant_type=password, asserts 200 + access_token) FAILS the release on bad creds; assert_no_placeholder_credentials blocks deliver if placeholders remain. Seeded data stays operator-run via scripts/seed-review-demo-account.mjs (referenced in APP_STORE_REJECTION_RESPONSE.md). All in ios/fastlane/Fastfile.",
       "relevantPaths": [
         "ios/fastlane/Fastfile",
         "ios/fastlane/Deliverfile",
@@ -4979,8 +4979,8 @@
         "No in-app surface links to a page that can initiate a Stripe purchase of a digital subscription for an iOS user"
       ],
       "priority": 1207,
-      "passes": false,
-      "notes": "[P1][AppStore/Blocking] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P1][AppStore/Blocking] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: anti-steering (Guideline 3.1.1). PlanInfo.isWebBilledSubscriber (billing_source==stripe AND entitling status) gates the web billing path; FREE users now route only to the StoreKit PaywallView (no web checkout button), App Store-billed users to native manage, web/stripe-billed to web billing. The 'View past invoices on the web' footer hidden for free/App-Store users. (Real file: Settings/PlanStore.swift + Settings/PlanSection.swift.)",
       "relevantPaths": [
         "ios/GradeThread/Settings/PlanSection.swift",
         "ios/GradeThread/Billing/PlanStore.swift",
@@ -4998,8 +4998,8 @@
         "A regression test reproduces create-then-edit-offline with a failing create and asserts the edit is not lost"
       ],
       "priority": 1208,
-      "passes": false,
-      "notes": "[P1][Sync/DataLoss] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P1][Sync/DataLoss] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: flushPending now defers UPDATE/DELETE replays whose CREATE is still queued (incl. stuck creates past the retry budget) via unconfirmedCreateTargetIds/shouldDeferDependent; apply() returns success so a confirmed create unblocks dependents in the same pass. Prevents the 200/0-rows silent edit loss. +4 unit tests (SyncTests). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Persistence/SyncEngine.swift",
         "ios/GradeThreadTests/SyncTests.swift"
@@ -5016,8 +5016,8 @@
         "Behavior matches the web low-confidence handling; a unit test covers the <0.75 path"
       ],
       "priority": 1209,
-      "passes": false,
-      "notes": "[P1][Grading/Trust] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P1][Grading/Trust] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: confidence<0.75 grades held provisional — status not stamped graded + certificateURL withheld (GradeApplication.stamp); GradesListView shows a Pending review badge + excludes them from certified counts; GradeReportView/CertifiedGradeSection suppress the Share Certificate CTA; threshold constant GradeScale.gradeReviewConfidenceThreshold. +tests (GradingTests). Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Grading/GradeRequestSheet.swift",
         "ios/GradeThread/Grading/GradeReportView.swift",
@@ -5036,8 +5036,8 @@
         "A unit test injects an undecodable low-timestamp row among decodable higher-timestamp rows and asserts the cursor does not skip it"
       ],
       "priority": 1210,
-      "passes": false,
-      "notes": "[P2][Sync/DataLoss] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][Sync/DataLoss] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: watermark advance switched to drop-safe cursors — paginatedFetch now returns decoded/dropped cursor lists per page (splitCursors), safeCursor() advances only to the max decoded cursor strictly before the earliest dropped row (nil=hold), so an undecodable low-timestamp row is re-fetched next delta instead of being skipped. Applied to items/photos/sales/expenses/disputes. +3 unit tests. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Persistence/SyncEngine.swift",
         "ios/GradeThreadTests/SyncTests.swift"
@@ -5054,8 +5054,8 @@
         "A member switched into an owner workspace sees another member's concurrent edit without a manual refresh"
       ],
       "priority": 1211,
-      "passes": false,
-      "notes": "[P2][Sync/Realtime/Workspace] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][Sync/Realtime/Workspace] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: Realtime channel scoped to WorkspaceScope.tenantOwnerId (startRealtimeIfNeeded) so a member follows the active owner workspace; resubscribe() tears down + re-subscribes on .workspaceDidChange; every transition INTO .subscribed (first + re-subscribes) kicks SyncEngine.pull() catch-up; workspaceDidChange flushes pending FIRST (drains prior-workspace queue to the correct tenant) before reset/clear/re-home. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThread/Persistence/RealtimeService.swift",
         "ios/GradeThread/ContentView.swift",
@@ -5074,8 +5074,8 @@
         "The downstream grade blocker no longer presents a \"missing photo\" the user actually captured but failed to upload"
       ],
       "priority": 1212,
-      "passes": false,
-      "notes": "[P2][CoreFlow/SilentFailure] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][CoreFlow/SilentFailure] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: AIExtractView gates the canvas handoff (completeHandoff) on a confirmationDialog when any of the item's photo uploads failed (uploadStore.tasks(inventoryItemId:) .failed) — Retry re-enqueues them (onRetryUploads in PhotoIntakeView via uploadService.retry; they continue in the background so captured photos are not lost) or Continue anyway. Failures are no longer silently dropped on the way to the canvas, so the grade flow will not later block on a 'missing' photo the user actually captured.",
       "relevantPaths": [
         "ios/GradeThread/Capture/PhotoIntakeView.swift",
         "ios/GradeThread/AIExtract/AIExtractView.swift",
@@ -5093,8 +5093,8 @@
         "Routing Scout/Prospect through EdgeAPI (or sharing its 402 handling) is preferred over the bespoke transport if feasible"
       ],
       "priority": 1213,
-      "passes": false,
-      "notes": "[P2][Monetization/PlanGate] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][Monetization/PlanGate] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: Scout/Prospect 402 now decode PlanGateError (same shape EdgeAPI uses) and route to PlanGateNotifier.shared.present(gate) -> the centralized UpgradePromptView/PaywallView, instead of a string-only error. Kept the bespoke camelCase transport (EdgeAPI snake-case decoder would mangle the /scout bodies). ScoutView observes PlanGateNotifier + captures the gate (lockedGate) so a feature-lock shows a working 'See plans' CTA and HIDES the useless 'Try again' (still shown for transient network errors).",
       "relevantPaths": [
         "ios/GradeThread/Scout/ScoutService.swift",
         "ios/GradeThread/Scout/ScoutView.swift",
@@ -5113,8 +5113,8 @@
         "Sentry crash reporting behavior is documented separately from product analytics consent"
       ],
       "priority": 1214,
-      "passes": false,
-      "notes": "[P2][Privacy/AppStore] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][Privacy/AppStore] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: kept opt-out behavior and corrected the labels/docs to agree — Telemetry.swift comments, PrivacyInfo.xcprivacy commentary, and PRIVACY_LABELS.md now say opt-out, on by default; Sentry crash reporting documented as separate from product-analytics consent. No runtime default change.",
       "relevantPaths": [
         "ios/GradeThread/Telemetry/Telemetry.swift",
         "ios/GradeThread/PrivacyInfo.xcprivacy",
@@ -5132,8 +5132,8 @@
         "Metadata review (Deliverfile precheck) passes with the corrected terms"
       ],
       "priority": 1215,
-      "passes": false,
-      "notes": "[P2][AppStore/Metadata] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][AppStore/Metadata] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: removed poshmark/crosslist from keywords.txt (final: reseller,resell,ebay,thrift,flipping,inventory,clothing,listing,consignment,secondhand,preowned = 95 chars); name.txt aligned to GradeThread (matches CFBundleDisplayName); description.txt verified to make no cross-posting claims (eBay-only + AI listing copy).",
       "relevantPaths": [
         "ios/fastlane/metadata/en-US/keywords.txt",
         "ios/fastlane/metadata/en-US/name.txt",
@@ -5153,7 +5153,7 @@
       ],
       "priority": 1216,
       "passes": false,
-      "notes": "[P2][eBay/MultiAccount] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "notes": "[P2][eBay/MultiAccount] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || PARTIAL 2026-06-25 (AC1 done, passes stays false): DONE — EbaySyncService.fetchConnectionSnapshot now orders is_primary DESC, updated_at DESC (mirrors the edge token resolver + EbayConnectionService.fetchActiveConnection), so a multi-store user whose primary is not the newest no longer hits a false 90s sync .timedOut / masked primary refresh_error. DEFERRED — AC2 scoping bulk pricing to the selected/primary connection: the listings table has NO marketplace_connection_id / connection_id column (verified across supabase/migrations), so listings cannot be scoped to a store at the iOS query layer; the real fix needs a listings->connection FK (migration + edge), not iOS-only.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/EbaySyncService.swift",
         "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingService.swift",
@@ -5172,8 +5172,8 @@
         "Unit coverage for conflict threading and department persistence"
       ],
       "priority": 1217,
-      "passes": false,
-      "notes": "[P2][AI/Attributes] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][AI/Attributes] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: AIExtract conflicts threaded through applyResponse -> AIFillReviewSheet (tag-preference fallback at lowered confidence 0.4, source 'conflict:tag', so size/brand conflicts land in the opt-in low-confidence review instead of auto-resolving silently — a true two-candidate picker would break the field-keyed model). Size AI now persists the inferred department via AIItemFieldWriter.writeAttributes(key 'department', source 'ai:size', confidence r.confidence) alongside the size write, instead of discarding it in the transient alert. +3 tests (AIExtractTests).",
       "relevantPaths": [
         "ios/GradeThread/AIExtract/AIExtractTypes.swift",
         "ios/GradeThread/AIExtract/AIExtractStore.swift",
@@ -5192,8 +5192,8 @@
         "No free-text PII (notes, costs, names) remains in UserDefaults.standard or in unencrypted backups"
       ],
       "priority": 1218,
-      "passes": false,
-      "notes": "[P2][Security/AtRest] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P2][Security/AtRest] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: IntakeDraftStore + RecentSearchStore moved off UserDefaults to file-protected Application Support files (.completeFileProtectionUntilFirstUserAuthentication, dir .protectionKey) with one-time legacy migration; PhotoDraftStore manifest.json now written with the protection class + its dir created with .protectionKey. RecentSearch cap lowered 8->5.",
       "relevantPaths": [
         "ios/GradeThread/DetailsIntake/IntakeDraftStore.swift",
         "ios/GradeThread/Inventory/RecentSearchStore.swift"
@@ -5211,7 +5211,7 @@
       ],
       "priority": 1219,
       "passes": false,
-      "notes": "[P2][Security/Crypto] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "notes": "[P2][Security/Crypto] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || PARTIAL 2026-06-25 (AC1 done, passes stays false): DONE — generateStateNonce now fails CLOSED: guards SecRandomCopyBytes==errSecSuccess via precondition (mirrors SignInWithAppleCoordinator.randomNonce) instead of discarding the result, so a CSPRNG failure can no longer emit a predictable all-zero OAuth state nonce. DEFERRED — AC2 removing the bearer JWT from the BACKGROUND upload session: the correct fix (mint a short-TTL Supabase signed-UPLOAD URL so the background request carries no Authorization header) reworks the PRIMARY capture->upload flow and is too risky to do blind; needs device/CI verification. The expired-token-on-resume retry path AC already holds today: a 401 on the background upload routes through handleNetworkFailure -> pending mutation -> SyncEngine.replayUploadPhoto re-uploads with a fresh token on an ephemeral (non-persisted) session.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/EbayConnectionService.swift",
         "ios/GradeThread/Auth/SignInWithAppleCoordinator.swift",
@@ -5229,8 +5229,8 @@
         "Unit test covers reduce-mode bounds"
       ],
       "priority": 1220,
-      "passes": false,
-      "notes": "[P3][eBay/Validation] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P3][eBay/Validation] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: bulk-pricing reduce-mode bounds. priceValue now constrains .reduce input to 0<v<100 (100% zeroes / >100% goes negative); priceInputError gives inline feedback; validatedTargetPrice floors the COMPUTED price (reject <$0.01 with a row reason) so a deep reduce on a cheap item is blocked client-side instead of an opaque server 'Failed'. apply() surfaces preflight row reasons. +6 unit tests (BulkPricingValidationTests).",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingStore.swift",
         "ios/GradeThread/Marketplaces/BulkPricing/BulkPricingService.swift"
@@ -5248,7 +5248,7 @@
       ],
       "priority": 1221,
       "passes": false,
-      "notes": "[P3][Sync/Hygiene] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "notes": "[P3][Sync/Hygiene] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || PARTIAL 2026-06-25 (2/4 ACs done, passes stays false): DONE — AC3 consistent flush-then-pull order (sync() now flushes before pulling, matching the connectivity debouncer); AC4 replay-error classification (SyncReplayError.isTerminal -> markStuck pins retryCount to maxRetries immediately for missingTarget/missingLocalFile/invalidStorageURL, so terminal errors no longer burn the 6 transient retries; notSignedIn/storageUpload stay transient). DEFERRED — AC1 server-side delete/tombstone propagation for sales/expenses/listings/photos and AC2 watermarking the listings full-pull both need a price-derivation reshape (latest-price from delta + cached LocalListing) + prune-correctness that should be device/CI-verified, not done blind.",
       "relevantPaths": [
         "ios/GradeThread/Persistence/SyncMergeActor.swift",
         "ios/GradeThread/Persistence/SyncEngine.swift",
@@ -5266,8 +5266,8 @@
         "Widget snapshot/extension a11y verified with VoiceOver"
       ],
       "priority": 1222,
-      "passes": false,
-      "notes": "[P3][A11y/Extensions] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P3][A11y/Extensions] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: Widget a11y — Metric .accessibilityElement(.combine)+composed label, every SmallView/MediumView/StandBy/accessory view gets a natural-language summary (circular complication no longer reads a bare number) via new WidgetAccessibility. ShareViewController guards present on !images.isEmpty, surfaces a failure alert when writeBatch throws, and uses security-scoped loadFileRepresentation off-thread instead of sync Data(contentsOf:).",
       "relevantPaths": [
         "ios/GradeThreadWidget/GradeThreadWidget.swift",
         "ios/ShareExtension/ShareViewController.swift",
@@ -5285,8 +5285,8 @@
         "Shared loading primitive speaks a \"Loading\" cue; the ListingPerformance trend direction is in the combined a11y label (not color-only) and/or an AXChartDescriptor"
       ],
       "priority": 1223,
-      "passes": false,
-      "notes": "[P3][A11y/Surfaces] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P3][A11y/Surfaces] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: ScheduledDrops reschedule row gets .isButton + .accessibilityAction(Reschedule); TeamView role pickers labeled <name> role + row name combined; ConsignorsView Save shows a ProgressView while saving + split Slider labeled/valued; Team/ListingPerformance/Verified loading skeletons speak Loading; ListingPerformance trend direction (rising/falling/flat) folded into the combined a11y label, not color-only.",
       "relevantPaths": [
         "ios/GradeThread/ScheduledDrops/ScheduledDropsView.swift",
         "ios/GradeThread/Team/TeamView.swift",
@@ -5306,8 +5306,8 @@
         "New tests run in the existing fast unit lane"
       ],
       "priority": 1224,
-      "passes": false,
-      "notes": "[P3][Tests/CI] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P3][Tests/CI] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: AC1 — added ProspectStoreTests (fixture-driven, FakeProspecting) covering the client-side US-1170/1225 logic that actually exists on-device (costNeedsRerun cost-after-run detection + addToInventory notes/prefill fold); Vision/Speech parsers SKIPPED honestly as untestable headless (live VNRecognizeText/SFSpeechRecognizer, no pure step) and SizeTagInference is already covered by SizeTagInferenceTests; the ROI verdict math is server-side (no client fn to test). AC2 — ios-ci.yml builds the ShareExtension + GradeThreadWidget app-extension targets explicitly (xcodebuild -target, iPhone 16 sim, signing off). AC3 — ios/Scripts/no-bare-strings.py (mirrors no-ungated-print.py) flags NEW bare Text()/Label() literals in Prospect/Vision/Speech against a 17-literal baseline allow-list (does NOT touch the ~670 app-wide strings, since US-1155 localization is deferred), wired into CI as a failing step; verified exit 0 today + exit 1 on an injected literal. AC4 — tests live in GradeThreadTests so they run in the existing unit lane. Pending iOS CI compile.",
       "relevantPaths": [
         "ios/GradeThreadTests",
         "ios/.github/workflows/ios-ci.yml",
@@ -5327,8 +5327,8 @@
         "A Passport \"Regenerate link\" affordance remains available after the first handoff link is minted"
       ],
       "priority": 1225,
-      "passes": false,
-      "notes": "[P3][CoreFlow/UX] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P3][CoreFlow/UX] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: UX bucket. (1) Prospect cost-after-run shows costNeedsRerun hint + relabels CTA (ROI is server-computed; relabel chosen over diverging local math). (2) addToInventory has its own addError+retry (no longer re-runs the billable pipeline). (3) library-pick load failure surfaces a loadError alert (mirrors Snap US-1181). (4) Verified canSave blocks on bio/display-name over-limit + display-name counter (no silent server truncation). (5) Disclosure error banner clears on save()/applyText(). (6) Disclosure defect badge clamped within composite bounds. (7) Passport 'Regenerate link' stays available after first mint.",
       "relevantPaths": [
         "ios/GradeThread/Prospect/ProspectView.swift",
         "ios/GradeThread/Prospect/ProspectStore.swift",
@@ -5349,8 +5349,8 @@
         "TurnstileView allowlists navigations to gradethread.com / *.cloudflare.com via a WKNavigationDelegate; ITSAppUsesNonExemptEncryption is confirmed accurate (or corrected + self-classification filed)"
       ],
       "priority": 1226,
-      "passes": false,
-      "notes": "[P3][Perf/Consistency/Hardening] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented.",
+      "passes": true,
+      "notes": "[P3][Perf/Consistency/Hardening] ADDED 2026-06-24 (iOS app audit). Found by a multi-agent deep-dive audit; verified against real code (file:line in description). NOT yet implemented. || DONE 2026-06-25: perf/hardening bucket. (1) ISO8601DateFormatters hoisted to statics in MarketplacesView.humanRelative + ReconciliationService.upsertEbayListingRow (.withFractionalSeconds on the writer). (2) AccountExportService routes through the bounded EdgeNetwork.shared (20s) not URLSession.shared (60s). (3) ReconciliationService.ignore()/markMatched() add .eq(user_id) (US-268 defense-in-depth). (4) TurnstileView WKNavigationDelegate allowlists gradethread.com/*.cloudflare.com, cancels others. (5) ITSAppUsesNonExemptEncryption kept false (standard CryptoKit/HTTPS only = exempt) + documented the self-classification in project.yml.",
       "relevantPaths": [
         "ios/GradeThread/Marketplaces/MarketplacesView.swift",
         "ios/GradeThread/Marketplaces/Reconciliation/ReconciliationService.swift",

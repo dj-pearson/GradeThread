@@ -945,8 +945,10 @@ struct ItemCanvasView: View {
 
     /// US-1088: run Size AI for this item — fills the Size field with the best
     /// guess and surfaces the rationale/confidence (or the failure) in an alert.
-    /// Gender rides on the eBay category (resolved elsewhere), so it's only
-    /// shown for context here, not written to a separate field.
+    /// US-1217: the inferred gender/department is an almost-always-required eBay
+    /// aspect, so it's PERSISTED onto `inventory_items.attributes` (key
+    /// "department", source "ai:size") alongside the size write rather than being
+    /// discarded when the transient alert dismisses.
     private func runSizeAi(state: ItemCanvasState) async {
         sizeAiRunning = true
         defer { sizeAiRunning = false }
@@ -969,6 +971,24 @@ struct ItemCanvasView: View {
                 seedTitle: false
             )
             state.draft.size = r.size
+            // US-1217: persist the inferred department (gender) too — it's an
+            // almost-always-required eBay aspect that was previously thrown away
+            // when this alert dismissed. Stored on inventory_items.attributes via
+            // the same writer/provenance path as the US-826 confirm chips, so the
+            // specifics editor and listing flow pick it up. Best-effort: a failure
+            // here must not mask the successful size write above.
+            if let department = r.gender?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !department.isEmpty {
+                try? await AIItemFieldWriter.writeAttributes(
+                    itemId: item.id,
+                    results: [AIAttributeConfirm.Result(
+                        key: "department",
+                        value: department,
+                        source: "ai:size",
+                        confidence: r.confidence
+                    )]
+                )
+            }
             HapticFeedback.success()
             let genderNote = r.gender.map { " · \($0)" } ?? ""
             let head = r.lowConfidence

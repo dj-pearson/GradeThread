@@ -24,8 +24,14 @@ struct CertifiedGradeSection: View {
     @State private var showingPassport = false
 
     private var isGraded: Bool { item.gradeValue != nil }
+    /// US-1209: a low-confidence grade is provisional (awaiting human review),
+    /// so it isn't certified/shareable yet.
+    private var isPendingReview: Bool { item.isGradePendingReview }
     private var certificateURL: URL? {
-        item.certificateURL.flatMap { URL(string: $0) }
+        // A provisional grade holds back its certificate until review clears, so
+        // never resolve a share URL for one even if a stale string lingers.
+        guard !isPendingReview else { return nil }
+        return item.certificateURL.flatMap { URL(string: $0) }
     }
 
     var body: some View {
@@ -38,9 +44,7 @@ struct CertifiedGradeSection: View {
         } header: {
             Text("Certified grade")
         } footer: {
-            Text(isGraded
-                 ? "A shared certificate lets buyers verify condition before they buy — fewer “not as described” returns."
-                 : "Submit this item for a standardized AI condition grade and a buyer-facing certificate.")
+            Text(footerText)
                 .font(.caption)
         }
         .sheet(isPresented: $showingRequest) {
@@ -62,6 +66,17 @@ struct CertifiedGradeSection: View {
         }
     }
 
+    /// US-1209: don't promise a buyer-facing certificate while a grade is still
+    /// awaiting human review — it isn't shareable until it certifies.
+    private var footerText: String {
+        if isPendingReview {
+            return "This grade's confidence was low, so a reviewer is checking it. A shareable certificate unlocks once it clears."
+        }
+        return isGraded
+            ? "A shared certificate lets buyers verify condition before they buy — fewer “not as described” returns."
+            : "Submit this item for a standardized AI condition grade and a buyer-facing certificate."
+    }
+
     // MARK: - Graded
 
     private func gradedContent(score: Double) -> some View {
@@ -74,9 +89,9 @@ struct CertifiedGradeSection: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(GradeScale.color(for: score))
                     }
-                    Text("Certified condition grade")
+                    Text(isPendingReview ? "Pending human review" : "Certified condition grade")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isPendingReview ? Color.brandAmber : .secondary)
                 }
                 Spacer(minLength: 0)
             }

@@ -25,10 +25,15 @@ struct AIExtractView: View {
     /// background — dismisses this screen and returns to the inventory list,
     /// where the item shows a processing/review-ready pill.
     let onBackground: () -> Void
+    /// US-1212: re-enqueues this item's failed photo uploads (they continue in
+    /// the background). Lives in ``PhotoIntakeView`` where the upload service is.
+    let onRetryUploads: () -> Void
 
     @State private var manager = AIExtractionManager.shared
     /// Guards against firing `onComplete` more than once when the phase settles.
     @State private var navigated = false
+    /// US-1212: set when the handoff is gated on a photo-upload failure.
+    @State private var showUploadFailurePrompt = false
 
     var body: some View {
         NavigationStack {
@@ -49,9 +54,26 @@ struct AIExtractView: View {
                 // Land on the item the moment the result is ready (covers the
                 // already-ready case via `initial: true`).
                 .onChange(of: isReady, initial: true) { _, ready in
-                    guard ready, !navigated else { return }
-                    navigated = true
-                    onComplete()
+                    guard ready else { return }
+                    completeHandoff()
+                }
+                // US-1212: a captured photo that failed to upload (flaky network,
+                // expired token, iCloud-not-downloaded) used to whisk the user to
+                // the canvas with no warning — then the grade flow later blocked
+                // on a "missing" photo they actually took. Gate the handoff on a
+                // retry prompt instead of silently dropping the failure.
+                .confirmationDialog(
+                    "Some photos didn't upload",
+                    isPresented: $showUploadFailurePrompt,
+                    titleVisibility: .visible
+                ) {
+                    Button("Retry uploads") {
+                        onRetryUploads()
+                        onComplete()
+                    }
+                    Button("Continue anyway", role: .destructive) { onComplete() }
+                } message: {
+                    Text("\(failedUploadCount) photo\(failedUploadCount == 1 ? "" : "s") didn't finish uploading. Retry now so they're attached before grading.")
                 }
         }
     }
@@ -59,6 +81,27 @@ struct AIExtractView: View {
     private var isReady: Bool {
         if case .ready = manager.phase(for: inventoryItemId) { return true }
         return false
+    }
+
+    /// US-1212: count of this item's captured photos whose upload failed.
+    private var failedUploadCount: Int {
+        uploadStore.tasks(inventoryItemId: inventoryItemId).filter {
+            if case .failed = $0.phase { return true }
+            return false
+        }.count
+    }
+
+    /// Completes the AI handoff, but first surfaces a retry prompt if any of the
+    /// item's photo uploads failed (US-1212), so failures aren't silently dropped
+    /// on the way to the canvas. `navigated` keeps it single-shot.
+    private func completeHandoff() {
+        guard !navigated else { return }
+        navigated = true
+        if failedUploadCount > 0 {
+            showUploadFailurePrompt = true
+        } else {
+            onComplete()
+        }
     }
 
     // MARK: - Phase routing
@@ -151,7 +194,7 @@ struct AIExtractView: View {
 
             Button {
                 manager.clear(for: inventoryItemId)
-                onComplete()
+                completeHandoff()
             } label: {
                 Text("Skip — I'll fill in manually")
                     .font(.subheadline.weight(.semibold))

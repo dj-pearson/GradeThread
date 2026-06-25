@@ -110,6 +110,9 @@ final class DisclosureStore {
             DisclosureRenderer.dataURL(for: image)
         }.value
         guard let dataURL else { return false }
+        // US-1225: clear the banner so a successful retry doesn't stay pinned
+        // behind a stale error (previously only load() cleared it).
+        errorMessage = nil
         savingPhotoIds.insert(photo.id)
         defer { savingPhotoIds.remove(photo.id) }
         do {
@@ -130,6 +133,9 @@ final class DisclosureStore {
     /// Append the disclosure text to the eBay listing description.
     @discardableResult
     func applyText() async -> Bool {
+        // US-1225: clear the banner so a successful retry doesn't stay pinned
+        // behind a stale error (previously only load() cleared it).
+        errorMessage = nil
         isApplyingText = true
         defer { isApplyingText = false }
         do {

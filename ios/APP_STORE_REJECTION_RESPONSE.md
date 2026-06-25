@@ -35,6 +35,32 @@ distinct `EdgeAPIError.emailUnverified` with an actionable message ("Please
 confirm your email to use this feature…") instead of the misleading "Your
 session expired. Sign in again," and no longer burns a futile token refresh.
 
+**Pipeline hardening (US-1206) — the 2.1 root cause is now structurally fixed.**
+The demo account is no longer a manual, forget-to-do-it step. The `release`
+fastlane lane (`ios/fastlane/Fastfile`) now, *before* `deliver(submit_for_review:
+true)`, runs three gated steps:
+1. **`inject_review_credentials`** — writes the real demo email/password from the
+   env (`REVIEW_DEMO_EMAIL` / `REVIEW_DEMO_PASSWORD`, injected from Infisical in
+   CI exactly like `SUPABASE_ANON_KEY`) into
+   `metadata/review_information/demo_user.txt` + `demo_password.txt`. The repo
+   only ever holds the `REVIEW_DEMO_*_PLACEHOLDER` strings — real credentials are
+   never committed.
+2. **`assert_no_placeholder_credentials`** — hard-fails the release if those files
+   are empty or still contain the placeholders, so a placeholder demo account can
+   never reach App Review.
+3. **`smoke_review_signin`** — a pre-submit sign-in smoke that POSTs the demo
+   creds to prod GoTrue (`{SUPABASE_URL or api.gradethread.com}/auth/v1/token?
+   grant_type=password`, `apikey` = anon key) and **fails the release** unless it
+   gets `HTTP 200` with an `access_token`. If the reviewer's account can't sign
+   in, the build is never submitted — the exact 2.1 dead-end is caught in CI
+   instead of by Apple.
+
+The seeded *representative data* (a graded item + draft + sales the reviewer can
+browse) is created out-of-band by the operator script
+`scripts/seed-review-demo-account.mjs` (it also confirms the demo account's email,
+addressing the unverified-email root cause above). That script is operator-run
+against prod; the release lane only verifies the account it produces works.
+
 ---
 
 ## Guideline 2.1(b) — paywall fails to load after "See plans & credits"
@@ -74,7 +100,10 @@ all match — there is no ID drift.
 > our In-App Purchases were not fully attached to the reviewed version, so they
 > did not load in the sandbox. We have [confirmed the demo account / attached the
 > IAPs / applied the pending migration] and hardened both screens to show a clear,
-> recoverable retry instead of an error. A new build is attached.
+> recoverable retry instead of an error. We also added an automated pre-submit
+> sign-in check to our release pipeline that signs in with the exact demo
+> credentials provided to App Review and blocks submission if that login fails,
+> so the account in this submission is verified working. A new build is attached.
 
 (Edit the bracketed parts to match the operator actions actually taken.)
 

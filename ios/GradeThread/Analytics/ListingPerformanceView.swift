@@ -55,6 +55,11 @@ struct ListingPerformanceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground))
+        // US-1223: the bare spinner is silent to VoiceOver — combine it with the
+        // caption and speak a "Loading" cue.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading")
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     // MARK: - Content
@@ -267,7 +272,9 @@ struct ListingPerformanceView: View {
         if trend.count >= 2 {
             // Rising reads positive (navy); flat/falling stays muted — same cue
             // as the web sparkline.
-            let rising = (trend.last?.views ?? 0) >= (trend.first?.views ?? 0)
+            let first = trend.first?.views ?? 0
+            let last = trend.last?.views ?? 0
+            let rising = last >= first
             Chart(Array(trend.enumerated()), id: \.offset) { item in
                 LineMark(
                     x: .value("Day", item.offset),
@@ -281,8 +288,17 @@ struct ListingPerformanceView: View {
             .chartYAxis(.hidden)
             .chartLegend(.hidden)
             .frame(height: 28)
-            .accessibilityLabel("7-day view trend")
+            // US-1223: the rising/falling cue was conveyed by line color only.
+            // Fold the direction into the label so VoiceOver speaks it.
+            .accessibilityLabel("7-day view trend, \(trendDirection(first: first, last: last))")
         }
+    }
+
+    /// Spoken trend direction for the sparkline (color-independent).
+    private func trendDirection(first: Int, last: Int) -> String {
+        if last > first { return "rising" }
+        if last < first { return "falling" }
+        return "flat"
     }
 
     // MARK: - Empty
@@ -340,9 +356,19 @@ struct ListingPerformanceView: View {
     }
 
     private func accessibilityLabel(for row: ListingPerformanceRow) -> String {
-        "\(title(for: row)). \(countText(row.viewsTotal)) views, "
+        var label = "\(title(for: row)). \(countText(row.viewsTotal)) views, "
             + "\(countText(row.watchersCount)) watchers, "
             + "\(countText(row.impressions7d)) impressions in 7 days, "
             + "\(ctrText(row.clickThroughRate)) click-through."
+        // US-1223: the sparkline's rising/falling cue was color-only. The row's
+        // combined element overrides the child sparkline label, so fold the
+        // 7-day trend direction in here where VoiceOver will actually speak it.
+        let trend = row.viewTrend7d
+        if trend.count >= 2 {
+            let first = trend.first?.views ?? 0
+            let last = trend.last?.views ?? 0
+            label += " 7-day view trend \(trendDirection(first: first, last: last))."
+        }
+        return label
     }
 }

@@ -8,7 +8,27 @@
 # (same key the release workflow uses to upload the binary). No Apple ID
 # password / 2FA needed.
 
+require "net/http"
+require "uri"
+require "json"
+
 default_platform(:ios)
+
+# Placeholder strings that ship in the repo so the real demo credentials are
+# NEVER committed. The release lane refuses to submit while these are present
+# (a placeholder demo account = automatic Guideline 2.1 rejection).
+REVIEW_DEMO_EMAIL_PLACEHOLDER = "REVIEW_DEMO_EMAIL_PLACEHOLDER@gradethread.com"
+REVIEW_DEMO_PASSWORD_PLACEHOLDER = "REVIEW_DEMO_PASSWORD_PLACEHOLDER"
+
+# Default prod Supabase (GoTrue) origin — the smoke sign-in hits this. Supabase
+# routes live on api.gradethread.com (Kong), NOT functions.* (see CLAUDE.md DNS
+# note). Overridable via SUPABASE_URL for a review-safe env.
+REVIEW_SIGNIN_DEFAULT_URL = "https://api.gradethread.com"
+
+# Absolute paths to the App Review demo-credential files deliver reads.
+REVIEW_INFO_DIR = File.expand_path("metadata/review_information", __dir__)
+DEMO_USER_FILE = File.join(REVIEW_INFO_DIR, "demo_user.txt")
+DEMO_PASSWORD_FILE = File.join(REVIEW_INFO_DIR, "demo_password.txt")
 
 platform :ios do
   # Builds an App Store Connect API token from the env vars CI exports
@@ -64,9 +84,132 @@ platform :ios do
     )
   end
 
+  # Inject the real App Review demo credentials into the deliver metadata
+  # files from the env (Infisical in CI: REVIEW_DEMO_EMAIL / REVIEW_DEMO_PASSWORD
+  # — the SAME secrets the screenshot run uses), mirroring how SUPABASE_ANON_KEY
+  # is pulled from ENV at build time. The credentials are NEVER committed: the
+  # repo holds only the *_PLACEHOLDER strings; this overwrites them just before
+  # deliver. When the env vars are absent the files are left untouched so the
+  # placeholder guard below trips loudly (rather than shipping blanks).
+  private_lane :inject_review_credentials do
+    email = ENV["REVIEW_DEMO_EMAIL"].to_s.strip
+    password = ENV["REVIEW_DEMO_PASSWORD"].to_s
+
+    if email.empty? || password.empty?
+      UI.important(
+        "REVIEW_DEMO_EMAIL / REVIEW_DEMO_PASSWORD not set — leaving demo_user.txt / " \
+        "demo_password.txt as-is. The placeholder guard will fail the release if these " \
+        "are still placeholders. Add the seeded demo account creds to Infisical (prod, /)."
+      )
+      next
+    end
+
+    # No trailing newline — deliver reads the file verbatim as the field value.
+    File.write(DEMO_USER_FILE, email)
+    File.write(DEMO_PASSWORD_FILE, password)
+    UI.success("Injected App Review demo credentials for #{email}.")
+  end
+
+  # Hard guard: refuse to submit while the demo-credential files still contain
+  # the committed placeholders (or are empty). A non-working demo account is an
+  # automatic Guideline 2.1 rejection, so fail the release here rather than burn
+  # a review cycle.
+  private_lane :assert_no_placeholder_credentials do
+    email = File.exist?(DEMO_USER_FILE) ? File.read(DEMO_USER_FILE).strip : ""
+    password = File.exist?(DEMO_PASSWORD_FILE) ? File.read(DEMO_PASSWORD_FILE).strip : ""
+
+    if email.empty? || password.empty?
+      UI.user_error!(
+        "App Review demo credentials are empty (demo_user.txt / demo_password.txt). " \
+        "Set REVIEW_DEMO_EMAIL / REVIEW_DEMO_PASSWORD (Infisical prod, /) so " \
+        "inject_review_credentials can populate them before deliver."
+      )
+    end
+    if email == REVIEW_DEMO_EMAIL_PLACEHOLDER || password == REVIEW_DEMO_PASSWORD_PLACEHOLDER
+      UI.user_error!(
+        "App Review demo credentials are still the committed PLACEHOLDER values — " \
+        "a placeholder demo account = automatic Guideline 2.1 rejection. Set " \
+        "REVIEW_DEMO_EMAIL / REVIEW_DEMO_PASSWORD (Infisical prod, /) before releasing."
+      )
+    end
+  end
+
+  # Pre-submit sign-in smoke: prove the demo account Apple will use actually
+  # logs in, against prod GoTrue (or a review-safe SUPABASE_URL override). Uses
+  # the Supabase auth REST endpoint directly (Net::HTTP, no extra deps):
+  #   POST {SUPABASE_URL}/auth/v1/token?grant_type=password
+  #   headers: apikey + Authorization: Bearer <anon>, Content-Type: application/json
+  #   body:    { email, password }
+  # A 200 carrying an access_token is the only pass; anything else FAILS the
+  # release (UI.user_error!) so we never ship credentials Apple can't sign in
+  # with. Reads the creds from the metadata files (already injected + guarded
+  # above), so it tests exactly what deliver will submit.
+  private_lane :smoke_review_signin do
+    anon = ENV["SUPABASE_ANON_KEY"].to_s.strip
+    if anon.empty?
+      UI.user_error!(
+        "SUPABASE_ANON_KEY not set — cannot run the pre-submit sign-in smoke. Add it " \
+        "to Infisical (prod, /), same as the build injection."
+      )
+    end
+
+    base = ENV["SUPABASE_URL"].to_s.strip
+    base = REVIEW_SIGNIN_DEFAULT_URL if base.empty?
+    email = File.read(DEMO_USER_FILE).strip
+    password = File.read(DEMO_PASSWORD_FILE).strip
+
+    uri = URI.parse("#{base}/auth/v1/token?grant_type=password")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = (uri.scheme == "https")
+    http.open_timeout = 15
+    http.read_timeout = 15
+
+    request = Net::HTTP::Post.new(uri.request_uri)
+    request["apikey"] = anon
+    request["Authorization"] = "Bearer #{anon}"
+    request["Content-Type"] = "application/json"
+    request.body = JSON.generate(email: email, password: password)
+
+    UI.message("Pre-submit sign-in smoke: POST #{base}/auth/v1/token?grant_type=password as #{email}")
+
+    response =
+      begin
+        http.request(request)
+      rescue => e
+        UI.user_error!("Pre-submit sign-in smoke FAILED — request error: #{e.class}: #{e.message}")
+      end
+
+    body =
+      begin
+        JSON.parse(response.body.to_s)
+      rescue JSON::ParserError
+        {}
+      end
+
+    unless response.code.to_i == 200 && !body["access_token"].to_s.empty?
+      detail = body["error_description"] || body["msg"] || body["error"] || response.body.to_s[0, 300]
+      UI.user_error!(
+        "Pre-submit sign-in smoke FAILED — demo account could NOT sign in " \
+        "(HTTP #{response.code}). The reviewer would hit the same wall (Guideline 2.1). " \
+        "Detail: #{detail}"
+      )
+    end
+
+    UI.success("Pre-submit sign-in smoke PASSED — demo account #{email} signs in (200 + access_token).")
+  end
+
   desc "Push metadata + screenshots to App Store Connect and submit for review"
   lane :release do
     token = asc_api_token
+
+    # US-1206: wire real App Review demo credentials + verify they work BEFORE
+    # submitting. Order matters: inject from env → guard against placeholders →
+    # smoke sign-in. Any failure aborts the lane before deliver, so we never
+    # submit a build with a demo account Apple can't use.
+    inject_review_credentials
+    assert_no_placeholder_credentials
+    smoke_review_signin
+
     deliver(
       api_key: token,
       skip_binary_upload: true,   # binary uploaded by altool in CI

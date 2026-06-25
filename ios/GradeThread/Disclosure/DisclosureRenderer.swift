@@ -31,7 +31,7 @@ enum DisclosureRenderer {
                       let rect = DisclosureGeometry.scaledRect(bbox: bbox, in: canvas) else { continue }
                 drawCallout(in: rect, number: ann.n,
                             color: DisclosureSeverityColor.color(for: ann.severity),
-                            canvasWidth: canvas.width)
+                            canvas: canvas)
             }
 
             drawLegend(annotations, y: canvas.height, width: canvas.width)
@@ -46,14 +46,19 @@ enum DisclosureRenderer {
 
     // MARK: - Drawing
 
-    private static func drawCallout(in rect: CGRect, number: Int, color: UIColor, canvasWidth: CGFloat) {
+    private static func drawCallout(in rect: CGRect, number: Int, color: UIColor, canvas: CGSize) {
         let box = UIBezierPath(roundedRect: rect, cornerRadius: max(4, rect.width * 0.06))
-        box.lineWidth = max(2, canvasWidth / 250)
+        box.lineWidth = max(2, canvas.width / 250)
         color.setStroke()
         box.stroke()
 
-        let r = max(11, canvasWidth / 45)
-        let badge = CGRect(x: rect.minX - r, y: rect.minY - r, width: r * 2, height: r * 2)
+        let r = max(11, canvas.width / 45)
+        // US-1225: badges sit at the callout's top-left corner; for edge defects
+        // that pushes them off-canvas (clipped). Clamp the badge center inward so
+        // the full circle (and its number) renders within the photo region.
+        let centerX = min(max(rect.minX, r), canvas.width - r)
+        let centerY = min(max(rect.minY, r), canvas.height - r)
+        let badge = CGRect(x: centerX - r, y: centerY - r, width: r * 2, height: r * 2)
         color.setFill()
         UIBezierPath(ovalIn: badge).fill()
         drawText("\(number)", in: badge, font: .boldSystemFont(ofSize: r),

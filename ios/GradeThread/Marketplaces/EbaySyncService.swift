@@ -208,13 +208,21 @@ public final class EbaySyncService {
     }
 
     private func fetchConnectionSnapshot(userId: String) async throws -> ConnectionSnapshot? {
+        // US-1216: poll the PRIMARY connection's row — the same one the edge
+        // advances (`/listings/pull` orders is_primary DESC) and
+        // EbayConnectionService.fetchActiveConnection resolves. Ordering by
+        // created_at DESC instead would, for a multi-store user whose primary is
+        // not the newest connection, poll the wrong row's last_synced_at — so
+        // didAdvance never flips and the sync modal hits .timedOut after 90s even
+        // though sync succeeded (and it masks a real refresh_error on the primary).
         let rows: [ConnectionSnapshot] = try await supabase
             .from("marketplace_connections")
             .select("id, last_synced_at, refresh_error")
             .eq("user_id", value: userId)
             .eq("marketplace", value: "ebay")
             .eq("is_active", value: true)
-            .order("created_at", ascending: false)
+            .order("is_primary", ascending: false)
+            .order("updated_at", ascending: false)
             .limit(1)
             .execute()
             .value

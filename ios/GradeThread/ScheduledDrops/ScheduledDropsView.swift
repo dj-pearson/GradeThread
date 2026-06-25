@@ -93,6 +93,12 @@ struct ScheduledDropsView: View {
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { rescheduling = drop }
+                    // US-1223: the row is tap-to-reschedule via a gesture, which
+                    // carries no button semantics for VoiceOver. Expose it as a
+                    // named action + button trait so the tap is discoverable; the
+                    // swipe-to-cancel below stays exposed as its own action.
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction(named: Text("Reschedule")) { rescheduling = drop }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             pendingCancel = drop

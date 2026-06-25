@@ -17,6 +17,12 @@ struct GradeReportView: View {
 
     private var defects: [GradeDefect] { report.defectsFound ?? [] }
 
+    /// US-1209: true when this grade's confidence is below the certify floor,
+    /// so it's awaiting human review and isn't shareable as a certificate yet.
+    private var pendingReview: Bool {
+        GradeScale.requiresReview(confidence: report.confidenceScore)
+    }
+
     /// US-655: glow/border intensity respects Reduce Transparency.
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -29,7 +35,13 @@ struct GradeReportView: View {
                 if !defects.isEmpty { defectsCard }
                 summaryCard
                 confidenceCard
-                if let certificateURL {
+                // US-1209: a low-confidence grade is provisional (routed to a
+                // human reviewer), so it must not be presented as a certified,
+                // shareable result. Suppress the Share Certificate CTA and show
+                // a pending-review notice in its place until review clears.
+                if pendingReview {
+                    pendingReviewNotice
+                } else if let certificateURL {
                     shareCertificate(certificateURL)
                 }
                 disclaimer
@@ -57,9 +69,11 @@ struct GradeReportView: View {
                 Text(report.gradeTier)
                     .font(.brandSubhead)
                     .foregroundStyle(GradeScale.color(for: report.overallScore))
-                Text("Certified condition grade")
+                // US-1209: don't label a provisional (sub-threshold) grade as
+                // "Certified" — it's still awaiting human review.
+                Text(pendingReview ? "Provisional grade · pending review" : "Certified condition grade")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(pendingReview ? Color.brandAmber : .secondary)
             }
             Spacer(minLength: 0)
         }
@@ -255,6 +269,32 @@ struct GradeReportView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
+    }
+
+    /// US-1209: shown in place of the Share Certificate CTA for a provisional
+    /// (low-confidence) grade. The grade can't be shared as a certificate until
+    /// a human reviewer clears it, so we explain that rather than offering a
+    /// dead/disabled share button.
+    private var pendingReviewNotice: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "person.fill.checkmark")
+                .font(.title3)
+                .foregroundStyle(.brandAmber)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Pending human review")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.brandAmber)
+                Text("This grade's confidence is below our certify threshold, so a reviewer is taking a look. You'll be able to share a public certificate once it clears.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.brandAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
     }
 
     private func disputeButton(_ action: @escaping () -> Void) -> some View {

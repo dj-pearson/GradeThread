@@ -92,13 +92,20 @@ final class ScoutService: ScoutScanning {
             throw EdgeAPIError.network("Non-HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
-            // 402 = plan gate / quota cap. Surface a friendly upsell instead of
-            // the raw "FEATURE_LOCKED" / "CAP_REACHED" code.
-            if http.statusCode == 402, let gate = try? JSONDecoder().decode(ScoutGateBody.self, from: data) {
-                if gate.error == "CAP_REACHED" || gate.cap != nil {
-                    throw ScoutError.quotaReached
+            // 402 = plan gate / quota cap. US-1213: route through the SAME
+            // ``PlanGateError`` decode + ``PlanGateNotifier`` hook that
+            // ``EdgeAPI`` uses, so the centralized upgrade-prompt → paywall flow
+            // fires here too (a free user gets a tappable CTA, not a dead-end
+            // "Try again"). The bespoke transport stays because the `/scout`
+            // route speaks camelCase, which the snake-casing `EdgeAPI.shared`
+            // decoder would mangle; `PlanGateError.decode` uses a plain decoder,
+            // so the gate body decodes identically either way.
+            if http.statusCode == 402, let gate = PlanGateError.decode(from: data) {
+                PlanGateNotifier.shared.present(gate)
+                if gate.isFeatureLock {
+                    throw ScoutError.planLocked(requiredPlan: gate.requiredPlan)
                 }
-                throw ScoutError.planLocked(requiredPlan: gate.requiredPlan)
+                throw ScoutError.quotaReached
             }
             throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
         }
@@ -112,6 +119,13 @@ final class ScoutService: ScoutScanning {
 
 /// Plan-gate / quota errors (HTTP 402) from the Scout endpoint, mapped to a
 /// friendly upsell instead of a raw `FEATURE_LOCKED` / `CAP_REACHED` code.
+///
+/// US-1213: every case here is a plan gate (a 402), never a transient failure,
+/// so ``isPlanGated`` is always true. It's exposed so callers can distinguish
+/// "the centralized upgrade prompt is already handling this" (suppress a
+/// "Try again" that would just re-hit the gate) from a transient network error
+/// (where retry is the right recovery). Transient failures surface as
+/// ``EdgeAPIError`` instead, for which `isPlanGated` is false.
 enum ScoutError: LocalizedError, Equatable {
     case planLocked(requiredPlan: String?)
     case quotaReached
@@ -125,13 +139,17 @@ enum ScoutError: LocalizedError, Equatable {
             return "You've hit your monthly AI scan limit. It resets next cycle — or upgrade for a higher cap."
         }
     }
+
+    /// True for any plan-gate (402) error — the centralized upgrade prompt is
+    /// already presenting an upsell, so a retry button would only re-hit the gate.
+    var isPlanGated: Bool { true }
 }
 
-/// Subset of the 402 plan-gate body (`{ error, requiredPlan, cap, … }`).
-private struct ScoutGateBody: Decodable {
-    let error: String?
-    let requiredPlan: String?
-    let cap: String?
+/// US-1213: classifies an arbitrary thrown error as plan-gated (a 402 already
+/// routed to the upgrade prompt) vs. transient, so a failure UI can hide a
+/// dead-end "Try again" for the former while keeping it for the latter.
+func isPlanGateError(_ error: Error) -> Bool {
+    (error as? ScoutError)?.isPlanGated ?? false
 }
 
 private extension URLRequest {

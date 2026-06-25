@@ -1,1 +1,1 @@
-reseller,resell,ebay,poshmark,thrift,flipping,inventory,clothing,listing,crosslist,consignment
+reseller,resell,ebay,thrift,flipping,inventory,clothing,listing,consignment,secondhand,preowned

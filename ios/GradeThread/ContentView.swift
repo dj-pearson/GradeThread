@@ -134,9 +134,27 @@ struct ContentView: View {
             // reset the delta cursors, wipe the previous tenant's local rows,
             // and re-pull the new workspace's data (scoped in pullRemote).
             .onReceive(NotificationCenter.default.publisher(for: .workspaceDidChange)) { _ in
-                SyncWatermark().resetAll()
-                clearLocalTenantCache()
-                Task { await syncEngine?.sync() }
+                Task {
+                    // US-1211 AC3: drain the prior workspace's queued writes BEFORE
+                    // re-scoping so a mutation queued under the old workspace can't
+                    // carry into the new workspace's first sync pass. flushPending
+                    // replays directly (scoped by each payload's own ids), so this
+                    // pushes local intent to the correct tenant regardless of the
+                    // active-workspace scope we're about to reset.
+                    await syncEngine?.flushPending()
+                    await MainActor.run {
+                        SyncWatermark().resetAll()
+                        clearLocalTenantCache()
+                    }
+                    // US-1211: re-home the Realtime channel onto the new active
+                    // owner — start() no-ops on an existing channel, so a workspace
+                    // switch needs an explicit tear-down + re-subscribe.
+                    if case let .signedIn(user) = authStore.phase {
+                        let ownerId = WorkspaceScope.tenantOwnerId(selfId: user.id.uuidString)
+                        await realtimeService?.resubscribe(userId: ownerId)
+                    }
+                    await syncEngine?.sync()
+                }
             }
             .onChange(of: scenePhase) { _, newValue in
                 if newValue == .active {
@@ -251,8 +269,13 @@ struct ContentView: View {
         if realtimeService == nil {
             realtimeService = RealtimeService(syncEngine: engine)
         }
+        // US-1211: scope the channel to the ACTIVE workspace owner (self when in
+        // the personal workspace), mirroring the SyncEngine pull scope. Without
+        // this a workspace member only ever gets live updates for their OWN rows,
+        // never the owner workspace they're viewing.
+        let ownerId = WorkspaceScope.tenantOwnerId(selfId: userId)
         Task { @MainActor in
-            await realtimeService?.start(userId: userId)
+            await realtimeService?.start(userId: ownerId)
             // Mirror the channel status into the existing sync banner
             // so the user sees a 'Reconnecting…' chip without us
             // adding a second status surface.

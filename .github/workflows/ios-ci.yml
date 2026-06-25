@@ -72,6 +72,32 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             clean test | xcbeautify --renderer github-actions
 
+      - name: Build app-extension targets (US-1224)
+        working-directory: ios
+        # The Widget + Share extensions build as embedded deps of the GradeThread
+        # app scheme above, but build them EXPLICITLY here too so a break in an
+        # extension target surfaces as its own clearly-named failure (and is caught
+        # even if the app scheme stops embedding them). Smoke build only — no test
+        # bundle ships for an appex.
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project GradeThread.xcodeproj \
+            -target ShareExtension \
+            -target GradeThreadWidget \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify --renderer github-actions
+
+      - name: Lint — no NEW bare UI string literals in migrated dirs (US-1224)
+        # Advisory guard ahead of full localization (US-1155, deferred). Scoped to
+        # a SMALL allow-listed set of "migrated" directories so it doesn't flag the
+        # ~670 existing strings app-wide. See ios/Scripts/no-bare-strings.py.
+        run: python3 ios/Scripts/no-bare-strings.py
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

@@ -7,7 +7,8 @@ import Sentry
 ///
 ///   1. **Sentry is always on** when the DSN is configured. Crashes are
 ///      errors, not analytics — they don't respect the opt-in toggle.
-///   2. **PostHog respects the opt-in toggle.** Every `event(...)`,
+///   2. **PostHog respects the analytics toggle (opt-out, on by
+///      default).** Every `event(...)`,
 ///      `screen(...)`, and `setUser(...)` no-ops when
 ///      `Telemetry.isAnalyticsEnabled` is false. Sentry breadcrumbs still
 ///      fire because they ride along with crash reports.
@@ -42,7 +43,8 @@ public enum Telemetry {
     private static let analyticsToggleKey = "com.gradethread.app.analytics.enabled"
     private static var didInitialize = false
 
-    /// User-facing opt-in. Default ON; flipping false stops PostHog
+    /// User-facing analytics toggle. Opt-out, on by default; the user can
+    /// disable it in Settings → Analytics. Flipping it false stops PostHog
     /// events (Sentry crashes still go through — that's the AC).
     public static var isAnalyticsEnabled: Bool {
         get {
@@ -71,8 +73,9 @@ public enum Telemetry {
 
     // MARK: - User context
 
-    /// Stamps the current user on Sentry (always) and PostHog (when
-    /// analytics opt-in is on). `id` should be auth.uid — no PII.
+    /// Stamps the current user on Sentry (always) and PostHog (when the
+    /// analytics toggle is on — opt-out, on by default). `id` should be
+    /// auth.uid — no PII.
     ///
     /// Deliberately takes NO email (or any other PII). Email is not a
     /// parameter at all so a future refactor can't reintroduce it by

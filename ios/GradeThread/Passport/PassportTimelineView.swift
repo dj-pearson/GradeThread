@@ -285,6 +285,24 @@ struct PassportTimelineView: View {
                     Label("Copy claim link", systemImage: "doc.on.doc")
                         .font(.subheadline.weight(.medium))
                 }
+                // US-1225: the server supports re-minting, so keep a regenerate
+                // action visible after the first link — e.g. to invalidate a link
+                // that was shared with the wrong buyer.
+                Button {
+                    AppRouter.haptic()
+                    Task { await model.mintHandoffLink() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if model.minting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text(model.minting ? "Regenerating…" : "Regenerate link")
+                            .font(.subheadline.weight(.medium))
+                    }
+                }
+                .disabled(model.minting)
             } else {
                 Button {
                     AppRouter.haptic()

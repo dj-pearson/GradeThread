@@ -304,12 +304,22 @@ struct AIFillReviewSheet: View {
         let acceptedLowEntries = review.lowConfidence.filter { acceptedLow.contains($0.field) }
         let dropMeasurements = review.measurementsApplied && !keepMeasurements
 
+        // US-1217: `department` is a canonical eBay aspect stored in
+        // `inventory_items.attributes`, NOT a column the sparse `FieldUpdate`
+        // knows — so an opted-in department conflict would be silently dropped by
+        // the column `write` below. Route it through `writeAttributes` instead so
+        // the user's choice actually persists with provenance.
+        let acceptedColumnEntries = acceptedLowEntries.filter { !AIAttributeConfirm.keys.contains($0.field) }
+        let acceptedAttributeEntries = acceptedLowEntries.filter { AIAttributeConfirm.keys.contains($0.field) }
+
         // Authoritative ai_field_sources for everything still AI-attributed.
         var finalSources: [String: AIItemFieldWriter.SourceEntry] = [:]
         for field in review.applied where keptApplied.contains(field.field) {
             finalSources[field.field] = .init(source: field.source, confidence: field.confidence, accepted: true)
         }
-        for entry in acceptedLowEntries {
+        // Column-bound low-conf entries get their ai_field_sources here; the
+        // attribute-bound ones (department) record provenance via writeAttributes.
+        for entry in acceptedColumnEntries {
             finalSources[entry.field] = .init(source: entry.source, confidence: entry.confidence, accepted: true)
         }
         if review.measurementsApplied && keepMeasurements {
@@ -336,10 +346,25 @@ struct AIFillReviewSheet: View {
             if anyRemaining {
                 try await AIItemFieldWriter.write(
                     itemId: item.id,
-                    fields: acceptedLowEntries.map { (field: $0.field, value: $0.value) },
+                    fields: acceptedColumnEntries.map { (field: $0.field, value: $0.value) },
                     measurements: nil,
                     sources: finalSources,
                     seedTitle: false
+                )
+            }
+            // 2b) US-1217: persist opted-in attribute conflicts (department) onto
+            //     inventory_items.attributes with provenance — these aren't columns.
+            if !acceptedAttributeEntries.isEmpty {
+                try await AIItemFieldWriter.writeAttributes(
+                    itemId: item.id,
+                    results: acceptedAttributeEntries.map {
+                        AIAttributeConfirm.Result(
+                            key: $0.field,
+                            value: $0.value,
+                            source: $0.source,
+                            confidence: $0.confidence
+                        )
+                    }
                 )
             }
         } catch {

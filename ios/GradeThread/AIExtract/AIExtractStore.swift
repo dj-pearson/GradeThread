@@ -116,8 +116,21 @@ final class AIExtractStore {
         // default-accept threshold. The user can opt in explicitly.
     }
 
+    /// US-1217: high-error fields whose text-vs-photo disagreement must NEVER be
+    /// silently resolved — when the extract surfaces a conflict on one of these,
+    /// the tag (text) candidate is forced into the opt-in review at lowered
+    /// confidence so the user explicitly chooses instead of inheriting whichever
+    /// value happened to land in `suggestions`.
+    static let conflictReviewFields: Set<String> = ["size", "brand", "department"]
+
+    /// US-1217: confidence stamp for a conflict-derived review row. Matches the
+    /// Live Text fallback tier (0.4) so the row renders under the low-confidence
+    /// (amber) styling and stays BELOW the auto-apply bar — it's a candidate to
+    /// pick, never an auto-fill.
+    static let conflictReviewConfidence = 0.4
+
     func applyResponse(_ response: AIExtractResponse) {
-        let entries = response.suggestions
+        var entries = response.suggestions
             // Stable order: alphabetize so two runs don't shuffle rows
             // between renders.
             .sorted { $0.key < $1.key }
@@ -128,6 +141,43 @@ final class AIExtractStore {
                     suggestion: suggestion
                 )
             }
+
+        // US-1217: surface text-vs-photo conflicts on high-error fields
+        // (size/brand/department) as opt-in review rows instead of dropping
+        // `response.conflicts`. We prefer the TAG (text) candidate — OCR off the
+        // care/size label is the more authoritative reading for these fields —
+        // and stamp it at the low-confidence tier so it lands in the review's
+        // opt-in list (never the silent auto-apply path). When `suggestions`
+        // already resolved to the tag value, we lower its confidence below the
+        // bar so the disagreement still demands a choice; otherwise we inject a
+        // fresh row for the field.
+        for conflict in response.conflicts {
+            guard Self.conflictReviewFields.contains(conflict.field) else { continue }
+            let tagValue = conflict.textValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tagValue.isEmpty else { continue }
+            let suggestion = FieldSuggestion(
+                value: tagValue,
+                confidence: Self.conflictReviewConfidence,
+                source: "conflict:tag"
+            )
+            if let idx = entries.firstIndex(where: { $0.field == conflict.field }) {
+                // Re-key the existing row to the tag value at lowered confidence so
+                // it can't auto-apply silently — the user must opt in.
+                entries[idx] = FieldSuggestionEntry(
+                    id: conflict.field,
+                    field: conflict.field,
+                    suggestion: suggestion
+                )
+            } else {
+                entries.append(FieldSuggestionEntry(
+                    id: conflict.field,
+                    field: conflict.field,
+                    suggestion: suggestion
+                ))
+            }
+        }
+        entries.sort { $0.field < $1.field }
+
         let measurements = (response.measurements ?? [:])
             .sorted { $0.key < $1.key }
             .map { Measurement(id: $0.key, key: $0.key, valueInches: $0.value) }

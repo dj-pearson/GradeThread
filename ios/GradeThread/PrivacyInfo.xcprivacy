@@ -8,8 +8,9 @@
   human-readable mapping + which SDK collects what.
 
   We do NOT track users across apps/sites: NSPrivacyTracking=false and no
-  tracking domains. PostHog analytics is opt-in + scoped to this app, so
-  it's "collected, not linked for tracking" rather than "used for tracking".
+  tracking domains. PostHog analytics is opt-out, on by default (the user
+  can disable it in Settings) + scoped to this app, so it's "collected, not
+  linked for tracking" rather than "used for tracking".
 -->
 <plist version="1.0">
 <dict>
@@ -93,8 +94,9 @@
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
-        <!-- PostHog product-analytics events. Opt-in (Settings →
-             Analytics); not linked to identity for tracking. -->
+        <!-- PostHog product-analytics events. Opt-out, on by default
+             (user can disable in Settings → Analytics); not linked to
+             identity for tracking. -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeProductInteraction</string>

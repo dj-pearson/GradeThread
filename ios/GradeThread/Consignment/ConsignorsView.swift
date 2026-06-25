@@ -148,6 +148,10 @@ struct ConsignorEditorSheet: View {
                     VStack(alignment: .leading) {
                         Text("Consignor's split: \(Int(draft.defaultSplitPct))%")
                         Slider(value: $draft.defaultSplitPct, in: 0...100, step: 5)
+                            // US-1223: the slider read as an unlabeled value-less
+                            // control — name it and speak the percent split.
+                            .accessibilityLabel("Consignor's split")
+                            .accessibilityValue("\(Int(draft.defaultSplitPct)) percent")
                     }
                 } header: {
                     Text("Default split")
@@ -193,15 +197,21 @@ struct ConsignorEditorSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            isSaving = true
-                            let ok = await store.save(draft, editingId: editingId)
-                            isSaving = false
-                            if ok { dismiss() }
+                    // US-1223: surface the in-flight save with a spinner instead
+                    // of a silently-disabled button.
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task {
+                                isSaving = true
+                                let ok = await store.save(draft, editingId: editingId)
+                                isSaving = false
+                                if ok { dismiss() }
+                            }
                         }
+                        .disabled(!draft.isValid)
                     }
-                    .disabled(!draft.isValid || isSaving)
                 }
             }
             .onAppear {

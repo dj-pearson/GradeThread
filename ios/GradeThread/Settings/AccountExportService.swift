@@ -9,7 +9,12 @@ struct AccountExportService {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1226 / US-992 parity: route the export through the bounded
+    // `EdgeNetwork.shared` session (20s idle timeout) instead of
+    // `URLSession.shared` (60s). A stalled export otherwise hangs ~60s behind
+    // the share-sheet spinner with no recovery; the short idle timeout fails
+    // fast as `URLError.timedOut` → ``EdgeAPIError/network``.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
     }

@@ -13,6 +13,9 @@ struct ProspectView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showCamera = false
     @State private var showLibrary = false
+    // US-1225: surface a library pick that fails to load instead of a silent
+    // no-op (mirrors Snap's loadError pattern from US-1181).
+    @State private var loadError: String?
 
     private var cameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
@@ -37,7 +40,11 @@ struct ProspectView: View {
                         if store.isLoading {
                             ProgressView().frame(maxWidth: .infinity)
                         } else {
-                            Label("Find comps", systemImage: "magnifyingglass")
+                            // US-1225: once a result exists, entering/changing the
+                            // cost needs a re-run for the verdict (ROI is computed
+                            // server-side), so relabel the CTA to invite it.
+                            Label(store.costNeedsRerun ? "Re-run for buy / skip verdict" : "Find comps",
+                                  systemImage: store.costNeedsRerun ? "arrow.clockwise" : "magnifyingglass")
                                 .frame(maxWidth: .infinity)
                         }
                     }
@@ -78,6 +85,11 @@ struct ProspectView: View {
                         for result in results {
                             if let img = await result.loadImage() {
                                 await MainActor.run { store.addImage(img) }
+                            } else {
+                                // US-1225: don't silently swallow a failed load.
+                                await MainActor.run {
+                                    loadError = "Couldn't load that photo — it may still be downloading from iCloud. Try again or pick another."
+                                }
                             }
                         }
                     }
@@ -87,6 +99,14 @@ struct ProspectView: View {
             .fullScreenCover(isPresented: $showCamera) {
                 CameraPicker { img in store.addImage(img) }
                     .ignoresSafeArea()
+            }
+            .alert(
+                "Couldn't load photo",
+                isPresented: Binding(get: { loadError != nil }, set: { if !$0 { loadError = nil } })
+            ) {
+                Button("OK") { loadError = nil }
+            } message: {
+                Text(loadError ?? "")
             }
         }
     }
@@ -163,9 +183,17 @@ struct ProspectView: View {
             TextField("What would you pay? (optional)", text: $store.costText)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
-            Text("Enter your cost for a buy / skip verdict and ROI.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            if store.costNeedsRerun {
+                // US-1225: the verdict is server-computed for the cost it ran with,
+                // so a cost entered/changed after a run needs a re-run to take.
+                Text("Re-run to apply this cost to the buy / skip verdict.")
+                    .font(.caption2)
+                    .foregroundStyle(Color.brandAmber)
+            } else {
+                Text("Enter your cost for a buy / skip verdict and ROI.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -331,19 +359,34 @@ struct ProspectView: View {
             }
             .buttonStyle(.brandSecondary)
         } else {
-            Button {
-                AppRouter.haptic()
-                Task { await store.addToInventory() }
-            } label: {
-                if store.isAdding {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else {
-                    Label("Add to inventory", systemImage: "plus.circle.fill")
-                        .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    AppRouter.haptic()
+                    Task { await store.addToInventory() }
+                } label: {
+                    if store.isAdding {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Add to inventory", systemImage: "plus.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.brandPrimary)
+                .disabled(store.isAdding)
+
+                // US-1225: add-to-inventory has its OWN error + retry, so the
+                // retry re-calls addToInventory() — not the billable run() that
+                // the top error card's "Try again" triggers.
+                if let addError = store.addError {
+                    Text(addError)
+                        .font(.footnote)
+                        .foregroundStyle(Color.brandRed)
+                    Button("Try again") { Task { await store.addToInventory() } }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .disabled(store.isAdding)
                 }
             }
-            .buttonStyle(.brandPrimary)
-            .disabled(store.isAdding)
         }
     }
 
