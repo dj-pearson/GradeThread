@@ -407,6 +407,18 @@ struct MainShell: View {
     /// banner. Refreshed on appear + foreground; the full list loads on tap.
     @State private var reconcileBadge = ReconcileBadgeStore()
 
+    /// US-1157: per-scene state restoration for iPad multi-window. `@SceneStorage`
+    /// is scoped to THIS scene (window) and survives teardown/relaunch, so two
+    /// windows each remember their own resting section + open item independently.
+    /// `storedSectionRaw` is the resting ``AppSection`` raw value; `focusedItemId`
+    /// is the inventory item whose canvas is open (written by
+    /// ``ItemCanvasSceneHost`` and shared via the same scene-storage key).
+    @SceneStorage("shell.section") private var storedSectionRaw = ""
+    @SceneStorage("shell.focusedItemId") private var focusedItemId = ""
+    /// Guards the one-shot restore so a re-`appear` (tab switch, sheet dismiss)
+    /// can't clobber live navigation with a stale persisted value.
+    @State private var didRestoreScene = false
+
     /// US-189: PhotoIntakeView seeded from a Share Extension batch. Set
     /// when MainShell drains an inbox batch, cleared on dismiss. Using a
     /// fullScreenCover at the shell level so the present survives a
@@ -516,7 +528,19 @@ struct MainShell: View {
         .onChange(of: networkMonitor.isConnected) { _, connected in
             if !connected { syncStatus.set(.offline) }
         }
+        // US-1157: persist the resting section to this scene's storage on every
+        // change so a window teardown/relaunch restores the same tab. The `.add`
+        // pseudo-section is never stored (it's transient).
+        .onChange(of: router.selection) { _, newValue in
+            if let raw = SceneRestoration.persistableRaw(for: newValue) {
+                storedSectionRaw = raw
+            }
+        }
         .task {
+            // US-1157: restore this scene's resting section + open item from
+            // @SceneStorage before any other appear-time routing runs, so a
+            // relaunched/teardown-recovered window lands where it left off.
+            restorePersistedScene(router: router)
             drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.
             refreshReconcileBadge()
@@ -705,6 +729,33 @@ struct MainShell: View {
         }
     }
 
+    /// US-1157: restore this scene's persisted resting section + open item.
+    /// Runs once per scene lifetime (guarded by `didRestoreScene`). The
+    /// `(section, item)` pair is consistent because the section is persisted
+    /// whenever it changes and the canvas is only ever shown while its host
+    /// section is active — so on restore we re-select the section and re-push
+    /// the item onto that same section's path. A not-yet-synced item simply
+    /// leaves the window on its restored section (the list), never a dead end.
+    private func restorePersistedScene(router: AppRouter) {
+        guard !didRestoreScene else { return }
+        didRestoreScene = true
+        if let section = SceneRestoration.restoreSection(from: storedSectionRaw) {
+            router.selection = section
+        }
+        guard let itemId = SceneRestoration.restorableItemId(from: focusedItemId),
+              let item = fetchInventoryItem(id: itemId) else { return }
+        switch router.selection {
+        case .home:         router.homePath.append(item)
+        case .inventory:    router.inventoryPath.append(item)
+        case .sales:        router.salesPath.append(item)
+        case .marketplaces, .settings, .add:
+            // No canvas host on these sections — surface the item under
+            // Inventory so the restored selection still resolves.
+            router.selection = .inventory
+            router.inventoryPath.append(item)
+        }
+    }
+
     /// One-shot fetch of a cached inventory item by id for deep-link pushes.
     private func fetchInventoryItem(id: String) -> LocalInventoryItem? {
         var descriptor = FetchDescriptor<LocalInventoryItem>(
@@ -712,6 +763,27 @@ struct MainShell: View {
         )
         descriptor.fetchLimit = 1
         return try? modelContext.fetch(descriptor).first
+    }
+}
+
+// MARK: - Scene-restoration host (US-1157)
+
+/// Wraps ``ItemCanvasView`` so the active scene (window) remembers which item
+/// is open, enabling per-scene state restoration on iPad multi-window. Writes
+/// the item id to the same `@SceneStorage("shell.focusedItemId")` key
+/// ``MainShell`` reads on restore; clears it on disappear only when it still
+/// owns the slot, so navigating to a different item (which appears before the
+/// previous one disappears) doesn't wipe the newer id.
+private struct ItemCanvasSceneHost: View {
+    let item: LocalInventoryItem
+    @SceneStorage("shell.focusedItemId") private var focusedItemId = ""
+
+    var body: some View {
+        ItemCanvasView(item: item)
+            .onAppear { focusedItemId = item.id }
+            .onDisappear {
+                if focusedItemId == item.id { focusedItemId = "" }
+            }
     }
 }
 
@@ -726,7 +798,7 @@ private struct TabBarShell: View {
                 DashboardView(router: router)
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
                     .navigationDestination(for: LocalInventoryItem.self) { item in
-                        ItemCanvasView(item: item)
+                        ItemCanvasSceneHost(item: item)
                     }
                     .navigationDestination(for: GradesRoute.self) { _ in
                         GradesListView()
@@ -772,7 +844,7 @@ private struct TabBarShell: View {
                 InventoryPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
                     .navigationDestination(for: LocalInventoryItem.self) { item in
-                        ItemCanvasView(item: item)
+                        ItemCanvasSceneHost(item: item)
                     }
                     // US-684: AutoLister/Details reachable from this tab too.
                     .toolbar {
@@ -799,7 +871,7 @@ private struct TabBarShell: View {
                     // US-752: a sale.created / payout.* push (or a Money-row tap)
                     // drills into the sale's item canvas on this tab.
                     .navigationDestination(for: LocalInventoryItem.self) { item in
-                        ItemCanvasView(item: item)
+                        ItemCanvasSceneHost(item: item)
                     }
                     // US-684: add-method menu reachable from the Money tab.
                     .toolbar {
@@ -923,7 +995,7 @@ private struct SidebarSplitView: View {
         NavigationStack(path: detailPathBinding) {
             detailLanding
                 .navigationDestination(for: LocalInventoryItem.self) { item in
-                    ItemCanvasView(item: item)
+                    ItemCanvasSceneHost(item: item)
                 }
                 .navigationDestination(for: IntakeRoute.self) { route in
                     IntakePlaceholder(route: route)
@@ -1004,7 +1076,11 @@ private struct SidebarSplitView: View {
 /// One of the four main sections, plus a pseudo-section for the Add tab.
 /// Add is never the resting selection — tapping it triggers the action
 /// sheet and the previous selection is restored synchronously.
-enum AppSection: Hashable {
+///
+/// String-backed so it round-trips through `@SceneStorage` for per-scene
+/// state restoration (US-1157); the raw values are persisted, so keep them
+/// stable.
+enum AppSection: String, Hashable {
     case home, inventory, add, sales, marketplaces, settings
 }
 

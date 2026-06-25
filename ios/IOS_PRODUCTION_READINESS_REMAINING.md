@@ -66,21 +66,36 @@ each is a potential build/runtime regression.
 ## US-1157 — iPad multi-window & scene state restoration
 
 **Status:** multi-scene is already enabled (`UIApplicationSupportsMultipleScenes:
-true`, `NavigationSplitView` three-column on regular width). The gap is verified
-**per-scene state restoration** across window teardown, which needs a simulator
-(or Stage Manager-capable iPad) to exercise.
+true`, `NavigationSplitView` three-column on regular width). The per-scene
+restoration scaffolding now ships; what remains is **on-device verification**
+(simulator or Stage Manager-capable iPad), which the Linux/Windows environment
+can't run.
+
+**Done here (safe artifacts):**
+- `MainShell` now persists per-scene navigation state via `@SceneStorage`
+  (per-scene, value-based — no UIKit `SceneDelegate`): the resting `AppSection`
+  (`shell.section`) and the open item id (`shell.focusedItemId`). `AppSection`
+  was made `String`-backed so it round-trips through scene storage.
+- `restorePersistedScene(router:)` runs once per scene (guarded by
+  `didRestoreScene`) at `.task` time, re-selecting the section and re-pushing the
+  open item's canvas onto that section's path. Two windows keep independent state
+  because `@SceneStorage` is scene-scoped.
+- `ItemCanvasSceneHost` wraps every `ItemCanvasView` navigation destination and
+  writes/clears `shell.focusedItemId` on appear/disappear (clearing only when it
+  still owns the slot, so navigating item→item doesn't wipe the newer id).
+- `SceneRestoration` holds the pure decode/encode logic, unit-tested by
+  `GradeThreadTests/SceneRestorationTests.swift` (the `.add` pseudo-section is
+  never persisted; raw values are pinned so a rename can't silently break
+  restoration for installed apps).
 
 **To finish on a Mac:**
-1. Add `@SceneStorage` to the shell's navigation state (selected tab in
-   `AppRouter`/`MainShell`, selected inventory item) so each window restores its
-   own state on relaunch/teardown. `@SceneStorage` is per-scene and value-based —
-   low-risk, no UIKit `SceneDelegate` needed.
-2. For richer hand-off, attach an `NSUserActivity` to the detail routes and
-   restore from it in `onContinueUserActivity`.
-3. **Verify on simulator/Stage Manager:** open Inventory in window 1, drag out
+1. For richer cross-device hand-off (optional), attach an `NSUserActivity` to the
+   detail routes and restore from it in `onContinueUserActivity`. The
+   `@SceneStorage` path above already covers same-device teardown/relaunch.
+2. **Verify on simulator/Stage Manager:** open Inventory in window 1, drag out
    window 2 to an Item canvas, close window 1, confirm window 2 keeps its state;
    confirm split-view ↔ Slide Over transitions don't lose selection or crash.
-4. Add a UI test in the (US-1153) lane that backgrounds + relaunches a scene and
+3. Add a UI test in the (US-1153) lane that backgrounds + relaunches a scene and
    asserts the restored tab/selection.
 
 ---

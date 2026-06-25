@@ -439,6 +439,12 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- `@SceneStorage` is keyed by string and SCENE-scoped (per iPad window): a child
+  view and the shell can share per-scene state by declaring the SAME key (US-1157
+  `shell.focusedItemId` — `ItemCanvasSceneHost` writes it, `MainShell` restores
+  it). Value type must be a scalar / `RawRepresentable<String|Int>`; making
+  `AppSection` restorable meant adding a `String` raw value (keep raws stable —
+  they're persisted). Restore once per scene (guard a `@State` bool in `.task`).
 - `BulkPricingStore.PriceMode` (Marketplaces/BulkPricing) now has a 4th case
   `.suggestFromComps` (US-1167 AC2): per-row comp-median prices fetched via the
   injected `CompsProviding` (`suggestFromComps()`), applied through the same
