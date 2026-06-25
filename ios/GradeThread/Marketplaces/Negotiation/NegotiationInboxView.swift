@@ -283,10 +283,14 @@ private struct CounterOfferSheet: View {
     /// US-1168: async + returns success so the sheet stays open (with an error)
     /// on failure and dismisses only when the counter actually sent.
     let onSubmit: (Double, String?) async -> Bool
+    /// US-1168: AI counter draft + validation. Injectable so the sheet is testable.
+    var drafter: NegotiationDrafting = NegotiationDraftService()
     @Environment(\.dismiss) private var dismiss
     @State private var priceText = ""
     @State private var message = ""
     @State private var isSubmitting = false
+    @State private var isDrafting = false
+    @State private var draftWarnings: [String] = []
     @State private var errorMessage: String?
 
     private var price: Double? { CurrencyFormatter().parse(priceText) }
@@ -311,6 +315,16 @@ private struct CounterOfferSheet: View {
                     if belowOffer {
                         Text("Counter is at or below the buyer's offer — enter a higher price.")
                             .font(.caption).foregroundStyle(Color.brandRed)
+                    }
+                    Button {
+                        draft()
+                    } label: {
+                        if isDrafting { ProgressView() }
+                        else { Label("Draft with AI", systemImage: "sparkles") }
+                    }
+                    .disabled(isDrafting || isSubmitting)
+                    ForEach(draftWarnings, id: \.self) { warning in
+                        Text(warning).font(.caption).foregroundStyle(Color.brandRed)
                     }
                 }
                 Section("Message (optional)") {
@@ -343,14 +357,42 @@ private struct CounterOfferSheet: View {
             if ok { dismiss() } else { errorMessage = "Couldn't send your counter. Please try again." }
         }
     }
+
+    /// US-1168: ask the edge for a suggested counter + drafted note, prefilling
+    /// the price (only when the seller hasn't typed one) and the message.
+    private func draft() {
+        Task {
+            isDrafting = true
+            errorMessage = nil
+            draftWarnings = []
+            do {
+                let result = try await drafter.draft(
+                    itemId: offer.itemId, mode: .counter, offerPrice: offer.price,
+                    currency: offer.currency, buyerMessage: offer.message,
+                    proposedCounter: price
+                )
+                if priceText.isEmpty, let suggested = result.suggestedCounter {
+                    priceText = String(format: "%.2f", suggested)
+                }
+                if message.isEmpty { message = result.message }
+                draftWarnings = result.warnings
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isDrafting = false
+        }
+    }
 }
 
 private struct MessageReplySheet: View {
     let message: BuyerMessage
     let onSubmit: (String) async -> Bool // US-1168: async + success
+    /// US-1168: AI reply draft. Injectable so the sheet is testable.
+    var drafter: NegotiationDrafting = NegotiationDraftService()
     @Environment(\.dismiss) private var dismiss
     @State private var replyText = ""
     @State private var isSubmitting = false
+    @State private var isDrafting = false
     @State private var errorMessage: String?
 
     private var canSend: Bool {
@@ -365,6 +407,13 @@ private struct MessageReplySheet: View {
                 }
                 Section("Your reply") {
                     TextField("Reply…", text: $replyText, axis: .vertical).lineLimit(3...8).disabled(isSubmitting)
+                    Button {
+                        draft()
+                    } label: {
+                        if isDrafting { ProgressView() }
+                        else { Label("Draft with AI", systemImage: "sparkles") }
+                    }
+                    .disabled(isDrafting || isSubmitting)
                 }
                 if let errorMessage {
                     Section { Text(errorMessage).font(.callout).foregroundStyle(Color.brandRed) }
@@ -390,6 +439,27 @@ private struct MessageReplySheet: View {
             let ok = await onSubmit(replyText)
             isSubmitting = false
             if ok { dismiss() } else { errorMessage = "Couldn't send your reply. Please try again." }
+        }
+    }
+
+    /// US-1168: ask the edge for a drafted reply to the buyer's message,
+    /// prefilling the reply field only when the seller hasn't typed anything.
+    private func draft() {
+        guard let itemId = message.itemId else { return }
+        Task {
+            isDrafting = true
+            errorMessage = nil
+            do {
+                let result = try await drafter.draft(
+                    itemId: itemId, mode: .reply, offerPrice: nil,
+                    currency: "USD", buyerMessage: message.body,
+                    proposedCounter: nil
+                )
+                if replyText.isEmpty { replyText = result.message }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isDrafting = false
         }
     }
 }

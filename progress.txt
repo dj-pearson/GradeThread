@@ -6379,3 +6379,51 @@ US-1167, US-1168, US-1169, US-1177. (US-1221 still open — sync hygiene, partia
 Local guards run green this session: no-bare-strings.py, no-ungated-print.py.
 REMINDER: all Swift is written to convention but UNCOMPILED (macOS-only); the
 macOS iOS CI runner is the compile/test safety net.
+
+────────────────────────────────────────────────────────────────────────────
+2026-06-25 (edge-capable session) — wired the two AI stories whose ONLY
+remaining blocker was a missing edge endpoint (the prior iOS-only sessions
+could not build edge work). Two endpoints added to flipdesk-ai.ts, mounted at
+/api/flipdesk/ai/* (inherit auth + accessGate + workspace + rate-limit
+middleware), each quota-gated + atomically reserved (US-387) and logged to
+ai_enrichment_log like /listing-copy.
+
+- US-1168 AI negotiation assist + counter-offer validation — NOW COMPLETE
+  (passes:true). AC1 was deferred for lack of an edge endpoint; done now.
+  EDGE: POST /negotiate + generateNegotiationReply (ai-extract.ts, Haiku,
+  ListingCopyService pattern) drafts a counter/reply, and a NEW pure
+  validateCounterOffer guardrail computes a safe suggested counter (floored
+  midpoint of offer↔ask, never ≤ the buyer's offer or < cost, capped at the
+  ask) + below-cost / at-or-below-offer / above-asking flags + warnings.
+  iOS: NegotiationDraftService.swift; a "Draft with AI" affordance on
+  CounterOfferSheet (prefills price from suggested_counter when empty + shows
+  warnings) and MessageReplySheet (prefills reply). AC2/3/4 already done.
+
+- US-1169 AI narratives & item-level tie-ins for Analytics — NOW COMPLETE
+  (passes:true). AC1 deferred for lack of an edge endpoint; done now.
+  EDGE: POST /analytics-narrative + generateAnalyticsNarrative narrate posted
+  period rollups into summary/highlights/actions, fronted by a NEW pure
+  deriveAnalyticsMetrics normalizer (net profit, margin, ROI; floors junk
+  input; null ROI on 0 COGS; empty-period short-circuit skips the AI action).
+  iOS: AnalyticsNarrativeService.swift + an on-demand "AI summary" card atop
+  AnalyticsView (posts PeriodPnL + blended sell-through + avg grading lift +
+  top brand; resets when the range changes). AC2 already satisfied by the
+  existing brand-filtered Community Insights deep-link (assessed 2026-06-21).
+
+- US-1167 left OPEN: its remaining AC2 (a Suggest-from-comps bulk-pricing mode
+  with per-row comp fetches) is a substantial on-device feature with perf
+  characteristics best built/tested on device, not an edge-endpoint blocker.
+
+New deno test: src/tests/negotiation-analytics_test.ts (validateCounterOffer +
+deriveAnalyticsMetrics).
+
+VERIFICATION (this container): pure edge logic asserted green via Node (all
+cases); `deno lint` clean on every changed edge file. `deno check`/`deno test`
+could NOT run here — the egress policy blocks esm.sh + deno.land/x, so the
+import-map deps (Anthropic SDK, hono, std) don't resolve; the new endpoints
+copy the EXACT shape of the already-type-checked generateListingCopy/
+rewriteListingCopy, and edge CI will type-check + test them. Swift is written
+to convention but UNCOMPILED (macOS-only); macOS iOS CI is the compile/test net.
+
+Open prd.json stories now 7 (down from 9): US-1153, US-1155, US-1157, US-1165,
+US-1167, US-1177, US-1221.

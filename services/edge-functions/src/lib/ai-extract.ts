@@ -1438,3 +1438,421 @@ export async function classifyGarment(
   if (!garmentType && !garmentCategory) return null;
   return { garmentType, garmentCategory };
 }
+
+// ── US-1168: AI negotiation assist + counter-offer validation ───────────────
+//
+// Two parts: a PURE validator (no LLM) that the endpoint and tests share, and
+// an LLM drafter that writes a buyer-facing counter/reply. The validator is the
+// guardrail — it never lets the suggested counter fall to/below the buyer's
+// offer or below the seller's cost — so the AI draft is anchored to a sane
+// number rather than free-styling a price.
+
+export type NegotiationMode = "counter" | "reply";
+
+export interface CounterOfferInputs {
+  /** The buyer's current best offer, in dollars. */
+  offerPrice: number;
+  /** The listing's current asking price, in dollars (null when unknown). */
+  askingPrice: number | null;
+  /** What the seller paid for the item, in dollars (null when unknown). */
+  costBasis: number | null;
+}
+
+export interface CounterOfferValidation {
+  /** A safe suggested counter price in dollars, or null when we can't compute one. */
+  suggestedCounter: number | null;
+  belowCost: boolean; // the buyer's offer is at/under the seller's cost
+  atOrBelowOffer: boolean; // a proposed counter would be <= the offer (pointless)
+  aboveAsking: boolean; // a proposed counter would exceed the asking price
+  /** Human-readable cautions for the composer to surface inline. */
+  warnings: string[];
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Pure counter-offer guardrail. Given the buyer's offer, the asking price and
+ * the seller's cost, returns a suggested counter (the midpoint between offer
+ * and ask, floored so it never lands at/below the offer or below cost) plus the
+ * out-of-range flags + warnings the UI surfaces. No I/O, no LLM — unit-tested.
+ *
+ * `proposedCounter` (optional) lets the caller validate a price the seller
+ * actually typed; when omitted only the suggested counter is computed.
+ */
+export function validateCounterOffer(
+  inputs: CounterOfferInputs,
+  proposedCounter?: number | null,
+): CounterOfferValidation {
+  const { offerPrice, askingPrice, costBasis } = inputs;
+  const warnings: string[] = [];
+
+  const belowCost =
+    costBasis != null && costBasis > 0 && offerPrice <= costBasis;
+  if (belowCost) {
+    warnings.push(
+      "The buyer's offer is at or below your cost — countering near it loses money.",
+    );
+  }
+
+  // Suggested counter: meet in the middle between offer and ask. With no ask,
+  // nudge 10% above the offer. Always keep it strictly above the offer and at
+  // or above cost so we never suggest a money-losing counter.
+  let suggestedCounter: number | null = null;
+  if (Number.isFinite(offerPrice) && offerPrice > 0) {
+    const base =
+      askingPrice != null && askingPrice > offerPrice
+        ? (offerPrice + askingPrice) / 2
+        : offerPrice * 1.1;
+    let candidate = Math.max(base, offerPrice + 0.01);
+    if (costBasis != null && costBasis > candidate) candidate = costBasis;
+    if (askingPrice != null && candidate > askingPrice) candidate = askingPrice;
+    suggestedCounter = round2(candidate);
+  }
+
+  let atOrBelowOffer = false;
+  let aboveAsking = false;
+  if (proposedCounter != null && Number.isFinite(proposedCounter)) {
+    atOrBelowOffer = proposedCounter <= offerPrice;
+    if (atOrBelowOffer) {
+      warnings.push(
+        "Your counter is at or below the buyer's offer — just accept the offer instead.",
+      );
+    }
+    aboveAsking = askingPrice != null && proposedCounter > askingPrice;
+    if (aboveAsking) {
+      warnings.push(
+        "Your counter is above your asking price, which usually pushes buyers away.",
+      );
+    }
+    if (costBasis != null && costBasis > 0 && proposedCounter < costBasis) {
+      warnings.push("Your counter is below your cost — you'd lose money on the sale.");
+    }
+  }
+
+  return { suggestedCounter, belowCost, atOrBelowOffer, aboveAsking, warnings };
+}
+
+export interface NegotiationDraftInput {
+  mode: NegotiationMode;
+  itemTitle: string | null;
+  offerPrice: number | null;
+  currency: string;
+  /** The buyer's message to reply to (reply mode) or any note on the offer. */
+  buyerMessage: string | null;
+  /** The validator's suggested counter, threaded in so the draft cites it. */
+  suggestedCounter: number | null;
+}
+
+export interface NegotiationDraftResult {
+  message: string;
+  model: string;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+const NEGOTIATION_SYSTEM_PROMPT =
+  `You are a resale-marketplace negotiation assistant for FlipDesk sellers
+responding to eBay best offers and buyer messages. Draft a SHORT, warm,
+professional reply the seller can send as-is.
+
+Rules:
+- Keep it to 2-4 sentences, friendly but businesslike. No greeting boilerplate
+  beyond a brief "Hi" / "Thanks".
+- COUNTER mode: politely propose the supplied suggested counter price. State the
+  number plainly. Never propose a price at or below the buyer's offer.
+- REPLY mode: answer the buyer's message helpfully without committing to a price
+  unless the message asks for one.
+- Never invent facts about the item, shipping, or condition you weren't given.
+- No markdown, no signature line, no placeholders like [your name].`;
+
+const NEGOTIATION_TOOL: Anthropic.Tool = {
+  name: "write_negotiation_reply",
+  description: "Return a ready-to-send buyer reply for a best offer or message.",
+  input_schema: {
+    type: "object",
+    properties: {
+      message: {
+        type: "string",
+        description: "The buyer-facing reply, 2-4 sentences, no signature.",
+      },
+    },
+    required: ["message"],
+  },
+};
+
+/**
+ * Drafts a buyer-facing counter or reply with the cheap lightweight model
+ * (text-only). Throws on transport/parse errors so the route returns a 502
+ * without logging a billable row.
+ */
+export async function generateNegotiationReply(
+  input: NegotiationDraftInput,
+): Promise<NegotiationDraftResult> {
+  enterAiFeature("catalog_extract"); // US-894 spend attribution (AI-action bucket)
+  const model = getHaikuModel();
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
+
+  const lines: string[] = [`MODE: ${input.mode.toUpperCase()}`];
+  if (input.itemTitle) lines.push(`ITEM: ${input.itemTitle}`);
+  if (input.offerPrice != null) {
+    lines.push(`BUYER OFFER: ${input.currency} ${round2(input.offerPrice)}`);
+  }
+  if (input.mode === "counter" && input.suggestedCounter != null) {
+    lines.push(
+      `SUGGESTED COUNTER (propose this price): ${input.currency} ${round2(
+        input.suggestedCounter,
+      )}`,
+    );
+  }
+  if (input.buyerMessage && input.buyerMessage.trim()) {
+    lines.push(`BUYER MESSAGE:\n${input.buyerMessage.trim()}`);
+  }
+  lines.push("Call write_negotiation_reply with the finished reply.");
+
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? {
+        type: "text",
+        text: NEGOTIATION_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      }
+    : { type: "text", text: NEGOTIATION_SYSTEM_PROMPT };
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 512,
+    ...(temperature !== undefined ? { temperature } : {}),
+    system: [systemBlock],
+    tools: [NEGOTIATION_TOOL],
+    tool_choice: { type: "tool", name: "write_negotiation_reply" },
+    messages: [{ role: "user", content: [{ type: "text", text: lines.join("\n\n") }] }],
+  });
+
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    throw new Error("AI did not return a negotiation reply");
+  }
+  const raw = toolUse.input as { message?: unknown };
+  const message = typeof raw.message === "string" ? raw.message.trim() : "";
+  if (!message) throw new Error("AI returned an empty negotiation reply");
+
+  return {
+    message,
+    model,
+    tokensIn:
+      response.usage.input_tokens +
+      (response.usage.cache_read_input_tokens ?? 0) +
+      (response.usage.cache_creation_input_tokens ?? 0),
+    tokensOut: response.usage.output_tokens,
+  };
+}
+
+// ── US-1169: AI analytics narrative ─────────────────────────────────────────
+//
+// The iOS/web client computes its period rollups locally (PeriodPnL, sell-
+// through, grading ROI) and posts the NUMBERS here; this endpoint turns them
+// into a plain-language "what this means / what to do next" without re-querying
+// the DB. deriveAnalyticsMetrics is the pure normalizer the route + tests share.
+
+export interface AnalyticsRollupInput {
+  periodLabel: string;
+  grossRevenue: number;
+  fees: number;
+  cogs: number;
+  unitsSold: number;
+  /** Optional 0..1 sell-through rate over the period. */
+  sellThroughRate?: number | null;
+  /** Optional average net-profit lift from grading, in dollars. */
+  gradingRoiLift?: number | null;
+  /** Optional best-performing brand by net profit. */
+  topBrand?: string | null;
+  currency?: string | null;
+}
+
+export interface AnalyticsDerived {
+  periodLabel: string;
+  currency: string;
+  grossRevenue: number;
+  fees: number;
+  cogs: number;
+  netProfit: number; // grossRevenue - fees - cogs
+  unitsSold: number;
+  /** Net margin as a 0..1 fraction of gross revenue (0 when no revenue). */
+  margin: number;
+  /** ROI on cost (netProfit / cogs) as a fraction, null when cogs is 0. */
+  roi: number | null;
+  sellThroughRate: number | null;
+  gradingRoiLift: number | null;
+  topBrand: string | null;
+}
+
+/**
+ * Pure normalizer: coerces a posted rollup into finite numbers and derives net
+ * profit, margin and ROI. No I/O — unit-tested. Negative/NaN inputs are floored
+ * to 0 except the derived net profit, which may legitimately be negative.
+ */
+export function deriveAnalyticsMetrics(
+  input: AnalyticsRollupInput,
+): AnalyticsDerived {
+  const num = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const grossRevenue = Math.max(0, num(input.grossRevenue));
+  const fees = Math.max(0, num(input.fees));
+  const cogs = Math.max(0, num(input.cogs));
+  const unitsSold = Math.max(0, Math.round(num(input.unitsSold)));
+  const netProfit = round2(grossRevenue - fees - cogs);
+  const margin = grossRevenue > 0 ? round2(netProfit / grossRevenue) : 0;
+  const roi = cogs > 0 ? round2(netProfit / cogs) : null;
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+  return {
+    periodLabel: input.periodLabel,
+    currency: input.currency && input.currency.trim() ? input.currency : "USD",
+    grossRevenue: round2(grossRevenue),
+    fees: round2(fees),
+    cogs: round2(cogs),
+    netProfit,
+    unitsSold,
+    margin,
+    roi,
+    sellThroughRate:
+      input.sellThroughRate != null && Number.isFinite(Number(input.sellThroughRate))
+        ? clamp01(Number(input.sellThroughRate))
+        : null,
+    gradingRoiLift:
+      input.gradingRoiLift != null && Number.isFinite(Number(input.gradingRoiLift))
+        ? round2(Number(input.gradingRoiLift))
+        : null,
+    topBrand: input.topBrand && input.topBrand.trim() ? input.topBrand : null,
+  };
+}
+
+export interface AnalyticsNarrativeResult {
+  summary: string;
+  highlights: string[];
+  actions: string[];
+  model: string;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+const ANALYTICS_SYSTEM_PROMPT =
+  `You are a reseller business analyst for FlipDesk. Given a seller's period
+financials, write a brief, encouraging-but-honest narrative of how the period
+went and concrete next steps.
+
+Rules:
+- summary: 2-3 sentences naming the standout trend (profit, margin, ROI, or
+  sell-through). Use the supplied numbers; never invent metrics you weren't given.
+- highlights: 2-4 short bullet phrases of what stood out (good or bad).
+- actions: 2-3 short, concrete next steps a reseller can act on this week.
+- Plain language, no jargon, no markdown, no currency symbols you weren't given.
+- Be honest about a loss or thin margin — do not spin a negative net profit as good.`;
+
+const ANALYTICS_TOOL: Anthropic.Tool = {
+  name: "write_analytics_narrative",
+  description: "Return a plain-language summary, highlights and next actions.",
+  input_schema: {
+    type: "object",
+    properties: {
+      summary: { type: "string", description: "2-3 sentence period summary" },
+      highlights: {
+        type: "array",
+        items: { type: "string" },
+        description: "2-4 short bullet phrases of what stood out",
+      },
+      actions: {
+        type: "array",
+        items: { type: "string" },
+        description: "2-3 short concrete next steps",
+      },
+    },
+    required: ["summary", "highlights", "actions"],
+  },
+};
+
+/**
+ * Narrates a derived analytics rollup. Text-only, cheap lightweight model.
+ * Throws on transport/parse errors so the route returns a 502 without logging.
+ */
+export async function generateAnalyticsNarrative(
+  m: AnalyticsDerived,
+): Promise<AnalyticsNarrativeResult> {
+  enterAiFeature("catalog_extract"); // US-894 spend attribution (AI-action bucket)
+  const model = getHaikuModel();
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
+
+  const facts: Record<string, unknown> = {
+    period: m.periodLabel,
+    currency: m.currency,
+    gross_revenue: m.grossRevenue,
+    fees: m.fees,
+    cost_of_goods_sold: m.cogs,
+    net_profit: m.netProfit,
+    units_sold: m.unitsSold,
+    net_margin_pct: Math.round(m.margin * 100),
+  };
+  if (m.roi != null) facts.roi_pct = Math.round(m.roi * 100);
+  if (m.sellThroughRate != null) {
+    facts.sell_through_pct = Math.round(m.sellThroughRate * 100);
+  }
+  if (m.gradingRoiLift != null) facts.grading_net_profit_lift = m.gradingRoiLift;
+  if (m.topBrand) facts.top_brand_by_profit = m.topBrand;
+
+  const text =
+    `PERIOD FINANCIALS:\n${JSON.stringify(facts, null, 2)}\n\n` +
+    "Call write_analytics_narrative with the summary, highlights and actions.";
+
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? {
+        type: "text",
+        text: ANALYTICS_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      }
+    : { type: "text", text: ANALYTICS_SYSTEM_PROMPT };
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 700,
+    ...(temperature !== undefined ? { temperature } : {}),
+    system: [systemBlock],
+    tools: [ANALYTICS_TOOL],
+    tool_choice: { type: "tool", name: "write_analytics_narrative" },
+    messages: [{ role: "user", content: [{ type: "text", text }] }],
+  });
+
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    throw new Error("AI did not return an analytics narrative");
+  }
+  const raw = toolUse.input as {
+    summary?: unknown;
+    highlights?: unknown;
+    actions?: unknown;
+  };
+  const summary = typeof raw.summary === "string" ? raw.summary.trim() : "";
+  const toStrings = (v: unknown): string[] =>
+    Array.isArray(v)
+      ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+         .map((x) => x.trim())
+      : [];
+  const highlights = toStrings(raw.highlights);
+  const actions = toStrings(raw.actions);
+  if (!summary) throw new Error("AI returned an empty analytics narrative");
+
+  return {
+    summary,
+    highlights,
+    actions,
+    model,
+    tokensIn:
+      response.usage.input_tokens +
+      (response.usage.cache_read_input_tokens ?? 0) +
+      (response.usage.cache_creation_input_tokens ?? 0),
+    tokensOut: response.usage.output_tokens,
+  };
+}

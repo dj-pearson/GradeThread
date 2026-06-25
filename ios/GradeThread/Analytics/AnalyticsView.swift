@@ -23,6 +23,13 @@ struct AnalyticsView: View {
     @Environment(\.syncEngine) private var syncEngine
     @State private var refreshError: String?
 
+    // US-1169: AI period narrative. Fired on demand (not on open) so it never
+    // spends an AI action unless the seller asks for the summary.
+    private let narrator: AnalyticsNarrating = AnalyticsNarrativeService()
+    @State private var narrative: AnalyticsNarrative?
+    @State private var isNarrating = false
+    @State private var narrativeError: String?
+
     // US-677 sourcing budget (monthly). Loaded from AppPreferences on appear so
     // edits re-render the meter without a round-trip through UserDefaults reads.
     @State private var sourcingBudget: Double? = AppPreferences.sourcingBudget
@@ -123,6 +130,7 @@ struct AnalyticsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 gradeHeader
                 rangeCard
+                aiSummaryCard
                 listingPerformanceCard
                 periodPnLCard
                 gradingRoiCard
@@ -137,6 +145,9 @@ struct AnalyticsView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .onAppear { sourcingBudget = AppPreferences.sourcingBudget }
+        // US-1169: the narrative describes a specific window, so drop it when the
+        // range changes rather than showing a stale summary.
+        .onChange(of: range) { _, _ in narrative = nil; narrativeError = nil }
         .alert("Monthly sourcing budget", isPresented: $showingBudgetEditor) {
             TextField("Amount", text: $budgetDraft)
                 .keyboardType(.decimalPad)
@@ -260,6 +271,96 @@ struct AnalyticsView: View {
 
     private func categoryHeight(_ count: Int) -> CGFloat {
         CGFloat(max(count, 1)) * 34 + 24
+    }
+
+    // US-1169: plain-language "what this means / what to do next" over the same
+    // rollups the charts already render. On-demand so it never spends an AI
+    // action on open.
+    private var aiSummaryCard: some View {
+        card("AI summary", subtitle: "What this period means · past \(range.label.lowercased())") {
+            VStack(alignment: .leading, spacing: 10) {
+                if let narrative {
+                    Text(narrative.summary).font(.subheadline)
+                    if !narrative.highlights.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(narrative.highlights, id: \.self) { line in
+                                Text("•  \(line)").font(.caption)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    if !narrative.actions.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Next steps").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            ForEach(narrative.actions, id: \.self) { line in
+                                Label(line, systemImage: "arrow.right")
+                                    .font(.caption)
+                            }
+                        }
+                    }
+                    Button("Regenerate") { Task { await runNarrative() } }
+                        .font(.caption).disabled(isNarrating)
+                } else if isNarrating {
+                    HStack(spacing: 8) { ProgressView(); Text("Summarizing…").font(.subheadline).foregroundStyle(.secondary) }
+                } else {
+                    Text("Get a plain-language read on this period's profit, ROI and sell-through.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Button {
+                        Task { await runNarrative() }
+                    } label: {
+                        Label("Summarize with AI", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.brandNavy)
+                }
+                if let narrativeError {
+                    Text(narrativeError).font(.caption).foregroundStyle(Color.brandRed)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// US-1169: blended sell-through across brands that reached market.
+    private var blendedSellThrough: Double? {
+        let listed = sellThrough.reduce(0) { $0 + $1.listed }
+        guard listed > 0 else { return nil }
+        let sold = sellThrough.reduce(0) { $0 + $1.sold }
+        return Double(sold) / Double(listed)
+    }
+
+    /// US-1169: average grading net-profit lift across bands where both sides exist.
+    private var averageGradingLift: Double? {
+        let lifts = roiBuckets.compactMap(\.netProfitLift)
+        guard !lifts.isEmpty else { return nil }
+        return lifts.reduce(0, +) / Double(lifts.count)
+    }
+
+    private func buildNarrativePayload() -> AnalyticsRollupPayload {
+        let pnl = periodPnL
+        return AnalyticsRollupPayload(
+            periodLabel: "past \(range.label.lowercased())",
+            grossRevenue: pnl.grossRevenue,
+            fees: pnl.fees,
+            cogs: pnl.cogs,
+            unitsSold: pnl.unitsSold,
+            sellThroughRate: blendedSellThrough,
+            gradingRoiLift: averageGradingLift,
+            topBrand: brandProfits.first?.brand,
+            currency: AppPreferences.currencyCode ?? "USD"
+        )
+    }
+
+    @MainActor
+    private func runNarrative() async {
+        isNarrating = true
+        narrativeError = nil
+        do {
+            narrative = try await narrator.narrate(buildNarrativePayload())
+        } catch {
+            narrativeError = error.localizedDescription
+        }
+        isNarrating = false
     }
 
     // US-665: realized P&L for the window — revenue, COGS, gross profit.

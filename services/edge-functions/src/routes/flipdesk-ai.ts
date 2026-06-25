@@ -2,18 +2,23 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   attributesToColumn,
+  deriveAnalyticsMetrics,
   estimateCost,
   extractEbayAspects,
   extractItemFields,
+  generateAnalyticsNarrative,
   generateListingCopy,
+  generateNegotiationReply,
   isRewriteAction,
   rewriteField,
   rewriteListingCopy,
+  validateCounterOffer,
   type AspectValueSuggestion,
   type AttributeSuggestion,
   type EbayAspectSpec,
   type ExtractionResult,
   type ExtractPhoto,
+  type NegotiationMode,
 } from "../lib/ai-extract.ts";
 import {
   estimateSize,
@@ -1887,4 +1892,261 @@ flipdeskAiRoutes.post("/suggest-item-match", async (c) => {
       502,
     );
   }
+});
+
+/**
+ * POST /negotiate  (US-1168)
+ * Body: { item_id, mode: "counter" | "reply", offer_price?, currency?,
+ *         buyer_message?, proposed_counter? }
+ *
+ * Drafts a buyer-facing counter or reply (reuses the ListingCopyService edge
+ * pattern) AND runs the pure counter-offer validator against the buyer's offer,
+ * the item's asking price (target_price) and cost (acquired_price). Returns a
+ * safe suggested counter + any out-of-range warnings so the negotiation sheet
+ * never counters below cost or at/below the offer.
+ */
+flipdeskAiRoutes.post("/negotiate", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: {
+    item_id?: unknown;
+    mode?: unknown;
+    offer_price?: unknown;
+    currency?: unknown;
+    buyer_message?: unknown;
+    proposed_counter?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const itemId = typeof body.item_id === "string" ? body.item_id : null;
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+  const mode: NegotiationMode = body.mode === "reply" ? "reply" : "counter";
+  const offerPrice =
+    typeof body.offer_price === "number" && Number.isFinite(body.offer_price)
+      ? body.offer_price
+      : null;
+  const currency =
+    typeof body.currency === "string" && body.currency.trim()
+      ? body.currency.trim()
+      : "USD";
+  const buyerMessage =
+    typeof body.buyer_message === "string" ? body.buyer_message : null;
+  const proposedCounter =
+    typeof body.proposed_counter === "number" &&
+    Number.isFinite(body.proposed_counter)
+      ? body.proposed_counter
+      : null;
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // Tenant-scoped item load (US-268): title for the draft, target_price as the
+  // asking price and acquired_price as cost for the validator.
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id, title, target_price, acquired_price")
+    .eq("id", itemId)
+    .single();
+  if (!item || item.user_id !== userId) {
+    return c.json({ error: "Item not found" }, 404);
+  }
+
+  // Pure guardrail — runs even when offer_price is missing (suggestedCounter
+  // is simply null then).
+  const validation = validateCounterOffer(
+    {
+      offerPrice: offerPrice ?? 0,
+      askingPrice:
+        typeof item.target_price === "number" ? item.target_price : null,
+      costBasis:
+        typeof item.acquired_price === "number" ? item.acquired_price : null,
+    },
+    proposedCounter,
+  );
+
+  // US-387: reserve atomically before the billable AI call.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
+  const start = Date.now();
+  let draft;
+  try {
+    draft = await generateNegotiationReply({
+      mode,
+      itemTitle: item.title ?? null,
+      offerPrice,
+      currency,
+      buyerMessage,
+      suggestedCounter: mode === "counter" ? validation.suggestedCounter : null,
+    });
+  } catch (err) {
+    await refundAiAction(userId);
+    console.error(
+      "[flipdesk-ai] negotiation draft failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json(
+      { error: "AI negotiation assist is temporarily unavailable." },
+      502,
+    );
+  }
+  const latencyMs = Date.now() - start;
+  const costUsd = estimateCost(draft.model, draft.tokensIn, draft.tokensOut);
+
+  const { data: logRow } = await supabaseAdmin
+    .from("ai_enrichment_log")
+    .insert({
+      user_id: userId,
+      inventory_item_id: itemId,
+      model: draft.model,
+      input_kind: "text",
+      tokens_in: draft.tokensIn,
+      tokens_out: draft.tokensOut,
+      cost_usd: costUsd,
+      latency_ms: latencyMs,
+      suggested_fields: { negotiation_message: draft.message },
+    })
+    .select("id")
+    .single();
+
+  const actionsRemaining =
+    quota.limit === -1 ? -1 : Math.max(0, quota.limit - quota.used - 1);
+  return c.json({
+    message: draft.message,
+    suggested_counter: validation.suggestedCounter,
+    warnings: validation.warnings,
+    below_cost: validation.belowCost,
+    at_or_below_offer: validation.atOrBelowOffer,
+    above_asking: validation.aboveAsking,
+    model: draft.model,
+    log_id: logRow?.id ?? null,
+    actions_remaining: actionsRemaining,
+  });
+});
+
+/**
+ * POST /analytics-narrative  (US-1169)
+ * Body: { period_label, gross_revenue, fees, cogs, units_sold,
+ *         sell_through_rate?, grading_roi_lift?, top_brand?, currency? }
+ *
+ * The client computes its period rollups locally (PeriodPnL etc.) and posts the
+ * numbers; this turns them into a plain-language summary + highlights + next
+ * actions. No item is read, so there's no per-item ownership check — the
+ * numbers are supplied by the authenticated caller and only the AI quota gates.
+ */
+flipdeskAiRoutes.post("/analytics-narrative", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: {
+    period_label?: unknown;
+    gross_revenue?: unknown;
+    fees?: unknown;
+    cogs?: unknown;
+    units_sold?: unknown;
+    sell_through_rate?: unknown;
+    grading_roi_lift?: unknown;
+    top_brand?: unknown;
+    currency?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const periodLabel =
+    typeof body.period_label === "string" && body.period_label.trim()
+      ? body.period_label.trim()
+      : "this period";
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  const metrics = deriveAnalyticsMetrics({
+    periodLabel,
+    grossRevenue: Number(body.gross_revenue),
+    fees: Number(body.fees),
+    cogs: Number(body.cogs),
+    unitsSold: Number(body.units_sold),
+    sellThroughRate:
+      body.sell_through_rate == null ? null : Number(body.sell_through_rate),
+    gradingRoiLift:
+      body.grading_roi_lift == null ? null : Number(body.grading_roi_lift),
+    topBrand: typeof body.top_brand === "string" ? body.top_brand : null,
+    currency: typeof body.currency === "string" ? body.currency : null,
+  });
+
+  // Nothing sold and no revenue → narrating an empty period wastes an AI action.
+  if (metrics.unitsSold === 0 && metrics.grossRevenue === 0) {
+    return c.json({
+      summary:
+        "No sales recorded for this period yet — once items sell, you'll get a trend summary here.",
+      highlights: [],
+      actions: ["List or relist items to start generating sales data."],
+      model: null,
+      log_id: null,
+      actions_remaining: quota.limit === -1 ? -1 : Math.max(0, quota.limit - quota.used),
+    });
+  }
+
+  // US-387: reserve atomically before the billable AI call.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
+  const start = Date.now();
+  let narrative;
+  try {
+    narrative = await generateAnalyticsNarrative(metrics);
+  } catch (err) {
+    await refundAiAction(userId);
+    console.error(
+      "[flipdesk-ai] analytics narrative failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json(
+      { error: "AI analytics summary is temporarily unavailable." },
+      502,
+    );
+  }
+  const latencyMs = Date.now() - start;
+  const costUsd = estimateCost(
+    narrative.model,
+    narrative.tokensIn,
+    narrative.tokensOut,
+  );
+
+  const { data: logRow } = await supabaseAdmin
+    .from("ai_enrichment_log")
+    .insert({
+      user_id: userId,
+      inventory_item_id: null,
+      model: narrative.model,
+      input_kind: "text",
+      tokens_in: narrative.tokensIn,
+      tokens_out: narrative.tokensOut,
+      cost_usd: costUsd,
+      latency_ms: latencyMs,
+      suggested_fields: {
+        analytics_summary: narrative.summary,
+        analytics_highlights: narrative.highlights,
+        analytics_actions: narrative.actions,
+      },
+    })
+    .select("id")
+    .single();
+
+  const actionsRemaining =
+    quota.limit === -1 ? -1 : Math.max(0, quota.limit - quota.used - 1);
+  return c.json({
+    summary: narrative.summary,
+    highlights: narrative.highlights,
+    actions: narrative.actions,
+    model: narrative.model,
+    log_id: logRow?.id ?? null,
+    actions_remaining: actionsRemaining,
+  });
 });
