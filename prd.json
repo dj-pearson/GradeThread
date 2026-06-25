@@ -3952,7 +3952,7 @@
         "Pseudolocalization / longest-language smoke check passes without major clipping"
       ],
       "priority": 1113,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Localization][EPIC: iOS Production Readiness 2026-06-21] [PARTIAL — simulator/device-gated; scaffolding + steps in ios/IOS_PRODUCTION_READINESS_REMAINING.md]",
       "relevantPaths": [
         "ios/project.yml",

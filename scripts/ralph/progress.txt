@@ -3838,3 +3838,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 25, 2026 12:43:29 PM
 ---
+## US-1155: Localization foundation: String Catalog, wrapped strings, locale-aware formatting
+- Status: COMPLETE
+- Timestamp: Thu, Jun 25, 2026 12:55:18 PM
+---
