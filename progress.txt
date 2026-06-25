@@ -6222,3 +6222,85 @@ sources.)
           Team/ListingPerformance/Verified loading skeletons speak "Loading"; the
           ListingPerformance trend direction (rising/falling/flat) is in the
           combined a11y label, not color-only.
+
+--- SESSION 2026-06-25 (cont.) — wave 2: App Store blockers + AI/eBay/UX ---
+
+- US-1206 iOS: App Review demo creds into the release pipeline + sign-in smoke.
+          COMPLETE. ios/fastlane/Fastfile: inject_review_credentials writes
+          REVIEW_DEMO_EMAIL/PASSWORD (Infisical/CI) into demo_user.txt/
+          demo_password.txt at release time; assert_no_placeholder_credentials
+          blocks deliver on leftover placeholders; smoke_review_signin POSTs the
+          creds to Supabase /auth/v1/token (password grant) and fails the release
+          unless it gets 200 + access_token. Seeded data stays operator-run via
+          the existing seed script (referenced in APP_STORE_REJECTION_RESPONSE.md).
+
+- US-1207 iOS: free users must not reach web Stripe checkout (Guideline 3.1.1).
+          COMPLETE. PlanInfo.isWebBilledSubscriber (billing_source==stripe AND
+          entitling status) gates the web billing path; free users route ONLY to
+          the StoreKit PaywallView (no web button), App Store-billed to native
+          manage, web/stripe-billed to web billing; "View past invoices on the
+          web" footer hidden for free/App-Store users. (PlanStore lives under
+          Settings/, not Billing/.)
+
+- US-1212 iOS: surface photo-upload failures at the capture -> AI handoff.
+          COMPLETE. AIExtractView.completeHandoff gates the canvas handoff on a
+          confirmationDialog when any of the item's uploads are .failed
+          (uploadStore.tasks(inventoryItemId:)); Retry re-enqueues them
+          (onRetryUploads -> uploadService.retry in PhotoIntakeView; they finish
+          in the background, captured photos preserved) or Continue anyway. No
+          more silent drop to the canvas + later "missing photo" grade blocker.
+
+- US-1213 iOS: Scout/Prospect 402 -> upgrade/paywall, not a dead-end retry.
+          COMPLETE. Both services decode PlanGateError on 402 and call
+          PlanGateNotifier.shared.present(gate) (the same centralized
+          UpgradePromptView/PaywallView hook EdgeAPI uses); kept the bespoke
+          camelCase transport (EdgeAPI's snake-case decoder would mangle the
+          /scout bodies). ScoutView shows a working "See plans" CTA and HIDES the
+          useless "Try again" for feature-lock (still shown for transient errors).
+
+- US-1217 iOS: AI-extract conflicts + Size-AI department surfaced/persisted.
+          COMPLETE. Conflicts threaded through applyResponse into AIFillReviewSheet
+          (tag-preference fallback at conf 0.4, source "conflict:tag", so size/
+          brand conflicts land in the opt-in review instead of auto-resolving);
+          Size AI persists the inferred department via AIItemFieldWriter
+          .writeAttributes(source "ai:size") alongside the size write. +3 tests.
+
+- US-1220 iOS: bulk-pricing input validation. COMPLETE. priceValue constrains
+          .reduce input to 0<v<100; priceInputError gives inline feedback;
+          validatedTargetPrice floors the COMPUTED price (reject <$0.01 with a row
+          reason) so a 100%/150% (or deep cheap-item) reduction is blocked
+          client-side, not via an opaque server "Failed". +6 unit tests.
+
+- US-1225 iOS: core-flow UX consistency bucket. COMPLETE (all 7): Prospect
+          cost-after-run hint+relabel, addToInventory own error+retry, library-pick
+          loadError alert, Verified canSave length-block + display-name counter,
+          Disclosure banner clears on save/applyText, defect badge clamped in
+          bounds, Passport "Regenerate link" stays available.
+
+- US-1226 iOS: minor perf/consistency/hardening bucket. COMPLETE (all 5):
+          ISO formatters hoisted to statics (MarketplacesView/ReconciliationService,
+          .withFractionalSeconds on writes); AccountExportService on bounded
+          EdgeNetwork.shared (20s); Reconciliation ignore()/markMatched() add
+          .eq(user_id); TurnstileView WKNavigationDelegate origin allowlist
+          (gradethread.com/*.cloudflare.com); ITSAppUsesNonExemptEncryption kept
+          false (standard crypto = exempt) + documented in project.yml.
+
+- US-1216 iOS: multi-account eBay. PARTIAL (passes:false). DONE: AC1 —
+          EbaySyncService.fetchConnectionSnapshot orders is_primary DESC,
+          updated_at DESC (mirrors the edge token resolver + fetchActiveConnection)
+          so a multi-store user whose primary is not the newest no longer hits a
+          false 90s sync timeout / masked primary refresh_error. DEFERRED: AC2 —
+          the listings table has NO marketplace_connection_id column (verified in
+          migrations), so bulk pricing can't be scoped to a store at the iOS query
+          layer; needs a listings->connection FK (migration + edge).
+
+- US-1219 iOS: OAuth nonce + JWT-at-rest. PARTIAL (passes:false). DONE: AC1 —
+          EbayConnectionService.generateStateNonce fails CLOSED (precondition on
+          SecRandomCopyBytes==errSecSuccess, mirroring SIWA) so a CSPRNG failure
+          can't emit a predictable all-zero OAuth state. DEFERRED: AC2 — removing
+          the bearer JWT from the BACKGROUND upload session needs a signed-UPLOAD-
+          URL rework of the PRIMARY capture->upload flow, too risky to do blind
+          (a wrong endpoint breaks all uploads). Note the expired-token resume
+          retry path already exists (background 401 -> pending mutation ->
+          SyncEngine.replayUploadPhoto re-uploads with a fresh token, ephemeral
+          non-persisted session).

@@ -251,6 +251,17 @@ struct PhotoIntakeView: View {
                         dismiss()
                         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
                         DeepLinkRouter.post(.inventoryTab)
+                    },
+                    onRetryUploads: {
+                        // US-1212: re-enqueue every failed upload for this item so
+                        // the captured photos aren't lost; the uploads continue in
+                        // the background and land before the grade flow needs them.
+                        guard let service = uploadService else { return }
+                        let failed = uploadStore.tasks(inventoryItemId: itemId).filter {
+                            if case .failed = $0.phase { return true }
+                            return false
+                        }
+                        for task in failed { service.retry(task.id) }
                     }
                 )
             } else {

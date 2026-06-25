@@ -209,9 +209,16 @@ struct VerifiedView: View {
         } header: {
             Text("Profile")
         } footer: {
-            Text("\(store.bioDraft.count)/\(VerifiedStore.maxBio)")
-                .monospacedDigit()
-                .foregroundStyle(store.bioDraft.count > VerifiedStore.maxBio ? Color.brandRed : .secondary)
+            // US-1225: show a display-name counter too — previously only the bio
+            // had one, so an over-limit display name was silently truncated.
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Name \(store.displayNameDraft.count)/\(VerifiedStore.maxDisplayName)")
+                    .monospacedDigit()
+                    .foregroundStyle(store.displayNameDraft.count > VerifiedStore.maxDisplayName ? Color.brandRed : .secondary)
+                Text("Bio \(store.bioDraft.count)/\(VerifiedStore.maxBio)")
+                    .monospacedDigit()
+                    .foregroundStyle(store.bioDraft.count > VerifiedStore.maxBio ? Color.brandRed : .secondary)
+            }
         }
     }
 

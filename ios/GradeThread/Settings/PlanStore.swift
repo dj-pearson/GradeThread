@@ -29,6 +29,23 @@ final class PlanStore {
             billing_source == "appstore"
                 && Self.entitlingStatuses.contains(subscription_status ?? "")
         }
+
+        /// True ONLY for an existing web (Stripe) subscriber managing a live
+        /// subscription: `billing_source == "stripe"` AND an entitling status.
+        ///
+        /// This is the sole gate for opening the web billing surface
+        /// (gradethread.com/dashboard/billing). That page can create Stripe
+        /// checkout sessions, so routing a FREE iOS user there would sell a
+        /// digital subscription outside IAP — an App Store Guideline 3.1.1
+        /// (anti-steering) violation (US-1207). Free users (no active sub,
+        /// `billing_source != "stripe"`) must go to the StoreKit ``PaywallView``
+        /// instead; App Store-billed users manage natively. Mirrors the edge
+        /// `stripeSubscriptionEntitles` check (appstore/precedence.ts) but
+        /// strictly requires `billing_source == "stripe"`.
+        var isWebBilledSubscriber: Bool {
+            billing_source == "stripe"
+                && Self.entitlingStatuses.contains(subscription_status ?? "")
+        }
     }
 
     enum Phase: Equatable {

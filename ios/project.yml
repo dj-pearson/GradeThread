@@ -103,6 +103,15 @@ targets:
         NSPhotoLibraryAddUsageDescription: "GradeThread saves your certified graded photo to your library so you can post it with your listings."
         # US-696: optional Face ID / passcode app lock.
         NSFaceIDUsageDescription: "GradeThread can use Face ID to lock the app so your sales, payouts, and account stay private."
+        # US-1226: export-compliance self-classification. The app's only crypto
+        # is STANDARD, published algorithms — Apple/CryptoKit AES-GCM (eBay token
+        # at-rest), SHA-256 (Sign in with Apple nonce), SecRandomCopyBytes, and
+        # TLS/HTTPS for transport. No proprietary or non-standard cryptography
+        # ships. That qualifies for the US export "limited to standard
+        # algorithms" / mass-market exemption, so this stays `false` (kept in
+        # sync with fastlane/Deliverfile `export_compliance_uses_encryption`).
+        # Only flip to `true` (and document the self-classification) if genuinely
+        # non-exempt crypto is ever added.
         ITSAppUsesNonExemptEncryption: false
         # US-654: register the bundled brand typefaces so Font.custom can
         # resolve them by PostScript name (graceful system fallback if a face

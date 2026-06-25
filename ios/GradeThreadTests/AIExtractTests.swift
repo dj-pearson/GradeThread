@@ -467,6 +467,80 @@ final class AIExtractTests: XCTestCase {
         XCTAssertTrue(review.hasSomethingToReview)
     }
 
+    // MARK: - Conflict threading (US-1217)
+
+    /// A text-vs-photo conflict on a high-error field (size/brand) must NOT be
+    /// silently resolved: the tag (text) candidate is forced into the opt-in
+    /// review at lowered confidence so the user explicitly chooses. Previously
+    /// `response.conflicts` was dropped and whichever value landed in
+    /// `suggestions` won silently.
+    func test_applyResponse_threadsConflictAsLowConfidenceReviewRow() throws {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: [
+                // The photo vision resolved size to "L" with high confidence —
+                // without conflict handling this would auto-apply silently.
+                "size": .init(value: "L", confidence: 0.92, source: "photo:front"),
+            ],
+            conditionSummary: nil,
+            // …but the tag OCR read "M". Disagreement on a high-error field.
+            conflicts: [FieldConflict(field: "size", textValue: "M", photoValue: "L")],
+            measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot()))
+        // The size row was re-keyed to the tag value, dropped below the bar, and
+        // surfaced for opt-in — NOT auto-applied to the photo value.
+        XCTAssertTrue(review.applied.isEmpty, "conflicted field must not auto-apply")
+        let size = try XCTUnwrap(review.lowConfidence.first { $0.field == "size" })
+        XCTAssertEqual(size.value, "M", "tag (text) candidate is preferred")
+        XCTAssertEqual(size.confidence, AIExtractStore.conflictReviewConfidence, accuracy: 0.0001)
+        XCTAssertEqual(size.source, "conflict:tag")
+        XCTAssertEqual(size.sourceLabel, "Tag value — conflicts with photo")
+    }
+
+    /// When the conflicted field has no `suggestions` entry at all, a fresh
+    /// opt-in row is injected for the tag candidate so the disagreement is never
+    /// lost. A conflict on a non-high-error field (e.g. color) is left alone.
+    func test_applyResponse_injectsMissingConflictRow_andIgnoresLowRiskFields() throws {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: [:],
+            conditionSummary: nil,
+            conflicts: [
+                FieldConflict(field: "brand", textValue: "Patagonia", photoValue: "Prana"),
+                FieldConflict(field: "color", textValue: "Navy", photoValue: "Black"),
+            ],
+            measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot()))
+        let brand = try XCTUnwrap(review.lowConfidence.first { $0.field == "brand" })
+        XCTAssertEqual(brand.value, "Patagonia")
+        XCTAssertEqual(brand.source, "conflict:tag")
+        // color isn't a gated high-error field, so no row is injected for it.
+        XCTAssertFalse(review.lowConfidence.contains { $0.field == "color" })
+        XCTAssertFalse(review.applied.contains { $0.field == "color" })
+    }
+
+    /// A department conflict is gated (it's a high-error, almost-always-required
+    /// eBay aspect) and routed to the opt-in review like size/brand.
+    func test_applyResponse_threadsDepartmentConflict() throws {
+        let store = AIExtractStore()
+        store.applyResponse(AIExtractResponse(
+            suggestions: [:],
+            conditionSummary: nil,
+            conflicts: [FieldConflict(field: "department", textValue: "Women", photoValue: "Men")],
+            measurements: nil,
+            model: nil, logId: nil, actionsRemaining: 0
+        ))
+        let review = try XCTUnwrap(store.buildFillReview(itemId: "i", snapshot: AIItemFieldWriter.Snapshot()))
+        let dept = try XCTUnwrap(review.lowConfidence.first { $0.field == "department" })
+        XCTAssertEqual(dept.value, "Women")
+        XCTAssertTrue(AIAttributeConfirm.keys.contains("department"))
+    }
+
     // MARK: - Background extraction manager (US-686 follow-up)
 
     func test_extractionManager_unknownItem_isIdleAndClearIsSafe() {

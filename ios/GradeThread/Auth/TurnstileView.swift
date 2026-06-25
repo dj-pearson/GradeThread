@@ -159,6 +159,10 @@ private struct TurnstileWebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.uiDelegate = context.coordinator
+        // US-1226: gate navigations to an origin allowlist (our domain +
+        // Cloudflare's challenge infra) so a managed-challenge popup or a
+        // redirect can't load arbitrary content into the main frame.
+        webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = false
@@ -173,7 +177,7 @@ private struct TurnstileWebView: UIViewRepresentable {
             .removeScriptMessageHandler(forName: Captcha.messageHandlerName)
     }
 
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
         private let onResult: (Result<String, Captcha.Error>) -> Void
         private var didResolve = false
 
@@ -181,16 +185,55 @@ private struct TurnstileWebView: UIViewRepresentable {
             self.onResult = onResult
         }
 
+        /// US-1226: hosts the widget loads from, plus the Cloudflare challenge
+        /// infrastructure it escalates to. A navigation whose host isn't in (or a
+        /// subdomain of) one of these — and isn't `about:` / a non-http(s) scheme
+        /// like the Turnstile JS-bridge — is cancelled, so a popup/redirect can't
+        /// pull arbitrary content into the web view.
+        private static let allowedHosts: Set<String> = ["gradethread.com", "cloudflare.com"]
+
+        /// True when `url` targets our domain or Cloudflare (or a subdomain of
+        /// either), or is the `about:blank` placeholder. `http(s)` only — any
+        /// other scheme is handled separately (see `decidePolicyFor`).
+        private static func isAllowed(_ url: URL?) -> Bool {
+            guard let url else { return false }
+            if url.scheme == "about" { return true }
+            guard url.scheme == "https" || url.scheme == "http" else { return false }
+            guard let host = url.host?.lowercased() else { return false }
+            return allowedHosts.contains { host == $0 || host.hasSuffix("." + $0) }
+        }
+
+        /// Origin allowlist for main- and sub-frame navigations. The initial
+        /// `loadHTMLString(baseURL:)` and the Turnstile JS bridge (non-http
+        /// schemes such as the message-handler callback) are permitted; anything
+        /// else off-allowlist is cancelled rather than loaded.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            let url = navigationAction.request.url
+            // Non-http(s) schemes (the in-page JS bridge / data loads) aren't
+            // remote content fetches — leave them to WebKit.
+            if let scheme = url?.scheme, scheme != "http", scheme != "https" {
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(Self.isAllowed(url) ? .allow : .cancel)
+        }
+
         /// Turnstile's managed challenge may request a popup frame
         /// (`targetFrame == nil`). WKWebView won't create one on its own — load
-        /// it inline so the challenge can complete instead of stalling.
+        /// it inline so the challenge can complete instead of stalling, but only
+        /// when the request points at an allowlisted origin (US-1226).
         func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            if navigationAction.targetFrame?.isMainFrame != true {
+            if navigationAction.targetFrame?.isMainFrame != true,
+               Self.isAllowed(navigationAction.request.url) {
                 webView.load(navigationAction.request)
             }
             return nil

@@ -4,7 +4,9 @@ import SwiftUI
 /// Settings "Plan & credits" section: the user's FlipDesk plan, grade
 /// credit balance, included grades remaining this month, and a way to manage
 /// billing. App Store-billed subscribers manage natively (the system
-/// manage-subscriptions sheet); web (Stripe) and free users open web billing.
+/// manage-subscriptions sheet); existing web (Stripe) subscribers open web
+/// billing to manage their sub; free users get ONLY the StoreKit
+/// ``PaywallView`` — never web Stripe checkout (US-1207, Guideline 3.1.1).
 struct PlanSection: View {
     @Environment(AuthStore.self) private var authStore
     @State private var store = PlanStore()
@@ -32,6 +34,13 @@ struct PlanSection: View {
     private var userId: UUID? {
         if case let .signedIn(user) = authStore.phase { return user.id }
         return nil
+    }
+
+    /// True only once the plan has loaded AND the user is an entitled web
+    /// (Stripe) subscriber. Gates the web-billing footer line (US-1207).
+    private var isWebBilledSubscriber: Bool {
+        if case let .ready(info) = store.phase { return info.isWebBilledSubscriber }
+        return false
     }
 
     var body: some View {
@@ -65,8 +74,17 @@ struct PlanSection: View {
         } header: {
             Text("Plan & credits")
         } footer: {
-            Text("Buy grade credits or change your plan with “See plans & credits” above. View past invoices on the web.")
-                .font(.footnote)
+            // The "View past invoices on the web" line points at the Stripe
+            // surface, so it's shown ONLY to existing web (Stripe) subscribers.
+            // Free and App Store-billed users never see it (US-1207): free users
+            // have no web billing, and App Store invoices live in the App Store.
+            if isWebBilledSubscriber {
+                Text("Buy grade credits or change your plan with “See plans & credits” above. View past invoices on the web.")
+                    .font(.footnote)
+            } else {
+                Text("Buy grade credits or change your plan with “See plans & credits” above.")
+                    .font(.footnote)
+            }
         }
         .task { await store.load() }
         .sheet(item: $activeSheet) { sheet in
@@ -119,8 +137,13 @@ struct PlanSection: View {
             } label: {
                 Label("Manage subscription", systemImage: "creditcard")
             }
-        } else {
-            // Web (Stripe) or free: the Stripe checkout/portal lives on the web.
+        } else if info.isWebBilledSubscriber {
+            // Existing web (Stripe) subscriber: the Stripe portal to manage an
+            // ALREADY-PURCHASED subscription lives on the web. This is the ONLY
+            // state allowed to open web billing — gated by `isWebBilledSubscriber`
+            // (billing_source == "stripe" + entitling status) so a free user
+            // never reaches a page that can start a Stripe checkout (US-1207,
+            // App Store Guideline 3.1.1 anti-steering).
             Button {
                 AppRouter.haptic()
                 activeSheet = .billing
@@ -128,5 +151,8 @@ struct PlanSection: View {
                 Label("Manage plan & billing", systemImage: "creditcard")
             }
         }
+        // Free users (no active subscription) get no web billing entry at all:
+        // "See plans & credits" above is their only purchase path, and it opens
+        // the StoreKit ``PaywallView`` (IAP) — never web Stripe checkout.
     }
 }

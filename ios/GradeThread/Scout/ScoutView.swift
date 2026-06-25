@@ -10,6 +10,20 @@ import SwiftUI
 struct ScoutView: View {
     @StateObject private var store = ScoutStore()
     @Environment(\.dismiss) private var dismiss
+    /// US-1213: observe the app-wide plan-gate sink. A 402 from a scan routes
+    /// through ``PlanGateNotifier`` (in ``ScoutService``), which presents the
+    /// centralized upgrade-prompt → paywall sheet. When that prompt fires we
+    /// suppress the inline "Try again" — a retry would just re-hit the gate; the
+    /// upgrade CTA is the real recovery. Transient (network) failures don't set a
+    /// gate, so they keep their retry button.
+    @State private var planGate = PlanGateNotifier.shared
+    /// US-1213: the gate that blocked the *current* failed scan, captured when
+    /// ``PlanGateNotifier`` presents it. Held locally (not read off
+    /// ``PlanGateNotifier/activePrompt``, which clears when the user dismisses
+    /// the sheet) so the inline card stays in its "upgrade required" state and
+    /// "See plans" can re-present, rather than reverting to a dead-end "Try
+    /// again". Reset at the start of each scan.
+    @State private var lockedGate: PlanGateError?
 
     var body: some View {
         NavigationStack {
@@ -28,6 +42,15 @@ struct ScoutView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                }
+            }
+            // US-1213: a 402 during the scan presents the centralized upgrade
+            // prompt (sets `activePrompt`). Capture it so the inline error card
+            // can drop its dead-end "Try again" and offer "See plans" instead —
+            // and so it survives the user dismissing the sheet.
+            .onChange(of: planGate.activePrompt) { _, gate in
+                if let gate, store.isLoading || store.errorMessage != nil {
+                    lockedGate = gate
                 }
             }
         }
@@ -157,23 +180,57 @@ struct ScoutView: View {
         .frame(maxWidth: .infinity)
     }
 
+    @ViewBuilder
     private func errorCard(_ message: String) -> some View {
-        ContentUnavailableView {
-            Label("Scan failed", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Try again", action: runScan)
+        // US-1213: a plan-gated (402) failure is handled by the centralized
+        // upgrade prompt — drop the dead-end "Try again" (it would just re-hit
+        // the gate) and point the user at that flow instead. Transient errors
+        // keep the retry button, which is the right recovery for them.
+        if isFeatureLocked {
+            ContentUnavailableView {
+                Label("Upgrade required", systemImage: "lock.circle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("See plans") {
+                    AppRouter.haptic()
+                    // Re-present the centralized upgrade prompt (cleared if the
+                    // user dismissed it); `isFeatureLocked` guarantees non-nil.
+                    planGate.activePrompt = lockedGate
+                }
                 .buttonStyle(.borderedProminent)
                 .tint(Color.brandNavy)
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            ContentUnavailableView {
+                Label("Scan failed", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Try again", action: runScan)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.brandNavy)
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    /// US-1213: true when the current failure is a plan gate (402) rather than a
+    /// transient error. The scan path routes 402s through ``PlanGateNotifier``
+    /// before throwing, which we capture into ``lockedGate``; a captured gate
+    /// alongside a live error message means this failure is the plan gate.
+    private var isFeatureLocked: Bool {
+        store.errorMessage != nil && lockedGate != nil
     }
 
     // MARK: - Actions
 
     private func runScan() {
         guard store.canSearch else { return }
+        // US-1213: clear any prior plan-gate capture so a fresh transient
+        // failure shows "Try again", not a stale "upgrade required" card.
+        lockedGate = nil
         AppRouter.haptic()
         Task { await store.scan() }
     }

@@ -237,9 +237,15 @@ public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
     // MARK: - Internals
 
     /// Cryptographically-random URL-safe nonce for the OAuth `state` round-trip.
+    /// US-1219: fail CLOSED on a CSPRNG failure — if `SecRandomCopyBytes` doesn't
+    /// return `errSecSuccess` the buffer stays all-zeros and would emit a constant,
+    /// predictable `state`, degrading the client-side CSRF defense to nothing.
+    /// Mirrors `SignInWithAppleCoordinator.randomNonce`'s `precondition` rather
+    /// than silently discarding the result.
     static func generateStateNonce() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let result = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        precondition(result == errSecSuccess, "SecRandomCopyBytes failed — refusing to emit a predictable OAuth state nonce")
         return Data(bytes).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")

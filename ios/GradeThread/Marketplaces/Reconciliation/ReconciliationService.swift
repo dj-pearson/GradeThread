@@ -10,6 +10,17 @@ public final class ReconciliationService {
 
     private let supabase: SupabaseClient
 
+    /// Cached writer for the `listed_at` timestamp. Allocating an
+    /// `ISO8601DateFormatter` is expensive and an insert can happen per orphan
+    /// in a batch, so we reuse one instead of building a fresh formatter per
+    /// insert (US-1226, mirrors the US-1007 fix in `EbaySyncService`).
+    /// `.withFractionalSeconds` so iOS-written timestamps match server writes.
+    private static let isoWriter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
     nonisolated public init(supabase: SupabaseClient = SupabaseShared.client) {
         self.supabase = supabase
     }
@@ -128,10 +139,15 @@ public final class ReconciliationService {
     public func ignore(orphan: OrphanEbayListing) async -> ReconciliationOutcome {
         struct Update: Encodable { let match_status: String }
         do {
+            // US-1226: scope the update to the signed-in user as well as the row
+            // id, for defense-in-depth parity with the US-268 explicit-scoping
+            // convention (a stale/forged id alone never flips another tenant's row).
+            let userId = try await currentUserId()
             try await supabase
                 .from("flipdesk_ebay_listings")
                 .update(Update(match_status: "ignored"))
                 .eq("id", value: orphan.id)
+                .eq("user_id", value: userId)
                 .execute()
             return ReconciliationOutcome(orphanId: orphan.id, kind: .ignored)
         } catch {
@@ -247,7 +263,7 @@ public final class ReconciliationService {
                 .eq("id", value: first.id)
                 .execute()
         } else {
-            let listedAt = ISO8601DateFormatter().string(from: Date())
+            let listedAt = Self.isoWriter.string(from: Date())
             try await supabase
                 .from("listings")
                 .insert(Insert(
@@ -267,6 +283,9 @@ public final class ReconciliationService {
             let match_status: String
             let matched_item_id: String
         }
+        // US-1226: scope to the signed-in user in addition to the row id, for
+        // defense-in-depth parity with the US-268 explicit-scoping convention.
+        let userId = try await currentUserId()
         try await supabase
             .from("flipdesk_ebay_listings")
             .update(Update(
@@ -274,7 +293,15 @@ public final class ReconciliationService {
                 matched_item_id: matchedItemId
             ))
             .eq("id", value: orphanId)
+            .eq("user_id", value: userId)
             .execute()
+    }
+
+    /// Resolves the signed-in user's id for tenant scoping (US-1226). Uses the
+    /// same `auth.session` accessor as the other in-service flows
+    /// (`TemplateService`, `ConsignorService`); throws if there's no session.
+    private func currentUserId() async throws -> String {
+        try await supabase.auth.session.user.id.uuidString
     }
 }
 

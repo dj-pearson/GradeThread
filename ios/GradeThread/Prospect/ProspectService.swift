@@ -71,13 +71,19 @@ final class ProspectService: Prospecting {
             throw EdgeAPIError.network("Non-HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
-            // 402 = plan gate / quota cap (compPulls is Pro+). Surface a friendly
-            // upsell via the shared ``ScoutError`` rather than a raw code.
-            if http.statusCode == 402, let gate = try? JSONDecoder().decode(ProspectGateBody.self, from: data) {
-                if gate.error == "CAP_REACHED" || gate.cap != nil {
-                    throw ScoutError.quotaReached
+            // 402 = plan gate / quota cap (compPulls is Pro+). US-1213: route
+            // through the SAME ``PlanGateError`` decode + ``PlanGateNotifier``
+            // hook that ``EdgeAPI`` uses, so the centralized upgrade-prompt →
+            // paywall flow fires here too. The bespoke transport stays (the
+            // scout routes speak camelCase, which the snake-casing
+            // `EdgeAPI.shared` decoder would mangle); `PlanGateError.decode` uses
+            // a plain decoder, so the gate body decodes identically either way.
+            if http.statusCode == 402, let gate = PlanGateError.decode(from: data) {
+                PlanGateNotifier.shared.present(gate)
+                if gate.isFeatureLock {
+                    throw ScoutError.planLocked(requiredPlan: gate.requiredPlan)
                 }
-                throw ScoutError.planLocked(requiredPlan: gate.requiredPlan)
+                throw ScoutError.quotaReached
             }
             throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
         }
@@ -87,11 +93,4 @@ final class ProspectService: Prospecting {
             throw EdgeAPIError.decoding(error.localizedDescription)
         }
     }
-}
-
-/// Subset of the 402 plan-gate body (`{ error, requiredPlan, cap, … }`).
-private struct ProspectGateBody: Decodable {
-    let error: String?
-    let requiredPlan: String?
-    let cap: String?
 }

@@ -25,6 +25,10 @@ final class ProspectStore {
     /// confirm + offer a jump to the inventory tab.
     var isAdding = false
     var addedItemId: String?
+    /// US-1225: separate from `errorMessage` so an add-to-inventory failure
+    /// renders its OWN retry (which re-calls `addToInventory()`) instead of the
+    /// top error card whose "Try again" re-runs the billable identify+comp pipeline.
+    var addError: String?
 
     static let maxPhotos = 2
 
@@ -44,6 +48,7 @@ final class ProspectStore {
         images.append(img)
         result = nil
         errorMessage = nil
+        addError = nil
         addedItemId = nil
     }
 
@@ -64,6 +69,17 @@ final class ProspectStore {
         return Int((dollars * 100).rounded())
     }
 
+    /// US-1225: the buy/skip verdict + ROI are computed server-side and baked into
+    /// the result for the cost it was run with (`result.costCents`). Nothing
+    /// watches `costText` afterwards, so entering — or changing — a cost AFTER a
+    /// run produces no verdict. Since the ROI math lives on the server (not here),
+    /// we can't recompute locally; instead detect the mismatch so the view can
+    /// prompt a re-run with the new cost.
+    var costNeedsRerun: Bool {
+        guard result != nil else { return false }
+        return costCents != result?.costCents
+    }
+
     func run() async {
         guard !images.isEmpty else {
             errorMessage = "Take a photo of the item (and its tag) first."
@@ -71,6 +87,7 @@ final class ProspectStore {
         }
         isLoading = true
         errorMessage = nil
+        addError = nil
         addedItemId = nil
         defer { isLoading = false }
 
@@ -98,11 +115,11 @@ final class ProspectStore {
     /// Scout buy endpoint. Prefills cost/grade/target from what we just learned.
     func addToInventory() async {
         guard let result, result.identified, let title = result.item.title, !title.isEmpty else {
-            errorMessage = "Nothing to add — identify an item first."
+            addError = "Nothing to add — identify an item first."
             return
         }
         isAdding = true
-        errorMessage = nil
+        addError = nil
         defer { isAdding = false }
 
         // US-1170: don't discard the AI's read on commit. size/color aren't in
@@ -124,7 +141,7 @@ final class ProspectStore {
             let response = try await service.buy(request)
             addedItemId = response.id
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            addError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 

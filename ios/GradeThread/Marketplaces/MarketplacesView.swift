@@ -686,11 +686,20 @@ struct MarketplacesView: View {
             .clipShape(Capsule())
     }
 
+    /// Cached ISO-8601 parsers. Allocating an `ISO8601DateFormatter` is
+    /// expensive and `humanRelative` runs on every row render, so we reuse a
+    /// shared pair instead of building two per call (US-1226, mirrors the
+    /// US-1007 fix in `EbaySyncService`). These only PARSE, so no fractional-
+    /// seconds-writing variant is needed.
+    private static let isoFull: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+
     private func humanRelative(_ iso: String) -> String {
-        let isoFull = ISO8601DateFormatter()
-        isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let isoPlain = ISO8601DateFormatter()
-        guard let date = isoFull.date(from: iso) ?? isoPlain.date(from: iso) else {
+        guard let date = Self.isoFull.date(from: iso) ?? Self.isoPlain.date(from: iso) else {
             return "recently"
         }
         let formatter = RelativeDateTimeFormatter()

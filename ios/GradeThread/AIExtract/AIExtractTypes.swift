@@ -191,6 +191,10 @@ struct FieldSuggestionEntry: Identifiable, Equatable, Codable {
     var sourceLabel: String {
         if source == "text" { return "From description" }
         if source == "live-text" { return "On-device OCR" }
+        // US-1217: a conflict-derived row carries the tag (text) candidate; the
+        // label tells the user this field disagreed across signals so they pick
+        // deliberately rather than inherit a silently-resolved value.
+        if source == "conflict:tag" { return "Tag value — conflicts with photo" }
         if source.hasPrefix("photo:") {
             let slot = String(source.dropFirst("photo:".count))
             return "From \(slot) photo"
