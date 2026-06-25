@@ -94,6 +94,10 @@ enum SourceROIRollup {
         }
 
         for sale in sales {
+            // Only completed sales count toward source ROI — a cancelled/refunded
+            // sale was reversed and must not inflate revenue/profit (mirrors the
+            // Money/Dashboard rollups and ConsignmentReport). US-1269.
+            guard SalePnL.isCompleted(sale) else { continue }
             // Attribute the sale to the item's source (sentinel if unknown item).
             let itemSource = (sourceByItem[sale.inventoryItemId] ?? nil)
             let key = itemSource ?? sentinel
@@ -101,7 +105,10 @@ enum SourceROIRollup {
             // can't add COGS — guard the agg so it appears under "No source".
             agg[key, default: Agg()].sold += 1
             agg[key, default: Agg()].revenue += sale.salePrice
-            agg[key, default: Agg()].fees += sale.platformFees
+            // All marketplace fees (platform + payment processing), matching
+            // SalePnL.fees — platformFees alone understated fees and overstated
+            // net profit / ROI.
+            agg[key, default: Agg()].fees += SalePnL.fees(sale)
             agg[key, default: Agg()].cogs += (costByItem[sale.inventoryItemId] ?? 0)
         }
 

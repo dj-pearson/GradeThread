@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1257,
+  "nextId": 1276,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5520,14 +5520,14 @@
     {
       "id": "US-1239",
       "priority": 1239,
-      "passes": false,
-      "title": "iOS bulk-pricing summary: stop double-counting preflight rows in the denominator",
+      "passes": true,
+      "title": "iOS bulk-pricing summary denominator (investigated — not a bug)",
       "description": "As a seller running a bulk reprice, I want the result summary to add up, so I don't see 'Updated 2/5. 4 failed' when only 3 rows existed.",
       "acceptanceCriteria": [
         "Bulk-pricing actionBanner denominator is the original selected count (or excludes preflight from res.total), and problems can't exceed it",
         "Unit test covers the count math with preflight-failed rows"
       ],
-      "notes": "[P2][iOS/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. BulkPricingStore.swift:185-191: '\\(res.succeeded)/\\(res.total + preflight.count)' double-counts because res.total already excludes preflight-failed rows. Headless-codeable."
+      "notes": "[P3][iOS/Marketplaces][iOS deep-dive audit 2026-06-25] INVESTIGATED 2026-06-25 — NOT A BUG. An audit agent flagged BulkPricingStore.swift:190 as double-counting preflight rows, but verification shows res.total (BulkPriceQtyResponse.total, BulkPricingService.swift:28) is the edge count of UPDATES ACTUALLY SENT, and preflight-failed rows are continue-d before append so they are never sent. Therefore succeeded + problems == res.total + preflight.count (denominator), which is consistent. No code change. Kept as a record of the false-positive verification."
     },
     {
       "id": "US-1240",
@@ -5636,7 +5636,7 @@
     {
       "id": "US-1248",
       "priority": 1248,
-      "passes": false,
+      "passes": true,
       "title": "iOS local search: index style/garmentType/garmentCategory/container/sourcedBy so offline search matches them",
       "description": "As a seller searching offline, I want style/garment-type terms to match locally, so airplane-mode search doesn't miss items the row clearly carries.",
       "acceptanceCriteria": [
@@ -5644,7 +5644,7 @@
         "Offline search returns those matches without relying on server FTS",
         "Test covers a style/garment-type query"
       ],
-      "notes": "[P3][iOS/Inventory][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. InventoryFilter.swift:170-185 omits mirrored fields. Headless-codeable."
+      "notes": "[P3][iOS/Inventory][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. DONE 2026-06-25 — added style/garmentType/garmentCategory/container/sourcedBy to InventoryFilter.searchableText; test test_filter_searchMatchesStyleAndGarmentType. Headless; pending iOS CI compile. InventoryFilter.swift:170-185 omits mirrored fields. Headless-codeable."
     },
     {
       "id": "US-1249",
@@ -5751,6 +5751,254 @@
         "Build + tests pass"
       ],
       "notes": "[P3][iOS/Consignment/Team][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ConsignmentReportView.swift:13-15 (unscoped @Query, recompute per render); TeamService.swift:96 (non-fractional ISO). Headless-codeable."
+    },
+    {
+      "id": "US-1257",
+      "priority": 1257,
+      "passes": false,
+      "title": "iOS: make per-category notification preferences actually gate notifications",
+      "description": "As a user, when I turn off a notification category in Settings it should stop those notifications, so the Notifications settings section isn't a no-op.",
+      "acceptanceCriteria": [
+        "The notifyPref.<category> preferences are read where notifications are produced/presented (DeepLink gating, NewSaleNotifier/NewGradeNotifier) and/or POSTed to users.notification_preferences so the server honors them",
+        "NotificationDelegate.willPresent consults the category prefs instead of unconditionally returning [.banner,.badge,.sound,.list]",
+        "A muted category produces no banner/sound; tests or manual check confirm"
+      ],
+      "notes": "[P1][iOS/Notifications][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ContentView.swift:1545-1558,1696-1728 write notifyPref.* that nothing reads; NotificationDelegate.swift:24 always presents. Device-gated end-to-end."
+    },
+    {
+      "id": "US-1258",
+      "priority": 1258,
+      "passes": false,
+      "title": "iOS widget snapshot: single-currency totals and canonical listing-status comparison",
+      "description": "As a user, widget tiles should show correct, single-currency totals and not zero out when a status string drifts, so the widget is trustworthy.",
+      "acceptanceCriteria": [
+        "WidgetSnapshotPublisher sums/scopes to a single currency (convert or filter) rather than only stamping currencyCode on mixed-currency raw amounts",
+        "Active-listings tile compares against the canonical listing-status enum, not the literal \"active\"",
+        "Tests cover a mixed-currency set and a status-casing variant"
+      ],
+      "notes": "[P2][iOS/Widgets][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. WidgetSnapshotPublisher.swift:81,101. Headless-codeable."
+    },
+    {
+      "id": "US-1259",
+      "priority": 1259,
+      "passes": false,
+      "title": "iOS background-refresh + new-sale/grade detection reliability",
+      "description": "As a user, new-sale/new-grade alerts should fire for items synced in the foreground too, the Settings toggle should drive the live service, and the BG task shouldn't try to prompt for permission, so alerts are reliable and the BG budget isn't wasted.",
+      "acceptanceCriteria": [
+        "New-sale/new-grade detection also runs after foreground syncs (or these alerts are explicitly delegated to server push) so foreground-arrived rows aren't swallowed",
+        "The Settings background-refresh toggle routes through the injected/AppDelegate-owned BackgroundRefreshService instance, not a throwaway",
+        "NewSaleNotifier in the BG path only notifies when authorization is already granted; permission is requested from a foreground context"
+      ],
+      "notes": "[P2/P3][iOS/Background/Notifications][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. BackgroundRefreshService.swift:218-289 (detection only in performRefresh); ContentView.swift:1204,1508-1514 (throwaway service); NewSaleNotifier.swift:29-35 (requests auth in BG)."
+    },
+    {
+      "id": "US-1260",
+      "priority": 1260,
+      "passes": false,
+      "title": "iOS iPad split-view: fix the dead detail pane for Money and Marketplaces sections",
+      "description": "As an iPad user, selecting Money or Marketplaces shouldn't leave a permanent 'Make a selection' placeholder in the detail column, so the layout doesn't look broken.",
+      "acceptanceCriteria": [
+        "For sections whose navigation now lives in the content column's own NavigationStack (Money, Marketplaces — US-1199), the detail column is hidden/repurposed instead of showing a placeholder nothing fills",
+        "No regression for sections that still use the detail column",
+        "Verify on iPad split view"
+      ],
+      "notes": "[P2][iOS/iPad][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ContentView.swift:907-915,943-952 detailPathBinding maps sales/marketplaces to a placeholder detail pane. Device-gated."
+    },
+    {
+      "id": "US-1261",
+      "priority": 1261,
+      "passes": false,
+      "title": "iOS dashboard: don't show first-run welcome to an existing user on an offline cold launch",
+      "description": "As an existing user opening the app offline before the cache populates, I should see an unavailable/retry state, not 'Capture your first item', so it doesn't look like my inventory vanished.",
+      "acceptanceCriteria": [
+        "DashboardView treats .offline/.failed with an empty cache as an unavailable/retry state, not the first-run Welcome",
+        "First-run Welcome shows only when genuinely empty and online/synced",
+        "Test or manual check covers the offline-cold-launch path"
+      ],
+      "notes": "[P2][iOS/Dashboard][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. DashboardView.swift:51-58 only distinguishes .syncing vs not."
+    },
+    {
+      "id": "US-1262",
+      "priority": 1262,
+      "passes": false,
+      "title": "iOS notification UX bucket: reconnect action opens OAuth, request permission at a reliable moment, dismissible reconcile banner",
+      "description": "As a user, a 'reconnect eBay' action should actually start reconnection, push permission should be requested even if I never open Money, and a persistent reconcile banner should be dismissible, so these surfaces aren't dead ends or permanent nags.",
+      "acceptanceCriteria": [
+        "The .reconnect inline notification action routes to a destination that auto-presents the eBay OAuth/reconnect sheet, not just the Marketplaces tab",
+        "Push-permission is requested at a reliable moment (e.g. after first successful sync / onboarding completion), not only on first Money-tab open",
+        "ReconcileBanner gains a dismiss/snooze affordance"
+      ],
+      "notes": "[P3][iOS/Notifications/ux][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. NotificationDelegate.swift:71-76; ContentView.swift:1175-1188,1758,1772."
+    },
+    {
+      "id": "US-1263",
+      "priority": 1263,
+      "passes": false,
+      "title": "iOS dashboard performance: scope queries and memoize derived item subsets",
+      "description": "As a power user with thousands of items, the dashboard shouldn't fetch every item unfiltered and re-filter on each render, so it stays smooth at scale.",
+      "acceptanceCriteria": [
+        "DashboardView scopes its @Query (predicate/limit) or memoizes the aging/graded/metrics subsets like the US-967 trend series, instead of full-table fetch + repeated main-actor filters",
+        "No behavior change to the displayed numbers",
+        "PerRender/memo tests still pass"
+      ],
+      "notes": "[P3][iOS/Dashboard/perf][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. DashboardView.swift:23,40-47,115-117."
+    },
+    {
+      "id": "US-1264",
+      "priority": 1264,
+      "passes": false,
+      "title": "iOS publish composer: apply ALL template fields (category, policies, item specifics), not just description/condition",
+      "description": "As a seller hand-publishing with a template, applying it should set the category, business policies, and item specifics it configures, so the composer matches AutoLister's server-side template application and the editor's promised defaults.",
+      "acceptanceCriteria": [
+        "PublishDialog.apply(template) applies itemSpecifics, ebayCategoryId, returnPolicyId, shippingPolicyId, paymentPolicyId into the composer state in addition to description/condition",
+        "Behavior matches AutoLister (which passes templateId server-side)",
+        "Test covers a template with category/policies/specifics applied in the composer"
+      ],
+      "notes": "[P1][iOS/Templates/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. PublishDialog.swift:709-721 copies only descriptionTemplate, ebayCondition, conditionDescription. Headless-codeable."
+    },
+    {
+      "id": "US-1265",
+      "priority": 1265,
+      "passes": false,
+      "title": "iOS templates: don't clear the previous default before the write succeeds",
+      "description": "As a seller setting a template as default, a failed save shouldn't leave me with zero defaults, so clearing only happens once the new default is persisted.",
+      "acceptanceCriteria": [
+        "TemplateService clears the prior default only after the create/update succeeds (or does it server-side in one statement/RPC), with no window of zero-defaults on failure",
+        "A simulated write failure leaves the previous default intact",
+        "Build + template tests pass"
+      ],
+      "notes": "[P2][iOS/Templates][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. TemplateService.swift:43,57,81-88 runs clearDefaults() as a separate UPDATE before the write, no rollback. Headless-codeable. UPDATE 2026-06-25 (investigated): a pure client-side reorder (write-then-clear) is UNSAFE because a single-default partial unique index on listing_templates rejects inserting/updating a second is_default=true row while another exists — clearDefaults MUST precede the write to satisfy the index. Correct fix is a server-side RPC/transaction (clear others + upsert this default atomically), i.e. a DB/edge change, NOT a trivial Swift reorder. Re-scoped accordingly."
+    },
+    {
+      "id": "US-1266",
+      "priority": 1266,
+      "passes": false,
+      "title": "iOS scheduled drops: guard custom reschedule against past times and persist the timezone",
+      "description": "As a seller rescheduling a drop, the app must not store a past publish time, and my timezone choice should persist, so the cron doesn't publish immediately and times aren't reinterpreted later.",
+      "acceptanceCriteria": [
+        "reschedule(_:to:) validates date > Date() (or clamps the initial customDate to max(now, scheduled)) so a no-touch reschedule can't persist a past instant",
+        "The scheduled-drops timezone selection persists (e.g. @AppStorage / settings) instead of resetting to TimeZone.current each launch",
+        "Tests cover the past-time rejection"
+      ],
+      "notes": "[P2][iOS/ScheduledDrops][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ScheduledDropsView.swift:219,120,131-137; ScheduledDropsStore.swift:24,48-61. Distinct from US-1196 preset path. Headless-codeable."
+    },
+    {
+      "id": "US-1267",
+      "priority": 1267,
+      "passes": false,
+      "title": "iOS automations: send a minimal isActive PATCH on toggle instead of rebuilding the whole rule",
+      "description": "As a user toggling an automation, the toggle shouldn't round-trip the entire rule through a draft and clobber server-managed fields or concurrent edits, so toggling is safe.",
+      "acceptanceCriteria": [
+        "AutomationsStore.toggleActive sends a minimal {isActive} PATCH rather than AutomationDraft(from: pre-toggle snapshot)",
+        "Server-managed fields (lastRunAt, normalized fields) and concurrent edits are preserved",
+        "Failure reverts to server truth; tests cover the toggle"
+      ],
+      "notes": "[P2][iOS/Automations][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. AutomationsStore.swift:80-96 reuses AutomationDraft(from: rule) from the pre-toggle snapshot. Builds on US-1175. Headless-codeable."
+    },
+    {
+      "id": "US-1268",
+      "priority": 1268,
+      "passes": false,
+      "title": "iOS templates display polish: real condition labels, no-default semantics, list pagination",
+      "description": "As a seller, template rows should show the real stored condition (not a fallback), 'No default' should behave consistently, and large template/drop lists should scale, so the UI isn't misleading or sluggish.",
+      "acceptanceCriteria": [
+        "TemplatesView shows the raw value (or a neutral label) when EbayCondition(rawValue:) returns nil instead of falling back to 'Used - Excellent'",
+        "'No default' condition semantics are consistent between the editor and PublishDialog.apply (documented/handled as a deliberate no-op)",
+        "Scheduled-drops/automations/templates lists paginate or sort server-side and mutate in place instead of full re-sort on each optimistic change"
+      ],
+      "notes": "[P3][iOS/Templates/perf][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. TemplatesView.swift:163; TemplateEditorSheet.swift:32,160,714-715; ScheduledDropsService.swift:31-43. Headless-codeable."
+    },
+    {
+      "id": "US-1269",
+      "priority": 1269,
+      "title": "iOS Source-ROI: exclude reversed sales and include all marketplace fees (SalePnL)",
+      "passes": true,
+      "description": "As a reseller, per-source ROI should only count completed sales and subtract all marketplace fees, so refunds don't inflate a source's profit and fees aren't understated.",
+      "acceptanceCriteria": [
+        "SourceROIRollup.bySource filters sales via SalePnL.isCompleted so cancelled/refunded sales don't count",
+        "Fees use SalePnL.fees (platform + payment-processing) instead of platformFees alone",
+        "Tests cover refund exclusion and processing-fee inclusion; existing SourceROIRollupTests still pass"
+      ],
+      "notes": "[P1][iOS/Analytics/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. DONE 2026-06-25. SourceROIRollup.swift:96-106 looped all sales with revenue+=salePrice, fees+=platformFees and no status filter. Fixed: SalePnL.isCompleted guard + SalePnL.fees. Tests test_bySource_excludesCancelledAndRefundedSales, test_bySource_includesPaymentProcessingFees. NOTE remaining refinement (separate, semantic): revenue still excludes shippingCollected and netProfit doesn't subtract sellerCosts (shipping/grading/other) — full SalePnL.net alignment would add a sellerCosts field and change the row's revenue/netProfit semantics + the AnalyticsView display, so deferred. Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1270",
+      "priority": 1270,
+      "title": "iOS feature flags: a server-disabled flag with default-true must actually turn off",
+      "passes": false,
+      "description": "As the team, a kill-switch feature flag should be honored when I disable it server-side, so a default-true flag (e.g. showConfidenceBars) can be turned off in PostHog.",
+      "acceptanceCriteria": [
+        "FeatureFlag.isEnabled treats the server value as authoritative when the flag is known to PostHog (distinguish configured-off from not-configured, e.g. via getFeatureFlag presence) and only falls back to defaultValue when truly unconfigured",
+        "Disabling a default-true flag server-side disables it in-app",
+        "Tests cover configured-off vs unconfigured"
+      ],
+      "notes": "[P2][iOS/Telemetry][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FeatureFlag.swift:44-46 does server ? true : defaultValue; PostHog isFeatureEnabled returns false for both off and absent, so default-true kill-switches are inert. Headless-codeable."
+    },
+    {
+      "id": "US-1271",
+      "priority": 1271,
+      "title": "iOS fulfillment: align ship-queue window with ranking key and assert eBay ship success",
+      "passes": false,
+      "description": "As a seller, old unshipped orders shouldn't fall out of the ship queue, and an eBay ship that didn't actually succeed shouldn't be marked shipped, so the queue is complete and correct.",
+      "acceptanceCriteria": [
+        "The ship-queue fetch filters shipped_at is null server-side (or orders by the same sold_at key the store ranks on) so a backfilled old-by-sold_at order can't fall outside the sale_date window",
+        "FulfillmentService eBay branch requires ok == true (or a typed success) before treating the fulfillment as accepted, instead of treating any 200 as success",
+        "Tests/manual cover the window + ok assertion"
+      ],
+      "notes": "[P2][iOS/Fulfillment][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FulfillmentService.swift:30-31 (sale_date window vs sold_at ranking), 59-64 (OKResponse.ok optional, never asserted)."
+    },
+    {
+      "id": "US-1272",
+      "priority": 1272,
+      "title": "iOS CSV/import robustness: chunk dedup, strip BOM, detect semicolon, fix parens-negative",
+      "passes": false,
+      "description": "As a seller importing a spreadsheet, dedup shouldn't blow up on large files, BOM/semicolon exports should parse, and a parenthesized note shouldn't become a negative price, so imports work across real-world exports.",
+      "acceptanceCriteria": [
+        "InventoryImportService.loadExistingSkus chunks the SKU IN(...) query (~500/batch) and unions, instead of one IN over up to 20,000 values that can throw and silently disable dedup",
+        "CSVParser strips a leading UTF-8 BOM (\\uFEFF) before header/delimiter detection",
+        "detectDelimiter includes ';' as a candidate so European-locale CSVs aren't parsed as one column",
+        "ImportField.price treats parens as negative only when the trimmed value is wholly (number), so '$20 (sale)' isn't -20"
+      ],
+      "notes": "[P2/P3][iOS/Import][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. InventoryImportService.swift:144; CSVParser.swift:16,77; ImportField.swift:80. Headless-codeable."
+    },
+    {
+      "id": "US-1273",
+      "priority": 1273,
+      "title": "iOS ShareInbox: decode shared photos off the main actor and don't drop error alerts",
+      "passes": false,
+      "description": "As a user sharing photos into the app, a multi-photo share shouldn't freeze the UI during decode, and an empty/undecodable batch's error shouldn't be swallowed by a following batch, so the share flow is smooth and communicative.",
+      "acceptanceCriteria": [
+        "ShareInboxConsumer decodes/thumbnails shared images in Task.detached and hops back to publish, instead of Data(contentsOf:)+UIImage+preparingThumbnail on the @MainActor",
+        "drainSharedInboxIfNeeded presents a batch error before draining/presenting the next batch so a successful following batch can't suppress the .alert",
+        "Consecutive empty batches don't overwrite each other's errors silently"
+      ],
+      "notes": "[P2][iOS/ShareInbox][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. ShareInboxConsumer.swift:32; ContentView.swift:610 drain recursion vs alert/fullScreenCover."
+    },
+    {
+      "id": "US-1274",
+      "priority": 1274,
+      "title": "iOS analytics/insights polish: reuse comp formatters; distinguish 'no data' from 'none actionable'",
+      "passes": false,
+      "description": "As a seller, price-band analytics shouldn't reallocate formatters per sale, and the community insights empty state shouldn't claim 'not enough data' when data exists but nothing clears the threshold, so analytics are fast and the messaging is honest.",
+      "acceptanceCriteria": [
+        "AnalyticsMetrics computes the price bands + CurrencyFormatters once per gradingRoiBuckets call instead of rebuilding three formatters per sale",
+        "CommunityInsightsView distinguishes 'no benchmark rows' from 'rows present but none above the action threshold' and words the latter accordingly",
+        "Tests/manual confirm both"
+      ],
+      "notes": "[P2][iOS/Analytics/Insights][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. AnalyticsMetrics.swift:253-264 (formatter realloc in loop); CommunityInsightsView.swift:38-47 (filtered recommendations.isEmpty mislabels)."
+    },
+    {
+      "id": "US-1275",
+      "priority": 1275,
+      "title": "iOS small correctness: Verified over-limit uses trimmed length; Prospect gates add-to-inventory on cost rerun",
+      "passes": false,
+      "description": "As a user, the Verified profile counters should match what's actually saved (trimmed), and Prospect shouldn't commit a cost the comps were never evaluated against, so I'm not blocked spuriously or persisting an inconsistent verdict.",
+      "acceptanceCriteria": [
+        "VerifiedStore over-limit checks (and the view counters) count displayNameDraft.trimmed.count / bioDraft.trimmed.count, matching what pendingUpdate() sends",
+        "Prospect add-to-inventory is gated on !costNeedsRerun (or commits result.costCents) so the persisted cost matches the displayed verdict",
+        "Tests cover the trimmed-limit boundary"
+      ],
+      "notes": "[P3][iOS/Verified/Prospect][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. VerifiedStore.swift:117-118 (raw .count vs saved .trimmed); ProspectStore.swift:135 (commits new cost field against a no-cost run). Headless-codeable."
     }
   ]
 }
