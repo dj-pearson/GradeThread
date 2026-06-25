@@ -17,6 +17,20 @@ public actor EdgeAPI {
         tokenRefresher: { await SupabaseShared.refreshAccessToken() }
     )
 
+    /// US-1164: AI-session-backed instance so the slow vision calls (AI extract,
+    /// Size AI) inherit the SAME transient retry/backoff, 401 token-refresh, and
+    /// `X-Plan-Warning` / 402 plan-gate handling as the rest of the app — while
+    /// keeping the long idle timeout those calls need (`EdgeNetwork.aiSession`
+    /// vs. the 20s-idle `EdgeNetwork.shared`, which would falsely time out a
+    /// 20-40s model pass). AI clients call ``sendRaw(method:path:query:bodyData:)``
+    /// so their verbatim field-name response keys bypass the snake_case decoder.
+    public static let aiShared = EdgeAPI(
+        baseURL: AppConfig.edgeAPIURL,
+        session: EdgeNetwork.aiSession,
+        tokenProvider: { await SupabaseShared.currentAccessToken() },
+        tokenRefresher: { await SupabaseShared.refreshAccessToken() }
+    )
+
     private let baseURL: URL
     private let session: URLSession
     private let tokenProvider: @Sendable () async -> String?
@@ -128,6 +142,22 @@ public actor EdgeAPI {
         try await perform(method: "DELETE", path: path, body: Optional<Empty>.none)
     }
 
+    /// US-1164: runs an edge call through the shared transient-retry / backoff,
+    /// 401-refresh, and plan-gate machinery while letting the caller own request
+    /// body encoding AND response decoding. AI clients (extract, size) need this
+    /// because their response keys (`brand`, `garment_category`, …) must be
+    /// preserved verbatim and would be mangled by EdgeAPI's `.convertFromSnakeCase`
+    /// decoder. `bodyData` is sent on the wire exactly as given (Content-Type
+    /// `application/json` is set when non-nil). Returns the raw response bytes.
+    public func sendRaw(
+        method: String,
+        path: String,
+        query: [URLQueryItem] = [],
+        bodyData: Data?
+    ) async throws -> Data {
+        try await performRaw(method: method, path: path, query: query, bodyData: bodyData)
+    }
+
     /// POSTs a single image part (plus optional string fields) as
     /// `multipart/form-data`. Used for eBay payment-dispute evidence uploads
     /// (US-1049). Not retried — uploads aren't idempotent.
@@ -205,15 +235,49 @@ public actor EdgeAPI {
         body: Body?,
         cacheTTL: TimeInterval = 0
     ) async throws -> Response {
+        // Encode the typed body once up front; `performRaw` reuses the bytes
+        // across retries and the 401-refresh rebuild. The retry/refresh/plan-gate
+        // loop lives in `performRaw` (US-1164) so AI clients can share it via
+        // `sendRaw` while decoding with their own verbatim-key decoder.
+        let bodyData = try encodeBody(body)
+        let data = try await performRaw(
+            method: method, path: path, query: query, bodyData: bodyData, cacheTTL: cacheTTL)
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch {
+            throw EdgeAPIError.decoding(error.localizedDescription)
+        }
+    }
+
+    /// Encodes a typed request body to JSON, treating nil / the ``Empty``
+    /// sentinel as "no body". Throws a typed `.decoding` error on failure.
+    private func encodeBody<Body: Encodable>(_ body: Body?) throws -> Data? {
+        guard let body, !(body is Empty) else { return nil }
+        do {
+            return try encoder.encode(body)
+        } catch {
+            throw EdgeAPIError.decoding("Request body encoding failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// The shared request loop: cache, transient retry/backoff, one forced
+    /// 401-refresh, and plan-gate interception — returning the raw response
+    /// bytes. Both the typed ``perform`` and the raw ``sendRaw`` route through
+    /// here so AI clients inherit identical resilience (US-1164).
+    private func performRaw(
+        method: String,
+        path: String,
+        query: [URLQueryItem] = [],
+        bodyData: Data?,
+        cacheTTL: TimeInterval = 0
+    ) async throws -> Data {
         let cacheKey = "\(method) \(path)?\(Self.canonicalQuery(query))"
         // Serve fresh idempotent GETs from cache (US-638).
         if cacheTTL > 0, method == "GET", let cached = cacheLookup(cacheKey) {
-            if let value = try? decoder.decode(Response.self, from: cached) {
-                return value
-            }
+            return cached
         }
 
-        var request = try await buildRequest(method: method, path: path, query: query, body: body)
+        var request = try await buildRequest(method: method, path: path, query: query, bodyData: bodyData)
 
         // Bounded retry-with-backoff for transient failures only (US-638);
         // network/5xx + 429 rate-limits retry (US-1145), other 4xx fail fast.
@@ -251,11 +315,7 @@ public actor EdgeAPI {
                 if cacheTTL > 0, method == "GET" {
                     cacheStore(cacheKey, data: data, ttl: cacheTTL)
                 }
-                do {
-                    return try decoder.decode(Response.self, from: data)
-                } catch {
-                    throw EdgeAPIError.decoding(error.localizedDescription)
-                }
+                return data
             } catch let error as EdgeAPIError {
                 // US-794: membership in the active workspace was revoked — drop
                 // the stale X-Workspace-Owner scope so the retry/next request
@@ -275,7 +335,7 @@ public actor EdgeAPI {
                     didRefreshAuth = true
                     if await tokenRefresher() != nil {
                         request = try await buildRequest(
-                            method: method, path: path, query: query, body: body)
+                            method: method, path: path, query: query, bodyData: bodyData)
                         continue
                     }
                     throw error
@@ -433,11 +493,11 @@ public actor EdgeAPI {
         (responseCache.count, responseCacheBytes, Self.cacheMaxEntries, Self.cacheMaxBytes)
     }
 
-    private func buildRequest<Body: Encodable>(
+    private func buildRequest(
         method: String,
         path: String,
         query: [URLQueryItem],
-        body: Body?
+        bodyData: Data?
     ) async throws -> URLRequest {
         let url = try resolve(path: path, query: query)
         var request = URLRequest(url: url)
@@ -456,13 +516,9 @@ public actor EdgeAPI {
             request.setValue(workspaceOwner, forHTTPHeaderField: "X-Workspace-Owner")
         }
 
-        if let body, !(body is Empty) {
+        if let bodyData {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            do {
-                request.httpBody = try encoder.encode(body)
-            } catch {
-                throw EdgeAPIError.decoding("Request body encoding failed: \(error.localizedDescription)")
-            }
+            request.httpBody = bodyData
         }
 
         return request

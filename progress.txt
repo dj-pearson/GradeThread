@@ -6331,3 +6331,51 @@ App Store Connect / CI-verified architectural changes), unchanged this session:
 US-1153, US-1155, US-1157, US-1164, US-1165, US-1167, US-1168, US-1169, US-1177.
 NOTE: all Swift is written to convention but UNCOMPILED (macOS-only) — iOS CI on a
 macOS runner is the safety net.
+
+=== SESSION 2026-06-25 (cont.) — closed 3 previously-deferred iOS stories ===
+Branch: claude/prd-stories-ios-gaps-l4cjmc. Worked the open prd.json backlog;
+completed the deferred parts of three stories the prior session left at passes:false.
+
+- US-1216 iOS multi-account eBay correctness — NOW COMPLETE (passes:true).
+  AC1 was already done (fetchConnectionSnapshot orders is_primary DESC, updated_at
+  DESC). AC2 closed via the AC's OWN alternative ("...or the account is made
+  explicit in the UI so users don't mix stores") because the listings table has no
+  marketplace_connection_id column (confirmed across supabase/migrations) — so a
+  query-level scope is impossible without a new FK. BulkPricingService.ebayAccounts()
+  reads the user's active eBay connections (RLS-scoped, is_primary DESC/updated_at
+  DESC mirroring the edge token resolver); BulkPricingStore.loadAccountContext sets
+  hasMultipleAccounts + primaryAccountName (best-effort, never blocks the listing
+  load); BulkPricingView shows an info banner naming the PRIMARY store every bulk
+  edit routes through. Tests: BulkPricingValidationTests FakeProvider + single/multi
+  account banner cases.
+
+- US-1219 iOS OAuth nonce + JWT-at-rest — NOW COMPLETE (passes:true).
+  AC1 already done (generateStateNonce precondition). AC2: removed the long-lived
+  bearer JWT from the BACKGROUND upload session. New SignedUploadURLProvider mints a
+  short-lived single-object signed UPLOAD url (POST .../object/upload/sign/{bucket}/
+  {path}) over an ephemeral (non-persisted) session; PhotoUploadService.start() now
+  PUTs to that url with NO Authorization header (token in the query string). New
+  StorageURL.uploadSign + PhotoUploadService.backgroundUploadRequest static builder.
+  AC3: a mint failure (incl. expired token) fails closed -> handleNetworkFailure ->
+  pending mutation -> SyncEngine replay re-mints, so a background-resume has a retry
+  path, not a silent 401. AC4: SignedUploadURLTests covers endpoint shape, resolve,
+  mint request, and the no-Authorization-header invariant. The de-risking property:
+  if the new signed-upload PUT ever failed, didFinish routes to the existing pending-
+  mutation replay (ephemeral session) — uploads degrade to retry, never data loss.
+
+- US-1164 Route AI/edge clients through EdgeAPI hardening — NOW COMPLETE (passes:true).
+  AC1: AIExtractService + SizeAIService route through new EdgeAPI.aiShared.sendRaw
+  (AI-session-backed instance + a data-in/data-out entry point running the shared
+  transient-retry/backoff, one forced 401 token-refresh, and X-Plan-Warning/402
+  plan-gate loop, while the AI clients keep their verbatim-key codec). perform() was
+  refactored into encodeBody + performRaw + decode so typed and raw paths share ONE
+  loop (buildRequest is now data-based). AC2 (shouldRetry restricts 5xx to idempotent
+  methods), AC3 (URLComponents force-unwraps guarded in all 5 services), AC4 (HTTP-
+  date Retry-After) were already done. AC5: EdgeAPITests gains behavioral
+  test_500_on_POST_isNotRetried + test_500_on_GET_isRetried + two sendRaw tests.
+
+Open prd.json stories now 9 (down from 12): US-1153, US-1155, US-1157, US-1165,
+US-1167, US-1168, US-1169, US-1177. (US-1221 still open — sync hygiene, partial.)
+Local guards run green this session: no-bare-strings.py, no-ungated-print.py.
+REMINDER: all Swift is written to convention but UNCOMPILED (macOS-only); the
+macOS iOS CI runner is the compile/test safety net.

@@ -241,6 +241,96 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertEqual(calls.count, 1)       // no retry when refresh yields nothing
     }
 
+    // US-1164: a 5xx on a non-idempotent POST is attempted EXACTLY ONCE — no
+    // blind retry that could double-apply a write the server already committed.
+    func test_500_on_POST_isNotRetried() async {
+        let calls = CallBox()
+        MockURLProtocol.handler = { request in
+            _ = calls.next()
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"error":"boom"}"#.utf8))
+        }
+        let api = makeAPI()
+        do {
+            let _: Item = try await api.postJSON("/api/v1/items", body: CreateItem(title: "x"))
+            XCTFail("Expected serverError")
+        } catch let error as EdgeAPIError {
+            guard case .serverError = error else { return XCTFail("Expected .serverError, got \(error)") }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertEqual(calls.count, 1, "POST 5xx must not be retried")
+    }
+
+    // A 5xx on an idempotent GET still retries through the bounded budget
+    // (1 initial + maxRetries) — the resilience AI clients now inherit too.
+    func test_500_on_GET_isRetried() async {
+        let calls = CallBox()
+        MockURLProtocol.handler = { request in
+            _ = calls.next()
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"error":"boom"}"#.utf8))
+        }
+        let api = makeAPI()
+        do {
+            let _: Item = try await api.getJSON("/foo")
+            XCTFail("Expected serverError")
+        } catch let error as EdgeAPIError {
+            guard case .serverError = error else { return XCTFail("Expected .serverError, got \(error)") }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertEqual(calls.count, 3, "GET 5xx should retry the full bounded budget (1 + 2)")
+    }
+
+    // MARK: - sendRaw (US-1164: AI clients share the resilient loop)
+
+    /// `sendRaw` runs the shared request loop — attaching auth, returning the raw
+    /// response bytes verbatim — so AI clients inherit retry/refresh/plan-gate
+    /// without EdgeAPI's snake_case decoder touching their field-name keys.
+    func test_sendRaw_attachesAuth_andReturnsRawBytesVerbatim() async throws {
+        var observed: [String: String] = [:]
+        // Snake_case keys that EdgeAPI's decoder would mangle — must come back
+        // untouched through sendRaw.
+        let raw = #"{"garment_category":"jacket","brand":"Patagonia"}"#
+        MockURLProtocol.handler = { request in
+            observed = request.allHTTPHeaderFields ?? [:]
+            return (
+                HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"])!,
+                Data(raw.utf8))
+        }
+        let api = makeAPI(token: "tk_ai")
+        let data = try await api.sendRaw(
+            method: "POST", path: "/api/flipdesk/ai/extract",
+            bodyData: Data(#"{"item_id":"i"}"#.utf8))
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), raw)
+        XCTAssertEqual(observed["Authorization"], "Bearer tk_ai")
+        XCTAssertEqual(observed["Content-Type"], "application/json")
+    }
+
+    /// A 401 on a `sendRaw` POST forces exactly one token refresh + retry, just
+    /// like the typed path — so an AI extract doesn't dead-end on a stale token.
+    func test_sendRaw_401_refreshesAndRetriesOnce() async throws {
+        let calls = CallBox()
+        let refreshes = CallBox()
+        MockURLProtocol.handler = { request in
+            let n = calls.next()
+            if n == 1 {
+                return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+        }
+        let api = makeAPI(tokenRefresher: { _ = refreshes.next(); return "fresh" })
+        let data = try await api.sendRaw(method: "POST", path: "/foo", bodyData: Data("{}".utf8))
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "{}")
+        XCTAssertEqual(refreshes.count, 1)
+        XCTAssertEqual(calls.count, 2)
+    }
+
     func test_400_mapsToBadRequest_withDetail() async {
         MockURLProtocol.handler = { request in
             (

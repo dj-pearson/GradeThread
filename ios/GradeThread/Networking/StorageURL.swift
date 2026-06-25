@@ -27,6 +27,16 @@ enum StorageURL {
         url(base: base, path: "/storage/v1/object/sign/\(bucket)/\(path)")
     }
 
+    /// Signed-UPLOAD-URL minting endpoint:
+    /// `/storage/v1/object/upload/sign/{bucket}/{path}` (US-1219). POST here
+    /// (authenticated) to mint a short-lived, single-object upload token, then
+    /// PUT the bytes to the returned URL with NO Authorization header — so the
+    /// background URLSession never serializes a long-lived bearer JWT into its
+    /// on-disk task DB.
+    static func uploadSign(base: URL?, bucket: String, path: String) -> URL? {
+        url(base: base, path: "/storage/v1/object/upload/sign/\(bucket)/\(path)")
+    }
+
     private static func url(base: URL?, path: String) -> URL? {
         guard let base,
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false)

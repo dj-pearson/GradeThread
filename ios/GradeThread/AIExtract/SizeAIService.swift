@@ -3,8 +3,12 @@ import Foundation
 /// Calls `POST /api/flipdesk/ai/size` (US-1088). Infers a best-guess size +
 /// gender/department from the item's photos — prioritizing measurement / flat-lay
 /// shots — compared against the brand's sizing chart, for items whose size label
-/// is missing or cut off (Lululemon is the motivating case). Mirrors
-/// ``AIExtractService``'s auth + error-mapping pattern.
+/// is missing or cut off (Lululemon is the motivating case).
+///
+/// US-1164: routes through ``EdgeAPI/sendRaw`` (backed by ``EdgeAPI/aiShared``'s
+/// long-idle session) so it inherits the shared transient retry/backoff, one
+/// forced 401 token-refresh, and plan-gate handling, while keeping its own bare
+/// codec for the explicit-CodingKeys request/response.
 @MainActor
 final class SizeAIService {
     struct Request: Encodable {
@@ -24,56 +28,23 @@ final class SizeAIService {
         }
     }
 
-    private let baseURL: URL
-    private let session: URLSession
+    private let edge: EdgeAPI
 
-    // Long-idle AI session: Size AI is a vision model call that streams nothing
-    // until done, so a short idle timeout would falsely time it out (see
-    // EdgeNetwork.aiSession).
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
-        self.baseURL = baseURL
-        self.session = session
+    init(edge: EdgeAPI = .aiShared) {
+        self.edge = edge
     }
 
     func estimate(itemId: String) async throws -> Response {
-        // US-1164: guard instead of force-unwrapping a malformed base URL.
-        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            throw EdgeAPIError.network("Could not build request URL")
-        }
-        components.path = "/api/flipdesk/ai/size"
-        guard let url = components.url else {
-            throw EdgeAPIError.network("Could not build URL")
-        }
-
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = await SupabaseShared.currentAccessToken() {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
+        let bodyData: Data
         do {
-            req.httpBody = try JSONEncoder().encode(Request(itemId: itemId))
+            bodyData = try JSONEncoder().encode(Request(itemId: itemId))
         } catch {
             throw EdgeAPIError.decoding(
                 "Encoding size request failed: \(error.localizedDescription)")
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch {
-            throw EdgeAPIError.network(error.localizedDescription)
-        }
-
-        guard let http = response as? HTTPURLResponse else {
-            throw EdgeAPIError.network("Non-HTTP response")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
-        }
+        let data = try await edge.sendRaw(
+            method: "POST", path: "/api/flipdesk/ai/size", bodyData: bodyData)
 
         do {
             return try JSONDecoder().decode(Response.self, from: data)

@@ -39,6 +39,20 @@ struct BulkPricingView: View {
 
     private var controls: some View {
         VStack(spacing: 10) {
+            if store.hasMultipleAccounts, let name = store.primaryAccountName {
+                // US-1216: bulk edits all push through the primary store's token
+                // on the edge — name it so multi-store users don't unknowingly
+                // mix accounts.
+                Label(
+                    "All updates apply to \(name) (your primary store). Change it in Marketplaces → eBay accounts.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            }
+
             Picker("Price", selection: $store.priceMode) {
                 ForEach(BulkPricingStore.PriceMode.allCases) { Text($0.rawValue).tag($0) }
             }
