@@ -5742,7 +5742,7 @@
     {
       "id": "US-1256",
       "priority": 1256,
-      "passes": false,
+      "passes": true,
       "title": "iOS consignment/team small fixes: scope the payout report @Query, fractional revoke timestamp",
       "description": "As a reseller, the consignment payout report shouldn't recompute over the whole cache each render, and team-invite revoke timestamps should match the app's fractional-second format, so the screen is efficient and timestamps sort correctly.",
       "acceptanceCriteria": [
@@ -5750,7 +5750,7 @@
         "TeamService.revoke writes a fractional-seconds ISO8601 string (or lets the DB default now() stamp it) consistent with WorkspaceDate.parse",
         "Build + tests pass"
       ],
-      "notes": "[P3][iOS/Consignment/Team][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ConsignmentReportView.swift:13-15 (unscoped @Query, recompute per render); TeamService.swift:96 (non-fractional ISO). Headless-codeable."
+      "notes": "[P3][iOS/Consignment/Team][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ConsignmentReportView.swift:13-15 (unscoped @Query, recompute per render); TeamService.swift:96 (non-fractional ISO). DONE 2026-06-25 — TeamService.revoke writes fractional-seconds ISO8601 (matches WorkspaceDate.parse + edge format); ConsignmentReportView scopes its items @Query to consignorId != nil (behavior-preserving since compute already ignores non-consigned items) to avoid pulling/joining the whole item cache per render. View/service changes (no unit test); pending iOS CI compile."
     },
     {
       "id": "US-1257",
