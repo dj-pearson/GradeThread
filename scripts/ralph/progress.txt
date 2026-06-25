@@ -3822,3 +3822,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 25, 2026 12:21:14 PM
 ---
+## US-1177: App Store Connect / StoreKit product reconciliation + paywall state polish
+- Status: COMPLETE
+- Timestamp: Thu, Jun 25, 2026 12:26:29 PM
+---
