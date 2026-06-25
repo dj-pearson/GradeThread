@@ -77,7 +77,11 @@ enum ImportValue {
     /// latter to 1.29900).
     static func price(_ raw: String?) -> Double? {
         guard let raw else { return nil }
-        let negative = raw.contains("(") && raw.contains(")")
+        // Accounting-style negatives are wholly wrapped in parens ("(5.00)").
+        // A parenthetical note in a price cell ("$20 (sale)") must NOT flip the
+        // sign, so require the trimmed value to start "(" and end ")".
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        let negative = trimmed.hasPrefix("(") && trimmed.hasSuffix(")")
         var s = String(raw.filter { $0.isNumber || $0 == "." || $0 == "," || $0 == "-" })
         guard !s.isEmpty else { return nil }
 

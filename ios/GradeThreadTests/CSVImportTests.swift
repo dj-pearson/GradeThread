@@ -37,6 +37,24 @@ final class CSVImportTests: XCTestCase {
         XCTAssertEqual(sheet.rows.count, 1)
     }
 
+    // US-1272: Excel/Sheets "CSV UTF-8" prepend a BOM; it must be stripped so the
+    // first header and delimiter detection aren't corrupted.
+    func test_parser_stripsLeadingBOM() {
+        let csv = "\u{FEFF}title,brand\nTee,Nike"
+        let sheet = CSVParser.parseSheet(csv)
+        XCTAssertEqual(sheet.headers, ["title", "brand"])  // no BOM glued to "title"
+        XCTAssertEqual(sheet.rows[0], ["Tee", "Nike"])
+    }
+
+    // US-1272: European-locale exports use ';' — previously parsed as one column.
+    func test_parser_detectsSemicolonDelimiter() {
+        let csv = "title;brand;price\nTee;Nike;5,00"
+        XCTAssertEqual(CSVParser.detectDelimiter(csv), .semicolon)
+        let sheet = CSVParser.parseSheet(csv)
+        XCTAssertEqual(sheet.headers, ["title", "brand", "price"])
+        XCTAssertEqual(sheet.rows[0], ["Tee", "Nike", "5,00"])
+    }
+
     // MARK: - Field guessing
 
     func test_guessField_commonHeaders() {
@@ -57,6 +75,14 @@ final class CSVImportTests: XCTestCase {
         XCTAssertEqual(ImportValue.price("(5.00)"), -5.0)
         XCTAssertNil(ImportValue.price("n/a"))
         XCTAssertNil(ImportValue.price(nil))
+    }
+
+    // US-1272: a parenthetical note in a price cell must not flip the sign — only
+    // a wholly-wrapped value is accounting-negative.
+    func test_price_parentheticalNoteIsNotNegative() {
+        XCTAssertEqual(ImportValue.price("$20 (sale)"), 20)
+        XCTAssertEqual(ImportValue.price("(5.00)"), -5.0)   // still negative
+        XCTAssertEqual(ImportValue.price("($5.00)"), -5.0)  // currency inside parens
     }
 
     // US-1162: a CSV can be in a comma-decimal locale; the right-most separator

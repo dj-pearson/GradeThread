@@ -72,6 +72,37 @@ final class SourceROIRollupTests: XCTestCase {
         XCTAssertEqual(rows[0].revenue, 30, accuracy: 0.001)
     }
 
+    func test_bySource_excludesCancelledAndRefundedSales() {
+        // US-1269: a reversed sale must not inflate a source's revenue/profit.
+        let items = [
+            item("a", source: "g", cost: 10, status: "sold"),
+            item("b", source: "g", cost: 10, status: "sold"),
+        ]
+        let good = sale("a", price: 50, fees: 5)
+        let refunded = sale("b", price: 50, fees: 5)
+        refunded.status = "refunded"
+        let rows = SourceROIRollup.bySource(
+            items: items, sales: [good, refunded], sources: [source("g", "Goodwill")]
+        )
+        let g = rows.first { $0.sourceId == "g" }!
+        XCTAssertEqual(g.soldCount, 1)                       // only the completed sale
+        XCTAssertEqual(g.revenue, 50, accuracy: 0.001)
+        XCTAssertEqual(g.netProfit, 35, accuracy: 0.001)     // 50 − 5 − 10
+    }
+
+    func test_bySource_includesPaymentProcessingFees() {
+        // US-1269: fees must be platform + payment-processing (SalePnL.fees).
+        let items = [item("a", source: "g", cost: 10, status: "sold")]
+        let s = sale("a", price: 50, fees: 5)
+        s.paymentProcessingFees = 2
+        let rows = SourceROIRollup.bySource(
+            items: items, sales: [s], sources: [source("g", "Goodwill")]
+        )
+        let g = rows.first { $0.sourceId == "g" }!
+        XCTAssertEqual(g.fees, 7, accuracy: 0.001)           // 5 + 2
+        XCTAssertEqual(g.netProfit, 33, accuracy: 0.001)     // 50 − 7 − 10
+    }
+
     func test_budgetStatus_windowsByCreationDate() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let old = now.addingTimeInterval(-40 * 86_400)

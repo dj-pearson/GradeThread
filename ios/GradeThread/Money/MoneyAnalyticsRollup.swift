@@ -146,7 +146,11 @@ enum MoneyAnalyticsRollup {
         var counts: [String: Int] = [:]
         var values: [String: [Double]] = [:]
         for item in items where DashboardRollup.isOnHand(item.status) {
-            let label = agingLabel(forDays: daysHeld(item.createdAt, now: now, calendar: calendar))
+            // US-1246: anchor on the real acquisition date when known — createdAt
+            // is when the local mirror row was created, which understates age for
+            // backfilled/imported items. Fall back to createdAt.
+            let acquired = item.acquiredDate ?? item.createdAt
+            let label = agingLabel(forDays: daysHeld(acquired, now: now, calendar: calendar))
             counts[label, default: 0] += 1
             values[label, default: []].append(item.acquiredPrice ?? 0)
         }
@@ -193,8 +197,11 @@ enum MoneyAnalyticsRollup {
         now: Date = .now,
         calendar: Calendar = .current
     ) -> TimeOnMarketStats {
+        // US-1246: anchor on acquiredDate when known so days-to-sell reflects the
+        // real holding period for backfilled/imported items, not when the local
+        // mirror row was created.
         var createdById: [String: Date] = [:]
-        for item in items { createdById[item.id] = item.createdAt }
+        for item in items { createdById[item.id] = item.acquiredDate ?? item.createdAt }
 
         var spans: [Int] = []
         for sale in sales where SalePnL.isCompleted(sale) {

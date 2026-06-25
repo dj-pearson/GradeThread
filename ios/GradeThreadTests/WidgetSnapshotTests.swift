@@ -36,6 +36,20 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.activeListings, 2)
     }
 
+    func test_compute_countsRelistedAndIsCaseInsensitive() {
+        // US-1258: relisted is still live, and casing drift must not zero the tile.
+        let listings = [
+            makeListing(status: "active"),
+            makeListing(status: "relisted"),
+            makeListing(status: "ACTIVE"),
+            makeListing(status: "ended"),
+        ]
+        let snapshot = WidgetSnapshotPublisher.compute(
+            listings: listings, sales: [], now: .now, isSignedIn: true
+        )
+        XCTAssertEqual(snapshot.activeListings, 3)
+    }
+
     func test_compute_soldToday_bucketsByStartOfDay() {
         let cal = Calendar(identifier: .gregorian)
         let now = Date(timeIntervalSince1970: 1_700_000_000) // fixed instant

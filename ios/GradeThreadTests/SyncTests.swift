@@ -84,6 +84,38 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(result, "Server Updated")
     }
 
+    // MARK: - US-1244 listing-price selection (market value from the live listing)
+
+    func test_selectListingPrices_prefersLiveOverNewerEndedListing() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let t1 = Date(timeIntervalSince1970: 2_000)   // newer
+        // An ended listing relisted at a newer timestamp must NOT win over the
+        // live (active) listing for the same item.
+        let prices = SyncEngine.selectListingPrices([
+            (itemId: "i1", price: 40, at: t0, isLive: true),    // active, older
+            (itemId: "i1", price: 999, at: t1, isLive: false),  // ended, newer
+        ])
+        XCTAssertEqual(prices["i1"], 40)
+    }
+
+    func test_selectListingPrices_newestWinsWithinSameLiveness() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let t1 = Date(timeIntervalSince1970: 2_000)
+        let prices = SyncEngine.selectListingPrices([
+            (itemId: "i1", price: 40, at: t0, isLive: true),
+            (itemId: "i1", price: 55, at: t1, isLive: true),   // newer live wins
+        ])
+        XCTAssertEqual(prices["i1"], 55)
+    }
+
+    func test_selectListingPrices_fallsBackToNonLiveWhenNoneLive() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let prices = SyncEngine.selectListingPrices([
+            (itemId: "i1", price: 30, at: t0, isLive: false),  // only an ended listing
+        ])
+        XCTAssertEqual(prices["i1"], 30)
+    }
+
     func test_ebayOwnedListingField_nilOrigin_treatedAsGradethread() {
         // Nil origin (legacy row) falls through to userOwned rules, not locked.
         let result = ConflictPolicy.resolveEbayOwnedListingField(

@@ -78,7 +78,12 @@ enum WidgetSnapshotPublisher {
     ) -> WidgetSnapshot {
         guard isSignedIn else { return .signedOut(generatedAt: now) }
 
-        let activeListings = listings.filter { $0.listingStatus == "active" }.count
+        // US-1258: count every LIVE listing (active + relisted), case-insensitive,
+        // via the canonical set — a brittle literal "active" silently zeroed the
+        // tile on any casing/status drift and missed relisted (still-live) rows.
+        let activeListings = listings.filter {
+            SyncEngine.liveListingStatuses.contains($0.listingStatus.lowercased())
+        }.count
 
         // Only completed sales count — cancelled/refunded orders are excluded
         // (00111).

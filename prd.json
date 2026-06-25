@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1227,
+  "nextId": 1276,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5358,6 +5358,647 @@
         "ios/GradeThread/Auth/TurnstileView.swift",
         "ios/project.yml"
       ]
+    },
+    {
+      "id": "US-1227",
+      "title": "iOS Consignment payout report: exclude reversed sales and include payment-processing fees",
+      "description": "As a reseller running consignment, I want the payout report to only count completed sales and to subtract all fees (platform + payment-processing), so that I never overpay a consignor on a refunded/cancelled sale or on understated fees.",
+      "acceptanceCriteria": [
+        "ConsignmentReport.compute(items:sales:consignors:) filters sales through SalePnL.isCompleted so cancelled/refunded sales produce no payout (mirrors WidgetSnapshotPublisher and Money rollups)",
+        "Fee total uses SalePnL.fees(sale) (platform + paymentProcessingFees) instead of platformFees alone, so netProceeds and consignorPayout are not overstated",
+        "Unit tests cover both: a refunded+cancelled sale is excluded, and a sale with paymentProcessingFees nets correctly",
+        "Build + existing ConsignmentTests still pass"
+      ],
+      "priority": 1227,
+      "passes": true,
+      "notes": "[P1][iOS/Consignment/Money][iOS deep-dive audit 2026-06-25] DONE 2026-06-25. Found by multi-agent audit, verified against code: ConsignmentReport.swift convenience compute mapped EVERY LocalSale with fees=sale.platformFees only and no status filter, while SalePnL.isCompleted excludes cancelled/refunded and SalePnL.fees adds paymentProcessingFees. Fixed both in the convenience overload; pure compute(soldItems:) unchanged. Added test_report_convenienceExcludesCancelledAndRefundedSales and test_report_convenienceIncludesPaymentProcessingFees. Headless (pure-function change); pending iOS CI to confirm compile."
+    },
+    {
+      "id": "US-1228",
+      "title": "iOS CurrencyFormatter.parse: reject malformed numerics instead of silent partial-parse",
+      "description": "As a seller entering prices/amounts, I want a malformed number to be rejected (treated as no value) rather than silently coerced to a surprising leading value, so a typo like 12.50.00 or 5-0 never persists as 12.50 or 5.",
+      "acceptanceCriteria": [
+        "CurrencyFormatter.parse returns nil for inputs with more than one decimal separator (e.g. 12.50.00) or a non-leading/duplicate minus (5-0, --5, 1-2.3)",
+        "A single leading minus still parses (-12.50 -> -12.5); valid locale formats unchanged (US-1162 tests still pass)",
+        "Unit tests cover the rejected malformed cases and the leading-minus case",
+        "Build + existing CurrencyFormatterParseTests pass"
+      ],
+      "priority": 1228,
+      "passes": true,
+      "notes": "[P2][iOS/Money][iOS deep-dive audit 2026-06-25] DONE 2026-06-25. NumberFormatter.number(from:) partial-parses, so parse(\"12.50.00\")->12.50 and parse(\"5-0\")->5 silently. Added validation (<=1 decimal separator, single leading minus) before the formatter. Tests: test_parse_rejectsMalformedNumerics, test_parse_acceptsSingleLeadingMinus. Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1229",
+      "priority": 1229,
+      "passes": false,
+      "title": "iOS: cancel grade-status polling when the grade sheet is dismissed",
+      "description": "As a user, when I close the grade request sheet, the app should stop polling the grading status, so it isn't hitting the network every backoff interval for ~2 minutes after I've left.",
+      "acceptanceCriteria": [
+        "The submit/poll Task in GradeRequestSheet is stored and cancelled on .onDisappear (or moved into a .task(id:) SwiftUI manages) so poll(ref:)'s Task.isCancelled guard actually trips",
+        "No status requests fire after the sheet is dismissed",
+        "Existing grading tests still pass"
+      ],
+      "notes": "[P1][iOS/Performance/Grading][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. GradeRequestSheet.swift:351,368 launches Task { await store.submit() } fire-and-forget; GradeRequestStore.poll(ref:) ~182-183 loops the full 40-poll/~2min window after dismiss because the Task is never cancelled. Device/CI-gated (UI lifecycle)."
+    },
+    {
+      "id": "US-1230",
+      "priority": 1230,
+      "passes": false,
+      "title": "iOS dictation reliability: keep the final transcription segment and make stop() idempotent",
+      "description": "As a user dictating item notes, I want my last spoken words to land in Notes and dictation to restart cleanly, so the final segment isn't dropped and a re-start doesn't corrupt the audio session.",
+      "acceptanceCriteria": [
+        "The final recognition result is applied to form.notes even though stop() flips isRecording=false in the same main-actor turn (apply final text before stop, or relax the onChange isRecording guard for the finalized value)",
+        "SpeechDictation.stop() is idempotent (guarded removeTap / setActive(false) runs once and only deactivates the session this instance activated)",
+        "Tests or manual notes cover the final-segment behavior"
+      ],
+      "notes": "[P2][iOS/Speech][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SpeechDictation.swift:174-179 sets recognizedText then stop() on isFinal; DetailsIntakeView.swift:173-180 onChange guards isRecording -> drops final segment. SpeechDictation.swift:97-105,140-141 double removeTap/setActive on restart/error. Device-gated (mic/audio session)."
+    },
+    {
+      "id": "US-1231",
+      "priority": 1231,
+      "passes": false,
+      "title": "iOS AIExtract robustness: upload-settle race, offline on-device OCR fallback, OCR downsample",
+      "description": "As a seller, I want AI auto-fill to wait for photos to actually finish uploading, fall back to on-device OCR when offline, and not stall on full-res OCR, so titles aren't blank and extraction is fast and reliable.",
+      "acceptanceCriteria": [
+        "waitForUploads waits until allTasks.count >= photos.count AND all terminal (with a small initial grace) instead of returning when complete>=max(allTasks.count,photos.count)",
+        "The offline branch runs liveTextSuggestions on-device and seeds a title instead of immediately marking .failed with an Untitled item",
+        "liveTextSuggestions downsamples the capture (~1600px) before .accurate Vision OCR"
+      ],
+      "notes": "[P2][iOS/AI][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. AIExtractionManager.swift:206-213 (race), 100-106 (offline no OCR fallback though server-error branch 158-172 uses it), 309-333 (full-res OCR decode). Device-gated."
+    },
+    {
+      "id": "US-1232",
+      "priority": 1232,
+      "passes": false,
+      "title": "iOS capture pipeline: honor photoQualityPrioritization, reuse barcode request, deterministic single-shot scan",
+      "description": "As a user, I want full-quality captures and reliable single-barcode scanning, so quality config isn't dead and the wrong SKU isn't grabbed.",
+      "acceptanceCriteria": [
+        "AVCapturePhotoSettings.photoQualityPrioritization is set to .quality per shot so the session's maxPhotoQualityPrioritization=.quality is actually used",
+        "BarcodeScanner builds one VNDetectBarcodesRequest and reuses it across frames instead of allocating per sample buffer",
+        "Single-shot barcode scanning stops the stream / gates emission after the first code so two visible barcodes don't race"
+      ],
+      "notes": "[P2/P3][iOS/Capture][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. CameraSession.swift:111-118,164 (quality prioritization never set on settings); BarcodeScanner.swift:194-209 (per-frame request alloc), 166-181 (per-distinct-code dedupe races single-shot). Device-gated (camera)."
+    },
+    {
+      "id": "US-1233",
+      "priority": 1233,
+      "passes": false,
+      "title": "iOS Vision inference precision: brand word-boundary match + numeric-size lower bound",
+      "description": "As a seller, I want brand/size auto-detection from the tag to avoid false positives, so 'fleece' doesn't infer brand 'Lee' and a stray '0' isn't read as a size.",
+      "acceptanceCriteria": [
+        "detectBrand matches on tokenized word boundaries / multi-token spans rather than naked substring contains (no 'lee' inside 'fleece')",
+        "matchExplicitSize/matchNumericSize require n>=1 (and constrain bare numeric lines to plausible size ranges) so '0'/care-codes aren't accepted",
+        "SizeTagInference unit tests cover the false-positive cases"
+      ],
+      "notes": "[P2][iOS/Vision][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SizeTagInference.swift:74-79 (substring brand match), 138,152 (n>=0 accepts 0). Headless-codeable but heuristic change needs a test run to confirm no regression on real tags."
+    },
+    {
+      "id": "US-1234",
+      "priority": 1234,
+      "passes": false,
+      "title": "iOS intake: clear photo and details drafts together on save/discard",
+      "description": "As a user, after I save or discard an intake, both the details draft and the captured-photo draft should be cleared, so a stale photo draft doesn't trigger a spurious 'resume?' prompt next time.",
+      "acceptanceCriteria": [
+        "DetailsIntakeView save-success/offline/merge paths clear PhotoDraftStore alongside IntakeDraftStore (and the photo discard path clears the details draft) so the two never desync",
+        "No orphaned encrypted garment JPEGs remain after a completed save",
+        "A test or manual check confirms a clean slate after save"
+      ],
+      "notes": "[P3][iOS/Capture][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. IntakeDraftStore.clear() (IntakeDraftStore.swift:138-143) removes only the details file; DetailsIntakeView.swift:713/730/748 call it without PhotoDraftStore.clear(). Headless (file lifecycle) but verify flow intent. UPDATE 2026-06-25 (investigated — do NOT fix in DetailsIntakeView): DetailsIntakeView (details-first flow) references neither PhotoDraftStore nor photos, so adding PhotoDraftStore.clear() to its save-success path would wrongly clear an UNRELATED photo-first flow draft (the two flows have independent drafts and entry points). The coordinated clear must live inside the PHOTO-FIRST flow (PhotoIntakeView), where both a photo draft and a details draft may co-exist for the same item — and only after confirming that flow actually creates both. Needs flow-accurate scoping on a Mac, not a blind cross-flow clear."
+    },
+    {
+      "id": "US-1235",
+      "priority": 1235,
+      "passes": false,
+      "title": "iOS Disclosure: composite defect photos with bounded concurrency",
+      "description": "As a user generating a disclosure sheet, I want defect-photo composites to render in parallel, so N photos don't take N serial download+composite cycles.",
+      "acceptanceCriteria": [
+        "DisclosureStore.renderAll uses a bounded-concurrency task group (mirroring PhotoCompressor.compressBatch) instead of an awaiting for-loop",
+        "Output ordering is preserved",
+        "Build + disclosure tests pass"
+      ],
+      "notes": "[P3][iOS/Disclosure/perf][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. DisclosureStore.swift:74-78 renderAll awaits renderOne per photo serially. Headless-codeable (perf)."
+    },
+    {
+      "id": "US-1236",
+      "priority": 1236,
+      "passes": false,
+      "title": "iOS AutoLister bulk-edit: parse per-row price with locale (comma-decimal currently saves $0)",
+      "description": "As a seller editing draft prices in the bulk-edit grid, I want my locale's decimal format accepted, so typing 19,99 doesn't silently persist $0 and skip the 'Price not set' warning.",
+      "acceptanceCriteria": [
+        "DraftEditRow.toEdit() and .issues parse price via CurrencyFormatter().parse instead of Double(price) ?? 0",
+        "DraftBulkMutation.apply / DraftsBulkEditStore parse current row price the same way; the seeded canonical priceString and the parse stay consistent across locales",
+        "Tests cover a comma-decimal row price round-tripping correctly and being flagged when truly empty"
+      ],
+      "notes": "[P1][iOS/Money/AutoLister][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. DraftsBulkEditStore.swift:50,68,200 and DraftBulkMutations.swift:58 use Double(price); bulk paths were locale-fixed in US-1191 but the row edit/save path was missed. NOTE locale trap: priceString emits canonical '.' format, so parser choice must not misread the seeded value (e.g. de_DE). Needs a test run."
+    },
+    {
+      "id": "US-1237",
+      "priority": 1237,
+      "passes": false,
+      "title": "iOS publish composer comp polish: currency-aware median, brand/size + live title, stable task",
+      "description": "As a seller at the publish step, I want the comp median shown in the correct currency and drawn from a well-scoped lookup of the title I'm about to publish, so the price sanity-check is trustworthy.",
+      "acceptanceCriteria": [
+        "Comp median is formatted through the currency-aware formatter and reconciles currency code with the price beside it (no mixed-currency comparison)",
+        "CompsService lookup passes the live composer title plus brand/size instead of the server summary title with nil brand/size",
+        "The comp-loading .task is attached to a stable container, not a caption that may be conditionally removed"
+      ],
+      "notes": "[P2][iOS/Marketplaces/AI][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. PublishDialog.swift:451-457,464-466,597. Builds on US-1167 (comp median already surfaced)."
+    },
+    {
+      "id": "US-1238",
+      "priority": 1238,
+      "passes": false,
+      "title": "iOS negotiation safety: confirm send-offer-to-all with count, fix counter optimistic-remove and banner copy",
+      "description": "As a seller, before blasting a discount offer to every eligible buyer I want to see how many will be hit and confirm, and a countered offer should stay visible, so I don't fire an irreversible money action blind or lose track of open counters.",
+      "acceptanceCriteria": [
+        "SendOfferSheet loads and shows the eligible listing/buyer count and requires confirmation before sendOfferToAllEligible (mirrors US-1160 confirmation pattern)",
+        "respond() does not optimistically remove an offer on a Counter (counter leaves the negotiation open); uses action-specific banner copy",
+        "Build + negotiation tests pass"
+      ],
+      "notes": "[P2/P3][iOS/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. NegotiationInboxView.swift:467-516, NegotiationStore.swift:66-67,78-100."
+    },
+    {
+      "id": "US-1239",
+      "priority": 1239,
+      "passes": true,
+      "title": "iOS bulk-pricing summary denominator (investigated — not a bug)",
+      "description": "As a seller running a bulk reprice, I want the result summary to add up, so I don't see 'Updated 2/5. 4 failed' when only 3 rows existed.",
+      "acceptanceCriteria": [
+        "Bulk-pricing actionBanner denominator is the original selected count (or excludes preflight from res.total), and problems can't exceed it",
+        "Unit test covers the count math with preflight-failed rows"
+      ],
+      "notes": "[P3][iOS/Marketplaces][iOS deep-dive audit 2026-06-25] INVESTIGATED 2026-06-25 — NOT A BUG. An audit agent flagged BulkPricingStore.swift:190 as double-counting preflight rows, but verification shows res.total (BulkPriceQtyResponse.total, BulkPricingService.swift:28) is the edge count of UPDATES ACTUALLY SENT, and preflight-failed rows are continue-d before append so they are never sent. Therefore succeeded + problems == res.total + preflight.count (denominator), which is consistent. No code change. Kept as a record of the false-positive verification."
+    },
+    {
+      "id": "US-1240",
+      "priority": 1240,
+      "passes": false,
+      "title": "iOS reconcile 'Create all': bounded concurrency + per-item progress",
+      "description": "As a seller reconciling orphan orders, I want 'Create all' to run with bounded concurrency and show progress, so a large queue isn't a multi-second-per-item serial march.",
+      "acceptanceCriteria": [
+        "ReconciliationService.createAll uses a bounded-concurrency task group (like DraftsLibraryStore.applyBulk, US-1166) instead of awaiting createItem serially",
+        "Per-item progress is surfaced beyond a single isWorking flag",
+        "Errors per item are collected and reported"
+      ],
+      "notes": "[P2][iOS/Marketplaces/perf][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ReconciliationService.swift:160-179, ReconciliationStore.swift:80-96 (3-4 sequential network calls per orphan)."
+    },
+    {
+      "id": "US-1241",
+      "priority": 1241,
+      "passes": true,
+      "title": "iOS EbayPublishService.updatePrice: client-side price>0 validation",
+      "description": "As a seller, a zero/negative price edit should be caught before the network round-trip with clear copy, so I don't get an opaque edge failure.",
+      "acceptanceCriteria": [
+        "EbayPublishService.updatePrice validates price>0 (and against eBay min) before sending, returning a typed .failed with clear copy",
+        "Matches the composer priceInvalid and BulkPricing minPrice guards",
+        "Test covers the rejection"
+      ],
+      "notes": "[P3][iOS/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. EbayPublishService.swift:66-80 sends any Double with no guard. DONE 2026-06-25 — updatePrice guards price>0 before the round-trip, returning .failed with clear copy. Test test_updatePrice_rejectsNonPositivePriceBeforeNetwork. Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1242",
+      "priority": 1242,
+      "passes": false,
+      "title": "iOS publish dialog: inline price fix instead of a zero-price dead-end; surface eBay-originated discard",
+      "description": "As a seller, when a draft has no price I want to set it right in the publish dialog, and when a bulk save/publish is blocked I want to know which rows are blocking, so I'm not bounced back to the canvas or silently dropped.",
+      "acceptanceCriteria": [
+        "PublishDialog offers inline price entry (or a 'Set price' button to the canvas field) when priceInvalid instead of only telling the user to leave",
+        "DraftsBulkEditStore.save excludes eBay-originated rows from the dirty set up front (or flags them in the result) instead of silently marking them saved",
+        "publishSelected names the dirty blocking rows or offers save-then-publish"
+      ],
+      "notes": "[P3][iOS/Marketplaces/ux][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. PublishDialog.swift:594-607; DraftsBulkEditStore.swift:255,290-293."
+    },
+    {
+      "id": "US-1243",
+      "priority": 1243,
+      "passes": false,
+      "title": "iOS drafts bulk save: bounded concurrency to match the library path",
+      "description": "As a seller, saving many edited rows in the bulk-edit grid should be as fast as the library bulk apply, so a large dirty batch isn't needlessly slow.",
+      "acceptanceCriteria": [
+        "DraftsBulkEditStore.save uses the same chunked bounded-concurrency task-group pattern as DraftsLibraryStore.applyBulk (US-1166)",
+        "Ordering/result summary preserved",
+        "Build + tests pass"
+      ],
+      "notes": "[P3][iOS/Marketplaces/perf][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. DraftsBulkEditStore.swift:243-270 awaits service.save per dirty row serially."
+    },
+    {
+      "id": "US-1244",
+      "priority": 1244,
+      "passes": true,
+      "title": "iOS inventory market value: derive cached listingPrice from the active listing, not an ended/stale one",
+      "description": "As a seller, an item's cached market value should come from its active listing's price, so a relisted/ended listing carrying a newer timestamp doesn't drive a wrong inventory value.",
+      "acceptanceCriteria": [
+        "SyncEngine.listingPrices prefers the latest active/listed/relisted listing's price, falling back to any only when none is active",
+        "Dashboard/Analytics/Money inventory-value reflect the active price",
+        "Test covers the active-vs-ended selection"
+      ],
+      "notes": "[P2][iOS/Sync/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SyncEngine.swift:574-582 keys off latest listed_at?? created_at with no listing_status filter. DONE 2026-06-25 — extracted SyncEngine.selectListingPrices (pure, testable): a live (active/relisted) listing always beats a non-live one, newest wins within the same liveness class, falls back to any only when none is live. 3 tests in SyncTests. Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1245",
+      "priority": 1245,
+      "passes": false,
+      "title": "iOS Money/Sales net figures: reconcile labels and route all surfaces through SalePnL",
+      "description": "As a seller, the Money tab's 'gross profit'/ROI and the Sales tab's 'net' should mean the same thing as Dashboard/Analytics, so the same orders don't show different numbers under inconsistent labels.",
+      "acceptanceCriteria": [
+        "MoneyMetrics.grossProfitThisMonth/roiThisMonth either match their documented contract (revenue − fees − costBasis) or are relabeled to net/marginal-ROI to match what SalePnL.net computes",
+        "RemoteSale.net / SalesStore.totalNet carry the full money columns and route through SalePnL (or are relabeled 'proceeds (price − fees)')",
+        "Tests pin the chosen definition; all surfaces agree"
+      ],
+      "notes": "[P2][iOS/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. MoneyMetrics.swift:21-28,60-63 (mislabeled net-as-gross + ROI mixing); SalesTypes.swift:17 + SalesStore.swift:23-24 (net = price − platformFees only, ignores processing fees/costs/cost basis — the very split US-1194 unified). Product decision needed on relabel vs recompute; headless once decided."
+    },
+    {
+      "id": "US-1246",
+      "priority": 1246,
+      "passes": true,
+      "title": "iOS inventory aging: anchor days-held / time-on-market on acquiredDate, not row createdAt",
+      "description": "As a seller, inventory-aging and time-to-sell should measure from the real purchase date, so backfilled/imported items don't understate age or clamp to 0.",
+      "acceptanceCriteria": [
+        "MoneyAnalyticsRollup days-held and days-to-sell anchor on acquiredDate ?? createdAt",
+        "A sale predating createdAt no longer clamps to 0 incorrectly",
+        "Test covers an item whose acquiredDate precedes createdAt"
+      ],
+      "notes": "[P3][iOS/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. MoneyAnalyticsRollup.swift:149,196-203 uses createdAt though LocalInventoryItem.acquiredDate is synced. DONE 2026-06-25 — inventoryAging and timeOnMarket anchor on acquiredDate ?? createdAt. Test test_inventoryAging_anchorsOnAcquiredDateWhenPresent. Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1247",
+      "priority": 1247,
+      "passes": false,
+      "title": "iOS inventory price filter: define explicit semantics for unpriced items (don't silently drop)",
+      "description": "As a seller filtering by price, items with no price shouldn't silently vanish under a min/max bound, so an unpriced backlog stays reachable.",
+      "acceptanceCriteria": [
+        "InventoryFilter price-band handling decides null-price semantics (include under max-only, or a 'no price' facet) instead of excluding whenever min/max is active",
+        "Facet bounds derivation accounts for the choice",
+        "Test covers an unpriced item under a maxPrice-only filter"
+      ],
+      "notes": "[P3][iOS/Inventory][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. InventoryFilter.swift:62-64,100-104 effectivePrice nil -> excluded. Headless-codeable. UPDATE 2026-06-25 (investigated): the drop-unpriced behavior is INTENTIONAL and pinned by test_matches_priceBand_dropsItemsWithNoPrice (AdvancedInventoryFilterTests.swift:104, maxPrice=100 -> unpriced item excluded). So this is a deliberate product decision, not an accidental gap. Changing it (e.g. include unpriced under max-only, exclude under min) MUST also update that test. Left open pending a product call on the desired semantics; do not flip blind."
+    },
+    {
+      "id": "US-1248",
+      "priority": 1248,
+      "passes": true,
+      "title": "iOS local search: index style/garmentType/garmentCategory/container/sourcedBy so offline search matches them",
+      "description": "As a seller searching offline, I want style/garment-type terms to match locally, so airplane-mode search doesn't miss items the row clearly carries.",
+      "acceptanceCriteria": [
+        "InventoryFilter.searchableText adds style, garmentType, garmentCategory, container, sourcedBy (all mirrored on LocalInventoryItem)",
+        "Offline search returns those matches without relying on server FTS",
+        "Test covers a style/garment-type query"
+      ],
+      "notes": "[P3][iOS/Inventory][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. DONE 2026-06-25 — added style/garmentType/garmentCategory/container/sourcedBy to InventoryFilter.searchableText; test test_filter_searchMatchesStyleAndGarmentType. Headless; pending iOS CI compile. InventoryFilter.swift:170-185 omits mirrored fields. Headless-codeable."
+    },
+    {
+      "id": "US-1249",
+      "priority": 1249,
+      "passes": false,
+      "title": "iOS sync hygiene 2: listing conflict provenance, sale dirty-guard, primary-photo cover clear, stale-day calendar math",
+      "description": "As a seller, server pulls shouldn't clobber my pending local edits or leave a dead cover thumbnail, and stale-listing day math should match the calendar, so data stays correct and consistent.",
+      "acceptanceCriteria": [
+        "mergeListings routes price/status/title through ConflictPolicy.resolveEbayOwnedListingField keyed on listing_origin + local-dirty flag (US-1086) instead of unconditional overwrite",
+        "mergeSales adds a dirty-guard for user-editable sale fields and standardizes net on component math",
+        "mergePhotos clears an item's primaryPhotoURL when its last photo is removed via delta",
+        "PriceSuggestion stale-age uses Calendar day components instead of /86400"
+      ],
+      "notes": "[P2/P3][iOS/Sync][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SyncMergeActor.swift:205-234,283-323,87; PriceSuggestionModels.swift:108-117. Distinct from US-1221. Some headless, prune/cover-clear best CI-verified. UPDATE 2026-06-25: the PriceSuggestion stale-age calendar-day sub-part was attempted and REVERTED — switching /86400 to Calendar.dateComponents([.day]) in .current tz makes the existing test_pricedButStaleListing assertion (.staleListing(days:45)) compute 44 across a DST fall-back window (Sep30->Nov14 in US-Eastern), a real test regression I cannot run to confirm. /86400 is deterministic and acceptable for a staleness heuristic; if pursued, it must pass an explicit UTC calendar AND update that test. Other US-1249 parts (listing conflict provenance, sale dirty-guard, primary-photo cover clear) remain — best CI-verified."
+    },
+    {
+      "id": "US-1250",
+      "priority": 1250,
+      "passes": false,
+      "title": "iOS Sign in with Apple: record credential id only on successful exchange, inside AuthStore",
+      "description": "As a returning Apple user, revocation monitoring should be reliable, so a failed token exchange doesn't strand a stored Apple id and every sign-in path enables revocation detection.",
+      "acceptanceCriteria": [
+        "AppleCredentialMonitor.record runs only after the Supabase token exchange succeeds, in AuthStore.signInWithApple, not unconditionally in the LoginView button handler",
+        "A failed exchange leaves no stored Apple id; email/password sign-in can't inherit a stale one",
+        "Revocation detection works regardless of which entry point initiated SIWA"
+      ],
+      "notes": "[P2][iOS/Auth][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. LoginView.swift:508 records before async sign-in; AuthStore.swift:114-134 never records. US-1172 follow-on."
+    },
+    {
+      "id": "US-1251",
+      "priority": 1251,
+      "passes": false,
+      "title": "iOS StoreKit restore + price-load feedback (no silent success/failure)",
+      "description": "As a user, tapping Restore Purchases should tell me what happened, and a transient price-load hiccup shouldn't hard-fail the paywall, so I'm not left staring at a screen that did nothing.",
+      "acceptanceCriteria": [
+        "StoreKitService.restore surfaces the AppStore.sync error and PaywallStore.restore sets a restore-result state (restored / nothing-to-restore / failed) shown in the UI",
+        "StoreKitService.loadPrices distinguishes a thrown error (retryable) from a genuinely empty product list so the paywall shows retry vs config-error messaging accordingly",
+        "Build + paywall tests pass"
+      ],
+      "notes": "[P2][iOS/Billing][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. PaywallStore.swift:233-236, StoreKitService.swift:107-109 (restore swallows all), StoreKitService.swift:59-68 + PaywallStore.swift:184 (loadPrices [:] -> hard fail)."
+    },
+    {
+      "id": "US-1252",
+      "priority": 1252,
+      "passes": false,
+      "title": "iOS upload auth-failure resilience: refresh-on-401 for multipart, re-queue storage 401/403",
+      "description": "As a user uploading evidence/photos, an expired token shouldn't dead-end the upload, so a queued background upload re-mints its token and retries instead of stranding the file.",
+      "acceptanceCriteria": [
+        "EdgeAPI.postMultipartImage performs the same single forced token-refresh-on-401 as performRaw (US-1146), rebuilding the safe request once",
+        "PhotoUploadService routes HTTP 401/403 (and 5xx) through handleNetworkFailure so SyncEngine re-mints the signed URL and re-uploads, instead of marking .failed terminally",
+        "Tests cover the 401 refresh path"
+      ],
+      "notes": "[P2][iOS/Networking/Upload][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. EdgeAPI.swift:164-225 (no refresh on multipart); PhotoUploadService.swift:316-330 (401/403 terminal, unlike network-error branch line 310)."
+    },
+    {
+      "id": "US-1253",
+      "priority": 1253,
+      "passes": false,
+      "title": "iOS networking/billing polish bucket: catalog via EdgeAPI, surface Retry-After, debounce billing refresh, temp-file cleanup",
+      "description": "As a user, billing and catalog calls should be as resilient and efficient as the rest of the app, so transient failures recover, rate-limit waits are visible, and stranded temp files don't accumulate.",
+      "acceptanceCriteria": [
+        "CatalogService.load routes through EdgeAPI.getJSON (cache + refresh-on-401 + retry + telemetry) instead of a bespoke URLSession call",
+        "The 429 Retry-After duration is carried on the rate-limited error so the UI can show 'try again in Ns'",
+        "PaywallStore.refreshBilling coalesces/debounces back-to-back entitlement-change storms",
+        "PhotoUploadService adds age-based temp-file cleanup independent of sign-out cancelAll"
+      ],
+      "notes": "[P3][iOS/Networking/Billing][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. CatalogService.swift:64-85; EdgeAPI.swift:343-356; PaywallStore.swift:247-264; PhotoUploadService.swift:341-350. Also AppLock.swift:82-91 enabled-state vs state-enum dual source of truth (fold in or separate)."
+    },
+    {
+      "id": "US-1254",
+      "priority": 1254,
+      "passes": false,
+      "title": "iOS Team management: scope to the active workspace and gate writes on the caller's role",
+      "description": "As an admin operating inside a shared workspace, the Team screen should manage that workspace's team, not my personal one, so multi-workspace management isn't a dead-end showing the wrong members.",
+      "acceptanceCriteria": [
+        "TeamView is passed WorkspaceScope.tenantOwnerId(selfId:) (the active workspace owner) instead of always the signed-in user's id",
+        "TeamStore checks the current user's actual WorkspaceRole before showing role pickers / invite / revoke instead of assuming you are the owner",
+        "The synthetic 'You = Owner' row and write controls reflect real membership"
+      ],
+      "notes": "[P2][iOS/Team/Workspaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. TeamView.swift:106 (always selfId), ProfileSection.swift:103-106, TeamStore unconditional owner assumption (TeamView.swift:180-185)."
+    },
+    {
+      "id": "US-1255",
+      "priority": 1255,
+      "passes": false,
+      "title": "iOS Referrals: reconcile funnel stats and surface specific redeem error reasons",
+      "description": "As a user, the referral stats should add up and a failed redeem should tell me why, so 'Referred/In progress/Rewarded' aren't contradictory and I get actionable guidance.",
+      "acceptanceCriteria": [
+        "The 'In progress' stat is derived consistently (e.g. total − granted, clamped >= 0) or the server semantics are confirmed and labeled so the three columns reconcile",
+        "RedeemResponse decodes an optional reason/error and maps invalid/expired/already-referred/self-referral to specific copy instead of one generic 'code isn't valid'",
+        "Tests cover the stat math and reason mapping"
+      ],
+      "notes": "[P2/P3][iOS/Referrals][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ReferralsView.swift:127-131, ReferralsStore.swift:40 (stat partition), 71-76 (generic redeem error). UPDATE 2026-06-25 (investigated): both parts are server-gated, not clean client fixes. (1) inProgress is currently pending+qualified (ReferralsStore:40), a defensible definition; whether it reconciles with `total` depends on the edge’s stat semantics (does total include granted/qualified/pending?) — needs server confirmation before redefining as total-granted. (2) RedeemResponse carries ONLY { ok } (ReferralTypes.swift:27-29) — specific reasons (invalid/expired/self/already-referred) require the EDGE to return a reason field; adding `let reason: String?` client-side would be speculative scaffolding that does nothing until the server sends it. Re-scoped: pair with an edge change."
+    },
+    {
+      "id": "US-1256",
+      "priority": 1256,
+      "passes": true,
+      "title": "iOS consignment/team small fixes: scope the payout report @Query, fractional revoke timestamp",
+      "description": "As a reseller, the consignment payout report shouldn't recompute over the whole cache each render, and team-invite revoke timestamps should match the app's fractional-second format, so the screen is efficient and timestamps sort correctly.",
+      "acceptanceCriteria": [
+        "ConsignmentReportView scopes/memoizes its data (predicate or precomputed rollup in the store) instead of recomputing ConsignmentReport.compute over all items x sales each body eval",
+        "TeamService.revoke writes a fractional-seconds ISO8601 string (or lets the DB default now() stamp it) consistent with WorkspaceDate.parse",
+        "Build + tests pass"
+      ],
+      "notes": "[P3][iOS/Consignment/Team][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ConsignmentReportView.swift:13-15 (unscoped @Query, recompute per render); TeamService.swift:96 (non-fractional ISO). DONE 2026-06-25 — TeamService.revoke writes fractional-seconds ISO8601 (matches WorkspaceDate.parse + edge format); ConsignmentReportView scopes its items @Query to consignorId != nil (behavior-preserving since compute already ignores non-consigned items) to avoid pulling/joining the whole item cache per render. View/service changes (no unit test); pending iOS CI compile."
+    },
+    {
+      "id": "US-1257",
+      "priority": 1257,
+      "passes": false,
+      "title": "iOS: make per-category notification preferences actually gate notifications",
+      "description": "As a user, when I turn off a notification category in Settings it should stop those notifications, so the Notifications settings section isn't a no-op.",
+      "acceptanceCriteria": [
+        "The notifyPref.<category> preferences are read where notifications are produced/presented (DeepLink gating, NewSaleNotifier/NewGradeNotifier) and/or POSTed to users.notification_preferences so the server honors them",
+        "NotificationDelegate.willPresent consults the category prefs instead of unconditionally returning [.banner,.badge,.sound,.list]",
+        "A muted category produces no banner/sound; tests or manual check confirm"
+      ],
+      "notes": "[P1][iOS/Notifications][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ContentView.swift:1545-1558,1696-1728 write notifyPref.* that nothing reads; NotificationDelegate.swift:24 always presents. Device-gated end-to-end."
+    },
+    {
+      "id": "US-1258",
+      "priority": 1258,
+      "passes": true,
+      "title": "iOS widget snapshot: single-currency totals and canonical listing-status comparison",
+      "description": "As a user, widget tiles should show correct, single-currency totals and not zero out when a status string drifts, so the widget is trustworthy.",
+      "acceptanceCriteria": [
+        "WidgetSnapshotPublisher sums/scopes to a single currency (convert or filter) rather than only stamping currencyCode on mixed-currency raw amounts",
+        "Active-listings tile compares against the canonical listing-status enum, not the literal \"active\"",
+        "Tests cover a mixed-currency set and a status-casing variant"
+      ],
+      "notes": "[P2][iOS/Widgets][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. WidgetSnapshotPublisher.swift:81,101. DONE 2026-06-25 — active-listings tile now counts live statuses (active+relisted) case-insensitively via SyncEngine.liveListingStatuses, instead of the brittle literal \"active\". Test test_compute_countsRelistedAndIsCaseInsensitive. NOTE the single-currency AC is MOOT: LocalSale carries no per-sale currency, so totals are already single-currency by data model and AppPreferences.currencyCode is purely the display stamp — nothing to convert/scope. Pending iOS CI compile."
+    },
+    {
+      "id": "US-1259",
+      "priority": 1259,
+      "passes": false,
+      "title": "iOS background-refresh + new-sale/grade detection reliability",
+      "description": "As a user, new-sale/new-grade alerts should fire for items synced in the foreground too, the Settings toggle should drive the live service, and the BG task shouldn't try to prompt for permission, so alerts are reliable and the BG budget isn't wasted.",
+      "acceptanceCriteria": [
+        "New-sale/new-grade detection also runs after foreground syncs (or these alerts are explicitly delegated to server push) so foreground-arrived rows aren't swallowed",
+        "The Settings background-refresh toggle routes through the injected/AppDelegate-owned BackgroundRefreshService instance, not a throwaway",
+        "NewSaleNotifier in the BG path only notifies when authorization is already granted; permission is requested from a foreground context"
+      ],
+      "notes": "[P2/P3][iOS/Background/Notifications][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. BackgroundRefreshService.swift:218-289 (detection only in performRefresh); ContentView.swift:1204,1508-1514 (throwaway service); NewSaleNotifier.swift:29-35 (requests auth in BG)."
+    },
+    {
+      "id": "US-1260",
+      "priority": 1260,
+      "passes": false,
+      "title": "iOS iPad split-view: fix the dead detail pane for Money and Marketplaces sections",
+      "description": "As an iPad user, selecting Money or Marketplaces shouldn't leave a permanent 'Make a selection' placeholder in the detail column, so the layout doesn't look broken.",
+      "acceptanceCriteria": [
+        "For sections whose navigation now lives in the content column's own NavigationStack (Money, Marketplaces — US-1199), the detail column is hidden/repurposed instead of showing a placeholder nothing fills",
+        "No regression for sections that still use the detail column",
+        "Verify on iPad split view"
+      ],
+      "notes": "[P2][iOS/iPad][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ContentView.swift:907-915,943-952 detailPathBinding maps sales/marketplaces to a placeholder detail pane. Device-gated."
+    },
+    {
+      "id": "US-1261",
+      "priority": 1261,
+      "passes": false,
+      "title": "iOS dashboard: don't show first-run welcome to an existing user on an offline cold launch",
+      "description": "As an existing user opening the app offline before the cache populates, I should see an unavailable/retry state, not 'Capture your first item', so it doesn't look like my inventory vanished.",
+      "acceptanceCriteria": [
+        "DashboardView treats .offline/.failed with an empty cache as an unavailable/retry state, not the first-run Welcome",
+        "First-run Welcome shows only when genuinely empty and online/synced",
+        "Test or manual check covers the offline-cold-launch path"
+      ],
+      "notes": "[P2][iOS/Dashboard][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. DashboardView.swift:51-58 only distinguishes .syncing vs not."
+    },
+    {
+      "id": "US-1262",
+      "priority": 1262,
+      "passes": false,
+      "title": "iOS notification UX bucket: reconnect action opens OAuth, request permission at a reliable moment, dismissible reconcile banner",
+      "description": "As a user, a 'reconnect eBay' action should actually start reconnection, push permission should be requested even if I never open Money, and a persistent reconcile banner should be dismissible, so these surfaces aren't dead ends or permanent nags.",
+      "acceptanceCriteria": [
+        "The .reconnect inline notification action routes to a destination that auto-presents the eBay OAuth/reconnect sheet, not just the Marketplaces tab",
+        "Push-permission is requested at a reliable moment (e.g. after first successful sync / onboarding completion), not only on first Money-tab open",
+        "ReconcileBanner gains a dismiss/snooze affordance"
+      ],
+      "notes": "[P3][iOS/Notifications/ux][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. NotificationDelegate.swift:71-76; ContentView.swift:1175-1188,1758,1772."
+    },
+    {
+      "id": "US-1263",
+      "priority": 1263,
+      "passes": false,
+      "title": "iOS dashboard performance: scope queries and memoize derived item subsets",
+      "description": "As a power user with thousands of items, the dashboard shouldn't fetch every item unfiltered and re-filter on each render, so it stays smooth at scale.",
+      "acceptanceCriteria": [
+        "DashboardView scopes its @Query (predicate/limit) or memoizes the aging/graded/metrics subsets like the US-967 trend series, instead of full-table fetch + repeated main-actor filters",
+        "No behavior change to the displayed numbers",
+        "PerRender/memo tests still pass"
+      ],
+      "notes": "[P3][iOS/Dashboard/perf][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. DashboardView.swift:23,40-47,115-117."
+    },
+    {
+      "id": "US-1264",
+      "priority": 1264,
+      "passes": false,
+      "title": "iOS publish composer: apply ALL template fields (category, policies, item specifics), not just description/condition",
+      "description": "As a seller hand-publishing with a template, applying it should set the category, business policies, and item specifics it configures, so the composer matches AutoLister's server-side template application and the editor's promised defaults.",
+      "acceptanceCriteria": [
+        "PublishDialog.apply(template) applies itemSpecifics, ebayCategoryId, returnPolicyId, shippingPolicyId, paymentPolicyId into the composer state in addition to description/condition",
+        "Behavior matches AutoLister (which passes templateId server-side)",
+        "Test covers a template with category/policies/specifics applied in the composer"
+      ],
+      "notes": "[P1][iOS/Templates/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. PublishDialog.swift:709-721 copies only descriptionTemplate, ebayCondition, conditionDescription. Headless-codeable. UPDATE 2026-06-25 (investigated): the composer only persists ComposerEdits (title/condition/conditionDescription/description) via ListingDraftService.saveDraft; category/itemSpecifics/business-policies are NOT composer state — the push (service.push(inventoryItemId:relist:)) re-reads the publish context server-side. So applying them needs EITHER (a) adding those fields to composer state + ComposerEdits + saveDraft + confirming the listings-draft schema/push context honor them, OR (b) plumbing the applied templateId through push + edge (mirroring how AutoLister applies templates server-side). Both cross the headless boundary (server contract). Re-scoped: this is a real feature, not a one-line apply() fix."
+    },
+    {
+      "id": "US-1265",
+      "priority": 1265,
+      "passes": false,
+      "title": "iOS templates: don't clear the previous default before the write succeeds",
+      "description": "As a seller setting a template as default, a failed save shouldn't leave me with zero defaults, so clearing only happens once the new default is persisted.",
+      "acceptanceCriteria": [
+        "TemplateService clears the prior default only after the create/update succeeds (or does it server-side in one statement/RPC), with no window of zero-defaults on failure",
+        "A simulated write failure leaves the previous default intact",
+        "Build + template tests pass"
+      ],
+      "notes": "[P2][iOS/Templates][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. TemplateService.swift:43,57,81-88 runs clearDefaults() as a separate UPDATE before the write, no rollback. Headless-codeable. UPDATE 2026-06-25 (investigated): a pure client-side reorder (write-then-clear) is UNSAFE because a single-default partial unique index on listing_templates rejects inserting/updating a second is_default=true row while another exists — clearDefaults MUST precede the write to satisfy the index. Correct fix is a server-side RPC/transaction (clear others + upsert this default atomically), i.e. a DB/edge change, NOT a trivial Swift reorder. Re-scoped accordingly."
+    },
+    {
+      "id": "US-1266",
+      "priority": 1266,
+      "passes": true,
+      "title": "iOS scheduled drops: guard custom reschedule against past times and persist the timezone",
+      "description": "As a seller rescheduling a drop, the app must not store a past publish time, and my timezone choice should persist, so the cron doesn't publish immediately and times aren't reinterpreted later.",
+      "acceptanceCriteria": [
+        "reschedule(_:to:) validates date > Date() (or clamps the initial customDate to max(now, scheduled)) so a no-touch reschedule can't persist a past instant",
+        "The scheduled-drops timezone selection persists (e.g. @AppStorage / settings) instead of resetting to TimeZone.current each launch",
+        "Tests cover the past-time rejection"
+      ],
+      "notes": "[P2][iOS/ScheduledDrops][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ScheduledDropsView.swift:219,120,131-137; ScheduledDropsStore.swift:24,48-61. Distinct from US-1196 preset path. DONE 2026-06-25 — RescheduleSheet seeds customDate to max(now, scheduled) and clamps the send to max(customDate, now) so a no-touch reschedule can not persist a past instant; ScheduledDropsView persists the chosen timezone via @AppStorage(\"scheduledDrops.timeZone\"). View-layer (no unit test); store reschedule(_:to:) intentionally left permissive so presets/tests pass explicit dates. Pending iOS CI compile."
+    },
+    {
+      "id": "US-1267",
+      "priority": 1267,
+      "passes": false,
+      "title": "iOS automations: send a minimal isActive PATCH on toggle instead of rebuilding the whole rule",
+      "description": "As a user toggling an automation, the toggle shouldn't round-trip the entire rule through a draft and clobber server-managed fields or concurrent edits, so toggling is safe.",
+      "acceptanceCriteria": [
+        "AutomationsStore.toggleActive sends a minimal {isActive} PATCH rather than AutomationDraft(from: pre-toggle snapshot)",
+        "Server-managed fields (lastRunAt, normalized fields) and concurrent edits are preserved",
+        "Failure reverts to server truth; tests cover the toggle"
+      ],
+      "notes": "[P2][iOS/Automations][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. AutomationsStore.swift:80-96 reuses AutomationDraft(from: rule) from the pre-toggle snapshot. Builds on US-1175. Headless-codeable. UPDATE 2026-06-25 (investigated, severity downgraded): AutomationRuleInput carries ONLY the 5 user-editable fields (name, isActive, triggerJson, actionJson, scopeJson) — NOT server-managed fields like lastRunAt — so the full-replace PUT from the pre-toggle snapshot does NOT clobber server-managed state (the edge preserves them). The only residual risk is a concurrent edit to the SAME rule between load and toggle, which a true minimal {isActive} PATCH would avoid — but that needs a new edge endpoint (server contract), not a client-only change. Low priority; not a clean headless fix."
+    },
+    {
+      "id": "US-1268",
+      "priority": 1268,
+      "passes": false,
+      "title": "iOS templates display polish: real condition labels, no-default semantics, list pagination",
+      "description": "As a seller, template rows should show the real stored condition (not a fallback), 'No default' should behave consistently, and large template/drop lists should scale, so the UI isn't misleading or sluggish.",
+      "acceptanceCriteria": [
+        "TemplatesView shows the raw value (or a neutral label) when EbayCondition(rawValue:) returns nil instead of falling back to 'Used - Excellent'",
+        "'No default' condition semantics are consistent between the editor and PublishDialog.apply (documented/handled as a deliberate no-op)",
+        "Scheduled-drops/automations/templates lists paginate or sort server-side and mutate in place instead of full re-sort on each optimistic change"
+      ],
+      "notes": "[P3][iOS/Templates/perf][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. TemplatesView.swift:163; TemplateEditorSheet.swift:32,160,714-715; ScheduledDropsService.swift:31-43. Headless-codeable."
+    },
+    {
+      "id": "US-1269",
+      "priority": 1269,
+      "title": "iOS Source-ROI: exclude reversed sales and include all marketplace fees (SalePnL)",
+      "passes": true,
+      "description": "As a reseller, per-source ROI should only count completed sales and subtract all marketplace fees, so refunds don't inflate a source's profit and fees aren't understated.",
+      "acceptanceCriteria": [
+        "SourceROIRollup.bySource filters sales via SalePnL.isCompleted so cancelled/refunded sales don't count",
+        "Fees use SalePnL.fees (platform + payment-processing) instead of platformFees alone",
+        "Tests cover refund exclusion and processing-fee inclusion; existing SourceROIRollupTests still pass"
+      ],
+      "notes": "[P1][iOS/Analytics/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. DONE 2026-06-25. SourceROIRollup.swift:96-106 looped all sales with revenue+=salePrice, fees+=platformFees and no status filter. Fixed: SalePnL.isCompleted guard + SalePnL.fees. Tests test_bySource_excludesCancelledAndRefundedSales, test_bySource_includesPaymentProcessingFees. NOTE remaining refinement (separate, semantic): revenue still excludes shippingCollected and netProfit doesn't subtract sellerCosts (shipping/grading/other) — full SalePnL.net alignment would add a sellerCosts field and change the row's revenue/netProfit semantics + the AnalyticsView display, so deferred. Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1270",
+      "priority": 1270,
+      "title": "iOS feature flags: a server-disabled flag with default-true must actually turn off",
+      "passes": true,
+      "description": "As the team, a kill-switch feature flag should be honored when I disable it server-side, so a default-true flag (e.g. showConfidenceBars) can be turned off in PostHog.",
+      "acceptanceCriteria": [
+        "FeatureFlag.isEnabled treats the server value as authoritative when the flag is known to PostHog (distinguish configured-off from not-configured, e.g. via getFeatureFlag presence) and only falls back to defaultValue when truly unconfigured",
+        "Disabling a default-true flag server-side disables it in-app",
+        "Tests cover configured-off vs unconfigured"
+      ],
+      "notes": "[P2][iOS/Telemetry][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FeatureFlag.swift:44-46 does server ? true : defaultValue; PostHog isFeatureEnabled returns false for both off and absent, so default-true kill-switches are inert. DONE 2026-06-25 — isEnabled now uses getFeatureFlag(rawValue) != nil to tell configured-off from unconfigured, honoring the server boolean when the flag exists (so a default-ON kill-switch can be turned off) and falling back to defaultValue only when genuinely unconfigured. Override + default-fallback paths covered by existing PostLaunchTests; the server-configured path is not unit-testable (PostHogSDK not injectable). Logic-verified; pending iOS CI compile."
+    },
+    {
+      "id": "US-1271",
+      "priority": 1271,
+      "title": "iOS fulfillment: align ship-queue window with ranking key and assert eBay ship success",
+      "passes": false,
+      "description": "As a seller, old unshipped orders shouldn't fall out of the ship queue, and an eBay ship that didn't actually succeed shouldn't be marked shipped, so the queue is complete and correct.",
+      "acceptanceCriteria": [
+        "The ship-queue fetch filters shipped_at is null server-side (or orders by the same sold_at key the store ranks on) so a backfilled old-by-sold_at order can't fall outside the sale_date window",
+        "FulfillmentService eBay branch requires ok == true (or a typed success) before treating the fulfillment as accepted, instead of treating any 200 as success",
+        "Tests/manual cover the window + ok assertion"
+      ],
+      "notes": "[P2][iOS/Fulfillment][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FulfillmentService.swift:30-31 (sale_date window vs sold_at ranking), 59-64 (OKResponse.ok optional, never asserted). || PARTIAL 2026-06-25: DONE — FulfillmentService eBay ship path now asserts result.ok == true (throws EdgeAPIError.serverError with clear copy) instead of treating any 200 / {ok:false} / empty body as success. DEFERRED — the ship-queue window filter (fetch shipped_at IS NULL server-side so old-by-sold_at unshipped orders aren’t pushed out by recent shipped rows): supabase-swift has NO null-filter precedent in this codebase and the exact .is(col, value:nil) API can’t be compile-verified on Linux, so not added blind. Store already discards shipped rows (FulfillmentStore:43), so filtering is safe to add once the API is confirmed on a Mac."
+    },
+    {
+      "id": "US-1272",
+      "priority": 1272,
+      "title": "iOS CSV/import robustness: chunk dedup, strip BOM, detect semicolon, fix parens-negative",
+      "passes": true,
+      "description": "As a seller importing a spreadsheet, dedup shouldn't blow up on large files, BOM/semicolon exports should parse, and a parenthesized note shouldn't become a negative price, so imports work across real-world exports.",
+      "acceptanceCriteria": [
+        "InventoryImportService.loadExistingSkus chunks the SKU IN(...) query (~500/batch) and unions, instead of one IN over up to 20,000 values that can throw and silently disable dedup",
+        "CSVParser strips a leading UTF-8 BOM (\\uFEFF) before header/delimiter detection",
+        "detectDelimiter includes ';' as a candidate so European-locale CSVs aren't parsed as one column",
+        "ImportField.price treats parens as negative only when the trimmed value is wholly (number), so '$20 (sale)' isn't -20"
+      ],
+      "notes": "[P2/P3][iOS/Import] DONE 2026-06-25 —[iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. InventoryImportService.swift:144; CSVParser.swift:16,77; ImportField.swift:80. CSVParser BOM strip + semicolon delimiter + ImportField parens-only-when-wholly-wrapped + InventoryImportService.loadExistingSkus chunks the SKU IN(...) into 500-row batches. Tests: test_parser_stripsLeadingBOM, test_parser_detectsSemicolonDelimiter, test_price_parentheticalNoteIsNotNegative (chunking is network-bound, logic-verified, no unit test). Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1273",
+      "priority": 1273,
+      "title": "iOS ShareInbox: decode shared photos off the main actor and don't drop error alerts",
+      "passes": false,
+      "description": "As a user sharing photos into the app, a multi-photo share shouldn't freeze the UI during decode, and an empty/undecodable batch's error shouldn't be swallowed by a following batch, so the share flow is smooth and communicative.",
+      "acceptanceCriteria": [
+        "ShareInboxConsumer decodes/thumbnails shared images in Task.detached and hops back to publish, instead of Data(contentsOf:)+UIImage+preparingThumbnail on the @MainActor",
+        "drainSharedInboxIfNeeded presents a batch error before draining/presenting the next batch so a successful following batch can't suppress the .alert",
+        "Consecutive empty batches don't overwrite each other's errors silently"
+      ],
+      "notes": "[P2][iOS/ShareInbox][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. ShareInboxConsumer.swift:32; ContentView.swift:610 drain recursion vs alert/fullScreenCover."
+    },
+    {
+      "id": "US-1274",
+      "priority": 1274,
+      "title": "iOS analytics/insights polish: reuse comp formatters; distinguish 'no data' from 'none actionable'",
+      "passes": true,
+      "description": "As a seller, price-band analytics shouldn't reallocate formatters per sale, and the community insights empty state shouldn't claim 'not enough data' when data exists but nothing clears the threshold, so analytics are fast and the messaging is honest.",
+      "acceptanceCriteria": [
+        "AnalyticsMetrics computes the price bands + CurrencyFormatters once per gradingRoiBuckets call instead of rebuilding three formatters per sale",
+        "CommunityInsightsView distinguishes 'no benchmark rows' from 'rows present but none above the action threshold' and words the latter accordingly",
+        "Tests/manual confirm both"
+      ],
+      "notes": "[P2][iOS/Analytics/Insights][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. AnalyticsMetrics.swift:253-264 (formatter realloc in loop); CommunityInsightsView.swift:38-47 (filtered recommendations.isEmpty mislabels)."
+    },
+    {
+      "id": "US-1275",
+      "priority": 1275,
+      "title": "iOS small correctness: Verified over-limit uses trimmed length; Prospect gates add-to-inventory on cost rerun",
+      "passes": true,
+      "description": "As a user, the Verified profile counters should match what's actually saved (trimmed), and Prospect shouldn't commit a cost the comps were never evaluated against, so I'm not blocked spuriously or persisting an inconsistent verdict.",
+      "acceptanceCriteria": [
+        "VerifiedStore over-limit checks (and the view counters) count displayNameDraft.trimmed.count / bioDraft.trimmed.count, matching what pendingUpdate() sends",
+        "Prospect add-to-inventory is gated on !costNeedsRerun (or commits result.costCents) so the persisted cost matches the displayed verdict",
+        "Tests cover the trimmed-limit boundary"
+      ],
+      "notes": "[P3][iOS/Verified/Prospect][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. VerifiedStore.swift:117-118 (raw .count vs saved .trimmed); ProspectStore.swift:135 (commits new cost field against a no-cost run). DONE 2026-06-25 — VerifiedStore over-limit checks now use .trimmed.count (test_overLimit_usesTrimmedLength); ProspectStore.addToInventory commits result.costCents (the cost the run used) instead of the live field. Headless; pending iOS CI compile."
     }
   ]
 }

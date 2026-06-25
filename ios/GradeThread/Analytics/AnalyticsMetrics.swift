@@ -259,8 +259,14 @@ enum AnalyticsRollup {
         ]
     }
 
-    private static func priceBand(_ price: Double) -> String {
-        priceBands.first { $0.range.contains(price) }?.label ?? "\(CurrencyFormatter().symbol)150+"
+    /// US-1274: classify a price against precomputed bands. Takes the bands so
+    /// the caller builds the (currency-formatter-backed) labels once instead of
+    /// reallocating three CurrencyFormatters per sale in the bucketing loop.
+    private static func bandLabel(
+        for price: Double,
+        in bands: [(label: String, range: Range<Double>)]
+    ) -> String {
+        bands.first { $0.range.contains(price) }?.label ?? bands.last?.label ?? ""
     }
 
     /// Graded-vs-ungraded net profit by sale-price band over the window.
@@ -276,12 +282,14 @@ enum AnalyticsRollup {
             gradedById[item.id] = (item.gradeValue != nil)
         }
         let scoped = scopedCompletedSales(sales, since: since)
+        // US-1274: build the currency-formatted bands once, not once per sale.
+        let bands = priceBands
 
         struct Side { var nets: [Double] = [] }
         var graded: [String: Side] = [:]
         var ungraded: [String: Side] = [:]
         for sale in scoped {
-            let band = priceBand(sale.salePrice)
+            let band = Self.bandLabel(for: sale.salePrice, in: bands)
             let net = SalePnL.net(sale, costBasis: costById[sale.inventoryItemId] ?? 0)
             if gradedById[sale.inventoryItemId] == true {
                 graded[band, default: Side()].nets.append(net)
@@ -294,7 +302,7 @@ enum AnalyticsRollup {
             nets.isEmpty ? nil : nets.reduce(0, +) / Double(nets.count)
         }
 
-        return priceBands.map(\.label).compactMap { band in
+        return bands.map(\.label).compactMap { band in
             let g = graded[band]?.nets ?? []
             let u = ungraded[band]?.nets ?? []
             guard !g.isEmpty || !u.isEmpty else { return nil }

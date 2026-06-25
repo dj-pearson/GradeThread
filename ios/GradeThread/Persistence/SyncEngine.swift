@@ -571,15 +571,20 @@ actor SyncEngine {
                 watermark: nil,
                 decode: Self.decodeListingsResiliently
             ))?.rows ?? []
-            var listingPrices: [String: Double] = [:]
-            var listingPriceAt: [String: Date] = [:]
-            for row in listingRows {
-                guard let price = row.listing_price else { continue }
-                let ts = SyncEngine.parseDate(row.listed_at ?? row.created_at ?? "")
-                if let prev = listingPriceAt[row.inventory_item_id], prev >= ts { continue }
-                listingPriceAt[row.inventory_item_id] = ts
-                listingPrices[row.inventory_item_id] = price
-            }
+            // US-1244: prefer the LIVE listing's price (see selectListingPrices)
+            // so a relisted/ended listing carrying a newer timestamp can't drive
+            // a stale "inventory value".
+            let listingPrices = SyncEngine.selectListingPrices(
+                listingRows.compactMap { row in
+                    guard let price = row.listing_price else { return nil }
+                    return (
+                        itemId: row.inventory_item_id,
+                        price: price,
+                        at: SyncEngine.parseDate(row.listed_at ?? row.created_at ?? ""),
+                        isLive: Self.liveListingStatuses.contains((row.listing_status ?? "").lowercased())
+                    )
+                }
+            )
 
             // US-819: disputes — best-effort + delta-scoped on updated_at. A
             // dispute's `user_id` is the FILER (the signed-in user), not the
@@ -755,6 +760,35 @@ actor SyncEngine {
     // list columns proven to exist on `listings` (00002 + flipdesk migrations).
     private static let listingColumns =
         "id,inventory_item_id,platform,platform_listing_id,platform_offer_id,listing_url,listing_price,listing_status,listed_at,listing_origin,created_at,updated_at"
+
+    /// US-1244: listing statuses that represent a currently-live listing (vs
+    /// draft/ended/sold). Lowercased for case-insensitive comparison.
+    static let liveListingStatuses: Set<String> = ["active", "relisted"]
+
+    /// US-1244: choose each item's market-value price from its LIVE listing
+    /// (active/relisted) when one exists, falling back to the latest of any
+    /// status only when none is live. A live listing always beats a non-live one
+    /// regardless of timestamp; within the same liveness class the newer
+    /// `listed_at`/`created_at` wins. Pure + static so the selection is
+    /// unit-testable without a network pull.
+    static func selectListingPrices(
+        _ rows: [(itemId: String, price: Double, at: Date, isLive: Bool)]
+    ) -> [String: Double] {
+        var prices: [String: Double] = [:]
+        var at: [String: Date] = [:]
+        var live: [String: Bool] = [:]
+        for r in rows {
+            if let prevAt = at[r.itemId] {
+                let prevLive = live[r.itemId] ?? false
+                if prevLive && !r.isLive { continue }            // live beats non-live
+                if prevLive == r.isLive && prevAt >= r.at { continue }  // same class → newer wins
+            }
+            at[r.itemId] = r.at
+            prices[r.itemId] = r.price
+            live[r.itemId] = r.isLive
+        }
+        return prices
+    }
 
     struct RemoteListing: Decodable, Sendable {
         let id: String

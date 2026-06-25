@@ -38,11 +38,16 @@ public enum FeatureFlag: String, CaseIterable {
     public static func isEnabled(_ flag: FeatureFlag) -> Bool {
         if let override = readOverride(flag) { return override }
 
-        // PostHog returns false when no flag is configured server-side
-        // OR analytics opt-in is off. Pass through; the default branch
-        // catches both cases.
-        let server = PostHogSDK.shared.isFeatureEnabled(flag.rawValue)
-        return server ? true : flag.defaultValue
+        // `getFeatureFlag` returns nil ONLY when the flag is absent server-side
+        // (or analytics opt-in is off / flags haven't loaded). When it's present
+        // we honor the server's evaluated boolean — otherwise a kill-switch set
+        // OFF could never disable a default-ON flag (`isEnabled` alone can't tell
+        // "configured off" from "not configured"). Fall back to the per-flag
+        // default only when the flag is genuinely unconfigured.
+        guard PostHogSDK.shared.getFeatureFlag(flag.rawValue) != nil else {
+            return flag.defaultValue
+        }
+        return PostHogSDK.shared.isFeatureEnabled(flag.rawValue)
     }
 
     /// Default when both override and server return nothing.

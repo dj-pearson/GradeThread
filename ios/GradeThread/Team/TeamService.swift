@@ -93,7 +93,12 @@ struct TeamService: TeamProviding {
 
     func revoke(invitationId: String) async throws {
         struct RevokeUpdate: Encodable { let revoked_at: String }
-        let now = ISO8601DateFormatter().string(from: Date())
+        // US-1256: write fractional-seconds ISO8601 to match the edge's timestamp
+        // format (and WorkspaceDate.parse, which prefers fractional) so this
+        // client-written value sorts consistently against server timestamps.
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let now = formatter.string(from: Date())
         try await db
             .from("workspace_invitations")
             .update(RevokeUpdate(revoked_at: now))
