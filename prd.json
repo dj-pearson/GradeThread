@@ -5893,7 +5893,7 @@
         "Server-managed fields (lastRunAt, normalized fields) and concurrent edits are preserved",
         "Failure reverts to server truth; tests cover the toggle"
       ],
-      "notes": "[P2][iOS/Automations][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. AutomationsStore.swift:80-96 reuses AutomationDraft(from: rule) from the pre-toggle snapshot. Builds on US-1175. Headless-codeable."
+      "notes": "[P2][iOS/Automations][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. AutomationsStore.swift:80-96 reuses AutomationDraft(from: rule) from the pre-toggle snapshot. Builds on US-1175. Headless-codeable. UPDATE 2026-06-25 (investigated, severity downgraded): AutomationRuleInput carries ONLY the 5 user-editable fields (name, isActive, triggerJson, actionJson, scopeJson) — NOT server-managed fields like lastRunAt — so the full-replace PUT from the pre-toggle snapshot does NOT clobber server-managed state (the edge preserves them). The only residual risk is a concurrent edit to the SAME rule between load and toggle, which a true minimal {isActive} PATCH would avoid — but that needs a new edge endpoint (server contract), not a client-only change. Low priority; not a clean headless fix."
     },
     {
       "id": "US-1268",
