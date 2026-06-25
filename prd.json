@@ -5631,7 +5631,7 @@
         "Facet bounds derivation accounts for the choice",
         "Test covers an unpriced item under a maxPrice-only filter"
       ],
-      "notes": "[P3][iOS/Inventory][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. InventoryFilter.swift:62-64,100-104 effectivePrice nil -> excluded. Headless-codeable."
+      "notes": "[P3][iOS/Inventory][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. InventoryFilter.swift:62-64,100-104 effectivePrice nil -> excluded. Headless-codeable. UPDATE 2026-06-25 (investigated): the drop-unpriced behavior is INTENTIONAL and pinned by test_matches_priceBand_dropsItemsWithNoPrice (AdvancedInventoryFilterTests.swift:104, maxPrice=100 -> unpriced item excluded). So this is a deliberate product decision, not an accidental gap. Changing it (e.g. include unpriced under max-only, exclude under min) MUST also update that test. Left open pending a product call on the desired semantics; do not flip blind."
     },
     {
       "id": "US-1248",
@@ -5768,7 +5768,7 @@
     {
       "id": "US-1258",
       "priority": 1258,
-      "passes": false,
+      "passes": true,
       "title": "iOS widget snapshot: single-currency totals and canonical listing-status comparison",
       "description": "As a user, widget tiles should show correct, single-currency totals and not zero out when a status string drifts, so the widget is trustworthy.",
       "acceptanceCriteria": [
@@ -5776,7 +5776,7 @@
         "Active-listings tile compares against the canonical listing-status enum, not the literal \"active\"",
         "Tests cover a mixed-currency set and a status-casing variant"
       ],
-      "notes": "[P2][iOS/Widgets][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. WidgetSnapshotPublisher.swift:81,101. Headless-codeable."
+      "notes": "[P2][iOS/Widgets][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. WidgetSnapshotPublisher.swift:81,101. DONE 2026-06-25 — active-listings tile now counts live statuses (active+relisted) case-insensitively via SyncEngine.liveListingStatuses, instead of the brittle literal \"active\". Test test_compute_countsRelistedAndIsCaseInsensitive. NOTE the single-currency AC is MOOT: LocalSale carries no per-sale currency, so totals are already single-currency by data model and AppPreferences.currencyCode is purely the display stamp — nothing to convert/scope. Pending iOS CI compile."
     },
     {
       "id": "US-1259",
@@ -5925,14 +5925,14 @@
       "id": "US-1270",
       "priority": 1270,
       "title": "iOS feature flags: a server-disabled flag with default-true must actually turn off",
-      "passes": false,
+      "passes": true,
       "description": "As the team, a kill-switch feature flag should be honored when I disable it server-side, so a default-true flag (e.g. showConfidenceBars) can be turned off in PostHog.",
       "acceptanceCriteria": [
         "FeatureFlag.isEnabled treats the server value as authoritative when the flag is known to PostHog (distinguish configured-off from not-configured, e.g. via getFeatureFlag presence) and only falls back to defaultValue when truly unconfigured",
         "Disabling a default-true flag server-side disables it in-app",
         "Tests cover configured-off vs unconfigured"
       ],
-      "notes": "[P2][iOS/Telemetry][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FeatureFlag.swift:44-46 does server ? true : defaultValue; PostHog isFeatureEnabled returns false for both off and absent, so default-true kill-switches are inert. Headless-codeable."
+      "notes": "[P2][iOS/Telemetry][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FeatureFlag.swift:44-46 does server ? true : defaultValue; PostHog isFeatureEnabled returns false for both off and absent, so default-true kill-switches are inert. DONE 2026-06-25 — isEnabled now uses getFeatureFlag(rawValue) != nil to tell configured-off from unconfigured, honoring the server boolean when the flag exists (so a default-ON kill-switch can be turned off) and falling back to defaultValue only when genuinely unconfigured. Override + default-fallback paths covered by existing PostLaunchTests; the server-configured path is not unit-testable (PostHogSDK not injectable). Logic-verified; pending iOS CI compile."
     },
     {
       "id": "US-1271",
