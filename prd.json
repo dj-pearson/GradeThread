@@ -5737,7 +5737,7 @@
         "RedeemResponse decodes an optional reason/error and maps invalid/expired/already-referred/self-referral to specific copy instead of one generic 'code isn't valid'",
         "Tests cover the stat math and reason mapping"
       ],
-      "notes": "[P2/P3][iOS/Referrals][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ReferralsView.swift:127-131, ReferralsStore.swift:40 (stat partition), 71-76 (generic redeem error)."
+      "notes": "[P2/P3][iOS/Referrals][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ReferralsView.swift:127-131, ReferralsStore.swift:40 (stat partition), 71-76 (generic redeem error). UPDATE 2026-06-25 (investigated): both parts are server-gated, not clean client fixes. (1) inProgress is currently pending+qualified (ReferralsStore:40), a defensible definition; whether it reconciles with `total` depends on the edge’s stat semantics (does total include granted/qualified/pending?) — needs server confirmation before redefining as total-granted. (2) RedeemResponse carries ONLY { ok } (ReferralTypes.swift:27-29) — specific reasons (invalid/expired/self/already-referred) require the EDGE to return a reason field; adding `let reason: String?` client-side would be speculative scaffolding that does nothing until the server sends it. Re-scoped: pair with an edge change."
     },
     {
       "id": "US-1256",
@@ -5945,7 +5945,7 @@
         "FulfillmentService eBay branch requires ok == true (or a typed success) before treating the fulfillment as accepted, instead of treating any 200 as success",
         "Tests/manual cover the window + ok assertion"
       ],
-      "notes": "[P2][iOS/Fulfillment][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FulfillmentService.swift:30-31 (sale_date window vs sold_at ranking), 59-64 (OKResponse.ok optional, never asserted)."
+      "notes": "[P2][iOS/Fulfillment][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. FulfillmentService.swift:30-31 (sale_date window vs sold_at ranking), 59-64 (OKResponse.ok optional, never asserted). || PARTIAL 2026-06-25: DONE — FulfillmentService eBay ship path now asserts result.ok == true (throws EdgeAPIError.serverError with clear copy) instead of treating any 200 / {ok:false} / empty body as success. DEFERRED — the ship-queue window filter (fetch shipped_at IS NULL server-side so old-by-sold_at unshipped orders aren’t pushed out by recent shipped rows): supabase-swift has NO null-filter precedent in this codebase and the exact .is(col, value:nil) API can’t be compile-verified on Linux, so not added blind. Store already discards shipped rows (FulfillmentStore:43), so filtering is safe to add once the API is confirmed on a Mac."
     },
     {
       "id": "US-1272",
