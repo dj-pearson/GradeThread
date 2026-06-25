@@ -3826,3 +3826,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 25, 2026 12:26:29 PM
 ---
+## US-1167: Surface comp/price intelligence at the point of pricing decisions
+- Status: COMPLETE
+- Timestamp: Thu, Jun 25, 2026 12:32:31 PM
+---
