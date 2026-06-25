@@ -11,29 +11,44 @@ finish on a Mac. Everything else in the epic shipped with unit tests.
 
 ## US-1153 — Critical-flow UI tests in CI
 
-**Done here (safe artifacts):**
+**Done here (safe, compilable artifacts — pending one iOS CI run to confirm green):**
 - `ios/GradeThread.storekit` — a StoreKit Testing configuration with all 6
-  subscriptions + 4 consumable credit packs (IDs match
-  `APP_STORE_SUBMISSION.md` and the server map). Lets the paywall purchase flow
-  run hermetically in a UI test with no App Store Connect round-trip.
+  subscriptions + 4 consumable credit packs (IDs match `APP_STORE_SUBMISSION.md`
+  and the server map). Lets the paywall purchase flow run hermetically with no
+  App Store Connect round-trip.
+- `GradeThread/Testing/UITestSupport.swift` — the hermetic launch-argument
+  reader. Flags (all gated behind `-uitest`, no-op in production):
+  `-uitest-reset-auth` (wipe keychain → cold sign-out), `-uitest-paywall`
+  (present the paywall directly), `-uitest-mock-grading` (stub the grading
+  bridge). Wired into `GradeThreadApp.init` (keychain wipe), `ProtectedRouteShell`
+  (direct paywall), and `GradingService` (mock path).
+- `GradeThread/Grading/GradingMock.swift` — canned, offline grade responses
+  (deterministic 8.5 "Excellent") decoded through the same `.convertFromSnakeCase`
+  decoder the live service uses, so the wire shape can't drift.
+- `GradeThreadUITests/CriticalFlowUITests.swift` — assertion-level tests for the
+  three journeys (sign-in surface + validation, paywall renders StoreKit products
+  and purchases without dead-ending, capture→grade hermetic launch), plus the
+  end-to-end coverage map (AC4).
+- `GradeThreadUITests` **scheme** (`project.yml`) — attaches `GradeThread.storekit`
+  via `run.storeKitConfiguration` and runs only the critical-flow + smoke tests
+  (skips the fastlane-only `ScreenshotUITests`).
+- **UI-test CI job** (`.github/workflows/ios-ci.yml`) — a separate, NON-blocking
+  (`continue-on-error: true`) `ui-test` job on a macOS runner that boots a
+  simulator and runs `CriticalFlowUITests`. Stable selectors already exist on the
+  key controls from US-1173 (`login.*`, `paywall.product.*`, `paywall.restore`,
+  `capture.shutter`).
 
-**To finish on a Mac:**
-1. In the `GradeThread` scheme → Run/Test → Options, set **StoreKit
-   Configuration** to `GradeThread.storekit` (or set it per UI-test plan).
-2. Add UI tests to the existing `GradeThreadUITests` target for the three
-   critical journeys, driven by launch arguments so they're hermetic:
-   - **Sign in** (email + Sign in with Apple button presence/route),
-   - **Paywall purchase** against the `.storekit` config (tap a plan → assert the
-     entitlement/Current state),
-   - **Capture → grade → draft** (use a `--uitest-mock-grading` launch arg to
-     stub the grading network so the flow is deterministic).
-   Add accessibility identifiers to the key controls as you go (the a11y labels
-   from US-1151 help, but stable `accessibilityIdentifier`s are better selectors).
-3. Wire a **UI-test phase** into `.github/workflows/ios-ci.yml` (a separate job
-   from the fast unit lane, on a macOS runner with a booted simulator):
-   `xcodebuild test -scheme GradeThread -testPlan UITests -destination 'platform=iOS Simulator,name=iPhone 16'`.
-   Keep it off the PR-blocking path until it's stable, then promote.
-4. Iterate selectors/timing on the simulator until green.
+**To finish on a Mac (simulator iteration — can't run on the Linux/Windows host):**
+1. Run the `ui-test` job once and iterate selectors/timing until green, then
+   promote it off `continue-on-error` to a required check.
+2. Extend the capture→grade→draft test to drive the FULL journey: seed an item
+   (details-first form needs no camera) or substitute the camera, open the
+   canvas, request a grade (the `-uitest-mock-grading` stub returns a completed
+   report offline), and assert the grade-report surface + the draft-listing
+   transition. The hermetic hooks are in place; this step is UI driving only.
+3. Add the remaining gaps from the coverage map in `CriticalFlowUITests.swift`
+   (eBay connect/publish with sandbox creds; reconciliation; US-1157 scene
+   restoration).
 
 ---
 

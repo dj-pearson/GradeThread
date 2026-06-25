@@ -354,3 +354,24 @@ schemes:
       targets:
         - GradeThreadUITests
       gatherCoverageData: false
+  # US-1153: critical-flow UI tests (sign-in, paywall purchase, capture→grade).
+  # Separate from the screenshot scheme so the assertion-level tests run in their
+  # own CI lane (ios-ci.yml) and never trigger the fastlane snapshot capture. The
+  # `storeKitConfiguration` attaches GradeThread.storekit to the launched app so
+  # the paywall purchase journey runs hermetically against the local product
+  # catalog (no App Store Connect round-trip). The test action skips
+  # ScreenshotUITests (fastlane-only) so only the hermetic critical-flow + smoke
+  # tests run here.
+  GradeThreadUITests:
+    build:
+      targets:
+        GradeThread: all
+        GradeThreadUITests: [test]
+    run:
+      storeKitConfiguration: GradeThread.storekit
+    test:
+      gatherCoverageData: false
+      targets:
+        - name: GradeThreadUITests
+          skippedTests:
+            - ScreenshotUITests

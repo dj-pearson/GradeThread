@@ -683,6 +683,24 @@ memory — not a progress log (the harness records progress separately).
   edge `ebayPublicPhotoUrl` helper in `flipdesk-ebay.ts` mirrors the sensitive
   set so private photos are skipped (not turned into a 404 item-photos URL).
 
+## iOS hermetic UI tests (US-1153)
+- Launch-arg hooks live in `GradeThread/Testing/UITestSupport.swift` — every flag
+  is gated behind `-uitest` (no-op in production via `ProcessInfo.arguments`):
+  `-uitest-reset-auth` (wipe keychain in `GradeThreadApp.init` BEFORE any
+  `SupabaseShared.client` access → cold sign-out), `-uitest-paywall`
+  (`ProtectedRouteShell` presents `PaywallView(userId:)` directly — its live
+  billing/catalog fetchers fail-soft to nil/[] offline, and StoreKit prices come
+  from the scheme's `.storekit` config so the paywall renders hermetically),
+  `-uitest-mock-grading` (`GradingService` returns canned JSON via `GradingMock`,
+  decoded through the SAME `.convertFromSnakeCase` decoder so the wire shape can't
+  drift). Stable selectors already exist from US-1173 (`login.*`,
+  `paywall.product.*`, `capture.shutter`).
+- The UI-test scheme attaches the StoreKit config via XcodeGen
+  `schemes.<name>.run.storeKitConfiguration: GradeThread.storekit` (path relative
+  to `ios/`). Skip the fastlane-only `ScreenshotUITests` in the test action with a
+  per-target `skippedTests:` entry. The CI `ui-test` job is separate +
+  `continue-on-error: true` (non-blocking until proven stable).
+
 ## iOS App Intents / Siri / widgets (US-1134)
 - App Intents live in `ios/GradeThread/Intents/`; one `AppShortcutsProvider`
   (`GradeThreadAppShortcuts`) auto-registers them for Siri/Spotlight — no

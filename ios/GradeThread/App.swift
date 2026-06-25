@@ -17,6 +17,17 @@ struct GradeThreadApp: App {
 
     private var container: ModelContainer { storeOutcome.container }
 
+    init() {
+        // US-1153: hermetic UI-test launch. Wipe the keychain BEFORE anything
+        // touches `SupabaseShared.client` (its session is loaded lazily from the
+        // keychain on first access in `AuthStore.start`), so a `-uitest-reset-auth`
+        // run always begins signed-out at `LoginView`. No-op in production —
+        // `resetAuthState` requires the runner-injected launch arguments.
+        if UITestSupport.resetAuthState {
+            try? KeychainLocalStorage().removeAll()
+        }
+    }
+
     /// Per-category photo-profile table (server-authoritative, cached). Created
     /// once and shared so the capture + retag surfaces resolve a category's
     /// photo slots without each refetching. See PhotoProfileStore.

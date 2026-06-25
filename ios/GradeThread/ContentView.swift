@@ -366,6 +366,19 @@ struct ProtectedRouteShell: View {
     @Environment(AuthStore.self) private var authStore
 
     var body: some View {
+        // US-1153: hermetic paywall journey. When the UI-test runner asks for it,
+        // present the paywall directly — its prices/products resolve from the
+        // scheme's attached `GradeThread.storekit` configuration, so the purchase
+        // flow is exercised offline without a backend session. No-op in production.
+        if UITestSupport.directToPaywall {
+            NavigationStack { PaywallView(userId: UITestSupport.stubUserId) }
+        } else {
+            routedBody
+        }
+    }
+
+    @ViewBuilder
+    private var routedBody: some View {
         switch authStore.phase {
         case .loading:
             VStack(spacing: 16) {

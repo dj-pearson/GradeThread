@@ -24,7 +24,10 @@ final class GradingService {
     func validate(
         inventoryItemId: String, tier: GradeTierOption
     ) async throws -> GradingValidateResponse {
-        try await post(
+        if UITestSupport.mockGrading {
+            return try GradingMock.validate(inventoryItemId: inventoryItemId, tier: tier)
+        }
+        return try await post(
             path: "/api/flipdesk/grading/validate",
             body: GradingRequestBody(inventoryItemId: inventoryItemId, tier: tier)
         )
@@ -33,14 +36,20 @@ final class GradingService {
     func submit(
         inventoryItemId: String, tier: GradeTierOption
     ) async throws -> GradingSubmitResponse {
-        try await post(
+        if UITestSupport.mockGrading {
+            return try GradingMock.submit(inventoryItemId: inventoryItemId, tier: tier)
+        }
+        return try await post(
             path: "/api/flipdesk/grading/submit",
             body: GradingRequestBody(inventoryItemId: inventoryItemId, tier: tier)
         )
     }
 
     func status(submissionRef: String) async throws -> GradingStatusResponse {
-        try await get(path: "/api/flipdesk/grading/submissions/\(submissionRef)")
+        if UITestSupport.mockGrading {
+            return try GradingMock.status(submissionRef: submissionRef)
+        }
+        return try await get(path: "/api/flipdesk/grading/submissions/\(submissionRef)")
     }
 
     // MARK: - Batch (bulk grading)

@@ -109,3 +109,54 @@ jobs:
             ios/build/Logs/Test/*.xcresult
           if-no-files-found: ignore
           retention-days: 7
+
+  # US-1153: critical-flow UI tests (sign-in, paywall purchase via the
+  # GradeThread.storekit configuration, capture→grade). A SEPARATE job from the
+  # fast unit lane and intentionally NON-BLOCKING (`continue-on-error: true`)
+  # until it has proven stable across runner/simulator churn — promote it to a
+  # required check once green is reliable. Runs the dedicated GradeThreadUITests
+  # scheme (skips the fastlane-only ScreenshotUITests via the test plan in
+  # project.yml). The hermetic `-uitest*` launch arguments keep it offline.
+  ui-test:
+    name: UI tests (critical flows)
+    runs-on: macos-14
+    timeout-minutes: 40
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Install XcodeGen + xcbeautify
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: UI test — critical flows
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project GradeThread.xcodeproj \
+            -scheme GradeThreadUITests \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -only-testing:GradeThreadUITests/CriticalFlowUITests \
+            clean test | xcbeautify --renderer github-actions
+
+      - name: Upload UI test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: |
+            ios/build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
