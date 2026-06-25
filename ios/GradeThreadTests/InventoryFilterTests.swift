@@ -157,6 +157,21 @@ final class InventoryFilterTests: XCTestCase {
         )
     }
 
+    func test_filter_searchMatchesStyleAndGarmentType() throws {
+        // US-1248: style/garmentType/garmentCategory are mirrored locally and
+        // must be searchable offline.
+        let context = ModelContext(try makeContainer())
+        let a = makeItem(id: "a", title: "Tee", context: context)
+        a.style = "Bomber"
+        a.garmentType = "Jacket"
+        let b = makeItem(id: "b", title: "Tee", context: context)
+        b.style = "Crewneck"
+        b.garmentType = "Sweater"
+        let items = [a, b]
+        XCTAssertEqual(InventoryFilter.filter(items, search: "bomber").map(\.id), ["a"])
+        XCTAssertEqual(InventoryFilter.filter(items, search: "sweater").map(\.id), ["b"])
+    }
+
     func test_filter_emptyOrWhitespaceSearch_returnsAll() throws {
         let context = ModelContext(try makeContainer())
         let items = [

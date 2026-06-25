@@ -127,6 +127,19 @@ final class EbayPublishTests: XCTestCase {
         XCTAssertNotEqual(PublishOutcome.failed(message: "x"), .failed(message: "y"))
     }
 
+    // US-1241: a 0/negative price is rejected before any network round-trip.
+    @MainActor
+    func test_updatePrice_rejectsNonPositivePriceBeforeNetwork() async {
+        let service = EbayPublishService()
+        for bad in [0.0, -1.0] {
+            let outcome = await service.updatePrice(listingId: "L1", price: bad)
+            guard case .failed = outcome else {
+                XCTFail("expected .failed for price \(bad), got \(outcome)")
+                continue
+            }
+        }
+    }
+
     // MARK: - Edit-preservation on retry (US-1006)
 
     private func sampleSummary() -> PublishSummary {

@@ -54,6 +54,19 @@ final class MoneyAnalyticsRollupTests: XCTestCase {
         XCTAssertEqual(byLabel["15-30 days"]?.count, 1)
     }
 
+    func test_inventoryAging_anchorsOnAcquiredDateWhenPresent() {
+        // US-1246: a backfilled row created recently but acquired long ago should
+        // bucket by the real acquisition date, not the mirror's createdAt.
+        let backfilled = makeItem(id: "a", cost: 12, status: "listed", created: daysAgo(2))
+        backfilled.acquiredDate = daysAgo(90)
+        let brackets = MoneyAnalyticsRollup.inventoryAging(
+            items: [backfilled], now: now, calendar: cal
+        )
+        let byLabel = Dictionary(uniqueKeysWithValues: brackets.map { ($0.label, $0) })
+        XCTAssertEqual(byLabel["60+ days"]?.count, 1)     // by acquiredDate
+        XCTAssertEqual(byLabel["0-14 days"]?.count, 0)    // not by createdAt
+    }
+
     // MARK: - Time on market
 
     func test_timeOnMarket_emptyWhenNoSales() {

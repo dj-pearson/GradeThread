@@ -6,7 +6,11 @@ import SwiftUI
 struct ConsignmentReportView: View {
     let store: ConsignorStore
 
-    @Query private var items: [LocalInventoryItem]
+    // US-1256: only consigned items contribute to the payout rollup, so scope the
+    // query to them (the compute already skips items with no consignorId) — avoids
+    // pulling the entire item cache and shrinks the per-render join.
+    @Query(filter: #Predicate<LocalInventoryItem> { $0.consignorId != nil })
+    private var items: [LocalInventoryItem]
     @Query private var sales: [LocalSale]
     @Environment(\.dismiss) private var dismiss
 

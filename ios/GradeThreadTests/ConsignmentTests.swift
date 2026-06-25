@@ -92,6 +92,47 @@ final class ConsignmentTests: XCTestCase {
         XCTAssertEqual(rows[0].consignorPayout, 50, accuracy: 0.001)
     }
 
+    func test_report_convenienceExcludesCancelledAndRefundedSales() {
+        // A reversed sale must not generate a payout the reseller never collected.
+        let consignors = [consignor("c1", "Dana", split: 50)]
+        let item = LocalInventoryItem(id: "i1", userId: "u1", title: "Jacket")
+        item.consignorId = "c1"
+
+        let completed = LocalSale(id: "s1", inventoryItemId: "i1", salePrice: 100, saleDate: .now, platformFees: 0)
+        let refunded = LocalSale(id: "s2", inventoryItemId: "i1", salePrice: 100, saleDate: .now, platformFees: 0)
+        refunded.status = "refunded"
+        let cancelled = LocalSale(id: "s3", inventoryItemId: "i1", salePrice: 100, saleDate: .now, platformFees: 0)
+        cancelled.status = "cancelled"
+
+        let rows = ConsignmentReport.compute(
+            items: [item], sales: [completed, refunded, cancelled], consignors: consignors
+        )
+        XCTAssertEqual(rows.count, 1)
+        // Only the one completed sale counts.
+        XCTAssertEqual(rows[0].itemsSold, 1)
+        XCTAssertEqual(rows[0].grossRevenue, 100, accuracy: 0.001)
+        XCTAssertEqual(rows[0].consignorPayout, 50, accuracy: 0.001)
+    }
+
+    func test_report_convenienceIncludesPaymentProcessingFees() {
+        // Net proceeds must subtract platform + payment-processing fees (SalePnL.fees),
+        // not platform fees alone, or the consignor is overpaid.
+        let consignors = [consignor("c1", "Dana", split: 50)]
+        let item = LocalInventoryItem(id: "i1", userId: "u1", title: "Jacket")
+        item.consignorId = "c1"
+        let sale = LocalSale(id: "s1", inventoryItemId: "i1", salePrice: 100, saleDate: .now, platformFees: 10)
+        sale.paymentProcessingFees = 5
+
+        let rows = ConsignmentReport.compute(
+            items: [item], sales: [sale], consignors: consignors
+        )
+        XCTAssertEqual(rows.count, 1)
+        // net = 100 − (10 + 5) = 85; 50% owed = 42.5.
+        XCTAssertEqual(rows[0].fees, 15, accuracy: 0.001)
+        XCTAssertEqual(rows[0].netProceeds, 85, accuracy: 0.001)
+        XCTAssertEqual(rows[0].consignorPayout, 42.5, accuracy: 0.001)
+    }
+
     // MARK: - Consignor draft
 
     func test_consignorDraft_validation() {

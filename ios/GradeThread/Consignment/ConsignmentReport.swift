@@ -73,6 +73,12 @@ enum ConsignmentReport {
 
     /// Convenience over the local cache: joins sales to their items, keeps only
     /// consigned items, and runs the pure rollup.
+    ///
+    /// Cancelled/refunded sales are excluded (via `SalePnL.isCompleted`) so a
+    /// reversed sale doesn't generate a payout the reseller never collected, and
+    /// the fee total mirrors `SalePnL.fees` (platform + payment-processing) so
+    /// net proceeds — and therefore the consignor's owed amount — aren't
+    /// overstated.
     static func compute(
         items: [LocalInventoryItem],
         sales: [LocalSale],
@@ -80,13 +86,14 @@ enum ConsignmentReport {
     ) -> [ConsignmentReportRow] {
         let itemsById = Dictionary(items.map { ($0.id, $0) }) { a, _ in a }
         let sold: [SoldConsignedItem] = sales.compactMap { sale in
-            guard let item = itemsById[sale.inventoryItemId],
+            guard SalePnL.isCompleted(sale),
+                  let item = itemsById[sale.inventoryItemId],
                   let consignorId = item.consignorId else { return nil }
             return SoldConsignedItem(
                 consignorId: consignorId,
                 splitPctOverride: item.consignmentSplitPct,
                 salePrice: sale.salePrice,
-                fees: sale.platformFees
+                fees: SalePnL.fees(sale)
             )
         }
         return compute(soldItems: sold, consignors: consignors)

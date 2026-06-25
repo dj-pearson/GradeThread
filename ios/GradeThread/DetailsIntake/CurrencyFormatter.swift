@@ -67,6 +67,19 @@ public struct CurrencyFormatter {
             .filter { allowed.contains($0) }
 
         guard !cleaned.isEmpty else { return nil }
+
+        // Reject malformed numerics that NumberFormatter would otherwise
+        // *partially* parse (it stops at the first invalid char and silently
+        // returns the leading value): "12.50.00" -> 12.50, "5-0" -> 5. A
+        // mistyped price must fail to nil ("no price entered"), not coerce to a
+        // surprising amount. Allow at most one decimal separator and a single
+        // leading minus sign.
+        if cleaned.components(separatedBy: decimalSeparator).count > 2 { return nil }
+        if let firstMinus = cleaned.firstIndex(of: "-"),
+           firstMinus != cleaned.startIndex || cleaned.filter({ $0 == "-" }).count > 1 {
+            return nil
+        }
+
         return decimalFormatter.number(from: cleaned)?.doubleValue
     }
 

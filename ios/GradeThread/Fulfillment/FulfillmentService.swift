@@ -57,10 +57,17 @@ struct FulfillmentService: FulfillmentProviding {
                     let carrier: String?
                 }
                 struct OKResponse: Decodable { let ok: Bool? }
-                let _: OKResponse = try await EdgeAPI.shared.postJSON(
+                let result: OKResponse = try await EdgeAPI.shared.postJSON(
                     "/api/flipdesk/ebay/orders/\(saleId)/ship",
                     body: ShipBody(tracking_number: tracking, carrier: nil)
                 )
+                // US-1271: a 200 with an empty body or {ok:false} is NOT a
+                // successful fulfillment — don't optimistically mark it shipped.
+                guard result.ok == true else {
+                    throw EdgeAPIError.serverError(
+                        detail: "eBay didn't confirm the shipment. Check Marketplaces and try again."
+                    )
+                }
                 return
             }
         }

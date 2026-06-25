@@ -35,6 +35,18 @@ struct CommunityInsightsView: View {
                     .tint(Color.brandNavy)
             }
 
+        case .ready where store.recommendations.isEmpty && store.hasBenchmarkData:
+            // US-1274: data exists, but nothing clears the action thresholds.
+            ContentUnavailableView(
+                "No standout opportunities right now",
+                systemImage: "person.3",
+                description: Text(
+                    "We have community data for your brands and categories, but "
+                    + "nothing stands out as a clear buy or reprice signal yet. "
+                    + "Check back as the market moves."
+                )
+            )
+
         case .ready where store.recommendations.isEmpty:
             ContentUnavailableView(
                 "Not enough community data yet",

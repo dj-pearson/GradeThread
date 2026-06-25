@@ -9,6 +9,9 @@ struct ScheduledDropsView: View {
     @State private var rescheduling: ScheduledDrop?
     // US-1160: confirm before cancelling a scheduled drop.
     @State private var pendingCancel: ScheduledDrop?
+    // US-1266: persist the viewer's chosen display timezone across launches so
+    // presets/times aren't reinterpreted in a different zone next session.
+    @AppStorage("scheduledDrops.timeZone") private var persistedTimeZone = ""
     private let currency = CurrencyFormatter()
 
     var body: some View {
@@ -18,7 +21,13 @@ struct ScheduledDropsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { timezoneMenu }
             }
-            .task { await store.load() }
+            .task {
+                if !persistedTimeZone.isEmpty { store.timeZoneIdentifier = persistedTimeZone }
+                await store.load()
+            }
+            .onChange(of: store.timeZoneIdentifier) { _, newValue in
+                persistedTimeZone = newValue
+            }
             .refreshable { await store.load() }
             .sheet(item: $rescheduling) { drop in
                 RescheduleSheet(drop: drop, store: store)
@@ -216,7 +225,12 @@ private struct RescheduleSheet: View {
     init(drop: ScheduledDrop, store: ScheduledDropsStore) {
         self.drop = drop
         self.store = store
-        _customDate = State(initialValue: drop.scheduledPublishAt)
+        // US-1266: the drop's current time may already be in the past (an
+        // un-fired drop whose time slipped by). The DatePicker's `in: Date()...`
+        // bound doesn't re-validate a pre-set value, so seed it to the future to
+        // avoid persisting (and immediately publishing) a past instant when the
+        // user taps Reschedule without touching the picker.
+        _customDate = State(initialValue: max(Date(), drop.scheduledPublishAt))
     }
 
     private var resolvedZone: TimeZone {
@@ -274,7 +288,10 @@ private struct RescheduleSheet: View {
                     )
                     .environment(\.timeZone, resolvedZone)
                     Button {
-                        Task { await apply { await store.reschedule(drop, to: customDate) } }
+                        // US-1266: belt-and-suspenders — never send a past instant
+                        // even if the bound value lagged the picker bound.
+                        let when = max(customDate, Date())
+                        Task { await apply { await store.reschedule(drop, to: when) } }
                     } label: {
                         if isSaving {
                             ProgressView()

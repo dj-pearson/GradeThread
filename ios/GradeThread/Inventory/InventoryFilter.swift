@@ -176,8 +176,16 @@ public enum InventoryFilter {
             item.color,
             item.material,
             item.itemCategory,
+            // US-1248: these are mirrored on the local row and merged every sync,
+            // so an offline/airplane-mode search by style or garment type must
+            // match them too (previously they were silently unsearchable).
+            item.style,
+            item.garmentType,
+            item.garmentCategory,
             item.conditionNotes,
             item.locationBin,
+            item.container,
+            item.sourcedBy,
         ]
         .compactMap { $0 }
         .joined(separator: " ")

@@ -64,6 +64,12 @@ public final class EbayPublishService {
     // MARK: - Price
 
     func updatePrice(listingId: String, price: Double) async -> PublishOutcome {
+        // US-1241: catch a 0/negative price before the round-trip (the composer
+        // and BulkPricing already guard their inputs, but this entry point didn't)
+        // so it returns clear copy instead of an opaque edge failure.
+        guard price > 0 else {
+            return .failed(message: "Enter a listing price greater than zero before updating.")
+        }
         struct Body: Encodable { let price: Double }
         let path = "/api/flipdesk/ebay/listings/\(listingId)/price"
         do {
