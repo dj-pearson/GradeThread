@@ -153,4 +153,16 @@ final class LocalInventoryItem {
     /// actual photo set). Used by the grid "ready to list" cue and the
     /// with/missing-photo filter facet.
     var hasPhotos: Bool { !photos.isEmpty }
+
+    /// US-1209: a grade has landed (`gradeValue` set) but it's a low-confidence
+    /// result still awaiting human review, so it must NOT be presented as
+    /// certified or shareable yet. We derive this from the absence of a
+    /// `certificateURL`: the server only stamps a certificate once a grade
+    /// certifies (high confidence) or a reviewer clears it, and the on-device
+    /// optimistic stamp holds the certificate back below
+    /// ``GradeScale/gradeReviewConfidenceThreshold`` too — so "graded but no
+    /// certificate" is exactly the provisional / pending-review state.
+    var isGradePendingReview: Bool {
+        gradeValue != nil && (certificateURL?.isEmpty ?? true)
+    }
 }

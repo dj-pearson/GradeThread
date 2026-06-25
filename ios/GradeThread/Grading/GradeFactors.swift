@@ -108,6 +108,20 @@ enum GradeTierOption: String, CaseIterable, Identifiable {
 /// Excellent/NWOT (7.0–9.0) Steel Navy, Good/Fair (5.0–6.5) Amber, and
 /// Poor/Damaged (<5.0) Crimson.
 enum GradeScale {
+    /// Confidence floor (inclusive) for a grade to certify automatically.
+    /// Below this the grade is routed to a human reviewer server-side, so the
+    /// app must treat it as provisional — not certified or shareable until
+    /// review clears (US-1209, matches the CLAUDE.md grading spec: < 0.75 →
+    /// human review). Kept here so the ring, confidence card, request flow, and
+    /// list badge all agree on one threshold.
+    static let gradeReviewConfidenceThreshold: Double = 0.75
+
+    /// Whether a grade's confidence is low enough to require human review
+    /// before it can be presented as certified/shareable.
+    static func requiresReview(confidence: Double) -> Bool {
+        confidence < gradeReviewConfidenceThreshold
+    }
+
     static func color(for score: Double) -> Color {
         if score >= 9.5 { return .brandEmerald }
         if score >= 7.0 { return .brandSteelNavy }
@@ -115,11 +129,12 @@ enum GradeScale {
         return .brandRed
     }
 
-    /// Qualitative confidence bucket. Below 0.75 routes to human review
-    /// server-side, so we surface "Low" with a cautionary tone there.
+    /// Qualitative confidence bucket. Below ``gradeReviewConfidenceThreshold``
+    /// routes to human review server-side, so we surface "Low" with a
+    /// cautionary tone there.
     static func confidenceLabel(_ score: Double) -> (label: String, color: Color) {
         if score > 0.85 { return ("High", .brandEmerald) }
-        if score >= 0.75 { return ("Medium", .brandAmber) }
+        if score >= gradeReviewConfidenceThreshold { return ("Medium", .brandAmber) }
         return ("Low", .brandRed)
     }
 }

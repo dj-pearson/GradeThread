@@ -142,6 +142,9 @@ private struct SmallView: View {
         // tap anywhere on it lands on the Money/Sales surface instead of just
         // unlocking the app. systemSmall can carry only one widgetURL.
         .widgetURL(WidgetDeepLink.money.url)
+        // US-1222: a single composed VoiceOver summary for the whole tile.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
     }
 }
 
@@ -184,6 +187,10 @@ private struct MediumView: View {
         }
         // Sold-today + payout (and any non-Active tap) → Money/Sales.
         .widgetURL(WidgetDeepLink.money.url)
+        // US-1222: combine the three metric columns into one spoken summary,
+        // including the active-listing count the small view omits.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot, includeActive: true))
     }
 }
 
@@ -214,6 +221,10 @@ private struct StandByView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .widgetURL(WidgetDeepLink.money.url)
+        // US-1222: the big rounded numerals read as bare numbers to VoiceOver;
+        // compose them into the same natural-language summary.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
     }
 }
 
@@ -230,8 +241,11 @@ private struct AccessoryInlineView: View {
                 "\(snapshot.soldTodayCount) sold · \(CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)) payout",
                 systemImage: "shippingbox.fill"
             )
+            // US-1222: the "·" separator reads awkwardly; speak a clean summary.
+            .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
         } else {
             Label("Sign in to GradeThread", systemImage: "shippingbox.fill")
+                .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
         }
     }
 }
@@ -257,6 +271,10 @@ private struct AccessoryCircularView: View {
         }
         .widgetAccentable()
         .widgetURL(WidgetDeepLink.money.url)
+        // US-1222: without this VoiceOver reads just the bare numeral ("3").
+        // Compose the count into a sentence so the complication is meaningful.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WidgetAccessibility.circularLabel(for: snapshot))
     }
 }
 
@@ -284,6 +302,9 @@ private struct AccessoryRectangularView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .widgetURL(WidgetDeepLink.money.url)
+        // US-1222: merge the two stacked lines into one spoken summary.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WidgetAccessibility.summary(for: snapshot))
     }
 
     private var soldLine: String {
@@ -331,6 +352,12 @@ private struct Metric: View {
                     .lineLimit(1)
             }
         }
+        // US-1222: VoiceOver would otherwise read the three stacked Texts as
+        // three separate elements ("Sold today", "3", "$184"). Merge them into
+        // one element with a natural-language label so the swipe reads a whole
+        // metric at once.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(detail.map { "\(label): \(value), \($0)" } ?? "\(label): \(value)")
     }
 }
 
@@ -355,6 +382,55 @@ private enum CurrencyText {
         if let code { formatter.currencyCode = code }
         formatter.maximumFractionDigits = amount.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
         return formatter.string(from: NSNumber(value: amount)) ?? "\(formatter.currencySymbol ?? "$")\(Int(amount))"
+    }
+}
+
+// US-1222: composed VoiceOver summaries shared across the widget families.
+// The visual layouts stack bare numbers/labels as separate Texts, which read
+// as disconnected fragments (or just "3") to VoiceOver. These build a single
+// natural-language sentence from the snapshot fields so every family — home
+// screen, StandBy, and the three Lock Screen accessories — speaks the same
+// glanceable summary.
+private enum WidgetAccessibility {
+    /// Full summary: sold today (+ gross), payout waiting, optionally the
+    /// active-listing count (medium family). Falls back to a sign-in prompt.
+    static func summary(for snapshot: WidgetSnapshot, includeActive: Bool = false) -> String {
+        guard snapshot.isSignedIn else {
+            return "Sign in to GradeThread to see today's sales and payout."
+        }
+        var parts: [String] = []
+        if includeActive {
+            parts.append("\(snapshot.activeListings) active \(snapshot.activeListings == 1 ? "listing" : "listings")")
+        }
+        parts.append(soldClause(for: snapshot))
+        parts.append(payoutClause(for: snapshot))
+        return parts.joined(separator: ". ") + "."
+    }
+
+    /// Circular complication: the count alone is meaningless to VoiceOver, so
+    /// speak it as a sentence ("3 items sold today").
+    static func circularLabel(for snapshot: WidgetSnapshot) -> String {
+        guard snapshot.isSignedIn else {
+            return "Sign in to GradeThread."
+        }
+        let count = snapshot.soldTodayCount
+        return "\(count) \(count == 1 ? "item" : "items") sold today."
+    }
+
+    private static func soldClause(for snapshot: WidgetSnapshot) -> String {
+        let count = snapshot.soldTodayCount
+        guard count > 0 else { return "Nothing sold yet today" }
+        let gross = CurrencyText.string(snapshot.soldTodayGross, code: snapshot.currencyCode)
+        return "\(count) \(count == 1 ? "item" : "items") sold today, \(gross) gross"
+    }
+
+    private static func payoutClause(for snapshot: WidgetSnapshot) -> String {
+        let net = CurrencyText.string(snapshot.pendingPayoutNet, code: snapshot.currencyCode)
+        guard snapshot.pendingPayoutCount > 0 else {
+            return "No payout waiting"
+        }
+        let count = snapshot.pendingPayoutCount
+        return "\(net) payout waiting across \(count) \(count == 1 ? "sale" : "sales")"
     }
 }
 

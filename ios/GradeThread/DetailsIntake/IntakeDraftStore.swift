@@ -13,7 +13,19 @@ import UIKit
 ///
 /// Both are cleared on a successful save or an explicit discard.
 enum IntakeDraftStore {
-    private static let key = "com.gradethread.app.intakeDraft"
+    /// Legacy UserDefaults key (US-646). Drafts now live in a file-protected
+    /// store (US-1218); this key is only read once to migrate, then removed.
+    private static let legacyKey = "com.gradethread.app.intakeDraft"
+    private static let dirName = "intake-details-draft"
+
+    private static var directory: URL? {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return base?.appendingPathComponent(dirName, isDirectory: true)
+    }
+
+    private static var fileURL: URL? {
+        directory?.appendingPathComponent("draft.json")
+    }
 
     /// Codable snapshot of the form. Enum fields are stored as raw values so a
     /// future enum case can't break decoding (falls back to the default).
@@ -64,16 +76,44 @@ enum IntakeDraftStore {
         draft.notes = form.notes
         draft.savedAt = .now
         guard draft.hasContent else { clear(); return }
-        if let data = try? JSONEncoder().encode(draft) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+        guard let dir = directory, let url = fileURL,
+              let data = try? JSONEncoder().encode(draft) else { return }
+        // Encrypt at rest (US-1218): notes/cost/names are free-text PII and must
+        // not sit in plaintext UserDefaults or unencrypted backups. Mirrors the
+        // US-658 photo posture (PhotoDraftStore).
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
+        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     static func load() -> Draft? {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        migrateLegacyIfNeeded()
+        guard let url = fileURL,
+              let data = try? Data(contentsOf: url),
               let draft = try? JSONDecoder().decode(Draft.self, from: data),
               draft.hasContent else { return nil }
         return draft
+    }
+
+    /// One-time migration of a US-646 UserDefaults draft into the file-protected
+    /// store, then deletes the plaintext key so no PII lingers (US-1218).
+    private static func migrateLegacyIfNeeded() {
+        guard let legacyData = UserDefaults.standard.data(forKey: legacyKey) else { return }
+        defer { UserDefaults.standard.removeObject(forKey: legacyKey) }
+        guard let dir = directory, let url = fileURL,
+              (try? Data(contentsOf: url)) == nil,
+              let draft = try? JSONDecoder().decode(Draft.self, from: legacyData),
+              draft.hasContent,
+              let data = try? JSONEncoder().encode(draft) else { return }
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
+        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     @MainActor
@@ -96,7 +136,10 @@ enum IntakeDraftStore {
     }
 
     static func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
+        UserDefaults.standard.removeObject(forKey: legacyKey)
+        if let url = fileURL {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 }
 
@@ -120,7 +163,11 @@ enum PhotoDraftStore {
         guard let dir = directory else { return }
         clear()
         guard !photos.isEmpty else { return }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
         var entries: [Manifest.Entry] = []
         for (slot, capture) in photos {
             let filename = "photo-\(slot.rawValue).jpg"
@@ -133,7 +180,12 @@ enum PhotoDraftStore {
         }
         let manifest = Manifest(entries: entries, savedAt: .now)
         if let data = try? JSONEncoder().encode(manifest) {
-            try? data.write(to: dir.appendingPathComponent("manifest.json"), options: [.atomic])
+            // Encrypt the manifest too (US-1218): it sits beside protected photos
+            // but listed only filenames — still keep the whole draft dir consistent.
+            try? data.write(
+                to: dir.appendingPathComponent("manifest.json"),
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
         }
     }
 

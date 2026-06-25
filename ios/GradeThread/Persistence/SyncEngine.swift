@@ -122,8 +122,13 @@ actor SyncEngine {
     /// transient failure; the result is discardable for fire-and-forget callers.
     @discardableResult
     func sync() async -> SyncOutcome {
-        await pull()
+        // US-1221: flush BEFORE pull, matching the connectivity path
+        // (``start()``'s debouncer). A consistent flush-then-pull order across
+        // both entrypoints pushes local intent up before server state merges
+        // down, removing the nondeterministic resurrection/clobber window that
+        // the old manual pull-then-flush ordering created.
         await flushPending()
+        await pull()
         await refreshPendingCount()
         if let lastPullError { return .failed(lastPullError) }
         return .ok
@@ -164,12 +169,16 @@ actor SyncEngine {
             await mergeActor.mergeDisputes(payload.disputes)
 
             // Advance watermarks ONLY after a successful merge (US-633) so a
-            // dropped pass re-fetches the missed rows next time.
-            watermark.advance(.inventoryItems, to: payload.items.map(\.updated_at).max())
-            watermark.advance(.itemPhotos, to: payload.photos.map(\.created_at).max())
-            watermark.advance(.sales, to: payload.sales.map(\.created_at).max())
-            watermark.advance(.expenses, to: payload.expenses.map(\.created_at).max())
-            watermark.advance(.disputes, to: payload.disputes.compactMap(\.updated_at).max())
+            // dropped pass re-fetches the missed rows next time. US-1210: each
+            // cursor is the *drop-safe* value — it never advances past a row the
+            // resilient decoder silently dropped, so an undecodable low-timestamp
+            // row keeps the cursor behind it and is re-fetched (and re-decoded)
+            // on the next delta pull instead of being lost below the watermark.
+            watermark.advance(.inventoryItems, to: payload.itemCursor)
+            watermark.advance(.itemPhotos, to: payload.photoCursor)
+            watermark.advance(.sales, to: payload.saleCursor)
+            watermark.advance(.expenses, to: payload.expenseCursor)
+            watermark.advance(.disputes, to: payload.disputeCursor)
             lastPullError = nil
         case .failure(let error):
             // Connection errors are expected on the road; the banner flips to
@@ -222,6 +231,15 @@ actor SyncEngine {
         /// US-819: changed dispute rows (delta), stamped onto their items'
         /// `disputeStatus` so the Grades list can badge them.
         let disputes: [RemoteDispute]
+
+        // US-1210: per-table drop-safe watermark cursors. `nil` means "don't
+        // advance" (every row in the page sorted at/after a dropped row, so
+        // there is no safe value to move the cursor to without skipping it).
+        let itemCursor: String?
+        let photoCursor: String?
+        let saleCursor: String?
+        let expenseCursor: String?
+        let disputeCursor: String?
 
         /// Map of inventoryItemId → first photo (sort_order ascending). In
         /// delta mode this only covers items whose photos changed this pass.
@@ -487,14 +505,16 @@ actor SyncEngine {
             // Items — delta on updated_at, paginated (US-633).
             let itemWatermark = watermark.value(for: .inventoryItems)
             let isFullItemSync = (itemWatermark == nil)
-            let items = try await paginatedFetch(
+            let itemsFetch = try await paginatedFetch(
                 table: "inventory_items",
                 columns: Self.itemColumns,
                 cursor: SyncWatermark.Table.inventoryItems.cursorColumn,
                 watermark: itemWatermark,
                 scopeUserId: ownerId,
-                decode: Self.decodeItemsResiliently
+                decode: Self.decodeItemsResiliently,
+                idOf: { $0.id }
             )
+            let items = itemsFetch.rows
 
             // Photos + sales are BEST-EFFORT (a failure must not blank the
             // already-decoded inventory) and are themselves delta-scoped, so we
@@ -502,34 +522,40 @@ actor SyncEngine {
             // change without an item change.
             let photoWatermark = watermark.value(for: .itemPhotos)
             let isFullPhotoSync = (photoWatermark == nil)
-            let photos = (try? await paginatedFetch(
+            let photosFetch = try? await paginatedFetch(
                 table: "item_photos",
                 columns: Self.photoColumns,
                 cursor: SyncWatermark.Table.itemPhotos.cursorColumn,
                 watermark: photoWatermark,
-                decode: Self.decodePhotosResiliently
-            )) ?? []
+                decode: Self.decodePhotosResiliently,
+                idOf: { $0.id }
+            )
+            let photos = photosFetch?.rows ?? []
 
-            let sales = (try? await paginatedFetch(
+            let salesFetch = try? await paginatedFetch(
                 table: "sales",
                 columns: Self.saleColumns,
                 cursor: SyncWatermark.Table.sales.cursorColumn,
                 watermark: watermark.value(for: .sales),
                 scopeUserId: ownerId,
-                decode: Self.decodeSalesResiliently
-            )) ?? []
+                decode: Self.decodeSalesResiliently,
+                idOf: { $0.id }
+            )
+            let sales = salesFetch?.rows ?? []
 
             // US-750: operating expenses — best-effort + delta-scoped, mirrored
             // into the shared cache so the Money tab no longer needs a separate
             // server fetch (ExpenseStore.refresh).
-            let expenses = (try? await paginatedFetch(
+            let expensesFetch = try? await paginatedFetch(
                 table: "flipdesk_expenses",
                 columns: Self.expenseColumns,
                 cursor: SyncWatermark.Table.expenses.cursorColumn,
                 watermark: watermark.value(for: .expenses),
                 scopeUserId: ownerId,
-                decode: Self.decodeExpensesResiliently
-            )) ?? []
+                decode: Self.decodeExpensesResiliently,
+                idOf: { $0.id }
+            )
+            let expenses = expensesFetch?.rows ?? []
 
             // Listing prices — best-effort, NOT watermarked. We pull every
             // listing each pass (bounded by maxRowsPerPass) and keep the latest
@@ -544,7 +570,7 @@ actor SyncEngine {
                 cursor: "created_at",
                 watermark: nil,
                 decode: Self.decodeListingsResiliently
-            )) ?? []
+            ))?.rows ?? []
             var listingPrices: [String: Double] = [:]
             var listingPriceAt: [String: Date] = [:]
             for row in listingRows {
@@ -561,14 +587,16 @@ actor SyncEngine {
             // — so scope by `selfId`, NOT `ownerId`. One bounded query, NOT a
             // per-row fetch: the merge maps each row onto its item by
             // grade_report_id.
-            let disputes = (try? await paginatedFetch(
+            let disputesFetch = try? await paginatedFetch(
                 table: "disputes",
                 columns: Self.disputeColumns,
                 cursor: SyncWatermark.Table.disputes.cursorColumn,
                 watermark: watermark.value(for: .disputes),
                 scopeUserId: selfId,
-                decode: Self.decodeDisputesResiliently
-            )) ?? []
+                decode: Self.decodeDisputesResiliently,
+                idOf: { $0.id }
+            )
+            let disputes = disputesFetch?.rows ?? []
 
             return .success(PullPayload(
                 items: items, photos: photos, sales: sales,
@@ -577,25 +605,51 @@ actor SyncEngine {
                 isFullItemSync: isFullItemSync,
                 listingPrices: listingPrices,
                 listings: listingRows,
-                disputes: disputes
+                disputes: disputes,
+                // US-1210: advance each cursor only to a value that keeps a
+                // dropped (undecodable) row behind it. A failed best-effort
+                // fetch yields nil → that table's watermark holds.
+                itemCursor: Self.safeCursor(itemsFetch),
+                photoCursor: photosFetch.flatMap { Self.safeCursor($0) },
+                saleCursor: salesFetch.flatMap { Self.safeCursor($0) },
+                expenseCursor: expensesFetch.flatMap { Self.safeCursor($0) },
+                disputeCursor: disputesFetch.flatMap { Self.safeCursor($0) }
             ))
         } catch {
             return .failure(error)
         }
     }
 
+    /// Result of a ``paginatedFetch`` — the decoded rows plus, when an `idOf`
+    /// row-identity extractor was supplied, the cursor timestamps of every raw
+    /// row split into those that decoded vs. those the resilient decoder dropped
+    /// (US-1210). The split feeds ``safeCursor(_:)`` so the watermark never
+    /// advances past a dropped row.
+    private struct PagedFetch<T> {
+        let rows: [T]
+        let decodedCursors: [String]
+        let droppedCursors: [String]
+    }
+
     /// Paginated, watermark-filtered fetch. Loops `range()` pages until a page
     /// comes back short of `pageSize` (drained), advancing by raw row count so
     /// a resilient decode that drops a bad row can't stop pagination early.
+    ///
+    /// When `idOf` is supplied, each page's raw JSON is scanned (US-1210) to
+    /// record the `cursor` value of every row and whether it decoded, so the
+    /// caller can compute a drop-safe watermark.
     private func paginatedFetch<T>(
         table: String,
         columns: String,
         cursor: String,
         watermark: String?,
         scopeUserId: String? = nil,
-        decode: (Data) -> [T]
-    ) async throws -> [T] {
+        decode: (Data) -> [T],
+        idOf: ((T) -> String)? = nil
+    ) async throws -> PagedFetch<T> {
         var out: [T] = []
+        var decodedCursors: [String] = []
+        var droppedCursors: [String] = []
         var offset = 0
         while true {
             var query = SupabaseShared.client.from(table).select(columns)
@@ -606,19 +660,75 @@ actor SyncEngine {
                 .order(cursor, ascending: true)
                 .range(from: offset, to: offset + Self.pageSize - 1)
                 .execute()
-            out.append(contentsOf: decode(response.data))
+            let decoded = decode(response.data)
+            out.append(contentsOf: decoded)
+            if let idOf {
+                Self.splitCursors(
+                    response.data,
+                    cursorKey: cursor,
+                    decodedIds: Set(decoded.map(idOf)),
+                    decoded: &decodedCursors,
+                    dropped: &droppedCursors
+                )
+            }
             let rawCount = Self.jsonArrayCount(response.data)
             if rawCount < Self.pageSize { break }
             offset += Self.pageSize
             if offset >= Self.maxRowsPerPass { break }
         }
-        return out
+        return PagedFetch(rows: out, decodedCursors: decodedCursors, droppedCursors: droppedCursors)
     }
 
     /// Count of elements in a top-level JSON array, used to decide when a page
     /// is drained independent of how many rows decoded cleanly.
     private static func jsonArrayCount(_ data: Data) -> Int {
         ((try? JSONSerialization.jsonObject(with: data)) as? [Any])?.count ?? 0
+    }
+
+    // MARK: - US-1210: drop-safe watermark
+
+    /// Splits a raw JSON page's `cursor` values by whether the row decoded. A
+    /// raw row whose `id` is absent from `decodedIds` (or whose `id`/`cursor`
+    /// is missing) is treated as dropped, so its cursor keeps the watermark
+    /// behind it.
+    private static func splitCursors(
+        _ data: Data,
+        cursorKey: String,
+        decodedIds: Set<String>,
+        decoded: inout [String],
+        dropped: inout [String]
+    ) {
+        guard let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return }
+        for row in rows {
+            guard let cursorValue = row[cursorKey] as? String else { continue }
+            if let id = row["id"] as? String, decodedIds.contains(id) {
+                decoded.append(cursorValue)
+            } else {
+                dropped.append(cursorValue)
+            }
+        }
+    }
+
+    /// The cursor value to advance a watermark to that never skips a dropped
+    /// (undecodable) row (US-1210). Returns the greatest *decoded* cursor that
+    /// sorts strictly before the earliest *dropped* row, so the next delta pull
+    /// (`gt(cursor, watermark)`) re-fetches the dropped row — and re-attempts its
+    /// decode — once it becomes valid. With no drops this equals the page's max
+    /// cursor (parity with the old `payload.map(\.cursor).max()`); `nil` means
+    /// "don't advance". Cursor strings are ISO-8601 and compared lexically,
+    /// matching ``SyncWatermark/advance(_:to:)``'s ordering.
+    private static func safeCursor<T>(_ fetch: PagedFetch<T>) -> String? {
+        guard let earliestDropped = fetch.droppedCursors.min() else {
+            return fetch.decodedCursors.max()
+        }
+        return fetch.decodedCursors.filter { $0 < earliestDropped }.max()
+    }
+
+    /// Pure entrypoint for unit tests (US-1210): same logic as ``safeCursor(_:)``
+    /// over explicit cursor lists.
+    static func safeCursor(decodedCursors: [String], droppedCursors: [String]) -> String? {
+        guard let earliestDropped = droppedCursors.min() else { return decodedCursors.max() }
+        return decodedCursors.filter { $0 < earliestDropped }.max()
     }
 
     private static let itemColumns =
@@ -766,9 +876,20 @@ actor SyncEngine {
         isFlushing = true
         defer { isFlushing = false }
 
+        let allMutations = await snapshotMutations()
+        // US-1208: a CREATE still in the queue means its row may not exist on the
+        // server yet — it's either still retrying OR has exhausted its budget and
+        // is stuck. Any UPDATE/DELETE targeting that same id must NOT flush ahead
+        // of it: otherwise the replay runs `… WHERE id=?` against a row the server
+        // doesn't have, PostgREST returns 200 affecting 0 rows (no error), and the
+        // edit is silently dequeued and permanently lost. Compute the blocked set
+        // from the FULL queue (incl. stuck creates past maxRetries), not just the
+        // retry-eligible slice below.
+        var unconfirmedCreateIds = Self.unconfirmedCreateTargetIds(allMutations)
+
         // Skip mutations that have exhausted their auto-retry budget; they stay
         // queued for the inspector (US-641).
-        let mutations = await snapshotMutations().filter { $0.retryCount < Self.maxRetries }
+        let mutations = allMutations.filter { $0.retryCount < Self.maxRetries }
         guard !mutations.isEmpty else {
             await refreshPendingCount()
             return
@@ -779,18 +900,66 @@ actor SyncEngine {
             // US-1147: stop cleanly on teardown — replays are idempotent so the
             // remaining mutations simply flush on the next start/sync.
             if isStopping { break }
-            await apply(mutation)
+            // US-1208: defer an edit whose create hasn't been confirmed yet; it
+            // stays queued and flushes on a later pass once the create lands.
+            if Self.shouldDeferDependent(mutation, unconfirmedCreateIds: unconfirmedCreateIds) {
+                continue
+            }
+            let succeeded = await apply(mutation)
+            // A just-confirmed create unblocks dependent edits queued behind it
+            // so they can still flush in THIS pass.
+            if succeeded, Self.isCreateKind(mutation.kind), let target = mutation.targetId {
+                unconfirmedCreateIds.remove(target)
+            }
         }
         await refreshPendingCount()
     }
 
+    // MARK: - US-1208: create-before-edit replay ordering
+
+    /// CREATE mutation kinds whose target row may not exist on the server until
+    /// the create confirms.
+    static func isCreateKind(_ kind: String) -> Bool {
+        switch MutationKind(rawValue: kind) {
+        case .createInventoryItem, .createSale, .createExpense, .createListing: return true
+        default: return false
+        }
+    }
+
+    /// UPDATE/DELETE mutation kinds that target an existing row by id, and so
+    /// must not flush ahead of a still-pending create of that same row.
+    static func isDependentEdit(_ kind: String) -> Bool {
+        switch MutationKind(rawValue: kind) {
+        case .updateInventoryItem, .deleteInventoryItem, .deleteExpense: return true
+        default: return false
+        }
+    }
+
+    /// Target ids of CREATE mutations still in the queue — their server row may
+    /// not exist yet (US-1208).
+    static func unconfirmedCreateTargetIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
+        Set(queue.filter { isCreateKind($0.kind) }.compactMap(\.targetId))
+    }
+
+    /// True when `mutation` is an edit that must wait for a still-pending create
+    /// of the same row (US-1208).
+    static func shouldDeferDependent(
+        _ mutation: PendingMutationSnapshot, unconfirmedCreateIds: Set<String>
+    ) -> Bool {
+        guard isDependentEdit(mutation.kind), let target = mutation.targetId else { return false }
+        return unconfirmedCreateIds.contains(target)
+    }
+
     /// Replays one queued mutation against the server. On success the mutation
-    /// is dequeued; on a retryable failure `retryCount`/`lastError` advance and
-    /// it stays queued.
-    private func apply(_ mutation: PendingMutationSnapshot) async {
+    /// is dequeued (returns true); on a retryable failure `retryCount`/`lastError`
+    /// advance and it stays queued; on a terminal failure it is marked stuck
+    /// immediately (US-1221) without consuming the transient-retry budget.
+    @discardableResult
+    private func apply(_ mutation: PendingMutationSnapshot) async -> Bool {
         guard let kind = MutationKind(rawValue: mutation.kind) else {
-            await markFailed(id: mutation.id, error: "unknown mutation kind \(mutation.kind)")
-            return
+            // An unknown kind can never become known on retry — terminal.
+            await markStuck(id: mutation.id, error: "unknown mutation kind \(mutation.kind)")
+            return false
         }
         do {
             switch kind {
@@ -819,8 +988,17 @@ actor SyncEngine {
                 try await replayUploadPhoto(payload: mutation.payload)
             }
             await deleteMutation(id: mutation.id)  // server-confirmed → dequeue
+            return true
+        } catch let replayError as SyncReplayError where replayError.isTerminal {
+            // US-1221: a permanent replay error (missing target row, staged file
+            // gone, malformed storage URL) will never succeed on retry — surface
+            // it for manual attention immediately instead of burning all 6
+            // transient retries first.
+            await markStuck(id: mutation.id, error: replayError.localizedDescription)
+            return false
         } catch {
             await markFailed(id: mutation.id, error: error.localizedDescription)
+            return false
         }
     }
 
@@ -960,6 +1138,18 @@ actor SyncEngine {
             case .invalidStorageURL: return "Storage isn't configured correctly."
             }
         }
+
+        /// US-1221: cases that can never succeed on a retry, so they should be
+        /// flagged stuck (manual attention) immediately rather than consuming the
+        /// shared transient-retry budget over 6 passes. `notSignedIn` (re-auth on
+        /// next foreground) and `storageUpload` (a server-side 5xx may clear) stay
+        /// transient and keep retrying.
+        var isTerminal: Bool {
+            switch self {
+            case .missingTarget, .missingLocalFile, .invalidStorageURL: return true
+            case .notSignedIn, .storageUpload: return false
+            }
+        }
     }
 
     // MARK: - Pending-changes inspector support (US-641)
@@ -1060,6 +1250,25 @@ actor SyncEngine {
                 "Mutation replay failed (kind \(row.kind), attempt \(row.retryCount)/\(Self.maxRetries)): \(error)\(stuckSuffix)",
                 category: "sync")
             context.saveOrLog("markFailed")
+        }
+    }
+
+    /// US-1221: flag a mutation as stuck (needs manual retry/discard) without
+    /// stepping through the 6-attempt transient-retry budget — used for terminal
+    /// replay errors that can never succeed. Pins `retryCount` to `maxRetries` so
+    /// the flush loop skips it and ``stuckMutationCount()`` surfaces it.
+    private func markStuck(id: String, error: String) async {
+        await MainActor.run {
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
+            guard let row = try? context.fetch(descriptor).first else { return }
+            row.retryCount = Self.maxRetries
+            row.lastError = error
+            row.lastAttemptAt = .now
+            Telemetry.backgroundBreadcrumb(
+                "Mutation replay terminal (kind \(row.kind)): \(error) — now stuck (manual retry needed)",
+                category: "sync")
+            context.saveOrLog("markStuck")
         }
     }
 

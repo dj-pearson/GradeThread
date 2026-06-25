@@ -635,6 +635,96 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(store.phase, .idle)
     }
 
+    // MARK: - US-1208: create-before-edit replay ordering
+
+    private func snapshot(
+        kind: MutationKind,
+        targetId: String?,
+        retryCount: Int = 0,
+        createdAt: Date = Date(timeIntervalSince1970: 0)
+    ) -> SyncEngine.PendingMutationSnapshot {
+        SyncEngine.PendingMutationSnapshot(
+            id: UUID().uuidString,
+            kind: kind.rawValue,
+            payload: Data(),
+            targetId: targetId,
+            retryCount: retryCount,
+            lastError: nil,
+            lastAttemptAt: nil,
+            createdAt: createdAt
+        )
+    }
+
+    func test_dependentEdit_deferredWhileCreatePending() {
+        // create-then-edit-offline: the create is queued (and here failing/stuck),
+        // the edit for the SAME id must NOT flush ahead of it (US-1208), or the
+        // UPDATE runs against a row the server doesn't have and is lost.
+        let create = snapshot(kind: .createInventoryItem, targetId: "item-1")
+        let edit = snapshot(kind: .updateInventoryItem, targetId: "item-1")
+        let unconfirmed = SyncEngine.unconfirmedCreateTargetIds([create, edit])
+        XCTAssertTrue(unconfirmed.contains("item-1"))
+        XCTAssertTrue(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
+    }
+
+    func test_dependentEdit_stuckCreateStillBlocks() {
+        // The create has exhausted its retry budget (stuck). The edit (still
+        // retry-eligible) must STILL be blocked — a stuck create means the row
+        // likely never reached the server, so the edit can't safely apply.
+        let create = snapshot(kind: .createInventoryItem, targetId: "item-2", retryCount: 6)
+        let edit = snapshot(kind: .deleteInventoryItem, targetId: "item-2")
+        let unconfirmed = SyncEngine.unconfirmedCreateTargetIds([create, edit])
+        XCTAssertTrue(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
+    }
+
+    func test_dependentEdit_flushesOnceCreateConfirmed() {
+        // After the create confirms (removed from the unconfirmed set), its edit
+        // is free to flush in the same pass.
+        let edit = snapshot(kind: .updateInventoryItem, targetId: "item-3")
+        var unconfirmed: Set<String> = ["item-3"]
+        XCTAssertTrue(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
+        unconfirmed.remove("item-3")   // create just succeeded this pass
+        XCTAssertFalse(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
+    }
+
+    func test_independentEdit_neverDeferred() {
+        // An edit whose row has no pending create flushes immediately.
+        let edit = snapshot(kind: .updateInventoryItem, targetId: "item-4")
+        let unconfirmed = SyncEngine.unconfirmedCreateTargetIds([edit])
+        XCTAssertTrue(unconfirmed.isEmpty)
+        XCTAssertFalse(SyncEngine.shouldDeferDependent(edit, unconfirmedCreateIds: unconfirmed))
+    }
+
+    // MARK: - US-1210: drop-safe watermark
+
+    func test_safeCursor_keepsCursorBehindDroppedLowRow() {
+        // A row that failed to decode sits at an EARLIER timestamp than rows that
+        // decoded cleanly. The watermark must not jump past it (the bug), so the
+        // safe cursor is the latest decoded value strictly before the dropped one.
+        let cursor = SyncEngine.safeCursor(
+            decodedCursors: ["2026-06-01T00:00:00Z", "2026-06-03T00:00:00Z"],
+            droppedCursors: ["2026-06-02T00:00:00Z"]
+        )
+        XCTAssertEqual(cursor, "2026-06-01T00:00:00Z")
+    }
+
+    func test_safeCursor_noDrops_advancesToMax() {
+        let cursor = SyncEngine.safeCursor(
+            decodedCursors: ["2026-06-01T00:00:00Z", "2026-06-03T00:00:00Z"],
+            droppedCursors: []
+        )
+        XCTAssertEqual(cursor, "2026-06-03T00:00:00Z")
+    }
+
+    func test_safeCursor_droppedBeforeAllDecoded_doesNotAdvance() {
+        // Every decoded row sits at/after the dropped row → no safe value to move
+        // to without skipping it → hold the watermark (nil = don't advance).
+        let cursor = SyncEngine.safeCursor(
+            decodedCursors: ["2026-06-05T00:00:00Z"],
+            droppedCursors: ["2026-06-04T00:00:00Z"]
+        )
+        XCTAssertNil(cursor)
+    }
+
     // MARK: - Helpers
 
     private func inMemoryContainer() throws -> ModelContainer {

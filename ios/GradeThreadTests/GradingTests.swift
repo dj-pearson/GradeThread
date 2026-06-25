@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 import XCTest
 @testable import GradeThread
@@ -301,6 +302,66 @@ final class GradingTests: XCTestCase {
         XCTAssertNil(CertificateLink.resolve(explicit: nil, certificateId: nil))
     }
 
+    // MARK: - Low-confidence review gate (US-1209)
+
+    func test_gradeReviewThreshold_isPointSevenFive() {
+        XCTAssertEqual(GradeScale.gradeReviewConfidenceThreshold, 0.75, accuracy: 0.0001)
+    }
+
+    func test_requiresReview_belowThreshold_isProvisional() {
+        XCTAssertTrue(GradeScale.requiresReview(confidence: 0.0))
+        XCTAssertTrue(GradeScale.requiresReview(confidence: 0.5))
+        XCTAssertTrue(GradeScale.requiresReview(confidence: 0.7499))
+        // The floor is inclusive: exactly 0.75 certifies automatically.
+        XCTAssertFalse(GradeScale.requiresReview(confidence: 0.75))
+        XCTAssertFalse(GradeScale.requiresReview(confidence: 0.91))
+    }
+
+    /// AC #1: a sub-0.75 grade is treated as provisional — score/tier surface
+    /// (so the report can show the "flagged for human review" copy) but the
+    /// status is NOT stamped "graded" and the certificate URL is held back.
+    @MainActor
+    func test_applyGrade_lowConfidence_doesNotCertify() throws {
+        let context = ModelContext(try makeGradeContainer())
+        let item = makeGradeItem(id: "low", status: "photographed", context: context)
+        let report = makeReport(overallScore: 6.5, gradeTier: "Good", confidence: 0.62)
+
+        GradeApplication.stamp(
+            report,
+            certificateURL: URL(string: "https://gradethread.com/cert/C1"),
+            onto: item
+        )
+
+        XCTAssertEqual(item.gradeValue, 6.5)
+        XCTAssertEqual(item.gradeLabel, "Good")
+        // Certificate withheld even though one was offered.
+        XCTAssertNil(item.certificateURL)
+        // Status stays at its pre-grade stage — not promoted to certified.
+        XCTAssertEqual(item.status, "photographed")
+        // Derived signal the list/canvas use to badge "Pending review".
+        XCTAssertTrue(item.isGradePendingReview)
+    }
+
+    /// Contrast: a high-confidence grade certifies (status graded + certificate
+    /// stored), so the gate is specific to the sub-threshold path.
+    @MainActor
+    func test_applyGrade_highConfidence_certifies() throws {
+        let context = ModelContext(try makeGradeContainer())
+        let item = makeGradeItem(id: "high", status: "photographed", context: context)
+        let report = makeReport(overallScore: 8.5, gradeTier: "Excellent", confidence: 0.91)
+
+        GradeApplication.stamp(
+            report,
+            certificateURL: URL(string: "https://gradethread.com/cert/C2"),
+            onto: item
+        )
+
+        XCTAssertEqual(item.gradeValue, 8.5)
+        XCTAssertEqual(item.certificateURL, "https://gradethread.com/cert/C2")
+        XCTAssertEqual(item.status, "graded")
+        XCTAssertFalse(item.isGradePendingReview)
+    }
+
     func test_gradeScaleColorThresholds() {
         // Tiers follow the refreshed media kit (design.md §3B):
         // Pristine/NWT (>=9.5) Emerald, Excellent/NWOT (7.0-9.0) Steel Navy,
@@ -311,5 +372,46 @@ final class GradingTests: XCTestCase {
         XCTAssertEqual(GradeScale.color(for: 6.9), .brandAmber)
         XCTAssertEqual(GradeScale.color(for: 5.0), .brandAmber)
         XCTAssertEqual(GradeScale.color(for: 4.9), .brandRed)
+    }
+
+    // MARK: - Helpers (US-1209)
+
+    private func makeReport(
+        overallScore: Double,
+        gradeTier: String,
+        confidence: Double
+    ) -> GradeReportDTO {
+        GradeReportDTO(
+            id: "r", overallScore: overallScore, gradeTier: gradeTier,
+            fabricConditionScore: overallScore, structuralIntegrityScore: overallScore,
+            cosmeticAppearanceScore: overallScore, functionalElementsScore: overallScore,
+            odorCleanlinessScore: overallScore, aiSummary: "", confidenceScore: confidence,
+            certificateId: "C", createdAt: nil, defectsFound: nil
+        )
+    }
+
+    @MainActor
+    private func makeGradeContainer() throws -> ModelContainer {
+        let schema = Schema([
+            LocalInventoryItem.self,
+            LocalItemPhoto.self,
+            LocalListing.self,
+            LocalSale.self,
+            LocalSource.self,
+            LocalPendingMutation.self,
+        ])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+        return try ModelContainer(for: schema, configurations: config)
+    }
+
+    @MainActor
+    private func makeGradeItem(
+        id: String,
+        status: String,
+        context: ModelContext
+    ) -> LocalInventoryItem {
+        let item = LocalInventoryItem(id: id, userId: "u", title: "Item", status: status)
+        context.insert(item)
+        return item
     }
 }

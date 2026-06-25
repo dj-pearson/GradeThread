@@ -65,6 +65,11 @@ struct TeamView: View {
     private var loadingRow: some View {
         SkeletonRows(count: 4)
             .listRowBackground(Color.clear)
+            // US-1223: skeleton placeholders are silent to VoiceOver — speak a
+            // "Loading" cue so the load state is announced.
+            .accessibilityElement()
+            .accessibilityLabel("Loading")
+            .accessibilityAddTraits(.updatesFrequently)
     }
 
     private func failed(_ message: String) -> some View {
@@ -201,10 +206,15 @@ struct TeamView: View {
             set: { newRole in Task { await store.updateRole(memberId: member.memberId, to: newRole) } }
         )
         return VStack(alignment: .leading, spacing: 6) {
-            Text(member.displayName).font(.body)
-            if member.name != nil, !member.email.isEmpty {
-                Text(member.email).font(.caption).foregroundStyle(.secondary)
+            // US-1223: combine name + email into one element so the row reads as
+            // a unit; the role Picker stays a separate interactive control.
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.displayName).font(.body)
+                if member.name != nil, !member.email.isEmpty {
+                    Text(member.email).font(.caption).foregroundStyle(.secondary)
+                }
             }
+            .accessibilityElement(children: .combine)
             Picker("Role", selection: memberRoleBinding) {
                 ForEach(WorkspaceRole.assignable, id: \.self) { role in
                     Text(role.label).tag(role)
@@ -212,6 +222,9 @@ struct TeamView: View {
             }
             .pickerStyle(.menu)
             .labelsHidden()
+            // `.labelsHidden()` strips the picker's label, so VoiceOver announced
+            // a bare role with no owner. Name the control per member.
+            .accessibilityLabel("\(member.displayName) role")
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {

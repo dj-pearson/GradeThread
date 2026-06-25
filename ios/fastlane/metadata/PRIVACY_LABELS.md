@@ -19,7 +19,7 @@ used for "Tracking" in Apple's sense. No IDFA, no `ATTrackingManager`.
 | Purchase history | Purchases → Purchase History | Yes | No | App Functionality (the seller's own sales + payouts they record/import) | Supabase |
 | Photos | User Content → Photos or Videos | Yes | No | App Functionality (garment photos for cataloging + grading) | Supabase Storage |
 | Crash data | Diagnostics → Crash Data | No | No | App Functionality (stability) | Sentry |
-| Product interaction | Usage Data → Product Interaction | No | No | Analytics (opt-in only) | PostHog |
+| Product interaction | Usage Data → Product Interaction | No | No | Analytics (opt-out, on by default — user can disable in Settings) | PostHog |
 
 "Purchase history" here is the reseller's **own** sales bookkeeping, not
 App Store purchases. Apple's closest category is Purchase History; clarify
@@ -30,8 +30,8 @@ in the review notes if asked.
 | SDK | What it sees | Linked | Notes |
 |---|---|---|---|
 | Supabase (Auth/DB/Storage) | email, name, item data, photos, sales | Yes | First-party backend (self-hosted at api.gradethread.com) |
-| Sentry | crash stacks, breadcrumbs, a non-PII user id | No | Always on; no email attached (see Telemetry facade) |
-| PostHog | product-interaction events | No | **Opt-in** via Settings → Analytics; no events when off |
+| Sentry | crash stacks, breadcrumbs, a non-PII user id | No | Crash reporting only — **always on**, independent of the product-analytics toggle; no email attached (see Telemetry facade) |
+| PostHog | product-interaction events | No | **Opt-out, on by default** (user can disable in Settings → Analytics); no events when off |
 | eBay OAuth (target) | OAuth tokens for the seller's eBay account | Yes | Used only to publish/sync the seller's listings |
 
 ## Age rating

@@ -7,17 +7,35 @@ import Observation
 /// device-local here, matching ``SavedFilterStore``'s convention).
 ///
 /// Newest-first, de-duplicated case-insensitively, capped at ``maxItems``.
+///
+/// US-1218 — search terms may include consignor/buyer names (free-text PII), so
+/// they are persisted to a file-protected store in Application Support
+/// (`.completeFileProtectionUntilFirstUserAuthentication`) rather than plaintext
+/// `UserDefaults`, keeping them out of unencrypted backups. The cap is kept
+/// small for the same reason.
 @Observable
 public final class RecentSearchStore {
+    /// Legacy UserDefaults key — read once to migrate, then removed (US-1218).
+    private let legacyKey = "com.gradethread.inventory.recentSearches"
     private let defaults: UserDefaults
-    private let storageKey = "com.gradethread.inventory.recentSearches"
-    private let maxItems = 8
+    private let dirName = "inventory-recent-searches"
+    private let maxItems = 5
 
     public private(set) var terms: [String]
 
+    private var directory: URL? {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return base?.appendingPathComponent(dirName, isDirectory: true)
+    }
+
+    private var fileURL: URL? {
+        directory?.appendingPathComponent("terms.json")
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.terms = Self.load(from: defaults, key: storageKey)
+        self.terms = []
+        self.terms = loadAndMigrate()
     }
 
     /// Records a search term, moving it to the front. Blank/too-short terms are
@@ -39,14 +57,36 @@ public final class RecentSearchStore {
     // MARK: - Persistence
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(terms) else { return }
-        defaults.set(data, forKey: storageKey)
+        guard let dir = directory, let url = fileURL,
+              let data = try? JSONEncoder().encode(terms) else { return }
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
+        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
-    private static func load(from defaults: UserDefaults, key: String) -> [String] {
-        guard let data = defaults.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([String].self, from: data)
-        else { return [] }
-        return decoded
+    /// Loads from the file-protected store, migrating any legacy plaintext
+    /// UserDefaults value once and then deleting the key (US-1218).
+    private func loadAndMigrate() -> [String] {
+        if let url = fileURL,
+           let data = try? Data(contentsOf: url),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            // A legacy key may still exist if the file store wrote first; purge it.
+            defaults.removeObject(forKey: legacyKey)
+            return Array(decoded.prefix(maxItems))
+        }
+        // First run on US-1218: migrate the old UserDefaults value if present.
+        if let data = defaults.data(forKey: legacyKey),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            defaults.removeObject(forKey: legacyKey)
+            let capped = Array(decoded.prefix(maxItems))
+            terms = capped
+            persist()
+            return capped
+        }
+        defaults.removeObject(forKey: legacyKey)
+        return []
     }
 }

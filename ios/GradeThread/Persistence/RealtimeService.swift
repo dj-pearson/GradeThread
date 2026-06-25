@@ -117,6 +117,16 @@ public final class RealtimeService {
         await stop()
     }
 
+    /// US-1211: re-home the channel onto a different owner id (workspace switch).
+    /// `start(userId:)` no-ops when a channel already exists, so a plain re-start
+    /// can't move the subscription — tear down first, then re-subscribe scoped to
+    /// the new active workspace owner so a member receives the owner workspace's
+    /// live row changes, not just their own.
+    public func resubscribe(userId: String) async {
+        await stop()
+        await start(userId: userId)
+    }
+
     public func stop() async {
         listenTask?.cancel()
         listenTask = nil
@@ -197,6 +207,7 @@ public final class RealtimeService {
         // Map supabase-swift's status to our UI-level phase. The actual
         // case names vary slightly across SDK versions; we accept the
         // common four states + leave the default branch open.
+        let previous = phase
         switch status {
         case .subscribed:
             phase = .subscribed
@@ -206,6 +217,16 @@ public final class RealtimeService {
             phase = .subscribing
         @unknown default:
             phase = .reconnecting
+        }
+
+        // US-1211: every transition INTO .subscribed — the first subscribe AND
+        // every re-subscribe after a drop (token expiry, cellular handoff,
+        // backgrounding) — kicks a catch-up pull. Postgres-change events emitted
+        // while the socket was down are never replayed by the server, so without
+        // this reconcile they'd be lost until the next foreground/manual sync.
+        if phase == .subscribed, previous != .subscribed {
+            let engine = syncEngine
+            Task { await engine.pull() }
         }
     }
 }

@@ -124,6 +124,11 @@ struct VerifiedView: View {
     private var loadingRow: some View {
         SkeletonRows(count: 4)
             .listRowBackground(Color.clear)
+            // US-1223: skeleton placeholders are silent to VoiceOver — speak a
+            // "Loading" cue so the load state is announced.
+            .accessibilityElement()
+            .accessibilityLabel("Loading")
+            .accessibilityAddTraits(.updatesFrequently)
     }
 
     private func failed(_ message: String) -> some View {

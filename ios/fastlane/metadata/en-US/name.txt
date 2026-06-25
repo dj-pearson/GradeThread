@@ -1,1 +1,1 @@
-FlipDesk by GradeThread
+GradeThread

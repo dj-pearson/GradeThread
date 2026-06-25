@@ -54,8 +54,14 @@ struct GradesListView: View {
         }
     }
 
+    /// US-1209: only items whose grade has certified (not the provisional,
+    /// pending-review ones) count as "certified" in the summary row.
+    private var certifiedItems: [LocalInventoryItem] {
+        gradedItems.filter { !$0.isGradePendingReview }
+    }
+
     private var averageGrade: Double? {
-        let values = gradedItems.compactMap(\.gradeValue)
+        let values = certifiedItems.compactMap(\.gradeValue)
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
     }
@@ -155,7 +161,7 @@ struct GradesListView: View {
                 animateOnAppear: false
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(gradedItems.count) certified item\(gradedItems.count == 1 ? "" : "s")")
+                Text("\(certifiedItems.count) certified item\(certifiedItems.count == 1 ? "" : "s")")
                     .font(.subheadline.weight(.semibold))
                 Text("Average grade \(String(format: "%.1f", averageGrade)) of 10")
                     .font(.caption)
@@ -215,11 +221,14 @@ private struct GradeListRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            // US-819: surface dispute state per row, mirroring the web's
-            // per-submission dispute indicator. Synced into the local store, so
-            // no per-row fetch.
+            // US-1209: a low-confidence grade is still awaiting human review, so
+            // it isn't certified/shareable yet — flag it distinctly instead of
+            // letting it read as a certified grade. A dispute badge (if any)
+            // takes precedence since it's the more actionable state.
             if let status = item.disputeStatus, DisputeStatusDisplay.isDisputed(status) {
                 DisputeBadge(status: status)
+            } else if item.isGradePendingReview {
+                PendingReviewBadge()
             }
         }
         .padding(.vertical, 2)
@@ -228,7 +237,35 @@ private struct GradeListRow: View {
     private var subtitle: String {
         var parts: [String] = []
         if let label = item.gradeLabel, !label.isEmpty { parts.append(label) }
-        parts.append(daysAgo <= 0 ? "Graded today" : "Graded \(daysAgo)d ago")
+        // US-1209: a provisional grade isn't certified yet, so don't imply it
+        // was "graded" (certified) — describe it as submitted/awaiting review.
+        if item.isGradePendingReview {
+            parts.append(daysAgo <= 0 ? "Submitted today" : "Submitted \(daysAgo)d ago")
+        } else {
+            parts.append(daysAgo <= 0 ? "Graded today" : "Graded \(daysAgo)d ago")
+        }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// US-1209: small capsule badge marking a low-confidence grade that's still
+/// awaiting human review, so it can't be presented as certified/shareable yet.
+/// Mirrors ``DisputeBadge`` chrome (amber in-progress tone + non-color icon).
+private struct PendingReviewBadge: View {
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "clock.badge.questionmark")
+                .font(.caption2)
+                .accessibilityHidden(true)
+            Text("Pending review")
+                .font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(.brandAmber)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Color.brandAmber.opacity(0.12))
+        .clipShape(Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Grade pending human review")
     }
 }

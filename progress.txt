@@ -6116,3 +6116,109 @@ unit tests for the macOS test target.
           (iOS caveat as always: Swift/xcodebuild is macOS-only; the no-ungated-
           print gate is the only check runnable here and it passes. Run the iOS CI
           lane on a macOS runner before release.)
+
+================================================================================
+SESSION 2026-06-25 — open prd.json stories (iOS Launch/Production Readiness)
+================================================================================
+(iOS caveat as always: Swift/xcodebuild is macOS-only; code written to match
+conventions, the no-ungated-print gate passes, iOS CI on a macOS runner is the
+safety net. New file GradeApplication.swift auto-includes via XcodeGen folder
+sources.)
+
+- US-1208 iOS: offline UPDATE/DELETE replay must not run ahead of a pending
+          CREATE (silent data loss). COMPLETE. SyncEngine.flushPending now
+          computes unconfirmedCreateTargetIds() from the FULL queue (incl. stuck
+          creates past maxRetries) and shouldDeferDependent() skips an UPDATE/
+          DELETE whose CREATE for the same id is still queued — so the replay
+          never runs `… WHERE id=?` against a row the server doesn't have (the
+          PostgREST 200/0-rows case that silently dequeued + lost the edit).
+          apply() now returns Bool, so a create confirmed earlier in the same
+          pass removes its id from the blocked set and unblocks its dependents.
+          +4 unit tests (dependent deferred while create pending / stuck create
+          still blocks / unblocks once confirmed / independent edit never
+          deferred) in SyncTests.
+
+- US-1210 iOS: delta watermark must not advance past resiliently-dropped rows
+          (permanent row loss). COMPLETE. paginatedFetch now returns a PagedFetch
+          with per-page decoded vs dropped cursor lists (splitCursors scans the
+          raw JSON and treats any row whose id isn't in the decoded set as
+          dropped). safeCursor() advances the watermark only to the greatest
+          decoded cursor strictly BEFORE the earliest dropped row (nil = hold), so
+          an undecodable low-timestamp row keeps the cursor behind it and is
+          re-fetched + re-decoded on the next delta pull instead of being skipped
+          permanently. Wired for items/photos/sales/expenses/disputes; US-1003
+          drop logging preserved. +3 unit tests.
+
+- US-1211 iOS: Realtime follows the active workspace + catch-up on reconnect.
+          COMPLETE. startRealtimeIfNeeded scopes the channel to
+          WorkspaceScope.tenantOwnerId(selfId:) (not just self) so a member sees
+          the owner workspace's live rows. RealtimeService.resubscribe(userId:)
+          tears down + re-subscribes, called from .workspaceDidChange. Every
+          transition INTO .subscribed (first subscribe AND every re-subscribe
+          after a socket drop) kicks SyncEngine.pull() to reconcile events missed
+          during the gap. .workspaceDidChange now flushPending()s FIRST (drains
+          the prior workspace's queued writes — replayed scoped by their own
+          payload ids — before reset/clear/re-home) so a queued mutation can't
+          carry into the new workspace's first pass.
+
+- US-1221 iOS: sync hygiene. PARTIAL (passes:false). DONE: AC3 consistent
+          flush-then-pull order — sync() now flushes before pulling, matching the
+          connectivity debouncer, closing the pull-then-flush resurrection/clobber
+          window. AC4 replay-error classification — SyncReplayError.isTerminal
+          (missingTarget / missingLocalFile / invalidStorageURL) routes to a new
+          markStuck() that pins retryCount to maxRetries immediately, so terminal
+          errors surface for manual attention without burning the 6 transient
+          retries; notSignedIn / storageUpload stay transient. DEFERRED: AC1
+          server-side delete/tombstone propagation (sales/expenses/listings/
+          photos) and AC2 watermarking the listings full-pull — both need the
+          latest-price derivation reshaped (delta + cached LocalListing) and
+          prune-correctness device/CI-verified, not safe to do blind.
+
+- US-1209 iOS: low-confidence (<0.75) grades not presented as certified.
+          COMPLETE. GradeScale.gradeReviewConfidenceThreshold=0.75; new
+          GradeApplication.stamp() holds back certificateURL + does NOT promote
+          status to "graded" when confidence<0.75 (LocalInventoryItem
+          .isGradePendingReview derives the provisional state from a missing
+          cert). GradesListView shows a "Pending review" badge + excludes
+          provisional items from certified counts; GradeReportView /
+          CertifiedGradeSection suppress the Share Certificate CTA. +tests.
+
+- US-1214 iOS: reconcile analytics default with the App Privacy "opt-in" claim.
+          COMPLETE. Kept opt-out behavior (no runtime change) and corrected the
+          docs to AGREE: Telemetry.swift comments, PrivacyInfo.xcprivacy
+          commentary, and PRIVACY_LABELS.md now say "opt-out, on by default (user
+          can disable in Settings)"; Sentry crash reporting documented as separate
+          from product-analytics consent.
+
+- US-1215 iOS: App Store metadata honesty. COMPLETE. keywords.txt drops
+          poshmark/crosslist (final 95-char set: reseller,resell,ebay,thrift,
+          flipping,inventory,clothing,listing,consignment,secondhand,preowned);
+          name.txt aligned to "GradeThread" (matches CFBundleDisplayName);
+          description.txt verified to claim only eBay publishing + AI listing copy
+          (no cross-posting).
+
+- US-1218 iOS: move at-rest PII off plaintext UserDefaults. COMPLETE.
+          IntakeDraftStore + RecentSearchStore now persist to file-protected
+          Application Support files (.completeFileProtectionUntilFirstUser-
+          Authentication; dir .protectionKey) with one-time legacy migration off
+          UserDefaults; PhotoDraftStore manifest.json now written with the
+          protection class and its dir created with .protectionKey. Recent-search
+          cap lowered 8->5.
+
+- US-1222 iOS: Widget + Share Extension accessibility + robustness. COMPLETE.
+          New WidgetAccessibility builds natural-language summaries for every
+          widget view (Metric .combine; Small/Medium/StandBy/all accessory views;
+          circular complication no longer reads a bare number). ShareViewController
+          guards present on !images.isEmpty (else "No images to import" + complete),
+          surfaces a failure alert when IntakeInbox.writeBatch throws, and reads
+          file URLs via security-scoped loadFileRepresentation off-thread instead
+          of synchronous Data(contentsOf:).
+
+- US-1223 iOS: accessibility pass on post-US-1163 surfaces. COMPLETE.
+          ScheduledDrops reschedule row is now a button (.isButton +
+          .accessibilityAction "Reschedule"); TeamView role pickers labeled
+          "<name> role" with the name combined into the row; ConsignorsView Save
+          shows a ProgressView while saving and the split Slider has label+value;
+          Team/ListingPerformance/Verified loading skeletons speak "Loading"; the
+          ListingPerformance trend direction (rising/falling/flat) is in the
+          combined a11y label, not color-only.

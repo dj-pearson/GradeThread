@@ -452,14 +452,18 @@ struct GradeRequestSheet: View {
     /// Optimistically mirror the new grade onto the cached item so the
     /// canvas + list update immediately. A real sync pull (kicked here)
     /// fills in anything we didn't set.
+    ///
+    /// US-1209: a low-confidence grade (< ``GradeScale/gradeReviewConfidenceThreshold``)
+    /// is routed to a human reviewer server-side, so it is NOT a certified,
+    /// shareable result yet. We still surface the score/tier so the report can
+    /// render the "flagged for human review" copy, but we hold back the
+    /// certificate URL and the "graded" status until review clears — so the
+    /// same item can't simultaneously read as "Pending review" and "Certified".
+    /// The server merge is authoritative (SyncMergeActor): it likewise won't
+    /// supply a `certificate_url`/`status = graded` for an unreviewed grade, so
+    /// the next pull keeps the provisional state until the review lands.
     private func applyGradeToItem(_ report: GradeReportDTO, certificateURL: URL?) {
-        item.gradeValue = report.overallScore
-        item.gradeLabel = report.gradeTier
-        if let certificateURL { item.certificateURL = certificateURL.absoluteString }
-        if item.status == "cataloged" || item.status == "photographed" || item.status == "measured" {
-            item.status = "graded"
-        }
-        item.updatedAt = .now
+        GradeApplication.stamp(report, certificateURL: certificateURL, onto: item)
         modelContext.saveOrLog("applyGradeToItem")
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }
