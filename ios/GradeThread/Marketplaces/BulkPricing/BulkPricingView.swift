@@ -59,7 +59,7 @@ struct BulkPricingView: View {
             .pickerStyle(.segmented)
 
             HStack(spacing: 10) {
-                if store.priceMode != .none {
+                if store.priceMode == .set || store.priceMode == .reduce {
                     TextField(store.priceMode == .set ? "New price" : "% off", text: $store.priceText)
                         .keyboardType(.decimalPad)
                         .textFieldStyle(.roundedBorder)
@@ -67,6 +67,10 @@ struct BulkPricingView: View {
                 TextField("Set qty (optional)", text: $store.quantityText)
                     .keyboardType(.numberPad)
                     .textFieldStyle(.roundedBorder)
+            }
+
+            if store.priceMode == .suggestFromComps {
+                compsControls
             }
 
             Button {
@@ -82,6 +86,37 @@ struct BulkPricingView: View {
             .disabled(!store.canApply)
         }
         .padding()
+    }
+
+    // MARK: - Suggest from comps (US-1167 AC2)
+
+    private var compsControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                Task { await store.suggestFromComps() }
+            } label: {
+                HStack(spacing: 6) {
+                    if store.fetchingComps {
+                        ProgressView().controlSize(.small)
+                        Text("Fetching comps \(store.compsDone)/\(store.compsTotal)…")
+                    } else {
+                        Image(systemName: "sparkles")
+                        Text("Suggest prices from eBay comps")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(Color.brandNavy)
+            .disabled(store.selected.isEmpty || store.fetchingComps)
+
+            // AC3: be explicit these are ACTIVE asks, not sold prices, so the
+            // user isn't misled into overpricing.
+            Text("Uses the median of ACTIVE eBay asking prices for each title — a competitive starting point, not sold prices.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: - List
@@ -136,6 +171,14 @@ struct BulkPricingView: View {
                 Spacer()
                 Text(CurrencyFormatter().formatDisplay(listing.price))
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                // US-1167 (AC2): preview the comp-derived suggested price the
+                // bulk apply will set for this row.
+                if store.priceMode == .suggestFromComps,
+                   let suggested = store.suggestedPrice(for: listing.id) {
+                    Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
+                    Text(CurrencyFormatter().formatDisplay(suggested))
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Color.brandNavy)
+                }
                 if let qty = listing.quantity {
                     Text("×\(qty)").font(.caption).foregroundStyle(.tertiary)
                 }

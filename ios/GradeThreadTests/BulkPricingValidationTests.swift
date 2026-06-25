@@ -93,4 +93,110 @@ final class BulkPricingValidationTests: XCTestCase {
         // through — not merely the first row.
         XCTAssertEqual(store.primaryAccountName, "Closet A")
     }
+
+    // MARK: - US-1167 (AC2): suggest from comps
+
+    /// Pure median→suggested-price mapping.
+    func test_suggestedPrice_usesMedianWhenCompsExist() {
+        let stats = CompStats(count: 8, currency: "USD", min: 20, p25: 30, median: 52.5, p75: 70, max: 90)
+        XCTAssertEqual(BulkPricingStore.suggestedPrice(from: stats), 52.5)
+    }
+
+    func test_suggestedPrice_nilWhenNoComps() {
+        let empty = CompStats(count: 0, currency: "USD", min: nil, p25: nil, median: nil, p75: nil, max: nil)
+        XCTAssertNil(BulkPricingStore.suggestedPrice(from: empty))
+        let noMedian = CompStats(count: 3, currency: "USD", min: 5, p25: nil, median: nil, p75: nil, max: 20)
+        XCTAssertNil(BulkPricingStore.suggestedPrice(from: noMedian))
+    }
+
+    func test_suggestFromComps_prefillsPerRowSuggestions() async {
+        let rows = [
+            BulkListing(id: "1", title: "Levi's 501", price: 40, quantity: 1),
+            BulkListing(id: "2", title: "Nike Tee", price: 15, quantity: 1),
+        ]
+        let comps = FakeComps(byTitle: [
+            "Levi's 501": Self.lookup(median: 52.5),
+            "Nike Tee": Self.emptyLookup,   // category resolves, but zero comps
+        ])
+        let store = BulkPricingStore(service: FakeBulkProvider(rows: rows), comps: comps)
+        await store.load()
+        store.priceMode = .suggestFromComps
+        store.selected = ["1", "2"]
+
+        await store.suggestFromComps()
+
+        XCTAssertEqual(store.suggestedPrice(for: "1"), 52.5)
+        XCTAssertNil(store.suggestedPrice(for: "2"))
+        XCTAssertTrue(store.priceActive)        // at least one suggestion exists
+        XCTAssertTrue(store.canApply)
+    }
+
+    func test_apply_usesSuggestedPricesInCompsMode() async {
+        let rows = [BulkListing(id: "1", title: "Levi's 501", price: 40, quantity: 1)]
+        let provider = FakeBulkProvider(rows: rows)
+        let store = BulkPricingStore(
+            service: provider,
+            comps: FakeComps(byTitle: ["Levi's 501": Self.lookup(median: 52.5)]))
+        await store.load()
+        store.priceMode = .suggestFromComps
+        store.selected = ["1"]
+        await store.suggestFromComps()
+
+        await store.apply()
+
+        XCTAssertEqual(provider.applied.count, 1)
+        XCTAssertEqual(provider.applied.first?.price, 52.5)
+    }
+
+    func test_changingMode_clearsSuggestions() async {
+        let rows = [BulkListing(id: "1", title: "Levi's 501", price: 40, quantity: 1)]
+        let store = BulkPricingStore(
+            service: FakeBulkProvider(rows: rows),
+            comps: FakeComps(byTitle: ["Levi's 501": Self.lookup(median: 52.5)]))
+        await store.load()
+        store.priceMode = .suggestFromComps
+        store.selected = ["1"]
+        await store.suggestFromComps()
+        XCTAssertNotNil(store.suggestedPrice(for: "1"))
+
+        store.priceMode = .set     // switching modes drops stale suggestions
+        XCTAssertNil(store.suggestedPrice(for: "1"))
+    }
+
+    private static func lookup(median: Double) -> CompsLookup? {
+        CompsLookup(
+            stats: CompStats(count: 6, currency: "USD", min: 20, p25: 30, median: median, p75: 70, max: 90),
+            categoryId: "1", categoryPath: "Clothing › Test")
+    }
+
+    /// A resolved category whose comps query came back empty (count 0).
+    private static let emptyLookup: CompsLookup? = CompsLookup(
+        stats: CompStats(count: 0, currency: "USD", min: nil, p25: nil, median: nil, p75: nil, max: nil),
+        categoryId: "1", categoryPath: "Clothing › Test")
+}
+
+/// Capturing fake for the bulk data layer so apply payloads can be asserted.
+@MainActor
+private final class FakeBulkProvider: BulkPricingProviding {
+    let rows: [BulkListing]
+    private(set) var applied: [BulkPriceQtyUpdate] = []
+    init(rows: [BulkListing]) { self.rows = rows }
+    func listings() async throws -> [BulkListing] { rows }
+    func apply(updates: [BulkPriceQtyUpdate]) async throws -> BulkPriceQtyResponse {
+        applied = updates
+        return BulkPriceQtyResponse(
+            results: updates.map { BulkPriceQtyResult(listingId: $0.listingId, ok: true, error: nil) },
+            succeeded: updates.count, total: updates.count)
+    }
+    func ebayAccounts() async throws -> [BulkPricingAccount] { [] }
+}
+
+/// Deterministic comps lookup keyed by title (no network).
+@MainActor
+private final class FakeComps: CompsProviding {
+    let byTitle: [String: CompsLookup?]
+    init(byTitle: [String: CompsLookup?]) { self.byTitle = byTitle }
+    func lookup(title: String, brand: String?, size: String?) async throws -> CompsLookup? {
+        byTitle[title] ?? nil
+    }
 }

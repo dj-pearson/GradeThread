@@ -10,15 +10,30 @@ final class BulkPricingStore {
         case none = "No change"
         case set = "Set price"
         case reduce = "Reduce %"
+        // US-1167 (AC2): per-row suggested price pulled from each listing's active
+        // eBay comps (median asking price) instead of one global value.
+        case suggestFromComps = "From comps"
         var id: String { rawValue }
     }
 
     private let service: BulkPricingProviding
+    /// US-1167 (AC2): two-hop comps lookup for the "From comps" mode. Same
+    /// source the ItemCanvas comps panel / publish composer use.
+    private let comps: CompsProviding
 
     var phase: Phase = .loading
     private(set) var listings: [BulkListing] = []
     var selected: Set<String> = []
-    var priceMode: PriceMode = .none
+    var priceMode: PriceMode = .none {
+        // US-1167 (AC2): switching modes drops stale comp suggestions and any
+        // per-row failure so the previous mode's state can't leak into the next.
+        didSet {
+            if priceMode != oldValue {
+                suggestedPrices.removeAll()
+                rowErrors.removeAll()
+            }
+        }
+    }
     // US-1191: clear stale per-row failures when the user re-edits the inputs, so
     // a previous apply's error doesn't cling to a row being actively re-edited.
     var priceText = "" { didSet { if priceText != oldValue { rowErrors.removeAll() } } }
@@ -29,6 +44,17 @@ final class BulkPricingStore {
     /// Per-listing failure messages from the last apply.
     private(set) var rowErrors: [String: String] = [:]
 
+    /// US-1167 (AC2): comp-derived suggested price per listing id, populated by
+    /// ``suggestFromComps()``. Drives both the row preview and the apply payload
+    /// when ``priceMode`` is `.suggestFromComps`.
+    private(set) var suggestedPrices: [String: Double] = [:]
+    /// US-1167 (AC2): comp-fetch progress for the "From comps" mode (N listings ×
+    /// 2 network hops each), so a multi-row fetch shows live progress, not a
+    /// frozen button.
+    private(set) var fetchingComps = false
+    private(set) var compsDone = 0
+    private(set) var compsTotal = 0
+
     /// US-1216: bulk edits all route through the user's PRIMARY eBay store on the
     /// edge, and `listings` carries no per-store column, so when more than one
     /// store is connected we name the target store in the UI rather than letting
@@ -36,8 +62,12 @@ final class BulkPricingStore {
     private(set) var hasMultipleAccounts = false
     private(set) var primaryAccountName: String?
 
-    init(service: BulkPricingProviding = BulkPricingService()) {
+    // `comps` defaults to nil (not `CompsService()`): a default argument is
+    // evaluated in the caller's isolation, and CompsService's init is
+    // @MainActor — so it's constructed inside this MainActor init body instead.
+    init(service: BulkPricingProviding = BulkPricingService(), comps: CompsProviding? = nil) {
         self.service = service
+        self.comps = comps ?? CompsService()
     }
 
     func load() async {
@@ -85,7 +115,8 @@ final class BulkPricingStore {
         // not the computed result). `.set` keeps the generic positive-amount rule.
         case .reduce: return (v > 0 && v < 100) ? v : nil
         case .set: return v > 0 ? v : nil
-        case .none: return nil
+        // `.suggestFromComps` has no single global input — prices are per-row.
+        case .none, .suggestFromComps: return nil
         }
     }
 
@@ -95,7 +126,15 @@ final class BulkPricingStore {
         return v
     }
 
-    var priceActive: Bool { priceMode != .none && priceValue != nil }
+    var priceActive: Bool {
+        switch priceMode {
+        case .none: return false
+        case .set, .reduce: return priceValue != nil
+        // US-1167 (AC2): active once at least one selected row has a comp-derived
+        // suggested price to apply.
+        case .suggestFromComps: return selected.contains { suggestedPrices[$0] != nil }
+        }
+    }
     var quantityActive: Bool { quantityValue != nil }
     var canApply: Bool { !selected.isEmpty && (priceActive || quantityActive) && !busy }
 
@@ -114,7 +153,7 @@ final class BulkPricingStore {
         case .set:
             if v <= 0 { return "Price must be greater than $0." }
             return nil
-        case .none:
+        case .none, .suggestFromComps:
             return nil
         }
     }
@@ -144,6 +183,58 @@ final class BulkPricingStore {
         return (rounded, nil)
     }
 
+    // MARK: - US-1167 (AC2): suggest from comps
+
+    /// Comp-derived suggested price: the median of ACTIVE eBay asking prices for
+    /// the listing's title. AC3 — these are active asks, not sold prices, so the
+    /// UI labels them as a competitive starting point, not a guaranteed sale
+    /// price. Pure + nonisolated so the median→price mapping is unit-testable.
+    nonisolated static func suggestedPrice(from stats: CompStats) -> Double? {
+        guard stats.count > 0, let median = stats.median, median > 0 else { return nil }
+        return (median * 100).rounded() / 100
+    }
+
+    /// The comp-derived suggested price for a row, when one was fetched.
+    func suggestedPrice(for id: String) -> Double? { suggestedPrices[id] }
+
+    /// US-1167 (AC2): fetch active eBay comps for every selected listing (by
+    /// title) and pre-fill a per-row suggested price = the comp median. Each
+    /// listing is two network hops (category-suggest + comps), so progress is
+    /// surfaced live. A miss (no category / no comps) is recorded as a row note;
+    /// a successful suggestion clears any prior note on that row.
+    func suggestFromComps() async {
+        guard priceMode == .suggestFromComps, !selected.isEmpty, !fetchingComps else { return }
+        let targets = listings.filter { selected.contains($0.id) }
+        guard !targets.isEmpty else { return }
+
+        fetchingComps = true
+        compsTotal = targets.count
+        compsDone = 0
+        var found: [String: Double] = [:]
+        var misses: [String: String] = [:]
+        defer { fetchingComps = false }
+
+        for row in targets {
+            do {
+                if let lookup = try await comps.lookup(title: row.title, brand: nil, size: nil),
+                   let price = Self.suggestedPrice(from: lookup.stats) {
+                    found[row.id] = price
+                } else {
+                    misses[row.id] = "No active eBay comps found."
+                }
+            } catch {
+                misses[row.id] = "Couldn't fetch comps — try again."
+            }
+            compsDone += 1
+        }
+
+        suggestedPrices = found
+        rowErrors = misses
+        actionBanner = found.isEmpty
+            ? "No comp suggestions found for the selected listing\(targets.count == 1 ? "" : "s")."
+            : "Suggested prices for \(found.count) of \(targets.count) listing\(targets.count == 1 ? "" : "s")."
+    }
+
     func apply() async {
         let qty = quantityValue
         let pct = priceValue
@@ -154,9 +245,26 @@ final class BulkPricingStore {
         // it with an opaque "Failed".
         var preflight: [String: String] = [:]
         for row in listings where selected.contains(row.id) {
-            let (price, priceError) = Self.validatedTargetPrice(
-                base: row.price, mode: priceMode, percentOrAmount: pct
-            )
+            let price: Double?
+            let priceError: String?
+            if priceMode == .suggestFromComps {
+                // US-1167 (AC2): the per-row comp suggestion is an absolute price,
+                // so it floors through the same `.set` validation. A row with no
+                // suggestion keeps any quantity edit but can't set a price.
+                if let suggested = suggestedPrices[row.id] {
+                    (price, priceError) = Self.validatedTargetPrice(
+                        base: row.price, mode: .set, percentOrAmount: suggested
+                    )
+                } else {
+                    (price, priceError) = (nil, qty == nil
+                        ? "No comp suggestion — fetch comps or pick another price mode."
+                        : nil)
+                }
+            } else {
+                (price, priceError) = Self.validatedTargetPrice(
+                    base: row.price, mode: priceMode, percentOrAmount: pct
+                )
+            }
             if let priceError {
                 preflight[row.id] = priceError
                 continue

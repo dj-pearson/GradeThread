@@ -439,6 +439,13 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- `BulkPricingStore.PriceMode` (Marketplaces/BulkPricing) now has a 4th case
+  `.suggestFromComps` (US-1167 AC2): per-row comp-median prices fetched via the
+  injected `CompsProviding` (`suggestFromComps()`), applied through the same
+  `.set` floor in `apply()`. Adding ANOTHER PriceMode case breaks the exhaustive
+  switches in `priceValue` + `priceInputError` + `priceActive`. The store takes
+  an optional `comps:` init param (defaults to `CompsService()` built in the
+  MainActor init body, like `CompsStore`) so tests inject a title-keyed fake.
 - Adding a new `SyncWatermark.Table` case (US-1221 `.listings`) needs NO
   `currentSchemaVersion` bump: a never-set cursor reads nil → the first pull is a
   full fetch for that table automatically, then deltas. Bump the version ONLY
