@@ -5545,7 +5545,7 @@
     {
       "id": "US-1241",
       "priority": 1241,
-      "passes": false,
+      "passes": true,
       "title": "iOS EbayPublishService.updatePrice: client-side price>0 validation",
       "description": "As a seller, a zero/negative price edit should be caught before the network round-trip with clear copy, so I don't get an opaque edge failure.",
       "acceptanceCriteria": [
@@ -5553,7 +5553,7 @@
         "Matches the composer priceInvalid and BulkPricing minPrice guards",
         "Test covers the rejection"
       ],
-      "notes": "[P3][iOS/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. EbayPublishService.swift:66-80 sends any Double with no guard. Headless-codeable."
+      "notes": "[P3][iOS/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. EbayPublishService.swift:66-80 sends any Double with no guard. DONE 2026-06-25 — updatePrice guards price>0 before the round-trip, returning .failed with clear copy. Test test_updatePrice_rejectsNonPositivePriceBeforeNetwork. Headless; pending iOS CI compile."
     },
     {
       "id": "US-1242",
@@ -5610,7 +5610,7 @@
     {
       "id": "US-1246",
       "priority": 1246,
-      "passes": false,
+      "passes": true,
       "title": "iOS inventory aging: anchor days-held / time-on-market on acquiredDate, not row createdAt",
       "description": "As a seller, inventory-aging and time-to-sell should measure from the real purchase date, so backfilled/imported items don't understate age or clamp to 0.",
       "acceptanceCriteria": [
@@ -5618,7 +5618,7 @@
         "A sale predating createdAt no longer clamps to 0 incorrectly",
         "Test covers an item whose acquiredDate precedes createdAt"
       ],
-      "notes": "[P3][iOS/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. MoneyAnalyticsRollup.swift:149,196-203 uses createdAt though LocalInventoryItem.acquiredDate is synced. Headless-codeable."
+      "notes": "[P3][iOS/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. MoneyAnalyticsRollup.swift:149,196-203 uses createdAt though LocalInventoryItem.acquiredDate is synced. DONE 2026-06-25 — inventoryAging and timeOnMarket anchor on acquiredDate ?? createdAt. Test test_inventoryAging_anchorsOnAcquiredDateWhenPresent. Headless; pending iOS CI compile."
     },
     {
       "id": "US-1247",
