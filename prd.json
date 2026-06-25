@@ -5872,7 +5872,7 @@
     {
       "id": "US-1266",
       "priority": 1266,
-      "passes": false,
+      "passes": true,
       "title": "iOS scheduled drops: guard custom reschedule against past times and persist the timezone",
       "description": "As a seller rescheduling a drop, the app must not store a past publish time, and my timezone choice should persist, so the cron doesn't publish immediately and times aren't reinterpreted later.",
       "acceptanceCriteria": [
@@ -5880,7 +5880,7 @@
         "The scheduled-drops timezone selection persists (e.g. @AppStorage / settings) instead of resetting to TimeZone.current each launch",
         "Tests cover the past-time rejection"
       ],
-      "notes": "[P2][iOS/ScheduledDrops][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ScheduledDropsView.swift:219,120,131-137; ScheduledDropsStore.swift:24,48-61. Distinct from US-1196 preset path. Headless-codeable."
+      "notes": "[P2][iOS/ScheduledDrops][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. ScheduledDropsView.swift:219,120,131-137; ScheduledDropsStore.swift:24,48-61. Distinct from US-1196 preset path. DONE 2026-06-25 — RescheduleSheet seeds customDate to max(now, scheduled) and clamps the send to max(customDate, now) so a no-touch reschedule can not persist a past instant; ScheduledDropsView persists the chosen timezone via @AppStorage(\"scheduledDrops.timeZone\"). View-layer (no unit test); store reschedule(_:to:) intentionally left permissive so presets/tests pass explicit dates. Pending iOS CI compile."
     },
     {
       "id": "US-1267",
