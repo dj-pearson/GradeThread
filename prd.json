@@ -5584,7 +5584,7 @@
     {
       "id": "US-1244",
       "priority": 1244,
-      "passes": false,
+      "passes": true,
       "title": "iOS inventory market value: derive cached listingPrice from the active listing, not an ended/stale one",
       "description": "As a seller, an item's cached market value should come from its active listing's price, so a relisted/ended listing carrying a newer timestamp doesn't drive a wrong inventory value.",
       "acceptanceCriteria": [
@@ -5592,7 +5592,7 @@
         "Dashboard/Analytics/Money inventory-value reflect the active price",
         "Test covers the active-vs-ended selection"
       ],
-      "notes": "[P2][iOS/Sync/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SyncEngine.swift:574-582 keys off latest listed_at?? created_at with no listing_status filter. Headless-codeable."
+      "notes": "[P2][iOS/Sync/Money][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SyncEngine.swift:574-582 keys off latest listed_at?? created_at with no listing_status filter. DONE 2026-06-25 — extracted SyncEngine.selectListingPrices (pure, testable): a live (active/relisted) listing always beats a non-live one, newest wins within the same liveness class, falls back to any only when none is live. 3 tests in SyncTests. Headless; pending iOS CI compile."
     },
     {
       "id": "US-1245",
