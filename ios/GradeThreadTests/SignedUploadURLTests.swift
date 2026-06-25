@@ -59,6 +59,11 @@ final class SignedUploadURLTests: XCTestCase {
 
     // MARK: - Background request carries NO long-lived credential (the invariant)
 
+    // @MainActor: PhotoUploadService is @MainActor-isolated, so its static
+    // backgroundUploadRequest must be called from a main-actor context (the
+    // synchronous test body otherwise hits "call to main actor-isolated static
+    // method in a synchronous nonisolated context" under Swift 6 concurrency).
+    @MainActor
     func test_backgroundUploadRequest_hasNoAuthorizationHeader() {
         let signed = URL(string: "https://api.gradethread.com/storage/v1/object/upload/sign/item-photos/u/i/front_1.jpg?token=ey.signed")!
         let request = PhotoUploadService.backgroundUploadRequest(signedURL: signed)
