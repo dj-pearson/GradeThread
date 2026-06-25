@@ -98,3 +98,7 @@ services/edge-functions/deno.lock
 # Ralph per-iteration transient state (regenerated each loop)
 scripts/ralph/current-story.json
 supabase/.temp/cli-latest
+
+# Python lint script bytecode
+__pycache__/
+*.pyc

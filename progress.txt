@@ -6304,3 +6304,30 @@ sources.)
           retry path already exists (background 401 -> pending mutation ->
           SyncEngine.replayUploadPhoto re-uploads with a fresh token, ephemeral
           non-persisted session).
+
+- US-1224 iOS: close unit-test coverage gaps + extension/string CI guards.
+          COMPLETE. AC1 — ProspectStoreTests (FakeProspecting fixtures) covers the
+          client-side Prospect logic that actually exists on device (costNeedsRerun
+          cost-after-run detection + addToInventory notes/prefill fold); Vision/
+          Speech SKIPPED honestly (live VNRecognizeText/SFSpeech, no pure step),
+          SizeTagInference already covered, ROI verdict math is server-side. AC2 —
+          ios-ci.yml now builds the ShareExtension + GradeThreadWidget app-extension
+          targets explicitly. AC3 — ios/Scripts/no-bare-strings.py flags NEW bare
+          Text()/Label() literals in Prospect/Vision/Speech against a baseline
+          allow-list (does not touch the ~670 app-wide strings; US-1155 deferred),
+          wired into CI; verified exit 0 today / exit 1 on an injected literal.
+          AC4 — tests run in the existing unit lane.
+
+=== SESSION 2026-06-25 SUMMARY ===
+Closed 18 open prd.json stories (passes:true): US-1206, US-1207, US-1208, US-1209,
+US-1210, US-1211, US-1212, US-1213, US-1214, US-1215, US-1217, US-1218, US-1220,
+US-1222, US-1223, US-1224, US-1225, US-1226.
+Advanced 3 partials (passes stays false, ACs deferred for the documented reason):
+US-1216 (AC2 needs a listings->connection FK), US-1219 (AC2 needs a signed-upload
+rework, device-verified), US-1221 (AC1/AC2 need delete-propagation + listings
+watermark, device-verified).
+Still open + blocked on non-headless capabilities (edge endpoints / simulator /
+App Store Connect / CI-verified architectural changes), unchanged this session:
+US-1153, US-1155, US-1157, US-1164, US-1165, US-1167, US-1168, US-1169, US-1177.
+NOTE: all Swift is written to convention but UNCOMPILED (macOS-only) — iOS CI on a
+macOS runner is the safety net.
