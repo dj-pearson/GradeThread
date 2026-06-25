@@ -439,6 +439,37 @@ What remains is OPERATOR execution + ASC config:
 7. Flip the prod edge to `APPSTORE_ENVIRONMENT=Production` only after the
    sandbox round-trip passes.
 
+### 6.9 `GradeThread.storekit` reconciliation (US-1177) — **OPERATOR**
+
+`ios/GradeThread.storekit` is the local StoreKit configuration used **only** for
+Xcode/simulator testing (and the StoreKit unit tests) — it is NOT read by App
+Store review; the real products live in App Store Connect (§6.1–6.2). It ships
+with two placeholders that the account owner must replace before relying on local
+purchase testing:
+
+- `settings._developerTeamID` is `"TEAMID"` → set to the **10-character Apple
+  Developer Team ID** (ASC → Membership, e.g. `A1B2C3D4E5`).
+- `settings._applicationInternalID` is `"GradeThread"` → set to the **numeric App
+  Store app ID** (ASC → App Information → "Apple ID", the same value as
+  `APPLE_APP_APPLE_ID` in §6.6) once the app record exists.
+
+These are local-config values; leaving them as placeholders does not block
+submission, but a real Team ID is needed for sandbox StoreKit testing to resolve
+against your account.
+
+**Drift guard:** the ten product ids, plan/interval, credits, and reference
+prices in this file (and the iOS `IAPProduct.swift` fallback) are kept in lockstep
+with the canonical server map (`lib/appstore/products.ts`) by
+`tests/iap-catalog-drift_test.ts`. That test asserts the ids/prices match the
+server — it does **not** verify the products actually exist or are *Approved* in
+App Store Connect, so confirm all **6 subscriptions + 4 consumables** are created
+and Cleared for Sale per §6.3 before submitting.
+
+> The paywall shows a runtime **"Save N%"** badge on each yearly row and a
+> **"You're on Free"** header when no paid plan is active (US-1177). The savings %
+> is derived from the catalog reference prices (`IAPCatalog.yearlySavingsPercent`),
+> so it tracks any price change made here + on the server in one place.
+
 ---
 
 ## 7. App Privacy (nutrition labels)

@@ -243,9 +243,15 @@ struct PaywallView: View {
             }
             .pickerStyle(.segmented)
         } footer: {
-            // US-1177: nudge yearly. (A precise "Save N%" needs the monthly vs.
-            // yearly StoreKit prices for the same tier at runtime — see notes.)
-            if store.interval == "yearly" {
+            // US-1177: nudge yearly, surfacing the actual savings derived from the
+            // catalog reference prices (see `IAPCatalog.yearlySavingsPercent`).
+            if let pct = IAPCatalog.maxYearlySavingsPercent {
+                if store.interval == "yearly" {
+                    Text("Yearly is billed once a year — save up to \(pct)% vs. 12 monthly payments.")
+                } else {
+                    Text("Switch to Yearly to save up to \(pct)% vs. paying monthly.")
+                }
+            } else if store.interval == "yearly" {
                 Text("Yearly is billed once a year — cheaper than 12 monthly payments.")
             } else {
                 Text("Switch to Yearly to save vs. paying monthly.")
@@ -292,7 +298,19 @@ struct PaywallView: View {
     private func productRow(_ entry: IAPCatalogEntry) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title).font(.body.weight(.semibold))
+                HStack(spacing: 6) {
+                    Text(entry.title).font(.body.weight(.semibold))
+                    // US-1177: yearly rows advertise the savings vs. paying monthly.
+                    if let pct = IAPCatalog.yearlySavingsPercent(for: entry) {
+                        Text("Save \(pct)%")
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.brandEmerald.opacity(0.15), in: Capsule())
+                            .foregroundStyle(Color.brandEmerald)
+                            .accessibilityLabel("Save \(pct) percent versus paying monthly")
+                    }
+                }
                 Text(entry.blurb).font(.caption).foregroundStyle(.secondary)
                 Label {
                     Text(entry.renewalDisclosure)

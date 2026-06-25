@@ -43,4 +43,46 @@ final class IAPProductTests: XCTestCase {
         let entry = IAPCatalog.entry(for: "com.gradethread.credits.100")
         XCTAssertEqual(entry?.kind, .consumable(credits: 100))
     }
+
+    // MARK: - Yearly savings (US-1177)
+
+    func test_yearlySavings_pureCalc() {
+        // $29/mo → $290/yr: 348 vs 290 = 16.67% → 17%.
+        XCTAssertEqual(IAPCatalog.yearlySavingsPercent(monthlyCents: 2900, yearlyCents: 29000), 17)
+        // Exact one-month-free (yearly = 11× monthly) ≈ 8%.
+        XCTAssertEqual(IAPCatalog.yearlySavingsPercent(monthlyCents: 1000, yearlyCents: 11000), 8)
+    }
+
+    func test_yearlySavings_nilWhenNotCheaperOrInvalid() {
+        XCTAssertNil(IAPCatalog.yearlySavingsPercent(monthlyCents: 0, yearlyCents: 29000))
+        XCTAssertNil(IAPCatalog.yearlySavingsPercent(monthlyCents: 2900, yearlyCents: 0))
+        // Yearly priced at exactly 12× monthly → no saving.
+        XCTAssertNil(IAPCatalog.yearlySavingsPercent(monthlyCents: 2900, yearlyCents: 34800))
+        // Yearly more expensive than annualized monthly → no badge.
+        XCTAssertNil(IAPCatalog.yearlySavingsPercent(monthlyCents: 2900, yearlyCents: 40000))
+    }
+
+    func test_yearlySavings_perPlan_matchesCatalogTiers() {
+        // All three tiers are priced at 10× monthly for the year → ~17% off.
+        for plan in ["starter", "pro", "business"] {
+            XCTAssertEqual(IAPCatalog.yearlySavingsPercent(plan: plan), 17, "plan \(plan)")
+        }
+    }
+
+    func test_yearlySavings_onlyBadgesYearlySubscriptionRows() {
+        // Yearly subscription → badge.
+        XCTAssertEqual(
+            IAPCatalog.yearlySavingsPercent(for: IAPCatalog.entry(for: "com.gradethread.sub.pro.yearly")!),
+            17)
+        // Monthly subscription → no badge.
+        XCTAssertNil(
+            IAPCatalog.yearlySavingsPercent(for: IAPCatalog.entry(for: "com.gradethread.sub.pro.monthly")!))
+        // Consumable → no badge.
+        XCTAssertNil(
+            IAPCatalog.yearlySavingsPercent(for: IAPCatalog.entry(for: "com.gradethread.credits.50")!))
+    }
+
+    func test_maxYearlySavings_isSeventeenPercent() {
+        XCTAssertEqual(IAPCatalog.maxYearlySavingsPercent, 17)
+    }
 }
