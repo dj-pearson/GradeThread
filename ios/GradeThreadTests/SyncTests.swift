@@ -835,6 +835,83 @@ final class SyncTests: XCTestCase {
         XCTAssertFalse(protected.contains("i1"))
     }
 
+    // MARK: - PendingMutationActor off-main queue (US-1165)
+
+    func test_pendingActor_snapshotReturnsFifoOrder() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalPendingMutation(
+            id: "m2", kind: .updateInventoryItem, payload: Data(), targetId: "i2",
+            createdAt: Date(timeIntervalSince1970: 200)))
+        ctx.insert(LocalPendingMutation(
+            id: "m1", kind: .createInventoryItem, payload: Data(), targetId: "i1",
+            createdAt: Date(timeIntervalSince1970: 100)))
+        try ctx.save()
+
+        let actor = PendingMutationActor(modelContainer: container)
+        let snapshot = await actor.snapshot()
+        // Oldest createdAt first (FIFO drain order).
+        XCTAssertEqual(snapshot.map(\.id), ["m1", "m2"])
+        XCTAssertEqual(snapshot.first?.kind, MutationKind.createInventoryItem.rawValue)
+    }
+
+    func test_pendingActor_deleteRemovesRow() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalPendingMutation(id: "m1", kind: .createSale, payload: Data()))
+        try ctx.save()
+
+        let actor = PendingMutationActor(modelContainer: container)
+        await actor.delete(id: "m1")
+        XCTAssertEqual(await actor.pendingCount(), 0)
+    }
+
+    func test_pendingActor_markFailedBumpsRetryAndStampsError() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalPendingMutation(id: "m1", kind: .createInventoryItem, payload: Data()))
+        try ctx.save()
+
+        let actor = PendingMutationActor(modelContainer: container)
+        await actor.markFailed(id: "m1", error: "boom", maxRetries: 6)
+        let snap = try XCTUnwrap(await actor.snapshot().first)
+        XCTAssertEqual(snap.retryCount, 1)
+        XCTAssertEqual(snap.lastError, "boom")
+        XCTAssertNotNil(snap.lastAttemptAt)
+        // Not yet at the ceiling → not stuck.
+        XCTAssertEqual(await actor.stuckCount(maxRetries: 6), 0)
+    }
+
+    func test_pendingActor_markStuckPinsToCeilingAndSurfacesAsStuck() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalPendingMutation(id: "m1", kind: .deleteInventoryItem, payload: Data(), targetId: "i1"))
+        try ctx.save()
+
+        let actor = PendingMutationActor(modelContainer: container)
+        await actor.markStuck(id: "m1", error: "missing target", maxRetries: 6)
+        let snap = try XCTUnwrap(await actor.snapshot().first)
+        XCTAssertEqual(snap.retryCount, 6)        // pinned to ceiling, not stepped
+        XCTAssertEqual(snap.lastError, "missing target")
+        XCTAssertEqual(await actor.stuckCount(maxRetries: 6), 1)
+    }
+
+    func test_pendingActor_clearErrorAndResetRetry() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        let row = LocalPendingMutation(id: "m1", kind: .createInventoryItem, payload: Data())
+        row.retryCount = 4
+        row.lastError = "earlier failure"
+        ctx.insert(row)
+        try ctx.save()
+
+        let actor = PendingMutationActor(modelContainer: container)
+        await actor.clearErrorAndResetRetry(id: "m1")
+        let snap = try XCTUnwrap(await actor.snapshot().first)
+        XCTAssertEqual(snap.retryCount, 0)
+        XCTAssertNil(snap.lastError)
+    }
+
     // MARK: - Helpers
 
     private func inMemoryContainer() throws -> ModelContainer {

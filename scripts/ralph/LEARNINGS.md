@@ -614,6 +614,12 @@ memory — not a progress log (the harness records progress separately).
   events: `grade.credits_blocked` → `grade.credits_topup_started` →
   `grade.credits_topup_{granted,timeout}` → existing submit events. It NEVER
   submits (only unblocks the button) so no double-grant.
+- SyncEngine's offline-queue SwiftData work (snapshot/delete/markFailed/markStuck/
+  counts) runs OFF-MAIN on `PendingMutationActor` (a `@ModelActor`, US-1165) — it
+  no longer wraps each touch in `await MainActor.run { ModelContext(container) }`.
+  Mirror `SyncMergeActor`: own one reused private context, return only `Sendable`
+  snapshots, hop to `@MainActor` only to publish status counts. Reads see writes
+  from the view/main context because each `@ModelActor` fetch hits the shared store.
 - `InventoryFilterCriteria` has a hand-written tolerant `Codable` (decodeIfPresent
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses

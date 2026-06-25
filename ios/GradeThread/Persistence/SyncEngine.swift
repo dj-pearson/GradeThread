@@ -26,6 +26,10 @@ actor SyncEngine {
 
     /// Background ModelActor that owns the merge context off the main thread.
     private let mergeActor: SyncMergeActor
+    /// Background ModelActor that owns the offline-mutation queue's SwiftData
+    /// reads/writes off the main thread (US-1165) — snapshot/dequeue/failure/
+    /// stuck bookkeeping + counts no longer hop to ``MainActor``.
+    private let pendingActor: PendingMutationActor
     /// Per-table delta cursors (US-633).
     private let watermark = SyncWatermark()
 
@@ -83,6 +87,7 @@ actor SyncEngine {
         self.statusStore = statusStore
         self.networkMonitor = networkMonitor
         self.mergeActor = SyncMergeActor(modelContainer: container)
+        self.pendingActor = PendingMutationActor(modelContainer: container)
     }
 
     // MARK: - Lifecycle
@@ -1274,15 +1279,7 @@ actor SyncEngine {
     /// Re-attempt a single mutation immediately: clears its error/retry budget
     /// then applies it.
     func retryMutation(id: String) async {
-        await MainActor.run {
-            let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
-            if let row = try? context.fetch(descriptor).first {
-                row.lastError = nil
-                row.retryCount = 0
-                context.saveOrLog("retryMutation")
-            }
-        }
+        await pendingActor.clearErrorAndResetRetry(id: id)
         let snapshot = await snapshotMutations().first { $0.id == id }
         if let snapshot { await apply(snapshot) }
         await refreshPendingCount()
@@ -1296,57 +1293,21 @@ actor SyncEngine {
 
     // MARK: - SwiftData helpers
 
+    /// US-1165: the offline-queue SwiftData reads/writes below now run on the
+    /// background ``PendingMutationActor`` instead of hopping to ``MainActor``
+    /// for each touch. The engine still hops to main only to publish status
+    /// counts to ``SyncStatusStore`` (see ``refreshPendingCount()``).
+
     private func snapshotMutations() async -> [PendingMutationSnapshot] {
-        await MainActor.run {
-            let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalPendingMutation>(
-                sortBy: [SortDescriptor(\.createdAt)]
-            )
-            let rows = (try? context.fetch(descriptor)) ?? []
-            return rows.map {
-                PendingMutationSnapshot(
-                    id: $0.id,
-                    kind: $0.kind,
-                    payload: $0.payload,
-                    targetId: $0.targetId,
-                    retryCount: $0.retryCount,
-                    lastError: $0.lastError,
-                    lastAttemptAt: $0.lastAttemptAt,
-                    createdAt: $0.createdAt
-                )
-            }
-        }
+        await pendingActor.snapshot()
     }
 
     private func deleteMutation(id: String) async {
-        await MainActor.run {
-            let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
-            if let row = try? context.fetch(descriptor).first {
-                context.delete(row)
-                context.saveOrLog("deleteMutation")
-            }
-        }
+        await pendingActor.delete(id: id)
     }
 
     private func markFailed(id: String, error: String) async {
-        await MainActor.run {
-            let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
-            guard let row = try? context.fetch(descriptor).first else { return }
-            row.retryCount += 1
-            row.lastError = error
-            row.lastAttemptAt = .now
-            // US-1148: breadcrumb every replay failure (scrubbed by Sentry's
-            // beforeBreadcrumb) instead of only mutating state silently; flag the
-            // transition to "stuck" (US-1147) distinctly since that one needs
-            // manual user attention.
-            let stuckSuffix = row.retryCount >= Self.maxRetries ? " — now stuck (manual retry needed)" : ""
-            Telemetry.backgroundBreadcrumb(
-                "Mutation replay failed (kind \(row.kind), attempt \(row.retryCount)/\(Self.maxRetries)): \(error)\(stuckSuffix)",
-                category: "sync")
-            context.saveOrLog("markFailed")
-        }
+        await pendingActor.markFailed(id: id, error: error, maxRetries: Self.maxRetries)
     }
 
     /// US-1221: flag a mutation as stuck (needs manual retry/discard) without
@@ -1354,39 +1315,17 @@ actor SyncEngine {
     /// replay errors that can never succeed. Pins `retryCount` to `maxRetries` so
     /// the flush loop skips it and ``stuckMutationCount()`` surfaces it.
     private func markStuck(id: String, error: String) async {
-        await MainActor.run {
-            let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
-            guard let row = try? context.fetch(descriptor).first else { return }
-            row.retryCount = Self.maxRetries
-            row.lastError = error
-            row.lastAttemptAt = .now
-            Telemetry.backgroundBreadcrumb(
-                "Mutation replay terminal (kind \(row.kind)): \(error) — now stuck (manual retry needed)",
-                category: "sync")
-            context.saveOrLog("markStuck")
-        }
+        await pendingActor.markStuck(id: id, error: error, maxRetries: Self.maxRetries)
     }
 
     private func pendingMutationCount() async -> Int {
-        await MainActor.run {
-            let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalPendingMutation>()
-            return (try? context.fetchCount(descriptor)) ?? 0
-        }
+        await pendingActor.pendingCount()
     }
 
     /// Count of mutations that have exhausted their auto-retry budget and now
-    /// need the user's attention (US-1147). Predicate uses a captured copy of
-    /// `maxRetries` because `#Predicate` can't reference a type member.
+    /// need the user's attention (US-1147).
     private func stuckMutationCount() async -> Int {
-        let ceiling = Self.maxRetries
-        return await MainActor.run {
-            let context = ModelContext(container)
-            let descriptor = FetchDescriptor<LocalPendingMutation>(
-                predicate: #Predicate { $0.retryCount >= ceiling })
-            return (try? context.fetchCount(descriptor)) ?? 0
-        }
+        await pendingActor.stuckCount(maxRetries: Self.maxRetries)
     }
 
     private func refreshPendingCount() async {
