@@ -869,7 +869,7 @@ const COMPOSITE_OUTPUT_SCHEMA = {
 interface GradingTuning {
   outputConfig: {
     effort?: GradingEffort;
-    format: { type: "json_schema"; name: string; schema: Record<string, unknown> };
+    format: { type: "json_schema"; schema: Record<string, unknown> };
   };
   temperature?: number;
 }
@@ -878,12 +878,16 @@ interface GradingTuning {
 // (US-1032). effort-based models get output_config { effort, format } and no
 // temperature; older models keep top-level temperature plus output_config
 // { format }.
+//
+// NOTE: output_config.format accepts only { type: "json_schema", schema } — the
+// Anthropic API rejects any extra key (e.g. a `name`) with a 400
+// "output_config.format.name: Extra inputs are not permitted", which fails every
+// per-image analysis and the composite grade.
 function gradingTuning(
   model: string,
   schema: Record<string, unknown>,
-  name: string,
 ): GradingTuning {
-  const format = { type: "json_schema" as const, name, schema };
+  const format = { type: "json_schema" as const, schema };
   const sampling = gradingSamplingParams(model);
   if ("output_config" in sampling) {
     return { outputConfig: { effort: sampling.output_config.effort, format } };
@@ -921,7 +925,6 @@ export async function analyzeImage(
   const { outputConfig, temperature } = gradingTuning(
     model,
     PER_IMAGE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
-    "per_image_analysis",
   );
 
   // Resolve the active per-image prompt (DB override → code default), unless
@@ -1568,7 +1571,6 @@ export async function compositeGrade(
   const { outputConfig, temperature } = gradingTuning(
     compositeModel,
     COMPOSITE_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
-    "composite_grade",
   );
 
   // Resolve the active composite prompt (DB override → code default), unless
