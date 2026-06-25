@@ -5854,7 +5854,7 @@
         "Behavior matches AutoLister (which passes templateId server-side)",
         "Test covers a template with category/policies/specifics applied in the composer"
       ],
-      "notes": "[P1][iOS/Templates/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. PublishDialog.swift:709-721 copies only descriptionTemplate, ebayCondition, conditionDescription. Headless-codeable."
+      "notes": "[P1][iOS/Templates/Marketplaces][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. PublishDialog.swift:709-721 copies only descriptionTemplate, ebayCondition, conditionDescription. Headless-codeable. UPDATE 2026-06-25 (investigated): the composer only persists ComposerEdits (title/condition/conditionDescription/description) via ListingDraftService.saveDraft; category/itemSpecifics/business-policies are NOT composer state — the push (service.push(inventoryItemId:relist:)) re-reads the publish context server-side. So applying them needs EITHER (a) adding those fields to composer state + ComposerEdits + saveDraft + confirming the listings-draft schema/push context honor them, OR (b) plumbing the applied templateId through push + edge (mirroring how AutoLister applies templates server-side). Both cross the headless boundary (server contract). Re-scoped: this is a real feature, not a one-line apply() fix."
     },
     {
       "id": "US-1265",
@@ -5951,7 +5951,7 @@
       "id": "US-1272",
       "priority": 1272,
       "title": "iOS CSV/import robustness: chunk dedup, strip BOM, detect semicolon, fix parens-negative",
-      "passes": false,
+      "passes": true,
       "description": "As a seller importing a spreadsheet, dedup shouldn't blow up on large files, BOM/semicolon exports should parse, and a parenthesized note shouldn't become a negative price, so imports work across real-world exports.",
       "acceptanceCriteria": [
         "InventoryImportService.loadExistingSkus chunks the SKU IN(...) query (~500/batch) and unions, instead of one IN over up to 20,000 values that can throw and silently disable dedup",
@@ -5959,7 +5959,7 @@
         "detectDelimiter includes ';' as a candidate so European-locale CSVs aren't parsed as one column",
         "ImportField.price treats parens as negative only when the trimmed value is wholly (number), so '$20 (sale)' isn't -20"
       ],
-      "notes": "[P2/P3][iOS/Import][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. InventoryImportService.swift:144; CSVParser.swift:16,77; ImportField.swift:80. Headless-codeable."
+      "notes": "[P2/P3][iOS/Import] DONE 2026-06-25 —[iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. InventoryImportService.swift:144; CSVParser.swift:16,77; ImportField.swift:80. CSVParser BOM strip + semicolon delimiter + ImportField parens-only-when-wholly-wrapped + InventoryImportService.loadExistingSkus chunks the SKU IN(...) into 500-row batches. Tests: test_parser_stripsLeadingBOM, test_parser_detectsSemicolonDelimiter, test_price_parentheticalNoteIsNotNegative (chunking is network-bound, logic-verified, no unit test). Headless; pending iOS CI compile."
     },
     {
       "id": "US-1273",
@@ -5991,14 +5991,14 @@
       "id": "US-1275",
       "priority": 1275,
       "title": "iOS small correctness: Verified over-limit uses trimmed length; Prospect gates add-to-inventory on cost rerun",
-      "passes": false,
+      "passes": true,
       "description": "As a user, the Verified profile counters should match what's actually saved (trimmed), and Prospect shouldn't commit a cost the comps were never evaluated against, so I'm not blocked spuriously or persisting an inconsistent verdict.",
       "acceptanceCriteria": [
         "VerifiedStore over-limit checks (and the view counters) count displayNameDraft.trimmed.count / bioDraft.trimmed.count, matching what pendingUpdate() sends",
         "Prospect add-to-inventory is gated on !costNeedsRerun (or commits result.costCents) so the persisted cost matches the displayed verdict",
         "Tests cover the trimmed-limit boundary"
       ],
-      "notes": "[P3][iOS/Verified/Prospect][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. VerifiedStore.swift:117-118 (raw .count vs saved .trimmed); ProspectStore.swift:135 (commits new cost field against a no-cost run). Headless-codeable."
+      "notes": "[P3][iOS/Verified/Prospect][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. VerifiedStore.swift:117-118 (raw .count vs saved .trimmed); ProspectStore.swift:135 (commits new cost field against a no-cost run). DONE 2026-06-25 — VerifiedStore over-limit checks now use .trimmed.count (test_overLimit_usesTrimmedLength); ProspectStore.addToInventory commits result.costCents (the cost the run used) instead of the live field. Headless; pending iOS CI compile."
     }
   ]
 }

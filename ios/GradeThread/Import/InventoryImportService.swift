@@ -140,21 +140,35 @@ final class InventoryImportService {
         })
         guard !importSkus.isEmpty else { return [] }
         struct Row: Decodable { let sku: String? }
-        do {
-            let rows: [Row] = try await supabase
-                .from("inventory_items")
-                .select("sku")
-                .eq("user_id", value: userId)
-                .in("sku", values: Array(importSkus))
-                .execute()
-                .value
-            return Set(rows.compactMap { $0.sku })
-        } catch {
-            // Dedup is best-effort; on failure we just risk a 23505 the insert
-            // path catches per-row.
-            return []
+        // US-1272: an import can carry up to maxImportRows (20k) SKUs; a single
+        // IN(...) over all of them can blow the URL/statement length and throw,
+        // silently disabling dedup. Chunk and union so each request stays small.
+        let skuList = Array(importSkus)
+        var found: Set<String> = []
+        for start in stride(from: 0, to: skuList.count, by: Self.skuLookupBatchSize) {
+            let batch = Array(skuList[start..<min(start + Self.skuLookupBatchSize, skuList.count)])
+            do {
+                let rows: [Row] = try await supabase
+                    .from("inventory_items")
+                    .select("sku")
+                    .eq("user_id", value: userId)
+                    .in("sku", values: batch)
+                    .execute()
+                    .value
+                found.formUnion(rows.compactMap { $0.sku })
+            } catch {
+                // Dedup is best-effort per batch; on failure we just risk a 23505
+                // the insert path catches per-row. Keep going so other batches
+                // still contribute.
+                continue
+            }
         }
+        return found
     }
+
+    /// US-1272: max SKUs per dedup-lookup request, to keep the IN(...) clause
+    /// within URL/statement limits.
+    private static let skuLookupBatchSize = 500
 
     // US-1166: nonisolated + static so it can map errors from inside the
     // concurrent insert tasks (off the @MainActor service).

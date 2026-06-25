@@ -67,6 +67,21 @@ final class VerifiedStoreTests: XCTestCase {
         XCTAssertTrue(store.canSave)
     }
 
+    func test_overLimit_usesTrimmedLength() async {
+        // US-1275: the over-limit check must use trimmed length (what's actually
+        // sent), so a value at the limit plus trailing whitespace doesn't falsely
+        // block save while exceeding the raw count.
+        let store = VerifiedStore(service: FakeVerifiedService(profile: makeResponse()))
+        await store.load()
+        let atLimit = String(repeating: "a", count: VerifiedStore.maxBio)
+        store.bioDraft = atLimit + "   "      // raw count over, trimmed at limit
+        XCTAssertFalse(store.isBioOverLimit)
+        XCTAssertTrue(store.canSave)
+        store.bioDraft = atLimit + "b"        // genuinely over the limit
+        XCTAssertTrue(store.isBioOverLimit)
+        XCTAssertFalse(store.canSave)
+    }
+
     func test_showListingsChange_enablesSave() async {
         let store = VerifiedStore(service: FakeVerifiedService(profile: makeResponse()))
         await store.load()

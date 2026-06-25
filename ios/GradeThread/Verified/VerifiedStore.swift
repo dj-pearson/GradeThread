@@ -114,8 +114,8 @@ final class VerifiedStore {
     /// `canSave` never checked length — so the server truncated and overwrote the
     /// draft (silent content loss). Make over-limit a real block. Uses the same
     /// trimmed length the counters / `pendingUpdate` use.
-    var isDisplayNameOverLimit: Bool { displayNameDraft.count > Self.maxDisplayName }
-    var isBioOverLimit: Bool { bioDraft.count > Self.maxBio }
+    var isDisplayNameOverLimit: Bool { displayNameDraft.trimmed.count > Self.maxDisplayName }
+    var isBioOverLimit: Bool { bioDraft.trimmed.count > Self.maxBio }
 
     var canSave: Bool {
         guard !isSaving, hasChanges, !needsHandleToEnable else { return false }

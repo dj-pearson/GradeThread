@@ -9,15 +9,29 @@ enum CSVParser {
     enum Delimiter: String {
         case comma = ","
         case tab = "\t"
+        case semicolon = ";"
         var character: Character { Character(rawValue) }
     }
 
-    /// Picks the delimiter from the first line by tab-vs-comma count.
+    /// Strips a leading UTF-8 BOM (`﻿`) that Excel/Sheets "CSV UTF-8"
+    /// exports prepend — `.whitespaces` trimming doesn't remove it, so without
+    /// this the first header keeps the BOM and auto-mapping/delimiter detection
+    /// see it glued to the first cell.
+    static func stripBOM(_ s: String) -> String {
+        s.hasPrefix("\u{FEFF}") ? String(s.dropFirst()) : s
+    }
+
+    /// Picks the delimiter from the first line by frequency. Considers tab,
+    /// comma, and semicolon (European-locale exports use `;`); ties prefer comma,
+    /// then tab, matching the prior comma-default behavior.
     static func detectDelimiter(_ sample: String) -> Delimiter {
-        let firstLine = sample.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        let firstLine = stripBOM(sample).split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
         let tabs = firstLine.filter { $0 == "\t" }.count
         let commas = firstLine.filter { $0 == "," }.count
-        return tabs > commas ? .tab : .comma
+        let semicolons = firstLine.filter { $0 == ";" }.count
+        if commas >= tabs && commas >= semicolons { return .comma }
+        if tabs >= semicolons { return .tab }
+        return .semicolon
     }
 
     /// Parses delimited text into a grid of string cells.
@@ -75,8 +89,9 @@ enum CSVParser {
     /// Parses input into `{ headers, rows }`, auto-detecting the delimiter and
     /// normalizing every row to the header width (padding short rows).
     static func parseSheet(_ input: String) -> Sheet {
-        let delimiter = detectDelimiter(input)
-        var grid = parse(input, delimiter: delimiter)
+        let clean = stripBOM(input)
+        let delimiter = detectDelimiter(clean)
+        var grid = parse(clean, delimiter: delimiter)
         guard !grid.isEmpty else { return Sheet(headers: [], rows: []) }
         let headers = grid.removeFirst().map { $0.trimmingCharacters(in: .whitespaces) }
         let width = headers.count

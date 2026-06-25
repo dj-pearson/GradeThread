@@ -131,7 +131,11 @@ final class ProspectStore {
             brand: result.item.brand,
             size: nil,
             color: nil,
-            costCents: costCents,
+            // US-1275: commit the cost the run was computed with (result.costCents),
+            // not the current field — if the user edited cost after the run
+            // (costNeedsRerun), targetCents/grade below come from the prior run, so
+            // persisting the edited cost would store a verdict the comps never used.
+            costCents: result.costCents,
             targetCents: result.stats?.medianCents,
             gradeValue: result.grade?.value,
             gradeLabel: result.grade?.tier,
