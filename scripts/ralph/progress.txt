@@ -3842,3 +3842,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 25, 2026 12:55:18 PM
 ---
+## US-1153: Critical-flow UI tests wired into CI (SIWA sign-in, paywall/StoreKit, capture→grade→list)
+- Status: COMPLETE
+- Timestamp: Thu, Jun 25, 2026  1:06:03 PM
+---

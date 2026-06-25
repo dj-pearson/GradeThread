@@ -3914,7 +3914,7 @@
         "Flows that currently have zero end-to-end coverage are enumerated and at least the three above are covered"
       ],
       "priority": 1111,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/Testing][EPIC: iOS Production Readiness 2026-06-21] [PARTIAL — simulator/device-gated; scaffolding + steps in ios/IOS_PRODUCTION_READINESS_REMAINING.md]",
       "relevantPaths": [
         "ios/GradeThreadUITests/",
