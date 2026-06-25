@@ -334,12 +334,18 @@ actor SyncMergeActor {
         modelContext.saveOrLog("mergeListings")
     }
 
-    /// US-1221: derives each item's latest listing price from the cached
-    /// `LocalListing` rows and writes it onto the `LocalInventoryItem`, mirroring
-    /// the former whole-table price derivation (latest by `listedAt ?? createdAt`
-    /// per item) but bounded to `itemIds` (the delta) — never the whole catalog.
-    /// `items` may be supplied by the caller (mergeItems already loaded them) to
-    /// avoid a redundant fetch; otherwise the affected items are fetched here.
+    /// US-1221: derives each item's market listing price from the cached
+    /// `LocalListing` rows and writes it onto the `LocalInventoryItem`, bounded to
+    /// `itemIds` (the delta) — never the whole catalog. `items` may be supplied by
+    /// the caller (mergeItems already loaded them) to avoid a redundant fetch;
+    /// otherwise the affected items are fetched here.
+    ///
+    /// US-1244: the price is selected from the item's LIVE (active/relisted)
+    /// listing when one exists, falling back to the latest of any status only when
+    /// none is live — so a relisted/ended listing carrying a newer timestamp can't
+    /// drive a stale "inventory value". Reuses the unit-tested
+    /// ``SyncEngine/selectListingPrices(_:)`` (US-1221 moved derivation here from
+    /// the former fetch-time map, where US-1244 originally lived).
     private func applyLatestListingPrices(
         forItemIds itemIds: [String],
         items preloaded: [String: LocalInventoryItem]? = nil
@@ -351,14 +357,16 @@ actor SyncMergeActor {
         )
         guard !listings.isEmpty else { return }
 
-        var latestPrice: [String: Double] = [:]
-        var latestAt: [String: Date] = [:]
-        for listing in listings {
-            let ts = listing.listedAt ?? listing.createdAt
-            if let prev = latestAt[listing.inventoryItemId], prev >= ts { continue }
-            latestAt[listing.inventoryItemId] = ts
-            latestPrice[listing.inventoryItemId] = listing.listingPrice
-        }
+        let latestPrice = SyncEngine.selectListingPrices(
+            listings.map { listing in
+                (
+                    itemId: listing.inventoryItemId,
+                    price: listing.listingPrice,
+                    at: listing.listedAt ?? listing.createdAt,
+                    isLive: SyncEngine.liveListingStatuses.contains(listing.listingStatus.lowercased())
+                )
+            }
+        )
         guard !latestPrice.isEmpty else { return }
 
         let items: [LocalInventoryItem]
