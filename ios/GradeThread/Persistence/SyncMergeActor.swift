@@ -35,18 +35,21 @@ actor SyncMergeActor {
     /// item's primary photo URL. Runs entirely on the actor's background
     /// executor.
     /// - Parameters:
-    ///   - listingPrices: inventoryItemId → latest listing price, applied to
-    ///     each item's cached `listingPrice` so "inventory value" reflects the
-    ///     market (listed) price, not cost basis.
     ///   - prune: true ONLY on a full item backfill (no watermark). When true,
     ///     local items the server no longer returns are deleted — this is what
     ///     clears the stale "listed" rows that made the listed count
     ///     (e.g. 922) exceed the real inventory size. In delta mode `items` is
     ///     just the changed rows, so pruning would wrongly wipe the catalog.
+    ///
+    /// US-1221: each merged item's market `listingPrice` is now derived from the
+    /// cached `LocalListing` rows (``applyLatestListingPrices(forItemIds:items:)``)
+    /// instead of a price map built from a whole-table listings fetch every pass.
+    /// A listing-only change (no item edit) refreshes the price via
+    /// ``mergeListings(_:)``'s sibling call, so the cache no longer needs the
+    /// item's `updated_at` to bump for a price change to land.
     func mergeItems(
         _ items: [SyncEngine.RemoteInventoryItem],
         primaryPhotos: [String: SyncEngine.RemoteItemPhoto],
-        listingPrices: [String: Double],
         prune: Bool
     ) {
         guard !items.isEmpty || prune else { return }
@@ -85,7 +88,6 @@ actor SyncMergeActor {
                 // carried this item's photos; a thin item-only delta leaves
                 // the existing thumbnail intact instead of blanking it.
                 if primary != nil { local.primaryPhotoURL = primaryURL }
-                if let price = listingPrices[remote.id] { local.listingPrice = price }
                 local.updatedAt = updatedAt
             } else {
                 let local = LocalInventoryItem(
@@ -99,11 +101,14 @@ actor SyncMergeActor {
                 )
                 Self.applyServerWins(to: local, remote: remote)
                 local.primaryPhotoURL = primaryURL
-                if let price = listingPrices[remote.id] { local.listingPrice = price }
                 modelContext.insert(local)
                 existingById[remote.id] = local
             }
         }
+
+        // US-1221: derive the market price for the items this delta touched from
+        // their cached listings (bounded to the delta ids, never the catalog).
+        applyLatestListingPrices(forItemIds: Array(remoteIds), items: existingById)
 
         if prune {
             // Don't delete rows still awaiting their first push to the server
@@ -283,8 +288,9 @@ actor SyncMergeActor {
     func mergeListings(_ remoteListings: [SyncEngine.RemoteListing]) {
         guard !remoteListings.isEmpty else { return }
         lastMergeFetchedRowCount = 0
-        // Listings aren't pruned (the fetch is bounded per pass), so this is a
-        // delta: fetch only the rows the payload touches.
+        // US-1221: listings now delta on `updated_at` (no longer a whole-table
+        // pull every pass). Deletes propagate via the periodic id-reconciliation
+        // (``reconcileDeletes(...)``), not a prune here.
         let ids = Array(Set(remoteListings.map(\.id)))
         let existing = fetchCounting(
             FetchDescriptor<LocalListing>(predicate: #Predicate { ids.contains($0.id) })
@@ -319,7 +325,53 @@ actor SyncMergeActor {
             local.listingOrigin = remote.listing_origin
             local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
         }
+
+        // US-1221: a listing change (price/relist) refreshes its item's market
+        // price even when the item itself didn't change this pass — derived from
+        // ALL cached listings for the affected items, so the latest wins.
+        applyLatestListingPrices(forItemIds: remoteListings.map(\.inventory_item_id))
+
         modelContext.saveOrLog("mergeListings")
+    }
+
+    /// US-1221: derives each item's latest listing price from the cached
+    /// `LocalListing` rows and writes it onto the `LocalInventoryItem`, mirroring
+    /// the former whole-table price derivation (latest by `listedAt ?? createdAt`
+    /// per item) but bounded to `itemIds` (the delta) — never the whole catalog.
+    /// `items` may be supplied by the caller (mergeItems already loaded them) to
+    /// avoid a redundant fetch; otherwise the affected items are fetched here.
+    private func applyLatestListingPrices(
+        forItemIds itemIds: [String],
+        items preloaded: [String: LocalInventoryItem]? = nil
+    ) {
+        let ids = Array(Set(itemIds))
+        guard !ids.isEmpty else { return }
+        let listings = fetchCounting(
+            FetchDescriptor<LocalListing>(predicate: #Predicate { ids.contains($0.inventoryItemId) })
+        )
+        guard !listings.isEmpty else { return }
+
+        var latestPrice: [String: Double] = [:]
+        var latestAt: [String: Date] = [:]
+        for listing in listings {
+            let ts = listing.listedAt ?? listing.createdAt
+            if let prev = latestAt[listing.inventoryItemId], prev >= ts { continue }
+            latestAt[listing.inventoryItemId] = ts
+            latestPrice[listing.inventoryItemId] = listing.listingPrice
+        }
+        guard !latestPrice.isEmpty else { return }
+
+        let items: [LocalInventoryItem]
+        if let preloaded {
+            items = ids.compactMap { preloaded[$0] }
+        } else {
+            items = fetchCounting(
+                FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { ids.contains($0.id) })
+            )
+        }
+        for item in items {
+            if let price = latestPrice[item.id] { item.listingPrice = price }
+        }
     }
 
     /// US-819: stamps each item's `disputeStatus` from the synced `disputes`
@@ -355,6 +407,68 @@ actor SyncMergeActor {
             }
         }
         modelContext.saveOrLog("mergeDisputes")
+    }
+
+    // MARK: - Delete reconciliation (US-1221)
+
+    /// Prunes local sales / expenses / listings / photos the server no longer
+    /// has. The watermark-driven delta only ever returns rows that still exist
+    /// (with a newer cursor), so a row deleted server-side — on the web, by
+    /// another device, or by a background job — would otherwise linger in the
+    /// local mirror forever, inflating Money totals, dashboard rollups and the
+    /// widget snapshot. ``SyncEngine`` fetches each table's surviving id set
+    /// (id column only) and hands them here.
+    ///
+    /// A `nil` set means "that table's id fetch failed / wasn't run" → its
+    /// locals are left untouched (never prune on an incomplete view). Rows whose
+    /// id is in `protectedIds` are never pruned — those are offline creates /
+    /// staged photo uploads whose server row legitimately doesn't exist yet.
+    func reconcileDeletes(
+        saleIds: Set<String>?,
+        expenseIds: Set<String>?,
+        listingIds: Set<String>?,
+        photoIds: Set<String>?,
+        protectedIds: Set<String>
+    ) {
+        var pruned = 0
+        if let saleIds {
+            pruned += pruneAbsent(FetchDescriptor<LocalSale>(), keep: saleIds, protected: protectedIds) { $0.id }
+        }
+        if let expenseIds {
+            pruned += pruneAbsent(FetchDescriptor<LocalExpense>(), keep: expenseIds, protected: protectedIds) { $0.id }
+        }
+        if let listingIds {
+            pruned += pruneAbsent(FetchDescriptor<LocalListing>(), keep: listingIds, protected: protectedIds) { $0.id }
+        }
+        if let photoIds {
+            pruned += pruneAbsent(FetchDescriptor<LocalItemPhoto>(), keep: photoIds, protected: protectedIds) { $0.id }
+        }
+        guard pruned > 0 else { return }
+        Telemetry.backgroundBreadcrumb(
+            "Sync reconciled \(pruned) server-deleted row(s) out of the local mirror",
+            category: "sync")
+        modelContext.saveOrLog("reconcileDeletes")
+    }
+
+    /// Deletes every fetched row whose id is absent from `keep` and not in
+    /// `protected`. Returns the count removed. Does NOT save — the caller batches
+    /// the save across all tables.
+    private func pruneAbsent<T: PersistentModel>(
+        _ descriptor: FetchDescriptor<T>,
+        keep serverIds: Set<String>,
+        protected: Set<String>,
+        id: (T) -> String
+    ) -> Int {
+        let rows = (try? modelContext.fetch(descriptor)) ?? []
+        var deleted = 0
+        for row in rows {
+            let rid = id(row)
+            if !serverIds.contains(rid) && !protected.contains(rid) {
+                modelContext.delete(row)
+                deleted += 1
+            }
+        }
+        return deleted
     }
 
     // MARK: - Realtime single-row apply (US-198, reuses this shared context)

@@ -60,6 +60,14 @@ actor SyncEngine {
     /// spinner can show a transient failure instead of silently succeeding.
     private var lastPullError: String?
 
+    /// US-1221: when the last successful delete-reconciliation ran. In-memory
+    /// (resets each launch), so reconciliation runs on the first pull of a
+    /// session and at most once per ``reconcileInterval`` thereafter — frequent
+    /// enough to clear server-side deletes promptly without an id-fetch every
+    /// pass.
+    private var lastReconcileAt: Date?
+    private static let reconcileInterval: TimeInterval = 15 * 60
+
     /// Result of a foreground/refresh ``sync()``.
     enum SyncOutcome: Sendable {
         case ok
@@ -156,7 +164,6 @@ actor SyncEngine {
             await mergeActor.mergeItems(
                 payload.items,
                 primaryPhotos: payload.primaryPhotos,
-                listingPrices: payload.listingPrices,
                 prune: payload.isFullItemSync
             )
             await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
@@ -179,7 +186,13 @@ actor SyncEngine {
             watermark.advance(.sales, to: payload.saleCursor)
             watermark.advance(.expenses, to: payload.expenseCursor)
             watermark.advance(.disputes, to: payload.disputeCursor)
+            watermark.advance(.listings, to: payload.listingCursor)
             lastPullError = nil
+
+            // US-1221: prune rows deleted server-side (the watermark delta only
+            // ever returns rows that still exist, so a delete never arrives that
+            // way). Throttled + protects offline-created rows still pending push.
+            await reconcileDeletesIfDue()
         case .failure(let error):
             // Connection errors are expected on the road; the banner flips to
             // .offline via NetworkMonitor. Log only in debug + record for the
@@ -206,6 +219,94 @@ actor SyncEngine {
         }
     }
 
+    // MARK: - Delete reconciliation (US-1221)
+
+    /// Prunes local sales / expenses / listings / photos the server no longer
+    /// has. The watermark-driven delta only returns rows that still exist, so a
+    /// server-side delete (web, another device, a background job) never arrives
+    /// that way — sales/expenses/listings had no prune at all and photos pruned
+    /// only on a full backfill, so a deleted row lingered locally forever,
+    /// inflating Money totals, dashboard rollups and the widget snapshot.
+    ///
+    /// Throttled to once per ``reconcileInterval`` (the id-only fetch is cheap
+    /// but still a full scan). Skips entirely when every table's id fetch fails
+    /// (offline) so the throttle isn't burned on a no-op.
+    private func reconcileDeletesIfDue() async {
+        let now = Date()
+        if let last = lastReconcileAt, now.timeIntervalSince(last) < Self.reconcileInterval { return }
+
+        let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
+        let ownerId = WorkspaceScope.activeOwnerId ?? selfId
+
+        // Never prune a row whose server copy doesn't exist yet: offline creates
+        // (the create is still queued) and staged photo uploads (the item_photos
+        // row hasn't been inserted). Both materialize a local row optimistically.
+        let protectedIds = Self.protectedReconcileIds(await snapshotMutations())
+
+        // sales / expenses are user-scoped; listings + item_photos have no
+        // user_id column (RLS scopes them via the parent item).
+        let saleIds = await fetchServerIds(table: "sales", scopeUserId: ownerId)
+        let expenseIds = await fetchServerIds(table: "flipdesk_expenses", scopeUserId: ownerId)
+        let listingIds = await fetchServerIds(table: "listings", scopeUserId: nil)
+        let photoIds = await fetchServerIds(table: "item_photos", scopeUserId: nil)
+
+        // All fetches failed (offline) → don't touch the mirror or the throttle.
+        guard saleIds != nil || expenseIds != nil || listingIds != nil || photoIds != nil else { return }
+
+        await mergeActor.reconcileDeletes(
+            saleIds: saleIds,
+            expenseIds: expenseIds,
+            listingIds: listingIds,
+            photoIds: photoIds,
+            protectedIds: protectedIds
+        )
+        lastReconcileAt = now
+    }
+
+    /// Fetches the surviving server `id` set for `table` (id column only, so the
+    /// payload stays tiny even for thousands of rows), paginated + bounded by
+    /// `maxRowsPerPass`. Returns nil on any error so the caller skips pruning
+    /// that table rather than pruning against a partial view.
+    private func fetchServerIds(table: String, scopeUserId: String?) async -> Set<String>? {
+        var ids = Set<String>()
+        var offset = 0
+        do {
+            while true {
+                var query = SupabaseShared.client.from(table).select("id")
+                if let scopeUserId { query = query.eq("user_id", value: scopeUserId) }
+                let response = try await query
+                    .order("id", ascending: true)
+                    .range(from: offset, to: offset + Self.pageSize - 1)
+                    .execute()
+                let rows = (try? JSONSerialization.jsonObject(with: response.data)) as? [[String: Any]] ?? []
+                for row in rows { if let id = row["id"] as? String { ids.insert(id) } }
+                if rows.count < Self.pageSize { break }
+                offset += Self.pageSize
+                if offset >= Self.maxRowsPerPass { break }
+            }
+            return ids
+        } catch {
+            return nil
+        }
+    }
+
+    /// Ids that delete-reconciliation must never prune because their server row
+    /// legitimately doesn't exist yet (US-1221): every pending create's target
+    /// id, plus the client-minted `photo_id` carried inside each queued photo
+    /// upload (whose `targetId` is the parent item id, not the photo row id).
+    static func protectedReconcileIds(_ queue: [PendingMutationSnapshot]) -> Set<String> {
+        var ids = unconfirmedCreateTargetIds(queue)
+        for mutation in queue where MutationKind(rawValue: mutation.kind) == .uploadPhoto {
+            if let photoId = uploadPhotoId(from: mutation.payload) { ids.insert(photoId) }
+        }
+        return ids
+    }
+
+    private static func uploadPhotoId(from payload: Data) -> String? {
+        guard let dict = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else { return nil }
+        return dict["photo_id"] as? String
+    }
+
     // MARK: - Remote pull
 
     private struct PullPayload {
@@ -221,12 +322,11 @@ actor SyncEngine {
         /// then may the merge prune local items the server no longer returns
         /// (fixes stale "listed" rows that inflated the listed count). (00111)
         let isFullItemSync: Bool
-        /// inventoryItemId → latest listing price, refreshed every pull so the
-        /// market-value "inventory value" stays current. Empty if the listings
-        /// fetch failed (best-effort — never blocks the item merge).
-        let listingPrices: [String: Double]
-        /// Full listing rows, mirrored into LocalListing so the item canvas can
-        /// offer in-place revise (Sell offer present) or an Edit-on-eBay link.
+        /// Changed listing rows (delta on `updated_at`, US-1221), mirrored into
+        /// LocalListing so the item canvas can offer in-place revise (Sell offer
+        /// present) or an Edit-on-eBay link. Each affected item's market price is
+        /// derived from the cached LocalListing rows after the merge — no longer
+        /// from a whole-table fetch every pass.
         let listings: [RemoteListing]
         /// US-819: changed dispute rows (delta), stamped onto their items'
         /// `disputeStatus` so the Grades list can badge them.
@@ -240,6 +340,7 @@ actor SyncEngine {
         let saleCursor: String?
         let expenseCursor: String?
         let disputeCursor: String?
+        let listingCursor: String?
 
         /// Map of inventoryItemId → first photo (sort_order ascending). In
         /// delta mode this only covers items whose photos changed this pass.
@@ -557,29 +658,23 @@ actor SyncEngine {
             )
             let expenses = expensesFetch?.rows ?? []
 
-            // Listing prices — best-effort, NOT watermarked. We pull every
-            // listing each pass (bounded by maxRowsPerPass) and keep the latest
-            // price per item, so "inventory value" tracks the current listed
-            // price. Cheap: one indexed query, a few hundred rows for a typical
-            // seller.
+            // US-1221: listings — best-effort + delta-scoped on `updated_at`
+            // (the one table that used to be re-fetched in full every pass,
+            // O(total listings)). The trigger bumps `updated_at` on every edit,
+            // including eBay-driven price/status changes, so a delta still lands
+            // those promptly. Each affected item's market price is derived from
+            // the cached LocalListing rows in the merge, not from this fetch.
             // NOTE: no scopeUserId — `listings` has no user_id column; RLS
             // scopes it through the parent inventory_items row.
-            let listingRows = (try? await paginatedFetch(
+            let listingsFetch = try? await paginatedFetch(
                 table: "listings",
                 columns: Self.listingColumns,
-                cursor: "created_at",
-                watermark: nil,
-                decode: Self.decodeListingsResiliently
-            ))?.rows ?? []
-            var listingPrices: [String: Double] = [:]
-            var listingPriceAt: [String: Date] = [:]
-            for row in listingRows {
-                guard let price = row.listing_price else { continue }
-                let ts = SyncEngine.parseDate(row.listed_at ?? row.created_at ?? "")
-                if let prev = listingPriceAt[row.inventory_item_id], prev >= ts { continue }
-                listingPriceAt[row.inventory_item_id] = ts
-                listingPrices[row.inventory_item_id] = price
-            }
+                cursor: SyncWatermark.Table.listings.cursorColumn,
+                watermark: watermark.value(for: .listings),
+                decode: Self.decodeListingsResiliently,
+                idOf: { $0.id }
+            )
+            let listingRows = listingsFetch?.rows ?? []
 
             // US-819: disputes — best-effort + delta-scoped on updated_at. A
             // dispute's `user_id` is the FILER (the signed-in user), not the
@@ -603,7 +698,6 @@ actor SyncEngine {
                 expenses: expenses,
                 isFullPhotoSync: isFullPhotoSync,
                 isFullItemSync: isFullItemSync,
-                listingPrices: listingPrices,
                 listings: listingRows,
                 disputes: disputes,
                 // US-1210: advance each cursor only to a value that keeps a
@@ -613,7 +707,8 @@ actor SyncEngine {
                 photoCursor: photosFetch.flatMap { Self.safeCursor($0) },
                 saleCursor: salesFetch.flatMap { Self.safeCursor($0) },
                 expenseCursor: expensesFetch.flatMap { Self.safeCursor($0) },
-                disputeCursor: disputesFetch.flatMap { Self.safeCursor($0) }
+                disputeCursor: disputesFetch.flatMap { Self.safeCursor($0) },
+                listingCursor: listingsFetch.flatMap { Self.safeCursor($0) }
             ))
         } catch {
             return .failure(error)
@@ -747,8 +842,9 @@ actor SyncEngine {
     /// Full listings projection. Drives BOTH the cached market (listing) price
     /// per item AND the local LocalListing mirror that the item canvas reads to
     /// decide whether to show "Edit live listing" (revisable Sell API offer) vs
-    /// "Edit on eBay" (eBay-native, no offer). Pulled every pass (not
-    /// watermarked) so status/price/offer changes from eBay land promptly.
+    /// "Edit on eBay" (eBay-native, no offer). US-1221: delta on `updated_at`
+    /// (the trigger bumps it on every edit, incl. eBay-driven price/status
+    /// changes) instead of a whole-table fetch every pass.
     // NOTE: the listings table has NO `ended_at` column — selecting it 400s the
     // WHOLE query (PostgREST), which silently zeroes the listings sync (no
     // LocalListing rows → the item canvas never shows "Edit live listing"). Only

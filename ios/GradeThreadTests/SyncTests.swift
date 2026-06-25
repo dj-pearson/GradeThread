@@ -373,7 +373,6 @@ final class SyncTests: XCTestCase {
         await actor.mergeItems(
             [Self.remoteItem(id: "a", title: "Linen blazer", updated: "2026-06-01T00:00:00Z")],
             primaryPhotos: [:],
-            listingPrices: [:],
             prune: false
         )
         var rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
@@ -384,7 +383,6 @@ final class SyncTests: XCTestCase {
         await actor.mergeItems(
             [Self.remoteItem(id: "a", title: "Linen blazer (updated)", updated: "2026-06-02T00:00:00Z")],
             primaryPhotos: [:],
-            listingPrices: [:],
             prune: false
         )
         rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
@@ -402,21 +400,61 @@ final class SyncTests: XCTestCase {
                 Self.remoteItem(id: "a", title: "Keep", updated: "2026-06-01T00:00:00Z"),
                 Self.remoteItem(id: "b", title: "Stale", updated: "2026-06-01T00:00:00Z"),
             ],
-            primaryPhotos: [:], listingPrices: [:], prune: false
+            primaryPhotos: [:], prune: false
         )
         XCTAssertEqual(
             try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).count, 2
         )
 
+        // US-1221: the item's market price is now derived from its cached
+        // listings, not a passed-in map — seed a listing for "a" priced 42.
+        await actor.mergeListings([Self.remoteListing(id: "l-a", itemId: "a", price: 42)])
+
         // Full backfill (prune) that only returns "a" → "b" is removed.
         await actor.mergeItems(
             [Self.remoteItem(id: "a", title: "Keep", updated: "2026-06-02T00:00:00Z")],
-            primaryPhotos: [:], listingPrices: ["a": 42], prune: true
+            primaryPhotos: [:], prune: true
         )
         let rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.id, "a")
         XCTAssertEqual(rows.first?.listingPrice, 42)
+    }
+
+    // MARK: - Listing-price derivation from cache (US-1221)
+
+    func test_mergeListings_derivesLatestPriceOntoItem() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "i1", title: "Tee", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+        // Two listings for the same item; the later-listed one's price wins.
+        await actor.mergeListings([
+            Self.remoteListing(id: "l1", itemId: "i1", price: 20, listedAt: "2026-06-01T00:00:00Z"),
+            Self.remoteListing(id: "l2", itemId: "i1", price: 35, listedAt: "2026-06-03T00:00:00Z"),
+        ])
+
+        let item = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertEqual(item?.listingPrice, 35)
+    }
+
+    func test_mergeListings_priceChangeWithoutItemDeltaUpdatesItem() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "i1", title: "Tee", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: [:], prune: false
+        )
+        await actor.mergeListings([Self.remoteListing(id: "l1", itemId: "i1", price: 50)])
+        // A later listings-only delta (no item change) must still refresh price.
+        await actor.mergeListings([Self.remoteListing(id: "l1", itemId: "i1", price: 65)])
+
+        let item = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertEqual(item?.listingPrice, 65)
     }
 
     func test_mergeActor_pruneKeepsUnpushedLocalRows() async throws {
@@ -435,7 +473,7 @@ final class SyncTests: XCTestCase {
         // Full backfill that doesn't include it must NOT delete it.
         await actor.mergeItems(
             [Self.remoteItem(id: "a", title: "Server", updated: "2026-06-02T00:00:00Z")],
-            primaryPhotos: [:], listingPrices: [:], prune: true
+            primaryPhotos: [:], prune: true
         )
         let ids = try ModelContext(container)
             .fetch(FetchDescriptor<LocalInventoryItem>()).map(\.id).sorted()
@@ -452,20 +490,20 @@ final class SyncTests: XCTestCase {
         let seed = (0..<50).map {
             Self.remoteItem(id: "item-\($0)", title: "Item \($0)", updated: "2026-06-01T00:00:00Z")
         }
-        await actor.mergeItems(seed, primaryPhotos: [:], listingPrices: [:], prune: false)
+        await actor.mergeItems(seed, primaryPhotos: [:], prune: false)
 
         // A 1-row delta against the large store must materialize only a handful
         // of rows, not all 50.
         await actor.mergeItems(
             [Self.remoteItem(id: "item-7", title: "Item 7 (updated)", updated: "2026-06-02T00:00:00Z")],
-            primaryPhotos: [:], listingPrices: [:], prune: false
+            primaryPhotos: [:], prune: false
         )
         let deltaFetched = await actor.lastMergeFetchedRowCount
         XCTAssertLessThanOrEqual(deltaFetched, 5, "delta merge should fetch only the touched row")
 
         // Full backfill (prune) still scans the whole table so stale locals can
         // be deleted.
-        await actor.mergeItems(seed, primaryPhotos: [:], listingPrices: [:], prune: true)
+        await actor.mergeItems(seed, primaryPhotos: [:], prune: true)
         let backfillFetched = await actor.lastMergeFetchedRowCount
         XCTAssertGreaterThanOrEqual(backfillFetched, 50, "full backfill must fetch the whole table to prune")
     }
@@ -477,7 +515,7 @@ final class SyncTests: XCTestCase {
         let items = (0..<30).map {
             Self.remoteItem(id: "item-\($0)", title: "Item \($0)", updated: "2026-06-01T00:00:00Z")
         }
-        await actor.mergeItems(items, primaryPhotos: [:], listingPrices: [:], prune: false)
+        await actor.mergeItems(items, primaryPhotos: [:], prune: false)
         let photos = (0..<30).map { Self.remotePhoto(id: "p-\($0)", itemId: "item-\($0)") }
         await actor.mergePhotos(photos, prune: false)
 
@@ -496,7 +534,7 @@ final class SyncTests: XCTestCase {
         await actor.mergeItems(
             [Self.remoteItem(id: "i1", title: "Disputed tee",
                              updated: "2026-06-01T00:00:00Z", gradeReportId: "gr-1")],
-            primaryPhotos: [:], listingPrices: [:], prune: false
+            primaryPhotos: [:], prune: false
         )
 
         // Two disputes for the same report → the latest (by updated_at) wins.
@@ -522,7 +560,7 @@ final class SyncTests: XCTestCase {
             Self.remoteItem(id: "i\($0)", title: "Item \($0)",
                             updated: "2026-06-01T00:00:00Z", gradeReportId: "gr-\($0)")
         }
-        await actor.mergeItems(seed, primaryPhotos: [:], listingPrices: [:], prune: false)
+        await actor.mergeItems(seed, primaryPhotos: [:], prune: false)
 
         await actor.mergeDisputes([
             Self.remoteDispute(id: "d1", reportId: "gr-7", status: "resolved",
@@ -568,7 +606,7 @@ final class SyncTests: XCTestCase {
 
         await actor.mergeItems(
             [Self.remoteItem(id: "a", title: "Tee", updated: "2026-06-01T00:00:00Z")],
-            primaryPhotos: [:], listingPrices: [:], prune: false
+            primaryPhotos: [:], prune: false
         )
         await actor.mergePhotos([Self.remotePhoto(id: "p1", itemId: "a")], prune: false)
 
@@ -609,6 +647,20 @@ final class SyncTests: XCTestCase {
          "updated_at":"\(updated)","created_at":"2026-01-01T00:00:00Z"}
         """.data(using: .utf8)!
         return try! JSONDecoder().decode(SyncEngine.RemoteDispute.self, from: json)
+    }
+
+    private static func remoteListing(
+        id: String, itemId: String, price: Double,
+        listedAt: String? = nil, status: String = "active"
+    ) -> SyncEngine.RemoteListing {
+        let listedField = listedAt.map { "\"listed_at\":\"\($0)\"," } ?? ""
+        let json = """
+        {"id":"\(id)","inventory_item_id":"\(itemId)","platform":"ebay",
+         "listing_price":\(price),"listing_status":"\(status)",
+         \(listedField)
+         "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-06-01T00:00:00Z"}
+        """.data(using: .utf8)!
+        return try! JSONDecoder().decode(SyncEngine.RemoteListing.self, from: json)
     }
 
     private func freshDefaults() -> UserDefaults {
@@ -723,6 +775,64 @@ final class SyncTests: XCTestCase {
             droppedCursors: ["2026-06-04T00:00:00Z"]
         )
         XCTAssertNil(cursor)
+    }
+
+    // MARK: - Delete reconciliation (US-1221)
+
+    func test_reconcileDeletes_prunesAbsentButKeepsProtected() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        for sid in ["s1", "s2", "s3"] {
+            ctx.insert(LocalSale(id: sid, inventoryItemId: "i", salePrice: 10, saleDate: .now))
+        }
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        // s1 survives server-side; s2 was deleted; s3 is an offline create still
+        // pending push (protected) so it must NOT be pruned.
+        await actor.reconcileDeletes(
+            saleIds: ["s1"], expenseIds: nil, listingIds: nil, photoIds: nil,
+            protectedIds: ["s3"]
+        )
+        let remaining = try ModelContext(container)
+            .fetch(FetchDescriptor<LocalSale>()).map(\.id).sorted()
+        XCTAssertEqual(remaining, ["s1", "s3"])
+    }
+
+    func test_reconcileDeletes_nilSetLeavesTableUntouched() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        ctx.insert(LocalListing(
+            id: "l1", inventoryItemId: "i", platform: "ebay",
+            listingPrice: 10, listingStatus: "active"
+        ))
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        // listingIds nil → that table's id fetch failed; never prune on a
+        // partial view, even though other sets are present.
+        await actor.reconcileDeletes(
+            saleIds: [], expenseIds: nil, listingIds: nil, photoIds: nil, protectedIds: []
+        )
+        XCTAssertEqual(try ModelContext(container).fetch(FetchDescriptor<LocalListing>()).count, 1)
+    }
+
+    func test_protectedReconcileIds_includesCreatesAndUploadPhotoIds() throws {
+        let createSale = snapshot(kind: .createSale, targetId: "sale-1")
+        let uploadPayload = try JSONSerialization.data(
+            withJSONObject: ["photo_id": "photo-9", "inventory_item_id": "i1"]
+        )
+        let upload = SyncEngine.PendingMutationSnapshot(
+            id: "m", kind: MutationKind.uploadPhoto.rawValue, payload: uploadPayload,
+            targetId: "i1", retryCount: 0, lastError: nil, lastAttemptAt: nil,
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+        let protected = SyncEngine.protectedReconcileIds([createSale, upload])
+        XCTAssertTrue(protected.contains("sale-1"))   // pending create's target row
+        XCTAssertTrue(protected.contains("photo-9"))  // staged upload's photo row id
+        // The upload's targetId is the parent ITEM id, not a sale/photo row id —
+        // it must not leak into the protected set.
+        XCTAssertFalse(protected.contains("i1"))
     }
 
     // MARK: - Helpers

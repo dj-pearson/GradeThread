@@ -439,6 +439,14 @@ memory — not a progress log (the harness records progress separately).
   the `/revise` endpoint, which now clears `sync_drift` on success.
 
 ## iOS (Swift)
+- Adding a new `SyncWatermark.Table` case (US-1221 `.listings`) needs NO
+  `currentSchemaVersion` bump: a never-set cursor reads nil → the first pull is a
+  full fetch for that table automatically, then deltas. Bump the version ONLY
+  when an EXISTING install must re-backfill an already-synced table. Server-side
+  deletes never arrive via a watermark delta (it only returns surviving rows), so
+  delete propagation is a separate concern — `SyncEngine.reconcileDeletesIfDue`
+  (throttled id-only fetch) prunes locals absent from the server set, protecting
+  pending-create + staged-upload ids (`protectedReconcileIds`).
 - Two DIFFERENT decoders on iOS: the EdgeAPI decoder converts snake→camel
   (`.convertFromSnakeCase`), but the supabase-swift PostgREST client
   (`supabase.from(...).select(...).execute().value`) does NOT — decode its rows

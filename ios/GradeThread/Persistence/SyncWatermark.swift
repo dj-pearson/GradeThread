@@ -29,11 +29,19 @@ struct SyncWatermark {
         /// show a per-row dispute badge. `disputes` HAS an `updated_at` column
         /// (a status change bumps it), so they delta on `updated_at`.
         case disputes = "disputes"
+        /// US-1221: listings were the one un-watermarked table — re-fetched in
+        /// full (up to `maxRowsPerPass`) on every pass. `listings` HAS an
+        /// `updated_at` column (bumped by the trigger on every edit, including
+        /// eBay-driven price/status changes), so they now delta on `updated_at`
+        /// like inventory_items. Each item's latest listing price is derived
+        /// from the cached `LocalListing` rows after the delta merges, instead
+        /// of from a whole-table fetch every pass.
+        case listings = "listings"
 
         /// The timestamp column the delta filter compares against.
         var cursorColumn: String {
             switch self {
-            case .inventoryItems, .disputes: return "updated_at"
+            case .inventoryItems, .disputes, .listings: return "updated_at"
             case .itemPhotos, .sales, .expenses: return "created_at"
             }
         }
