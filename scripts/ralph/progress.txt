@@ -3818,3 +3818,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sun, Jun 21, 2026  2:04:12 AM
 ---
+## US-1221: iOS: sync hygiene — delete/tombstone propagation, watermark the listings full-pull, consistent flush/pull order, classify replay retries
+- Status: COMPLETE
+- Timestamp: Thu, Jun 25, 2026 12:21:14 PM
+---
