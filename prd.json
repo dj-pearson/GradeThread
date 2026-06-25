@@ -5463,7 +5463,7 @@
         "No orphaned encrypted garment JPEGs remain after a completed save",
         "A test or manual check confirms a clean slate after save"
       ],
-      "notes": "[P3][iOS/Capture][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. IntakeDraftStore.clear() (IntakeDraftStore.swift:138-143) removes only the details file; DetailsIntakeView.swift:713/730/748 call it without PhotoDraftStore.clear(). Headless (file lifecycle) but verify flow intent."
+      "notes": "[P3][iOS/Capture][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. IntakeDraftStore.clear() (IntakeDraftStore.swift:138-143) removes only the details file; DetailsIntakeView.swift:713/730/748 call it without PhotoDraftStore.clear(). Headless (file lifecycle) but verify flow intent. UPDATE 2026-06-25 (investigated — do NOT fix in DetailsIntakeView): DetailsIntakeView (details-first flow) references neither PhotoDraftStore nor photos, so adding PhotoDraftStore.clear() to its save-success path would wrongly clear an UNRELATED photo-first flow draft (the two flows have independent drafts and entry points). The coordinated clear must live inside the PHOTO-FIRST flow (PhotoIntakeView), where both a photo draft and a details draft may co-exist for the same item — and only after confirming that flow actually creates both. Needs flow-accurate scoping on a Mac, not a blind cross-flow clear."
     },
     {
       "id": "US-1235",
