@@ -3989,7 +3989,7 @@
         "Document or test the multi-window behavior so it can be declared/QA-signed for release"
       ],
       "priority": 1115,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/iPad][EPIC: iOS Production Readiness 2026-06-21] [PARTIAL — simulator/device-gated; scaffolding + steps in ios/IOS_PRODUCTION_READINESS_REMAINING.md]",
       "relevantPaths": [
         "ios/GradeThread/App.swift",

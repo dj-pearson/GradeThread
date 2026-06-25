@@ -3834,3 +3834,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 25, 2026 12:37:24 PM
 ---
+## US-1157: Verify iPad multi-window and scene state restoration
+- Status: COMPLETE
+- Timestamp: Thu, Jun 25, 2026 12:43:29 PM
+---
