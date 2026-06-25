@@ -39,27 +39,42 @@ finish on a Mac. Everything else in the epic shipped with unit tests.
 
 ## US-1155 — Localization foundation
 
-**Why blind is risky:** adding a `Localizable.xcstrings` String Catalog requires
-wiring it into `ios/project.yml` `resources:` and letting Xcode's build phase
-process it; a misconfigured path or catalog fails the build, which can't be
-caught without compiling. Migrating ~670 `Text("…")` literals is high-volume and
-each is a potential build/runtime regression.
+**Done here (safe, Windows-verifiable artifacts):**
+- `GradeThread/Localizable.xcstrings` — the String Catalog. It's auto-classified
+  into the resources build phase by the `- path: GradeThread` source glob (same
+  mechanism as `PrivacyInfo.xcprivacy`), so it is **not** re-listed under
+  `resources:` (that would double-reference it). With `SWIFT_EMIT_LOC_STRINGS=YES`
+  already set, build-time extraction lands every `Text("…")` / `Label(…)` /
+  `String(localized:)` literal here — the binary is no longer English-only-by-
+  omission.
+- Currency display literals migrated to the locale-aware `CurrencyFormatter`
+  (US-1161 did the bulk; US-1155 cleaned up the remaining hardcoded `"$"` in
+  `AutomationTypes`, `PublishDialog`, `ItemMergePlan`, and the `DraftsBulkEditView`
+  price-field affordances). App-wide currency now honors the locale / the
+  `AppPreferences.currencyCode` override; dates already display via locale-aware
+  `.formatted()` / `Date.FormatStyle` (ISO8601 stays wire-only).
+- `no-bare-strings.py` (the localization guard, wired in `ios-ci.yml`) now also
+  **validates the String Catalog** (present + well-formed JSON, `en` source) and
+  its scope was **widened to the Settings priority flow** (existing literals
+  baselined; NEW Settings UI text must go through a localized key or CI fails).
+- `GradeThreadPseudo` scheme (`project.yml`) runs the app with the double-length
+  pseudolanguage (`-NSDoubleLocalizedStrings YES`, `-NSShowNonLocalizedStrings
+  YES`) for the clipping smoke check.
+
+**Why the rest is still Mac-gated:** migrating the remaining ~670 `Text("…")`
+literals across the app is high-volume and each is a potential build/runtime
+regression that can only be confirmed by compiling + rendering on a simulator.
 
 **To finish on a Mac:**
-1. `File → New → String Catalog` → `Localizable.xcstrings` under
-   `GradeThread/Resources/`; add it to `project.yml` `targets.GradeThread.resources`.
-   `SWIFT_EMIT_LOC_STRINGS` is already `YES`, so build-time extraction populates it.
-2. Migrate user-facing strings to `String(localized:)` / `LocalizedStringKey`
-   **in priority order**: paywall + billing → settings → onboarding → capture/
-   intake → the rest. Verify each screen builds + renders after migration.
-3. Replace hardcoded currency/date literals with locale-aware formatting
-   (`.formatted(.currency(code:))`, `Date.FormatStyle` with `.locale`); audit
-   `ISO8601DateFormatter` *display* uses (wire formats stay ISO).
-4. Add a lint guard (e.g. a script in CI) that flags **new** bare `Text("literal")`
-   in the migrated directories, allow-listing the not-yet-migrated ones so it
-   doesn't fail on the backlog.
-5. Pseudolocalization run (Scheme → Options → App Language → "Double-Length
-   Pseudolanguage") to catch clipping before adding real locales.
+1. Continue migrating user-facing strings **in priority order** (paywall +
+   billing → onboarding → capture/intake → the rest), widening the guard's
+   `SCOPE_DIRS` + `BASELINE` as each directory is done. Note SwiftUI `Text("…")`
+   / `Button("…")` / `Label("…", …)` literals are *already* `LocalizedStringKey`
+   and extract automatically once the catalog exists — the manual work is the
+   `String`-typed and interpolation-built UI text.
+2. Run the `GradeThreadPseudo` scheme (or Scheme → Options → App Language →
+   "Double-Length Pseudolanguage") and walk the priority flows, fixing any
+   clipping/truncation before adding real locales.
 
 ---
 

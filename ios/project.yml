@@ -18,6 +18,13 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"   # US-985: SwiftData #Index is iOS 18+
     TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad (US-193)
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # US-1155: localization foundation. SWIFT_EMIT_LOC_STRINGS extracts every
+    # SwiftUI `Text("…")` / `Label(…)` / `String(localized:)` literal into the
+    # String Catalog at build time. The catalog itself lives at
+    # GradeThread/Localizable.xcstrings — it's auto-classified into the resources
+    # phase by the `- path: GradeThread` source glob below (same mechanism as
+    # PrivacyInfo.xcprivacy), so it must NOT be re-listed under `resources:` or
+    # XcodeGen would double-reference it ("multiple commands produce").
     SWIFT_EMIT_LOC_STRINGS: YES
     DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}   # set in env or .xcconfig; placeholder for CI
     # Version source of truth. The Info.plist of every target references
@@ -324,6 +331,20 @@ targets:
 # Dedicated scheme for fastlane snapshot so screenshot runs don't bloat
 # the unit-test action on every PR. fastlane/Snapfile points here.
 schemes:
+  # US-1155: pseudolocalization smoke scheme. Runs the app with the
+  # double-length pseudolanguage so long-translation clipping/truncation shows
+  # up before any real locale is added; -NSShowNonLocalizedStrings surfaces any
+  # UI text that never made it into the String Catalog. Select this scheme (or
+  # set Run > Options > App Language manually) on a simulator/device and walk the
+  # priority flows (paywall/billing → settings → onboarding → capture).
+  GradeThreadPseudo:
+    build:
+      targets:
+        GradeThread: all
+    run:
+      commandLineArguments:
+        "-NSDoubleLocalizedStrings YES": true
+        "-NSShowNonLocalizedStrings YES": true
   GradeThreadScreenshots:
     build:
       targets:

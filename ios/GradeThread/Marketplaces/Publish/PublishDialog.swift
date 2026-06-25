@@ -852,7 +852,8 @@ private struct ComposerForm: View {
     }
 
     private static func dollars(_ amount: Double) -> String {
-        "$" + String(format: "%.2f", amount)
+        // US-1155: locale/override currency symbol rather than a hardcoded "$".
+        CurrencyFormatter().formatDisplay(amount)
     }
 }
 

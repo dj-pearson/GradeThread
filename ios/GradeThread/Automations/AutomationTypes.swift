@@ -293,7 +293,8 @@ enum AutomationFormat {
         p == p.rounded() ? String(Int(p)) : String(format: "%.1f", p)
     }
     static func money(_ cents: Int) -> String {
-        String(format: "$%.2f", Double(cents) / 100)
+        // US-1155: locale/override currency rather than a hardcoded "$".
+        CurrencyFormatter().formatDisplay(Double(cents) / 100)
     }
 }
 

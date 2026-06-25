@@ -163,7 +163,8 @@ struct DraftsBulkEditView: View {
 
             // Price — set one absolute price across the targets (US-820)
             HStack {
-                Text("$").foregroundStyle(.secondary)
+                // US-1155: locale/override currency symbol, not a hardcoded "$".
+                Text(priceParser.symbol).foregroundStyle(.secondary)
                 TextField("Set price", text: $absolutePrice)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
@@ -219,6 +220,9 @@ private struct DraftEditRowView: View {
     let store: DraftsBulkEditStore
     let rowId: String
 
+    // US-1155: locale-aware currency symbol for the price field affordance.
+    private let priceParser = CurrencyFormatter()
+
     private var row: DraftEditRow? { store.row(id: rowId) } // US-1166: O(1)
 
     var body: some View {
@@ -258,7 +262,8 @@ private struct DraftEditRowView: View {
                                 .font(.subheadline)
                             HStack(spacing: 8) {
                                 HStack(spacing: 2) {
-                                    Text("$").foregroundStyle(.secondary)
+                                    // US-1155: locale/override currency symbol.
+                                    Text(priceParser.symbol).foregroundStyle(.secondary)
                                     TextField("0.00", text: stringBinding(\.price))
                                         .keyboardType(.decimalPad)
                                         .frame(maxWidth: 80)

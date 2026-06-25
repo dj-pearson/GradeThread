@@ -92,10 +92,12 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build | xcbeautify --renderer github-actions
 
-      - name: Lint — no NEW bare UI string literals in migrated dirs (US-1224)
-        # Advisory guard ahead of full localization (US-1155, deferred). Scoped to
-        # a SMALL allow-listed set of "migrated" directories so it doesn't flag the
-        # ~670 existing strings app-wide. See ios/Scripts/no-bare-strings.py.
+      - name: Lint — String Catalog + no NEW bare UI strings in migrated dirs (US-1155)
+        # Localization guard (US-1224 origin, widened in US-1155): validates the
+        # Localizable.xcstrings String Catalog is present + well-formed, and flags
+        # NEW bare Text("…")/Label("…") literals in the migrated directories
+        # (Prospect/Vision/Speech + Settings). Scoped + baselined so it doesn't
+        # flag the remaining ~670 app-wide strings. See ios/Scripts/no-bare-strings.py.
         run: python3 ios/Scripts/no-bare-strings.py
 
       - name: Upload test results

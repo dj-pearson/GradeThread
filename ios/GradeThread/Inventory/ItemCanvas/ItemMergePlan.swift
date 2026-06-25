@@ -175,7 +175,8 @@ enum ItemMergeField: String, CaseIterable, Identifiable {
         guard let value else { return Value(normalized: "", display: "") }
         // Normalize to cents so 12 and 12.00 compare equal.
         let cents = Int((value * 100).rounded())
-        return Value(normalized: String(cents), display: "$\(formatter.formatRaw(value))")
+        // US-1155: locale/override currency display rather than a hardcoded "$".
+        return Value(normalized: String(cents), display: formatter.formatDisplay(value))
     }
 }
 
