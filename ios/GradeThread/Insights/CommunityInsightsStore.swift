@@ -28,6 +28,15 @@ final class CommunityInsightsStore {
         return CommunityRecommendations.derive(benchmarks)
     }
 
+    /// US-1274: true when the RPC returned benchmark rows (brands/categories) —
+    /// distinct from `recommendations.isEmpty`, which is also empty when rows
+    /// exist but none clear the action thresholds. Lets the empty state say
+    /// "nothing actionable right now" instead of "not enough community data."
+    var hasBenchmarkData: Bool {
+        guard let benchmarks else { return false }
+        return !benchmarks.topBrands.isEmpty || !benchmarks.trendingCategories.isEmpty
+    }
+
     /// Trailing-12-month window — the most decision-relevant horizon for
     /// "what should I be sourcing now". Trending categories always use the RPC's
     /// fixed last-30d-vs-prior-30d window regardless.

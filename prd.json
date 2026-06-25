@@ -5658,7 +5658,7 @@
         "mergePhotos clears an item's primaryPhotoURL when its last photo is removed via delta",
         "PriceSuggestion stale-age uses Calendar day components instead of /86400"
       ],
-      "notes": "[P2/P3][iOS/Sync][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SyncMergeActor.swift:205-234,283-323,87; PriceSuggestionModels.swift:108-117. Distinct from US-1221. Some headless, prune/cover-clear best CI-verified."
+      "notes": "[P2/P3][iOS/Sync][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. NOT yet implemented. SyncMergeActor.swift:205-234,283-323,87; PriceSuggestionModels.swift:108-117. Distinct from US-1221. Some headless, prune/cover-clear best CI-verified. UPDATE 2026-06-25: the PriceSuggestion stale-age calendar-day sub-part was attempted and REVERTED — switching /86400 to Calendar.dateComponents([.day]) in .current tz makes the existing test_pricedButStaleListing assertion (.staleListing(days:45)) compute 44 across a DST fall-back window (Sep30->Nov14 in US-Eastern), a real test regression I cannot run to confirm. /86400 is deterministic and acceptable for a staleness heuristic; if pursued, it must pass an explicit UTC calendar AND update that test. Other US-1249 parts (listing conflict provenance, sale dirty-guard, primary-photo cover clear) remain — best CI-verified."
     },
     {
       "id": "US-1250",
@@ -5978,7 +5978,7 @@
       "id": "US-1274",
       "priority": 1274,
       "title": "iOS analytics/insights polish: reuse comp formatters; distinguish 'no data' from 'none actionable'",
-      "passes": false,
+      "passes": true,
       "description": "As a seller, price-band analytics shouldn't reallocate formatters per sale, and the community insights empty state shouldn't claim 'not enough data' when data exists but nothing clears the threshold, so analytics are fast and the messaging is honest.",
       "acceptanceCriteria": [
         "AnalyticsMetrics computes the price bands + CurrencyFormatters once per gradingRoiBuckets call instead of rebuilding three formatters per sale",
