@@ -572,7 +572,7 @@ jobs:
 
       - name: Upload artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ipa-build-${{ steps.build_number.outputs.value }}
           path: ${{ runner.temp }}/export/*.ipa

@@ -104,7 +104,7 @@ jobs:
 
       - name: Upload raw captures
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: screenshots-raw
           path: ios/fastlane/screenshots/
@@ -112,7 +112,7 @@ jobs:
           retention-days: 14
 
       - name: Upload App Store-sized sets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: screenshots-appstore
           path: ios/fastlane/screenshots-appstore/
