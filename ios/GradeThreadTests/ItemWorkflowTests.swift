@@ -117,17 +117,20 @@ final class ItemWorkflowTests: XCTestCase {
 
     // MARK: - Required-photo detection
 
-    func test_hasRequiredPhotos_allFourPresent() {
+    func test_hasRequiredPhotos_frontAndBackPresent() {
+        // Only Front + Back are required (00306).
         XCTAssertTrue(ItemPrepChecklist.hasRequiredPhotos(
-            photoTypes: ["front", "back", "tag", "detail"]))
-        // Extra photos don't break it.
+            photoTypes: ["front", "back"]))
+        // Tag + Detail are optional — front+back alone is enough, and extras
+        // don't break it.
         XCTAssertTrue(ItemPrepChecklist.hasRequiredPhotos(
             photoTypes: ["front", "back", "tag", "detail", "defect", "flatlay"]))
     }
 
-    func test_hasRequiredPhotos_missingOne() {
+    func test_hasRequiredPhotos_missingFrontOrBack() {
+        // Missing back → not satisfied, even with tag/detail present.
         XCTAssertFalse(ItemPrepChecklist.hasRequiredPhotos(
-            photoTypes: ["front", "back", "tag"]))
+            photoTypes: ["front", "tag", "detail"]))
         XCTAssertFalse(ItemPrepChecklist.hasRequiredPhotos(photoTypes: []))
     }
 

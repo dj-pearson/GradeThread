@@ -528,10 +528,10 @@ struct InventoryListView: View {
             let captures = await PhotosDropHandler.process(images)
             guard !captures.isEmpty else { return }
             AppRouter.haptic()
-            // Map each capture onto the next available required slot in
+            // Map each capture onto the next available default slot in
             // declaration order (front, back, tag, detail). Extras spill
             // into defect slots if the user keeps dragging.
-            let slots = PhotoSlotType.required + PhotoSlotType.defects
+            let slots = PhotoSlotType.defaultSlots + PhotoSlotType.defects
             var mapping: [PhotoSlotType: PhotoCapture] = [:]
             for (idx, capture) in captures.prefix(slots.count).enumerated() {
                 mapping[slots[idx]] = capture

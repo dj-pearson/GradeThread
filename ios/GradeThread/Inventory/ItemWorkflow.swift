@@ -119,9 +119,10 @@ enum ItemPrepChecklist {
         var id: String { step.rawValue }
     }
 
-    /// True when all four required capture slots (front/back/tag/detail) are
-    /// present in `photoTypes` — the server `item_photos.photo_type` strings.
-    /// Mirrors the web `has_required_photos`.
+    /// True when the required capture slots (front + back) are present in
+    /// `photoTypes` — the server `item_photos.photo_type` strings. Mirrors the
+    /// web `has_required_photos` (00306). Tag + Detail are encouraged but not
+    /// required, so they don't gate the "photographed" step.
     static func hasRequiredPhotos(photoTypes: Set<String>) -> Bool {
         let required = Set(PhotoSlotType.required.map(\.serverPhotoType))
         return required.isSubset(of: photoTypes)
@@ -134,8 +135,8 @@ enum ItemPrepChecklist {
                 step: .photos,
                 title: "Photos",
                 detail: facts.hasRequiredPhotos
-                    ? "Front, back, tag & detail captured"
-                    : "Add the front, back, tag & detail shots",
+                    ? "Front & back captured"
+                    : "Add the front & back shots (tag & detail optional)",
                 done: facts.hasRequiredPhotos,
                 optional: false
             ),

@@ -25,9 +25,11 @@ public final class PhotoIntakeStore {
 
     // MARK: - Derived state
 
-    /// Slots currently displayed in the strip: 4 required + revealed extras.
+    /// Slots currently displayed in the strip: the 4 default slots
+    /// (front/back/tag/detail) + revealed extras. Front+Back block continue;
+    /// Tag+Detail are shown but skippable.
     public var visibleSlots: [PhotoSlotType] {
-        PhotoSlotType.required + extraSlots
+        PhotoSlotType.defaultSlots + extraSlots
     }
 
     /// How many defect slots are currently revealed (0…3).
@@ -108,10 +110,12 @@ public final class PhotoIntakeStore {
         activeSlot = slot
     }
 
-    /// Reveals an optional slot so it appears in the strip. No-op for
-    /// required slots (always visible) and already-revealed ones.
+    /// Reveals an optional slot so it appears in the strip. No-op for the
+    /// default slots (front/back/tag/detail — always visible) and for
+    /// already-revealed ones.
     public func reveal(_ slot: PhotoSlotType) {
-        guard !slot.isRequired, !extraSlots.contains(slot) else { return }
+        guard !PhotoSlotType.defaultSlots.contains(slot),
+              !extraSlots.contains(slot) else { return }
         extraSlots.append(slot)
     }
 

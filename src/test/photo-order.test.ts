@@ -16,6 +16,18 @@ describe("photoTypeRank", () => {
     expect(photoTypeRank("tag")).toBeLessThan(photoTypeRank("detail"));
   });
 
+  it("ranks detail before measurements before defects", () => {
+    // Canonical gallery order: Front → Back → Tag → Detail → measurements →
+    // defects → extras.
+    expect(photoTypeRank("detail")).toBeLessThan(
+      photoTypeRank("measurement_chest"),
+    );
+    expect(photoTypeRank("measurement_inseam")).toBeLessThan(
+      photoTypeRank("defect"),
+    );
+    expect(photoTypeRank("defect")).toBeLessThan(photoTypeRank("tag_2"));
+  });
+
   it("sorts unknown types last", () => {
     expect(photoTypeRank("front")).toBeLessThan(
       photoTypeRank("not_a_real_type"),

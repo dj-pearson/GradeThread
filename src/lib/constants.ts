@@ -759,17 +759,24 @@ export const ITEM_CATEGORY_LABELS: Record<
   other: "Other",
 };
 
+// Canonical gallery/cover order (index 0 = cover = eBay main image):
+// Front → Back → Tag → Detail → measurements → defects → extras → universal.
+// This array's index IS a photo type's sort rank (see src/lib/photo-order.ts),
+// so the order here drives the persisted sort_order and the listing sequence.
 export const FLIPDESK_PHOTO_TYPES = [
   "front",
   "back",
   "tag",
-  "tag_2",
   "detail",
+  // Measurements rank ahead of defects in the gallery.
+  ...MEASUREMENT_PHOTO_TYPES,
+  "defect",
+  // Secondary tag + extra detail/context shots follow the defects.
+  "tag_2",
   "detail_2",
   "detail_3",
   "detail_4",
   "interior",
-  "defect",
   "flatlay",
   "on_model",
   // Universal roles (migration 00230) reused across non-clothing categories.
@@ -781,15 +788,20 @@ export const FLIPDESK_PHOTO_TYPES = [
   "certificate",
   "corner",
   "surface",
-  ...MEASUREMENT_PHOTO_TYPES,
 ] as const;
 
-// Photos a CLOTHING item should have before it can advance to "photographed".
+// Photos a CLOTHING item must have before it can advance to "photographed".
+// Only Front + Back are blocking. Tag + Detail are encouraged (and still shown
+// as default capture slots) but optional — many garments legitimately have no
+// readable tag (e.g. Lululemon's size label is commonly cut off), so requiring
+// one would wrongly block listing and grading.
 // Non-clothing categories define their own required set via photo profiles
 // (src/lib/photo-profiles.ts → usePhotoProfile); this remains the default/
 // fallback for clothing and for any consumer that hasn't loaded a profile.
-export const REQUIRED_PHOTO_TYPES = ["front", "back", "tag", "detail"] as const;
+export const REQUIRED_PHOTO_TYPES = ["front", "back"] as const;
 export const OPTIONAL_PHOTO_TYPES = [
+  "tag",
+  "detail",
   "tag_2",
   "detail_2",
   "detail_3",

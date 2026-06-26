@@ -31,8 +31,9 @@ const CLOTHING_FALLBACK: PhotoProfile = {
   roles: [
     { type: "front", label: "Front", hint: "Lay flat, full front in frame", required: true, icon: "shirt" },
     { type: "back", label: "Back", hint: "Same crop as the front shot", required: true, icon: "shirt" },
-    { type: "tag", label: "Garment Tag", hint: "Care + size label, close enough to read", required: true, icon: "tag" },
-    { type: "detail", label: "Detail", hint: "Texture, weave, or a distinctive feature", required: true, icon: "search" },
+    { type: "tag", label: "Garment Tag", hint: "Care + size label, close enough to read (skip if the tag is missing)", required: false, icon: "tag" },
+    { type: "detail", label: "Detail", hint: "Texture, weave, or a distinctive feature", required: false, icon: "search" },
+    { type: "defect", label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle" },
     { type: "tag_2", label: "Garment Tag 2", hint: "Second tag — brand stamp or care label", required: false, icon: "tag" },
     { type: "detail_2", label: "Detail 2", hint: "Another close-up", required: false, icon: "search" },
     { type: "detail_3", label: "Detail 3", hint: "Another close-up", required: false, icon: "search" },
@@ -40,7 +41,6 @@ const CLOTHING_FALLBACK: PhotoProfile = {
     { type: "interior", label: "Interior / Lining", hint: "Inside-out: lining, seams, interior tags", required: false, icon: "layers" },
     { type: "flatlay", label: "Flat lay", hint: "Styled flat lay for the listing gallery", required: false, icon: "layout-grid" },
     { type: "on_model", label: "On model", hint: "Worn on a model or mannequin", required: false, icon: "user" },
-    { type: "defect", label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle" },
   ],
 };
 

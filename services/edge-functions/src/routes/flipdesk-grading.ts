@@ -74,10 +74,13 @@ interface ValidationResult {
   limit_exceeded: boolean; // not enough included + credits to cover the batch
 }
 
-// FlipDesk photo types required for a grading submission. `tag` maps to
-// the GradeThread `label` image_type — these are the price/care tag shots
-// that drive brand/material/size signal extraction during AI grading.
-const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back", "tag"] as const;
+// FlipDesk photo types required for a grading submission. Only Front + Back
+// are mandatory. The `tag` shot (GradeThread `label` image_type) still drives
+// brand/material/size extraction and the grader uses it when present, but it
+// is no longer required — many garments (e.g. Lululemon with a cut size label)
+// have no readable tag, and the <0.75-confidence → human-review path already
+// covers the weaker-signal case.
+const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back"] as const;
 
 // Pulls the user record + all items + photo coverage in one round-trip set,
 // then computes per-item readiness. Used by both /validate (just returns the

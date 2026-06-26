@@ -63,21 +63,21 @@ final class PhotoIntakeTests: XCTestCase {
 
     func test_store_revealNextDefectSlot_addsOptionalCapacity() {
         let store = PhotoIntakeStore()
-        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required)
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.defaultSlots)
 
         store.revealNextDefectSlot()
-        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required + [.defect1])
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.defaultSlots + [.defect1])
 
         store.revealNextDefectSlot()
-        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required + [.defect1, .defect2])
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.defaultSlots + [.defect1, .defect2])
 
         store.revealNextDefectSlot()
-        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required + PhotoSlotType.defects)
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.defaultSlots + PhotoSlotType.defects)
 
         // Fourth reveal is a no-op — there are only three defect slots.
         store.revealNextDefectSlot()
         XCTAssertFalse(store.canAddDefectSlot)
-        XCTAssertEqual(store.visibleSlots.count, PhotoSlotType.required.count + 3)
+        XCTAssertEqual(store.visibleSlots.count, PhotoSlotType.defaultSlots.count + 3)
     }
 
     func test_store_setActiveSlot_ignoresHiddenDefectSlots() {
@@ -163,12 +163,12 @@ final class PhotoIntakeTests: XCTestCase {
         XCTAssertFalse(store.visibleSlots.contains(.flatlay))
 
         store.reveal(.flatlay)
-        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required + [.flatlay])
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.defaultSlots + [.flatlay])
 
-        // Re-revealing is a no-op; required slots can't be "revealed".
+        // Re-revealing is a no-op; default slots can't be "revealed".
         store.reveal(.flatlay)
         store.reveal(.front)
-        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required + [.flatlay])
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.defaultSlots + [.flatlay])
     }
 
     func test_store_setPhoto_autoRevealsHiddenOptionalSlot() {
@@ -198,7 +198,7 @@ final class PhotoIntakeTests: XCTestCase {
         store.reveal(.interior)
         store.revealNextDefectSlot()
         store.reset()
-        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required)
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.defaultSlots)
     }
 
     // MARK: - PhotoSlotType
@@ -211,9 +211,13 @@ final class PhotoIntakeTests: XCTestCase {
         XCTAssertEqual(PhotoSlotType.tag.serverPhotoType, "tag")
     }
 
-    func test_slotType_requiredSet_isFourCanonicalShots() {
-        XCTAssertEqual(PhotoSlotType.required, [.front, .back, .tag, .detail])
-        XCTAssertEqual(PhotoSlotType.required.filter { $0.isRequired }.count, 4)
+    func test_slotType_defaultSlots_areFourCanonicalShots_onlyFrontBackBlock() {
+        // The strip still defaults to the four canonical shots…
+        XCTAssertEqual(PhotoSlotType.defaultSlots, [.front, .back, .tag, .detail])
+        // …but only Front + Back are required (block continue/grade). Tag +
+        // Detail are shown yet skippable.
+        XCTAssertEqual(PhotoSlotType.required, [.front, .back])
+        XCTAssertEqual(PhotoSlotType.defaultSlots.filter { $0.isRequired }, [.front, .back])
         XCTAssertEqual(PhotoSlotType.defects.filter { $0.isRequired }.count, 0)
         XCTAssertEqual(PhotoSlotType.extras.filter { $0.isRequired }.count, 0)
         XCTAssertEqual(PhotoSlotType.measurements.filter { $0.isRequired }.count, 0)

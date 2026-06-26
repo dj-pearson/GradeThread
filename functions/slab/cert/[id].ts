@@ -94,6 +94,21 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   }
 };
 
+// Reachability probes (our pre-publish image check in flipdesk-ebay.ts, and
+// some marketplaces) issue a HEAD before fetching. A GET here ALWAYS renders a
+// 200 (a real PNG or the transparent fallback), so a HEAD must answer 200 too.
+// Without a HEAD handler Cloudflare Pages has no match for the method and the
+// probe sees a non-200, wrongly flagging the slab as "unreachable" and blocking
+// the publish of any graded item that attaches it. No body is needed for HEAD.
+export const onRequestHead: PagesFunction<PagesEnv> = () =>
+  new Response(null, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": SLAB_CACHE_CONTROL,
+    },
+  });
+
 function fallbackImage(): Response {
   // Valid 1x1 transparent PNG so callers never get a broken image; a shorter
   // cache on failure so a retry isn't pinned.

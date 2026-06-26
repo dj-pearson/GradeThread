@@ -128,9 +128,7 @@ import type {
   ItemPhotoRow,
   ListingInsert,
   ListingRow,
-  SlabImageMode,
 } from "@/types/database";
-import { slabImageUrl, SLAB_MODE_LABELS } from "@/lib/slab-image";
 
 const TITLE_MAX = 80;
 
@@ -197,10 +195,6 @@ export function FlipdeskComposerPage() {
   const [dropTimezone, setDropTimezone] = useState(() => detectTimezone());
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
-  const [badgeEnabled, setBadgeEnabled] = useState(false);
-  // US-766: how the QR-bearing Digital Slab (US-763) is attached to the
-  // listing's marketplace images — off / lead (hero) / supplementary (extra).
-  const [slabMode, setSlabMode] = useState<SlabImageMode>("off");
   // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
   // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
   // from the category suggestion; promoSuggested holds the fetched suggestion so
@@ -410,8 +404,6 @@ export function FlipdeskComposerPage() {
     setPriceEstimated(listing?.price_is_estimated ?? false);
     setPriceCompSource(listing?.price_comp_source ?? null);
     setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
-    setBadgeEnabled(listing?.badge_enabled ?? false);
-    setSlabMode((listing?.slab_image_mode as SlabImageMode | undefined) ?? "off");
     // US-561: promote by default unless this listing explicitly opted out. Seed
     // the rate from the seller's saved value; the suggestion effect fills it in
     // once the resolved category is known (when no saved rate exists yet).
@@ -589,16 +581,6 @@ export function FlipdeskComposerPage() {
     void persistOrder(next);
   }
 
-  // Per-listing opt-in for the grade-badge + certificate-link promotion. The
-  // badge is now burned SERVER-SIDE at publish (flipdesk-ebay.ts) onto the hero
-  // photo, and the certificate link is appended to the description — so the
-  // toggle just records the choice (persisted via badge_enabled on save) and the
-  // preview column shows an approximation. No upload happens here, which also
-  // avoids double-badging the image the server later badges.
-  function toggleBadge(next: boolean) {
-    setBadgeEnabled(next);
-  }
-
   // Persists the draft. Returns the listing row's id on success (so the
   // publish flow can save-then-push in one click), null on failure. By
   // default the user STAYS on the composer — the publish CTA lives here, so
@@ -667,10 +649,6 @@ export function FlipdeskComposerPage() {
         price_is_estimated: false,
         is_active: false,
         primary_photo_id: primaryPhotoId,
-        badge_enabled: badgeEnabled,
-        // US-766: persist the Digital-Slab image choice (off/hero/extra). The
-        // slab is injected server-side at publish (flipdesk-ebay.ts).
-        slab_image_mode: slabMode,
         // US-561: persist the Promoted Listings choice. Opt-out when the toggle
         // is off; otherwise store the accepted/adjusted rate (a blank box falls
         // back to the category suggestion at publish, so persist null then).
@@ -854,11 +832,6 @@ export function FlipdeskComposerPage() {
     costBasis: item.purchase_price,
     shippingCost: item.shipping_cost,
   });
-  const showBadgeOverlay = badgeEnabled && item.grade_value != null;
-  // US-766: the Digital Slab is only available once the item has a public
-  // certificate (graded + certified). Preview the square (eBay) variant.
-  const slabPreviewUrl = slabImageUrl(item.certificate_url, "square");
-
   // US-558: resolve the assigned (default) shipping + return policy names so the
   // preview can show what buyers will actually see at checkout.
   const policyName = (
@@ -1553,75 +1526,21 @@ export function FlipdeskComposerPage() {
                 </DndContext>
               )}
 
-              <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border p-3">
-                <div className="space-y-0.5">
-                  <Label
-                    htmlFor="badge-toggle"
-                    className="text-sm font-medium"
-                  >
-                    Add grade badge + certificate link
-                  </Label>
+              {item.grade_value != null && (
+                <div className="rounded-md border p-3">
+                  <p className="text-sm font-medium">
+                    Grade shown on this listing
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    {item.grade_value == null
-                      ? "Grade this item first to enable the badge."
-                      : "On publish, burns the GradeThread badge onto the hero photo and adds a certificate link to the description."}
+                    Graded items automatically add the grade to the description
+                    and a “Condition Grade: {item.grade_value.toFixed(1)}{" "}
+                    (GradeThread)” item specific, plus a link to the certificate
+                    page buyers can verify. We never add badges, watermarks, or
+                    QR codes to your photos — that protects your marketplace
+                    account.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="badge-toggle"
-                    checked={badgeEnabled}
-                    disabled={
-                      item.grade_value == null ||
-                      order.length === 0
-                    }
-                    onCheckedChange={(v) => toggleBadge(v)}
-                  />
-                </div>
-              </div>
-
-              {/* US-766: attach the QR-bearing Digital Slab (graded photo) as the
-                  lead or a supplementary listing image. Gated on a public
-                  certificate — the slab renders from the cert. */}
-              <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border p-3">
-                <div className="flex items-start gap-3">
-                  {slabPreviewUrl && slabMode !== "off" && (
-                    <img
-                      src={slabPreviewUrl}
-                      alt="Digital Slab preview"
-                      loading="lazy"
-                      className="h-16 w-16 flex-shrink-0 rounded border object-cover"
-                    />
-                  )}
-                  <div className="space-y-0.5">
-                    <Label
-                      htmlFor="slab-mode"
-                      className="text-sm font-medium"
-                    >
-                      Add the certified graded photo (Digital Slab)
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      {!slabPreviewUrl
-                        ? "Grade and certify this item to attach its Digital Slab."
-                        : "On publish, adds the PSA-style graded photo with a scannable certificate QR — as your lead image or an extra one."}
-                    </p>
-                  </div>
-                </div>
-                <Select
-                  value={slabMode}
-                  disabled={!slabPreviewUrl}
-                  onValueChange={(v) => setSlabMode(v as SlabImageMode)}
-                >
-                  <SelectTrigger id="slab-mode" className="h-8 w-[12rem] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="off">{SLAB_MODE_LABELS.off}</SelectItem>
-                    <SelectItem value="hero">{SLAB_MODE_LABELS.hero}</SelectItem>
-                    <SelectItem value="extra">{SLAB_MODE_LABELS.extra}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              )}
             </CardContent>
           </Card>
 
@@ -1727,7 +1646,7 @@ export function FlipdeskComposerPage() {
                 shippingCost={item.shipping_cost}
                 shippingPolicyName={shippingPolicyName}
                 returnPolicyName={returnPolicyName}
-                showBadge={showBadgeOverlay}
+                showBadge={false}
                 gradeValue={item.grade_value}
               />
             </CardContent>

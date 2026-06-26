@@ -87,7 +87,6 @@ import {
   type SourceObservation,
 } from "../lib/sync-conflicts.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
-import { compositeGradeBadge } from "../lib/grade-badge.ts";
 import {
   captureListingAcceptance,
   markListingPromptSold,
@@ -4534,25 +4533,19 @@ export async function publishItemForOwner(
 
   const { item, listing, photos, policies, sku } = ctx;
 
-  // Grade-badge + certificate-link promotion (00145). Runs ONLY on the real
-  // publish path — not the frequently-hit /listings/validate, which also calls
-  // assemblePublishContext — so the (expensive) compositing happens once per
-  // publish. Mutates photos[0].public_url (badged hero) and the description
-  // (cert link) in place before the reachability probe + eBay payload below.
-  ctx.summary.description = await applyGradeBadgePromotion(
-    ownerId,
+  // Grade authority signal — TEXT ONLY (eBay-policy pivot). We never overlay a
+  // badge or attach the QR "slab" onto listing PHOTOS — third-party-grading
+  // marks / QR codes burned into images risk eBay account suspension. Instead
+  // the grade rides in a "Condition Grade" item specific + a cert link in the
+  // description, and buyers verify on the standalone /cert/:id lookup page.
+  // Runs ONLY on the real publish path (not the per-load /listings/validate).
+  // Mutates ctx.summary.aspects in place + returns the updated description, so
+  // it reaches both the single-SKU and variation publish paths below.
+  ctx.summary.description = applyGradeListingPromotion(
     item,
-    listing,
-    photos,
+    ctx.summary.aspects,
     ctx.summary.description,
   );
-
-  // US-766: attach the QR-bearing Digital Slab as the lead or a supplementary
-  // listing image when the seller opted in (per-listing slab_image_mode or the
-  // global default). Mutates `photos` in place — AFTER the badge burn so the
-  // grade badge lands on the real hero, not the slab — so the slab reaches both
-  // the single-SKU and variation publish paths and the reachability probe below.
-  await applySlabImagePromotion(ownerId, item, listing, photos);
 
   // US-473: pre-publish image reachability. eBay fetches imageUrls server-side
   // at publish; an unreachable URL fails the whole publish with an opaque error
@@ -6219,184 +6212,50 @@ function deriveAspectsFromItem(
   return resolveItemAspects(item, aspects, existing);
 }
 
-// Per-user GLOBAL default for the grade-badge + cert-link promotion (00145).
-// Absent settings row ⇒ false.
-async function autoGradeBadgeDefault(userId: string): Promise<boolean> {
-  const { data } = await supabaseAdmin
-    .from("flipdesk_settings")
-    .select("auto_grade_badge")
-    .eq("user_id", userId)
-    .maybeSingle();
-  return (data as { auto_grade_badge: boolean } | null)?.auto_grade_badge === true;
-}
-
 // Phrasing kept in sync with the client template (src/lib/listing-templates.ts
 // gradeBlock) so a template-built description and a forced append read alike.
 const CERT_LINK_PREFIX = "View the full condition certificate:";
 
-// A storage object is an already-badged derivative if it lives under a /badge/
-// folder (this function) or carries the legacy composer "badged_" filename.
-function isBadgedUrl(url: string): boolean {
-  return url.includes("/badge/") || url.includes("badged_");
-}
+// eBay-policy pivot: the grade authority signal is TEXT ONLY. We no longer burn
+// a badge onto the hero photo or attach the QR "slab" image — overlays,
+// third-party-grading marks, and QR codes on listing PHOTOS risk eBay account
+// suspension. The grade instead rides in a "Condition Grade" item specific and a
+// cert link in the description; buyers verify on the standalone /cert/:id lookup
+// page. Applied to EVERY graded item (no opt-in toggle — it's zero-risk text and
+// matches the always-on description grade block). Mutates `aspects` in place and
+// returns the (possibly updated) description.
+const GRADE_ITEM_SPECIFIC = "Condition Grade";
 
-// Renders (or reuses a cached) badged copy of the hero photo in the public
-// item-photos bucket and returns its public URL. The path is deterministic in
-// (item, hero photo, grade) so relists/re-publishes reuse the same object
-// instead of re-compositing. Returns null on any failure so the caller falls
-// back to the original hero — a badge problem must never block a publish.
-async function ensureBadgedHero(
-  userId: string,
+function applyGradeListingPromotion(
   item: PublishItem,
-  hero: PublishPhoto,
-): Promise<string | null> {
-  const grade = item.grade_value;
-  if (grade == null) return null;
-
-  const bucket = supabaseAdmin.storage.from("item-photos");
-  const safeGrade = grade.toFixed(1).replace(".", "_");
-  const path = `${userId}/${item.id}/badge/${hero.id}_${safeGrade}.jpg`;
-  const badgedUrl = bucket.getPublicUrl(path).data.publicUrl;
-
-  // Cache hit: a prior publish already rendered this exact badge.
-  const head = await fetchWithTimeout(badgedUrl, { method: "HEAD" }, 5_000)
-    .catch(() => null);
-  if (head?.ok) return badgedUrl;
-
-  const res = await fetchWithTimeout(hero.public_url, {}, 15_000);
-  if (!res.ok) {
-    console.warn(`[flipdesk-ebay] grade-badge: hero fetch ${res.status}`);
-    return null;
-  }
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  const badged = await compositeGradeBadge(bytes, grade, item.grade_label);
-
-  const { error } = await bucket.upload(path, badged, {
-    contentType: "image/jpeg",
-    upsert: true,
-  });
-  if (error) {
-    console.error("[flipdesk-ebay] grade-badge upload:", error.message);
-    return null;
-  }
-  return badgedUrl;
-}
-
-// When the grade-badge promotion is active for this publish, (1) burn the badge
-// onto the hero photo (mutates photos[0].public_url) and (2) force the cert link
-// into the description. Effective toggle = per-listing badge_enabled OR the
-// user's global default. Gated on a graded item that has a certificate URL.
-// Returns the (possibly updated) description.
-async function applyGradeBadgePromotion(
-  userId: string,
-  item: PublishItem,
-  listing: PublishListing | null,
-  photos: PublishPhoto[],
+  aspects: Record<string, string[]>,
   description: string,
-): Promise<string> {
-  const enabled =
-    listing?.badge_enabled === true || (await autoGradeBadgeDefault(userId));
-  if (!enabled || item.grade_value == null || !item.certificate_url) {
-    return description;
+): string {
+  if (item.grade_value == null) return description;
+
+  // (1) Item specific, e.g. "Condition Grade: 9.5 (GradeThread)". Never
+  // overwrite a value the seller already set on the listing.
+  if (!aspects[GRADE_ITEM_SPECIFIC]?.length) {
+    aspects[GRADE_ITEM_SPECIFIC] = [
+      `${item.grade_value.toFixed(1)} (GradeThread)`,
+    ];
   }
 
-  // (1) Always append the certificate link if it isn't already in the copy.
-  let next = description;
-  if (!next.includes(item.certificate_url)) {
+  // (2) Append the certificate link to the description so buyers can verify the
+  // grade on the public cert page. Only when a public certificate exists and
+  // the link isn't already present.
+  if (item.certificate_url && !description.includes(item.certificate_url)) {
     const line = `${CERT_LINK_PREFIX} ${item.certificate_url}`;
-    next = next.trim() ? `${next.trim()}\n\n${line}` : line;
+    return description.trim() ? `${description.trim()}\n\n${line}` : line;
   }
-
-  // (2) Burn the hero (first by sort_order). Skip an already-badged image.
-  const hero = photos[0];
-  if (hero?.public_url && !isBadgedUrl(hero.public_url)) {
-    try {
-      const badged = await ensureBadgedHero(userId, item, hero);
-      if (badged) hero.public_url = badged;
-    } catch (err) {
-      console.error(
-        "[flipdesk-ebay] grade-badge burn failed (non-blocking):",
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-  }
-  return next;
+  return description;
 }
 
-// US-766: Digital-Slab listing image. The slab is the QR-bearing "graded photo"
-// rendered at /slab/cert/:id (functions/slab/cert/[id].ts, US-763) from the
-// PUBLIC certificate — so reusing it here costs no extra compositing and never
-// touches private data. We request ?format=square because eBay galleries are
-// square. Returns null when the item has no public certificate (slab would
-// 404 to the transparent fallback).
-function slabImageUrlForItem(item: PublishItem): string | null {
-  const cert = item.certificate_url?.trim();
-  if (!cert) return null;
-  // certificate_url is "<site>/cert/<id>" (indexnow.ts certificateUrl). The
-  // slab lives at the sibling "<site>/slab/cert/<id>". Rewrite the first
-  // "/cert/" segment so we never hard-code the site origin here.
-  if (!cert.includes("/cert/")) return null;
-  const base = cert.replace("/cert/", "/slab/cert/");
-  return `${base}${base.includes("?") ? "&" : "?"}format=square`;
-}
-
-// A storage/render URL is the slab if it lives under the /slab/cert/ path —
-// used to avoid attaching it twice across relists/re-publishes.
-function isSlabUrl(url: string): boolean {
-  return url.includes("/slab/cert/");
-}
-
-// Per-user GLOBAL default for attaching the Digital Slab as a supplementary
-// listing image (00180). Absent settings row ⇒ false.
-async function autoSlabImageDefault(userId: string): Promise<boolean> {
-  const { data } = await supabaseAdmin
-    .from("flipdesk_settings")
-    .select("auto_slab_image")
-    .eq("user_id", userId)
-    .maybeSingle();
-  return (data as { auto_slab_image: boolean } | null)?.auto_slab_image === true;
-}
-
-// US-766: when slab attachment is active, inject the slab image into `photos`
-// (in place, so it flows to BOTH the single-SKU and variation publish paths)
-// as the lead ('hero', index 0) or a supplementary ('extra', appended) picture.
-// Effective mode = per-listing slab_image_mode when 'hero'/'extra'; otherwise
-// the global default contributes 'extra'. Gated on a graded item with a public
-// certificate. Best-effort: any miss leaves the original photos untouched —
-// the slab must never block a publish. Runs AFTER the grade-badge burn so the
-// badge lands on the real hero, not the slab.
-async function applySlabImagePromotion(
-  userId: string,
-  item: PublishItem,
-  listing: PublishListing | null,
-  photos: PublishPhoto[],
-): Promise<void> {
-  const listingMode = listing?.slab_image_mode;
-  let mode: "off" | "hero" | "extra" =
-    listingMode === "hero" || listingMode === "extra" ? listingMode : "off";
-  if (mode === "off" && (await autoSlabImageDefault(userId))) {
-    mode = "extra";
-  }
-  if (mode === "off" || item.grade_value == null) return;
-
-  const slabUrl = slabImageUrlForItem(item);
-  if (!slabUrl) return;
-
-  // Idempotent across relists: never attach the slab twice.
-  if (photos.some((p) => p.public_url && isSlabUrl(p.public_url))) return;
-
-  const slabPhoto: PublishPhoto = {
-    id: `slab-${item.id}`,
-    public_url: slabUrl,
-    // Sort below the real photos for 'extra'; ahead of them for 'hero'.
-    sort_order: mode === "hero" ? -1 : Number.MAX_SAFE_INTEGER,
-  };
-  if (mode === "hero") {
-    photos.unshift(slabPhoto);
-  } else {
-    photos.push(slabPhoto);
-  }
-}
+// NOTE: the Digital-Slab listing-image attachment (formerly slabImageUrlForItem
+// / applySlabImagePromotion) was removed in the eBay-policy pivot — graded
+// images are never attached to listings now (see applyGradeListingPromotion).
+// The slab page itself (functions/slab/cert/[id].ts) still serves standalone /
+// social use; we just don't ride it onto marketplace photos.
 
 // Exported so the AutoLister auto-publish path (US-955) can run the SAME publish
 // pre-flight (blockers + policies) the manual /listings/validate + publish use,

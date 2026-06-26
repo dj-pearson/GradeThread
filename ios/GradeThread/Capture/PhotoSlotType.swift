@@ -12,11 +12,20 @@ import Foundation
 /// (e.g. `tag_2`, `on_model`) so they round-trip through drafts, the share
 /// inbox, and offline sync without translation. Only `defect1`–`defect3`
 /// collapse to a shared server type (`defect`).
+/// Declaration order IS the canonical gallery/cover order — `PhotoUploadService`
+/// derives each photo's `sort_order` from `allCases.firstIndex(of:)`, so index 0
+/// (`front`) is the cover / eBay main image. Canonical sequence:
+/// Front → Back → Tag → Detail → measurements → defects → extras → universal.
 public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
     case front
     case back
     case tag
     case detail
+    case measurementChest = "measurement_chest"
+    case measurementWaist = "measurement_waist"
+    case measurementLength = "measurement_length"
+    case measurementSleeve = "measurement_sleeve"
+    case measurementInseam = "measurement_inseam"
     case defect1
     case defect2
     case defect3
@@ -37,11 +46,6 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
     case certificate
     case corner
     case surface
-    case measurementChest = "measurement_chest"
-    case measurementWaist = "measurement_waist"
-    case measurementLength = "measurement_length"
-    case measurementSleeve = "measurement_sleeve"
-    case measurementInseam = "measurement_inseam"
 
     public var id: String { rawValue }
 
@@ -150,17 +154,27 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// True for the blocking slots only (Front + Back). Tag + Detail are
+    /// default capture slots (``defaultSlots``) but are NOT required — see
+    /// ``defaultSlots`` for why.
     public var isRequired: Bool {
         switch self {
-        case .front, .back, .tag, .detail: return true
+        case .front, .back: return true
         default: return false
         }
     }
 
-    /// The four required positions in capture order. Iteration order of
-    /// `allCases` includes the optional slots too — use this when you
-    /// specifically want the "must fill before continuing" set.
-    public static let required: [PhotoSlotType] = [.front, .back, .tag, .detail]
+    /// The default capture slots, always visible in the strip and never
+    /// revealed/removed. Front + Back are required; Tag + Detail are shown so
+    /// sellers naturally add them, but are skippable — many garments (e.g.
+    /// Lululemon with a cut size label) have no readable tag, and a missing
+    /// detail shouldn't block listing. Use this for what the strip DISPLAYS.
+    public static let defaultSlots: [PhotoSlotType] = [.front, .back, .tag, .detail]
+
+    /// The blocking set — must be filled before leaving capture and before
+    /// grading (mirrors the server `has_required_photos` / grading gate). Use
+    /// this for "must fill", NOT for what the strip displays (``defaultSlots``).
+    public static let required: [PhotoSlotType] = [.front, .back]
 
     /// Defect slots in display order. Revealed one at a time — the "Add"
     /// menu offers a single Defect entry while any remain hidden.
@@ -209,15 +223,18 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
 /// picker (`PhotoSlotType` covers capture-time slots; this covers rows that
 /// already exist, which carry the server string).
 public enum FlipdeskPhotoType {
-    /// All server photo types in the web's canonical display order.
+    /// All server photo types in the web's canonical display order
+    /// (mirrors src/lib/constants.ts FLIPDESK_PHOTO_TYPES):
+    /// Front → Back → Tag → Detail → measurements → defect → extras → universal.
     public static let all: [String] = [
-        "front", "back", "tag", "tag_2",
-        "detail", "detail_2", "detail_3", "detail_4",
-        "interior", "defect", "flatlay", "on_model",
-        "angle", "sole", "marking", "serial", "accessory",
-        "certificate", "corner", "surface",
+        "front", "back", "tag", "detail",
         "measurement_chest", "measurement_waist", "measurement_length",
         "measurement_sleeve", "measurement_inseam",
+        "defect",
+        "tag_2", "detail_2", "detail_3", "detail_4",
+        "interior", "flatlay", "on_model",
+        "angle", "sole", "marking", "serial", "accessory",
+        "certificate", "corner", "surface",
     ]
 
     /// Human label for a server `photo_type` string. Unknown values fall back

@@ -92,11 +92,21 @@ const DEFECT = role(
 const CLOTHING: PhotoProfile = {
   category: "clothing",
   label: "Clothing",
+  // Canonical order: Front → Back → Tag → Detail → measurements → defect →
+  // extras. Only Front + Back are required; Tag + Detail stay as default
+  // capture slots but are optional, since garments like Lululemon frequently
+  // ship with the size label cut off (no readable tag exists to photograph).
   roles: [
     role("front", "Front", "Lay flat, full front in frame", true, "shirt"),
     role("back", "Back", "Same crop as the front shot", true, "shirt"),
-    role("tag", "Garment Tag", "Care + size label, close enough to read", true, "tag"),
-    role("detail", "Detail", "Texture, weave, or a distinctive feature", true, "search"),
+    role("tag", "Garment Tag", "Care + size label, close enough to read (skip if the tag is missing)", false, "tag"),
+    role("detail", "Detail", "Texture, weave, or a distinctive feature", false, "search"),
+    role("measurement_chest", "Measure: Chest / Bust", "Tape across the chest, garment flat, pit to pit", false, "ruler"),
+    role("measurement_waist", "Measure: Waist", "Tape across the waistband, garment flat", false, "ruler"),
+    role("measurement_length", "Measure: Length", "Tape top to hem, garment flat", false, "ruler"),
+    role("measurement_sleeve", "Measure: Sleeve", "Tape shoulder seam to cuff", false, "ruler"),
+    role("measurement_inseam", "Measure: Inseam", "Tape crotch seam to hem", false, "ruler"),
+    DEFECT,
     role("tag_2", "Garment Tag 2", "Second tag — brand stamp or care label", false, "tag"),
     role("detail_2", "Detail 2", "Another close-up: hardware, stitching, print", false, "search"),
     role("detail_3", "Detail 3", "Another close-up", false, "search"),
@@ -104,12 +114,6 @@ const CLOTHING: PhotoProfile = {
     role("interior", "Interior / Lining", "Inside-out: lining, seams, interior tags", false, "layers"),
     role("flatlay", "Flat lay", "Styled flat lay for the listing gallery", false, "layout-grid"),
     role("on_model", "On model", "Worn on a model or mannequin", false, "user"),
-    DEFECT,
-    role("measurement_chest", "Measure: Chest / Bust", "Tape across the chest, garment flat, pit to pit", false, "ruler"),
-    role("measurement_waist", "Measure: Waist", "Tape across the waistband, garment flat", false, "ruler"),
-    role("measurement_length", "Measure: Length", "Tape top to hem, garment flat", false, "ruler"),
-    role("measurement_sleeve", "Measure: Sleeve", "Tape shoulder seam to cuff", false, "ruler"),
-    role("measurement_inseam", "Measure: Inseam", "Tape crotch seam to hem", false, "ruler"),
   ],
 };
 

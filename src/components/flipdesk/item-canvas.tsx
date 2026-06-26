@@ -61,6 +61,7 @@ import {
   ITEM_CATEGORY_LABELS,
   GARMENT_TYPES,
   GARMENT_CATEGORIES,
+  REQUIRED_PHOTO_TYPES,
 } from "@/lib/constants";
 import { useEbayReviseListing, type ReviseListingPatch } from "@/hooks/use-ebay";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
@@ -215,8 +216,8 @@ interface HeavyFields {
   ai_field_sources: ItemFullRow["ai_field_sources"];
 }
 
-// Mirrors the items_full view's has_required_photos definition (00018).
-const REQUIRED_PHOTO_TYPES = ["front", "back", "tag", "detail"] as const;
+// Mirrors the items_full view's has_required_photos definition (front + back;
+// see the 00306 migration). Imported from constants so the two can't drift.
 
 function heavyFromItem(item: ItemFullRow): HeavyFields {
   const partial = item as Partial<ItemFullRow>;
