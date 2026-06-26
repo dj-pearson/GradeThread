@@ -6226,7 +6226,7 @@
         "Conflicts (e.g. simultaneous sales) are surfaced, never silently mis-resolved",
         "Tests: a sale on eBay delists the Shopify mirror"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][LHF][FlipDesk] #1 reseller pain; order sync for all three platforms already exists. Added 2026-06-26."
     },
     {

@@ -3878,3 +3878,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026  5:19:18 PM
 ---
+## US-1290: Cross-channel quantity sync — delist on sale across marketplaces
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026  5:26:44 PM
+---
