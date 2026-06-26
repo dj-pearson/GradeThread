@@ -16,6 +16,9 @@ memory — not a progress log (the harness records progress separately).
   timing-flaky under full-suite load (e.g. right after a build) — it passes when
   re-run in isolation (`npx vitest run src/lib/concurrency.test.ts`). Not a
   regression; re-run alone to confirm before chasing.
+- `src/pages/legal/__tests__/accessibility-axe.test.tsx` similarly times out
+  (axe-core is slow, 5s per-test cap) under full-suite load but passes in
+  isolation. Same drill: re-run alone before chasing.
 - `npx tsc --noEmit` is NOT enough — the build runs `tsc -b` (project refs),
   which is stricter and catches casts `--noEmit` lets slide (e.g.
   `x as Record<string,unknown>` on a typed interface needs

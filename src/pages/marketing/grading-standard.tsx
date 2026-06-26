@@ -5,6 +5,7 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { GRADE_FACTORS } from "@/lib/constants";
+import { StandardJustifications } from "@/components/marketing/standard-justifications";
 import {
   GRADING_STANDARD_FAQS,
   gradingStandardJsonLd,
@@ -12,33 +13,13 @@ import {
 
 const FACTORS = Object.values(GRADE_FACTORS);
 
-// What makes the standard a *standard* — the properties an authority publishes.
-const PRINCIPLES = [
-  {
-    title: "One published rubric",
-    body: "Every garment is scored against the same five factors with the same fixed weights — disclosed up front, not hidden in a black box.",
-  },
-  {
-    title: "Objective and reproducible",
-    body: "Because the factors and weights are fixed, two items in the same condition earn the same grade, regardless of who submits them or when.",
-  },
-  {
-    title: "Confidence-checked",
-    body: "Each grade carries a confidence score. Low-confidence submissions are routed for human review before the grade is finalized.",
-  },
-  {
-    title: "Independently verifiable",
-    body: "Every grade produces a public certificate buyers can open and check against the standard — the score, the tiers, and the photos behind it.",
-  },
-];
-
 const FAQS = GRADING_STANDARD_FAQS;
 
 export function GradingStandardPage() {
   return (
     <MarketingLayout
       title="The GradeThread Grading Standard"
-      description="The objective methodology behind every GradeThread condition grade: a published 1.0–10.0 rubric, five weighted factors, half-point precision, confidence scoring, and human review."
+      description="The published, objective methodology behind every grade: a fixed 1.0–10.0 rubric of five weighted factors — reproducible and independently verifiable."
       canonicalPath="/grading-standard"
       jsonLd={gradingStandardJsonLd()}
     >
@@ -48,30 +29,23 @@ export function GradingStandardPage() {
             The GradeThread grading standard
           </h1>
           <p className="mt-6 text-lg text-muted-foreground">
-            A standard is only a standard if it's objective, published, and
-            reproducible. GradeThread grades every pre-owned garment against one
-            fixed rubric — five weighted factors combined into a single 1.0–10.0
-            score mapped to seven named tiers — so a grade means the same thing
-            no matter who is selling. This page documents that methodology in
-            full: how the score is built, how we keep it consistent, and how
-            anyone can verify it.
+            A standard is only a standard if it's objective, published,
+            reproducible, and independently verifiable. GradeThread grades every
+            pre-owned garment against one fixed rubric — five weighted factors
+            combined into a single 1.0–10.0 score mapped to seven named tiers —
+            so a grade means the same thing no matter who is selling. This page
+            documents that methodology in full: how the score is built, how we
+            keep it consistent, and how anyone can verify it.
           </p>
         </div>
       </section>
 
-      {/* What makes it a standard */}
-      <section className="border-t bg-card px-6 py-16">
-        <div className="mx-auto max-w-3xl">
-          <h2 className="text-3xl font-bold">What makes it a standard</h2>
-          <div className="mt-8 grid gap-6 sm:grid-cols-2">
-            {PRINCIPLES.map((p) => (
-              <div key={p.title} className="rounded-lg border bg-background p-5">
-                <h3 className="font-semibold text-brand-navy dark:text-foreground">{p.title}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{p.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* What makes it a standard — the four justifications (US-1297) */}
+      <section className="border-t px-6 py-16">
+        <StandardJustifications
+          heading="What makes it a standard"
+          methodologyLink={false}
+        />
       </section>
 
       {/* The five weighted factors */}

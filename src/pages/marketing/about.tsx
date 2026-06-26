@@ -11,6 +11,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { StandardJustifications } from "@/components/marketing/standard-justifications";
 import { ABOUT_FAQS, aboutJsonLd } from "@/pages/marketing/marketing-jsonld";
 
 // US-868: the company/about page. An entity-level authority surface (E-E-A-T):
@@ -38,9 +39,9 @@ export function AboutPage() {
           <p className="mt-6 text-lg text-muted-foreground">
             GradeThread is the standard for pre-owned clothing condition grading.
             We replace vague, inconsistent condition descriptions with one
-            objective, published 1.0–10.0 grade and a certificate buyers can
-            verify — so condition means the same thing on every item, for every
-            seller and buyer.
+            objective, published, and reproducible 1.0–10.0 grade and a
+            certificate buyers can independently verify — so condition means the
+            same thing on every item, for every seller and buyer.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link to="/grading-standard">
@@ -80,7 +81,15 @@ export function AboutPage() {
         </div>
       </section>
 
-      <section className="px-6 py-16">
+      {/* The four justifications behind "the standard" (US-1297) */}
+      <section className="border-t px-6 py-16">
+        <StandardJustifications
+          heading="Why we say GradeThread is the standard"
+          intro="A standard has to earn the name. Ours is objective, published, reproducible, and independently verifiable — here is what each of those means."
+        />
+      </section>
+
+      <section className="border-t px-6 py-16">
         <div className="mx-auto max-w-3xl">
           <h2 className="text-3xl font-bold">A published methodology, not a black box</h2>
           <p className="mt-3 text-muted-foreground">

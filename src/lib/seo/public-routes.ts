@@ -53,13 +53,13 @@ export interface PublicRoute {
 // back to DEFAULT_LAST_MODIFIED.
 export const DEFAULT_LAST_MODIFIED = "2026-06-01";
 const ROUTE_LAST_MODIFIED: Record<string, string> = {
-  "/": "2026-06-01",
+  "/": "2026-06-26",
   "/how-it-works": "2026-06-01",
   "/pricing": "2026-06-01",
   "/for-resellers": "2026-06-01",
   "/faq": "2026-06-01",
   "/condition-grading": "2026-06-01",
-  "/grading-standard": "2026-06-01",
+  "/grading-standard": "2026-06-26",
   "/transparency": "2026-06-01",
   "/resale-condition-report": "2026-06-18",
   "/verify": "2026-06-12",
@@ -68,7 +68,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/developers": "2026-06-12",
   "/whats-it-worth": "2026-06-13",
   "/buyer-guarantee": "2026-06-13",
-  "/about": "2026-06-13",
+  "/about": "2026-06-26",
   // US-855 cornerstone pillar pages.
   "/reduce-returns": "2026-06-13",
   "/reseller-grading-guide": "2026-06-13",
@@ -150,7 +150,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/grading-standard",
     title: "The GradeThread Grading Standard",
     description:
-      "The objective methodology behind every GradeThread grade: a published 1.0–10.0 rubric, five weighted factors, half-point precision, and confidence scoring.",
+      "The published, objective methodology behind every grade: a fixed 1.0–10.0 rubric of five weighted factors — reproducible and independently verifiable.",
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "FAQPage",

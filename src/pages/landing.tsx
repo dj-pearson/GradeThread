@@ -36,6 +36,7 @@ import {
   faqPageLd,
 } from "@/lib/seo/json-ld";
 import { LaunchBanner } from "@/components/launch-banner";
+import { StandardJustifications } from "@/components/marketing/standard-justifications";
 import { StatCounters } from "@/components/marketing/stat-counters";
 import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
 import { WaitlistForm } from "@/components/waitlist-form";
@@ -671,6 +672,11 @@ export function LandingPage() {
             ))}
           </dl>
         </div>
+      </section>
+
+      {/* Why GradeThread is the standard — the four justifications (US-1297). */}
+      <section className="border-t px-6 py-20">
+        <StandardJustifications intro="GradeThread is the standard for pre-owned clothing condition because a grade here is objective, published, reproducible, and independently verifiable — not one more seller's opinion." />
       </section>
 
       {/* See the product — embedded sample certificate (US-604). */}
