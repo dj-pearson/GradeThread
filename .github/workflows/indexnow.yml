@@ -20,6 +20,15 @@ on:
 permissions:
   contents: read
 
+# Non-secret placeholder config so `npm run build` can prerender: a prerendered
+# route (/verify) transitively imports the Supabase client, which throws at
+# module load when these are unset. Same rationale as ci.yml. Nothing here
+# reaches the backend — the build only regenerates dist/seo-manifest.json.
+env:
+  VITE_SUPABASE_URL: https://api.gradethread.com
+  VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+  VITE_EDGE_API_URL: https://functions.gradethread.com
+
 concurrency:
   group: indexnow-${{ github.ref }}
   cancel-in-progress: true

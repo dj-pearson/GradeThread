@@ -27,6 +27,14 @@ permissions:
   contents: read
   pull-requests: write # to upsert the report comment
 
+# Non-secret placeholder config so `npm run build` can prerender (a prerendered
+# route imports the Supabase client, which throws at module load when unset).
+# Same rationale as ci.yml; nothing here reaches the backend.
+env:
+  VITE_SUPABASE_URL: https://api.gradethread.com
+  VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+  VITE_EDGE_API_URL: https://functions.gradethread.com
+
 jobs:
   lighthouse:
     name: Lighthouse (Core Web Vitals report)
