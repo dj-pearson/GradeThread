@@ -12,6 +12,9 @@ import {
   History,
   RefreshCw,
   XCircle,
+  Lock,
+  Printer,
+  Receipt,
 } from "lucide-react";
 import {
   Card,
@@ -22,6 +25,15 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import {
   Table,
@@ -45,12 +57,26 @@ import {
   type QueueEntry,
 } from "@/hooks/use-payouts";
 import { downloadSalesCsv } from "@/lib/csv-export";
+import { csvBlob, downloadBlob } from "@/lib/download";
+import {
+  buildTaxPnlRows,
+  sumTaxPnl,
+  distinctValues,
+  taxPnlCsvText,
+  TAX_PNL_HEADERS,
+  type TaxPnlItemMeta,
+  type TaxPnlRow,
+  type TaxPnlTotals,
+} from "@/lib/tax-pnl-export";
+import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { FLIPDESK_PLANS } from "@/lib/constants";
+import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import {
   useEbaySyncRuns,
   useSyncEbayListings,
   type EbaySyncRun,
 } from "@/hooks/use-ebay";
-import type { SaleRow } from "@/types/database";
+import type { SaleRow, ItemFullRow } from "@/types/database";
 
 const STEPS = [
   {
@@ -175,6 +201,9 @@ export function ReconciliationPayoutsTab() {
           Export sales CSV
         </Button>
       </div>
+
+      {/* Tax-ready P&L / COGS export (US-1291) */}
+      <TaxPnlExportCard sales={sales} items={items} />
 
       {/* CSV import */}
           <Card>
@@ -392,6 +421,343 @@ export function ReconciliationPayoutsTab() {
       <SyncHistoryCard />
     </div>
   );
+}
+
+// US-1291: tax-ready P&L / COGS export. Reconciliation/analytics already
+// computes per-item P&L (computePnl); this card is the export-only surface over
+// it — filterable by category/brand/date — for handing to an accountant. It is
+// Business-tier gated the same way the rest of reconciliation is (the edge
+// payout-reconciliation endpoints require the `reconciliation` feature flag,
+// which only the Business plan carries). The export reads the same sales rows
+// the tab already loaded and derives every number from the shared P&L, so it
+// can never become a second source of truth.
+function TaxPnlExportCard({
+  sales,
+  items,
+}: {
+  sales: SaleRow[];
+  items: ItemFullRow[];
+}) {
+  const { plan } = usePlanUsage();
+  const entitled = FLIPDESK_PLANS[plan]?.gateFlags.reconciliation ?? false;
+  const showUpgrade = useUpgradeDialogStore((s) => s.show);
+
+  const year = new Date().getFullYear();
+  const [category, setCategory] = useState("all");
+  const [brand, setBrand] = useState("all");
+  const [startDate, setStartDate] = useState(`${year}-01-01`);
+  const [endDate, setEndDate] = useState(`${year}-12-31`);
+
+  // Cost basis (COGS), category, and brand come from the items_full cache the
+  // tab already holds — no extra round-trip.
+  const metaById = useMemo(() => {
+    const m = new Map<string, TaxPnlItemMeta>();
+    for (const it of items) {
+      m.set(it.id, {
+        title: it.item_title,
+        category: it.category,
+        brand: it.brand,
+        costBasis: it.purchase_price,
+      });
+    }
+    return m;
+  }, [items]);
+
+  // Unfiltered rows feed the option lists so a category/brand choice never
+  // hides the others.
+  const allRows = useMemo(
+    () => buildTaxPnlRows(sales, metaById),
+    [sales, metaById],
+  );
+  const categories = useMemo(() => distinctValues(allRows, "category"), [allRows]);
+  const brands = useMemo(() => distinctValues(allRows, "brand"), [allRows]);
+
+  const rows = useMemo(
+    () =>
+      buildTaxPnlRows(sales, metaById, {
+        category: category === "all" ? null : category,
+        brand: brand === "all" ? null : brand,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      }),
+    [sales, metaById, category, brand, startDate, endDate],
+  );
+  const totals = useMemo(() => sumTaxPnl(rows), [rows]);
+
+  // Gate every export action behind the Business entitlement; a blocked click
+  // opens the shared upgrade dialog (same UX as the edge 402 path).
+  function requireEntitlement(): boolean {
+    if (entitled) return true;
+    showUpgrade({
+      reason: { type: "feature", feature: "reconciliation" },
+      currentPlan: plan,
+      requiredPlan: "business",
+    });
+    return false;
+  }
+
+  function handleCsv() {
+    if (!requireEntitlement()) return;
+    if (rows.length === 0) {
+      toast.info("No completed sales match these filters.");
+      return;
+    }
+    const csv = taxPnlCsvText(rows, totals);
+    downloadBlob(csvBlob(csv), `flipdesk-tax-pnl-${startDate}_${endDate}.csv`);
+    toast.success("Tax-ready P&L CSV downloaded.");
+  }
+
+  function handlePrint() {
+    if (!requireEntitlement()) return;
+    if (rows.length === 0) {
+      toast.info("No completed sales match these filters.");
+      return;
+    }
+    const html = buildTaxPnlPrintHtml(rows, totals, {
+      startDate,
+      endDate,
+      category: category === "all" ? "All categories" : category,
+      brand: brand === "all" ? "All brands" : brand,
+    });
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast.error("Allow popups to open the printable report.");
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+    w.document.title = `tax-pnl-${startDate}_${endDate}`;
+    setTimeout(() => w.print(), 500);
+  }
+
+  const summaryTiles: Array<{ label: string; value: number; accent?: boolean }> = [
+    { label: "Gross revenue", value: totals.revenue },
+    { label: "COGS", value: totals.cogs },
+    { label: "Fees", value: totals.fees },
+    { label: "Shipping", value: totals.shippingCost },
+    { label: "Net profit", value: totals.net, accent: true },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Receipt className="h-4 w-4" />
+              Tax-ready P&amp;L / COGS export
+              {!entitled && (
+                <Badge variant="outline" className="ml-1 gap-1 text-[10px]">
+                  <Lock className="h-3 w-3" />
+                  Business
+                </Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Per-item and period profit/loss — COGS (source cost), fees,
+              shipping, and net — for completed sales. Filter by category, brand,
+              and date range, then export a CSV or printable report for your
+              accountant. Numbers match your per-item P&amp;L exactly.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Filters */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="space-y-1">
+            <Label className="text-xs">Category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Brand</Label>
+            <Select value={brand} onValueChange={setBrand}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All brands</SelectItem>
+                {brands.map((b) => (
+                  <SelectItem key={b} value={b}>
+                    {b}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="tax-pnl-start" className="text-xs">
+              Start date
+            </Label>
+            <Input
+              id="tax-pnl-start"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="tax-pnl-end" className="text-xs">
+              End date
+            </Label>
+            <Input
+              id="tax-pnl-end"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Live totals preview */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {summaryTiles.map((t) => (
+            <div key={t.label} className="rounded-md border p-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {t.label}
+              </div>
+              <div
+                className={`font-mono text-sm font-semibold tabular-nums ${
+                  t.accent
+                    ? t.value < 0
+                      ? "text-destructive"
+                      : "text-emerald-600 dark:text-emerald-400"
+                    : ""
+                }`}
+              >
+                {fmtMoney(t.value)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {totals.count} completed sale{totals.count === 1 ? "" : "s"} in range.
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={handleCsv}>
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button variant="outline" onClick={handlePrint}>
+            <Printer className="mr-2 h-4 w-4" />
+            Printable report
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Self-contained printable HTML for the tax P&L report — a summary block plus
+// the per-item detail table. Mirrors the financial-export print styling so the
+// two reports look consistent. All dynamic text is escaped.
+function buildTaxPnlPrintHtml(
+  rows: TaxPnlRow[],
+  totals: TaxPnlTotals,
+  meta: { startDate: string; endDate: string; category: string; brand: string },
+): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const usd = (n: number) =>
+    `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
+
+  const summaryRows: Array<[string, number]> = [
+    ["Gross Revenue", totals.revenue],
+    ["COGS (Source Cost)", totals.cogs],
+    ["Marketplace Fees", totals.fees],
+    ["Shipping Cost", totals.shippingCost],
+    ["Grading Cost", totals.gradingCost],
+    ["Other Costs", totals.otherCosts],
+    ["Net Profit", totals.net],
+  ];
+
+  const headerCells = TAX_PNL_HEADERS.map(
+    (h, i) =>
+      `<th style="text-align:${i >= 4 ? "right" : "left"}">${esc(h)}</th>`,
+  ).join("");
+
+  const bodyRows = rows
+    .map(
+      (r) => `<tr>
+        <td>${esc(r.saleDate)}</td>
+        <td>${esc(r.title)}</td>
+        <td>${esc(r.category)}</td>
+        <td>${esc(r.brand)}</td>
+        <td style="text-align:right">${usd(r.salePrice)}</td>
+        <td style="text-align:right">${usd(r.shippingCollected)}</td>
+        <td style="text-align:right">${usd(r.revenue)}</td>
+        <td style="text-align:right">${usd(r.cogs)}</td>
+        <td style="text-align:right">${usd(r.fees)}</td>
+        <td style="text-align:right">${usd(r.shippingCost)}</td>
+        <td style="text-align:right">${usd(r.gradingCost)}</td>
+        <td style="text-align:right">${usd(r.otherCosts)}</td>
+        <td style="text-align:right">${usd(r.net)}</td>
+      </tr>`,
+    )
+    .join("\n");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GradeThread Tax-Ready P&amp;L</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; color: #1A1A2E; }
+    h1 { color: #0F3460; margin-bottom: 4px; }
+    h2 { color: #0F3460; margin-top: 32px; }
+    .meta { color: #666; margin-bottom: 24px; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #ddd; font-size: 12px; }
+    th { background: #0F3460; color: white; }
+    .summary-table { max-width: 420px; }
+    .summary-table td:last-child { text-align: right; font-weight: 500; }
+    .summary-table tr:last-child { font-weight: bold; border-top: 2px solid #0F3460; }
+    .footer { margin-top: 40px; font-size: 11px; color: #999; border-top: 1px solid #ddd; padding-top: 12px; }
+    @media print { body { margin: 20px; } }
+  </style>
+</head>
+<body>
+  <h1>GradeThread Tax-Ready P&amp;L</h1>
+  <div class="meta">
+    ${esc(meta.startDate)} to ${esc(meta.endDate)} &middot; ${esc(meta.category)} &middot; ${esc(meta.brand)} &middot; ${totals.count} sale(s)
+  </div>
+
+  <h2>Summary</h2>
+  <table class="summary-table">
+    <tbody>
+      ${summaryRows
+        .map(([label, val]) => `<tr><td>${esc(label)}</td><td>${usd(val)}</td></tr>`)
+        .join("\n")}
+    </tbody>
+  </table>
+
+  <h2>Per-item detail</h2>
+  <table>
+    <thead><tr>${headerCells}</tr></thead>
+    <tbody>
+      ${bodyRows}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    Generated by GradeThread on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.
+    Sales tax collected by the marketplace is excluded (Marketplace Facilitator). Figures match your per-item P&amp;L.
+  </div>
+</body>
+</html>`;
 }
 
 // Maps a run status to its badge presentation.
