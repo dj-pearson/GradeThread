@@ -85,7 +85,8 @@ interface ReferralAnalytics {
   conversion: { click_to_signup: number; signup_to_qualified: number; qualified_to_granted: number };
   k_factor: number;
   referrers: number;
-  cohorts: { referred: CohortStats; direct: CohortStats };
+  // The referral_analytics() RPC emits null cohorts for an empty window.
+  cohorts: { referred: CohortStats | null; direct: CohortStats | null };
 }
 
 interface CampaignCode {
@@ -282,7 +283,10 @@ export function GrowthReferralsPage() {
                 </Card>
               )}
 
-              {/* Referred-cohort retention/LTV vs direct. */}
+              {/* Referred-cohort retention/LTV vs direct. The RPC returns null
+                  cohorts when there's no data for the window, so guard before
+                  dereferencing (US-1071). */}
+              {analytics.cohorts?.referred && analytics.cohorts?.direct && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Referred vs direct cohort</CardTitle>
@@ -320,6 +324,7 @@ export function GrowthReferralsPage() {
                   </p>
                 </CardContent>
               </Card>
+              )}
             </>
           )}
 
