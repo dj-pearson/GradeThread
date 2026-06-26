@@ -6310,7 +6310,7 @@
         "The report marks which defects were zoom-refined",
         "Tests cover entitlement gating and that the zoom path runs only when enabled"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][LHF][Grading] Monetizes accuracy instead of eating the cost; the zoom path already exists but is off by default. Added 2026-06-26."
     },
     {
