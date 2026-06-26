@@ -4,11 +4,22 @@ import { getShopifyConnection } from "./shopify-client.ts";
 import { deleteProductGraphql } from "./shopify-graphql.ts";
 import { getDepopConnection } from "./depop-client.ts";
 import { deleteDepopProduct } from "./depop-api.ts";
+import { notifyUser } from "./notify.ts";
+import {
+  EXTENSION_DELIST_PLATFORMS,
+  planCrossListingSale,
+} from "./cross-listing-sale.ts";
 
-// Auto-end of cross-listed siblings (US-149 + US-599). When one listing in a
-// cross-listing group (rows sharing listings.draft_id) sells, end the others
+// Auto-end of cross-listed siblings (US-149 + US-599 + US-1290). When one listing
+// in a cross-listing group (rows sharing listings.draft_id) sells, end the others
 // so the same garment isn't sold twice. Gated by the per-user
 // flipdesk_settings.auto_end_cross_listings toggle (absent row = enabled).
+//
+// US-1290: a sibling that is ALREADY 'sold' means the same physical item sold on
+// more than one channel (a simultaneous sale). We never silently end it or pick a
+// winner — that double sale is SURFACED to the seller (in-app notice + a durable
+// platform_fields.oversell_conflict marker on both listings) so they can cancel
+// one order. The toDelist/oversold split is the pure planCrossListingSale.
 //
 // Imports the upstream-end helpers DIRECTLY from ebay-client / shopify-client
 // (NOT via the marketplace adapters) so flipdesk-ebay.ts → cross-listings.ts
@@ -23,13 +34,6 @@ interface SiblingRow {
   listing_status: string;
   inventory_items: { user_id: string; sku: string | null };
 }
-
-// Marketplaces ended through the GradeThread Lister browser extension (US-716)
-// rather than a server-side API. They have no write API, so auto-end can't reach
-// them from the server — it QUEUES the delist (stamps delist_requested_at) and
-// the extension ends the listing in the seller's own tab next time they're in
-// GradeThread. Keep in sync with LISTER_EXTENSION_PLATFORMS (src/lib).
-const EXTENSION_DELIST_PLATFORMS = new Set(["poshmark", "mercari", "grailed"]);
 
 // Best-effort: never throws. Returns how many sibling listings were ended.
 export async function autoEndCrossListings(
@@ -56,7 +60,8 @@ export async function autoEndCrossListings(
     if (!enabled) return 0;
 
     // Tenant-scoped via inventory_items.user_id (US-268) — listings carry no
-    // user_id of their own.
+    // user_id of their own. We pull 'sold' siblings too (not just live ones) so
+    // planCrossListingSale can detect a simultaneous-sale oversell (US-1290).
     const { data, error } = await supabaseAdmin
       .from("listings")
       .select(
@@ -65,7 +70,7 @@ export async function autoEndCrossListings(
       .eq("draft_id", draftId)
       .eq("inventory_items.user_id", ownerId)
       .neq("id", soldListingId)
-      .in("listing_status", ["draft", "active"]);
+      .in("listing_status", ["draft", "active", "sold"]);
     if (error) {
       console.error(
         "[cross-listings] sibling lookup failed:",
@@ -74,8 +79,19 @@ export async function autoEndCrossListings(
       return 0;
     }
 
+    const { toDelist, oversold } = planCrossListingSale(
+      soldListingId,
+      (data ?? []) as unknown as SiblingRow[],
+    );
+
+    // A sibling already sold on another channel is a double sale — surface it,
+    // never auto-resolve (US-1290 AC3). Best-effort; never blocks the delist.
+    if (oversold.length > 0) {
+      await surfaceOversellConflict(ownerId, soldListingId, oversold);
+    }
+
     let ended = 0;
-    for (const row of (data ?? []) as unknown as SiblingRow[]) {
+    for (const row of toDelist) {
       // eBay siblings that are live get withdrawn upstream first; an
       // already-ended offer throws here, which is fine — we still want the
       // local row marked ended.
@@ -162,4 +178,81 @@ export async function autoEndCrossListings(
     );
     return 0;
   }
+}
+
+// US-1290 AC3: surface a simultaneous-sale (oversell) conflict. The same physical
+// garment sold on more than one channel, so we DON'T touch the already-sold
+// sibling — we stamp a durable platform_fields.oversell_conflict marker on both
+// listings (drives a UI badge, like sync_drift) and fire ONE in-app notice. The
+// marker makes this idempotent against a duplicate order webhook / re-sync: a
+// listing already flagged isn't re-stamped and the notice isn't re-sent. Returns
+// how many listings were newly flagged this call.
+async function surfaceOversellConflict(
+  ownerId: string,
+  soldListingId: string,
+  oversold: SiblingRow[],
+): Promise<number> {
+  let newlyFlagged = 0;
+  for (const row of oversold) {
+    // Flag both sides so either listing's card shows the conflict.
+    const a = await stampOversellMarker(soldListingId, row.id);
+    const b = await stampOversellMarker(row.id, soldListingId);
+    if (a || b) newlyFlagged += 1;
+  }
+  if (newlyFlagged > 0) {
+    // 'system' notices are always delivered (the user can't mute an oversell).
+    void notifyUser(ownerId, {
+      type: "system",
+      title: "Possible double sale across marketplaces",
+      message:
+        "The same item appears to have sold on more than one marketplace. " +
+        "Review the orders and cancel one to avoid overselling.",
+      link: "/dashboard/flipdesk/reconciliation",
+    });
+  }
+  return newlyFlagged;
+}
+
+// Idempotently stamp the oversell marker on one listing. Returns true only when
+// the marker was NEWLY added (absent before), so the caller can decide whether to
+// notify. Merges into the existing platform_fields jsonb (never clobbers it).
+async function stampOversellMarker(
+  listingId: string,
+  conflictingListingId: string,
+): Promise<boolean> {
+  const { data, error: readErr } = await supabaseAdmin
+    .from("listings")
+    .select("platform_fields")
+    .eq("id", listingId)
+    .maybeSingle();
+  if (readErr) {
+    console.error(
+      "[cross-listings] oversell marker read failed:",
+      readErr.message,
+    );
+    return false;
+  }
+  const pf = ((data as { platform_fields: Record<string, unknown> | null } | null)
+    ?.platform_fields ?? {}) as Record<string, unknown>;
+  if (pf.oversell_conflict) return false; // already flagged — idempotent
+
+  pf.oversell_conflict = {
+    detected_at: new Date().toISOString(),
+    conflicting_listing_id: conflictingListingId,
+  };
+  // Record<string,unknown> update payload (matches the auto-end pattern above) so
+  // the jsonb column write type-checks under the generated Database types.
+  const patch: Record<string, unknown> = { platform_fields: pf };
+  const { error: updErr } = await supabaseAdmin
+    .from("listings")
+    .update(patch)
+    .eq("id", listingId);
+  if (updErr) {
+    console.error(
+      "[cross-listings] oversell marker update failed:",
+      updErr.message,
+    );
+    return false;
+  }
+  return true;
 }
