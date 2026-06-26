@@ -6268,7 +6268,7 @@
         "Age/SLA indicator + claim-locking so two operators do not work the same item",
         "Admin-guarded with an audit trail of adjustments; tests cover adjust -> reseal -> flag cleared"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][LHF][Ops] Reseal + flag scaffolding exist; the operator workflow does not. Unblocks the quality promise. Added 2026-06-26."
     },
     {
