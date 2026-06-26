@@ -102,4 +102,7 @@ supabase/.temp/cli-latest
 # Python lint script bytecode
 __pycache__/
 *.pyc
+
+# Local Supabase / DB data exports — never commit data dumps
 listings_rows.csv
+export/
