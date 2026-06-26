@@ -17,6 +17,10 @@ struct GradedPhotoView: View {
     @State private var format: SlabFormat = .square
     @State private var phase: LoadPhase = .loading
     @State private var saveState: SaveState = .idle
+    // US-1294: certificate-integrity verdict, resolved against the public
+    // /verify endpoint before the slab is presented. A tampered/unavailable
+    // certificate stays a visible non-pass state (never a silent pass).
+    @State private var verification: CertVerification = .verifying
     // US-1165: decode the slab image once when it loads instead of re-running
     // UIImage(data:) in a computed property on every render (scroll / format swap).
     @State private var decodedImage: UIImage?
@@ -41,6 +45,9 @@ struct GradedPhotoView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.lg) {
+                    CertIntegrityBadge(verification: verification) {
+                        Task { await verifyCertificate() }
+                    }
                     formatPicker
                     preview
                     actions
@@ -59,6 +66,9 @@ struct GradedPhotoView: View {
             }
             // Reload the slab whenever the format changes.
             .task(id: format) { await loadSlab() }
+            // US-1294: verify integrity once, in parallel with the slab load,
+            // as soon as the sheet appears.
+            .task { await verifyCertificate() }
         }
     }
 
@@ -192,6 +202,13 @@ struct GradedPhotoView: View {
         } catch {
             phase = .failed
         }
+    }
+
+    /// US-1294: resolve the certificate-integrity verdict from the public
+    /// /verify endpoint. Never throws — a failure surfaces as `.unavailable`.
+    private func verifyCertificate() async {
+        verification = .verifying
+        verification = await CertIntegrityService.verify(certificateURL: certificateURL)
     }
 
     private func saveToPhotos() {
