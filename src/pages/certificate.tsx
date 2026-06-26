@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { certificateDisplayNumber } from "@/lib/cert-number";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Shield,
@@ -444,6 +445,11 @@ export function CertificatePage() {
     { name: "Grade Certificate", url: `${SITE_URL}/cert/${id ?? ""}` },
   ];
 
+  // PSA-style public number: the stored cert number (00307), falling back to the
+  // UUID-derived label for any legacy report not yet backfilled.
+  const certNumber =
+    gradeReport.certificate_number ?? certificateDisplayNumber(id);
+
   return (
     <div className="min-h-screen bg-background">
       <SEO
@@ -478,9 +484,16 @@ export function CertificatePage() {
           </div>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            <h1 className="text-lg font-bold sm:text-xl">
-              Verified Grade Certificate
-            </h1>
+            <div>
+              <h1 className="text-lg font-bold sm:text-xl">
+                Verified Grade Certificate
+              </h1>
+              {certNumber && (
+                <p className="font-mono text-xs text-white/70">
+                  Certificate No. {certNumber}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -492,6 +505,11 @@ export function CertificatePage() {
         <p className="text-sm text-muted-foreground">
           Verified Grade Certificate
         </p>
+        {certNumber && (
+          <p className="font-mono text-xs text-muted-foreground">
+            Certificate No. {certNumber}
+          </p>
+        )}
       </div>
 
       {/* Main content */}

@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
+import { normalizeCertNumber } from "../lib/cert-number.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
 import { PILLAR_CORNERSTONE_URL, PILLAR_LABELS } from "../lib/content-interlink.ts";
@@ -162,6 +163,7 @@ interface CertReportRow {
   ai_summary: string | null;
   buyer_writeup: string | null;
   certificate_id: string;
+  certificate_number: string | null;
   created_at: string;
   submission_id: string;
   // US-340: structured Verified Capture result; only the pass/fail boolean is
@@ -537,7 +539,7 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
 const CERT_REPORT_COLUMNS =
   "overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
   "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, " +
-  "ai_summary, buyer_writeup, certificate_id, created_at, submission_id, verified_capture, original_photos";
+  "ai_summary, buyer_writeup, certificate_id, certificate_number, created_at, submission_id, verified_capture, original_photos";
 
 // Signed-URL TTL for certificate images (seconds). Long enough for an edge
 // cache window; the cert SSR caches the HTML, not the URL, so this just needs
@@ -627,6 +629,55 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       description: submission?.description ?? null,
       hero_image_url: heroImageUrl,
     },
+  });
+});
+
+// ── GET /certificates/by-number/:number ───────────────────────────
+// Resolve a PSA-style certificate number (typed by a buyer into /verify) to its
+// certificate_id, applying the same certified + withhold rules as the cert
+// endpoint. Returns minimal, buyer-safe data; never leaks a private/withheld
+// report. The /verify page redirects to /cert/<certificate_id> on a hit.
+contentPublicRoutes.get("/certificates/by-number/:number", async (c) => {
+  const number = normalizeCertNumber(c.req.param("number"));
+
+  const { data: report, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("certificate_id, submission_id, overall_score, grade_tier")
+    .eq("certificate_number", number)
+    .not("certificate_id", "is", null)
+    .maybeSingle();
+  if (error) return publicError(c, error, "query");
+  if (!report) return c.json({ found: false }, 404);
+  const rep = report as unknown as {
+    certificate_id: string;
+    submission_id: string;
+    overall_score: number;
+    grade_tier: string;
+  };
+
+  const { data: submission } = await supabaseAdmin
+    .from("submissions")
+    .select("title, brand, flagged, moderation_status")
+    .eq("id", rep.submission_id)
+    .maybeSingle();
+  const sub = submission as
+    | {
+        title?: string | null;
+        brand?: string | null;
+        flagged?: boolean | null;
+        moderation_status?: string | null;
+      }
+    | null;
+  if (isCertificateWithheld(sub)) return c.json({ found: false }, 404);
+
+  return c.json({
+    found: true,
+    certificate_id: rep.certificate_id,
+    certificate_number: number,
+    title: sub?.title ?? "Graded garment",
+    brand: sub?.brand ?? null,
+    overall_score: rep.overall_score,
+    grade_tier: rep.grade_tier,
   });
 });
 

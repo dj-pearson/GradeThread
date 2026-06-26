@@ -87,6 +87,7 @@ import {
   type SourceObservation,
 } from "../lib/sync-conflicts.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
+import { ensureCertificateNumber } from "../lib/cert-number.ts";
 import {
   captureListingAcceptance,
   markListingPromptSold,
@@ -4541,7 +4542,7 @@ export async function publishItemForOwner(
   // Runs ONLY on the real publish path (not the per-load /listings/validate).
   // Mutates ctx.summary.aspects in place + returns the updated description, so
   // it reaches both the single-SKU and variation publish paths below.
-  ctx.summary.description = applyGradeListingPromotion(
+  ctx.summary.description = await applyGradeListingPromotion(
     item,
     ctx.summary.aspects,
     ctx.summary.description,
@@ -6212,43 +6213,76 @@ function deriveAspectsFromItem(
   return resolveItemAspects(item, aspects, existing);
 }
 
-// Phrasing kept in sync with the client template (src/lib/listing-templates.ts
-// gradeBlock) so a template-built description and a forced append read alike.
-const CERT_LINK_PREFIX = "View the full condition certificate:";
-
-// eBay-policy pivot: the grade authority signal is TEXT ONLY. We no longer burn
-// a badge onto the hero photo or attach the QR "slab" image — overlays,
-// third-party-grading marks, and QR codes on listing PHOTOS risk eBay account
-// suspension. The grade instead rides in a "Condition Grade" item specific and a
-// cert link in the description; buyers verify on the standalone /cert/:id lookup
-// page. Applied to EVERY graded item (no opt-in toggle — it's zero-risk text and
-// matches the always-on description grade block). Mutates `aspects` in place and
-// returns the (possibly updated) description.
+// eBay-policy: the grade authority signal is TEXT ONLY and contains NO links.
+// Two hard rules eBay enforces here:
+//   • No badge/QR overlay on listing PHOTOS (third-party-grading marks risk
+//     account suspension) — handled by NOT attaching any graded image.
+//   • No off-eBay LINKS in the listing — eBay treats a certificate URL in the
+//     description as "offering to buy/sell outside eBay" and HIDES the listing
+//     (observed policy hit, ref 2-106523659851). So we never put the cert URL in
+//     the description, and we strip any that an older saved description carries.
+// The grade rides in a "Condition Grade" item specific + the grade text the
+// client template already wrote (which references the cert by NUMBER, not URL).
+// Applied to EVERY graded item. Mutates `aspects` in place; returns the
+// link-stripped description.
 const GRADE_ITEM_SPECIFIC = "Condition Grade";
 
-function applyGradeListingPromotion(
+async function applyGradeListingPromotion(
   item: PublishItem,
   aspects: Record<string, string[]>,
   description: string,
-): string {
-  if (item.grade_value == null) return description;
+): Promise<string> {
+  let out = stripCertLinks(description);
+  if (item.grade_value == null) return out;
 
-  // (1) Item specific, e.g. "Condition Grade: 9.5 (GradeThread)". Never
-  // overwrite a value the seller already set on the listing.
+  const grade = item.grade_value.toFixed(1);
+
+  // Item specific, e.g. "Condition Grade = GradeThread 9.5". Structured + shows
+  // in the eBay spec table. Never overwrite a value the seller already set.
   if (!aspects[GRADE_ITEM_SPECIFIC]?.length) {
-    aspects[GRADE_ITEM_SPECIFIC] = [
-      `${item.grade_value.toFixed(1)} (GradeThread)`,
-    ];
+    aspects[GRADE_ITEM_SPECIFIC] = [`GradeThread ${grade}`];
   }
 
-  // (2) Append the certificate link to the description so buyers can verify the
-  // grade on the public cert page. Only when a public certificate exists and
-  // the link isn't already present.
-  if (item.certificate_url && !description.includes(item.certificate_url)) {
-    const line = `${CERT_LINK_PREFIX} ${item.certificate_url}`;
-    return description.trim() ? `${description.trim()}\n\n${line}` : line;
+  // PSA-style certificate NUMBER as plain text — never a URL (eBay bans off-eBay
+  // links). Buyers type it into /verify themselves. Ensure the report has a
+  // number (lazy backfill), then make sure the description carries "Cert #...".
+  const certId = certificateIdFromUrl(item.certificate_url);
+  if (certId) {
+    const number = await ensureCertificateNumber(certId);
+    if (number && !out.includes(number)) out = appendCertNumber(out, grade, number);
   }
-  return description;
+  return out;
+}
+
+// Extract the certificate_id (UUID) from a "<site>/cert/<id>" URL.
+function certificateIdFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = url.match(/\/cert\/([^/?#]+)/);
+  return m?.[1] ?? null;
+}
+
+// Place "— Cert #GT-XXXXX" right after the "Condition Grade <n>" phrase the
+// template wrote; if the description has no grade line, append a fresh one.
+function appendCertNumber(
+  description: string,
+  grade: string,
+  number: string,
+): string {
+  const re = new RegExp(`(Condition Grade\\s*${grade.replace(".", "\\.")})`);
+  if (re.test(description)) return description.replace(re, `$1 — Cert #${number}`);
+  const line = `Graded by GradeThread — Condition Grade ${grade} — Cert #${number}`;
+  return description.trim() ? `${description.trim()}\n\n${line}` : line;
+}
+
+// Remove any certificate link from a listing description so a published eBay
+// listing never trips the off-eBay-links policy — covers the old template line
+// ("View the full condition certificate: <url>") and any bare /cert/ URL.
+function stripCertLinks(description: string): string {
+  return description
+    .replace(/^.*View the full condition certificate:.*$/gim, "")
+    .replace(/^.*https?:\/\/\S*\/cert\/\S*.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // NOTE: the Digital-Slab listing-image attachment (formerly slabImageUrlForItem

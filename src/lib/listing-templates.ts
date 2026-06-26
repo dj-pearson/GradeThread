@@ -103,14 +103,12 @@ function measurementsBlock(
 
 function gradeBlock(item: ItemFullRow): string {
   if (item.grade_value == null) return "";
-  const label = item.grade_label ? ` (${item.grade_label})` : "";
-  let block = `Independently graded by GradeThread: ${item.grade_value.toFixed(
-    1,
-  )}/10${label}.`;
-  if (item.certificate_url) {
-    block += `\nView the full condition certificate: ${item.certificate_url}`;
-  }
-  return block;
+  // Plain text, NO URL — eBay bans off-eBay links in listings. The PSA-style
+  // certificate NUMBER ("Cert #GT-…") is appended server-side at publish
+  // (flipdesk-ebay.ts applyGradeListingPromotion), because the unique number
+  // lives on the grade report, not on the item row available here. Buyers verify
+  // the number on GradeThread's /verify page, which we never link from eBay.
+  return `Graded by GradeThread — Condition Grade ${item.grade_value.toFixed(1)}`;
 }
 
 export function interpolateDescription(

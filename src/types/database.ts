@@ -690,6 +690,9 @@ export interface PublicGradeReportRow {
   id: string;
   submission_id: string;
   certificate_id: string;
+  // 00307: PSA-style public certificate number ("GT-XXXXXXX"). Null only for
+  // legacy rows before backfill. The verification key typed into /verify.
+  certificate_number: string | null;
   created_at: string;
   overall_score: number;
   grade_tier: GradeTier;

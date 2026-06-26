@@ -27,6 +27,7 @@ import {
 
 interface PublicCertificate {
   id: string;
+  certificate_number?: string | null;
   title: string;
   brand: string | null;
   garment_type: string | null;
@@ -65,6 +66,14 @@ const FACTORS: Array<{ key: keyof PublicCertificate; label: string; weight: numb
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;
 
+// PSA-style public certificate number derived from the random certificate UUID.
+// The UUID stays the canonical id/URL (unguessable, non-enumerable); this is a
+// clean display label only. Mirrors src/lib/cert-number.ts certificateDisplayNumber.
+function certDisplayNumber(certId: string): string {
+  const hex = certId.replace(/-/g, "").toUpperCase();
+  return hex.length >= 8 ? `GT-${hex.slice(0, 4)}-${hex.slice(4, 8)}` : certId;
+}
+
 export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
   withEdgeCache(context, () => renderCertificate(context));
 
@@ -80,6 +89,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   if (!data?.certificate) return notFoundResponse(env);
 
   const cert = data.certificate;
+  const certNo = cert.certificate_number || certDisplayNumber(cert.id);
   const base = siteUrl(env);
   const canonical = `${base}/cert/${cert.id}`;
   const score = cert.overall_score.toFixed(1);
@@ -131,7 +141,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
 
   const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
   <main class="container">
-  <p style="color:var(--muted);margin-bottom:8px">Verified Grade Certificate</p>
+  <p style="color:var(--muted);margin-bottom:8px">Verified Grade Certificate · Certificate No. <code>${escape(certNo)}</code></p>
   <h1>${escape(cert.title)}${cert.brand ? ` <span style="color:var(--muted)">— ${escape(cert.brand)}</span>` : ""}</h1>
   <div style="display:flex;align-items:center;gap:16px;margin:16px 0 24px">
     <div style="font-size:3rem;font-weight:700;color:var(--accent)">${escape(score)}</div>
@@ -153,7 +163,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   <table><tbody>${factorsHtml}</tbody></table>
   <h2>${cert.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}</h2>
   <p style="white-space:pre-wrap">${escape(cert.buyer_writeup || cert.ai_summary)}</p>
-  <p style="color:var(--muted);font-size:0.85rem;margin-top:24px">Graded on ${escape(gradedOn)} · Certificate ID <code>${escape(cert.id)}</code></p>
+  <p style="color:var(--muted);font-size:0.85rem;margin-top:24px">Graded on ${escape(gradedOn)} · Certificate No. <code>${escape(certNo)}</code></p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
 </main>`;
 

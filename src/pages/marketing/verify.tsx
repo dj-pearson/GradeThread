@@ -17,6 +17,8 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { parseCertificateRef } from "@/lib/verified";
+import { normalizeCertNumber } from "@/lib/cert-number";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { verifyJsonLd, VERIFY_STEPS } from "@/pages/marketing/marketing-jsonld";
 import { track } from "@/lib/analytics";
 
@@ -45,20 +47,52 @@ const TRUST = [
 export function VerifyGradePage() {
   const navigate = useNavigate();
   const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const certId = parseCertificateRef(value);
-    if (!certId) {
-      toast.error("That doesn't look like a GradeThread certificate", {
-        description:
-          "Paste the certificate link or code from the listing, or scan the QR code with your phone.",
-      });
+    const raw = value.trim();
+    if (!raw || busy) return;
+    track("verify_lookup", { source: "verify_page" });
+
+    // 1) A pasted certificate link or UUID resolves directly to the cert page.
+    const certId = parseCertificateRef(raw);
+    if (certId) {
+      // Carry the source so the certificate view can attribute the visit (US-769).
+      navigate(`/cert/${certId}?s=verify`);
       return;
     }
-    track("verify_lookup", { source: "verify_page" });
-    // Carry the source so the certificate view can attribute the visit (US-769).
-    navigate(`/cert/${certId}?s=verify`);
+
+    // 2) Otherwise treat it as a PSA-style certificate NUMBER (e.g. GT-7K2M9)
+    //    and resolve it via the public by-number lookup (00307). No login needed.
+    setBusy(true);
+    try {
+      const num = normalizeCertNumber(raw);
+      const res = await edgeFetch(
+        `/api/content/public/certificates/by-number/${encodeURIComponent(num)}`,
+        { unauthenticated: true, silentGate: true },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as {
+          found?: boolean;
+          certificate_id?: string;
+        };
+        if (body.found && body.certificate_id) {
+          navigate(`/cert/${body.certificate_id}?s=verify`);
+          return;
+        }
+      }
+      toast.error("No certificate found with that number", {
+        description:
+          "Check the certificate number (e.g. GT-7K2M9), paste the certificate link, or scan the QR code.",
+      });
+    } catch {
+      toast.error("Couldn't verify right now", {
+        description: "Please try again in a moment.",
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -86,16 +120,16 @@ export function VerifyGradePage() {
 
           <form onSubmit={handleSubmit} className="mt-8">
             <label htmlFor="cert-lookup" className="text-sm font-medium">
-              Enter a certificate link or code
+              Enter a certificate number or link
             </label>
             <div className="mt-2 flex flex-col gap-3 sm:flex-row">
               <Input
                 id="cert-lookup"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                placeholder="https://gradethread.com/cert/… or the code"
+                placeholder="Cert number (e.g. GT-7K2M9) or paste the link"
                 autoComplete="off"
-                autoCapitalize="off"
+                autoCapitalize="characters"
                 spellCheck={false}
                 inputMode="text"
                 className="flex-1"
@@ -103,16 +137,18 @@ export function VerifyGradePage() {
               <Button
                 type="submit"
                 size="lg"
+                disabled={busy}
                 className="bg-brand-navy text-white hover:bg-brand-navy/90"
               >
                 <Search className="mr-1.5 h-4 w-4" />
-                Verify grade
+                {busy ? "Verifying…" : "Verify grade"}
               </Button>
             </div>
             <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
               <QrCode className="h-4 w-4 flex-shrink-0" />
-              On a phone? Just point your camera at the QR code on the listing,
-              badge, or item tag — it opens the certificate directly.
+              The certificate number is printed in the listing (e.g.
+              “Cert #GT-7K2M9”). On a phone, you can also point your camera at the
+              QR code on the item's GradeThread tag.
             </p>
           </form>
         </div>

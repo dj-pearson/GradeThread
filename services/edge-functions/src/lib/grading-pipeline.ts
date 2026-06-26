@@ -18,6 +18,7 @@ import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { notifyUser } from "./notify.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
+import { generateUniqueCertNumber } from "./cert-number.ts";
 import { createSingleHopPassport, storeGarmentFingerprint } from "./passport-write.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
@@ -1055,6 +1056,9 @@ export async function processSubmission(submissionId: string) {
 
     // --- Step 6: Create grade report record ---
     const certificateId = crypto.randomUUID();
+    // PSA-style public verification number (00307) — the plain-text key that
+    // rides in eBay listings and resolves on /verify. The UUID stays the URL id.
+    const certificateNumber = await generateUniqueCertNumber();
 
     // Build detailed_notes from per-image analyses
     const detailedNotes: Record<string, string> = {};
@@ -1361,6 +1365,7 @@ export async function processSubmission(submissionId: string) {
         model_version: `${compositeResult.model}|${compositeResult.prompt_version}`,
         prompt_version: compositeResult.prompt_version,
         certificate_id: certificateId,
+        certificate_number: certificateNumber,
         // US-333: tamper-evident integrity columns (migration 00068).
         content_hash: integrity.content_hash,
         content_signature: integrity.content_signature,
