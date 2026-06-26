@@ -21,6 +21,7 @@ import {
 } from "./email.ts";
 import { TIER_SLA_HOURS } from "./grade-pricing.ts";
 import { notifyAdminsGradeReviewNeeded } from "./grade-review-notify.ts";
+import { autoApproveThreshold, shouldAutoApprove } from "./grade-auto-approve.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { generateUniqueCertNumber } from "./cert-number.ts";
 import { createSingleHopPassport, storeGarmentFingerprint } from "./passport-write.ts";
@@ -660,7 +661,10 @@ export interface FinalizeGradeReviewResult {
 // this; approve leaves the AI scores untouched.
 export async function finalizeGradeReview(
   reportId: string,
-  opts: { reviewerId: string; modified: boolean },
+  // reviewerId is null for an AUTO-APPROVED grade (no human reviewer); a string
+  // when a super-admin/reviewer finalized it. reviewed_by null + approved is the
+  // derivable "auto-approved" marker.
+  opts: { reviewerId: string | null; modified: boolean },
 ): Promise<FinalizeGradeReviewResult> {
   const { data: report } = await supabaseAdmin
     .from("grade_reports")
@@ -1730,28 +1734,11 @@ export async function processSubmission(submissionId: string) {
       ],
     });
 
-    // --- Step 7: Preliminary review state (mandatory grade review) ---
-    // The AI grade is PRELIMINARY. Park the submission in `pending_review`
-    // (grading lease released, abstention feedback cleared). The certificate
-    // stays withheld and NOTHING goes live on the linked item until a human
-    // finalizes the grade — all the go-live wiring (status='completed',
-    // inventory→graded, FlipDesk bridge, IndexNow, drip events, webhooks, the
-    // grade-ready email) moves to finalizeGradeReview. linkedItemId is captured
-    // so the preliminary notice can deep-link to the FlipDesk item.
-    const linkedItemId = await applyPreliminaryReview(submissionId);
-
-    const totalMs = Date.now() - startTime;
-    console.log(
-      `[Pipeline] Preliminary grade READY (pending review) for submission ${submissionId} | ` +
-        `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
-        `confidence=${compositeResult.confidence_score} | total_ms=${totalMs}`
-    );
-
-    // --- Step 7d: Shadow / A-B grading (US-330, fire-and-forget) ---
+    // --- Step 7: Shadow / A-B grading (US-330, fire-and-forget) ---
     // Re-run ONLY the composite stage with any shadow candidate prompt on a
     // sampled fraction of live traffic, reusing the per-image analyses. Stored
     // separately in grading_shadow_results; NEVER affects this customer's grade
-    // or certificate. Never blocks/fails the pipeline.
+    // or certificate. Runs regardless of the review path. Never blocks/fails.
     void runShadowGrades({
       submissionId,
       userId: submission.user_id,
@@ -1769,12 +1756,54 @@ export async function processSubmission(submissionId: string) {
       )
     );
 
+    // --- Step 8: Route the grade — auto-finalize or human review ---
+    // A HIGH-CONFIDENCE, CLEAN grade (>= threshold, not routed to human review,
+    // not flagged) skips the queue and finalizes immediately. Anything the
+    // system is unsure about or has flagged still waits for a super-admin
+    // (mandatory review). The threshold is GRADE_AUTO_APPROVE_CONFIDENCE
+    // (default 0.9; "off" → fully-manual review).
+    const reviewThreshold = autoApproveThreshold();
+    const autoApprove = shouldAutoApprove(
+      {
+        confidenceScore: compositeResult.confidence_score,
+        needsHumanReview: compositeResult.needs_human_review,
+        flagged: Boolean(flagReason),
+      },
+      reviewThreshold,
+    );
+    const totalMs = Date.now() - startTime;
+
+    if (autoApprove) {
+      // Finalize now (reviewerId null = auto-approved, no human). All the go-live
+      // wiring AND the seller's "now official" email + in-app notice run inside
+      // finalizeGradeReview, so there's no preliminary/admin notification.
+      await finalizeGradeReview(gradeReport.id, { reviewerId: null, modified: false });
+      console.log(
+        `[Pipeline] AUTO-APPROVED grade for submission ${submissionId} | ` +
+          `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
+          `confidence=${compositeResult.confidence_score} >= ${reviewThreshold} | total_ms=${totalMs}`,
+      );
+      return gradeReport;
+    }
+
+    // --- Preliminary review path (mandatory review) ---
+    // Park the submission in `pending_review` (lease released, feedback cleared).
+    // The certificate stays withheld and NOTHING goes live on the linked item
+    // until a human finalizes it — all the go-live wiring moves to
+    // finalizeGradeReview. linkedItemId is captured for the preliminary deep link.
+    const linkedItemId = await applyPreliminaryReview(submissionId);
+    console.log(
+      `[Pipeline] Preliminary grade READY (pending review) for submission ${submissionId} | ` +
+        `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
+        `confidence=${compositeResult.confidence_score} | total_ms=${totalMs}`
+    );
+
     const previewLink = linkedItemId
       ? `/dashboard/flipdesk/items/${linkedItemId}`
       : `/dashboard/submissions/${submissionId}`;
 
-    // --- Step 8: Tell the SELLER their preliminary grade is ready ---
-    // Email (respecting the grade pref) + the in-app "pending review" notice.
+    // Tell the SELLER their preliminary grade is ready — email (respecting the
+    // grade pref) + the in-app "pending review" notice.
     (async () => {
       try {
         const { data: user } = await supabaseAdmin
@@ -1811,9 +1840,8 @@ export async function processSubmission(submissionId: string) {
         )
       );
 
-    // --- Step 9: Alert REVIEWERS — a grade is waiting to be finalized ---
-    // In-app for every admin + super-admin; email to the super-admins. Best-
-    // effort; never blocks the pipeline.
+    // Alert REVIEWERS — a grade is waiting to be finalized. In-app for every
+    // admin + super-admin; email to the super-admins. Best-effort.
     void notifyAdminsGradeReviewNeeded({
       submissionTitle: submission.title,
       overallScore: compositeResult.overall_score,
