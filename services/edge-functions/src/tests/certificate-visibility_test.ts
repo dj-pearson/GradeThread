@@ -46,3 +46,26 @@ Deno.test("an unflagged grade is publicly resolvable", () => {
   assertEquals(isCertificateWithheld(null), false);
   assertEquals(isCertificateWithheld(undefined), false);
 });
+
+Deno.test("a preliminary (pending_review) grade is withheld until finalized", () => {
+  // Mandatory review: the certificate exists but isn't official yet.
+  assertEquals(isCertificateWithheld({ status: "pending_review" }), true);
+  // Even an otherwise-clean (unflagged) grade is withheld while in review.
+  assertEquals(
+    isCertificateWithheld({
+      status: "pending_review",
+      flagged: false,
+      moderation_status: null,
+    }),
+    true,
+  );
+  // Once finalized (status='completed'), an unflagged grade is resolvable again.
+  assertEquals(
+    isCertificateWithheld({
+      status: "completed",
+      flagged: false,
+      moderation_status: null,
+    }),
+    false,
+  );
+});

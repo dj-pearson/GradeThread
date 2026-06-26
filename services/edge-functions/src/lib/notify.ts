@@ -6,6 +6,11 @@ export type NotificationType =
   | "grade_complete"
   | "grading_submitted"
   | "grading_ready"
+  // Mandatory-review lifecycle. grading_preliminary = AI grade produced but
+  // unofficial, awaiting human finalization; grading_finalized = a reviewer
+  // approved/adjusted it, so it's now official + the certificate is live.
+  | "grading_preliminary"
+  | "grading_finalized"
   // US-1056: grading-lifecycle failure paths (not just the grade_complete happy
   // path). grading_failed = the run threw / a required angle failed; the charge
   // was reversed. grading_incomplete = the pre-grade quality gate abstained
@@ -41,6 +46,9 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   grade_complete: "grade_complete",
   grading_submitted: "grade_complete",
   grading_ready: "grade_complete",
+  // Review-lifecycle seller notices share the grading pref category.
+  grading_preliminary: "grade_complete",
+  grading_finalized: "grade_complete",
   // US-1056: grading-lifecycle failure paths share the grading pref category.
   grading_failed: "grade_complete",
   grading_incomplete: "grade_complete",

@@ -36,6 +36,9 @@ export interface SendIdentity {
 // digests) are NOT listed here; the coordinator flags those marketing explicitly.
 export const TRANSACTIONAL_CATEGORIES: ReadonlySet<string> = new Set([
   "grade_ready",
+  "grade_preliminary",
+  "grade_review_request",
+  "grade_finalized",
   "dispute_status",
   "welcome",
   "subscription_started",

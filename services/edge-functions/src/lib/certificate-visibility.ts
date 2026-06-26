@@ -14,12 +14,19 @@
 export interface CertificateModerationState {
   flagged?: boolean | null;
   moderation_status?: string | null;
+  // Mandatory-review lifecycle: a submission still in `pending_review` has a
+  // PRELIMINARY grade whose certificate must not be publicly resolvable until a
+  // human finalizes it. Selected alongside flagged/moderation_status by every
+  // public cert path so this predicate stays the single source of truth.
+  status?: string | null;
 }
 
 /**
  * True when a certificate must be withheld (return 404) from the public cert
- * and verify endpoints. A certificate is withheld iff its submission is flagged
- * AND has not yet been explicitly approved by a human reviewer.
+ * and verify endpoints. A certificate is withheld when EITHER:
+ *   • its grade is still preliminary (submission status `pending_review`) and
+ *     so not yet finalized by a human reviewer, OR
+ *   • its submission is flagged for moderation AND not yet explicitly approved.
  *
  * A null/missing submission is treated as NOT withheld here — the caller has
  * already proven a certified (public) report exists; absence of a moderation
@@ -28,5 +35,6 @@ export interface CertificateModerationState {
 export function isCertificateWithheld(
   sub: CertificateModerationState | null | undefined,
 ): boolean {
+  if (sub?.status === "pending_review") return true;
   return sub?.flagged === true && sub.moderation_status !== "approved";
 }

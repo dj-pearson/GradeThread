@@ -75,6 +75,50 @@ export async function notifyGradingIncomplete(
 }
 
 /**
+ * The AI produced a PRELIMINARY grade. The seller can see the unofficial score,
+ * but it stays pending until a human reviewer finalizes it. Sends the in-app
+ * notice AND the iOS "we're reviewing it" push.
+ */
+export async function notifyGradePreliminary(
+  userId: string,
+  title: string | null,
+  link: string | null,
+  deps: GradingLifecycleNotifyDeps = defaultDeps,
+): Promise<void> {
+  await Promise.all([
+    deps.notify(userId, {
+      type: "grading_preliminary",
+      title: "Preliminary grade ready",
+      message:
+        `${label(title)} has a preliminary AI grade — it's pending expert ` +
+        `review before it becomes official and the certificate goes live.`,
+      link: link ?? "/dashboard/submissions",
+    }),
+    deps.pushReview(userId, title),
+  ]);
+}
+
+/**
+ * A reviewer finalized the grade (approved or adjusted). It's now official, the
+ * certificate is live, and the item is published. `summary` carries the final
+ * score/tier line.
+ */
+export async function notifyGradeFinalized(
+  userId: string,
+  title: string | null,
+  summary: string,
+  link: string | null,
+  deps: GradingLifecycleNotifyDeps = defaultDeps,
+): Promise<void> {
+  await deps.notify(userId, {
+    type: "grading_finalized",
+    title: "Grade finalized",
+    message: `${label(title)} is now official. ${summary}`,
+    link: link ?? "/dashboard/submissions",
+  });
+}
+
+/**
  * A grade was produced but flagged for a human check. Sends BOTH the in-app
  * notice and the iOS push so the seller knows the grade is being double-checked.
  */

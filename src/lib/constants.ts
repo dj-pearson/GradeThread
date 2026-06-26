@@ -60,6 +60,7 @@ export const GARMENT_CATEGORIES = [
 export const SUBMISSION_STATUSES = [
   "pending",
   "processing",
+  "pending_review",
   "completed",
   "failed",
   "disputed",
@@ -589,6 +590,8 @@ export const ITEM_STATUS_TONE: Record<
 export const SUBMISSION_STATUS_TONE: Record<string, StatusTone> = {
   pending: "pricing",
   processing: "live",
+  // Mandatory review: preliminary grade awaiting human finalization.
+  pending_review: "grading",
   completed: "success",
   failed: "danger",
   disputed: "dispute",

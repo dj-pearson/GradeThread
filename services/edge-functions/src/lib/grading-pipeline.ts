@@ -15,8 +15,13 @@ import { Image } from "imagescript";
 import { assessAuthenticity, type AuthenticityAssessment } from "./ai-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
-import { sendGradeCompleteEmail } from "./email.ts";
-import { notifyUser } from "./notify.ts";
+import {
+  sendGradeFinalizedEmail,
+  sendGradePreliminaryEmail,
+} from "./email.ts";
+import { TIER_SLA_HOURS } from "./grade-pricing.ts";
+import { notifyAdminsGradeReviewNeeded } from "./grade-review-notify.ts";
+import { autoApproveThreshold, shouldAutoApprove } from "./grade-auto-approve.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { generateUniqueCertNumber } from "./cert-number.ts";
 import { createSingleHopPassport, storeGarmentFingerprint } from "./passport-write.ts";
@@ -37,9 +42,10 @@ import { captureServer } from "./posthog.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
 import {
+  notifyGradeFinalized,
+  notifyGradePreliminary,
   notifyGradingFailed,
   notifyGradingIncomplete,
-  notifyReviewNeeded,
 } from "./grading-lifecycle-notify.ts";
 import { recordAiUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
@@ -606,15 +612,195 @@ async function applyTerminalCompletion(
   return linkedItemId;
 }
 
+// Mandatory review: park a freshly-graded submission in `pending_review` without
+// going live. Releases the grading lease + clears abstention feedback (so the
+// reaper leaves it alone), but does NOT advance to 'completed', sync the linked
+// item to 'graded', or publish the certificate — that all waits for a human to
+// finalize the grade (finalizeGradeReview). Returns the linked inventory item id
+// (for the preliminary deep link), or null.
+async function applyPreliminaryReview(submissionId: string): Promise<string | null> {
+  await supabaseAdmin
+    .from("submissions")
+    .update({ status: "pending_review", quality_feedback: null, grading_lease_until: null })
+    .eq("id", submissionId);
+
+  let linkedItemId: string | null = null;
+  try {
+    const { data: linkedItem } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .maybeSingle();
+    if (linkedItem) linkedItemId = (linkedItem as { id: string }).id;
+  } catch (itemErr) {
+    console.error(
+      `[Pipeline] Inventory item lookup error for submission ${submissionId}:`,
+      itemErr instanceof Error ? itemErr.message : String(itemErr),
+    );
+  }
+  return linkedItemId;
+}
+
+export interface FinalizeGradeReviewResult {
+  ok: boolean;
+  alreadyFinal?: boolean;
+  linkedItemId?: string | null;
+}
+
+// Mandatory review: a human reviewer (super-admin/reviewer) has approved or
+// adjusted the grade — make it OFFICIAL. This is the one place the deferred
+// "go-live" wiring runs: flip the report to approved/modified + stamp the
+// reviewer, advance the submission to 'completed', sync the linked item to
+// 'graded' + publish the certificate (applyTerminalCompletion), fire the drip /
+// activation events, ping IndexNow, deliver external webhooks with the FINAL
+// grade, and tell the seller their grade is final + live.
+//
+// Idempotent: a report that's already finalized is a no-op (so a double-click /
+// retry never double-fires go-live or duplicate notifications). The adjust path
+// has already written the new scores + resealed the certificate BEFORE calling
+// this; approve leaves the AI scores untouched.
+export async function finalizeGradeReview(
+  reportId: string,
+  // reviewerId is null for an AUTO-APPROVED grade (no human reviewer); a string
+  // when a super-admin/reviewer finalized it. reviewed_by null + approved is the
+  // derivable "auto-approved" marker.
+  opts: { reviewerId: string | null; modified: boolean },
+): Promise<FinalizeGradeReviewResult> {
+  const { data: report } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, submission_id, overall_score, grade_tier, certificate_id, finalized_at")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (!report) return { ok: false };
+
+  const r = report as {
+    id: string;
+    submission_id: string;
+    overall_score: number;
+    grade_tier: string;
+    certificate_id: string | null;
+    finalized_at: string | null;
+  };
+  // Already finalized — don't re-run go-live or re-notify.
+  if (r.finalized_at) return { ok: true, alreadyFinal: true };
+
+  const overallScore = Number(r.overall_score);
+  const nowIso = new Date().toISOString();
+  await supabaseAdmin
+    .from("grade_reports")
+    .update({
+      review_status: opts.modified ? "modified" : "approved",
+      finalized_at: nowIso,
+      reviewed_by: opts.reviewerId,
+      reviewed_at: nowIso,
+      human_reviewed: true,
+      needs_human_review: false,
+      review_claimed_by: null,
+      review_claimed_at: null,
+    })
+    .eq("id", r.id);
+
+  const certUrl = r.certificate_id ? certificateUrl(r.certificate_id) : null;
+  const linkedItemId = await applyTerminalCompletion(r.submission_id, {
+    gradeReportId: r.id,
+    overallScore,
+    gradeTier: r.grade_tier,
+    certificateUrl: certUrl,
+  });
+
+  const { data: sub } = await supabaseAdmin
+    .from("submissions")
+    .select("user_id, title")
+    .eq("id", r.submission_id)
+    .maybeSingle();
+  const s = sub as { user_id: string; title: string | null } | null;
+
+  if (s?.user_id) {
+    // Drip / activation events (moved from the preliminary pipeline path —
+    // "completed" means finalized). first_grade is once-per-user.
+    void emitEvent(s.user_id, "grade_completed", {
+      properties: { grade_report_id: r.id, overall_score: overallScore },
+    });
+    void emitEvent(s.user_id, "first_grade", {
+      dedupeKey: firstOccurrenceKey("first_grade", s.user_id),
+    });
+
+    // External webhooks get the FINAL grade.
+    notifyWebhooks(s.user_id, r.submission_id, report as Record<string, unknown>).catch(
+      (err) =>
+        console.error(
+          `[Pipeline] Webhook delivery error for submission ${r.submission_id}:`,
+          err instanceof Error ? err.message : String(err),
+        ),
+    );
+  }
+
+  // The certificate is public now — ping IndexNow (no-op without INDEXNOW_KEY).
+  if (r.certificate_id) {
+    submitUrls([certificateUrl(r.certificate_id)]).catch((e) =>
+      console.warn("[Pipeline] IndexNow submit failed:", e),
+    );
+  }
+
+  // Tell the seller their grade is final + live (email + in-app).
+  if (s?.user_id) {
+    const link = linkedItemId
+      ? `/dashboard/flipdesk/items/${linkedItemId}`
+      : `/dashboard/submissions/${r.submission_id}`;
+    void notifyGradeFinalized(
+      s.user_id,
+      s.title,
+      `Final grade ${overallScore.toFixed(1)} · ${r.grade_tier}.`,
+      link,
+    );
+    (async () => {
+      try {
+        const { data: user } = await supabaseAdmin
+          .from("users")
+          .select("email, full_name, notification_preferences")
+          .eq("id", s.user_id)
+          .single();
+        const emailEnabled =
+          user?.notification_preferences?.grade_complete?.email !== false;
+        if (user?.email && emailEnabled) {
+          await sendGradeFinalizedEmail(user.email, {
+            userName: user.full_name || "there",
+            submissionTitle: s.title ?? "Your submission",
+            overallScore,
+            gradeTier: r.grade_tier,
+            submissionId: r.submission_id,
+            certificateId: r.certificate_id,
+            wasModified: opts.modified,
+            itemLink: linkedItemId ? `/dashboard/flipdesk/items/${linkedItemId}` : null,
+          });
+        }
+      } catch (e) {
+        console.error(
+          `[Pipeline] Finalized email error for submission ${r.submission_id}:`,
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    })();
+  }
+
+  console.log(
+    `[Pipeline] Grade FINALIZED (${opts.modified ? "modified" : "approved"}) for submission ${r.submission_id}`,
+  );
+  return { ok: true, linkedItemId };
+}
+
 // US-569: idempotent resume. When a kick finds an already-graded submission (a
-// crash landed between the grade_report insert and the status='completed' flip),
-// finish the terminal wiring WITHOUT re-running or re-billing the AI. Returns
-// true if an active report existed (finalized or already complete), false if
-// there's nothing to finalize (the normal "no second grade" no-op).
+// crash landed between the grade_report insert and the status flip), re-assert
+// the correct terminal state WITHOUT re-running or re-billing the AI. With
+// mandatory review the pipeline's own terminal state is now `pending_review`
+// (NOT completed) — go-live only happens via finalizeGradeReview — so resume
+// just re-parks a not-yet-finalized grade in pending_review, and re-finishes the
+// go-live wiring only for a grade that was already finalized. Returns true if an
+// active report existed, false if there's nothing to do (the normal no-op).
 export async function finalizeIfAlreadyGraded(submissionId: string): Promise<boolean> {
   const { data: report } = await supabaseAdmin
     .from("grade_reports")
-    .select("id, overall_score, grade_tier, certificate_id")
+    .select("id, overall_score, grade_tier, certificate_id, review_status")
     .eq("submission_id", submissionId)
     .is("superseded_at", null)
     .maybeSingle();
@@ -625,23 +811,34 @@ export async function finalizeIfAlreadyGraded(submissionId: string): Promise<boo
     overall_score: number;
     grade_tier: string;
     certificate_id: string | null;
+    review_status: string | null;
   };
   const { data: sub } = await supabaseAdmin
     .from("submissions")
     .select("status")
     .eq("id", submissionId)
     .maybeSingle();
-  // Already terminal-complete — nothing to finalize. (The reaper ignores
-  // non-'processing' rows, so a lingering lease on a completed row is harmless.)
-  if ((sub as { status?: string } | null)?.status === "completed") return true;
+  const status = (sub as { status?: string } | null)?.status;
 
-  await applyTerminalCompletion(submissionId, {
-    gradeReportId: r.id,
-    overallScore: r.overall_score,
-    gradeTier: r.grade_tier,
-    certificateUrl: r.certificate_id ? certificateUrl(r.certificate_id) : null,
-  });
-  console.log(`[Pipeline] Resumed + finalized already-graded submission ${submissionId}`);
+  // Terminal states — nothing to re-assert. (The reaper ignores non-'processing'
+  // rows, so a lingering lease is harmless.) A 'pending_review' row is already
+  // correctly parked and waiting on a human; don't touch it.
+  if (status === "completed" || status === "pending_review") return true;
+
+  if (r.review_status === "approved" || r.review_status === "modified") {
+    // Already human-finalized, but the go-live wiring didn't finish — re-run it.
+    await applyTerminalCompletion(submissionId, {
+      gradeReportId: r.id,
+      overallScore: Number(r.overall_score),
+      gradeTier: r.grade_tier,
+      certificateUrl: r.certificate_id ? certificateUrl(r.certificate_id) : null,
+    });
+    console.log(`[Pipeline] Resumed + re-finalized already-graded submission ${submissionId}`);
+  } else {
+    // A preliminary grade exists but the pending_review flip was lost — re-park it.
+    await applyPreliminaryReview(submissionId);
+    console.log(`[Pipeline] Resumed preliminary grade (pending review) for submission ${submissionId}`);
+  }
   return true;
 }
 
@@ -682,7 +879,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, authenticity_addon, forensic_addon, created_at")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, authenticity_addon, forensic_addon, service_tier, created_at")
       .eq("id", submissionId)
       .single();
 
@@ -1394,6 +1591,17 @@ export async function processSubmission(submissionId: string) {
         forensic_grade: wantForensic,
         confidence_score: compositeResult.confidence_score,
         needs_human_review: compositeResult.needs_human_review,
+        // Mandatory-review lifecycle: every grade is born PRELIMINARY and waits
+        // for a human to finalize it. review_due_at = now + the requested grade-
+        // speed tier SLA, so the operator queue can prioritise express first.
+        review_status: "pending",
+        review_due_at: new Date(
+          Date.now() +
+            (TIER_SLA_HOURS[
+              ((submission as { service_tier?: string }).service_tier ??
+                "standard") as keyof typeof TIER_SLA_HOURS
+            ] ?? TIER_SLA_HOURS.standard) * 3_600_000,
+        ).toISOString(),
         // US-336/US-338: aggregated photo-authenticity assessment (manipulation /
         // screenshot / watermark). Surfaced on the certificate + admin review.
         image_authenticity: compositeResult.image_authenticity,
@@ -1436,18 +1644,9 @@ export async function processSubmission(submissionId: string) {
       throw new Error("Failed to create grade report record");
     }
 
-    // US-932: record the completed grade to the internal event stream (the drip
-    // trigger substrate), alongside the existing PostHog captures. Fire-and-forget
-    // — never blocks/fails a paid grade. first_grade is once-per-user (idempotent
-    // via dedupe_key) so an activation trigger fires exactly once.
-    if (submission.user_id) {
-      void emitEvent(submission.user_id, "grade_completed", {
-        properties: { grade_report_id: gradeReport.id, overall_score: compositeResult.overall_score },
-      });
-      void emitEvent(submission.user_id, "first_grade", {
-        dedupeKey: firstOccurrenceKey("first_grade", submission.user_id),
-      });
-    }
+    // US-932: the "grade_completed" / "first_grade" drip + activation events now
+    // fire from finalizeGradeReview (when a human makes the grade official), not
+    // here — a preliminary grade isn't a completed grade.
 
     // US-1091: seed this certificate's single-hop Garment Passport (garment +
     // pseudonymous origin seller node + deterministic 'graded' event) and link
@@ -1535,55 +1734,11 @@ export async function processSubmission(submissionId: string) {
       ],
     });
 
-    // US-626 + US-1056: nudge the seller when their grade was flagged for a
-    // human check — both an in-app notice and the iOS push. Best-effort, never
-    // blocks the pipeline. The grade-ready notification (step 10) still fires
-    // separately; this is the additional "we're double-checking it" signal.
-    if (compositeResult.needs_human_review) {
-      void notifyReviewNeeded(
-        submission.user_id,
-        submission.title,
-        `/dashboard/submissions/${submissionId}`,
-      );
-    }
-
-    // The certificate is public the moment the report exists (its
-    // certificate_id is non-null). Ping IndexNow so Bing/Yandex/etc. index the
-    // new /cert/:id page promptly (US-296). Fire-and-forget — never blocks or
-    // fails grading; no-ops when INDEXNOW_KEY is unset.
-    submitUrls([certificateUrl(certificateId)]).catch((e) =>
-      console.warn("[Pipeline] IndexNow submit failed:", e),
-    );
-
-    // --- Step 7: Terminal completion (status + lease release + link sync) ---
-    // Moderation flags were already evaluated and written ABOVE (US-484), before
-    // the certificate became public — so this terminal write only advances the
-    // status, clears any prior abstention feedback, and RELEASES the grading
-    // lease (US-569). It deliberately does NOT touch flagged/flag_reason, leaving
-    // a withheld cert withheld. applyTerminalCompletion is idempotent and shared
-    // with the resume/finalize path. linkedItemId is captured so the grade-ready
-    // notification (step 10) can deep-link straight to the FlipDesk item.
-    const linkedItemId = await applyTerminalCompletion(submissionId, {
-      gradeReportId: gradeReport.id,
-      overallScore: compositeResult.overall_score,
-      gradeTier: compositeResult.grade_tier,
-      // Public certificate URL — consumed by the FlipDesk grade card ("Open
-      // certificate") and embedded in listing descriptions (listing-templates.ts).
-      certificateUrl: certificateUrl(certificateId),
-    });
-
-    const totalMs = Date.now() - startTime;
-    console.log(
-      `[Pipeline] Grading pipeline COMPLETE for submission ${submissionId} | ` +
-        `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
-        `confidence=${compositeResult.confidence_score} | total_ms=${totalMs}`
-    );
-
-    // --- Step 7d: Shadow / A-B grading (US-330, fire-and-forget) ---
+    // --- Step 7: Shadow / A-B grading (US-330, fire-and-forget) ---
     // Re-run ONLY the composite stage with any shadow candidate prompt on a
     // sampled fraction of live traffic, reusing the per-image analyses. Stored
     // separately in grading_shadow_results; NEVER affects this customer's grade
-    // or certificate. Never blocks/fails the pipeline.
+    // or certificate. Runs regardless of the review path. Never blocks/fails.
     void runShadowGrades({
       submissionId,
       userId: submission.user_id,
@@ -1601,17 +1756,54 @@ export async function processSubmission(submissionId: string) {
       )
     );
 
-    // --- Step 8: Send webhook notifications (fire-and-forget) ---
-    notifyWebhooks(submission.user_id, submissionId, gradeReport as Record<string, unknown>).catch(
-      (err) => {
-        console.error(
-          `[Pipeline] Webhook delivery error for submission ${submissionId}:`,
-          err instanceof Error ? err.message : String(err)
-        );
-      }
+    // --- Step 8: Route the grade — auto-finalize or human review ---
+    // A HIGH-CONFIDENCE, CLEAN grade (>= threshold, not routed to human review,
+    // not flagged) skips the queue and finalizes immediately. Anything the
+    // system is unsure about or has flagged still waits for a super-admin
+    // (mandatory review). The threshold is GRADE_AUTO_APPROVE_CONFIDENCE
+    // (default 0.9; "off" → fully-manual review).
+    const reviewThreshold = autoApproveThreshold();
+    const autoApprove = shouldAutoApprove(
+      {
+        confidenceScore: compositeResult.confidence_score,
+        needsHumanReview: compositeResult.needs_human_review,
+        flagged: Boolean(flagReason),
+      },
+      reviewThreshold,
+    );
+    const totalMs = Date.now() - startTime;
+
+    if (autoApprove) {
+      // Finalize now (reviewerId null = auto-approved, no human). All the go-live
+      // wiring AND the seller's "now official" email + in-app notice run inside
+      // finalizeGradeReview, so there's no preliminary/admin notification.
+      await finalizeGradeReview(gradeReport.id, { reviewerId: null, modified: false });
+      console.log(
+        `[Pipeline] AUTO-APPROVED grade for submission ${submissionId} | ` +
+          `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
+          `confidence=${compositeResult.confidence_score} >= ${reviewThreshold} | total_ms=${totalMs}`,
+      );
+      return gradeReport;
+    }
+
+    // --- Preliminary review path (mandatory review) ---
+    // Park the submission in `pending_review` (lease released, feedback cleared).
+    // The certificate stays withheld and NOTHING goes live on the linked item
+    // until a human finalizes it — all the go-live wiring moves to
+    // finalizeGradeReview. linkedItemId is captured for the preliminary deep link.
+    const linkedItemId = await applyPreliminaryReview(submissionId);
+    console.log(
+      `[Pipeline] Preliminary grade READY (pending review) for submission ${submissionId} | ` +
+        `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
+        `confidence=${compositeResult.confidence_score} | total_ms=${totalMs}`
     );
 
-    // --- Step 9: Send grade complete email (fire-and-forget) ---
+    const previewLink = linkedItemId
+      ? `/dashboard/flipdesk/items/${linkedItemId}`
+      : `/dashboard/submissions/${submissionId}`;
+
+    // Tell the SELLER their preliminary grade is ready — email (respecting the
+    // grade pref) + the in-app "pending review" notice.
     (async () => {
       try {
         const { data: user } = await supabaseAdmin
@@ -1620,45 +1812,44 @@ export async function processSubmission(submissionId: string) {
           .eq("id", submission.user_id)
           .single();
 
-        // Respect the user's notification preferences (default: enabled).
         const emailEnabled =
           user?.notification_preferences?.grade_complete?.email !== false;
 
         if (user?.email && emailEnabled) {
-          await sendGradeCompleteEmail(user.email, {
+          await sendGradePreliminaryEmail(user.email, {
             userName: user.full_name || "there",
             submissionTitle: submission.title,
             overallScore: compositeResult.overall_score,
             gradeTier: compositeResult.grade_tier,
             submissionId,
-            certificateId,
           });
         }
       } catch (emailErr) {
         console.error(
-          `[Pipeline] Email notification error for submission ${submissionId}:`,
+          `[Pipeline] Preliminary email error for submission ${submissionId}:`,
           emailErr instanceof Error ? emailErr.message : String(emailErr)
         );
       }
     })();
 
-    // --- Step 10: In-app "grade ready" notification (fire-and-forget) ---
-    // Deep-links to the FlipDesk item when this grade came from the bridge,
-    // otherwise to the submission. Respects the grade_complete in-app pref.
-    notifyUser(submission.user_id, {
-      type: "grading_ready",
-      title: "Grade ready",
-      message: `${submission.title} graded ${compositeResult.overall_score.toFixed(
-        1,
-      )} · ${compositeResult.grade_tier}.`,
-      link: linkedItemId
-        ? `/dashboard/flipdesk/items/${linkedItemId}`
-        : `/dashboard/submissions/${submissionId}`,
-    }).catch((notifyErr) => {
-      console.error(
-        `[Pipeline] In-app notification error for submission ${submissionId}:`,
-        notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+    void notifyGradePreliminary(submission.user_id, submission.title, previewLink)
+      .catch((notifyErr) =>
+        console.error(
+          `[Pipeline] Preliminary notify error for submission ${submissionId}:`,
+          notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+        )
       );
+
+    // Alert REVIEWERS — a grade is waiting to be finalized. In-app for every
+    // admin + super-admin; email to the super-admins. Best-effort.
+    void notifyAdminsGradeReviewNeeded({
+      submissionTitle: submission.title,
+      overallScore: compositeResult.overall_score,
+      gradeTier: compositeResult.grade_tier,
+      serviceTier:
+        (submission as { service_tier?: string }).service_tier ?? "standard",
+      confidenceScore: compositeResult.confidence_score,
+      flagged: Boolean(flagReason),
     });
 
     return gradeReport;

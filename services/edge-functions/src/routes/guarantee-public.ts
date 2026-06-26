@@ -159,12 +159,17 @@ guaranteePublicRoutes.post("/claims", async (c) => {
   try {
     const { data: sub, error } = await supabaseAdmin
       .from("submissions")
-      .select("user_id, flagged, moderation_status")
+      .select("user_id, flagged, moderation_status, status")
       .eq("id", report.submission_id)
       .maybeSingle();
     if (error) return publicError(c, error, "submission");
     const s = sub as
-      | { user_id: string; flagged?: boolean | null; moderation_status?: string | null }
+      | {
+        user_id: string;
+        flagged?: boolean | null;
+        moderation_status?: string | null;
+        status?: string | null;
+      }
       | null;
     if (!s || isCertificateWithheld(s)) {
       return c.json({ error: "Certificate not found" }, 404);

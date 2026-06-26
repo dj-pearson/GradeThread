@@ -206,9 +206,11 @@ async function getExampleCertificates(brand: string): Promise<IndexCurveExample[
     const { data, error } = await supabaseAdmin
       .from("grade_reports")
       .select(
-        "certificate_id, overall_score, grade_tier, created_at, submissions!inner(title, brand, flagged, moderation_status)",
+        "certificate_id, overall_score, grade_tier, created_at, submissions!inner(title, brand, flagged, moderation_status, status)",
       )
       .not("certificate_id", "is", null)
+      // Only cite FINALIZED grades — a preliminary (pending-review) cert is not public.
+      .in("review_status", ["approved", "modified"])
       .ilike("submissions.brand", b)
       .order("created_at", { ascending: false })
       .limit(12);
