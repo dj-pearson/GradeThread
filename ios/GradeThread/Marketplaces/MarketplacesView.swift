@@ -132,7 +132,10 @@ struct MarketplacesView: View {
         .init(id: "mercari", label: "Mercari", systemImage: "shippingbox", tier: .listingKit),
         .init(id: "grailed", label: "Grailed", systemImage: "tag", tier: .listingKit),
         .init(id: "depop", label: "Depop", systemImage: "tshirt", tier: .listingKit),
-        .init(id: "whatnot", label: "Whatnot", systemImage: "video", tier: .comingSoon),
+        // Whatnot was previously shown with a "Coming soon" badge. App Review
+        // reads such copy literally and can flag a non-shipping feature, so it's
+        // omitted until it has a real integration. The `.comingSoon` tier is kept
+        // for when a future channel needs to be staged again.
     ]
 
     private var comingSoonChannelsSection: some View {

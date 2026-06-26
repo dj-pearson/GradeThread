@@ -44,7 +44,10 @@ public final class MarketplaceConnectionStore {
                 phase = .disconnected
             }
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't check your eBay connection. Please try again."
+            ))
         }
     }
 
@@ -62,11 +65,21 @@ public final class MarketplaceConnectionStore {
                 // No state change — leave the card where it was. The
                 // calling view can surface a toast if it wants to.
                 break
-            default:
+            case .network:
+                // Don't surface eBay's / the OS's raw transport text (e.g. "The
+                // request timed out") — it reads like a broken app to a reviewer.
+                // The card keeps its "Try again" button (failedBody) so the
+                // connect affordance never disappears.
+                phase = .failed(message: "Couldn't reach eBay to start the connection. Check your internet connection and try again.")
+            case .stateExpired, .noActiveConnection:
+                // These typed cases already carry user-friendly copy.
                 phase = .failed(message: error.localizedDescription)
             }
         } catch {
-            phase = .failed(message: error.localizedDescription)
+            phase = .failed(message: FriendlyErrorCopy.actionMessage(
+                for: error,
+                fallback: "Couldn't connect to eBay. Please try again."
+            ))
         }
     }
 

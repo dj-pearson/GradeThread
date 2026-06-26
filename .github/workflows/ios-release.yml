@@ -331,6 +331,12 @@ jobs:
         working-directory: ios
         run: |
           set -o pipefail
+          # Fail loudly if the Supabase anon key didn't make it into the env.
+          # AppConfig.swift fatal-errors on launch when SUPABASE_ANON_KEY is
+          # missing from Info.plist, so an empty value here would archive fine
+          # but crash on EVERY device at startup — a guaranteed App Store
+          # rejection. Mirror the SENTRY_DSN / TURNSTILE_SITE_KEY guards above.
+          : "${SUPABASE_ANON_KEY:?missing from env (check Infisical prod /) — a release build with an empty anon key crashes on launch via AppConfig.swift}"
           # Manual App Store signing — all signing settings (style, identity,
           # team, per-target PROVISIONING_PROFILE_SPECIFIER) live in project.yml's
           # Release config, scoped to the 3 app targets only. We deliberately do

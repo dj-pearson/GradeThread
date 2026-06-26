@@ -736,19 +736,42 @@ struct PhotoIntakeView: View {
         let entries = capturedEntries()
         guard !entries.isEmpty else { return }
 
-        let newItemId: String
+        // Client-generated id so the row has a stable identity whether it lands
+        // on the server now or replays from the offline queue later. This lets
+        // the photo-first path survive a flaky/absent network the same way the
+        // manual details form does, instead of dead-ending on "Couldn't create
+        // your item" and discarding the captures.
+        let newItemId = UUID().uuidString
+        let payload = ItemInsert(
+            id: newItemId,
+            user_id: userId,
+            title: "Untitled item",
+            status: "cataloged"
+        )
         do {
-            newItemId = try await createDraftInventoryItem(userId: userId)
+            try await SupabaseShared.client
+                .from("inventory_items")
+                .insert(payload)
+                .execute()
         } catch {
-            // US-1025: friendly copy on-screen; raw detail to Sentry.
-            let detail = FriendlyErrorCopy.rawDetail(for: error)
-            Telemetry.breadcrumb("Create draft item failed: \(detail)", category: "intake")
-            Telemetry.event("intake_save_error", props: ["detail": detail])
-            captureError = FriendlyErrorCopy.actionMessage(
-                for: error,
-                fallback: "Couldn't create your item. Please try again."
-            )
-            return
+            // A network-y failure → queue the create for SyncEngine replay (UPSERT
+            // by the client id) and proceed, exactly like DetailsIntakeView. The
+            // captures still enqueue and the item appears locally, so nothing is
+            // lost offline. Anything else (RLS denial, enum mismatch, …) is a real
+            // problem and is surfaced — US-1025: friendly copy on-screen, raw
+            // detail to Sentry.
+            if FriendlyErrorCopy.isOffline(error) {
+                enqueueOfflineItemCreate(payload: payload, id: newItemId)
+            } else {
+                let detail = FriendlyErrorCopy.rawDetail(for: error)
+                Telemetry.breadcrumb("Create draft item failed: \(detail)", category: "intake")
+                Telemetry.event("intake_save_error", props: ["detail": detail])
+                captureError = FriendlyErrorCopy.actionMessage(
+                    for: error,
+                    fallback: "Couldn't create your item. Please try again."
+                )
+                return
+            }
         }
 
         // US-682: mirror the new row into the local cache immediately so the
@@ -775,36 +798,32 @@ struct PhotoIntakeView: View {
         draftItemId = newItemId
     }
 
-    /// Inserts an `inventory_items` row with the minimum required fields
-    /// so the AI extract step has somewhere to write accepted suggestions.
-    /// Returns the new row id.
-    private func createDraftInventoryItem(userId: String) async throws -> String {
-        struct ItemInsert: Encodable {
-            let user_id: String
-            let title: String
-            let status: String
-        }
-        struct ItemRowId: Decodable {
-            let id: String
-        }
-        // Title is intentionally generic — the AI extract step typically
-        // surfaces a brand + descriptor that the user can promote to a
-        // real title later (US-178 / US-182).
-        let payload = ItemInsert(
-            user_id: userId,
-            title: "Untitled item",
-            status: "cataloged"
+    /// Minimal `inventory_items` insert for the photo-first draft row. The
+    /// client-generated `id` gives the row a stable identity across the online
+    /// insert and the offline-replay UPSERT, and is the foreign key the photo
+    /// uploads + AI-extract writes hang off. Title is intentionally generic —
+    /// the AI extract step typically surfaces a brand + descriptor the user can
+    /// promote to a real title later (US-178 / US-182).
+    private struct ItemInsert: Encodable {
+        let id: String
+        let user_id: String
+        let title: String
+        let status: String
+    }
+
+    /// Queues the draft-item create for SyncEngine replay when the live insert
+    /// failed offline. The payload already carries the client id, so the replay
+    /// UPSERTs the same row (no duplicate) once connectivity returns — mirroring
+    /// `DetailsIntakeView.enqueueOfflineMutation`.
+    private func enqueueOfflineItemCreate(payload: ItemInsert, id: String) {
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        let mutation = LocalPendingMutation(
+            kind: .createInventoryItem,
+            payload: data,
+            targetId: id
         )
-        let response: [ItemRowId] = try await SupabaseShared.client
-            .from("inventory_items")
-            .insert(payload, returning: .representation)
-            .select("id")
-            .execute()
-            .value
-        guard let id = response.first?.id else {
-            throw EdgeAPIError.serverError(detail: "No id returned from insert")
-        }
-        return id
+        modelContext.insert(mutation)
+        modelContext.saveOrLog("PhotoIntake.enqueueOfflineItemCreate")
     }
 
     private func retryUpload(for slot: PhotoSlotType) {
