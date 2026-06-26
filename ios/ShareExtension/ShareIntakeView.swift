@@ -40,19 +40,20 @@ struct ShareIntakeView: View {
         _assignments = State(initialValue: initial)
     }
 
-    /// Mirror of PhotoSlotType ordering — first four required, then up to
-    /// three defects, then the extended optional taxonomy (tag 2, extra
-    /// details, interior, flat lay, on-model), the universal roles
-    /// (migration 00230) for non-clothing profiles, then measurements.
+    /// Mirror of PhotoSlotType's canonical declaration order (front → back → tag
+    /// → detail → measurements → defects → extras → universal). Declaration order
+    /// IS the gallery/cover order in the main app, so this mirror must match it
+    /// exactly — ShareInboxTests.test_shareExtensionSlotConstants_alignWithPhotoSlotType
+    /// trips if it drifts.
     static let allSlots: [String] = [
         "front", "back", "tag", "detail",
+        "measurement_chest", "measurement_waist", "measurement_length",
+        "measurement_sleeve", "measurement_inseam",
         "defect1", "defect2", "defect3",
         "tag_2", "detail_2", "detail_3", "detail_4",
         "interior", "flatlay", "on_model",
         "angle", "sole", "marking", "serial", "accessory",
         "certificate", "corner", "surface",
-        "measurement_chest", "measurement_waist", "measurement_length",
-        "measurement_sleeve", "measurement_inseam",
     ]
 
     static func displayName(for slot: String) -> String {

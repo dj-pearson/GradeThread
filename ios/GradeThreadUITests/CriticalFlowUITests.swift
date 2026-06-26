@@ -92,10 +92,27 @@ final class CriticalFlowUITests: XCTestCase {
             firstProduct.waitForExistence(timeout: 30),
             "No paywall product rows rendered — StoreKit didn't resolve the .storekit configuration.")
 
-        // Restore is always present on the paywall (App Store requirement).
+        // Restore is always present on the paywall (App Store requirement). It
+        // sits at the BOTTOM of the scrollable plan list, and XCUITest doesn't
+        // materialize off-screen List cells into the accessibility tree — so
+        // swipe it into view before asserting (a real reviewer scrolls too).
+        let restore = app.buttons["paywall.restore"]
+        var restoreSwipes = 0
+        while !restore.exists && restoreSwipes < 8 {
+            app.swipeUp()
+            restoreSwipes += 1
+        }
         XCTAssertTrue(
-            app.buttons["paywall.restore"].waitForExistence(timeout: 5),
+            restore.waitForExistence(timeout: 5),
             "Restore purchases affordance should be present on the paywall.")
+
+        // Scroll back to the top so the first product row is on-screen + hittable
+        // for the purchase step below.
+        var topSwipes = 0
+        while !firstProduct.isHittable && topSwipes < 8 {
+            app.swipeDown()
+            topSwipes += 1
+        }
 
         // Drive a purchase: tap the price button inside the first resolved
         // product row. StoreKit testing auto-approves against the local config.

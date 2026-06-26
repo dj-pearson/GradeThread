@@ -102,3 +102,4 @@ supabase/.temp/cli-latest
 # Python lint script bytecode
 __pycache__/
 *.pyc
+listings_rows.csv
