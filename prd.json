@@ -6282,7 +6282,7 @@
         "A tampered/unavailable certificate shows a clear non-verified state — never a silent pass",
         "iOS CI compile + tests pass; no-ungated-print gate respected"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][LHF][iOS] Server endpoints exist; iOS just does not render/verify them. Added 2026-06-26."
     },
     {

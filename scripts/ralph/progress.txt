@@ -3862,3 +3862,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026  2:16:03 PM
 ---
+## US-1294: iOS digital slab + certificate-integrity parity
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026  2:24:45 PM
+---
