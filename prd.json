@@ -6240,7 +6240,7 @@
         "Exported numbers reconcile to the existing per-item P&L (no new source of truth)",
         "Tests verify totals match the underlying sales/reconciliation rows"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][LHF][FlipDesk] Numbers already computed; only the export is missing. Strong seasonal 'it does my taxes' moment. Added 2026-06-26."
     },
     {

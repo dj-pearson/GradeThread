@@ -3874,3 +3874,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026  5:04:47 PM
 ---
+## US-1291: Tax-ready P&L / COGS export
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026  5:19:18 PM
+---
