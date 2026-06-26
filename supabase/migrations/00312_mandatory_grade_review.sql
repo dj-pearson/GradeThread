@@ -61,6 +61,11 @@ ALTER TYPE public.notification_type ADD VALUE IF NOT EXISTS 'grading_finalized';
 -- ── 4. Tighten the public certificate view ───────────────────────────
 -- A grade is publicly resolvable ONLY once finalized (approved/modified). A
 -- preliminary grade keeps its certificate_id but stays out of the public view.
+-- CREATE OR REPLACE VIEW can only APPEND columns, never drop/reorder — so we
+-- reproduce the FULL current column set verbatim (00194 columns + the
+-- certificate_number added in 00307) and change ONLY the query body: the new
+-- review_status filter that withholds preliminary grades. Omitting any existing
+-- column here raises 42P16 "cannot drop columns from view".
 CREATE OR REPLACE VIEW public.public_grade_reports AS
 SELECT
   gr.id,
@@ -89,7 +94,23 @@ SELECT
     WHEN gr.confidence_score >= 0.75 THEN 'high'
     WHEN gr.confidence_score >= 0.6  THEN 'moderate'
     ELSE 'reviewed'
-  END AS confidence_label
+  END AS confidence_label,
+  gr.buyer_writeup,
+  COALESCE((gr.verified_capture ->> 'verified')::boolean, false)
+    AS verified_capture_passed,
+  (gr.authenticity_assessment IS NOT NULL) AS authenticity_addon_included,
+  CASE
+    WHEN gr.authenticity_assessment IS NULL THEN NULL
+    WHEN (gr.authenticity_assessment ->> 'authenticity_confidence')::numeric >= 0.85 THEN 'high'
+    WHEN (gr.authenticity_assessment ->> 'authenticity_confidence')::numeric >= 0.6  THEN 'moderate'
+    ELSE 'low'
+  END AS authenticity_confidence_label,
+  (gr.authenticity_assessment ->> 'counterfeit_risk') AS authenticity_counterfeit_risk,
+  (gr.authenticity_assessment ->> 'summary') AS authenticity_summary,
+  (gr.authenticity_assessment ->> 'limitations') AS authenticity_limitations,
+  COALESCE((gr.original_photos ->> 'verified')::boolean, false)
+    AS original_photos_verified,
+  gr.certificate_number
 FROM public.grade_reports gr
 WHERE gr.certificate_id IS NOT NULL
   AND gr.review_status IN ('approved', 'modified');
