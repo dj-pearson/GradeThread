@@ -623,9 +623,10 @@ export function LandingPage() {
         </h1>
         <p className="mt-6 max-w-xl text-lg text-muted-foreground">
           GradeThread gives every pre-owned garment an objective 1.0–10.0
-          condition grade and a certificate buyers trust — powered by AI, so you
-          cut returns and sell faster. Run the whole reselling workflow in
-          FlipDesk.
+          condition grade and a certificate buyers can verify — one published
+          rubric, applied the same way every time, so a grade means the same
+          thing everywhere. Cut returns, sell faster, and run the whole
+          reselling workflow in FlipDesk.
         </p>
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:gap-4">
           <Link to="/signup">

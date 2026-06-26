@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1276,
+  "nextId": 1299,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -5999,6 +5999,334 @@
         "Tests cover the trimmed-limit boundary"
       ],
       "notes": "[P3][iOS/Verified/Prospect][iOS deep-dive audit 2026-06-25] Found by multi-agent code audit; file:line verified. VerifiedStore.swift:117-118 (raw .count vs saved .trimmed); ProspectStore.swift:135 (commits new cost field against a no-cost run). DONE 2026-06-25 — VerifiedStore over-limit checks now use .trimmed.count (test_overLimit_usesTrimmedLength); ProspectStore.addToInventory commits result.costCents (the cost the run used) instead of the live field. Headless; pending iOS CI compile."
+    },
+    {
+      "id": "US-1276",
+      "priority": 1276,
+      "title": "Coverage scoring engine — which garment zones the photos actually document",
+      "description": "As a seller, when I submit photos I want the system to compute which standard inspection zones of the garment are visible, so the grade — and any guarantee — is scoped to what was actually documented (LiDAR-style coverage, but from 2D photos so it works for every device).",
+      "acceptanceCriteria": [
+        "New lib services/edge-functions/src/lib/coverage.ts defines per-garment-type inspection-zone templates keyed off garment_category (e.g. front, back, collar/neckline, cuffs L/R, hem, underarms, pockets, primary closure/zipper, interior lining, branding/care label)",
+        "The grading pipeline maps each submitted image to one or more zones using existing per-image vision view/zone signals (ai-grading.ts), producing covered_zones[], missing_zones[], and coverage_pct (0-100)",
+        "Zones a garment type does not have (e.g. no pockets) are excluded from the denominator, not counted as missing",
+        "Coverage result persisted on the grade report via an idempotent migration (IF NOT EXISTS, applied_migrations footer, bump EXPECTED_SCHEMA_VERSION in the same commit)",
+        "Unit tests cover a fully-documented set (~100%), a front-only set (low %), and a category with legitimately absent zones"
+      ],
+      "passes": false,
+      "notes": "[P1][Coverage] Keystone for the coverage-gated guarantee (US-1279/1280). 2D zone-based so it works on every device; true 3D/photogrammetry is the separate premium US-1281. Added 2026-06-26 strategy session."
+    },
+    {
+      "id": "US-1277",
+      "priority": 1277,
+      "title": "Coverage meter + missing-zone nudge in the submission flow",
+      "description": "As a seller, while I upload photos I want to see how much of the garment I have documented and exactly which shots are still missing, so I am motivated to submit complete coverage (which both improves the grade and widens my guarantee).",
+      "acceptanceCriteria": [
+        "new-submission.tsx photo step shows a live coverage meter (%) and a list/visual of still-missing zones that updates as photos are added",
+        "Nudge copy is specific (e.g. 'Add the right cuff and interior lining to reach 100% coverage')",
+        "Submitting below a configurable coverage floor shows a clear 'lower coverage limits your guarantee' warning but does NOT hard-block submission",
+        "Frontend consumes the coverage engine output (US-1276); no duplicate zone logic in the client",
+        "build + eslint clean"
+      ],
+      "passes": false,
+      "notes": "[P1][Coverage] Gamified completeness -> more photos -> better grades + wider guarantee scope. Depends on [[US-1276]]. Added 2026-06-26."
+    },
+    {
+      "id": "US-1278",
+      "priority": 1278,
+      "title": "Coverage badge + silhouette heatmap on the certificate",
+      "description": "As a buyer, I want the certificate to show what fraction of the garment the seller actually documented, so I can trust the grade and understand what it does and does not cover.",
+      "acceptanceCriteria": [
+        "certificate.tsx renders a garment-silhouette visual that shades documented vs not-documented zones, plus a 'Coverage: NN% documented' badge",
+        "Not-documented zones are clearly labeled 'not shown — not covered by the grade'",
+        "Heatmap derives from persisted coverage data and degrades gracefully (older certificates with no coverage data hide the widget, no error)",
+        "Coverage data is included in the cert-integrity content hash so it is tamper-evident (coordinate with US-1279)",
+        "build + eslint clean; screenshot QA of a partial-coverage and full-coverage certificate"
+      ],
+      "passes": false,
+      "notes": "[P1][Coverage] This is also a top share/trust surface — the visual that makes 'document everything' obvious. Depends on [[US-1276]]. Added 2026-06-26."
+    },
+    {
+      "id": "US-1279",
+      "priority": 1279,
+      "title": "Coverage-gated guarantee scope (undocumented zones are out of scope)",
+      "description": "As GradeThread, I want the guarantee to be liable only for defects in zones the seller actually documented, so the promise is underwritable: we never owe a remedy for damage in an area the photos never showed.",
+      "acceptanceCriteria": [
+        "cert-integrity sealing includes coverage_pct and the covered-zone set so the documented scope is tamper-evident and provable after the fact",
+        "The guarantee/dispute review surface (admin-disputes) shows the claimed defect's zone vs the covered zones and flags claims on not-documented zones as OUT OF SCOPE",
+        "Guarantee terms in marketing data (buyer-guarantee.tsx / BUYER_GUARANTEE_FAQS) state the coverage scoping — but this copy SHIPS ATOMICALLY with US-1298/US-1280 (do not publish remedy text before the mechanism exists)",
+        "Tests: a claim on a covered zone is in-scope; a claim on an undocumented zone is out-of-scope"
+      ],
+      "passes": false,
+      "notes": "[P1][Coverage][Guarantee] The legal/technical backbone of the grade-fee-back guarantee. Depends on [[US-1276]]. Pairs with [[US-1280]]. Added 2026-06-26."
+    },
+    {
+      "id": "US-1280",
+      "priority": 1280,
+      "title": "Grade Accuracy Guarantee remedy — refund the grading fee + free re-grade",
+      "description": "As a buyer/seller, when an approved guarantee claim shows our grade was wrong on a DOCUMENTED area, I want GradeThread to make it right by refunding the grading fee and granting a free re-grade — never by refunding item value (that stays with the marketplace/seller).",
+      "acceptanceCriteria": [
+        "When a guarantee claim is approved AND the error is on a documented zone, the system issues a remedy: refund the grading fee (Stripe refund or credit-back) AND grant a free re-grade credit",
+        "Remedy is capped at the grading fee actually paid; item value and shipping are NEVER refunded",
+        "Idempotent (exactly one remedy per claim), recorded in a remedy ledger, with email to buyer + seller",
+        "Reuses existing credit RPC (grant_grade_credits) and webhook/idempotency patterns; tenant-scoped per US-268",
+        "Tests: approved + covered zone -> remedy issued once; approved + undocumented zone -> no remedy; reprocessing the same claim -> idempotent (no double refund)"
+      ],
+      "passes": false,
+      "notes": "[P1][Guarantee] The decided model (2026-06-26): grade-fee-back, not item-value. Underwritable, fraud-resistant. Depends on [[US-1279]]. Marketing copy = [[US-1298]]. Added 2026-06-26."
+    },
+    {
+      "id": "US-1281",
+      "priority": 1281,
+      "title": "Verified 360 — photogrammetric/LiDAR capture on capable devices (premium)",
+      "description": "As a seller on a capable device, I want a guided multi-angle/depth capture that proves true geometric coverage of the garment, so I can earn a stronger '360-Verified' badge and the widest guarantee scope.",
+      "acceptanceCriteria": [
+        "iOS capture offers a 'Verified 360' mode on LiDAR/multi-angle-capable devices that guides a multi-angle (and where available depth) capture and reports true geometric coverage",
+        "Falls back to 2D zone coverage (US-1276) on unsupported devices; 360 is never required",
+        "Passing 360 capture raises coverage confidence and unlocks a '360-Verified' certificate badge",
+        "Spike the ARKit/photogrammetry approach and device matrix before committing the full build"
+      ],
+      "passes": false,
+      "notes": "[P3][Coverage][iOS] Research/premium follow-on to the 2D coverage engine; needs real-device QA. Depends on [[US-1276]]. Added 2026-06-26."
+    },
+    {
+      "id": "US-1282",
+      "priority": 1282,
+      "title": "Garment Passport — lineage, ownership transfers, and re-grade depreciation curve",
+      "description": "As a buyer, I want each graded garment to carry a permanent, transferable record — grade history across re-grades and owners, plus a condition-over-time curve — so I can see how it has held up (a 'Carfax for clothing').",
+      "acceptanceCriteria": [
+        "/scan passport shows grade history across re-grades and ownership transfers with timestamps, pseudonymous by design (Seller A / Buyer B)",
+        "A re-grade of an existing garment links to its prior grade(s) and renders a condition-over-time curve with per-factor deltas",
+        "An ownership-transfer action records a pseudonymous transfer event on the passport",
+        "Re-grade is a billable event reusing the grading pipeline; the passport reads only the public_grade_reports view (no PII)",
+        "Tests: two grades on the same garment produce a 2-point curve with correct deltas"
+      ],
+      "passes": false,
+      "notes": "[P2][Passport] Category-defining bet; makes re-grading a recurring-revenue event. Builds on existing /scan + passport. Added 2026-06-26."
+    },
+    {
+      "id": "US-1283",
+      "priority": 1283,
+      "title": "Live Capture — fraud-proof grading mode (in-app camera only, device-attested)",
+      "description": "As a buyer, I want the option to trust a grade produced from un-fakeable photos — captured live in-app, timestamped and device-attested — so condition proof cannot be Photoshopped or pulled from a stock listing.",
+      "acceptanceCriteria": [
+        "A capture mode that accepts ONLY in-app camera images (no library upload), tagged device-attested + timestamped, building on verified-capture.ts",
+        "Live-Capture submissions that pass all provenance + manipulation/reuse checks earn a distinct 'Live-Verified' certificate badge (stronger than the standard verified-capture boost)",
+        "Any provenance or manipulation failure downgrades the badge — never a silent pass",
+        "Clear UX explaining the value ('un-fakeable condition proof')",
+        "Tests cover provenance pass/fail gating the badge"
+      ],
+      "passes": false,
+      "notes": "[P1][Fraud] The flagship launch story; pairs naturally with the coverage % and the guarantee. Builds on verified-capture (US-339 area). Added 2026-06-26."
+    },
+    {
+      "id": "US-1284",
+      "priority": 1284,
+      "title": "Be the standard — open 'GradeThread Standard' spec + GT Grade field everywhere",
+      "description": "As GradeThread, I want the GT grade to be a recognized, machine-readable field embedded in every listing and a published open spec, so other people's listings cite 'GradeThread 8.0' the way card listings cite PSA.",
+      "acceptanceCriteria": [
+        "Every cross-listing publish (eBay/Shopify/Depop adapters) embeds the GT grade + certificate URL + slab in a consistent, documented, machine-readable way",
+        "A public, versioned 'GradeThread Standard' spec (rubric + grade-field schema) is published under /grading-standard or /developers and linked from JSON-LD",
+        "A stable citable grade-field schema (e.g. Schema.org additionalProperty / JSON-LD) lets partners ingest the GT Grade",
+        "Copy describes the OPEN SPEC only — no claims of partnerships/adoption that do not exist"
+      ],
+      "passes": false,
+      "notes": "[P2][Standard] Network-effect play; reinforces the live 'we are the standard' positioning (US-1297). Added 2026-06-26."
+    },
+    {
+      "id": "US-1285",
+      "priority": 1285,
+      "title": "Resale Condition Index — turn the proprietary data into a price-guide product + API",
+      "description": "As a partner/insurer/seller, I want a queryable price guide mapping condition grade to resale value and sell-through, so I can price and underwrite with data nobody else has — and so LLMs cite GradeThread by name.",
+      "acceptanceCriteria": [
+        "Expand the Condition Index behind /whats-it-worth and /resale-condition-report into a queryable price-guide API (grade band x category x brand -> value range + sell-through), honoring the existing 'no data -> not shown' rule",
+        "The public report page gains more dated, cited aggregate stats with Dataset JSON-LD kept in sync",
+        "The API is scoped + rate-limited like api-v1, with a sandbox example",
+        "Never expose per-user/PII rows; aggregates only, behind a minimum-sample threshold"
+      ],
+      "passes": false,
+      "notes": "[P2][Data] Revenue line + the strongest GEO/citation lever. Added 2026-06-26."
+    },
+    {
+      "id": "US-1286",
+      "priority": 1286,
+      "title": "AI repair triage — recovered-value recommendations from the defect taxonomy",
+      "description": "As a seller, I want the report to tell me which defects are worth repairing and what that does to my grade and resale value, so I can capture more value instead of just measuring damage.",
+      "acceptanceCriteria": [
+        "Using the existing defect repairability + size taxonomy, the report surfaces per-defect 'repair impact': estimated grade lift + estimated resale-value lift if a reversible/repairable defect is addressed",
+        "An optional referral block points to repair/tailor resources (no hard partner dependency)",
+        "Shown only for defects classified reversible/repairable; permanent defects make no repair promise",
+        "Tests: a reversible stain yields a positive projected lift; a permanent tear yields none"
+      ],
+      "passes": false,
+      "notes": "[P2][Repair] Moves GradeThread up the value chain from measuring to improving condition. Added 2026-06-26."
+    },
+    {
+      "id": "US-1287",
+      "priority": 1287,
+      "title": "Visual defect annotations on the certificate (render the stored bounding boxes)",
+      "description": "As a buyer, I want defects highlighted directly on the photos (PSA-style callouts) instead of only a text list, so the grade feels forensic and trustworthy.",
+      "acceptanceCriteria": [
+        "certificate.tsx renders stored per-defect bounding boxes as highlighted callouts over the relevant photo, labeled with defect type + severity",
+        "Falls back to the existing text list when a defect has no bbox",
+        "Works on the public certificate with no PII leakage",
+        "build + eslint clean; screenshot QA"
+      ],
+      "passes": false,
+      "notes": "[P1][LHF][Cert] Highest-impact low-effort win: bbox data is ALREADY stored per defect, only text is rendered today. Added 2026-06-26."
+    },
+    {
+      "id": "US-1288",
+      "priority": 1288,
+      "title": "Viral social share with pre-filled referral on the certificate",
+      "description": "As a seller, I want one-tap sharing of my certificate to social with my referral code baked in, so sharing my grade also grows the platform.",
+      "acceptanceCriteria": [
+        "cert-share-actions.tsx adds one-tap share to major socials with a pre-filled message and the sharer's referral code/link appended",
+        "Reuses existing referral provisioning + share-source attribution (?s=)",
+        "The unfurl uses the slab OG image (already wired)",
+        "Share channel is tracked; QA confirms the referral code is present in generated links"
+      ],
+      "passes": false,
+      "notes": "[P1][LHF][Growth] Closes the viral loop — referral engine + slab OG already exist; sharing is manual today. Added 2026-06-26."
+    },
+    {
+      "id": "US-1289",
+      "priority": 1289,
+      "title": "In-app upgrade & credit-depletion prompts",
+      "description": "As a user who hits a plan/credit limit mid-flow, I want a contextual upgrade/buy-credits prompt instead of a dead-end error, so I can keep going.",
+      "acceptanceCriteria": [
+        "When included grades/credits are exhausted or a plan limit is hit mid-flow, a contextual upgrade/buy-credits prompt is shown (not just a raw 402)",
+        "Prompts reuse existing plan/limit checks + Stripe checkout; no new pricing introduced",
+        "Dismissible, rate-limited, and analytics-tracked (PostHog)",
+        "QA: exhausting credits in new-submission surfaces the prompt with the correct CTA"
+      ],
+      "passes": false,
+      "notes": "[P1][LHF][Monetize] Conversion revenue currently left on the floor; all the gating logic already exists. Added 2026-06-26."
+    },
+    {
+      "id": "US-1290",
+      "priority": 1290,
+      "title": "Cross-channel quantity sync — delist on sale across marketplaces",
+      "description": "As a reseller, when an item sells on one marketplace I want it pulled from the others automatically, so I never oversell.",
+      "acceptanceCriteria": [
+        "A sale on one connected marketplace decrements/delists the item on the others via their adapters (eBay/Shopify/Depop), respecting SYNC_SOURCE_OF_TRUTH + field-ownership rules",
+        "Tenant-scoped (US-268) and idempotent against duplicate order webhooks",
+        "Conflicts (e.g. simultaneous sales) are surfaced, never silently mis-resolved",
+        "Tests: a sale on eBay delists the Shopify mirror"
+      ],
+      "passes": false,
+      "notes": "[P1][LHF][FlipDesk] #1 reseller pain; order sync for all three platforms already exists. Added 2026-06-26."
+    },
+    {
+      "id": "US-1291",
+      "priority": 1291,
+      "title": "Tax-ready P&L / COGS export",
+      "description": "As a reseller, I want a tax-ready export of my profit/loss and cost of goods, so I can hand it to my accountant.",
+      "acceptanceCriteria": [
+        "FlipDesk reconciliation/analytics gains a CSV + printable export of per-item and period P&L: COGS (source cost), fees, shipping, net — filterable by category/brand/date range",
+        "Business-tier gated consistent with reconciliation",
+        "Exported numbers reconcile to the existing per-item P&L (no new source of truth)",
+        "Tests verify totals match the underlying sales/reconciliation rows"
+      ],
+      "passes": false,
+      "notes": "[P2][LHF][FlipDesk] Numbers already computed; only the export is missing. Strong seasonal 'it does my taxes' moment. Added 2026-06-26."
+    },
+    {
+      "id": "US-1292",
+      "priority": 1292,
+      "title": "Bulk-edit live listings",
+      "description": "As a reseller, I want to multi-select live listings and edit them in bulk (price, category/condition, policy), so I am not stuck doing single-item edits.",
+      "acceptanceCriteria": [
+        "Multi-select on the pipeline/listings surface supports bulk edits applied across connected marketplaces via adapters",
+        "Respects field-ownership locks on marketplace-originated listings (never overwrites eBay-owned fields)",
+        "Enforces a max batch size and reports per-item results (ok/blocked/error); tenant-scoped",
+        "Tests: a partial-failure batch reports per-item outcomes"
+      ],
+      "passes": false,
+      "notes": "[P2][LHF][FlipDesk] Table-stakes vs Vendoo/List Perfectly; AutoLister already does bulk generation. Added 2026-06-26."
+    },
+    {
+      "id": "US-1293",
+      "priority": 1293,
+      "title": "Human-review operator queue UI",
+      "description": "As a grading operator, I want a real queue to work low-confidence grades — view photos + AI output, adjust scores/defects, and approve — so the <0.75 confidence quality guarantee actually scales.",
+      "acceptanceCriteria": [
+        "/admin/grading gains an operator queue for needs_human_review grades: filter/sort, view photos + AI output, adjust factor scores/defects, and approve",
+        "Approving triggers the certificate reseal (US-775) and clears the review flag",
+        "Age/SLA indicator + claim-locking so two operators do not work the same item",
+        "Admin-guarded with an audit trail of adjustments; tests cover adjust -> reseal -> flag cleared"
+      ],
+      "passes": false,
+      "notes": "[P1][LHF][Ops] Reseal + flag scaffolding exist; the operator workflow does not. Unblocks the quality promise. Added 2026-06-26."
+    },
+    {
+      "id": "US-1294",
+      "priority": 1294,
+      "title": "iOS digital slab + certificate-integrity parity",
+      "description": "As an iOS user, I want to preview/save/share the digital slab and have the app verify the certificate's integrity signature, so the mobile experience matches the web.",
+      "acceptanceCriteria": [
+        "iOS renders the digital slab (/slab/cert/:id) with preview/save/share, matching web formats (square/portrait/story/label-only) where feasible",
+        "iOS verifies the certificate integrity signature (/verify) before display",
+        "A tampered/unavailable certificate shows a clear non-verified state — never a silent pass",
+        "iOS CI compile + tests pass; no-ungated-print gate respected"
+      ],
+      "passes": false,
+      "notes": "[P2][LHF][iOS] Server endpoints exist; iOS just does not render/verify them. Added 2026-06-26."
+    },
+    {
+      "id": "US-1295",
+      "priority": 1295,
+      "title": "Affiliate payout automation (Stripe Connect)",
+      "description": "As an affiliate, I want my earned commissions to pay out automatically, so the program is real money instead of manual admin grants.",
+      "acceptanceCriteria": [
+        "Converted affiliate referrals accrue a commission ledger; eligible balances pay out via Stripe Connect (reusing the consignment payout rails)",
+        "Configurable rate + minimum-payout threshold + hold window; payouts are idempotent",
+        "Affiliate dashboard shows accrued vs paid; a basic 1099-threshold flag",
+        "Tests cover accrual on conversion and idempotent payout"
+      ],
+      "passes": false,
+      "notes": "[P2][LHF][Growth] Clicks/conversions already logged; payouts are manual today. Stripe Connect already wired for consignment. Added 2026-06-26."
+    },
+    {
+      "id": "US-1296",
+      "priority": 1296,
+      "title": "Forensic Grade tier — paid defect-zoom re-analysis",
+      "description": "As a seller of a high-value item, I want a paid 'Forensic' grade that crops and upscales small defects for higher accuracy, so the grade is as precise as possible — and the extra cost is covered by the add-on.",
+      "acceptanceCriteria": [
+        "A paid 'Forensic' add-on enables the US-1035 defect-zoom re-analysis path (requires original-image retention US-339, opt-in)",
+        "Priced to cover retention + extra vision calls; gated by entitlement",
+        "The report marks which defects were zoom-refined",
+        "Tests cover entitlement gating and that the zoom path runs only when enabled"
+      ],
+      "passes": false,
+      "notes": "[P2][LHF][Grading] Monetizes accuracy instead of eating the cost; the zoom path already exists but is off by default. Added 2026-06-26."
+    },
+    {
+      "id": "US-1297",
+      "priority": 1297,
+      "title": "\"We are the standard\" positioning + why (live-now safe copy)",
+      "description": "As a visitor, I want the site to state plainly that GradeThread is THE standard for pre-owned clothing condition and to justify it (objective, published, reproducible, independently verifiable), so the positioning is unmistakable and citable.",
+      "acceptanceCriteria": [
+        "grading-standard.tsx, about.tsx, and landing.tsx lead with 'the standard' + the four justifications (objective, published, reproducible, independently verifiable) and link them to the methodology + transparency proof",
+        "public-routes.ts titles/descriptions, marketing-jsonld, and json-ld are kept in sync (prerender sync guard passes)",
+        "Only claims that are TRUE today — no unbuilt-feature promises; guarantee/coverage copy is explicitly out of scope here (that is US-1298)",
+        "build + prerender sync guard + eslint clean"
+      ],
+      "passes": false,
+      "notes": "[P1][Copy/Standard] Initial pass SEEDED in the 2026-06-26 strategy session (grading-standard/about/landing/public-routes); Ralph to complete the full sweep across the remaining marketing pages + JSON-LD parity and verify. Added 2026-06-26."
+    },
+    {
+      "id": "US-1298",
+      "priority": 1298,
+      "title": "Guarantee + coverage marketing copy (ships atomically with the feature)",
+      "description": "As a visitor, I want the guarantee page to clearly explain the grade-fee-back, coverage-gated guarantee, so I understand exactly what is promised — but only once the mechanism is live.",
+      "acceptanceCriteria": [
+        "Rewrite buyer-guarantee.tsx + BUYER_GUARANTEE_FAQS to the grade-fee-back + coverage-gated model: refund of the grading fee + free re-grade when the grade is wrong on a DOCUMENTED area; explicitly NOT item value; undocumented zones out of scope; coverage shown on every certificate",
+        "Keep the marketplace-protection complementarity language; update the FAQ 'does GradeThread issue refunds?' accordingly",
+        "MUST ship atomically with US-1279 + US-1280 — no live remedy promise before the mechanism exists",
+        "prerender sync guard + eslint clean"
+      ],
+      "passes": false,
+      "notes": "[P1][Copy/Guarantee] Depends on [[US-1279]] + [[US-1280]]. DO NOT publish before those pass — publishing a remedy you cannot honor is a liability. Added 2026-06-26."
     }
   ]
 }
