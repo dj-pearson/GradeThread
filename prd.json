@@ -6254,7 +6254,7 @@
         "Enforces a max batch size and reports per-item results (ok/blocked/error); tenant-scoped",
         "Tests: a partial-failure batch reports per-item outcomes"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][LHF][FlipDesk] Table-stakes vs Vendoo/List Perfectly; AutoLister already does bulk generation. Added 2026-06-26."
     },
     {
