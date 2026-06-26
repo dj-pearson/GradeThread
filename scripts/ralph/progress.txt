@@ -3846,3 +3846,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Thu, Jun 25, 2026  1:06:03 PM
 ---
+## US-1276: Coverage scoring engine — which garment zones the photos actually document
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026  1:03:28 PM
+---

@@ -6002,7 +6002,7 @@
     },
     {
       "id": "US-1276",
-      "priority": 1276,
+      "priority": 1310,
       "title": "Coverage scoring engine — which garment zones the photos actually document",
       "description": "As a seller, when I submit photos I want the system to compute which standard inspection zones of the garment are visible, so the grade — and any guarantee — is scoped to what was actually documented (LiDAR-style coverage, but from 2D photos so it works for every device).",
       "acceptanceCriteria": [
@@ -6012,12 +6012,15 @@
         "Coverage result persisted on the grade report via an idempotent migration (IF NOT EXISTS, applied_migrations footer, bump EXPECTED_SCHEMA_VERSION in the same commit)",
         "Unit tests cover a fully-documented set (~100%), a front-only set (low %), and a category with legitimately absent zones"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Coverage] Keystone for the coverage-gated guarantee (US-1279/1280). 2D zone-based so it works on every device; true 3D/photogrammetry is the separate premium US-1281. Added 2026-06-26 strategy session."
     },
     {
       "id": "US-1277",
-      "priority": 1277,
+      "priority": 1309,
+      "dependsOn": [
+        "US-1276"
+      ],
       "title": "Coverage meter + missing-zone nudge in the submission flow",
       "description": "As a seller, while I upload photos I want to see how much of the garment I have documented and exactly which shots are still missing, so I am motivated to submit complete coverage (which both improves the grade and widens my guarantee).",
       "acceptanceCriteria": [
@@ -6032,7 +6035,11 @@
     },
     {
       "id": "US-1278",
-      "priority": 1278,
+      "priority": 1307,
+      "dependsOn": [
+        "US-1276",
+        "US-1279"
+      ],
       "title": "Coverage badge + silhouette heatmap on the certificate",
       "description": "As a buyer, I want the certificate to show what fraction of the garment the seller actually documented, so I can trust the grade and understand what it does and does not cover.",
       "acceptanceCriteria": [
@@ -6047,7 +6054,10 @@
     },
     {
       "id": "US-1279",
-      "priority": 1279,
+      "priority": 1308,
+      "dependsOn": [
+        "US-1276"
+      ],
       "title": "Coverage-gated guarantee scope (undocumented zones are out of scope)",
       "description": "As GradeThread, I want the guarantee to be liable only for defects in zones the seller actually documented, so the promise is underwritable: we never owe a remedy for damage in an area the photos never showed.",
       "acceptanceCriteria": [
@@ -6061,7 +6071,10 @@
     },
     {
       "id": "US-1280",
-      "priority": 1280,
+      "priority": 1306,
+      "dependsOn": [
+        "US-1279"
+      ],
       "title": "Grade Accuracy Guarantee remedy — refund the grading fee + free re-grade",
       "description": "As a buyer/seller, when an approved guarantee claim shows our grade was wrong on a DOCUMENTED area, I want GradeThread to make it right by refunding the grading fee and granting a free re-grade — never by refunding item value (that stays with the marketplace/seller).",
       "acceptanceCriteria": [
@@ -6316,7 +6329,11 @@
     },
     {
       "id": "US-1298",
-      "priority": 1298,
+      "priority": 1305,
+      "dependsOn": [
+        "US-1279",
+        "US-1280"
+      ],
       "title": "Guarantee + coverage marketing copy (ships atomically with the feature)",
       "description": "As a visitor, I want the guarantee page to clearly explain the grade-fee-back, coverage-gated guarantee, so I understand exactly what is promised — but only once the mechanism is live.",
       "acceptanceCriteria": [
