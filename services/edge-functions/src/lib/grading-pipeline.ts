@@ -209,6 +209,9 @@ async function escalateGrade(
   styleHint: string[],
   submissionId: string,
   model: string,
+  // US-1296: only re-run the paid defect-zoom pass on escalation when the
+  // Forensic add-on was purchased — mirrors the gate on the first-pass path.
+  wantForensic: boolean,
 ): Promise<
   { perImageResults: PerImageAnalysis[]; compositeResult: CompositeGradeResult } | null
 > {
@@ -266,14 +269,16 @@ async function escalateGrade(
   if (failedRequired.length > 0 || usable.length === 0) return null;
 
   let perImageResults = usable;
-  perImageResults = await runDefectZoomPass(
-    perImageResults,
-    images,
-    submission,
-    styleHint,
-    submissionId,
-    model,
-  ).catch(() => perImageResults);
+  if (wantForensic) {
+    perImageResults = await runDefectZoomPass(
+      perImageResults,
+      images,
+      submission,
+      styleHint,
+      submissionId,
+      model,
+    ).catch(() => perImageResults);
+  }
 
   const compositeResult = await compositeGrade(
     perImageResults,
@@ -677,7 +682,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, authenticity_addon, created_at")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, authenticity_addon, forensic_addon, created_at")
       .eq("id", submissionId)
       .single();
 
@@ -733,6 +738,13 @@ export async function processSubmission(submissionId: string) {
     // condition grade and from the photo-tamper check (image_authenticity).
     const wantAuthenticity =
       (submission as { authenticity_addon?: boolean }).authenticity_addon === true;
+    // US-1296: Forensic Grade add-on. The US-1035 defect-zoom re-analysis only
+    // runs when the seller purchased it (gated to Premium/Express + the feature
+    // flag + original retention in grade.ts). Without it the pipeline skips the
+    // extra crop downloads + vision calls entirely — accuracy is monetized, not
+    // absorbed on every grade.
+    const wantForensic =
+      (submission as { forensic_addon?: boolean }).forensic_addon === true;
     const authenticityGarmentInfo: GarmentInfo = {
       garment_type: submission.garment_type,
       garment_category: submission.garment_category,
@@ -928,20 +940,26 @@ export async function processSubmission(submissionId: string) {
     // garment shot; re-analyze just the defect region from the original at high
     // resolution and merge the better size/severity read. Best-effort + bounded;
     // a failure leaves the original read intact.
-    perImageResults = await runDefectZoomPass(
-      perImageResults,
-      images as ZoomImageRow[],
-      submission,
-      styleHint,
-      submissionId,
-      firstPassModel,
-    ).catch((err) => {
-      console.error(
-        `[Pipeline] defect zoom pass error for submission ${submissionId}:`,
-        err instanceof Error ? err.message : String(err),
-      );
-      return perImageResults;
-    });
+    //
+    // US-1296: this is now the PAID Forensic Grade add-on — it only runs when the
+    // seller purchased it. Skipping it on a standard grade avoids the extra crop
+    // downloads + vision calls that the pipeline used to eat on every submission.
+    if (wantForensic) {
+      perImageResults = await runDefectZoomPass(
+        perImageResults,
+        images as ZoomImageRow[],
+        submission,
+        styleHint,
+        submissionId,
+        firstPassModel,
+      ).catch((err) => {
+        console.error(
+          `[Pipeline] defect zoom pass error for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        return perImageResults;
+      });
+    }
 
     // --- Step 5: Run compositeGrade() with all per-image results ---
     const garmentInfo: GarmentInfo = {
@@ -1008,6 +1026,7 @@ export async function processSubmission(submissionId: string) {
             styleHint,
             submissionId,
             cascade.escalationModel,
+            wantForensic,
           );
           if (escalated) {
             perImageResults = escalated.perImageResults;
@@ -1078,6 +1097,22 @@ export async function processSubmission(submissionId: string) {
       detailedNotes["defects_summary"] = compositeResult.defects_found
         .map((d) => `[${d.severity}] ${d.defect} at ${d.location} — ${d.impact_on_grade}`)
         .join("; ");
+    }
+
+    // US-1296: Forensic Grade summary — record that the paid high-resolution
+    // defect-zoom re-analysis ran and which defects it refined. The per-defect
+    // detail is also carried in per_image_analysis (DetectedIssue.zoom_refined).
+    if (wantForensic) {
+      const refinedDefects = perImageResults.flatMap((r) =>
+        r.detected_issues
+          .filter((d) => d.zoom_refined)
+          .map((d) => `${d.issue} (${d.location})`)
+      );
+      detailedNotes["forensic_summary"] = refinedDefects.length > 0
+        ? `Forensic grade: ${refinedDefects.length} defect(s) re-analyzed at high ` +
+          `resolution — ${refinedDefects.join("; ")}.`
+        : "Forensic grade: high-resolution defect re-analysis ran; no defects " +
+          "required a size/severity refinement.";
     }
 
     // Add intentional-design summary so the certificate / report can show that
@@ -1353,6 +1388,10 @@ export async function processSubmission(submissionId: string) {
         // US-1276: per-garment inspection-zone coverage (covered/missing zones +
         // coverage_pct) scoped to what the submitted photos actually documented.
         coverage,
+        // US-1296: whether the paid Forensic defect-zoom re-analysis ran. Which
+        // defects were zoom-refined is in per_image_analysis (zoom_refined) +
+        // detailed_notes.forensic_summary.
+        forensic_grade: wantForensic,
         confidence_score: compositeResult.confidence_score,
         needs_human_review: compositeResult.needs_human_review,
         // US-336/US-338: aggregated photo-authenticity assessment (manipulation /

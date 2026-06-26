@@ -11,6 +11,7 @@ import {
   GRADE_TIERS,
   type GradeTier,
   type PrecedenceResult,
+  forensicAddonEnabled,
   runPaymentPrecedence,
   tierSupportsAuthenticityAddon,
 } from "../lib/grade-billing.ts";
@@ -243,6 +244,13 @@ gradeRoutes.post("/submit", async (c) => {
   // and when the kill-switch flag is on — both enforced just below.
   const authenticityAddonOptIn =
     (formData.get("authenticity_addon") as string | null) === "true";
+  // US-1296: Forensic Grade add-on opt-in. Enables the US-1035 high-resolution
+  // defect-zoom re-analysis path (off by default to avoid eating its cost on
+  // every grade). Only HONORED on a paid Premium/Express tier, when the
+  // kill-switch flag is on, AND when originals are actually being retained
+  // (US-339) — the zoom re-reads the uncompressed original. All enforced below.
+  const forensicAddonOptIn =
+    (formData.get("forensic_grade") as string | null) === "true";
   const tierRaw = (formData.get("tier") as string | null) ?? "standard";
   const tier: GradeTier = GRADE_TIERS.includes(tierRaw as GradeTier)
     ? (tierRaw as GradeTier)
@@ -345,6 +353,17 @@ gradeRoutes.post("/submit", async (c) => {
     tierSupportsAuthenticityAddon(tier) &&
     (await isFeatureEnabled("authenticity_addon"));
 
+  // US-1296: honor the Forensic Grade add-on only on a paid Premium/Express tier,
+  // when its kill-switch flag is on, AND when this submission's originals are
+  // being retained (US-339) — the zoom pass re-reads the uncompressed original,
+  // so without retention there's nothing higher-res to forensically analyze.
+  const forensicAddon = forensicAddonEnabled({
+    optIn: forensicAddonOptIn,
+    tier,
+    retainOriginals,
+    featureEnabled: await isFeatureEnabled("forensic_grade"),
+  });
+
   // US-949: validate the retake target BEFORE creating the new submission, so a
   // forged/foreign id can't link a retake chain across tenants (US-268). The
   // prior submission must belong to the same workspace owner and be in a
@@ -382,6 +401,7 @@ gradeRoutes.post("/submit", async (c) => {
       style_attributes: styleAttributes,
       verified_capture_opt_in: verifiedCaptureOptIn,
       authenticity_addon: authenticityAddon,
+      forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,
       status: "pending",
       payment_status: "unpaid",

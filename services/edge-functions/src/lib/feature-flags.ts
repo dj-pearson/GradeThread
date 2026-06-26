@@ -33,6 +33,11 @@ export type FeatureKey =
   | "content_ai"
   | "repricing"
   | "authenticity_addon"
+  // US-1296: Forensic Grade add-on (paid high-resolution defect-zoom
+  // re-analysis). Kill-switch on top of the tier/opt-in/retention gate; the
+  // route checks it before honoring the add-on so it can be disabled platform-
+  // wide without a redeploy.
+  | "forensic_grade"
   | "support_assistant"
   // US-1104: Garment Passport resale-value & depreciation forecast (Scout). An
   // ops kill-switch on top of the compPulls plan gate; fail-open (default on).

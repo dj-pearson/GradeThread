@@ -33,6 +33,8 @@ export {
   TIER_SLA_HOURS,
   tierPriceDollars,
   tierSupportsAuthenticityAddon,
+  tierSupportsForensicAddon,
+  forensicAddonEnabled,
 } from "./grade-pricing.ts";
 export type { GradeTier } from "./grade-pricing.ts";
 

@@ -21,6 +21,38 @@ export function tierSupportsAuthenticityAddon(tier: GradeTier): boolean {
   return tier === "premium" || tier === "express";
 }
 
+// US-1296: the Forensic Grade add-on (paid high-resolution defect-zoom
+// re-analysis) is offered only on the paid Premium/Express tiers. The higher
+// per-tier charge covers the extra cost it incurs — original-image retention
+// (US-339) plus the bounded extra vision calls of the zoom pass (US-1035) — so,
+// as with the authenticity add-on, there is no separate billing path. Standard
+// grades never include it. Pure + unit-tested; the route ALSO checks the seller
+// opt-in, the feature flag, and that originals are actually being retained.
+export function tierSupportsForensicAddon(tier: GradeTier): boolean {
+  return tier === "premium" || tier === "express";
+}
+
+// US-1296: the full Forensic add-on entitlement decision, pure so the gate is
+// unit-tested without a DB/route. The paid zoom-re-analysis path runs ONLY when
+// ALL hold: the seller opted in, the tier supports it (Premium/Express), the
+// originals are actually being retained (US-339 — there's nothing higher-res to
+// re-analyze otherwise), and the kill-switch feature flag is on. The route
+// resolves `featureEnabled` (isFeatureEnabled) and `retainOriginals` and feeds
+// them in. Persisted on submissions.forensic_addon → drives the pipeline gate.
+export function forensicAddonEnabled(opts: {
+  optIn: boolean;
+  tier: GradeTier;
+  retainOriginals: boolean;
+  featureEnabled: boolean;
+}): boolean {
+  return (
+    opts.optIn &&
+    tierSupportsForensicAddon(opts.tier) &&
+    opts.retainOriginals &&
+    opts.featureEnabled
+  );
+}
+
 // Mirrors src/lib/constants.ts FLIPDESK_PLANS.includedStandardGradesPerMonth.
 // Keyed on the current flipdesk_plan column (NOT the legacy `plan` column).
 export const INCLUDED_STANDARD_PER_MONTH: Record<string, number> = {

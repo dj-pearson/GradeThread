@@ -133,6 +133,12 @@ export interface DetectedIssue {
   // whenever the model can't localize the issue — the disclosure degrades to
   // a text-only callout in that case.
   bbox?: [number, number, number, number] | null;
+  // US-1296: set true when the Forensic Grade add-on re-analyzed this defect's
+  // region at high resolution (the US-1035 zoom pass merged a higher-fidelity
+  // size/severity read back). Persisted in grade_reports.per_image_analysis so
+  // the report can mark exactly which defects were zoom-refined. Absent on grades
+  // without the Forensic add-on and on defects that weren't selected for zoom.
+  zoom_refined?: boolean;
 }
 
 export interface StyleAttribute {
@@ -1195,6 +1201,8 @@ export function mergeZoomIntoIssue(
   if (genuine.length === 0) {
     return {
       ...original,
+      // US-1296: this defect was re-analyzed at high resolution (Forensic add-on).
+      zoom_refined: true,
       size_confidence: Math.min(
         typeof original.size_confidence === "number" ? original.size_confidence : 0.6,
         0.3,
@@ -1218,6 +1226,8 @@ export function mergeZoomIntoIssue(
       : original.size_bucket;
   return {
     ...original,
+    // US-1296: mark this defect as forensically zoom-refined for the report.
+    zoom_refined: true,
     severity: moreSevere,
     size_bucket: largerBucket,
     area_pct: best.area_pct ?? original.area_pct,
