@@ -97,6 +97,7 @@ import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
+import { BulkEditDialog } from "@/components/flipdesk/bulk-edit-dialog";
 import { PrepareShipmentDialog } from "@/components/flipdesk/prepare-shipment-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
@@ -468,6 +469,9 @@ export function FlipdeskListingsPage() {
   const [aiEnrichOpen, setAiEnrichOpen] = useState(false);
   // US-962: bulk match-to-comp reprice of the selected active listings.
   const [repriceOpen, setRepriceOpen] = useState(false);
+  // US-1292: bulk-edit shared fields (price/condition/policy) across selected
+  // live listings via marketplace adapters.
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   // US-960: bulk "Prepare shipment" — fill carrier + tracking across the
   // selected sold items and advance them to shipped.
   const [prepareShipOpen, setPrepareShipOpen] = useState(false);
@@ -2632,6 +2636,14 @@ export function FlipdeskListingsPage() {
                       Reprice to comp
                     </Button>
                   )}
+                  <Button
+                    variant="outline"
+                    onClick={() => setBulkEditOpen(true)}
+                    disabled={busy}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Bulk edit
+                  </Button>
                   <Select value={bulkDropPct} onValueChange={setBulkDropPct}>
                     <SelectTrigger className="h-9 w-28">
                       <SelectValue />
@@ -2767,6 +2779,18 @@ export function FlipdeskListingsPage() {
       <BulkRepriceDialog
         open={repriceOpen}
         onOpenChange={setRepriceOpen}
+        listingIds={Array.from(selected)
+          .map((id) => items.find((i) => i.id === id)?.listing_id)
+          .filter((v): v is string => !!v)}
+        onApplied={() => {
+          setSelected(new Set());
+          void qc.invalidateQueries({ queryKey: ["items_full"] });
+        }}
+      />
+
+      <BulkEditDialog
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
         listingIds={Array.from(selected)
           .map((id) => items.find((i) => i.id === id)?.listing_id)
           .filter((v): v is string => !!v)}

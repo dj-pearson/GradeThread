@@ -1726,6 +1726,62 @@ export function useEbayBulkPriceQuantity() {
   });
 }
 
+// ── Bulk-edit live listings (US-1292) ───────────────────────────────
+
+export interface BulkEditFields {
+  price?: number;
+  quantity?: number;
+  ebay_condition?: string;
+  ebay_condition_description?: string;
+  shipping_policy_id?: string;
+  payment_policy_id?: string;
+  return_policy_id?: string;
+  platform_category_id?: string;
+}
+
+export interface BulkEditResult {
+  listing_id: string;
+  status: "ok" | "blocked" | "error";
+  error?: string;
+  locked?: string[];
+}
+
+export interface BulkEditResponse {
+  ok: true;
+  results: BulkEditResult[];
+  summary: { ok: number; blocked: number; error: number };
+  total: number;
+}
+
+// Multi-select bulk edit of shared listing fields applied across connected
+// marketplaces via adapters. Field-ownership locks on marketplace-originated
+// listings come back as per-item status="blocked"; failures as status="error".
+export function useBulkEditListings() {
+  const qc = useQueryClient();
+  return useMutation<
+    BulkEditResponse,
+    Error,
+    { listingIds: string[]; edit: BulkEditFields }
+  >({
+    mutationFn: async ({ listingIds, edit }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/bulk-edit`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ listing_ids: listingIds, edit }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Bulk edit failed.");
+      return json as BulkEditResponse;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+    },
+  });
+}
+
 // ── Leave buyer feedback (US-1047) ──────────────────────────────────
 // The edge resolves the legacy ItemID/TransactionID from the order id, so the
 // UI only needs the sale's platform_order_id.
