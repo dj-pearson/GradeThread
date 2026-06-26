@@ -45,7 +45,21 @@ export interface FeatureGroup {
    *  missing vars produce neither a boot warning nor a "degraded" readiness line
    *  (the feature simply isn't in use). Omit for always-on optional features. */
   enabledWhen?: (get: EnvGetter) => boolean;
+  /** Optional override for the "is this group configured?" check. When present,
+   *  it REPLACES the default "every var in `vars` is set" rule — used when a
+   *  feature accepts a fallback credential (e.g. the Google connectors fall back
+   *  to the shared GOOGLE_CLIENT_* when the per-service override is unset). The
+   *  `vars` list is still used to render the "missing: …" hint when it returns
+   *  false. Pure (env-getter in, boolean out) so it stays unit-testable. */
+  satisfiedWhen?: (get: EnvGetter) => boolean;
 }
+
+// The shared Google OAuth client serves every Google integration by default;
+// the per-service GOOGLE_*_CLIENT_* pairs are optional overrides (see
+// flipdesk-google.ts / flipdesk-google-photos.ts). A Google feature is therefore
+// configured when EITHER its override pair OR the shared pair is set.
+const hasGoogleShared = (get: EnvGetter): boolean =>
+  has(get, "GOOGLE_CLIENT_ID") && has(get, "GOOGLE_CLIENT_SECRET");
 
 // US-788: the appstore vars are only relevant when IAP is actually in use. We
 // consider IAP "enabled" when the operator opts in explicitly (IAP_ENABLED
@@ -87,10 +101,26 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   // paths return 503; the rest of FlipDesk is unaffected.
   { name: "shopify", vars: ["SHOPIFY_API_KEY", "SHOPIFY_API_SECRET", "SHOPIFY_REDIRECT_URI"] },
   { name: "smtp", vars: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_ADMIN_EMAIL"] },
-  { name: "google_photos", vars: ["GOOGLE_PHOTOS_CLIENT_ID", "GOOGLE_PHOTOS_CLIENT_SECRET"] },
+  // Falls back to the shared GOOGLE_CLIENT_* when the Photos-specific override
+  // isn't set (mirrors flipdesk-google-photos.ts), so it's "ok" either way.
+  {
+    name: "google_photos",
+    vars: ["GOOGLE_PHOTOS_CLIENT_ID", "GOOGLE_PHOTOS_CLIENT_SECRET"],
+    satisfiedWhen: (get) =>
+      (has(get, "GOOGLE_PHOTOS_CLIENT_ID") &&
+        has(get, "GOOGLE_PHOTOS_CLIENT_SECRET")) ||
+      hasGoogleShared(get),
+  },
   // US-146: Google Sheets sync. Falls back to the shared GOOGLE_CLIENT_* if the
-  // Sheets-specific override isn't set, so the group lists the override pair.
-  { name: "google_sheets", vars: ["GOOGLE_SHEETS_CLIENT_ID", "GOOGLE_SHEETS_CLIENT_SECRET"] },
+  // Sheets-specific override isn't set (mirrors flipdesk-google.ts).
+  {
+    name: "google_sheets",
+    vars: ["GOOGLE_SHEETS_CLIENT_ID", "GOOGLE_SHEETS_CLIENT_SECRET"],
+    satisfiedWhen: (get) =>
+      (has(get, "GOOGLE_SHEETS_CLIENT_ID") &&
+        has(get, "GOOGLE_SHEETS_CLIENT_SECRET")) ||
+      hasGoogleShared(get),
+  },
   { name: "observability", vars: ["SENTRY_DSN"] },
   // US-788: StoreKit / App Store Server Notifications V2. Missing → IAP receipt
   // verification + the appstore webhook can't validate Apple's JWS. Surfaced on
@@ -135,8 +165,15 @@ export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string
       out[g.name] = "disabled";
       continue;
     }
+    const satisfied = g.satisfiedWhen
+      ? g.satisfiedWhen(get)
+      : g.vars.every((v) => has(get, v));
+    if (satisfied) {
+      out[g.name] = "ok";
+      continue;
+    }
     const miss = g.vars.filter((v) => !has(get, v));
-    out[g.name] = miss.length === 0 ? "ok" : `missing: ${miss.join(", ")}`;
+    out[g.name] = `missing: ${miss.join(", ")}`;
   }
   return out;
 }
@@ -148,10 +185,12 @@ export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string
 export function warnMissingFeatureGroups(get: EnvGetter = realEnv): void {
   for (const g of FEATURE_GROUPS) {
     if (g.enabledWhen && !g.enabledWhen(get)) continue;
+    const satisfied = g.satisfiedWhen
+      ? g.satisfiedWhen(get)
+      : g.vars.every((v) => has(get, v));
+    if (satisfied) continue;
     const miss = g.vars.filter((v) => !has(get, v));
-    if (miss.length > 0) {
-      console.warn(`[BOOT] feature '${g.name}' is not fully configured — missing: ${miss.join(", ")}`);
-    }
+    console.warn(`[BOOT] feature '${g.name}' is not fully configured — missing: ${miss.join(", ")}`);
   }
 }
 

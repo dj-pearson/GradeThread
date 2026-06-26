@@ -75,6 +75,34 @@ Deno.test("feature readiness: a fully-configured feature is 'ok', a gap names th
   assert(r.google_photos.startsWith("missing:"));
 });
 
+Deno.test("Google connectors: shared GOOGLE_CLIENT_* satisfies google_photos/sheets (fallback)", () => {
+  // No per-service override vars set — only the shared client. The connectors
+  // fall back to it at runtime, so the boot validator must report 'ok' too.
+  const env = { GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "secret" };
+  const r = computeFeatureReadiness(envOf(env));
+  assertEquals(r.google_photos, "ok");
+  assertEquals(r.google_sheets, "ok");
+
+  // And it stays SILENT at boot about these groups.
+  const warnings: string[] = [];
+  const orig = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.join(" "));
+  try {
+    warnMissingFeatureGroups(envOf(env));
+  } finally {
+    console.warn = orig;
+  }
+  assert(!warnings.some((w) => w.includes("google_photos")));
+  assert(!warnings.some((w) => w.includes("google_sheets")));
+});
+
+Deno.test("Google connectors: neither override nor shared creds → still degraded", () => {
+  const r = computeFeatureReadiness(envOf({}));
+  assert(r.google_photos.startsWith("missing:"));
+  assert(r.google_photos.includes("GOOGLE_PHOTOS_CLIENT_ID"));
+  assert(r.google_sheets.startsWith("missing:"));
+});
+
 Deno.test("a degraded feature group never makes the env REQUIRED check fail", () => {
   // PROD_OK has zero feature-group vars, yet required env is complete.
   assertEquals(missingRequiredEnv(envOf(PROD_OK), "production"), []);
