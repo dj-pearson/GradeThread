@@ -109,7 +109,9 @@ const ZONES: Record<string, InspectionZone> = {
 };
 
 function zonesFor(ids: string[]): InspectionZone[] {
-  return ids.map((id) => ZONES[id]);
+  return ids
+    .map((id) => ZONES[id])
+    .filter((z): z is InspectionZone => z !== undefined);
 }
 
 // Shared zone sets.
@@ -216,7 +218,7 @@ const TEMPLATES: Record<string, string[]> = {
   other: ["front", "back", "branding"],
 };
 
-const DEFAULT_TEMPLATE = TEMPLATES.other;
+const DEFAULT_TEMPLATE: string[] = TEMPLATES.other ?? [];
 
 /** The inspection-zone template for a garment_category (falls back to a minimal
  * front/back/branding template for an unknown category). Exported for tests. */

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { cors } from "hono/middleware";
 import { accessLogger } from "./middleware/access-log.ts";
 import { healthRoutes } from "./routes/health.ts";
@@ -218,6 +219,20 @@ const ALLOWED_HEADERS = [
   "X-Workspace-Owner",
 ];
 
+// Re-apply the Access-Control-Allow-Origin (+ Vary) headers for an allowed
+// caller. Used both by the OPTIONS preflight handler and by the terminal
+// error/not-found handlers so a response built AFTER an early throw (e.g. an
+// exception in a pre-cors() middleware, before cors() set the header) still
+// carries CORS — otherwise the browser reports a misleading "blocked by CORS
+// policy" that masks the real 4xx/5xx the operator needs to see.
+function applyCorsOrigin(c: Context): void {
+  const origin = c.req.header("Origin") ?? "";
+  if (isAllowedOrigin(origin)) {
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Vary", "Origin");
+  }
+}
+
 // Belt-and-suspenders: respond to every OPTIONS preflight FIRST, before any
 // other middleware runs. Hono's cors() should already do this, but a defensive
 // explicit handler here means a Traefik/Coolify edge or an upstream middleware
@@ -227,12 +242,7 @@ app.use("*", async (c, next) => {
     await next();
     return;
   }
-  const origin = c.req.header("Origin") ?? "";
-  const allowed = isAllowedOrigin(origin) ? origin : "";
-  if (allowed) {
-    c.header("Access-Control-Allow-Origin", allowed);
-    c.header("Vary", "Origin");
-  }
+  applyCorsOrigin(c);
   c.header(
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
@@ -1211,10 +1221,19 @@ app.route("/api/legal", legalRoutes);
 app.route("/api/verified", verifiedRoutes);
 
 // 404
-app.notFound((c) => c.json({ error: "Not found" }, 404));
+app.notFound((c) => {
+  applyCorsOrigin(c);
+  return c.json({ error: "Not found" }, 404);
+});
 
 // Error handler
 app.onError((err, c) => {
+  // A response built here replaces whatever cors() may have set, and an error
+  // thrown in a pre-cors() middleware means cors() never ran at all — so
+  // re-apply the allow-origin header. Without it the browser masks every 4xx/5xx
+  // as a "blocked by CORS policy" failure, hiding the real status from the admin
+  // dashboard's console.
+  applyCorsOrigin(c);
   // US-362: a body that overran the streaming cap surfaces here when the route
   // tried to read it — return a clean 413, not a generic 500.
   if (err instanceof BodyTooLargeError) {
