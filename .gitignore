@@ -106,3 +106,4 @@ __pycache__/
 # Local Supabase / DB data exports — never commit data dumps
 listings_rows.csv
 export/
+scripts/seed-demo-account.sql
