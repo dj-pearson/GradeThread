@@ -570,7 +570,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   const { data: submission } = await supabaseAdmin
     .from("submissions")
     .select(
-      "title, brand, garment_type, garment_category, description, flagged, moderation_status",
+      "title, brand, garment_type, garment_category, description, flagged, moderation_status, status",
     )
     .eq("id", rep.submission_id)
     .maybeSingle();
@@ -582,7 +582,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   // moderation_status='approved', US-476). 404 exactly like a private report so
   // a forged/altered grade can't be trusted via the public cert/SSR/OG path.
   const sub = submission as
-    | { flagged?: boolean | null; moderation_status?: string | null }
+    | { flagged?: boolean | null; moderation_status?: string | null; status?: string | null }
     | null;
   if (isCertificateWithheld(sub)) {
     return c.json({ error: "Not found" }, 404);
@@ -657,7 +657,7 @@ contentPublicRoutes.get("/certificates/by-number/:number", async (c) => {
 
   const { data: submission } = await supabaseAdmin
     .from("submissions")
-    .select("title, brand, flagged, moderation_status")
+    .select("title, brand, flagged, moderation_status, status")
     .eq("id", rep.submission_id)
     .maybeSingle();
   const sub = submission as
@@ -666,6 +666,7 @@ contentPublicRoutes.get("/certificates/by-number/:number", async (c) => {
         brand?: string | null;
         flagged?: boolean | null;
         moderation_status?: string | null;
+        status?: string | null;
       }
     | null;
   if (isCertificateWithheld(sub)) return c.json({ found: false }, 404);
@@ -730,10 +731,12 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
   // be "verified" as authentic via the public path.
   const { data: vSub } = await supabaseAdmin
     .from("submissions")
-    .select("flagged, moderation_status")
+    .select("flagged, moderation_status, status")
     .eq("id", r.submission_id)
     .maybeSingle();
-  const vs = vSub as { flagged?: boolean | null; moderation_status?: string | null } | null;
+  const vs = vSub as
+    | { flagged?: boolean | null; moderation_status?: string | null; status?: string | null }
+    | null;
   if (isCertificateWithheld(vs)) {
     return c.json({ error: "Not found" }, 404);
   }

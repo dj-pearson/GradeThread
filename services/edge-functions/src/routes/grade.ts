@@ -403,6 +403,9 @@ gradeRoutes.post("/submit", async (c) => {
       authenticity_addon: authenticityAddon,
       forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,
+      // The requested grade-speed tier drives the review SLA + queue priority
+      // (express > premium > standard) once the AI grade lands in human review.
+      service_tier: tier,
       status: "pending",
       payment_status: "unpaid",
     })
@@ -700,7 +703,14 @@ gradeRoutes.get("/status/:id", async (c) => {
   }
 
   let gradeReport = null;
-  if (submission.status === "completed") {
+  // Mandatory review: the owner sees their grade once it exists — both the
+  // PRELIMINARY grade while it's in review (status='pending_review') and the
+  // final grade once finalized (status='completed'). review_status on the report
+  // tells the UI whether to badge it "pending review" or show it as official.
+  if (
+    submission.status === "completed" ||
+    submission.status === "pending_review"
+  ) {
     const { data: report } = await supabaseAdmin
       .from("grade_reports")
       .select("*")

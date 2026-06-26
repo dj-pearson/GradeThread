@@ -11,6 +11,9 @@ const EMAIL_SRC = new URL("../lib/email.ts", import.meta.url);
 // Exported transactional senders that MUST be categorized.
 const TRANSACTIONAL_SENDERS = [
   "sendGradeCompleteEmail",
+  "sendGradePreliminaryEmail",
+  "sendGradeReviewRequestEmail",
+  "sendGradeFinalizedEmail",
   "sendDisputeResolvedEmail",
   "sendWelcomeEmail",
   "sendSubscriptionStartedEmail",

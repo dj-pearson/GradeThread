@@ -50,10 +50,13 @@ import { applyGradeAdjustment } from "../lib/grade-adjustment.ts";
 import { purgeCertificateCache } from "../lib/cloudflare-purge.ts";
 import {
   type CheckedUpdateClient,
-  updateByIdChecked,
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
-import { defaultRegradeStore, regradeSubmission } from "../lib/grading-pipeline.ts";
+import {
+  defaultRegradeStore,
+  finalizeGradeReview,
+  regradeSubmission,
+} from "../lib/grading-pipeline.ts";
 import {
   minimizeReliabilityPhoto,
   minimizeReliabilityQueueRow,
@@ -1632,12 +1635,16 @@ interface QueueReportRow {
   human_reviewed: boolean;
   review_claimed_by: string | null;
   review_claimed_at: string | null;
+  review_due_at: string | null;
   created_at: string;
 }
 
-// GET /review-queue — grade reports needing human review (low-confidence flag),
-// not yet reviewed, OLDEST FIRST. Returns per-factor scores, confidence, AI
-// reasoning, the customer, and queue_age_seconds (oldest unreviewed) for SLA.
+// GET /review-queue — EVERY preliminary grade awaiting human finalization
+// (mandatory review). PRIORITY-ORDERED by review_due_at (= submit time + the
+// requested grade-speed tier SLA), so express (1h) surfaces before premium (12h)
+// before standard (48h), and an overdue item rises to the top. Returns
+// per-factor scores, confidence, AI reasoning, the customer, the requested tier,
+// and queue_age_seconds (oldest unreviewed) for SLA.
 adminGradingRoutes.get("/review-queue", async (c) => {
   const viewerId = c.get("userId");
   const { data: reportsRaw, error } = await supabaseAdmin
@@ -1646,12 +1653,14 @@ adminGradingRoutes.get("/review-queue", async (c) => {
       "id, submission_id, overall_score, grade_tier, confidence_score, confidence_label, " +
         "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, needs_human_review, " +
-        "human_reviewed, review_claimed_by, review_claimed_at, created_at",
+        "human_reviewed, review_claimed_by, review_claimed_at, review_due_at, created_at",
     )
-    // The pipeline-persisted flag (US-073/00049); the OR keeps legacy rows graded
-    // before the column existed.
-    .or("needs_human_review.eq.true,confidence_score.lt.0.75")
+    // Every preliminary grade that hasn't been finalized or sent back yet.
+    .eq("review_status", "pending")
     .eq("human_reviewed", false)
+    .is("superseded_at", null)
+    // Priority: earliest review-due first (tier SLA); fall back to age.
+    .order("review_due_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
     .limit(REVIEW_QUEUE_LIMIT);
 
@@ -1665,13 +1674,21 @@ adminGradingRoutes.get("/review-queue", async (c) => {
 
   const subById = new Map<
     string,
-    { id: string; user_id: string; title: string; garment_type: string; garment_category: string; created_at: string }
+    {
+      id: string;
+      user_id: string;
+      title: string;
+      garment_type: string;
+      garment_category: string;
+      service_tier: string | null;
+      created_at: string;
+    }
   >();
   const emailByUser = new Map<string, { email: string; full_name: string | null }>();
   if (submissionIds.length > 0) {
     const { data: subs } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, title, garment_type, garment_category, created_at")
+      .select("id, user_id, title, garment_type, garment_category, service_tier, created_at")
       .in("id", submissionIds);
     for (
       const s of (subs ?? []) as Array<{
@@ -1680,6 +1697,7 @@ adminGradingRoutes.get("/review-queue", async (c) => {
         title: string;
         garment_type: string;
         garment_category: string;
+        service_tier: string | null;
         created_at: string;
       }>
     ) {
@@ -1735,6 +1753,11 @@ adminGradingRoutes.get("/review-queue", async (c) => {
       ai_summary: r.ai_summary,
       created_at: r.created_at,
       waiting_ms: now - new Date(r.created_at).getTime(),
+      // Mandatory-review priority signals: the requested grade-speed tier and the
+      // SLA due time. overdue = past due (front of the queue).
+      service_tier: sub?.service_tier ?? "standard",
+      review_due_at: r.review_due_at,
+      overdue: r.review_due_at ? new Date(r.review_due_at).getTime() < now : false,
       // Claim-lock state (US-1293): null when free/stale, else who holds it.
       claimed_by: claimActive ? r.review_claimed_by : null,
       claimed_by_me: claimActive && r.review_claimed_by === viewerId,
@@ -1902,8 +1925,10 @@ async function loadReportForReview(reportId: string) {
   };
 }
 
-// POST /review/:id/approve — accept the AI grade as-is. No certified field
-// changes, so no reseal needed; records the human review + clears the flag.
+// POST /review/:id/approve — accept the AI grade as-is and FINALIZE it
+// (mandatory review). Records the human review, then finalizeGradeReview makes
+// the grade official: certificate goes live, the linked item goes 'graded', the
+// seller is notified. No certified field changes → no reseal needed.
 adminGradingRoutes.post("/review/:id/approve", async (c) => {
   const stepUp = requireStepUp(c);
   if (stepUp) return stepUp;
@@ -1929,28 +1954,19 @@ adminGradingRoutes.post("/review/:id/approve", async (c) => {
     return c.json({ error: "Failed to record review" }, 500);
   }
 
-  // US-474: verify the flag-clear actually changed a row (service-role updates
-  // no-op silently when the id no longer matches).
-  try {
-    await updateByIdChecked(
-      supabaseAdmin as unknown as CheckedUpdateClient,
-      "grade_reports",
-      report.id,
-      { human_reviewed: true, needs_human_review: false, review_claimed_by: null, review_claimed_at: null },
-    );
-  } catch (err) {
-    if (err instanceof ZeroRowsAffectedError) {
-      return c.json({ error: "Grade report not found or unchanged" }, 409);
-    }
-    console.error("[admin-grading] approve: grade_reports update failed:", err);
-    return c.json({ error: "Failed to record review" }, 500);
+  // Finalize: flips review_status→approved, clears the review flags, advances the
+  // submission to completed, and runs all the go-live wiring + seller notice.
+  const result = await finalizeGradeReview(report.id, { reviewerId: adminId, modified: false });
+  if (!result.ok) {
+    return c.json({ error: "Grade report not found" }, 404);
   }
 
   await auditLog(c, "grading.review_approved", "grade_report", report.id, {
     submission_id: report.submission_id,
     original_score: report.overall_score,
+    already_final: result.alreadyFinal ?? false,
   });
-  return c.json({ ok: true });
+  return c.json({ ok: true, finalized: !result.alreadyFinal });
 });
 
 // POST /review/:id/adjust — correct the per-factor scores. Records the original
@@ -2048,6 +2064,16 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
     }
     console.error("[admin-grading] adjust: grade_reports update failed:", err);
     return c.json({ error: "Failed to update grade" }, 500);
+  }
+
+  // Finalize the corrected grade (mandatory review): mark it modified, advance
+  // the submission to completed, run the go-live wiring, and notify the seller.
+  const finalizeResult = await finalizeGradeReview(report.id, {
+    reviewerId: adminId,
+    modified: true,
+  });
+  if (!finalizeResult.ok) {
+    return c.json({ error: "Grade report not found" }, 404);
   }
 
   // US-577: re-grade changed the score — evict the certificate's edge-cached SSR

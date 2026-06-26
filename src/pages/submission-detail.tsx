@@ -607,6 +607,8 @@ export function SubmissionDetailPage() {
                 "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300",
               submission.status === "processing" &&
                 "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+              submission.status === "pending_review" &&
+                "border-violet-200 bg-violet-100 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
               submission.status === "pending" &&
                 "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
               submission.status === "needs_photos" &&
@@ -619,7 +621,7 @@ export function SubmissionDetailPage() {
           >
             {formatLabel(submission.status)}
           </Badge>
-          {gradeReport?.certificate_id && (
+          {submission.status === "completed" && gradeReport?.certificate_id && (
             <Button variant="outline" size="sm" asChild>
               <Link to={`/cert/${gradeReport.certificate_id}`}>
                 <Share2 className="mr-1 h-4 w-4" />
@@ -842,6 +844,25 @@ export function SubmissionDetailPage() {
       {/* Grade Report */}
       {gradeReport ? (
         <div className="grid gap-6 lg:grid-cols-3">
+          {/* Mandatory review: the grade is preliminary until a human finalizes it. */}
+          {submission.status === "pending_review" && (
+            <div className="rounded-lg border border-violet-300 bg-violet-50 px-4 py-3 dark:border-violet-800 dark:bg-violet-950/40 lg:col-span-3">
+              <div className="flex items-start gap-2">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
+                <div>
+                  <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">
+                    Preliminary grade — pending expert review
+                  </p>
+                  <p className="mt-0.5 text-sm text-violet-800/80 dark:text-violet-300/80">
+                    This AI grade is unofficial. One of our experts will review it
+                    shortly — the score may change, and your shareable certificate
+                    goes live once it's finalized. We'll let you know the moment it's
+                    official.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Left column: Score + Factors + Summary */}
           <div className="space-y-6 lg:col-span-2">
             {/* Overall Score */}
@@ -1246,8 +1267,9 @@ export function SubmissionDetailPage() {
       )}
 
       {/* Graded photo (US-765): the PSA-style certified image for this grade,
-          ready to drop into a listing. Only once a certificate exists. */}
-      {gradeReport?.certificate_id && (
+          ready to drop into a listing. Only once a certificate exists AND the
+          grade is finalized (the cert is withheld while in review). */}
+      {submission.status === "completed" && gradeReport?.certificate_id && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

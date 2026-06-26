@@ -31,6 +31,9 @@ export type GarmentCategory =
 export type SubmissionStatus =
   | "pending"
   | "processing"
+  // Mandatory review: AI grade produced but PRELIMINARY — awaiting human
+  // finalization. The certificate stays withheld and the item is not yet live.
+  | "pending_review"
   | "completed"
   | "failed"
   | "disputed"
@@ -122,6 +125,9 @@ export type NotificationType =
   | "grade_complete"
   | "grading_submitted"
   | "grading_ready"
+  // Mandatory-review lifecycle (seller-facing).
+  | "grading_preliminary"
+  | "grading_finalized"
   | "grading_failed"
   | "grading_incomplete"
   | "dispute_update"
@@ -448,6 +454,9 @@ export interface SubmissionRow {
   // hint to the grader so factory distressing isn't read as damage.
   style_attributes: string[];
   status: SubmissionStatus;
+  // The requested grade-speed tier (standard/premium/express) — sets the review
+  // SLA + operator-queue priority (migration 00312). NOT the quality grade.
+  service_tier: "standard" | "premium" | "express";
   flagged: boolean;
   flag_reason: string | null;
   moderation_status: ModerationStatus | null;
@@ -657,6 +666,18 @@ export interface GradeReportRow {
   forensic_analysis: ForensicTamperAssessment | null;
   // True once a human reviewer has checked this grade (migration 00061).
   human_reviewed: boolean;
+  // Mandatory-review lifecycle (migration 00312). pending = preliminary AI grade
+  // awaiting human finalization (certificate withheld); approved = reviewer
+  // agreed as-is; modified = reviewer adjusted the scores before finalizing.
+  review_status: "pending" | "approved" | "modified";
+  // When the grade was finalized (made official + public). Null while preliminary.
+  finalized_at: string | null;
+  // The reviewer who finalized it, and when.
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  // Target review-by time (report creation + the requested tier SLA) — drives
+  // operator-queue priority. Null for pre-00312 grades.
+  review_due_at: string | null;
   model_version: string;
   // First-class prompt version that produced this grade (e.g. "composite_v2").
   prompt_version: string | null;

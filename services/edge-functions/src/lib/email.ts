@@ -68,6 +68,38 @@ interface GradeCompleteData {
   certificateId: string | null;
 }
 
+interface GradePreliminaryData {
+  userName: string;
+  submissionTitle: string;
+  overallScore: number;
+  gradeTier: string;
+  submissionId: string;
+}
+
+interface GradeReviewRequestData {
+  submissionTitle: string;
+  overallScore: number;
+  gradeTier: string;
+  /** The requested grade-speed tier (standard/premium/express) → review SLA. */
+  serviceTier: string;
+  /** Confidence 0–1 (so the reviewer can prioritise the shaky ones). */
+  confidenceScore: number | null;
+  flagged: boolean;
+}
+
+interface GradeFinalizedData {
+  userName: string;
+  submissionTitle: string;
+  overallScore: number;
+  gradeTier: string;
+  submissionId: string;
+  certificateId: string | null;
+  /** True when the reviewer adjusted the AI score before finalizing. */
+  wasModified: boolean;
+  /** Deep link to the FlipDesk item if this grade came from the bridge. */
+  itemLink: string | null;
+}
+
 interface DisputeResolvedData {
   userName: string;
   submissionTitle: string;
@@ -452,6 +484,171 @@ export async function sendGradeCompleteEmail(
     subject: `Grade Ready: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier})`,
     html: emailLayout(content),
     category: "grade_ready", // US-498: critical → durable retry on failure
+  });
+}
+
+/**
+ * Preliminary grade email (seller): the AI grade is ready but UNOFFICIAL —
+ * pending expert review before the certificate goes live. Sent the moment the
+ * pipeline produces a grade, before any human finalization.
+ */
+export async function sendGradePreliminaryEmail(
+  to: string,
+  data: GradePreliminaryData,
+): Promise<boolean> {
+  const reportUrl = `${SITE_URL}/dashboard/submissions/${data.submissionId}`;
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your Preliminary Grade Is Ready
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, our AI has graded
+      <strong>"${escapeHtml(data.submissionTitle)}"</strong>. This is a
+      <strong>preliminary</strong> result — one of our experts will review it
+      before it becomes official and your shareable certificate goes live.
+    </p>
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 16px;">
+      <tr>
+        <td style="background-color: ${BRAND_GRAY}; border-radius: 12px; padding: 24px; text-align: center;">
+          <div style="font-size: 13px; font-weight: 600; color: ${BRAND_RED}; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">
+            Preliminary · Pending Review
+          </div>
+          <div style="font-size: 48px; font-weight: 700; color: ${scoreColor(data.overallScore)}; line-height: 1;">
+            ${data.overallScore.toFixed(1)}
+          </div>
+          <div style="margin-top: 8px; font-size: 14px; font-weight: 600; color: ${BRAND_NAVY}; text-transform: uppercase; letter-spacing: 1px;">
+            ${escapeHtml(data.gradeTier)}
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin: 0 0 8px; color: #666; font-size: 14px; line-height: 1.5; text-align: center;">
+      We'll email you again the moment your grade is finalized. The score may
+      change slightly after review.
+    </p>
+
+    ${ctaButton("View Pending Grade", reportUrl)}
+  `;
+
+  return await sendEmail({
+    to,
+    subject: `Preliminary Grade (Pending Review): ${data.submissionTitle} — ${data.overallScore.toFixed(1)}`,
+    html: emailLayout(content),
+    category: "grade_preliminary", // critical lifecycle → durable retry on failure
+  });
+}
+
+/**
+ * Grade review request (super-admin/reviewer): a new AI grade is waiting in the
+ * human-review queue to be approved or adjusted. Prioritised by the seller's
+ * requested grade-speed tier.
+ */
+export async function sendGradeReviewRequestEmail(
+  to: string,
+  data: GradeReviewRequestData,
+): Promise<boolean> {
+  const queueUrl = `${SITE_URL}/admin/reviews`;
+  const tierLabel = data.serviceTier.charAt(0).toUpperCase() + data.serviceTier.slice(1);
+  const confidencePct =
+    data.confidenceScore !== null ? `${Math.round(data.confidenceScore * 100)}%` : "—";
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      A Grade Needs Your Review
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      An AI grade for <strong>"${escapeHtml(data.submissionTitle)}"</strong> is
+      waiting to be finalized. It stays unofficial — and the certificate stays
+      withheld — until you approve or adjust it.
+    </p>
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px;">
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">
+          <span style="color: #666; font-size: 13px;">AI Grade</span><br>
+          <span style="font-size: 15px; font-weight: 600;">${data.overallScore.toFixed(1)} · ${escapeHtml(data.gradeTier)}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">
+          <span style="color: #666; font-size: 13px;">AI Confidence</span><br>
+          <span style="font-size: 15px; font-weight: 600;">${confidencePct}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 12px;">
+          <span style="color: #666; font-size: 13px;">Priority (requested speed)</span><br>
+          <span style="font-size: 15px; font-weight: 600;">${escapeHtml(tierLabel)}${data.flagged ? " · ⚠ Flagged for moderation" : ""}</span>
+        </td>
+      </tr>
+    </table>
+
+    ${ctaButton("Open Review Queue", queueUrl)}
+  `;
+
+  return await sendEmail({
+    to,
+    subject: `Review needed: ${data.submissionTitle} (${data.overallScore.toFixed(1)} · ${tierLabel})`,
+    html: emailLayout(content),
+    category: "grade_review_request", // ops mail — durable retry on failure
+  });
+}
+
+/**
+ * Grade finalized email (seller): the human reviewer approved/adjusted the grade.
+ * It is now official, the certificate is live, and the item is published.
+ */
+export async function sendGradeFinalizedEmail(
+  to: string,
+  data: GradeFinalizedData,
+): Promise<boolean> {
+  const reportUrl = data.itemLink
+    ? `${SITE_URL}${data.itemLink}`
+    : `${SITE_URL}/dashboard/submissions/${data.submissionId}`;
+  const certUrl = data.certificateId ? `${SITE_URL}/cert/${data.certificateId}` : null;
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your Grade Is Now Official!
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, <strong>"${escapeHtml(data.submissionTitle)}"</strong>
+      has been reviewed and finalized${data.wasModified ? " (the score was adjusted during review)" : ""}.
+      Your certificate is live and the item is ready to go.
+    </p>
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px;">
+      <tr>
+        <td style="background-color: ${BRAND_GRAY}; border-radius: 12px; padding: 24px; text-align: center;">
+          <div style="font-size: 13px; font-weight: 600; color: #22c55e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">
+            Final Grade
+          </div>
+          <div style="font-size: 48px; font-weight: 700; color: ${scoreColor(data.overallScore)}; line-height: 1;">
+            ${data.overallScore.toFixed(1)}
+          </div>
+          <div style="margin-top: 8px; font-size: 14px; font-weight: 600; color: ${BRAND_NAVY}; text-transform: uppercase; letter-spacing: 1px;">
+            ${escapeHtml(data.gradeTier)}
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    ${ctaButton("View Final Grade", reportUrl)}
+
+    ${certUrl ? `<p style="margin: 0; color: #999; font-size: 13px; text-align: center;">
+      Share your <a href="${certUrl}" style="color: ${BRAND_RED}; text-decoration: underline;">grade certificate</a> with buyers.
+      If you disagree with the final grade, you can open a dispute from your submission page.
+    </p>` : ""}
+  `;
+
+  return await sendEmail({
+    to,
+    subject: `Grade Finalized: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier})`,
+    html: emailLayout(content),
+    category: "grade_finalized", // critical lifecycle → durable retry on failure
   });
 }
 
