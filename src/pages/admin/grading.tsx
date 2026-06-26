@@ -1,0 +1,849 @@
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { GRADE_FACTORS } from "@/lib/constants";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  ClipboardCheck,
+  Search,
+  ArrowUpDown,
+  Eye,
+  Check,
+  Pencil,
+  Undo2,
+  Clock,
+  Lock,
+  Loader2,
+  ImageIcon,
+  AlertTriangle,
+} from "lucide-react";
+import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
+
+// ─── Types ──────────────────────────────────────────────────────────
+
+interface FactorScores {
+  fabric_condition_score: number;
+  structural_integrity_score: number;
+  cosmetic_appearance_score: number;
+  functional_elements_score: number;
+  odor_cleanliness_score: number;
+}
+
+interface QueueItem {
+  report_id: string;
+  submission_id: string;
+  title: string | null;
+  garment_type: string | null;
+  garment_category: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  overall_score: number;
+  grade_tier: string;
+  confidence_score: number;
+  confidence_label: string | null;
+  factor_scores: FactorScores;
+  ai_summary: string;
+  created_at: string;
+  waiting_ms: number;
+  claimed_by: string | null;
+  claimed_by_me: boolean;
+  claimed_by_email: string | null;
+  claimed_by_name: string | null;
+  claimed_at: string | null;
+}
+
+interface QueueResponse {
+  data: QueueItem[];
+  count: number;
+  queue_age_seconds: number;
+}
+
+interface ReviewDetailImage {
+  id: string;
+  image_type: string;
+  storage_path: string;
+  display_order: number;
+  signed_url: string | null;
+}
+
+interface ReviewDetailResponse {
+  report: Record<string, unknown> & { tells?: unknown };
+  submission: { id: string; title: string; garment_type: string; garment_category: string } | null;
+  images: ReviewDetailImage[];
+}
+
+type SortField = "waiting_time" | "confidence" | "score";
+type SortDir = "asc" | "desc";
+
+const FACTOR_KEYS: (keyof FactorScores)[] = [
+  "fabric_condition_score",
+  "structural_integrity_score",
+  "cosmetic_appearance_score",
+  "functional_elements_score",
+  "odor_cleanliness_score",
+];
+
+const FACTOR_META: Record<keyof FactorScores, { label: string; weight: number }> = {
+  fabric_condition_score: GRADE_FACTORS.fabric_condition,
+  structural_integrity_score: GRADE_FACTORS.structural_integrity,
+  cosmetic_appearance_score: GRADE_FACTORS.cosmetic_appearance,
+  functional_elements_score: GRADE_FACTORS.functional_elements,
+  odor_cleanliness_score: GRADE_FACTORS.odor_cleanliness,
+};
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+function formatWaitingTime(ms: number): string {
+  const totalMin = Math.floor(ms / 60000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hours < 24) return `${hours}h ${mins}m`;
+  const days = Math.floor(hours / 24);
+  const remainHours = hours % 24;
+  return `${days}d ${remainHours}h`;
+}
+
+// SLA buckets for the age indicator: > 24h critical, > 4h warning.
+function ageTone(ms: number): string {
+  const hours = ms / 3_600_000;
+  if (hours >= 24) return "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300";
+  if (hours >= 4) return "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300";
+  return "bg-muted text-muted-foreground";
+}
+
+function computeWeightedScore(factors: FactorScores): number {
+  let total = 0;
+  for (const key of FACTOR_KEYS) total += factors[key] * FACTOR_META[key].weight;
+  return Math.round(total * 2) / 2;
+}
+
+// ─── Main Component ─────────────────────────────────────────────────
+
+export function AdminGradingQueuePage() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [sortField, setSortField] = useState<SortField>("waiting_time");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const [selected, setSelected] = useState<QueueItem | null>(null);
+  const [detail, setDetail] = useState<ReviewDetailResponse | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const [actionLoading, setActionLoading] = useState(false);
+  const [adjustMode, setAdjustMode] = useState(false);
+  const [adjustedScores, setAdjustedScores] = useState<FactorScores>({
+    fabric_condition_score: 5,
+    structural_integrity_score: 5,
+    cosmetic_appearance_score: 5,
+    functional_elements_score: 5,
+    odor_cleanliness_score: 5,
+  });
+  const [intentionalMisread, setIntentionalMisread] = useState(false);
+  const [notes, setNotes] = useState("");
+
+  // ─── Data ───────────────────────────────────────────────────────
+
+  const { data, isLoading } = useQuery<QueueResponse>({
+    queryKey: ["admin-grading-review-queue"],
+    queryFn: async () => {
+      const res = await edgeFetch("/api/admin/grading/review-queue");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load review queue.");
+      return json as QueueResponse;
+    },
+    // The queue is operator-shared; refresh often so claim locks stay fresh.
+    staleTime: 15 * 1000,
+    refetchInterval: 30 * 1000,
+  });
+
+  const items = useMemo(() => data?.data ?? [], [data]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of items) if (i.garment_category) set.add(i.garment_category);
+    return [...set].sort();
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    return items.filter((i) => {
+      if (categoryFilter !== "all" && i.garment_category !== categoryFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const hay = [i.title, i.user_email, i.user_name, i.garment_type]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [items, categoryFilter, search]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      if (sortField === "waiting_time") return (a.waiting_ms - b.waiting_ms) * dir;
+      if (sortField === "confidence") return (a.confidence_score - b.confidence_score) * dir;
+      if (sortField === "score") return (a.overall_score - b.overall_score) * dir;
+      return 0;
+    });
+  }, [filtered, sortField, sortDir]);
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  }
+
+  const refresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["admin-grading-review-queue"] });
+  }, [queryClient]);
+
+  // ─── Claim / open ───────────────────────────────────────────────
+
+  async function openDetail(item: QueueItem) {
+    // Take (or refresh) the claim before opening so two operators can't both work it.
+    setActionLoading(true);
+    try {
+      const claimRes = await edgeFetch(`/api/admin/grading/review/${item.report_id}/claim`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      const claimJson = await claimRes.json().catch(() => ({}));
+      if (!claimRes.ok) {
+        if (claimJson.code === "ALREADY_CLAIMED") {
+          toast.error("Item already claimed", {
+            description: `${claimJson.claimed_by_name || claimJson.claimed_by_email || "Another operator"} is reviewing this item.`,
+          });
+        } else {
+          toast.error("Couldn't claim item", { description: claimJson.error || "Try again." });
+        }
+        refresh();
+        return;
+      }
+    } catch (err) {
+      toast.error("Couldn't claim item", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+      return;
+    } finally {
+      setActionLoading(false);
+    }
+
+    setSelected(item);
+    setDetail(null);
+    setAdjustMode(false);
+    setIntentionalMisread(false);
+    setNotes("");
+    setAdjustedScores({ ...item.factor_scores });
+    refresh();
+
+    setLoadingDetail(true);
+    try {
+      const res = await edgeFetch(`/api/admin/grading/review/${item.report_id}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load detail.");
+      setDetail(json as ReviewDetailResponse);
+    } catch (err) {
+      Sentry.captureException(err, { tags: { area: "admin.grading_review_detail" } });
+      toast.error("Failed to load item detail", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
+
+  async function closeDetail(release: boolean) {
+    const current = selected;
+    setSelected(null);
+    setDetail(null);
+    if (release && current) {
+      // Release the claim so the item returns to the shared queue.
+      try {
+        await edgeFetch(`/api/admin/grading/review/${current.report_id}/release`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+      } catch {
+        // Best-effort; the claim TTL frees it regardless.
+      }
+      refresh();
+    }
+  }
+
+  const computedOverall = useMemo(() => computeWeightedScore(adjustedScores), [adjustedScores]);
+
+  function updateFactor(key: keyof FactorScores, value: string) {
+    const num = parseFloat(value);
+    if (isNaN(num)) return;
+    const clamped = Math.round(Math.min(10, Math.max(1, num)) * 2) / 2;
+    setAdjustedScores((prev) => ({ ...prev, [key]: clamped }));
+  }
+
+  // ─── Actions ────────────────────────────────────────────────────
+
+  async function handleApprove() {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await edgeFetch(`/api/admin/grading/review/${selected.report_id}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ notes: notes.trim() || undefined }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to approve grade.");
+      toast.success("Grade approved", { description: "The AI grade was accepted as-is." });
+      await closeDetail(false);
+      refresh();
+    } catch (err) {
+      toast.error("Failed to approve", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleAdjust() {
+    if (!selected) return;
+    if (!notes.trim()) {
+      toast.error("Notes required", { description: "Explain the adjustment for the audit trail." });
+      return;
+    }
+    const scoreDiff = Math.abs(computedOverall - selected.overall_score);
+    if (scoreDiff > 1.5 && profile?.role !== "super_admin") {
+      toast.error("Super admin approval required", {
+        description: "Grade changes greater than 1.5 points require super_admin approval.",
+      });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await edgeFetch(`/api/admin/grading/review/${selected.report_id}/adjust`, {
+        method: "POST",
+        body: JSON.stringify({
+          factors: adjustedScores,
+          notes: notes.trim(),
+          intentional_misread: intentionalMisread,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to adjust grade.");
+      toast.success("Grade adjusted", {
+        description: `Grade set to ${typeof json.overall_score === "number" ? json.overall_score.toFixed(1) : computedOverall.toFixed(1)}${json.resealed ? " (certificate resealed)" : ""}.`,
+      });
+      await closeDetail(false);
+      refresh();
+    } catch (err) {
+      toast.error("Failed to adjust grade", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleSendBack() {
+    if (!selected) return;
+    if (!notes.trim()) {
+      toast.error("Notes required", {
+        description: "Tell the seller which photos to retake.",
+      });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await edgeFetch(`/api/admin/grading/review/${selected.report_id}/send-back`, {
+        method: "POST",
+        body: JSON.stringify({ notes: notes.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to send back.");
+      toast.success("Sent back for better photos", {
+        description: "The seller will be asked to retake the flagged photos.",
+      });
+      await closeDetail(false);
+      refresh();
+    } catch (err) {
+      toast.error("Failed to send back", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // ─── Stats ──────────────────────────────────────────────────────
+
+  const queueAge = data?.queue_age_seconds ?? 0;
+  const oldestTone = ageTone(queueAge * 1000);
+
+  // ─── Render ─────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <ClipboardCheck className="h-6 w-6 text-brand-red-text" />
+          <h1 className="text-2xl font-bold">Grading Review Queue</h1>
+          {items.length > 0 && (
+            <Badge variant="destructive" className="ml-2">
+              {items.length} pending
+            </Badge>
+          )}
+        </div>
+        {items.length > 0 && (
+          <Badge variant="secondary" className={`${oldestTone} text-sm px-3 py-1`}>
+            <Clock className="mr-1 h-3.5 w-3.5" />
+            Oldest waiting {formatWaitingTime(queueAge * 1000)}
+          </Badge>
+        )}
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        Low-confidence grades (confidence &lt; 0.75) flagged for human review. Claim an item to
+        work it — claiming locks it so two operators never grade the same garment.
+      </p>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search title, email, type..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {categories.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {cat}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Queue table */}
+      {isLoading ? (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Seller</TableHead>
+                  <TableHead>
+                    <button
+                      className="flex items-center gap-1 hover:text-foreground"
+                      onClick={() => toggleSort("score")}
+                    >
+                      Grade
+                      <ArrowUpDown className="h-3 w-3" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button
+                      className="flex items-center gap-1 hover:text-foreground"
+                      onClick={() => toggleSort("confidence")}
+                    >
+                      Confidence
+                      <ArrowUpDown className="h-3 w-3" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button
+                      className="flex items-center gap-1 hover:text-foreground"
+                      onClick={() => toggleSort("waiting_time")}
+                    >
+                      Waiting
+                      <ArrowUpDown className="h-3 w-3" />
+                    </button>
+                  </TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sorted.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                      No grades are waiting for review. 🎉
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  sorted.map((item) => {
+                    const lockedByOther = Boolean(item.claimed_by) && !item.claimed_by_me;
+                    return (
+                      <TableRow key={item.report_id} className="hover:bg-muted/50">
+                        <TableCell className="max-w-[200px]">
+                          <p className="font-medium text-sm truncate">{item.title ?? "Untitled"}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {item.garment_type ?? "—"}
+                            {item.garment_category ? ` · ${item.garment_category}` : ""}
+                          </p>
+                        </TableCell>
+                        <TableCell className="max-w-[160px] truncate text-sm text-muted-foreground">
+                          {item.user_name ?? item.user_email ?? "Unknown"}
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-bold tabular-nums">
+                            {item.overall_score.toFixed(1)}
+                          </span>{" "}
+                          <Badge variant="secondary" className="text-xs">
+                            {item.grade_tier}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="secondary"
+                            className="bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 tabular-nums"
+                          >
+                            {(item.confidence_score * 100).toFixed(0)}%
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="tabular-nums">
+                          <Badge variant="secondary" className={ageTone(item.waiting_ms)}>
+                            <Clock className="mr-1 h-3 w-3" />
+                            {formatWaitingTime(item.waiting_ms)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {lockedByOther ? (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Lock className="h-3 w-3" />
+                              {item.claimed_by_name || item.claimed_by_email || "In review"}
+                            </span>
+                          ) : item.claimed_by_me ? (
+                            <Badge variant="outline" className="text-xs">
+                              You
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Open</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant={lockedByOther ? "ghost" : "outline"}
+                            disabled={actionLoading || lockedByOther}
+                            onClick={() => openDetail(item)}
+                          >
+                            <Eye className="mr-1 h-3.5 w-3.5" />
+                            {item.claimed_by_me ? "Resume" : "Claim & Review"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Detail / review dialog */}
+      <Dialog open={!!selected} onOpenChange={(open) => { if (!open) closeDetail(true); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-brand-red-text" />
+              Review: {selected?.title ?? "Untitled"}
+            </DialogTitle>
+            <DialogDescription>
+              {selected?.garment_type} · {selected?.user_email} · Confidence{" "}
+              {selected ? (selected.confidence_score * 100).toFixed(0) : "—"}%
+            </DialogDescription>
+          </DialogHeader>
+
+          {selected && (
+            <div className="space-y-6">
+              {/* Grade summary */}
+              <div className="grid grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">AI Grade</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-bold">{selected.overall_score.toFixed(1)}</span>
+                      <Badge variant="secondary">{selected.grade_tier}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Confidence</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <span className="text-3xl font-bold">
+                      {(selected.confidence_score * 100).toFixed(0)}%
+                    </span>
+                    {selected.confidence_label && (
+                      <span className="ml-2 text-sm text-muted-foreground">
+                        {selected.confidence_label}
+                      </span>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* AI summary */}
+              <div>
+                <h4 className="text-sm font-medium mb-2">AI Summary</h4>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap rounded-lg border bg-muted/30 p-3">
+                  {selected.ai_summary}
+                </p>
+              </div>
+
+              {/* Photos */}
+              <div>
+                <h4 className="text-sm font-medium mb-3">Submission Photos</h4>
+                {loadingDetail ? (
+                  <div className="grid grid-cols-3 gap-3">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="aspect-square rounded-lg" />
+                    ))}
+                  </div>
+                ) : !detail || detail.images.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No photos available.</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    {detail.images.map((img) => (
+                      <div key={img.id} className="relative">
+                        {img.signed_url ? (
+                          <img
+                            src={img.signed_url}
+                            alt={img.image_type}
+                            loading="lazy"
+                            decoding="async"
+                            className="aspect-square rounded-lg border object-cover"
+                          />
+                        ) : (
+                          <div className="aspect-square rounded-lg border bg-muted flex items-center justify-center">
+                            <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                          </div>
+                        )}
+                        <Badge
+                          variant="secondary"
+                          className="absolute bottom-2 left-2 text-xs capitalize"
+                        >
+                          {img.image_type}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Adjust toggle */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="adjust-mode"
+                  checked={adjustMode}
+                  onChange={(e) => setAdjustMode(e.target.checked)}
+                  className="h-4 w-4 rounded border-input"
+                />
+                <Label htmlFor="adjust-mode" className="text-sm">
+                  Adjust factor scores
+                </Label>
+              </div>
+
+              {adjustMode && (
+                <div className="rounded-lg border p-4 space-y-3">
+                  <h5 className="text-sm font-medium">Adjust Factor Scores</h5>
+                  {FACTOR_KEYS.map((key) => {
+                    const meta = FACTOR_META[key];
+                    const aiScore = selected.factor_scores[key];
+                    const adjusted = adjustedScores[key];
+                    const diff = adjusted - aiScore;
+                    return (
+                      <div key={key} className="grid grid-cols-12 items-center gap-3">
+                        <div className="col-span-5">
+                          <Label className="text-sm">
+                            {meta.label} ({(meta.weight * 100).toFixed(0)}%)
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            AI: {aiScore.toFixed(1)}
+                          </p>
+                        </div>
+                        <div className="col-span-4">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={10}
+                            step={0.5}
+                            value={adjusted}
+                            onChange={(e) => updateFactor(key, e.target.value)}
+                            className="tabular-nums"
+                          />
+                        </div>
+                        <div className="col-span-3 text-right">
+                          {diff !== 0 ? (
+                            <span
+                              className={`text-sm font-medium ${Math.abs(diff) > 1 ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}
+                            >
+                              {diff > 0 ? "+" : ""}
+                              {diff.toFixed(1)}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="grid grid-cols-12 items-center gap-3 border-t pt-3">
+                    <div className="col-span-5">
+                      <Label className="text-sm font-medium">Weighted Overall</Label>
+                      <p className="text-xs text-muted-foreground">
+                        AI: {selected.overall_score.toFixed(1)}
+                      </p>
+                    </div>
+                    <div className="col-span-4">
+                      <span className="text-lg font-bold tabular-nums">
+                        {computedOverall.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="col-span-3 text-right">
+                      {Math.abs(computedOverall - selected.overall_score) > 1.5 && (
+                        <span className="flex items-center justify-end gap-1 text-xs text-amber-600 dark:text-amber-400">
+                          <AlertTriangle className="h-3 w-3" />
+                          &gt;1.5
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="intentional-misread"
+                      checked={intentionalMisread}
+                      onChange={(e) => setIntentionalMisread(e.target.checked)}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Label htmlFor="intentional-misread" className="text-sm">
+                      AI misread an intentional design feature (e.g. distressed denim) as a defect
+                    </Label>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
+              <div>
+                <Label htmlFor="review-notes" className="text-sm font-medium">
+                  Reviewer Notes {adjustMode && <span className="text-brand-red-text">*</span>}
+                </Label>
+                <Textarea
+                  id="review-notes"
+                  placeholder={
+                    adjustMode
+                      ? "Explain the adjustment (required, recorded in the audit trail)..."
+                      : "Optional notes..."
+                  }
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="mt-1"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-wrap items-center gap-3 border-t pt-4">
+                {adjustMode ? (
+                  <Button onClick={handleAdjust} disabled={actionLoading} className="flex-1">
+                    {actionLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Pencil className="mr-2 h-4 w-4" />
+                    )}
+                    Adjust &amp; Reseal Certificate
+                  </Button>
+                ) : (
+                  <Button onClick={handleApprove} disabled={actionLoading} className="flex-1">
+                    {actionLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="mr-2 h-4 w-4" />
+                    )}
+                    Approve AI Grade
+                  </Button>
+                )}
+                <Button variant="outline" onClick={handleSendBack} disabled={actionLoading}>
+                  <Undo2 className="mr-2 h-4 w-4" />
+                  Send Back for Photos
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

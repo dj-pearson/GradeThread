@@ -1611,6 +1611,10 @@ adminGradingRoutes.get("/reliability/studies/:id/report", async (c) => {
 const REVIEW_QUEUE_LIMIT = 200;
 const REVIEW_IMAGE_TTL = 900; // ≤ 900s signed URLs for the private bucket (US-276).
 
+// US-1293: a review claim older than this is stale (the operator walked away) and
+// may be reclaimed, so a crashed/idle session never wedges an item in the queue.
+const REVIEW_CLAIM_TTL_SEC = 15 * 60;
+
 interface QueueReportRow {
   id: string;
   submission_id: string;
@@ -1626,6 +1630,8 @@ interface QueueReportRow {
   ai_summary: string;
   needs_human_review: boolean;
   human_reviewed: boolean;
+  review_claimed_by: string | null;
+  review_claimed_at: string | null;
   created_at: string;
 }
 
@@ -1633,13 +1639,14 @@ interface QueueReportRow {
 // not yet reviewed, OLDEST FIRST. Returns per-factor scores, confidence, AI
 // reasoning, the customer, and queue_age_seconds (oldest unreviewed) for SLA.
 adminGradingRoutes.get("/review-queue", async (c) => {
+  const viewerId = c.get("userId");
   const { data: reportsRaw, error } = await supabaseAdmin
     .from("grade_reports")
     .select(
       "id, submission_id, overall_score, grade_tier, confidence_score, confidence_label, " +
         "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, needs_human_review, " +
-        "human_reviewed, created_at",
+        "human_reviewed, review_claimed_by, review_claimed_at, created_at",
     )
     // The pipeline-persisted flag (US-073/00049); the OR keeps legacy rows graded
     // before the column existed.
@@ -1678,7 +1685,13 @@ adminGradingRoutes.get("/review-queue", async (c) => {
     ) {
       subById.set(s.id, s);
     }
-    const userIds = [...new Set([...subById.values()].map((s) => s.user_id))];
+    // Resolve both the submitter AND any current claimer in one users lookup.
+    const userIds = [
+      ...new Set([
+        ...[...subById.values()].map((s) => s.user_id),
+        ...reports.map((r) => r.review_claimed_by).filter((id): id is string => Boolean(id)),
+      ]),
+    ];
     if (userIds.length > 0) {
       const { data: users } = await supabaseAdmin
         .from("users")
@@ -1694,6 +1707,12 @@ adminGradingRoutes.get("/review-queue", async (c) => {
   const items = reports.map((r) => {
     const sub = subById.get(r.submission_id);
     const user = sub ? emailByUser.get(sub.user_id) : undefined;
+    // A claim is "active" only while it's fresh; a stale claim (operator walked
+    // away) is presented as reclaimable so the queue never wedges (US-1293).
+    const claimAgeMs = r.review_claimed_at ? now - new Date(r.review_claimed_at).getTime() : null;
+    const claimActive =
+      Boolean(r.review_claimed_by) && claimAgeMs !== null && claimAgeMs < REVIEW_CLAIM_TTL_SEC * 1000;
+    const claimer = claimActive && r.review_claimed_by ? emailByUser.get(r.review_claimed_by) : undefined;
     return {
       report_id: r.id,
       submission_id: r.submission_id,
@@ -1716,6 +1735,12 @@ adminGradingRoutes.get("/review-queue", async (c) => {
       ai_summary: r.ai_summary,
       created_at: r.created_at,
       waiting_ms: now - new Date(r.created_at).getTime(),
+      // Claim-lock state (US-1293): null when free/stale, else who holds it.
+      claimed_by: claimActive ? r.review_claimed_by : null,
+      claimed_by_me: claimActive && r.review_claimed_by === viewerId,
+      claimed_by_email: claimer?.email ?? null,
+      claimed_by_name: claimer?.full_name ?? null,
+      claimed_at: claimActive ? r.review_claimed_at : null,
     };
   });
 
@@ -1779,6 +1804,80 @@ adminGradingRoutes.get("/review/:id", async (c) => {
   });
 });
 
+// POST /review/:id/claim — take a soft, TTL-expiring lock so two operators
+// don't work the same item (US-1293). Idempotent for the current holder; 409s
+// when another operator holds a FRESH claim. A stale claim (older than the TTL)
+// is reclaimable so a crashed/idle session never wedges the queue.
+adminGradingRoutes.post("/review/:id/claim", async (c) => {
+  const adminId = c.get("userId");
+  const reportId = c.req.param("id");
+
+  const { data: row, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, human_reviewed, review_claimed_by, review_claimed_at")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (error || !row) return c.json({ error: "Report not found" }, 404);
+  const r = row as {
+    human_reviewed: boolean | null;
+    review_claimed_by: string | null;
+    review_claimed_at: string | null;
+  };
+
+  if (r.human_reviewed) {
+    return c.json({ error: "This grade has already been reviewed." }, 409);
+  }
+
+  const claimAgeMs = r.review_claimed_at
+    ? Date.now() - new Date(r.review_claimed_at).getTime()
+    : null;
+  const claimActive =
+    Boolean(r.review_claimed_by) && claimAgeMs !== null && claimAgeMs < REVIEW_CLAIM_TTL_SEC * 1000;
+  if (claimActive && r.review_claimed_by !== adminId) {
+    // Surface who holds it so the UI can label the lock.
+    const { data: holder } = await supabaseAdmin
+      .from("users")
+      .select("email, full_name")
+      .eq("id", r.review_claimed_by!)
+      .maybeSingle();
+    const h = holder as { email: string; full_name: string | null } | null;
+    return c.json(
+      {
+        error: "Another operator is already reviewing this item.",
+        code: "ALREADY_CLAIMED",
+        claimed_by_email: h?.email ?? null,
+        claimed_by_name: h?.full_name ?? null,
+      },
+      409,
+    );
+  }
+
+  const claimedAt = new Date().toISOString();
+  const { error: updErr } = await supabaseAdmin
+    .from("grade_reports")
+    .update({ review_claimed_by: adminId, review_claimed_at: claimedAt })
+    .eq("id", reportId);
+  if (updErr) return c.json({ error: "Failed to claim item" }, 500);
+
+  await auditLog(c, "grading.review_claimed", "grade_report", reportId, {});
+  return c.json({ ok: true, claimed_at: claimedAt });
+});
+
+// POST /review/:id/release — drop my claim so another operator can pick it up.
+// Only the current holder can release (a no-op for anyone else).
+adminGradingRoutes.post("/review/:id/release", async (c) => {
+  const adminId = c.get("userId");
+  const reportId = c.req.param("id");
+
+  const { error } = await supabaseAdmin
+    .from("grade_reports")
+    .update({ review_claimed_by: null, review_claimed_at: null })
+    .eq("id", reportId)
+    .eq("review_claimed_by", adminId);
+  if (error) return c.json({ error: "Failed to release claim" }, 500);
+  return c.json({ ok: true });
+});
+
 // Load + validate a report for a mutating review action. Returns the row or a
 // JSON error Response.
 async function loadReportForReview(reportId: string) {
@@ -1837,7 +1936,7 @@ adminGradingRoutes.post("/review/:id/approve", async (c) => {
       supabaseAdmin as unknown as CheckedUpdateClient,
       "grade_reports",
       report.id,
-      { human_reviewed: true, needs_human_review: false },
+      { human_reviewed: true, needs_human_review: false, review_claimed_by: null, review_claimed_at: null },
     );
   } catch (err) {
     if (err instanceof ZeroRowsAffectedError) {
@@ -1940,7 +2039,7 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
       supabaseAdmin as unknown as CheckedUpdateClient,
       report,
       factors,
-      { human_reviewed: true, needs_human_review: false },
+      { human_reviewed: true, needs_human_review: false, review_claimed_by: null, review_claimed_at: null },
     );
     resealed = result.resealed;
   } catch (err) {
@@ -2003,7 +2102,13 @@ adminGradingRoutes.post("/review/:id/send-back", async (c) => {
   // and clear the review flag.
   await supabaseAdmin
     .from("grade_reports")
-    .update({ certificate_id: null, needs_human_review: false, human_reviewed: true })
+    .update({
+      certificate_id: null,
+      needs_human_review: false,
+      human_reviewed: true,
+      review_claimed_by: null,
+      review_claimed_at: null,
+    })
     .eq("id", report.id);
 
   // Move the submission to needs_photos with a reviewer-facing prompt.
