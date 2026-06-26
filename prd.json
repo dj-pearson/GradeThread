@@ -6324,7 +6324,7 @@
         "Only claims that are TRUE today — no unbuilt-feature promises; guarantee/coverage copy is explicitly out of scope here (that is US-1298)",
         "build + prerender sync guard + eslint clean"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Copy/Standard] Initial pass SEEDED in the 2026-06-26 strategy session (grading-standard/about/landing/public-routes); Ralph to complete the full sweep across the remaining marketing pages + JSON-LD parity and verify. Added 2026-06-26."
     },
     {

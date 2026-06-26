@@ -3850,3 +3850,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026  1:03:28 PM
 ---
+## US-1297: "We are the standard" positioning + why (live-now safe copy)
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026  1:20:26 PM
+---
