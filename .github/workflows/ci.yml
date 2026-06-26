@@ -18,6 +18,20 @@ concurrency:
 permissions:
   contents: read
 
+# CI builds the SPA without live backend secrets — Supabase/Stripe are mocked
+# per-test and the prerender only renders static HTML. But the Supabase client
+# (src/lib/supabase.ts) and edge-api (src/lib/edge-api.ts) throw at MODULE LOAD
+# when these are unset, and a prerendered marketing route (/verify) now imports
+# the Supabase client transitively (verify.tsx → edge-fetch → supabase), so
+# `npm run build` dies during prerender without them. These are public,
+# non-secret config values (the anon key here is a throwaway placeholder); a
+# `api.`-prefixed URL also satisfies edge-api's derivation. Nothing in CI
+# actually reaches the backend.
+env:
+  VITE_SUPABASE_URL: https://api.gradethread.com
+  VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+  VITE_EDGE_API_URL: https://functions.gradethread.com
+
 jobs:
   build:
     name: Lint, type-check, test & build (frontend)

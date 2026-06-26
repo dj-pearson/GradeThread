@@ -895,7 +895,9 @@ final class SyncTests: XCTestCase {
 
         let actor = PendingMutationActor(modelContainer: container)
         await actor.delete(id: "m1")
-        XCTAssertEqual(await actor.pendingCount(), 0)
+        // Hoist the await out of XCTAssertEqual's (non-async) autoclosure.
+        let pendingAfterDelete = await actor.pendingCount()
+        XCTAssertEqual(pendingAfterDelete, 0)
     }
 
     func test_pendingActor_markFailedBumpsRetryAndStampsError() async throws {
@@ -906,12 +908,14 @@ final class SyncTests: XCTestCase {
 
         let actor = PendingMutationActor(modelContainer: container)
         await actor.markFailed(id: "m1", error: "boom", maxRetries: 6)
-        let snap = try XCTUnwrap(await actor.snapshot().first)
+        let snapRows = await actor.snapshot()
+        let snap = try XCTUnwrap(snapRows.first)
         XCTAssertEqual(snap.retryCount, 1)
         XCTAssertEqual(snap.lastError, "boom")
         XCTAssertNotNil(snap.lastAttemptAt)
         // Not yet at the ceiling → not stuck.
-        XCTAssertEqual(await actor.stuckCount(maxRetries: 6), 0)
+        let stuckAfterFail = await actor.stuckCount(maxRetries: 6)
+        XCTAssertEqual(stuckAfterFail, 0)
     }
 
     func test_pendingActor_markStuckPinsToCeilingAndSurfacesAsStuck() async throws {
@@ -922,10 +926,12 @@ final class SyncTests: XCTestCase {
 
         let actor = PendingMutationActor(modelContainer: container)
         await actor.markStuck(id: "m1", error: "missing target", maxRetries: 6)
-        let snap = try XCTUnwrap(await actor.snapshot().first)
+        let snapRows = await actor.snapshot()
+        let snap = try XCTUnwrap(snapRows.first)
         XCTAssertEqual(snap.retryCount, 6)        // pinned to ceiling, not stepped
         XCTAssertEqual(snap.lastError, "missing target")
-        XCTAssertEqual(await actor.stuckCount(maxRetries: 6), 1)
+        let stuckAfterPin = await actor.stuckCount(maxRetries: 6)
+        XCTAssertEqual(stuckAfterPin, 1)
     }
 
     func test_pendingActor_clearErrorAndResetRetry() async throws {
@@ -939,7 +945,8 @@ final class SyncTests: XCTestCase {
 
         let actor = PendingMutationActor(modelContainer: container)
         await actor.clearErrorAndResetRetry(id: "m1")
-        let snap = try XCTUnwrap(await actor.snapshot().first)
+        let snapRows = await actor.snapshot()
+        let snap = try XCTUnwrap(snapRows.first)
         XCTAssertEqual(snap.retryCount, 0)
         XCTAssertNil(snap.lastError)
     }
