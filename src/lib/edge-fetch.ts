@@ -5,6 +5,7 @@ import { track } from "@/lib/analytics";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import { usePlanPickerStore } from "@/stores/plan-picker-store";
+import { FLIPDESK_PLANS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 
 // ── edgeFetch (US-209 + US-210) ─────────────────────────────────
@@ -221,7 +222,7 @@ function handlePaymentRequired(body: Record<string, unknown>) {
       | "aiActions"
       | "marketplaces"
       | "includedGrades";
-    useUpgradeDialogStore.getState().show({
+    const shown = useUpgradeDialogStore.getState().show({
       reason: {
         type: "cap",
         kind,
@@ -232,17 +233,24 @@ function handlePaymentRequired(body: Record<string, unknown>) {
       currentPlan,
       requiredPlan,
       offerCreditPack: kind === "includedGrades",
+      rateLimit: true,
     });
+    // US-1289: if the modal was rate-limited, still give the user a contextual
+    // (non-dead-end) prompt — a lightweight, dismissible toast — instead of a
+    // silent 402.
+    if (!shown) upgradeReminderToast({ cap: kind, requiredPlan });
     return;
   }
 
   if (error === "FEATURE_LOCKED") {
     const feature = (body.feature as string | undefined) ?? "this feature";
-    useUpgradeDialogStore.getState().show({
+    const shown = useUpgradeDialogStore.getState().show({
       reason: { type: "feature", feature },
       currentPlan,
       requiredPlan,
+      rateLimit: true,
     });
+    if (!shown) upgradeReminderToast({ feature, requiredPlan });
     return;
   }
 
@@ -252,6 +260,42 @@ function handlePaymentRequired(body: Record<string, unknown>) {
       typeof body.error === "string"
         ? body.error
         : "Your plan doesn't include this. Open Billing to upgrade.",
+  });
+}
+
+// ── Rate-limited reminder (US-1289) ─────────────────────────────
+//
+// Shown in place of the full upgrade modal when the hard prompt for this
+// cap/feature already fired within the cooldown window (upgrade-prompt-rate-
+// limit.ts). Keeps the prompt contextual + dismissible without nagging, and
+// the CTA still routes to the plan picker. sonner's id-based dedup collapses
+// repeated reminders for the same subject into one toast.
+function upgradeReminderToast(opts: {
+  cap?: string;
+  feature?: string;
+  requiredPlan: FlipdeskPlanKey;
+}) {
+  const subject = opts.cap
+    ? (FRIENDLY_KIND[opts.cap] ?? opts.cap)
+    : "this feature";
+  const planName = FLIPDESK_PLANS[opts.requiredPlan]?.name ?? "a higher plan";
+
+  // US-1289 telemetry: the hard prompt was suppressed by the rate limit.
+  track("upgrade.trigger.hard", {
+    cap: opts.cap ?? opts.feature,
+    requiredPlan: opts.requiredPlan,
+    action: "rate_limited",
+  });
+
+  toast.error(`Upgrade needed for ${subject}`, {
+    id: `upgrade_rate_limited_${opts.cap ?? opts.feature}`,
+    description: `You've hit your plan's limit. Upgrade to ${planName} to keep going.`,
+    duration: 7000,
+    action: {
+      label: "Upgrade",
+      onClick: () =>
+        usePlanPickerStore.getState().show({ highlightPlan: opts.requiredPlan }),
+    },
   });
 }
 

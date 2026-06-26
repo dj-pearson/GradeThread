@@ -670,6 +670,16 @@ memory — not a progress log (the harness records progress separately).
   `InventoryModeRedirect`s. listings' tab-change effect must skip clearing the
   shared selection on mount (else a view switch wipes it).
 
+## Upgrade prompts (US-1289)
+- The hard 402 upgrade modal funnels through `useUpgradeDialogStore.show()` (the
+  single chokepoint — edge-fetch's `handlePaymentRequired` + the autolister
+  upsell button both call it). Rate-limiting lives IN the store, gated by an
+  opt-in `rateLimit:true` flag so only the AUTOMATIC 402 path is throttled;
+  explicit user-click upsells omit it and always open. `show()` returns a
+  boolean (false = suppressed by cooldown) so edge-fetch can fall back to a
+  lightweight `upgradeReminderToast`. Cooldown policy is the pure, testable
+  `lib/upgrade-prompt-rate-limit.ts` (storage-injectable, keyed by user+subject).
+
 ## Storage / uploads
 - Server uploads: `validateImageUpload()` → `stripImageMetadata()` →
   `storage.upload()`. `submission-images` is PRIVATE (signed URLs ≤900s, never
