@@ -108,15 +108,56 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # The agent used to read the entire prd.json (~300 KB / ~80K tokens) every
   # iteration just to pick the next story, then rewrite the whole file to flip
   # one boolean. We do both with jq instead: select the highest-priority
-  # passes:false story and write ONLY that object to current-story.json (~1.5
-  # KB), which the agent reads. The piped prompt (CLAUDE.md) stays byte-
-  # identical across iterations, so its prefix hits the prompt cache.
-  STORY_JSON=$(jq -c '[.userStories[] | select(.passes==false)] | sort_by(.priority) | reverse | .[0] // empty' "$PRD_FILE")
-  if [ -z "$STORY_JSON" ]; then
+  # ELIGIBLE passes:false story and write ONLY that object to
+  # current-story.json (~1.5 KB), which the agent reads. The piped prompt
+  # (CLAUDE.md) stays byte-identical across iterations, so its prefix hits the
+  # prompt cache.
+  #
+  # Dependency-aware selection (added 2026-06-26): a story may declare a
+  # `dependsOn` array of story ids (e.g. "dependsOn": ["US-1276"]). A story is
+  # ELIGIBLE only when none of its deps are still open (passes:false) in THIS
+  # prd.json. A dep that is passes:true, or absent because it was archived to
+  # prd.archive.json, counts as satisfied. This prevents the reverse-order
+  # deadlock where a higher-priority dependent (e.g. marketing copy US-1298)
+  # is selected forever while its lower-priority dependencies (the mechanism)
+  # never get a turn. Stories with no `dependsOn` are always eligible, so this
+  # is fully backward compatible. NOTE: `dependsOn` is the ONLY dependency
+  # signal honored here — the loose `[[US-xxxx]]` links in `notes` prose are
+  # NOT parsed (they mix "depends on" with "pairs with" and would deadlock).
+  OPEN_COUNT=$(jq '[.userStories[] | select(.passes==false)] | length' "$PRD_FILE")
+  STORY_JSON=$(jq -c '
+    ([.userStories[] | select(.passes==false) | .id]) as $open
+    | [ .userStories[]
+        | select(.passes==false)
+        | select( any((.dependsOn // [])[]; ($open | index(.)) != null) | not ) ]
+    | sort_by(.priority) | reverse | .[0] // empty
+  ' "$PRD_FILE")
+
+  if [ "$OPEN_COUNT" -eq 0 ]; then
     echo ""
     echo "All stories pass — nothing left to do."
     echo "<promise>COMPLETE</promise>"
     exit 0
+  fi
+
+  if [ -z "$STORY_JSON" ]; then
+    # Open stories remain, but EVERY one is gated by an unmet dependency. That
+    # is a dependsOn cycle or a dep that can never be satisfied — a prd.json
+    # authoring error, NOT completion. Fail loudly; deliberately do NOT emit
+    # <promise>COMPLETE</promise> (that would falsely halt with work left).
+    echo ""
+    echo "ERROR: $OPEN_COUNT open story(ies) remain but ALL are blocked by unmet dependsOn."
+    echo "       Likely a dependsOn cycle or a dep that never passes. Offenders:"
+    jq -r '
+      ([.userStories[] | select(.passes==false) | .id]) as $open
+      | .userStories[]
+      | select(.passes==false)
+      | [ (.dependsOn // [])[] | select( ($open | index(.)) != null ) ] as $unmet
+      | select($unmet | length > 0)
+      | "         \(.id) (prio \(.priority)) blocked by: \($unmet | join(", "))"
+    ' "$PRD_FILE"
+    echo "       Fix dependsOn in prd.json (or complete a blocking story), then re-run."
+    exit 1
   fi
   STORY_ID=$(echo "$STORY_JSON" | jq -r '.id')
   STORY_TITLE=$(echo "$STORY_JSON" | jq -r '.title')

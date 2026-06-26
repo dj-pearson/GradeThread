@@ -39,8 +39,9 @@ auto-kill at `RALPH_ITER_TIMEOUT`, default 40 min, then retry).
 
 - **`npm run ralph -- 200`** — run up to 200 iterations. `run.mjs` finds Git Bash
   and execs `ralph.sh`. Each iteration:
-  1. **`ralph.sh` selects the story** (highest-priority `passes:false`) with `jq`
-     and writes just that one object to `current-story.json` (~1.5 KB).
+  1. **`ralph.sh` selects the story** (highest-priority *eligible* `passes:false`
+     story — see `dependsOn` below) with `jq` and writes just that one object to
+     `current-story.json` (~1.5 KB).
   2. The agent runs against the static `CLAUDE.md` prompt, reads
      `current-story.json` (NOT the 300 KB `prd.json`), implements + verifies
      (`tsc`, `build:locked`, `npm test`, `verify:db` for migrations), commits the
@@ -60,6 +61,7 @@ auto-kill at `RALPH_ITER_TIMEOUT`, default 40 min, then retry).
 | `"hard": true` | Force this story's iteration onto `$HARD_MODEL` (Opus) — a no-op now the default is Opus, but still meaningful if you lower the default. |
 | `"model": "opus"\|"sonnet"\|"haiku"` | Exact model for this story (overrides `hard`). |
 | `"relevantPaths": ["src/…", "…"]` | File/glob hints the agent reads first instead of sweeping the tree. |
+| `"dependsOn": ["US-1276", …]` | Hard prerequisites. The story is **not eligible** for selection until every listed id is `passes:true` (or archived to `prd.archive.json`). Prevents the reverse-order deadlock where a high-priority dependent (e.g. marketing copy) is picked forever while its lower-priority prerequisites never get a turn. Only this field gates selection — the loose `[[US-xxxx]]` links in `notes` prose are NOT parsed. If *every* remaining open story is blocked (a cycle), `ralph.sh` errors out with the offenders instead of falsely emitting `COMPLETE`. |
 
 Model tiering (default **Opus**; a story can pin a cheaper `"model"` or escalate
 via `"hard"`) gives every story the strong model unless told otherwise. Env

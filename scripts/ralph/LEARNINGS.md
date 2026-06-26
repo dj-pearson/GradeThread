@@ -765,14 +765,16 @@ memory — not a progress log (the harness records progress separately).
 - Never read or edit `prd.json` from inside an iteration — the harness selects
   the story (`current-story.json`) and flips `passes:true` for you.
 - A story whose AC says "ships atomically with US-XXXX" / "do not publish before
-  those pass" is BLOCKED if those deps are `passes:false` (check with a targeted
-  `node -e` on prd.json — do NOT read the whole file). US-1298 (guarantee
-  remedy copy) depends on US-1279 + US-1280 (coverage-gating + grade-fee-back
-  MECHANISM), both unbuilt. `buyer-guarantee.tsx` is public marketing copy with
-  NO feature gate, so editing it = publishing a live remedy promise. Don't write
-  the remedy copy before the mechanism lands — that's the liability the story
-  warns about. Implement the deps first, then ship copy atomically. Do NOT emit
-  STORY_DONE for such a blocked story.
+  those pass" must NOT be implemented before those deps are `passes:true`.
+  Prerequisites are now declared explicitly via a story's `dependsOn` array and
+  the harness will NOT select a story until its `dependsOn` are satisfied (so you
+  should never be handed a blocked story — if you somehow are, its `dependsOn`
+  is incomplete; do NOT emit STORY_DONE, leave a note and stop). Concrete case:
+  US-1298 (guarantee remedy copy) `dependsOn` US-1279 + US-1280 (coverage-gating
+  + grade-fee-back MECHANISM). `buyer-guarantee.tsx` is public marketing copy
+  with NO feature gate, so editing it = publishing a live remedy promise; don't
+  write the remedy copy before the mechanism lands — that's the liability the
+  story warns about.
 - New stories use `prd.json.nextId` then bump it (NOT `max(id)+1` — done stories
   live in `prd.archive.json`, so that would reuse ids).
 - Optional per-story fields the harness understands:
