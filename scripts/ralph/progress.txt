@@ -3882,3 +3882,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026  5:26:44 PM
 ---
+## US-1289: In-app upgrade & credit-depletion prompts
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026  5:40:31 PM
+---

@@ -6212,7 +6212,7 @@
         "Dismissible, rate-limited, and analytics-tracked (PostHog)",
         "QA: exhausting credits in new-submission surfaces the prompt with the correct CTA"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][LHF][Monetize] Conversion revenue currently left on the floor; all the gating logic already exists. Added 2026-06-26."
     },
     {
