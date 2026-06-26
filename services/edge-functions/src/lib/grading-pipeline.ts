@@ -43,6 +43,7 @@ import {
 } from "./grading-lifecycle-notify.ts";
 import { recordAiUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
+import { computeCoverage, type CoverageImageSignal } from "./coverage.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -1312,6 +1313,20 @@ export async function processSubmission(submissionId: string) {
         .eq("id", submissionId);
     }
 
+    // US-1276: compute which standard inspection zones the photos documented,
+    // from each image's view (image_type) + the vision pass's per-image zone
+    // hints (issue/style/signal locations). Scopes the grade — and any future
+    // coverage-gated guarantee (US-1279/1280) — to what was actually shown.
+    const coverageSignals: CoverageImageSignal[] = perImageResults.map((r) => ({
+      image_type: r.image_type,
+      zone_hints: [
+        ...r.detected_issues.flatMap((d) => [d.location, d.issue]),
+        ...(r.style_attributes ?? []).map((s) => s.location),
+        ...r.condition_signals.map((s) => s.signal),
+      ].filter((s): s is string => typeof s === "string" && s.length > 0),
+    }));
+    const coverage = computeCoverage(submission.garment_category, coverageSignals);
+
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")
       .insert({
@@ -1335,6 +1350,9 @@ export async function processSubmission(submissionId: string) {
         defects_found: compositeResult.defects_found,
         // Full per-image trace for eval/training + dispute explanation.
         per_image_analysis: perImageResults,
+        // US-1276: per-garment inspection-zone coverage (covered/missing zones +
+        // coverage_pct) scoped to what the submitted photos actually documented.
+        coverage,
         confidence_score: compositeResult.confidence_score,
         needs_human_review: compositeResult.needs_human_review,
         // US-336/US-338: aggregated photo-authenticity assessment (manipulation /
