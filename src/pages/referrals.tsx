@@ -17,7 +17,7 @@ import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { affiliateBadgeEmbed, affiliateLink } from "@/lib/affiliate";
 import { TopReferrers } from "@/components/referral/top-referrers";
-import { Gift, Copy, Check, BadgeCheck, Trophy, Ticket, Target } from "lucide-react";
+import { Gift, Copy, Check, BadgeCheck, Trophy, Ticket, Target, Wallet, AlertCircle } from "lucide-react";
 
 interface ReferralMilestone {
   threshold: number;
@@ -45,6 +45,28 @@ interface AffiliateMe {
   clicks: { total: number; last30: number; converted: number };
   conversions: number;
 }
+
+// US-1295: affiliate commission earnings + Stripe Connect payout status.
+interface AffiliatePayouts {
+  enabled: boolean;
+  rate: number;
+  minimum_payout: number;
+  hold_days: number;
+  onboarding: { connected: boolean; payouts_enabled: boolean };
+  balance: { accrued_payable: number; accrued_held: number; paid: number };
+  tax: { threshold: number; paid_this_year: number; reaches_1099_threshold: boolean };
+  payouts: Array<{
+    id: string;
+    amount: number;
+    status: string;
+    stripe_transfer_id: string | null;
+    paid_at: string | null;
+    created_at: string;
+  }>;
+}
+
+const usd = (n: number) =>
+  n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 export function ReferralsPage() {
   const qc = useQueryClient();
@@ -79,6 +101,41 @@ export function ReferralsPage() {
       return json;
     },
   });
+
+  // US-1295: affiliate payout earnings + Stripe Connect onboarding state.
+  const { data: payouts, refetch: refetchPayouts } = useQuery({
+    queryKey: ["affiliate-payouts"],
+    queryFn: async (): Promise<AffiliatePayouts> => {
+      const res = await edgeFetch("/api/affiliate/payouts");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to load affiliate payouts");
+      return json;
+    },
+  });
+  const [connecting, setConnecting] = useState(false);
+
+  // Returning from Stripe onboarding (?connect=done) — refresh status once.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connect") === "done") {
+      edgeFetch("/api/affiliate/connect/status")
+        .catch(() => {})
+        .finally(() => refetchPayouts());
+    }
+  }, [refetchPayouts]);
+
+  const startPayoutOnboarding = async () => {
+    setConnecting(true);
+    try {
+      const res = await edgeFetch("/api/affiliate/connect", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.url) throw new Error(json.error || "Couldn't start onboarding");
+      window.location.href = json.url;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't start payout onboarding.");
+      setConnecting(false);
+    }
+  };
 
   const shareLink = data ? `${window.location.origin}/signup?ref=${data.code}` : "";
 
@@ -502,6 +559,79 @@ export function ReferralsPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* US-1295: affiliate commission payouts (Stripe Connect). Only shown
+              when the program is enabled — otherwise affiliate conversions earn
+              grade credits only. */}
+          {payouts?.enabled && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Wallet className="h-5 w-5 text-brand-red-text" /> Affiliate payouts
+                </CardTitle>
+                <CardDescription>
+                  Earn {usd(payouts.rate)} for every shopper who joins through your
+                  earned link and qualifies. Balances pay out automatically over
+                  Stripe once they clear {usd(payouts.minimum_payout)} (after a{" "}
+                  {payouts.hold_days}-day hold).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-md bg-muted p-3">
+                    <div className="text-2xl font-bold tabular-nums">
+                      {usd(payouts.balance.accrued_payable)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Ready to pay</div>
+                  </div>
+                  <div className="rounded-md bg-muted p-3">
+                    <div className="text-2xl font-bold tabular-nums">
+                      {usd(payouts.balance.accrued_held)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">On hold</div>
+                  </div>
+                  <div className="rounded-md bg-muted p-3">
+                    <div className="text-2xl font-bold tabular-nums">
+                      {usd(payouts.balance.paid)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Paid out</div>
+                  </div>
+                </div>
+
+                {payouts.onboarding.payouts_enabled ? (
+                  <p className="text-sm text-muted-foreground">
+                    Your Stripe payout account is connected and active.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      {payouts.onboarding.connected
+                        ? "Finish setting up your Stripe payout account to receive transfers."
+                        : "Connect a Stripe account to get paid your affiliate commissions."}
+                    </p>
+                    <Button onClick={startPayoutOnboarding} disabled={connecting}>
+                      {connecting
+                        ? "Opening…"
+                        : payouts.onboarding.connected
+                          ? "Finish setup"
+                          : "Set up payouts"}
+                    </Button>
+                  </div>
+                )}
+
+                {payouts.tax.reaches_1099_threshold && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      You've been paid {usd(payouts.tax.paid_this_year)} this year —
+                      at or above the {usd(payouts.tax.threshold)} threshold, so a
+                      1099 tax form may be issued.
+                    </span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* US-864: opt into the public top-referrers leaderboard. */}
           <Card>

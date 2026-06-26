@@ -116,6 +116,7 @@ import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
+import { handleAffiliatePayoutsCron } from "./routes/jobs-affiliate-payouts.ts";
 import { handleJourneyTickCron } from "./routes/jobs-journey-tick.ts";
 import { handleNewsletterTuningCron } from "./routes/jobs-newsletter-tuning.ts";
 import { handleNewsletterTopicBankRefillCron } from "./routes/jobs-newsletter-topic-bank.ts";
@@ -290,6 +291,11 @@ app.use("/api/referrals/*", authMiddleware);
 // US-603: affiliate earned-link channel. /me is per-user (authed); /click is
 // PUBLIC (anonymous badge clicks), so authMiddleware is scoped to /me only.
 app.use("/api/affiliate/me", authMiddleware);
+// US-1295: affiliate payout self-service (Stripe Connect onboarding + earnings)
+// — per-user, authed. /click stays public.
+app.use("/api/affiliate/connect", authMiddleware);
+app.use("/api/affiliate/connect/*", authMiddleware);
+app.use("/api/affiliate/payouts", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);
@@ -1064,6 +1070,10 @@ app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
 // consigned item sells. OUTSIDE /api/* JWT groups; handler enforces the
 // internal-job-secret + reads the consignor_auto_payout_mode config flag.
 app.post("/api/jobs/consignor-payouts", (c) => handleConsignorPayoutsCron(c));
+// US-1295 affiliate auto-payout sweep: accrue affiliate conversions + pay each
+// affiliate their eligible balance over Stripe Connect. OUTSIDE /api/* JWT
+// groups; handler enforces the internal-job-secret + reads affiliate_payout_config.
+app.post("/api/jobs/affiliate-payouts", (c) => handleAffiliatePayoutsCron(c));
 // US-929 daily lifecycle email-journey tick (welcome / trial-nurture / win-back).
 // OUTSIDE /api/* JWT groups; the handler enforces X-Internal-Job-Secret itself.
 // The /api/jobs/* middleware records the run to cron_runs automatically.

@@ -28,6 +28,7 @@ import {
   type ReferredSignupIncentive,
 } from "./referral-rewards.ts";
 import { getSetting } from "./system-settings.ts";
+import { accrueAffiliateCommission } from "./affiliate-payout.ts";
 
 export type GrantReferralResult =
   | {
@@ -449,6 +450,11 @@ export async function maybeQualifyReferral(userId: string): Promise<void> {
           `[referrals] auto-grant for event ${row.id} not completed: ${result.status}`,
         );
       }
+      // US-1295: accrue the affiliate commission for this conversion (no-op for
+      // non-affiliate referrals or when the engine is disabled). Idempotent via
+      // the UNIQUE(referral_event_id) ledger constraint; the affiliate-payouts
+      // sweep also backfills, so a miss here is recovered.
+      await accrueAffiliateCommission(row.id);
     }
   } catch (err) {
     console.error("[referrals] qualify hook threw:", err instanceof Error ? err.message : err);

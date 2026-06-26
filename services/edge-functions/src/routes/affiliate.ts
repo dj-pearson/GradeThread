@@ -13,12 +13,28 @@
 // caller's own code.
 
 import { Hono } from "hono";
+import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { ensureCode } from "./referrals.ts";
+import {
+  crossesTaxThreshold,
+  isPastHold,
+} from "../lib/affiliate-payout-math.ts";
+import { getAffiliatePayoutConfig } from "../lib/affiliate-payout.ts";
 
 type Env = { Variables: { userId?: string } };
 
 export const affiliateRoutes = new Hono<Env>();
+
+function getStripe(): Stripe | null {
+  const key = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
+}
+
+function siteUrl(): string {
+  return Deno.env.get("SITE_URL") || "https://gradethread.com";
+}
 
 const VALID_SOURCES = new Set(["badge", "link", "certificate"]);
 
@@ -112,5 +128,181 @@ affiliateRoutes.get("/me", async (c) => {
       converted: converted.count ?? 0,
     },
     conversions: events.count ?? 0,
+  });
+});
+
+// ── Payouts (US-1295) ────────────────────────────────────────────────────────
+// AUTHED. The affiliate's commission ledger pays out over Stripe Connect (the
+// same rails as consignment). Every read/write is scoped to the caller's userId.
+
+// POST /connect — create (or reuse) a Stripe Connect Express account and return
+// an onboarding link the affiliate completes. Mirrors the consignor flow.
+affiliateRoutes.post("/connect", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payments are not configured" }, 503);
+
+  const { data: existingRaw } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .select("stripe_connect_account_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  let accountId = (existingRaw as { stripe_connect_account_id: string | null } | null)
+    ?.stripe_connect_account_id ?? null;
+
+  if (!accountId) {
+    const { data: userRaw } = await supabaseAdmin
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+    const email = (userRaw as { email: string | null } | null)?.email ?? undefined;
+    const account = await stripe.accounts.create({
+      type: "express",
+      email,
+      capabilities: { transfers: { requested: true } },
+      metadata: { affiliate_user_id: userId },
+    });
+    accountId = account.id;
+    // Upsert so a re-connect for an affiliate without a row still records it.
+    await supabaseAdmin
+      .from("affiliate_accounts")
+      .upsert(
+        { user_id: userId, stripe_connect_account_id: accountId },
+        { onConflict: "user_id" },
+      );
+  }
+
+  const link = await stripe.accountLinks.create({
+    account: accountId,
+    refresh_url: `${siteUrl()}/dashboard/referrals?connect=refresh`,
+    return_url: `${siteUrl()}/dashboard/referrals?connect=done`,
+    type: "account_onboarding",
+  });
+
+  return c.json({ url: link.url });
+});
+
+// GET /connect/status — refresh payouts_enabled from Stripe.
+affiliateRoutes.get("/connect/status", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  const { data: existingRaw } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .select("stripe_connect_account_id, payouts_enabled")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const existing = existingRaw as
+    | { stripe_connect_account_id: string | null; payouts_enabled: boolean | null }
+    | null;
+  const accountId = existing?.stripe_connect_account_id ?? null;
+  if (!accountId) return c.json({ connected: false, payouts_enabled: false });
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payments are not configured" }, 503);
+
+  const account = await stripe.accounts.retrieve(accountId);
+  const enabled = Boolean(account.payouts_enabled && account.charges_enabled);
+  if (enabled !== Boolean(existing?.payouts_enabled)) {
+    await supabaseAdmin
+      .from("affiliate_accounts")
+      .update({ payouts_enabled: enabled })
+      .eq("user_id", userId);
+  }
+
+  return c.json({
+    connected: true,
+    payouts_enabled: enabled,
+    details_submitted: Boolean(account.details_submitted),
+  });
+});
+
+// GET /payouts — the affiliate's earnings: accrued (held + payable) vs paid,
+// recent payout ledger, Stripe onboarding state, and the 1099-threshold flag.
+affiliateRoutes.get("/payouts", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  const config = await getAffiliatePayoutConfig();
+  const nowMs = Date.now();
+  const yearStart = new Date(new Date().getUTCFullYear(), 0, 1).toISOString();
+
+  const [{ data: commRaw }, { data: payoutsRaw }, { data: acctRaw }] = await Promise.all([
+    supabaseAdmin
+      .from("affiliate_commissions")
+      .select("amount, status, hold_until")
+      .eq("affiliate_user_id", userId),
+    supabaseAdmin
+      .from("affiliate_payouts")
+      .select("id, amount, status, stripe_transfer_id, paid_at, created_at")
+      .eq("affiliate_user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabaseAdmin
+      .from("affiliate_accounts")
+      .select("stripe_connect_account_id, payouts_enabled")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+
+  const commissions = (commRaw ?? []) as Array<{
+    amount: number | null;
+    status: string;
+    hold_until: string | null;
+  }>;
+  let accruedPayable = 0;
+  let accruedHeld = 0;
+  let paid = 0;
+  for (const row of commissions) {
+    const amt = typeof row.amount === "number" ? row.amount : 0;
+    if (row.status === "paid") {
+      paid += amt;
+    } else if (row.status === "accrued") {
+      const holdMs = row.hold_until ? Date.parse(row.hold_until) : null;
+      if (isPastHold(Number.isFinite(holdMs as number) ? (holdMs as number) : null, nowMs)) {
+        accruedPayable += amt;
+      } else {
+        accruedHeld += amt;
+      }
+    }
+  }
+
+  const payouts = (payoutsRaw ?? []) as Array<{
+    amount: number | null;
+    status: string;
+    paid_at: string | null;
+  }>;
+  // 1099 reporting flag = USD actually paid out this calendar year.
+  const paidThisYear = payouts
+    .filter((p) => p.status === "paid" && p.paid_at && p.paid_at >= yearStart)
+    .reduce((acc, p) => acc + (typeof p.amount === "number" ? p.amount : 0), 0);
+
+  const acct = acctRaw as
+    | { stripe_connect_account_id: string | null; payouts_enabled: boolean | null }
+    | null;
+
+  return c.json({
+    enabled: config.mode !== "off",
+    rate: config.commission_per_conversion,
+    minimum_payout: config.minimum_payout,
+    hold_days: config.hold_days,
+    onboarding: {
+      connected: Boolean(acct?.stripe_connect_account_id),
+      payouts_enabled: Boolean(acct?.payouts_enabled),
+    },
+    balance: {
+      accrued_payable: Math.round(accruedPayable * 100) / 100,
+      accrued_held: Math.round(accruedHeld * 100) / 100,
+      paid: Math.round(paid * 100) / 100,
+    },
+    tax: {
+      threshold: config.tax_threshold_usd,
+      paid_this_year: Math.round(paidThisYear * 100) / 100,
+      reaches_1099_threshold: crossesTaxThreshold(paidThisYear, config.tax_threshold_usd),
+    },
+    payouts: payoutsRaw ?? [],
   });
 });
