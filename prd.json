@@ -6296,7 +6296,7 @@
         "Affiliate dashboard shows accrued vs paid; a basic 1099-threshold flag",
         "Tests cover accrual on conversion and idempotent payout"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][LHF][Growth] Clicks/conversions already logged; payouts are manual today. Stripe Connect already wired for consignment. Added 2026-06-26."
     },
     {
