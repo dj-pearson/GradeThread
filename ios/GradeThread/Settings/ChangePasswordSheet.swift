@@ -122,7 +122,9 @@ struct ChangePasswordSheet: View {
     /// Returns a user-facing hint while the input is invalid, or `nil` once the
     /// new password meets the minimum length and the confirm field matches.
     /// Returns `nil` for the empty initial state so we don't nag before typing.
-    static func validate(newPassword: String, confirm: String) -> String? {
+    // nonisolated: pure helper with no main-actor state, so the unit test can call
+    // it synchronously (View conformance otherwise infers @MainActor).
+    nonisolated static func validate(newPassword: String, confirm: String) -> String? {
         if newPassword.isEmpty && confirm.isEmpty { return nil }
         if newPassword.count < minimumLength {
             return "Password must be at least \(minimumLength) characters."

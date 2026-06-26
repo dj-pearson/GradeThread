@@ -273,8 +273,10 @@ public final class PhotoUploadService {
     /// US-1219: deliberately carries NO `Authorization` header — the signed URL's
     /// query-string token authorizes the upload, so the request the background
     /// `URLSession` serializes to its on-disk task DB holds no long-lived bearer
-    /// JWT. `static` so the no-credential invariant is unit-testable.
-    static func backgroundUploadRequest(signedURL: URL) -> URLRequest {
+    /// JWT. `static` so the no-credential invariant is unit-testable. `nonisolated`
+    /// because it's a pure request builder (no main-actor state) — lets the unit
+    /// test call it from a synchronous context without main-actor hops.
+    nonisolated static func backgroundUploadRequest(signedURL: URL) -> URLRequest {
         var request = URLRequest(url: signedURL)
         // PUT to the signed upload URL (matches supabase-js `uploadToSignedUrl`).
         request.httpMethod = "PUT"

@@ -97,7 +97,9 @@ struct DeleteAccountSheet: View {
     /// Pure gate for the destructive button. Trims whitespace + matches
     /// the phrase case-insensitively. Extracted so the rule is unit-
     /// testable without standing up the SwiftUI view.
-    static func canDelete(input: String) -> Bool {
+    // nonisolated: pure helper with no main-actor state, so the unit test can call
+    // it synchronously (View conformance otherwise infers @MainActor).
+    nonisolated static func canDelete(input: String) -> Bool {
         input.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare(confirmationPhrase) == .orderedSame
     }

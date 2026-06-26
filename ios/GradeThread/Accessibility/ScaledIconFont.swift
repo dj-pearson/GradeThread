@@ -41,7 +41,9 @@ struct ScaledIconFont: ViewModifier {
     /// Pure clamp: the Dynamic-Type-scaled size, capped to `maxSize` when set so
     /// a glyph inside a fixed frame can't overflow at the largest text sizes
     /// (US-1152). Factored out so the clamp is unit-testable.
-    static func resolve(scaled: CGFloat, maxSize: CGFloat?) -> CGFloat {
+    // nonisolated: pure helper with no main-actor state, so the unit test can call
+    // it synchronously (ViewModifier conformance otherwise infers @MainActor).
+    nonisolated static func resolve(scaled: CGFloat, maxSize: CGFloat?) -> CGFloat {
         maxSize.map { min(scaled, $0) } ?? scaled
     }
 }

@@ -165,7 +165,9 @@ struct TemplateEditorSheet: View {
 
     /// Fold the ordered editor rows into a `{name: value}` map, trimming and
     /// dropping rows with a blank name (last write wins on duplicate names).
-    static func collapse(_ pairs: [SpecificPair]) -> [String: String] {
+    // nonisolated: pure helper with no main-actor state, so the unit test can call
+    // it synchronously (View conformance otherwise infers @MainActor).
+    nonisolated static func collapse(_ pairs: [SpecificPair]) -> [String: String] {
         var out: [String: String] = [:]
         for pair in pairs {
             let name = pair.name.trimmingCharacters(in: .whitespacesAndNewlines)
