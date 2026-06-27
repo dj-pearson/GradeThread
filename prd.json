@@ -7422,7 +7422,7 @@
     {
       "id": "US-1381",
       "priority": -98619,
-      "passes": false,
+      "passes": true,
       "title": "App Shortcuts + Assistant App Actions",
       "description": "As a seller, I can launch Snap-to-Value / Add-item and ask \"what sold today\" via shortcuts/Assistant.",
       "acceptanceCriteria": [
