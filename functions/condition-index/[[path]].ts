@@ -113,8 +113,9 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     const body = `${renderBreadcrumbs(trail, site)}
     <main class="container">
       <h1>${escape(curve.label)} — value by condition</h1>
-      <p>What a <strong>${escape(curve.label)}</strong> is worth at each GradeThread condition grade,
-      from condition-matched resale comps. A grade-8 (&ldquo;Excellent&rdquo;) sits around <strong>${headline}</strong>.</p>
+      <p>What a <strong>${escape(curve.label)}</strong> is worth at each
+      <a href="/grading-standard">GradeThread condition grade</a>, from condition-matched resale comps.
+      A grade-8 (&ldquo;Excellent&rdquo;) sits around <strong>${headline}</strong>.</p>
       ${renderPerGradeSummary(curve)}
       <h2>Full value-by-grade table</h2>
       <table>
@@ -164,9 +165,11 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
     const body = `<main class="container">
       <h1>The Condition Index</h1>
-      <p>What pre-owned clothing is really worth — by <em>condition</em>. We grade and comp popular
-      items across GradeThread's objective 1.0&ndash;10.0 scale, so you can see how much a grade-9 is worth
-      versus a grade-6.</p>
+      <p>The Condition Index is the record of what pre-owned clothing is really worth &mdash; by
+      <em>condition</em>. We grade and comp popular items on
+      <a href="/grading-standard">GradeThread's objective 1.0&ndash;10.0 condition standard</a>, so you
+      can see exactly how much a grade-9 is worth versus a grade-6 &mdash; the resale value each grade
+      actually commands, from condition-matched sold comps.</p>
       ${items.length === 0
         ? `<p class="muted">The index is warming up — check back soon.</p>`
         : `<table>
@@ -174,14 +177,16 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
             <tbody>${rows}</tbody>
           </table>`}
       <p class="muted">Aggregate resale estimates from condition-matched listings. Not guaranteed sale prices.</p>
-      <p><a href="/snap">Value your own item &rarr;</a></p>
+      <p><a href="/snap">Value your own item &rarr;</a> &middot;
+      <a href="/flipdesk">Price your inventory to these comps with FlipDesk &rarr;</a></p>
     </main>`;
 
     const jsonLd = {
       "@context": "https://schema.org",
       "@type": "CollectionPage",
       name: "The GradeThread Condition Index",
-      description: "Resale value of popular pre-owned clothing by objective condition grade.",
+      description:
+        "The record of resale value for pre-owned clothing by objective condition grade — what each item is worth at each grade on GradeThread's 1.0–10.0 condition standard, from condition-matched sold comps.",
       url: `${site}/condition-index`,
     };
 

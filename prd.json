@@ -7668,7 +7668,7 @@
       "id": "US-1400",
       "title": "SEO: Condition Index as the canonical record (Pop Report equivalent)",
       "priority": 1350,
-      "passes": false,
+      "passes": true,
       "description": "As a buyer/seller/AI engine, I treat the Condition Index as the system-of-record for clothing condition->value.",
       "acceptanceCriteria": [
         "Frame + strengthen /condition-index as the canonical record; surface grade->realized-price prominently",
