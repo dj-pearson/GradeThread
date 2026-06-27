@@ -75,8 +75,12 @@ final class AutomationsStore {
     }
 
     /// US-1175: flip a rule's active flag optimistically so the switch responds
-    /// instantly, guard against overlapping toggles racing conflicting PUTs, and
-    /// revert if the save fails. The full-replace PUT goes through an editor draft.
+    /// instantly, guard against overlapping toggles racing conflicting writes.
+    /// US-1267: the save is now a MINIMAL `{isActive}` PATCH (not a full-replace
+    /// PUT rebuilt from the pre-toggle snapshot), so it touches only the active
+    /// flag — server-managed fields (last_run_at) and any concurrent edit to the
+    /// rule's trigger/action/scope are preserved. On success we re-sync to the
+    /// server's returned row; on failure we revert to server truth.
     func toggleActive(_ rule: AutomationRule) async {
         guard !togglingIds.contains(rule.id) else { return }
         togglingIds.insert(rule.id)
@@ -86,12 +90,18 @@ final class AutomationsStore {
         if let i = rules.firstIndex(where: { $0.id == rule.id }) {
             rules[i].isActive = newValue
         }
-        var draft = AutomationDraft(from: rule)
-        draft.isActive = newValue
-        let ok = await save(draft, editingId: rule.id)
-        if !ok, let i = rules.firstIndex(where: { $0.id == rule.id }) {
+        do {
+            let saved = try await service.setActive(id: rule.id, isActive: newValue)
+            // Re-sync to server truth (preserves last_run_at + concurrent edits).
+            if let i = rules.firstIndex(where: { $0.id == saved.id }) {
+                rules[i] = saved
+            }
+        } catch {
+            actionError = error.localizedDescription
             // Revert the optimistic flip on failure.
-            rules[i].isActive = !newValue
+            if let i = rules.firstIndex(where: { $0.id == rule.id }) {
+                rules[i].isActive = !newValue
+            }
         }
     }
 

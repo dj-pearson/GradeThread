@@ -424,6 +424,47 @@ flipdeskAutomationsRoutes.put("/rules/:id", async (c) => {
   return c.json({ rule: data });
 });
 
+// ── PATCH /rules/:id ──────────────────────────────────────────────
+// Minimal partial update — currently only the `is_active` toggle (US-1267).
+// Unlike the full-replace PUT, this writes ONLY the supplied field, so toggling
+// a rule's enablement can't clobber a concurrent edit to its trigger/action/
+// scope (whoever wrote those fields last keeps them) nor server-managed columns
+// (last_run_at). Returns the full freshly-read rule so the client re-syncs to
+// server truth. Scoped by id AND user_id — never trust the id alone (US-268).
+flipdeskAutomationsRoutes.patch("/rules/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const id = c.req.param("id");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  // iOS sends camelCase encoded to snake_case (`is_active`); accept either.
+  const patch: { is_active?: boolean } = {};
+  const rec = (body ?? {}) as Record<string, unknown>;
+  const rawActive = "is_active" in rec ? rec.is_active : rec.isActive;
+  if (rawActive !== undefined) {
+    if (typeof rawActive !== "boolean") {
+      return jsonError(c, 400, "is_active must be a boolean");
+    }
+    patch.is_active = rawActive;
+  }
+  if (Object.keys(patch).length === 0) {
+    return jsonError(c, 400, "No supported fields to update");
+  }
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_automation_rules")
+    .update(patch)
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .select(RULE_COLUMNS)
+    .maybeSingle();
+  if (error) return failSafe(c, 500, "Couldn't update the rule.", error, "automations.patch");
+  if (!data) return jsonError(c, 404, "Rule not found");
+  return c.json({ rule: data });
+});
+
 // ── DELETE /rules/:id ─────────────────────────────────────────────
 flipdeskAutomationsRoutes.delete("/rules/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");

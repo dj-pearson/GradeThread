@@ -158,7 +158,12 @@ final class AutomationsTests: XCTestCase {
         var saveError: Error?
         var deleteError: Error?
         var runError: Error?
+        var setActiveError: Error?
+        /// US-1267: server-managed fields the minimal PATCH must preserve.
+        var setActiveLastRunAt: String?
         private(set) var deleted: [String] = []
+        /// US-1267: (id, isActive) the store sent through the minimal PATCH.
+        private(set) var setActiveCalls: [(id: String, isActive: Bool)] = []
         private var seq = 0
 
         init(
@@ -187,6 +192,22 @@ final class AutomationsTests: XCTestCase {
         func update(id: String, _ input: AutomationRuleInput) async throws -> AutomationRule {
             if let saveError { throw saveError }
             return materialize(id, input)
+        }
+        func setActive(id: String, isActive: Bool) async throws -> AutomationRule {
+            setActiveCalls.append((id, isActive))
+            if let setActiveError { throw setActiveError }
+            guard let existing = rules.first(where: { $0.id == id }) else {
+                throw EdgeAPIError.badRequest(detail: "Rule not found")
+            }
+            // Server returns the full row: only is_active changed; server-managed
+            // last_run_at (and every other field) is preserved.
+            return AutomationRule(
+                id: existing.id, name: existing.name,
+                triggerJson: existing.triggerJson, actionJson: existing.actionJson,
+                scopeJson: existing.scopeJson, isActive: isActive,
+                lastRunAt: setActiveLastRunAt ?? existing.lastRunAt,
+                createdAt: existing.createdAt
+            )
         }
         func delete(id: String) async throws {
             if let deleteError { throw deleteError }
@@ -285,6 +306,44 @@ final class AutomationsTests: XCTestCase {
         await store.load()
         await store.toggleActive(store.rules[0])
         XCTAssertEqual(store.rules.first?.isActive, false)
+    }
+
+    // US-1267: the toggle sends a minimal {isActive} PATCH, not a full-replace
+    // PUT rebuilt from the pre-toggle snapshot.
+    @MainActor
+    func test_toggleActive_sendsMinimalPatch() async {
+        let fake = FakeService(rules: [rule("a", active: true)])
+        let store = AutomationsStore(service: fake)
+        await store.load()
+        await store.toggleActive(store.rules[0])
+        XCTAssertEqual(fake.setActiveCalls.count, 1)
+        XCTAssertEqual(fake.setActiveCalls.first?.id, "a")
+        XCTAssertEqual(fake.setActiveCalls.first?.isActive, false)
+    }
+
+    // US-1267: server-managed fields (last_run_at) come back on the PATCH'd row
+    // and the store re-syncs to that server truth.
+    @MainActor
+    func test_toggleActive_preservesServerManagedFields() async {
+        let fake = FakeService(rules: [rule("a", active: true)])
+        fake.setActiveLastRunAt = "2024-02-01T00:00:00Z"
+        let store = AutomationsStore(service: fake)
+        await store.load()
+        await store.toggleActive(store.rules[0])
+        XCTAssertEqual(store.rules.first?.isActive, false)
+        XCTAssertEqual(store.rules.first?.lastRunAt, "2024-02-01T00:00:00Z")
+    }
+
+    // US-1267: a failed PATCH reverts the optimistic flip back to server truth.
+    @MainActor
+    func test_toggleActive_failureReverts() async {
+        let fake = FakeService(rules: [rule("a", active: true)])
+        fake.setActiveError = EdgeAPIError.rateLimited
+        let store = AutomationsStore(service: fake)
+        await store.load()
+        await store.toggleActive(store.rules[0])
+        XCTAssertEqual(store.rules.first?.isActive, true)   // reverted
+        XCTAssertNotNil(store.actionError)
     }
 
     @MainActor
