@@ -105,6 +105,32 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
+      - name: Launch-smoke gate (block release on a launch crash)
+        # A release build that compiles + archives cleanly can still CRASH on
+        # launch (a bad SwiftData schema, a fatalError in App.init, a force-unwrap
+        # at startup). The archive/export steps below only prove the binary
+        # BUILDS — they never RUN it, so a launch crash would sail straight into
+        # TestFlight. This gate boots the app in a simulator BEFORE the archive
+        # and fails the whole release if it doesn't reach the foreground, so a
+        # crash-on-launch can never reach testers. Reuses the existing,
+        # backend-independent SmokeUITests/testAppLaunchesToFirstScreen
+        # (asserts XCUIApplication.state == .runningForeground) — the same launch
+        # assertion the CriticalFlow UI lane uses. Unsigned simulator build, so
+        # it's independent of the signing/entitlement steps that follow.
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project GradeThread.xcodeproj \
+            -scheme GradeThreadScreenshots \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -only-testing:GradeThreadUITests/SmokeUITests \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean test | xcbeautify --renderer github-actions
+
       - name: Flip aps-environment to production
         # Entitlements file ships with aps-environment=development so local
         # Xcode-signed builds talk to the APNs sandbox. TestFlight + App
