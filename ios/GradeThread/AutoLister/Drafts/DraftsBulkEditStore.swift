@@ -101,6 +101,11 @@ final class DraftsBulkEditStore {
     /// nil = every AutoLister draft; otherwise scope to one batch.
     private let batchId: String?
 
+    /// US-1243: how many dirty-row saves run concurrently in `save()`. Bounded
+    /// so a large dirty batch doesn't open hundreds of sockets at once. Matches
+    /// `DraftsLibraryStore.bulkSaveConcurrency` (US-1166).
+    static let bulkSaveConcurrency = 4
+
     var phase: Phase = .loading
     var rows: [DraftEditRow] = []
     var selected: Set<String> = []
@@ -245,23 +250,71 @@ final class DraftsBulkEditStore {
         guard !dirty.isEmpty else { return }
         isSaving = true
         defer { isSaving = false }
-        var saved = 0
+
         // US-1191: track which rows actually persisted so a single failure keeps
         // the OTHER dirty rows' edits instead of reloading and wiping them all.
         var savedIds = Set<String>()
+        // US-1243: build the per-row save work synchronously, then persist in
+        // bounded-concurrency chunks (same pattern as DraftsLibraryStore.applyBulk)
+        // so a large dirty batch isn't needlessly serial. Each save is an
+        // independent row update with no shared state, so parallelism is safe.
+        // eBay-originated rows are locked read-only mirrors (US-1086): clear their
+        // dirty flag without a network call; the next sync re-asserts eBay's values.
+        var work: [(id: String, label: String, edit: DraftEdit)] = []
         for row in dirty {
-            // eBay-originated listings are locked read-only mirrors (US-1086).
-            // Silently discard the local edit; the next sync re-asserts eBay's values.
             if row.isEbayOriginated { savedIds.insert(row.id); continue }
-            do {
-                try await service.save(row.toEdit())
-                saved += 1
-                savedIds.insert(row.id)
-            } catch {
-                actionError = "Couldn't save \(displayTitle(row)): \(error.localizedDescription). Your other edits are kept — fix and try again."
-                break
-            }
+            work.append((row.id, displayTitle(row), row.toEdit()))
         }
+
+        var saved = 0
+        // First failure by original row order → the single user-facing actionError;
+        // mirrors the old serial loop, which surfaced the first failure and stopped.
+        var firstFailure: (index: Int, message: String)?
+
+        let service = self.service
+        var baseIndex = 0
+        chunkLoop: for chunk in work.chunked(into: Self.bulkSaveConcurrency) {
+            let results = await withTaskGroup(
+                of: (index: Int, id: String, message: String?).self
+            ) { group -> [(index: Int, id: String, message: String?)] in
+                for (offset, item) in chunk.enumerated() {
+                    let index = baseIndex + offset
+                    let id = item.id
+                    let label = item.label
+                    let edit = item.edit
+                    group.addTask {
+                        do {
+                            try await service.save(edit)
+                            return (index, id, nil)
+                        } catch {
+                            return (index, id, "Couldn't save \(label): \(error.localizedDescription). Your other edits are kept — fix and try again.")
+                        }
+                    }
+                }
+                var acc: [(index: Int, id: String, message: String?)] = []
+                for await r in group { acc.append(r) }
+                return acc
+            }
+
+            var chunkFailed = false
+            for r in results {
+                if let message = r.message {
+                    chunkFailed = true
+                    if r.index < (firstFailure?.index ?? Int.max) {
+                        firstFailure = (r.index, message)
+                    }
+                } else {
+                    saved += 1
+                    savedIds.insert(r.id)
+                }
+            }
+            baseIndex += chunk.count
+            // Mirror the old break-on-first-failure: stop launching further chunks
+            // once any save in this chunk failed, so the rest stay dirty for retry.
+            if chunkFailed { break chunkLoop }
+        }
+
+        if let firstFailure { actionError = firstFailure.message }
         lastSavedCount = saved
         // Clear dirty only on rows that saved; the rest stay editable for retry.
         for i in rows.indices where savedIds.contains(rows[i].id) {
@@ -343,5 +396,17 @@ final class DraftsBulkEditStore {
     private func displayTitle(_ row: DraftEditRow) -> String {
         let t = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? titleFallback(for: row) : t
+    }
+}
+
+// US-1243: split a collection into fixed-size chunks for bounded-concurrency
+// saving. private so it can't collide with the sibling helper in
+// DraftsLibraryStore.swift (each is file-scoped).
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
     }
 }
