@@ -5597,7 +5597,7 @@
     {
       "id": "US-1245",
       "priority": 1245,
-      "passes": false,
+      "passes": true,
       "title": "iOS Money/Sales net figures: reconcile labels and route all surfaces through SalePnL",
       "description": "As a seller, the Money tab's 'gross profit'/ROI and the Sales tab's 'net' should mean the same thing as Dashboard/Analytics, so the same orders don't show different numbers under inconsistent labels.",
       "acceptanceCriteria": [

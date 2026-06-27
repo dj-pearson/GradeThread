@@ -3998,3 +3998,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:22:34 AM
 ---
+## US-1245: iOS Money/Sales net figures: reconcile labels and route all surfaces through SalePnL
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:29:10 AM
+---
