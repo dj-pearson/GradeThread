@@ -21,7 +21,25 @@ public final class NotificationDelegate: NSObject, UNUserNotificationCenterDeleg
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .badge, .sound, .list])
+        // US-1257: honor the per-category mute preference set in Settings. A
+        // muted category presents nothing (no banner/badge/sound/list) so the
+        // toggle isn't a no-op; an enabled or unknown category presents fully.
+        completionHandler(
+            Self.presentationOptions(
+                forCategory: notification.request.content.categoryIdentifier))
+    }
+
+    /// Resolves foreground presentation options from the user's per-category
+    /// notification preferences (US-1257). Pure + injectable so it's unit-tested
+    /// without the system notification center.
+    static func presentationOptions(
+        forCategory rawCategory: String,
+        defaults: UserDefaults = .standard
+    ) -> UNNotificationPresentationOptions {
+        guard NotificationPreferences.isEnabled(rawCategory: rawCategory, defaults: defaults) else {
+            return []
+        }
+        return [.banner, .badge, .sound, .list]
     }
 
     public func userNotificationCenter(

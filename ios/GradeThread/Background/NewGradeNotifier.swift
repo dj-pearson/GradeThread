@@ -40,6 +40,11 @@ public final class NewGradeNotifier: NewGradeNotifying {
     /// runs from the BG refresh task and must never trigger a permission
     /// request; an undetermined grant simply skips (foreground prompts instead).
     func notifyNewGrades(count: Int, latest: LocalInventoryItem) async {
+        // US-1257: respect the per-category mute toggle (Settings → Push
+        // notifications → "Certified grades ready"). A muted category schedules
+        // nothing.
+        guard NotificationPreferences.isEnabled(.gradeReady) else { return }
+
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .authorized

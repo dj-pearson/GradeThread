@@ -1937,8 +1937,9 @@ private struct NotificationCategoryToggle: View {
 
     init(category: NotificationCategoryID) {
         self.category = category
-        let key = NotificationCategoryToggle.userDefaultsKey(for: category)
-        let initial = UserDefaults.standard.object(forKey: key) as? Bool ?? true
+        // US-1257: read through the shared store so the toggle, the
+        // foreground-presentation delegate, and the local notifiers agree.
+        let initial = NotificationPreferences.isEnabled(category)
         _isEnabled = State(initialValue: initial)
     }
 
@@ -1961,7 +1962,7 @@ private struct NotificationCategoryToggle: View {
     }
 
     static func userDefaultsKey(for category: NotificationCategoryID) -> String {
-        "com.gradethread.app.notifyPref.\(category.rawValue)"
+        NotificationPreferences.userDefaultsKey(for: category)
     }
 }
 

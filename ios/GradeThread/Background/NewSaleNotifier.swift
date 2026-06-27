@@ -43,6 +43,10 @@ public final class NewSaleNotifier: NewSaleNotifying {
     /// task, which must never trigger a permission request; if the grant is
     /// undetermined we simply skip (a foreground context prompts instead).
     func notifyNewSales(count: Int, latest: LocalSale) async {
+        // US-1257: respect the per-category mute toggle (Settings → Push
+        // notifications → "New eBay sales"). A muted category schedules nothing.
+        guard NotificationPreferences.isEnabled(.saleCreated) else { return }
+
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .authorized

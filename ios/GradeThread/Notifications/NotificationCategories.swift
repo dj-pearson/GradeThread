@@ -67,6 +67,38 @@ public enum NotificationCategoryID: String, CaseIterable {
     }
 }
 
+/// US-1257: per-category mute preferences, set by the Settings toggles
+/// (`NotificationCategoryToggle`) and now actually consulted on the receive
+/// side. Single source of truth for the UserDefaults key + the default-ON
+/// read, so the toggle, the foreground-presentation delegate, and the local
+/// notifiers (`NewSaleNotifier`/`NewGradeNotifier`) all agree.
+public enum NotificationPreferences {
+    /// Per-category UserDefaults key. Kept stable — it persists across launches.
+    public static func userDefaultsKey(for category: NotificationCategoryID) -> String {
+        "com.gradethread.app.notifyPref.\(category.rawValue)"
+    }
+
+    /// Whether the user wants notifications for this category. An absent key
+    /// means enabled (default ON), matching the toggle's initial state.
+    public static func isEnabled(
+        _ category: NotificationCategoryID,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.object(forKey: userDefaultsKey(for: category)) as? Bool ?? true
+    }
+
+    /// Resolves a raw push `categoryIdentifier` to its preference. An unknown
+    /// category defaults ON so a newly-added server category is never silently
+    /// suppressed before the app ships its matching toggle.
+    public static func isEnabled(
+        rawCategory: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard let category = NotificationCategoryID(rawValue: rawCategory) else { return true }
+        return isEnabled(category, defaults: defaults)
+    }
+}
+
 /// Registers every UNNotificationCategory at process launch so the
 /// system associates incoming pushes with the right tap-handling rules.
 @MainActor

@@ -322,6 +322,72 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertNil(NotificationActionPlan.parsePrice(nil))
     }
 
+    // MARK: - US-1257: per-category mute preferences actually gate
+
+    /// Fresh isolated UserDefaults suite so toggling a pref can't leak between
+    /// tests or touch the real app domain.
+    private func freshDefaults() -> UserDefaults {
+        let suite = "test.notifyPref.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
+    }
+
+    func test_pref_defaultsOn_whenKeyAbsent() {
+        let defaults = freshDefaults()
+        for id in NotificationCategoryID.allCases {
+            XCTAssertTrue(
+                NotificationPreferences.isEnabled(id, defaults: defaults),
+                "\(id.rawValue) should default ON when unset")
+        }
+    }
+
+    func test_pref_mutedCategory_readsFalse() {
+        let defaults = freshDefaults()
+        defaults.set(false, forKey: NotificationPreferences.userDefaultsKey(for: .saleCreated))
+        XCTAssertFalse(NotificationPreferences.isEnabled(.saleCreated, defaults: defaults))
+        // Untouched categories stay ON.
+        XCTAssertTrue(NotificationPreferences.isEnabled(.gradeReady, defaults: defaults))
+    }
+
+    func test_pref_rawCategory_unknownDefaultsOn() {
+        let defaults = freshDefaults()
+        XCTAssertTrue(
+            NotificationPreferences.isEnabled(rawCategory: "marketing.promo", defaults: defaults))
+    }
+
+    func test_pref_keyMatchesSettingsToggleKey() {
+        // The Settings toggle and the receive side must read the SAME key, or the
+        // toggle is a no-op again.
+        XCTAssertEqual(
+            NotificationPreferences.userDefaultsKey(for: .saleCreated),
+            "com.gradethread.app.notifyPref.sale.created")
+    }
+
+    func test_presentationOptions_enabledCategory_presentsFully() {
+        let defaults = freshDefaults()
+        XCTAssertEqual(
+            NotificationDelegate.presentationOptions(
+                forCategory: NotificationCategoryID.saleCreated.rawValue, defaults: defaults),
+            [.banner, .badge, .sound, .list])
+    }
+
+    func test_presentationOptions_mutedCategory_presentsNothing() {
+        let defaults = freshDefaults()
+        defaults.set(false, forKey: NotificationPreferences.userDefaultsKey(for: .gradeReady))
+        XCTAssertEqual(
+            NotificationDelegate.presentationOptions(
+                forCategory: NotificationCategoryID.gradeReady.rawValue, defaults: defaults),
+            [])
+    }
+
+    func test_presentationOptions_unknownCategory_presentsFully() {
+        let defaults = freshDefaults()
+        XCTAssertEqual(
+            NotificationDelegate.presentationOptions(forCategory: "marketing.promo", defaults: defaults),
+            [.banner, .badge, .sound, .list])
+    }
+
     // MARK: - PushService.environmentName
 
     func test_pushService_environmentName_matchesBuildConfig() {
