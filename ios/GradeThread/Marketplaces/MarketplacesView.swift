@@ -1,5 +1,35 @@
 import SwiftUI
 
+extension Notification.Name {
+    /// US-1262: posted when a "reconnect eBay" notification action is tapped, so
+    /// the Marketplaces surface auto-presents the eBay OAuth/reconnect sheet
+    /// instead of leaving the user to find the Reconnect button.
+    static let ebayReconnectRequested = Notification.Name("com.gradethread.app.ebayReconnectRequested")
+}
+
+/// US-1262: a one-shot latch bridging a "reconnect eBay" deep link to the
+/// Marketplaces surface. The deep link can arrive BEFORE the tab's view mounts
+/// (cold launch / a tab the user has never opened — so its `.onReceive` isn't
+/// subscribed yet) OR while it's already live. The latch covers the cold case
+/// (consumed in the view's `.task` on first appear) and the
+/// `.ebayReconnectRequested` wake signal covers the live case (`.onReceive`).
+/// `consume()` returns true at most once per `request()`, so the two paths can't
+/// both fire a duplicate OAuth.
+@MainActor
+final class EbayReconnectLatch {
+    static let shared = EbayReconnectLatch()
+    private var pending = false
+    private init() {}
+
+    func request() { pending = true }
+
+    func consume() -> Bool {
+        guard pending else { return false }
+        pending = false
+        return true
+    }
+}
+
 /// Marketplaces tab. Today: just the eBay connection card. Future
 /// platforms (Poshmark / Mercari / Depop) get their own cards alongside
 /// when US-149 lands.
@@ -70,12 +100,23 @@ struct MarketplacesView: View {
                 await store.refresh(userId: userId)
                 await refreshOrphanCount(userId: userId)
             }
+            // US-1262: a reconnect deep link that mounted this tab is consumed
+            // here (its `.onReceive` wasn't subscribed when the signal fired).
+            consumeReconnectRequest()
         }
         .refreshable {
             if let userId = currentUserId() {
                 await store.refresh(userId: userId)
                 await refreshOrphanCount(userId: userId)
             }
+        }
+        // US-1262: a "reconnect eBay" notification action routes here and posts
+        // this signal so the OAuth sheet opens automatically — the action is a
+        // one-tap path back into the connection flow, not just the tab.
+        .onReceive(NotificationCenter.default.publisher(for: .ebayReconnectRequested)) { _ in
+            // Live case: the tab was already on-screen/mounted when the deep link
+            // fired, so this subscription catches the wake signal.
+            consumeReconnectRequest()
         }
         .sheet(isPresented: $showingSyncModal, onDismiss: { cancelSync() }) {
             EbaySyncModal(
@@ -715,5 +756,14 @@ struct MarketplacesView: View {
             return user.id.uuidString
         }
         return nil
+    }
+
+    /// US-1262: if a "reconnect eBay" deep link is pending, start the OAuth flow.
+    /// Guards run BEFORE consuming the latch so a not-yet-ready state (signed out,
+    /// already connecting) doesn't silently swallow the request.
+    private func consumeReconnectRequest() {
+        guard let userId = currentUserId(), !store.isConnecting else { return }
+        guard EbayReconnectLatch.shared.consume() else { return }
+        Task { await store.connect(userId: userId) }
     }
 }

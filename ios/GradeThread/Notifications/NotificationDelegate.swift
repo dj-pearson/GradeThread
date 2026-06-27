@@ -69,7 +69,12 @@ public final class NotificationDelegate: NSObject, UNUserNotificationCenterDeleg
     ) {
         switch plan {
         case .reconnect:
-            DeepLinkRouter.post(.marketplacesTab)
+            // US-1262: a "reconnect" action should actually START reconnection,
+            // not just drop the user on the Marketplaces tab to hunt for the
+            // button. `.reconnectEbay` lands on Marketplaces AND auto-presents the
+            // eBay OAuth sheet. The action button is `.foreground`, so the app is
+            // active by the time the route is applied and the OAuth UI can show.
+            DeepLinkRouter.post(.reconnectEbay)
             completionHandler()
         case let .deepLink(route):
             DeepLinkRouter.post(route)
@@ -134,6 +139,10 @@ public final class NotificationDelegate: NSObject, UNUserNotificationCenterDeleg
 public enum DeepLinkRoute: Equatable {
     case salesTab(inventoryItemId: String?)
     case marketplacesTab
+    /// US-1262: like ``marketplacesTab`` but also auto-presents the eBay
+    /// OAuth/reconnect sheet on arrival, so a "reconnect" notification action is
+    /// a one-tap path back into the connection flow rather than a dead end.
+    case reconnectEbay
     case inventoryItem(id: String)
     /// Opens the Inventory list (no specific row) — used by the aging-stock
     /// digest (US-679) so the tap lands on triage.

@@ -202,6 +202,10 @@ struct ContentView: View {
                 OnboardingView { useCase in
                     OnboardingState().complete(useCase: useCase)
                     showingOnboarding = false
+                    // US-1262: ask for push permission right after onboarding wraps
+                    // — a reliable, in-context moment that doesn't depend on the
+                    // user ever opening the Money tab. One-shot + OS-idempotent.
+                    Task { await PushService.shared.requestPermissionAtReliableMomentIfNeeded() }
                 }
             }
     }
@@ -355,6 +359,14 @@ struct ContentView: View {
         Task {
             await engine.start()
             await engine.sync()
+            // US-1262: a user who already onboarded but never opens the Money tab
+            // still needs the push prompt. After the first sync of a signed-in
+            // session, surface it once — gated on onboarding completion so the
+            // system dialog never lands over the welcome carousel (fresh users get
+            // prompted from the onboarding-complete path instead).
+            if OnboardingState().hasCompleted {
+                await PushService.shared.requestPermissionAtReliableMomentIfNeeded()
+            }
         }
     }
 }
@@ -465,11 +477,21 @@ struct MainShell: View {
             // US-749: surface unmatched eBay listings on every tab, not just
             // inside Marketplaces. Tapping opens Reconciliation directly.
             if reconcileBadge.hasOrphans {
-                ReconcileBanner(count: reconcileBadge.orphanCount) {
-                    AppRouter.haptic()
-                    router.showingReconciliation = true
-                }
-                .accessibleAnimation(.easeInOut(duration: 0.2), value: reconcileBadge.orphanCount)
+                ReconcileBanner(
+                    count: reconcileBadge.orphanCount,
+                    onTap: {
+                        AppRouter.haptic()
+                        router.showingReconciliation = true
+                    },
+                    onSnooze: {
+                        // US-1262: let the user dismiss/snooze the persistent
+                        // reminder so it isn't a permanent nag. It re-surfaces when
+                        // the snooze window elapses or new unmatched listings appear.
+                        AppRouter.haptic()
+                        reconcileBadge.snooze()
+                    }
+                )
+                .accessibleAnimation(.easeInOut(duration: 0.2), value: reconcileBadge.hasOrphans)
             }
             Group {
                 if horizontalSizeClass == .regular {
@@ -717,6 +739,19 @@ struct MainShell: View {
             }
         case .marketplacesTab:
             router.selection = .marketplaces
+        case .reconnectEbay:
+            // US-1262: select Marketplaces AND ask the connection card to open the
+            // eBay OAuth sheet immediately. MarketplacesView listens for
+            // `.ebayReconnectRequested` (its `.onReceive` is live even while the
+            // tab is in the background of the TabView), so the sheet presents the
+            // moment we post — the user lands mid-reconnect, not on a static tab.
+            router.selection = .marketplaces
+            router.marketplacesPath = NavigationPath()
+            // Latch the intent (consumed by MarketplacesView's `.task` if the tab
+            // is mounting cold) AND post the wake signal (caught by its
+            // `.onReceive` if it's already live). Exactly one path fires OAuth.
+            EbayReconnectLatch.shared.request()
+            NotificationCenter.default.post(name: .ebayReconnectRequested, object: nil)
         case .inventoryTab:
             router.selection = .inventory
             router.inventoryPath = NavigationPath()
@@ -1854,27 +1889,42 @@ private struct IntakePlaceholder: View {
 private struct ReconcileBanner: View {
     let count: Int
     let onTap: () -> Void
+    /// US-1262: dismiss/snooze the persistent banner so it isn't a permanent nag.
+    let onSnooze: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: "arrow.left.arrow.right")
-                Text("\(count) unmatched listing\(count == 1 ? "" : "s") to reconcile")
-                    .font(.footnote.weight(.medium))
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption2)
+        HStack(spacing: Spacing.xs) {
+            Button(action: onTap) {
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "arrow.left.arrow.right")
+                    Text("\(count) unmatched listing\(count == 1 ? "" : "s") to reconcile")
+                        .font(.footnote.weight(.medium))
+                    Spacer(minLength: Spacing.xs)
+                    Image(systemName: "chevron.right").font(.caption2)
+                }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-            .background(Color.brandAmber.opacity(0.15))
-            .foregroundStyle(Color.brandAmber)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(count) unmatched eBay listing\(count == 1 ? "" : "s") to reconcile")
+            .accessibilityHint("Opens reconciliation")
+
+            // US-1262: a small dismiss control snoozes the reminder for a day.
+            Button(action: onSnooze) {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .padding(6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss reconcile reminder")
+            .accessibilityHint("Hides this for a day, or until more unmatched listings appear")
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(Color.brandAmber.opacity(0.15))
+        .foregroundStyle(Color.brandAmber)
         .transition(.move(edge: .top).combined(with: .opacity))
-        .accessibilityLabel("\(count) unmatched eBay listing\(count == 1 ? "" : "s") to reconcile")
-        .accessibilityHint("Opens reconciliation")
     }
 }
 

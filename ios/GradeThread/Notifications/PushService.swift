@@ -42,6 +42,10 @@ public final class PushService {
     /// first registration hit a transient failure, or the app was killed before
     /// the POST landed — and must be re-POSTed on the next launch/reconnect.
     private let registeredTokenKey = "com.gradethread.app.push.registeredTokenHex"
+    /// US-1262: set once we've proactively surfaced the permission prompt at a
+    /// reliable moment, so the prompt is initiated exactly once across the
+    /// onboarding-complete + first-sync paths.
+    private let proactivePromptKey = "com.gradethread.app.push.proactivelyRequested.v1"
 
     private init() {
         self.defaults = .standard
@@ -129,6 +133,20 @@ public final class PushService {
 
     private func registerForRemoteNotifications() async {
         UIApplication.shared.registerForRemoteNotifications()
+    }
+
+    /// US-1262: surface the permission prompt PROACTIVELY at a reliable moment
+    /// (onboarding completion / first successful sync) so a user who never opens
+    /// the Money tab still gets asked. One-shot + persisted: we only initiate the
+    /// proactive prompt once (the OS itself only shows the system dialog when the
+    /// status is still `.notDetermined`), so calling this from several reliable
+    /// moments is safe — at most one of them does the work. Returns nil when the
+    /// proactive prompt has already fired.
+    @discardableResult
+    public func requestPermissionAtReliableMomentIfNeeded() async -> UNAuthorizationStatus? {
+        guard !defaults.bool(forKey: proactivePromptKey) else { return nil }
+        defaults.set(true, forKey: proactivePromptKey)
+        return await requestPermissionIfNeeded()
     }
 
     // MARK: - Token handling
