@@ -3,7 +3,7 @@
 // tier — the "beyond internal plumbing" product surface. Prerendered + indexable
 // (registered in PUBLIC_ROUTES + entry-server).
 import { Link } from "react-router-dom";
-import { Code, FlaskConical, Gauge, KeyRound, Package, Layout } from "lucide-react";
+import { Code, FlaskConical, Gauge, KeyRound, Package, Layout, LineChart } from "lucide-react";
 import {
   MarketingLayout,
   MarketingCTA,
@@ -17,6 +17,9 @@ const ENDPOINTS = [
   { method: "PATCH", path: "/api/v1/webhook", scope: "webhook_manage", desc: "Set the URL we POST to when a grade completes." },
   { method: "POST", path: "/api/v1/sandbox/grades", scope: "submit", desc: "Free mock submit — returns a sample grade, no credits." },
   { method: "GET", path: "/api/v1/sandbox/grades/:id", scope: "read", desc: "Free mock fetch — returns a sample grade." },
+  { method: "GET", path: "/api/v1/price-guide", scope: "read", desc: "List published Resale Condition Index items (the catalog)." },
+  { method: "GET", path: "/api/v1/price-guide/:slug", scope: "read", desc: "Resale value range + sell-through by grade band for an item." },
+  { method: "GET", path: "/api/v1/sandbox/price-guide/:slug", scope: "read", desc: "Free mock price guide — deterministic sample, no live data." },
 ];
 
 const RATE_TIERS = [
@@ -31,6 +34,14 @@ const CURL_EXAMPLE = `curl https://functions.gradethread.com/api/v1/sandbox/grad
   -H "X-API-Key: gt_sk_..." \\
   -H "Content-Type: application/json" \\
   -d '{"title":"Vintage denim jacket","brand":"Levi'\\''s"}'`;
+
+const PRICE_GUIDE_EXAMPLE = `curl https://functions.gradethread.com/api/v1/price-guide/patagonia-better-sweater \\
+  -H "X-API-Key: gt_sk_..."
+
+# → { "data": { "slug": "patagonia-better-sweater", "brand": "Patagonia",
+#       "bands": [ { "band": "high", "gradeRange": "8.5 – 10.0",
+#                    "valueLowCents": 6500, "valueMedianCents": 8200,
+#                    "valueHighCents": 9800, "sellThrough": 0.78 }, ... ] } }`;
 
 const SDK_EXAMPLE = `import { GradeThread } from "@gradethread/sdk";
 
@@ -166,6 +177,24 @@ export function DevelopersPage() {
         </p>
         <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
           <code>{CURL_EXAMPLE}</code>
+        </pre>
+      </Section>
+
+      <Section icon={LineChart} title="Resale Condition Index price guide">
+        <p>
+          Beyond grading, the API exposes GradeThread's proprietary{" "}
+          <Link to="/resale-condition-report" className="font-medium text-brand-navy hover:underline dark:text-foreground">
+            Resale Condition Index
+          </Link>{" "}
+          as a queryable price guide: for a published brand-and-category item, the
+          resale <strong>value range</strong> and <strong>sell-through</strong> at
+          each condition-grade band. It's read-scoped and rate-limited like every
+          other endpoint, with a free sandbox. Every figure is aggregate-only and
+          sample-gated — items and bands without enough recent data are not
+          returned rather than guessed.
+        </p>
+        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
+          <code>{PRICE_GUIDE_EXAMPLE}</code>
         </pre>
       </Section>
 

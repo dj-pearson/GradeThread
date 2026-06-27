@@ -150,6 +150,16 @@ export function ResaleConditionReportPage() {
   );
   const maxPrice = Math.max(1, ...bands.map((b) => b.median_sale_price ?? 0));
 
+  // US-1285: a new dated, cited aggregate — how much more the best-condition band
+  // fetches than the lowest. Shown only when both bands clear the sample bar (no
+  // data → not shown), so it never prints a misleading number.
+  const highBand = bands.find((b) => b.key === "high");
+  const lowBand = bands.find((b) => b.key === "low");
+  const valuePremium =
+    highBand?.median_sale_price && lowBand?.median_sale_price && lowBand.median_sale_price > 0
+      ? highBand.median_sale_price / lowBand.median_sale_price - 1
+      : null;
+
   const salesFrom = formatDate(data?.coverage.sales_from ?? null);
   const salesTo = formatDate(data?.coverage.sales_to ?? null);
   const coverageLine =
@@ -290,6 +300,23 @@ export function ResaleConditionReportPage() {
             Median sold price per grade band — a direct read on how much condition
             moves what an item fetches.
           </p>
+          {valuePremium !== null ? (
+            <div className="mt-6 rounded-lg border bg-background p-5">
+              <p className="text-sm text-muted-foreground">
+                Condition value premium
+              </p>
+              <p className="mt-2 text-3xl font-bold tracking-tight text-brand-navy dark:text-foreground">
+                +{Math.round(valuePremium * 100)}%
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                higher median resale value for items graded {highBand?.label} vs.{" "}
+                {lowBand?.label}
+                {data?.generated_at
+                  ? ` · as of ${new Date(data.generated_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
+                  : ""}
+              </p>
+            </div>
+          ) : null}
           {bands.length > 0 ? (
             <div className="mt-8 space-y-3">
               {bands.map((b) => (
@@ -402,6 +429,62 @@ export function ResaleConditionReportPage() {
               window and sample size for the data shown.
             </li>
           </ul>
+        </div>
+      </section>
+
+      {/* Query this as data — the Condition Index price-guide API (US-1285) */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <div className="flex items-center gap-2">
+            <Database className="h-5 w-5 text-brand-navy dark:text-foreground" />
+            <h2 className="text-2xl font-bold">Query this as data</h2>
+          </div>
+          <p className="mt-3 text-muted-foreground">
+            These aggregates are also a queryable product. The{" "}
+            <strong className="text-foreground">Resale Condition Index price guide</strong>{" "}
+            API maps a grade band, category, and brand to a resale value range and
+            sell-through — the same data, addressable per item. It's scoped behind
+            an API key and rate-limited like the rest of our API, with a free
+            sandbox so you can build against deterministic sample data first. Every
+            response is aggregate-only and sample-gated: items and bands without
+            enough data are not returned rather than guessed.
+          </p>
+          <div className="mt-5 overflow-x-auto rounded-lg border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Method</th>
+                  <th className="px-4 py-2 font-medium">Path</th>
+                  <th className="px-4 py-2 font-medium">Returns</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t">
+                  <td className="px-4 py-2 font-mono text-xs">GET</td>
+                  <td className="px-4 py-2 font-mono text-xs">/api/v1/price-guide</td>
+                  <td className="px-4 py-2 text-xs">Published items (the catalog).</td>
+                </tr>
+                <tr className="border-t">
+                  <td className="px-4 py-2 font-mono text-xs">GET</td>
+                  <td className="px-4 py-2 font-mono text-xs">/api/v1/price-guide/:slug</td>
+                  <td className="px-4 py-2 text-xs">Value range + sell-through by grade band.</td>
+                </tr>
+                <tr className="border-t">
+                  <td className="px-4 py-2 font-mono text-xs">GET</td>
+                  <td className="px-4 py-2 font-mono text-xs">/api/v1/sandbox/price-guide/:slug</td>
+                  <td className="px-4 py-2 text-xs">Free deterministic sample.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-4 text-sm">
+            <Link
+              to="/developers"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              Read the developer docs →
+            </Link>
+          </p>
         </div>
       </section>
 

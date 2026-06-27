@@ -783,6 +783,16 @@ memory — not a progress log (the harness records progress separately).
   `/api/jobs/consignor-payouts`. Manual POST /payouts (source='manual') is the
   untouched override.
 
+## Condition Index price-guide API (US-1285)
+- The queryable price guide (`lib/price-guide.ts`, `/api/v1/price-guide*`) is a
+  THIN composition over two existing aggregates — it adds NO new DB/comp queries:
+  value range per band ← `getIndexCurveBySlug` (curve points, already
+  sample-suppressed by toDto, so thin bands self-omit) folded by `bandForGrade`;
+  sell-through per band ← the platform-wide `computeResaleConditionReport().bands`
+  (cached in-module, 15-min TTL). Sell-through is PLATFORM-WIDE, not per-brand
+  (entry carries `sellThroughScope:"platform"` to say so). Read-scoped, so it
+  rides the existing `/api/v1/*` api-key auth + read rate-limit — no new scope.
+
 ## DB schema ownership gotchas
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A

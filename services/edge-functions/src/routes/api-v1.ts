@@ -18,6 +18,12 @@ import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
+import {
+  getPriceGuideCatalog,
+  getPriceGuideEntry,
+  sandboxPriceGuideCatalog,
+  sandboxPriceGuideEntry,
+} from "../lib/price-guide.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -724,6 +730,74 @@ apiV1Routes.get("/sandbox/grades/:id", (c) => {
   const grade = sandboxGrade(id, { title: "Sample garment" });
   grade.id = id;
   return c.json({ data: grade, error: null, meta: { sandbox: true } });
+});
+
+// --- Resale Condition Index price guide (US-1285) --------------------------
+// A queryable price-guide product built on the proprietary Condition Index: for
+// a published brand/category item, the resale VALUE RANGE and platform SELL-
+// THROUGH at each condition-grade band. Aggregate-only and sample-gated — thin
+// items/bands are suppressed by the underlying lib (no false precision). Read
+// scope, so it shares the read rate-limit budget enforced on /api/v1/*.
+
+// GET /api/v1/price-guide — list every published price-guide item (the catalog).
+apiV1Routes.get("/price-guide", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  try {
+    const items = await getPriceGuideCatalog();
+    return c.json({ data: { items }, error: null, meta: { count: items.length } });
+  } catch (err) {
+    console.error("[API v1] price-guide catalog:", redactError(err));
+    return c.json({
+      data: null,
+      error: { message: "Failed to load price guide", details: [] },
+      meta: null,
+    }, 500);
+  }
+});
+
+// GET /api/v1/price-guide/:slug — value range + sell-through by grade band.
+apiV1Routes.get("/price-guide/:slug", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  try {
+    const entry = await getPriceGuideEntry(c.req.param("slug"));
+    if (!entry) {
+      return c.json({
+        data: null,
+        error: { message: "No published price guide for that item", details: [] },
+        meta: null,
+      }, 404);
+    }
+    return c.json({ data: entry, error: null, meta: null });
+  } catch (err) {
+    console.error("[API v1] price-guide entry:", redactError(err));
+    return c.json({
+      data: null,
+      error: { message: "Failed to load price guide", details: [] },
+      meta: null,
+    }, 500);
+  }
+});
+
+// GET /api/v1/sandbox/price-guide — free deterministic sample catalog.
+apiV1Routes.get("/sandbox/price-guide", (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const items = sandboxPriceGuideCatalog();
+  return c.json({ data: { items }, error: null, meta: { sandbox: true, count: items.length } });
+});
+
+// GET /api/v1/sandbox/price-guide/:slug — free deterministic sample entry.
+apiV1Routes.get("/sandbox/price-guide/:slug", (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const entry = sandboxPriceGuideEntry(c.req.param("slug"));
+  return c.json({ data: entry, error: null, meta: { sandbox: true } });
 });
 
 // --- PATCH /api/v1/webhook — Set or update webhook URL ---

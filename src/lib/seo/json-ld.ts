@@ -224,7 +224,10 @@ export function resaleConditionDatasetLd(opts: {
       "Buyer return rate by condition-grade band",
       "Sell-through rate by condition-grade band",
       "Median resale price by condition-grade band",
+      "Median days to sell by condition-grade band",
+      "Resale value premium of the highest vs. lowest condition band",
       "Graded vs. ungraded buyer return rate",
+      "Resale value range by condition-grade band, by brand and category (Condition Index price guide)",
     ],
     keywords: [
       "pre-owned clothing resale",
@@ -232,12 +235,21 @@ export function resaleConditionDatasetLd(opts: {
       "return rate by condition",
       "sell-through by condition",
       "resale value by condition",
+      "resale price guide",
     ],
     distribution: [
       {
         "@type": "DataDownload",
         encodingFormat: "application/json",
         contentUrl: "https://functions.gradethread.com/api/grading/public/resale-condition-report",
+      },
+      {
+        // US-1285: the queryable Resale Condition Index price-guide API — value
+        // range + sell-through by grade band, per brand/category. Scoped behind
+        // an API key (Business plan); a free deterministic sandbox mirrors it.
+        "@type": "DataDownload",
+        encodingFormat: "application/json",
+        contentUrl: "https://functions.gradethread.com/api/v1/price-guide",
       },
     ],
   };
