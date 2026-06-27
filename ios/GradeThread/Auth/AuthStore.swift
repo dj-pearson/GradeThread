@@ -111,11 +111,22 @@ public final class AuthStore {
 
     /// Used after the ``SignInWithAppleCoordinator`` resolves an Apple
     /// credential. Identity token bytes → string → Supabase exchange.
-    public func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?) async {
+    ///
+    /// `appleUserId` is `ASAuthorizationAppleIDCredential.user` — recorded for
+    /// foreground revocation monitoring (US-1172) ONLY after the exchange
+    /// succeeds (US-1250). Recording it eagerly in the button handler stranded a
+    /// stale id whenever the exchange failed, and let a subsequent email/password
+    /// sign-in inherit it.
+    public func signInWithApple(idToken: String, nonce: String, appleUserId: String, fullName: PersonNameComponents?) async {
         await run {
             _ = try await SupabaseShared.client.auth.signInWithIdToken(
                 credentials: .init(provider: .apple, idToken: idToken, nonce: nonce)
             )
+            // US-1250: the exchange succeeded, so this Apple credential now backs
+            // a live session — only now persist its id so the foreground check
+            // can detect a later revocation under Settings → Apple ID. A failed
+            // exchange above returns before this line, leaving no stored id.
+            AppleCredentialMonitor.record(userId: appleUserId)
             // Name is only available on the first Apple grant — store it as
             // user metadata so we have a display name without re-prompting.
             if let fullName, let name = await fullNameString(from: fullName) {

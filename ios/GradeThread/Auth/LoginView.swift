@@ -503,11 +503,13 @@ struct LoginView: View {
                 return
             }
             let fullName = credential.fullName
-            // US-1172: remember the Apple user id so the foreground check can
-            // detect a later revocation under Settings → Apple ID.
-            AppleCredentialMonitor.record(userId: credential.user)
+            // US-1250: the Apple user id is no longer recorded here. It's passed
+            // into the store and persisted only after the Supabase token exchange
+            // succeeds, so a failed exchange can't strand a stale id that a later
+            // email/password sign-in would inherit.
+            let appleUserId = credential.user
             Task {
-                await authStore.signInWithApple(idToken: idToken, nonce: nonce, fullName: fullName)
+                await authStore.signInWithApple(idToken: idToken, nonce: nonce, appleUserId: appleUserId, fullName: fullName)
                 appleNonce = nil
             }
         case .failure(let error):
