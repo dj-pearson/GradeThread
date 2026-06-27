@@ -165,6 +165,28 @@ final class TemplatesTests: XCTestCase {
     }
 
     @MainActor
+    func test_save_failureLeavesPreviousDefaultIntact() async {
+        // US-1265: promoting "b" to default that fails to persist must NOT wipe
+        // the existing default ("a"). The store never mutates on a failed save,
+        // and the service now clears+writes atomically server-side, so there's
+        // no window of zero defaults.
+        let fake = FakeService(items: [
+            ListingTemplate(id: "a", name: "A", isDefault: true),
+            ListingTemplate(id: "b", name: "B", isDefault: false),
+        ])
+        fake.saveError = EdgeAPIError.badRequest(detail: "write failed")
+        let store = TemplateStore(service: fake)
+        await store.load()
+        var draft = TemplateDraft(from: store.templates.first { $0.id == "b" }!)
+        draft.isDefault = true
+        let ok = await store.save(draft, editingId: "b")
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.defaultTemplate?.id, "a")
+        XCTAssertEqual(store.templates.filter(\.isDefault).count, 1)
+        XCTAssertNotNil(store.actionError)
+    }
+
+    @MainActor
     func test_save_failureSurfacesError() async {
         let fake = FakeService()
         fake.saveError = EdgeAPIError.badRequest(detail: "dup name")

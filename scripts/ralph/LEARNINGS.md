@@ -627,6 +627,17 @@ memory — not a progress log (the harness records progress separately).
   emits `is.null` (verified against source; US-1271 `FulfillmentService`). For
   IS NOT NULL pass `value: true`/`false` semantics don't apply — use `.not("is",
   ...)` if ever needed. Place `.is` in the filter chain before `.order`/`.limit`.
+- A "clear prior default, then write the new one" pair on a table with a
+  single-default partial UNIQUE index MUST be atomic, or a failed write leaves
+  zero defaults (the clear can't follow the write — the index rejects a 2nd
+  is_default=true row). Fix = one plpgsql RPC (clear + insert/update in the
+  request transaction; a write error rolls the clear back). SECURITY INVOKER so
+  RLS still scopes it. US-1265 `create/update_listing_template` (00317). Call
+  via `.rpc(name, params:).execute()` then decode `res.data`. PostgREST resolves
+  an RPC OVERLOAD by the exact SET of argument-name keys you send — `create_*`
+  takes no `p_id`, so send a struct WITHOUT it (an extra/missing key picks the
+  wrong overload or 404s); params have no SQL defaults, so encode nil optionals
+  as explicit JSON null (custom `encode`, not `encodeIfPresent`).
 - Money-tab financial analytics (US-812: inventory-aging, time-on-market,
   cash-flow, per-item P&L) live in PURE `Money/MoneyAnalyticsRollup.swift`
   (unit-tested, no view math); ROI-by-source reuses `SourceROIRollup` (shared
