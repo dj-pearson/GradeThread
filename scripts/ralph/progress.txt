@@ -3962,3 +3962,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  3:02:59 AM
 ---
+## US-1257: iOS: make per-category notification preferences actually gate notifications
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  3:06:07 AM
+---

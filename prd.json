@@ -5755,7 +5755,7 @@
     {
       "id": "US-1257",
       "priority": 1257,
-      "passes": false,
+      "passes": true,
       "title": "iOS: make per-category notification preferences actually gate notifications",
       "description": "As a user, when I turn off a notification category in Settings it should stop those notifications, so the Notifications settings section isn't a no-op.",
       "acceptanceCriteria": [
