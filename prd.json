@@ -7586,7 +7586,7 @@
     {
       "id": "US-1394",
       "priority": -98606,
-      "passes": false,
+      "passes": true,
       "title": "Privacy & Play data-safety (form, export compliance, encrypted storage)",
       "description": "As the team, I want Play data-safety + export-compliance completed and sensitive data encrypted at rest, mirroring the iOS privacy manifest.",
       "acceptanceCriteria": [

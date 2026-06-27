@@ -4062,3 +4062,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:39:52 AM
 ---
+## US-1394: Privacy & Play data-safety (form, export compliance, encrypted storage)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:44:53 AM
+---
