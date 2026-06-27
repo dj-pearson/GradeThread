@@ -5507,7 +5507,7 @@
     {
       "id": "US-1238",
       "priority": 1238,
-      "passes": false,
+      "passes": true,
       "title": "iOS negotiation safety: confirm send-offer-to-all with count, fix counter optimistic-remove and banner copy",
       "description": "As a seller, before blasting a discount offer to every eligible buyer I want to see how many will be hit and confirm, and a countered offer should stay visible, so I don't fire an irreversible money action blind or lose track of open counters.",
       "acceptanceCriteria": [

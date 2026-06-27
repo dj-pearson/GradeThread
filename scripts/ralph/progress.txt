@@ -4014,3 +4014,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:47:10 AM
 ---
+## US-1238: iOS negotiation safety: confirm send-offer-to-all with count, fix counter optimistic-remove and banner copy
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:50:25 AM
+---
