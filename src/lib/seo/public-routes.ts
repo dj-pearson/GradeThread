@@ -58,6 +58,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/pricing": "2026-06-01",
   "/for-resellers": "2026-06-01",
   "/flipdesk": "2026-06-27",
+  "/sell-used-clothes-ebay": "2026-06-27",
   "/faq": "2026-06-01",
   "/condition-grading": "2026-06-01",
   "/grading-standard": "2026-06-26",
@@ -137,6 +138,14 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
       "FlipDesk is GradeThread's eBay reseller suite: grade, comp, list, reprice, and reconcile in one place — with a verifiable condition grade in every listing.",
     changefreq: "monthly",
     priority: 0.8,
+  },
+  {
+    path: "/sell-used-clothes-ebay",
+    title: "How to Sell Used Clothes on eBay",
+    description:
+      "A condition-first guide to selling used clothes on eBay: grade the condition, map it to eBay's fields, price to sold comps, and cut returns.",
+    changefreq: "monthly",
+    priority: 0.7,
   },
   {
     path: "/faq",

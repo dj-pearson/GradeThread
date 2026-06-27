@@ -93,6 +93,7 @@ const HowItWorksPage = lazy(() => import("@/pages/marketing/how-it-works").then(
 const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ default: m.PricingPage })));
 const ForResellersPage = lazy(() => import("@/pages/marketing/for-resellers").then(m => ({ default: m.ForResellersPage })));
 const FlipDeskPage = lazy(() => import("@/pages/marketing/flipdesk").then(m => ({ default: m.FlipDeskPage })));
+const SellUsedClothesEbayPage = lazy(() => import("@/pages/marketing/sell-used-clothes-ebay").then(m => ({ default: m.SellUsedClothesEbayPage })));
 const FaqPage = lazy(() => import("@/pages/marketing/faq").then(m => ({ default: m.FaqPage })));
 const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grading").then(m => ({ default: m.ConditionGradingPage })));
 const GradingStandardPage = lazy(() => import("@/pages/marketing/grading-standard").then(m => ({ default: m.GradingStandardPage })));
@@ -326,6 +327,7 @@ export const router = createBrowserRouter([
       { path: "/pricing", element: <SuspenseWrapper><PricingPage /></SuspenseWrapper> },
       { path: "/for-resellers", element: <SuspenseWrapper><ForResellersPage /></SuspenseWrapper> },
       { path: "/flipdesk", element: <SuspenseWrapper><FlipDeskPage /></SuspenseWrapper> },
+      { path: "/sell-used-clothes-ebay", element: <SuspenseWrapper><SellUsedClothesEbayPage /></SuspenseWrapper> },
       { path: "/faq", element: <SuspenseWrapper><FaqPage /></SuspenseWrapper> },
       { path: "/condition-grading", element: <SuspenseWrapper><ConditionGradingPage /></SuspenseWrapper> },
       { path: "/grading-standard", element: <SuspenseWrapper><GradingStandardPage /></SuspenseWrapper> },

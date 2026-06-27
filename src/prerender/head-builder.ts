@@ -44,6 +44,7 @@ import {
   gradingByCategoryJsonLd,
   buyerGuaranteeJsonLd,
   flipdeskJsonLd,
+  sellOnEbayJsonLd,
   aboutJsonLd,
   glossaryJsonLd,
   glossaryBreadcrumbItems,
@@ -102,6 +103,7 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   // US-867: buyer trust guarantee policy (Article + FAQPage).
   "/buyer-guarantee": buyerGuaranteeJsonLd,
   "/flipdesk": flipdeskJsonLd,
+  "/sell-used-clothes-ebay": sellOnEbayJsonLd,
   // US-868: company/about page (AboutPage + FAQPage).
   "/about": aboutJsonLd,
 };

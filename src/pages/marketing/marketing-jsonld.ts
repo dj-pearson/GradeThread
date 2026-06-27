@@ -674,6 +674,50 @@ export function flipdeskJsonLd(): JsonLd[] {
   ];
 }
 
+// ── /sell-used-clothes-ebay (US-1401, SEO) ──────────────────────────
+// A non-commodity guide for the "how to sell used clothes on eBay" cluster,
+// framed through condition/grading (first-party authority) + FlipDesk. Article +
+// FAQPage + BreadcrumbList; answer-capsule FAQ for AI citation.
+export const EBAY_GUIDE_FAQS = [
+  {
+    q: "How do I sell used clothes on eBay for more money?",
+    a: "Compete on condition, not just price. Buyers can't trust a vague 'Pre-owned' label, so used clothing sells below its worth. Grade the item on a standardized 1.0–10.0 scale, attach a verifiable certificate, map the grade to eBay's condition field, and price it against sold comps in the same condition. The objective grade justifies a higher price and reduces 'not as described' returns.",
+  },
+  {
+    q: "What condition should I list used clothes as on eBay?",
+    a: "eBay offers New with tags, New without tags, and Pre-owned. Those are coarse, so pair the eBay field with a precise condition grade in the listing (e.g. an item specific reading 'Condition Grade 8.0 (Excellent)' plus the certificate number). The grade gives buyers the resolution eBay's three-option dropdown can't.",
+  },
+  {
+    q: "How do I price used clothes on eBay?",
+    a: "Use sold comps, but filter them by condition — average the listings in your item's actual condition, not a blur of mint and worn. A condition-aware comp tells you what an Excellent (8) piece really sold for, which is how you avoid both underpricing and pricing yourself unsold.",
+  },
+  {
+    q: "How do I reduce returns when selling used clothes on eBay?",
+    a: "Most clothing returns come from two questions a listing fails to answer: what condition is it really in, and will it fit. A factor-by-factor condition grade with photos and real measurements sets accurate expectations up front, so fewer items come back.",
+  },
+];
+
+const EBAY_GUIDE_MODIFIED = "2026-06-27";
+
+export function sellOnEbayJsonLd(): JsonLd[] {
+  const url = absoluteUrl("/sell-used-clothes-ebay");
+  return [
+    articleLd({
+      headline: "How to Sell Used Clothes on eBay",
+      description:
+        "A condition-first guide to selling used clothes on eBay: grade the condition, map it to eBay's fields, price to real sold comps, and cut returns.",
+      url,
+      datePublished: "2026-06-27",
+      dateModified: EBAY_GUIDE_MODIFIED,
+    }),
+    faqPageLd(EBAY_GUIDE_FAQS),
+    breadcrumbLd([
+      { name: "Home", url: `${SITE_URL}/` },
+      { name: "How to Sell Used Clothes on eBay", url },
+    ]),
+  ];
+}
+
 // ── /about (US-868) ─────────────────────────────────────────────────
 // The company/about page that strengthens entity-level authority for E-E-A-T:
 // who runs GradeThread (Pearson Media LLC), the mission, and the published

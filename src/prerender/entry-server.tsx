@@ -35,6 +35,7 @@ import { HowItWorksPage } from "@/pages/marketing/how-it-works";
 import { PricingPage } from "@/pages/marketing/pricing";
 import { ForResellersPage } from "@/pages/marketing/for-resellers";
 import { FlipDeskPage } from "@/pages/marketing/flipdesk";
+import { SellUsedClothesEbayPage } from "@/pages/marketing/sell-used-clothes-ebay";
 import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
@@ -64,6 +65,7 @@ const PAGES: Record<string, React.ReactNode> = {
   "/pricing": <PricingPage />,
   "/for-resellers": <ForResellersPage />,
   "/flipdesk": <FlipDeskPage />,
+  "/sell-used-clothes-ebay": <SellUsedClothesEbayPage />,
   "/faq": <FaqPage />,
   "/condition-grading": <ConditionGradingPage />,
   "/grading-standard": <GradingStandardPage />,

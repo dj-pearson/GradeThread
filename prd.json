@@ -7681,7 +7681,7 @@
       "id": "US-1401",
       "title": "SEO: eBay marketplace guides (grading + FlipDesk)",
       "priority": 1349,
-      "passes": false,
+      "passes": true,
       "description": "As a reseller searching how to sell used clothes on eBay, I find non-commodity guides that tie condition grading + FlipDesk.",
       "acceptanceCriteria": [
         "Guide(s): how to sell used clothes on eBay / eBay condition for used clothes / cross-listing, answer-capsule + Q&A formatted",
