@@ -5494,7 +5494,7 @@
     {
       "id": "US-1237",
       "priority": 1237,
-      "passes": false,
+      "passes": true,
       "title": "iOS publish composer comp polish: currency-aware median, brand/size + live title, stable task",
       "description": "As a seller at the publish step, I want the comp median shown in the correct currency and drawn from a well-scoped lookup of the title I'm about to publish, so the price sanity-check is trustworthy.",
       "acceptanceCriteria": [

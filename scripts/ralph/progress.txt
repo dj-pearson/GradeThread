@@ -4018,3 +4018,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:50:25 AM
 ---
+## US-1237: iOS publish composer comp polish: currency-aware median, brand/size + live title, stable task
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:58:22 AM
+---
