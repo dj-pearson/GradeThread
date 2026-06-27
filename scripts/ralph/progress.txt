@@ -3946,3 +3946,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:34:19 AM
 ---
+## US-1262: iOS notification UX bucket: reconnect action opens OAuth, request permission at a reliable moment, dismissible reconcile banner
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:46:03 AM
+---

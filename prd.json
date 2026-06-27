@@ -5820,7 +5820,7 @@
     {
       "id": "US-1262",
       "priority": 1262,
-      "passes": false,
+      "passes": true,
       "title": "iOS notification UX bucket: reconnect action opens OAuth, request permission at a reliable moment, dismissible reconcile banner",
       "description": "As a user, a 'reconnect eBay' action should actually start reconnection, push permission should be requested even if I never open Money, and a persistent reconcile banner should be dismissible, so these surfaces aren't dead ends or permanent nags.",
       "acceptanceCriteria": [
