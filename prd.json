@@ -5403,7 +5403,7 @@
     {
       "id": "US-1230",
       "priority": 1230,
-      "passes": false,
+      "passes": true,
       "title": "iOS dictation reliability: keep the final transcription segment and make stop() idempotent",
       "description": "As a user dictating item notes, I want my last spoken words to land in Notes and dictation to restart cleanly, so the final segment isn't dropped and a re-start doesn't corrupt the audio session.",
       "acceptanceCriteria": [

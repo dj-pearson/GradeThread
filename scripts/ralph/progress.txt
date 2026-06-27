@@ -4046,3 +4046,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:23:56 AM
 ---
+## US-1230: iOS dictation reliability: keep the final transcription segment and make stop() idempotent
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:28:22 AM
+---
