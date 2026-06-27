@@ -4074,3 +4074,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:52:16 AM
 ---
+## US-1391: Gradle build, signing config & Android CI workflow
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 11:00:59 AM
+---
