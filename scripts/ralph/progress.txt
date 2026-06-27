@@ -3910,3 +3910,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  1:02:10 AM
 ---
+## US-1282: Garment Passport — lineage, ownership transfers, and re-grade depreciation curve
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  1:32:38 AM
+---

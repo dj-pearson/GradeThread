@@ -6113,7 +6113,7 @@
         "Re-grade is a billable event reusing the grading pipeline; the passport reads only the public_grade_reports view (no PII)",
         "Tests: two grades on the same garment produce a 2-point curve with correct deltas"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Passport] Category-defining bet; makes re-grading a recurring-revenue event. Builds on existing /scan + passport. Added 2026-06-26."
     },
     {
