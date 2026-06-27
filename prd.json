@@ -5807,7 +5807,7 @@
     {
       "id": "US-1261",
       "priority": 1261,
-      "passes": false,
+      "passes": true,
       "title": "iOS dashboard: don't show first-run welcome to an existing user on an offline cold launch",
       "description": "As an existing user opening the app offline before the cache populates, I should see an unavailable/retry state, not 'Capture your first item', so it doesn't look like my inventory vanished.",
       "acceptanceCriteria": [

@@ -3950,3 +3950,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:46:03 AM
 ---
+## US-1261: iOS dashboard: don't show first-run welcome to an existing user on an offline cold launch
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:49:30 AM
+---
