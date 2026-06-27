@@ -7612,7 +7612,7 @@
     {
       "id": "US-1396",
       "priority": -98604,
-      "passes": false,
+      "passes": true,
       "title": "Accessibility audit (TalkBack, contrast, touch targets, font scale)",
       "description": "As a user with accessibility needs, I want the app to pass a TalkBack/contrast/touch-target/font-scale audit before release.",
       "acceptanceCriteria": [

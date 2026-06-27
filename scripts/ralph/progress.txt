@@ -4054,3 +4054,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:30:29 AM
 ---
+## US-1396: Accessibility audit (TalkBack, contrast, touch targets, font scale)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:36:24 AM
+---
