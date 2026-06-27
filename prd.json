@@ -6142,7 +6142,7 @@
         "A stable citable grade-field schema (e.g. Schema.org additionalProperty / JSON-LD) lets partners ingest the GT Grade",
         "Copy describes the OPEN SPEC only — no claims of partnerships/adoption that do not exist"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Standard] Network-effect play; reinforces the live 'we are the standard' positioning (US-1297). Added 2026-06-26."
     },
     {

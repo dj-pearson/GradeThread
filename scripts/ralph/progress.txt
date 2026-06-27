@@ -3902,3 +3902,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026 11:28:54 PM
 ---
+## US-1284: Be the standard — open 'GradeThread Standard' spec + GT Grade field everywhere
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 12:31:50 AM
+---
