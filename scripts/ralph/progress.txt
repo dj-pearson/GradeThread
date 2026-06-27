@@ -3982,3 +3982,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  8:53:40 AM
 ---
+## US-1251: iOS StoreKit restore + price-load feedback (no silent success/failure)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:01:20 AM
+---

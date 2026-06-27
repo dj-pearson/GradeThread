@@ -5676,7 +5676,7 @@
     {
       "id": "US-1251",
       "priority": 1251,
-      "passes": false,
+      "passes": true,
       "title": "iOS StoreKit restore + price-load feedback (no silent success/failure)",
       "description": "As a user, tapping Restore Purchases should tell me what happened, and a transient price-load hiccup shouldn't hard-fail the paywall, so I'm not left staring at a screen that did nothing.",
       "acceptanceCriteria": [
