@@ -70,10 +70,48 @@ final class DisclosureStore {
         }
     }
 
+    /// Max defect photos downloaded + composited concurrently (mirrors
+    /// `PhotoCompressor.compressBatch`) — only a few full-res `UIImage`s are
+    /// resident at once so a many-defect item won't spike memory.
+    private static let maxRenderConcurrency = 3
+
     /// Download + composite each defect photo (skips ones already rendered).
+    /// US-1235: runs in a bounded-concurrency task group instead of an awaiting
+    /// for-loop, so N photos don't take N serial download+composite cycles.
+    /// Output ordering is preserved — results are applied in `defectPhotos` order.
     private func renderAll() async {
-        for photo in defectPhotos where rendered[photo.id] == nil {
-            await renderOne(photo)
+        let pending = defectPhotos.filter { rendered[$0.id] == nil }
+        guard !pending.isEmpty else { return }
+        // Clear any stale failure flags for the photos we're about to (re)render.
+        for photo in pending { renderFailed.remove(photo.id) }
+
+        var next = 0
+        while next < pending.count {
+            let upper = min(next + max(Self.maxRenderConcurrency, 1), pending.count)
+            let batch = Array(pending[next..<upper])
+            // Fan out download+composite off the main actor; collect by offset.
+            let results = await withTaskGroup(of: (Int, UIImage?).self) { group in
+                for (offset, photo) in batch.enumerated() {
+                    let url = photo.url
+                    let annotations = photo.annotations
+                    group.addTask(priority: .userInitiated) {
+                        (offset, await Self.fetchAndComposite(url: url, annotations: annotations))
+                    }
+                }
+                var collected = [(Int, UIImage?)]()
+                for await pair in group { collected.append(pair) }
+                return collected
+            }
+            // Apply in input order so output ordering is preserved.
+            for (offset, image) in results.sorted(by: { $0.0 < $1.0 }) {
+                let photo = batch[offset]
+                if let image {
+                    rendered[photo.id] = image
+                } else {
+                    renderFailed.insert(photo.id)
+                }
+            }
+            next = upper
         }
     }
 
@@ -81,18 +119,19 @@ final class DisclosureStore {
     /// retry) instead of leaving the row spinning. Public entry is ``retryRender``.
     private func renderOne(_ photo: DisclosurePhoto) async {
         renderFailed.remove(photo.id)
-        guard let image = await downloadImage(photo.url) else {
+        if let composite = await Self.fetchAndComposite(url: photo.url, annotations: photo.annotations) {
+            rendered[photo.id] = composite
+        } else {
             renderFailed.insert(photo.id)
-            return
         }
-        // US-1165: the composite is a full-res UIGraphicsImageRenderer draw — run
-        // it off the main actor (mirrors PhotoCompressor.compressOffMain) and hop
-        // back to store it.
-        let annotations = photo.annotations
-        let composite = await Task.detached(priority: .userInitiated) {
-            DisclosureRenderer.render(image: image, annotations: annotations)
-        }.value
-        rendered[photo.id] = composite
+    }
+
+    /// Download + composite off the main actor (mirrors
+    /// `PhotoCompressor.compressOffMain`). Returns nil only when the download
+    /// fails (the composite itself always yields an image).
+    private static func fetchAndComposite(url: String, annotations: [PhotoAnnotation]) async -> UIImage? {
+        guard let image = await downloadImage(url) else { return nil }
+        return DisclosureRenderer.render(image: image, annotations: annotations)
     }
 
     /// Retry a single failed photo render (download + composite) from the view.
@@ -150,7 +189,7 @@ final class DisclosureStore {
 
     // MARK: - Helpers
 
-    private func downloadImage(_ urlString: String) async -> UIImage? {
+    private static func downloadImage(_ urlString: String) async -> UIImage? {
         guard let url = URL(string: urlString) else { return nil }
         do {
             // Bounded session (20s) so a stalled defect-photo fetch fails fast to
