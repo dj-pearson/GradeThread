@@ -20,13 +20,22 @@ protocol FulfillmentProviding {
 struct FulfillmentService: FulfillmentProviding {
     func fetchOrders() async throws -> [FulfillmentOrder] {
         // RLS on `sales` scopes to the caller via inventory-item ownership; the
-        // `inventory_items(title)` embed rides the same policy. Newest first so
-        // unshipped orders (which are recent by nature) land in the window.
+        // `inventory_items(title)` embed rides the same policy.
+        //
+        // US-1271: filter `shipped_at IS NULL` server-side so the queue window
+        // holds ONLY the unshipped set. Previously the fetch windowed the 500
+        // newest-by-`sale_date` rows REGARDLESS of shipped state, while the
+        // store ranks oldest-first by `sold_at` — so a backfilled order that's
+        // old by `sale_date` (pushed past the 500 window by recent shipped
+        // rows) but still unshipped silently fell out of the queue. With the
+        // null filter, shipped rows never consume the window, so every unshipped
+        // order is fetched (the store still ranks them oldest-`sold_at` first).
         let response = try await SupabaseShared.client
             .from("sales")
             .select(
                 "id, sale_price, shipping_cost, sale_date, sold_at, shipped_at, tracking_number, buyer_username, inventory_items(title)"
             )
+            .is("shipped_at", value: nil)
             .order("sale_date", ascending: false)
             .limit(500)
             .execute()

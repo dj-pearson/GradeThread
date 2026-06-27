@@ -622,6 +622,11 @@ memory — not a progress log (the harness records progress separately).
   column and an all-nil body is a no-op. To clear/restore a column to NULL, give
   the payload a custom `encode(to:)` that `encodeNil(forKey:)` for that field
   (see `SourceStore.setArchived`/`updateSource`, US-814).
+- To filter a PostgREST column IS NULL, use `.is("col", value: nil)` — the
+  supabase-swift 2.x signature is `func is(_:String, value: Bool?)` and `nil`
+  emits `is.null` (verified against source; US-1271 `FulfillmentService`). For
+  IS NOT NULL pass `value: true`/`false` semantics don't apply — use `.not("is",
+  ...)` if ever needed. Place `.is` in the filter chain before `.order`/`.limit`.
 - Money-tab financial analytics (US-812: inventory-aging, time-on-market,
   cash-flow, per-item P&L) live in PURE `Money/MoneyAnalyticsRollup.swift`
   (unit-tested, no view math); ROI-by-source reuses `SourceROIRollup` (shared

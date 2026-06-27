@@ -102,6 +102,27 @@ final class FulfillmentTests: XCTestCase {
     }
 
     @MainActor
+    func test_load_backfilledOldOrderStaysInQueueAndRanksFirst() async {
+        // US-1271: a backfilled order that's OLD by sale_date but unshipped must
+        // stay in the queue and rank first (oldest sold_at). The service now
+        // filters `shipped_at IS NULL` server-side so shipped rows never push it
+        // out of the 500-row window; here we prove the store keeps + ranks it,
+        // and that a shipped row leaking through the fetch is still discarded
+        // (client-side safety net behind the server filter).
+        let fake = FakeService(orders: [
+            order("recent", soldAt: "2024-05-01T00:00:00Z", saleDate: "2024-05-01"),
+            order("backfilled-old", soldAt: "2024-01-01T00:00:00Z", saleDate: "2023-01-01"),
+            order("shipped-leak", saleDate: "2024-04-01", shippedAt: "2024-04-02T00:00:00Z"),
+        ])
+        let store = FulfillmentStore(service: fake)
+        await store.load()
+        XCTAssertEqual(store.phase, .ready)
+        // Shipped row excluded; the backfilled old order is retained and ranks
+        // first (oldest sold_at), ahead of the recent one.
+        XCTAssertEqual(store.orders.map(\.id), ["backfilled-old", "recent"])
+    }
+
+    @MainActor
     func test_load_failureSurfacesMessage() async {
         let fake = FakeService(orders: [])
         fake.fetchError = EdgeAPIError.badRequest(detail: "boom")
