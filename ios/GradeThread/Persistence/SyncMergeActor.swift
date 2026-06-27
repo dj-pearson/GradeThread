@@ -187,11 +187,34 @@ actor SyncMergeActor {
         }
 
         if prune {
+            // US-1249: after a full backfill prune the ONLY surviving photos are
+            // the server-returned rows, so an item that loses a photo and isn't
+            // referenced by any surviving photo now has none — clear its cached
+            // cover thumbnail. Computed from the surviving set (not a post-delete
+            // re-fetch) so it never depends on pending-delete fetch semantics.
+            let survivingItemIds = Set(remotePhotos.map(\.inventory_item_id))
+            var deletedItemIds = Set<String>()
             for stale in existing where !remoteIds.contains(stale.id) {
+                deletedItemIds.insert(stale.inventoryItemId)
                 modelContext.delete(stale)
             }
+            clearCoversForEmptiedItems(deletedItemIds.subtracting(survivingItemIds))
         }
         modelContext.saveOrLog("mergePhotos")
+    }
+
+    /// US-1249: drops the cached `primaryPhotoURL` of every item in `itemIds`.
+    /// Callers pass ONLY items proven to have no photos left after a removal
+    /// (full backfill prune / delta delete reconcile), so the cover cache — a
+    /// render hint, not a presence signal (US-994) — is cleared along with the
+    /// last photo and the grid never shows a dead thumbnail.
+    private func clearCoversForEmptiedItems(_ itemIds: Set<String>) {
+        guard !itemIds.isEmpty else { return }
+        let ids = Array(itemIds)
+        let items = (try? modelContext.fetch(
+            FetchDescriptor<LocalInventoryItem>(predicate: #Predicate { ids.contains($0.id) })
+        )) ?? []
+        for item in items { item.primaryPhotoURL = nil }
     }
 
     /// Upserts the user's sales. No pruning — a sale that disappears
@@ -228,14 +251,31 @@ actor SyncMergeActor {
             local.platformFees = remote.platform_fees
             local.paymentProcessingFees = remote.payment_processing_fees
             local.shippingCollected = remote.shipping_collected
-            local.shippingCost = remote.shipping_cost
-            local.gradingCost = remote.grading_cost
-            local.otherCosts = remote.other_costs
             local.tax = remote.tax
-            local.netProfit = remote.net_profit
             local.status = remote.status
             local.saleDate = SyncEngine.parseDate(remote.sale_date)
             local.buyerUsername = remote.buyer_username
+
+            // US-1249: the seller-entered cost fields (label/shipping cost,
+            // grading cost, misc costs) are user-editable bookkeeping. Guard them
+            // with the local-dirty flag so a server pull doesn't clobber a pending
+            // local edit; a clean row still takes the server value.
+            local.shippingCost = ConflictPolicy.resolveUserOwned(
+                local: local.shippingCost, server: Optional(remote.shipping_cost),
+                hasLocalChanges: local.hasLocalChanges)
+            local.gradingCost = ConflictPolicy.resolveUserOwned(
+                local: local.gradingCost, server: Optional(remote.grading_cost),
+                hasLocalChanges: local.hasLocalChanges)
+            local.otherCosts = ConflictPolicy.resolveUserOwned(
+                local: local.otherCosts, server: Optional(remote.other_costs),
+                hasLocalChanges: local.hasLocalChanges)
+
+            // US-1249: standardize the cached net on component math (the mirror of
+            // SalePnL / web computePnl) instead of trusting the server's stored
+            // net_profit, so the cached value can never drift from this row's own
+            // money fields. Cost basis lives on the item, not the sale, so the
+            // sale-level net excludes it (costBasis: 0).
+            local.netProfit = SalePnL.net(local, costBasis: 0)
         }
         modelContext.saveOrLog("mergeSales")
     }
@@ -313,15 +353,33 @@ actor SyncMergeActor {
                 modelContext.insert(local)
                 existingById[remote.id] = local
             }
-            // Server-authoritative marketplace fields (refresh every sync).
+            // Server-authoritative platform-identity fields (refresh every sync).
             local.platform = remote.platform ?? local.platform
             local.platformListingId = remote.platform_listing_id
             local.platformOfferId = remote.platform_offer_id
             local.externalURL = remote.listing_url
-            if let price = remote.listing_price { local.listingPrice = price }
-            local.listingStatus = remote.listing_status ?? local.listingStatus
             local.listedAt = remote.listed_at.map(SyncEngine.parseDate)
             // listings has no ended_at column; LocalListing.endedAt stays nil.
+
+            // US-1249: price + status are eBay-OWNED editable fields. Route them
+            // through the provenance policy instead of overwriting unconditionally
+            // — a GradeThread-originated listing carrying a pending local edit keeps
+            // its local value; an eBay-originated listing always takes the server
+            // value (eBay is the source of truth). `listings` carries no title
+            // column on iOS, so only price/status are resolved here. The origin is
+            // the freshly-synced marker, falling back to the cached one when this
+            // delta omits it; a nil origin (legacy row) is treated as gradethread.
+            let origin = remote.listing_origin ?? local.listingOrigin
+            if let price = remote.listing_price {
+                local.listingPrice = ConflictPolicy.resolveEbayOwnedListingField(
+                    local: local.listingPrice, server: price,
+                    hasLocalChanges: local.hasLocalChanges, listingOrigin: origin)
+            }
+            if let status = remote.listing_status {
+                local.listingStatus = ConflictPolicy.resolveEbayOwnedListingField(
+                    local: local.listingStatus, server: status,
+                    hasLocalChanges: local.hasLocalChanges, listingOrigin: origin)
+            }
             local.listingOrigin = remote.listing_origin
             local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
         }
@@ -449,7 +507,23 @@ actor SyncMergeActor {
             pruned += pruneAbsent(FetchDescriptor<LocalListing>(), keep: listingIds, protected: protectedIds) { $0.id }
         }
         if let photoIds {
-            pruned += pruneAbsent(FetchDescriptor<LocalItemPhoto>(), keep: photoIds, protected: protectedIds) { $0.id }
+            // US-1249: a photo removed via the delta (server-side delete) clears
+            // its item's cover cache when it was the item's last photo. An item
+            // stays "covered" if ANY of its photos survives — either kept by the
+            // server set or protected (an offline-staged upload) — so subtract the
+            // surviving items from the ones that lost a photo.
+            let rows = (try? modelContext.fetch(FetchDescriptor<LocalItemPhoto>())) ?? []
+            let survivingItemIds = Set(
+                rows.filter { photoIds.contains($0.id) || protectedIds.contains($0.id) }
+                    .map(\.inventoryItemId)
+            )
+            var deletedItemIds = Set<String>()
+            for row in rows where !photoIds.contains(row.id) && !protectedIds.contains(row.id) {
+                deletedItemIds.insert(row.inventoryItemId)
+                modelContext.delete(row)
+                pruned += 1
+            }
+            clearCoversForEmptiedItems(deletedItemIds.subtracting(survivingItemIds))
         }
         guard pruned > 0 else { return }
         Telemetry.backgroundBreadcrumb(

@@ -39,6 +39,14 @@ final class LocalListing {
     /// before the column was backfilled — fall back to `platformOfferId != nil` heuristic.
     var listingOrigin: String?
 
+    /// US-1249: marks a row carrying a pending local edit to a GradeThread-owned
+    /// editable field (price/status) not yet pushed to the server. While set, the
+    /// merge keeps the local value for those fields instead of clobbering it with
+    /// the server copy — see ``SyncMergeActor/mergeListings(_:)`` +
+    /// ``ConflictPolicy/resolveEbayOwnedListingField(local:server:hasLocalChanges:listingOrigin:)``.
+    /// eBay-originated listings ignore it (eBay is always authoritative).
+    var hasLocalChanges: Bool = false
+
     var createdAt: Date
     var updatedAt: Date
 

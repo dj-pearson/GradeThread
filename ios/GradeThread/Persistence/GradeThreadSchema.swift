@@ -43,21 +43,48 @@ enum GradeThreadSchemaV1: VersionedSchema {
     }
 }
 
-/// Ordered migration plan. With a single version the stage list is empty; each
-/// future schema version appends one stage describing how to get there from the
-/// prior version.
+/// V2 (US-1249): `LocalListing` and `LocalSale` each gained an optional,
+/// defaulted `hasLocalChanges` flag so the sync merge can guard pending local
+/// edits (listing price/status provenance; sale cost-field dirty-guard). The
+/// change is purely additive with a default value, so the V1→V2 hop is a
+/// `.lightweight` (SwiftData-inferred) migration — no custom transform, no data
+/// loss. The model set is unchanged.
+enum GradeThreadSchemaV2: VersionedSchema {
+    static var versionIdentifier = Schema.Version(2, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
+            LocalInventoryItem.self,
+            LocalItemPhoto.self,
+            LocalListing.self,
+            LocalSale.self,
+            LocalExpense.self,
+            LocalSource.self,
+            LocalPendingMutation.self,
+        ]
+    }
+}
+
+/// Ordered migration plan. Each schema version after the first appends one stage
+/// describing how to get there from the prior version.
 enum GradeThreadMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [GradeThreadSchemaV1.self]
+        [GradeThreadSchemaV1.self, GradeThreadSchemaV2.self]
     }
 
     static var stages: [MigrationStage] {
-        []
+        [
+            // Additive optional/defaulted columns only (US-1249) → lightweight.
+            .lightweight(
+                fromVersion: GradeThreadSchemaV1.self,
+                toVersion: GradeThreadSchemaV2.self
+            )
+        ]
     }
 }
 
 enum GradeThreadSchema {
     /// The version the app currently opens. Bump this (and add a migration
     /// stage) when introducing a new `GradeThreadSchemaVN`.
-    static let current: any VersionedSchema.Type = GradeThreadSchemaV1.self
+    static let current: any VersionedSchema.Type = GradeThreadSchemaV2.self
 }

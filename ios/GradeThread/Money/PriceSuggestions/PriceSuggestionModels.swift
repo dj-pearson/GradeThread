@@ -86,6 +86,23 @@ enum PriceSuggestions {
     /// Listing statuses that count as a live, repriceable listing for staleness.
     private static let activeStatuses: Set<String> = ["active", "listed", "relisted"]
 
+    /// US-1249: stale-age is now whole CALENDAR days between the listed date and
+    /// `now`, not `elapsed / 86_400`. The calendar is pinned to UTC on purpose —
+    /// resolving the day delta in the device's local zone makes a window that
+    /// crosses a DST fall-back compute one day short (the 25-hour day), which
+    /// regresses the stale-age tests. UTC has no DST, so every day is exactly
+    /// 86_400s and the count is both calendar-correct and deterministic.
+    private static let staleAgeCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC") ?? cal.timeZone
+        return cal
+    }()
+
+    /// Whole calendar days from `start` to `end` in the fixed UTC calendar.
+    private static func wholeDaysBetween(_ start: Date, and end: Date) -> Int {
+        staleAgeCalendar.dateComponents([.day], from: start, to: end).day ?? 0
+    }
+
     /// Selects items that need pricing attention: no `target_price` set, OR a
     /// live listing first listed more than `staleDays` ago. Sorted so the most
     /// actionable rows lead — never-priced first, then stalest listings.
@@ -109,11 +126,9 @@ enum PriceSuggestions {
             let currentPrice = activeListings.map(\.listingPrice).max() ?? item.listingPrice
             let hasDraft = itemListings.contains { $0.listingStatus == "draft" }
 
-            // Oldest active listing age, in whole days.
+            // Oldest active listing age, in whole calendar days (US-1249).
             let oldestListedAt = activeListings.compactMap(\.listedAt).min()
-            let staleAge = oldestListedAt.map {
-                Int(now.timeIntervalSince($0) / 86_400)
-            }
+            let staleAge = oldestListedAt.map { Self.wholeDaysBetween($0, and: now) }
             let isStale = (staleAge ?? -1) > staleDays
 
             let reason: PriceSuggestionReason

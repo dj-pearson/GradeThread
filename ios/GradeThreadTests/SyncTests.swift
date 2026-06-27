@@ -489,6 +489,133 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(item?.listingPrice, 65)
     }
 
+    // MARK: - US-1249: listing conflict provenance + sale dirty-guard + cover clear
+
+    func test_mergeListings_gtOriginDirtyKeepsLocalPriceAndStatus() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        let l = LocalListing(id: "l1", inventoryItemId: "i1", platform: "ebay",
+                             listingPrice: 99, listingStatus: "active")
+        l.listingOrigin = "gradethread"
+        l.hasLocalChanges = true          // a pending local edit not yet pushed
+        ctx.insert(l)
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        // Server pull carries a different price/status for the same listing.
+        await actor.mergeListings([
+            Self.remoteListing(id: "l1", itemId: "i1", price: 40, status: "ended",
+                               origin: "gradethread"),
+        ])
+        let row = try ModelContext(container).fetch(FetchDescriptor<LocalListing>()).first
+        XCTAssertEqual(row?.listingPrice, 99)          // GT-owned local edit preserved
+        XCTAssertEqual(row?.listingStatus, "active")   // GT-owned local edit preserved
+    }
+
+    func test_mergeListings_ebayOriginServerWinsEvenWhenDirty() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        let l = LocalListing(id: "l1", inventoryItemId: "i1", platform: "ebay",
+                             listingPrice: 99, listingStatus: "active")
+        l.listingOrigin = "ebay"
+        l.hasLocalChanges = true
+        ctx.insert(l)
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        await actor.mergeListings([
+            Self.remoteListing(id: "l1", itemId: "i1", price: 40, status: "ended",
+                               origin: "ebay"),
+        ])
+        let row = try ModelContext(container).fetch(FetchDescriptor<LocalListing>()).first
+        XCTAssertEqual(row?.listingPrice, 40)          // eBay is authoritative
+        XCTAssertEqual(row?.listingStatus, "ended")
+    }
+
+    func test_mergeSales_netUsesComponentMathNotStoredValue() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+        // Server sends a WRONG stored net_profit; component math must override it.
+        await actor.mergeSales([
+            Self.remoteSale(id: "s1", itemId: "i1", salePrice: 100, platformFees: 10,
+                            paymentProcessingFees: 3, shippingCollected: 5, shippingCost: 4,
+                            gradingCost: 2, otherCosts: 1, tax: 8, netProfit: 999),
+        ])
+        let row = try ModelContext(container).fetch(FetchDescriptor<LocalSale>()).first
+        // revenue = 100 + 5 = 105; fees = 10 + 3 = 13; sellerCosts = 4 + 2 + 1 = 7
+        // net = 105 − 13 − 7 = 85   (tax pass-through + cost basis both excluded)
+        XCTAssertEqual(try XCTUnwrap(row?.netProfit), 85, accuracy: 0.001)
+    }
+
+    func test_mergeSales_dirtyGuardKeepsLocalSellerCosts() async throws {
+        let container = try inMemoryContainer()
+        let ctx = ModelContext(container)
+        let s = LocalSale(id: "s1", inventoryItemId: "i1", salePrice: 50, saleDate: .now)
+        s.gradingCost = 7
+        s.shippingCost = 9
+        s.otherCosts = 1
+        s.hasLocalChanges = true          // pending local cost edits not yet pushed
+        ctx.insert(s)
+        try ctx.save()
+
+        let actor = SyncMergeActor(modelContainer: container)
+        // Server resends the sale with the seller-cost fields zeroed.
+        await actor.mergeSales([
+            Self.remoteSale(id: "s1", itemId: "i1", salePrice: 50, platformFees: 5,
+                            paymentProcessingFees: 0, shippingCollected: 0, shippingCost: 0,
+                            gradingCost: 0, otherCosts: 0, tax: 0, netProfit: 0),
+        ])
+        let row = try ModelContext(container).fetch(FetchDescriptor<LocalSale>()).first
+        // User-editable costs survive the pull…
+        XCTAssertEqual(row?.gradingCost, 7)
+        XCTAssertEqual(row?.shippingCost, 9)
+        XCTAssertEqual(row?.otherCosts, 1)
+        // …while server-owned money still refreshes.
+        XCTAssertEqual(row?.platformFees, 5)
+        // Net reflects the guarded local costs: 50 − 5 − (9+7+1) = 28.
+        XCTAssertEqual(try XCTUnwrap(row?.netProfit), 28, accuracy: 0.001)
+    }
+
+    func test_mergePhotos_clearsCoverWhenLastPhotoPrunedOnBackfill() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Tee", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: ["a": Self.remotePhoto(id: "p1", itemId: "a")], prune: false
+        )
+        await actor.mergePhotos([Self.remotePhoto(id: "p1", itemId: "a")], prune: false)
+        XCTAssertNotNil(
+            try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first?.primaryPhotoURL
+        )
+
+        // Full backfill returning NO photos → p1 is stale and pruned → the item's
+        // last photo is gone, so its cached cover thumbnail must be cleared.
+        await actor.mergePhotos([], prune: true)
+        let item = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<LocalItemPhoto>()).isEmpty)
+        XCTAssertNil(item?.primaryPhotoURL)
+    }
+
+    func test_reconcileDeletes_clearsCoverWhenLastPhotoDeletedViaDelta() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Tee", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: ["a": Self.remotePhoto(id: "p1", itemId: "a")], prune: false
+        )
+        await actor.mergePhotos([Self.remotePhoto(id: "p1", itemId: "a")], prune: false)
+
+        // Server no longer has p1 → reconcile prunes it → cover cleared.
+        await actor.reconcileDeletes(
+            saleIds: nil, expenseIds: nil, listingIds: nil, photoIds: [], protectedIds: []
+        )
+        let item = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).first
+        XCTAssertNil(item?.primaryPhotoURL)
+        XCTAssertTrue(try ModelContext(container).fetch(FetchDescriptor<LocalItemPhoto>()).isEmpty)
+    }
+
     func test_mergeActor_pruneKeepsUnpushedLocalRows() async throws {
         let container = try inMemoryContainer()
         let actor = SyncMergeActor(modelContainer: container)
@@ -683,16 +810,36 @@ final class SyncTests: XCTestCase {
 
     private static func remoteListing(
         id: String, itemId: String, price: Double,
-        listedAt: String? = nil, status: String = "active"
+        listedAt: String? = nil, status: String = "active", origin: String? = nil
     ) -> SyncEngine.RemoteListing {
         let listedField = listedAt.map { "\"listed_at\":\"\($0)\"," } ?? ""
+        let originField = origin.map { "\"listing_origin\":\"\($0)\"," } ?? ""
         let json = """
         {"id":"\(id)","inventory_item_id":"\(itemId)","platform":"ebay",
          "listing_price":\(price),"listing_status":"\(status)",
-         \(listedField)
+         \(listedField)\(originField)
          "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-06-01T00:00:00Z"}
         """.data(using: .utf8)!
         return try! JSONDecoder().decode(SyncEngine.RemoteListing.self, from: json)
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    private static func remoteSale(
+        id: String, itemId: String, salePrice: Double, platformFees: Double,
+        paymentProcessingFees: Double, shippingCollected: Double, shippingCost: Double,
+        gradingCost: Double, otherCosts: Double, tax: Double, netProfit: Double?,
+        status: String = "completed", saleDate: String = "2026-06-01T00:00:00Z"
+    ) -> SyncEngine.RemoteSaleRow {
+        let netField = netProfit.map { "\($0)" } ?? "null"
+        let json = """
+        {"id":"\(id)","inventory_item_id":"\(itemId)","sale_price":\(salePrice),
+         "platform_fees":\(platformFees),"payment_processing_fees":\(paymentProcessingFees),
+         "shipping_collected":\(shippingCollected),"shipping_cost":\(shippingCost),
+         "grading_cost":\(gradingCost),"other_costs":\(otherCosts),"tax":\(tax),
+         "net_profit":\(netField),"status":"\(status)","sale_date":"\(saleDate)",
+         "buyer_username":null,"created_at":"2026-01-01T00:00:00Z"}
+        """.data(using: .utf8)!
+        return try! JSONDecoder().decode(SyncEngine.RemoteSaleRow.self, from: json)
     }
 
     private func freshDefaults() -> UserDefaults {

@@ -458,6 +458,16 @@ memory — not a progress log (the harness records progress separately).
   highest-priority web/edge story instead when one is available.
 
 ## iOS (Swift)
+- Changing ANY `@Model` in `Persistence/Models/` (even an additive, defaulted
+  optional like US-1249's `hasLocalChanges` on LocalListing/LocalSale) requires
+  the `GradeThreadSchema.swift` migration discipline: add `GradeThreadSchemaVN`,
+  append a `.lightweight` `MigrationStage` (additive ⇒ lightweight), repoint
+  `GradeThreadSchema.current`. The guard tests (`SchemaVersioningTests`) only
+  assert the model-NAME set + plan consistency (stages == schemas-1, last ==
+  current), NOT property fingerprints — so a property add won't fail them, but
+  the doc convention + reviewers expect the version bump. VersionedSchemas
+  reference LIVE types, so V1 and V2 list the same types; the hop is a no-op
+  lightweight (not exercised by the fresh-store round-trip test).
 - Adding a DEFAULT-valued associated value to an existing enum case is fully
   backward-compatible: `case rateLimited(retryAfter: TimeInterval? = nil)` lets
   every bare `.rateLimited` CONSTRUCTION keep compiling (default fills in) AND

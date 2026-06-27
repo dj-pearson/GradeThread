@@ -40,6 +40,13 @@ final class LocalSale {
     var shippedAt: Date?
     var trackingNumber: String?
 
+    /// US-1249: marks a sale row with a pending local edit to a user-editable
+    /// bookkeeping field (label/grading/other costs) not yet pushed. While set,
+    /// the merge keeps those local values instead of overwriting them with the
+    /// server copy — see ``SyncMergeActor/mergeSales(_:)``. Server-owned money
+    /// fields (sale_price, fees, shipping_collected, tax) always refresh.
+    var hasLocalChanges: Bool = false
+
     var createdAt: Date
 
     init(
