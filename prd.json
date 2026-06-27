@@ -5649,7 +5649,7 @@
     {
       "id": "US-1249",
       "priority": 1249,
-      "passes": false,
+      "passes": true,
       "title": "iOS sync hygiene 2: listing conflict provenance, sale dirty-guard, primary-photo cover clear, stale-day calendar math",
       "description": "As a seller, server pulls shouldn't clobber my pending local edits or leave a dead cover thumbnail, and stale-listing day math should match the calendar, so data stays correct and consistent.",
       "acceptanceCriteria": [

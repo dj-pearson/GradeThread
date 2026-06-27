@@ -3990,3 +3990,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:02:51 AM
 ---
+## US-1249: iOS sync hygiene 2: listing conflict provenance, sale dirty-guard, primary-photo cover clear, stale-day calendar math
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:19:40 AM
+---
