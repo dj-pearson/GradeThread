@@ -6049,7 +6049,7 @@
         "Coverage data is included in the cert-integrity content hash so it is tamper-evident (coordinate with US-1279)",
         "build + eslint clean; screenshot QA of a partial-coverage and full-coverage certificate"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Coverage] This is also a top share/trust surface — the visual that makes 'document everything' obvious. Depends on [[US-1276]]. Added 2026-06-26."
     },
     {
