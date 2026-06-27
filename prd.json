@@ -7522,7 +7522,7 @@
     {
       "id": "US-1389",
       "priority": -98611,
-      "passes": false,
+      "passes": true,
       "title": "CSV / Sheets import",
       "description": "As a seller migrating in, I can import inventory from CSV/Sheets.",
       "acceptanceCriteria": [
