@@ -4086,3 +4086,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 11:12:26 AM
 ---
+## US-1388: Team / workspaces switcher
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 11:13:27 AM
+---

@@ -7510,7 +7510,7 @@
     {
       "id": "US-1388",
       "priority": -98612,
-      "passes": false,
+      "passes": true,
       "title": "Team / workspaces switcher",
       "description": "As a workspace member, I can switch between my personal and shared workspaces, re-scoping the app.",
       "acceptanceCriteria": [
