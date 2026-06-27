@@ -4030,3 +4030,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:07:15 AM
 ---
+## US-1234: iOS intake: clear photo and details drafts together on save/discard
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:11:20 AM
+---

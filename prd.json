@@ -5455,7 +5455,7 @@
     {
       "id": "US-1234",
       "priority": 1234,
-      "passes": false,
+      "passes": true,
       "title": "iOS intake: clear photo and details drafts together on save/discard",
       "description": "As a user, after I save or discard an intake, both the details draft and the captured-photo draft should be cleared, so a stale photo draft doesn't trigger a spurious 'resume?' prompt next time.",
       "acceptanceCriteria": [
