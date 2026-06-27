@@ -35,7 +35,7 @@ final class DraftsTests: XCTestCase {
         }
         func fetchItemTitles(ids: [String]) async throws -> [String: String] { titles }
         func save(_ edit: DraftEdit) async throws {
-            if saveErrorIds.contains(edit.id) { throw EdgeAPIError.rateLimited }
+            if saveErrorIds.contains(edit.id) { throw EdgeAPIError.rateLimited() }
             if let saveError { throw saveError }
             savedLock.lock(); _saved.append(edit); savedLock.unlock()
         }
@@ -218,7 +218,7 @@ final class DraftsTests: XCTestCase {
     @MainActor
     func test_bulk_saveFailureKeepsEditsForRetry() async {
         let fake = FakeService(drafts: [draft("a", price: 10)])
-        fake.saveError = EdgeAPIError.rateLimited
+        fake.saveError = EdgeAPIError.rateLimited()
         let store = DraftsBulkEditStore(service: fake)
         await store.load()
         store.update("a") { $0.price = "12" }

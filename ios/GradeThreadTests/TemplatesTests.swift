@@ -212,7 +212,7 @@ final class TemplatesTests: XCTestCase {
     @MainActor
     func test_delete_failureRestoresFromReload() async {
         let fake = FakeService(items: [ListingTemplate(id: "a", name: "A")])
-        fake.deleteError = EdgeAPIError.rateLimited
+        fake.deleteError = EdgeAPIError.rateLimited()
         let store = TemplateStore(service: fake)
         await store.load()
         await store.delete(store.templates[0])

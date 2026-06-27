@@ -59,7 +59,7 @@ final class CompsTests: XCTestCase {
     }
 
     func test_store_throwing_setsFailedWithMessage() async {
-        let store = CompsStore(service: FakeCompsProvider(result: .failure(EdgeAPIError.rateLimited)))
+        let store = CompsStore(service: FakeCompsProvider(result: .failure(EdgeAPIError.rateLimited())))
         await store.fetch(title: "x", brand: nil, size: nil)
         guard case .failed(let message) = store.phase else {
             XCTFail("Expected .failed, got \(store.phase)"); return

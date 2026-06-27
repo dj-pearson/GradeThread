@@ -150,7 +150,7 @@ final class ScheduledDropsTests: XCTestCase {
     @MainActor
     func test_load_failureSetsFailedPhase() async {
         let fake = FakeService()
-        fake.listError = EdgeAPIError.rateLimited
+        fake.listError = EdgeAPIError.rateLimited()
         let store = ScheduledDropsStore(service: fake, timeZoneIdentifier: "UTC")
         await store.load()
         if case .failed = store.phase {} else { XCTFail("expected failed phase") }
@@ -175,7 +175,7 @@ final class ScheduledDropsTests: XCTestCase {
     @MainActor
     func test_reschedule_failureSurfacesError() async {
         let fake = FakeService(drops: [drop("a", at: "2026-06-21T19:00:00Z")])
-        fake.rescheduleError = EdgeAPIError.rateLimited
+        fake.rescheduleError = EdgeAPIError.rateLimited()
         let store = ScheduledDropsStore(service: fake, timeZoneIdentifier: "UTC")
         await store.load()
         let original = store.drops[0].scheduledPublishAt
@@ -197,7 +197,7 @@ final class ScheduledDropsTests: XCTestCase {
     @MainActor
     func test_cancel_failureRestores() async {
         let fake = FakeService(drops: [drop("a", at: "2026-06-21T19:00:00Z")])
-        fake.cancelError = EdgeAPIError.rateLimited
+        fake.cancelError = EdgeAPIError.rateLimited()
         let store = ScheduledDropsStore(service: fake, timeZoneIdentifier: "UTC")
         await store.load()
         await store.cancel(store.drops[0])

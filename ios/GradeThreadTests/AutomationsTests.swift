@@ -254,7 +254,7 @@ final class AutomationsTests: XCTestCase {
     @MainActor
     func test_load_failureSetsPhase() async {
         let fake = FakeService()
-        fake.listError = EdgeAPIError.rateLimited
+        fake.listError = EdgeAPIError.rateLimited()
         let store = AutomationsStore(service: fake)
         await store.load()
         if case .failed = store.phase {} else { XCTFail("expected failed phase") }
@@ -292,7 +292,7 @@ final class AutomationsTests: XCTestCase {
     @MainActor
     func test_delete_failureReloads() async {
         let fake = FakeService(rules: [rule("a")])
-        fake.deleteError = EdgeAPIError.rateLimited
+        fake.deleteError = EdgeAPIError.rateLimited()
         let store = AutomationsStore(service: fake)
         await store.load()
         await store.delete(store.rules[0])
@@ -338,7 +338,7 @@ final class AutomationsTests: XCTestCase {
     @MainActor
     func test_toggleActive_failureReverts() async {
         let fake = FakeService(rules: [rule("a", active: true)])
-        fake.setActiveError = EdgeAPIError.rateLimited
+        fake.setActiveError = EdgeAPIError.rateLimited()
         let store = AutomationsStore(service: fake)
         await store.load()
         await store.toggleActive(store.rules[0])

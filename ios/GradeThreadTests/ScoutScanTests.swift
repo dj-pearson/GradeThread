@@ -126,12 +126,12 @@ final class ScoutScanTests: XCTestCase {
     }
 
     func test_scan_surfacesError() async {
-        let fake = FakeScoutService(suggestion: nil, result: .failure(EdgeAPIError.rateLimited))
+        let fake = FakeScoutService(suggestion: nil, result: .failure(EdgeAPIError.rateLimited()))
         let store = ScoutStore(service: fake)
         store.keyword = "x"
         await store.scan()
         XCTAssertNil(store.response)
-        XCTAssertEqual(store.errorMessage, EdgeAPIError.rateLimited.errorDescription)
+        XCTAssertEqual(store.errorMessage, EdgeAPIError.rateLimited().errorDescription)
     }
 
     func test_canSearch_requiresKeywordOrBrand() {

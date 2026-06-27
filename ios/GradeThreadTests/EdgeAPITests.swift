@@ -121,7 +121,7 @@ final class EdgeAPITests: XCTestCase {
                 Data()
             )
         }
-        await XCTAssertThrowsItem(.rateLimited, with: makeAPI())
+        await XCTAssertThrowsItem(.rateLimited(), with: makeAPI())
     }
 
     // US-1253: the 429 `Retry-After` hint is carried on the error so the UI can
@@ -203,7 +203,7 @@ final class EdgeAPITests: XCTestCase {
     }
 
     func test_isTransient_includesRateLimitedNotBadRequest() {
-        XCTAssertTrue(EdgeAPI.isTransient(.rateLimited))
+        XCTAssertTrue(EdgeAPI.isTransient(.rateLimited()))
         XCTAssertTrue(EdgeAPI.isTransient(.network("x")))
         XCTAssertTrue(EdgeAPI.isTransient(.serverError(detail: nil)))
         XCTAssertFalse(EdgeAPI.isTransient(.badRequest(detail: nil)))
@@ -220,7 +220,7 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "GET"))
         XCTAssertTrue(EdgeAPI.shouldRetry(.serverError(detail: nil), method: "DELETE"))
         // Rejected-not-processed + network blips retry for any method.
-        XCTAssertTrue(EdgeAPI.shouldRetry(.rateLimited, method: "POST"))
+        XCTAssertTrue(EdgeAPI.shouldRetry(.rateLimited(), method: "POST"))
         XCTAssertTrue(EdgeAPI.shouldRetry(.network("x"), method: "POST"))
         XCTAssertFalse(EdgeAPI.shouldRetry(.badRequest(detail: nil), method: "POST"))
     }

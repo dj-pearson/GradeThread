@@ -134,7 +134,7 @@ final class AutolisterStoreTests: XCTestCase {
 
     func test_submit_failureSurfacesError() async {
         let fake = FakeAutolisterService()
-        fake.errorToThrow = EdgeAPIError.rateLimited
+        fake.errorToThrow = EdgeAPIError.rateLimited()
         let store = AutolisterBatchStore(service: fake)
         await store.submit(itemIds: ["a"])
         XCTAssertNotNil(store.errorMessage)
@@ -162,7 +162,7 @@ final class AutolisterStoreTests: XCTestCase {
         let store = AutolisterBatchStore(service: fake)
         await store.submit(itemIds: ["a"])
         store.stop() // kill the background poll; drive pollOnce manually
-        fake.errorToThrow = EdgeAPIError.rateLimited
+        fake.errorToThrow = EdgeAPIError.rateLimited()
         var lastReturn = false
         // Loop past the cap (5); the give-up poll returns terminal=true.
         for _ in 0..<6 { lastReturn = await store.pollOnce() }
@@ -182,7 +182,7 @@ final class AutolisterStoreTests: XCTestCase {
         let store = AutolisterBatchStore(service: fake)
         await store.submit(itemIds: ["a"])
         store.stop()
-        fake.errorToThrow = EdgeAPIError.rateLimited
+        fake.errorToThrow = EdgeAPIError.rateLimited()
         for _ in 0..<6 { _ = await store.pollOnce() }
         guard case .disconnected = store.phase else {
             return XCTFail("precondition: expected .disconnected")
@@ -211,7 +211,7 @@ final class AutolisterStoreTests: XCTestCase {
         let store = AutolisterBatchStore(service: fake)
         await store.submit(itemIds: ["a"])
         store.stop()
-        fake.errorToThrow = EdgeAPIError.rateLimited
+        fake.errorToThrow = EdgeAPIError.rateLimited()
         for _ in 0..<3 { _ = await store.pollOnce() }
         XCTAssertFalse(store.isTerminal)
         XCTAssertEqual(store.phase, .running)

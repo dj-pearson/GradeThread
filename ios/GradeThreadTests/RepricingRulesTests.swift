@@ -200,7 +200,7 @@ final class RepricingRulesTests: XCTestCase {
     @MainActor
     func test_delete_failureReloads() async {
         let fake = FakeService(rules: [rule("a")])
-        fake.deleteError = EdgeAPIError.rateLimited
+        fake.deleteError = EdgeAPIError.rateLimited()
         let store = RepricingRulesStore(service: fake)
         await store.load()
         await store.delete(store.rules[0])
