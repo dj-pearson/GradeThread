@@ -5571,7 +5571,7 @@
     {
       "id": "US-1243",
       "priority": 1243,
-      "passes": false,
+      "passes": true,
       "title": "iOS drafts bulk save: bounded concurrency to match the library path",
       "description": "As a seller, saving many edited rows in the bulk-edit grid should be as fast as the library bulk apply, so a large dirty batch isn't needlessly slow.",
       "acceptanceCriteria": [

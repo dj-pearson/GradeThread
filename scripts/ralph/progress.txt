@@ -4002,3 +4002,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:29:10 AM
 ---
+## US-1243: iOS drafts bulk save: bounded concurrency to match the library path
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:32:25 AM
+---
