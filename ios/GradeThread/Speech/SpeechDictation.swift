@@ -39,6 +39,14 @@ public final class SpeechDictation {
     /// grows as partial results arrive. The owning view writes it into
     /// the bound model on each change.
     public private(set) var recognizedText: String = ""
+    /// The FINAL transcription, published separately from ``recognizedText``
+    /// (US-1230). When recognition finalizes the task callback sets this and
+    /// then immediately calls ``stop()`` in the same main-actor turn, flipping
+    /// `isRecording` to false. A view that mirrors `recognizedText` into its
+    /// model behind an `isRecording` guard would therefore DROP this last
+    /// segment; observing `finalizedText` lets it apply the finalized value
+    /// regardless. Reset to nil on the next ``start()`` / ``reset()``.
+    public private(set) var finalizedText: String?
     public var lastError: Error?
 
     /// True when the device + locale combo can run a recognizer at all.
@@ -52,6 +60,15 @@ public final class SpeechDictation {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    /// True once ``beginSession()`` has installed the input-node tap, so
+    /// ``stop()`` removes it exactly once (a redundant removeTap on a restart
+    /// or a doubled error+final callback otherwise tears down a tap we never
+    /// re-installed). US-1230.
+    private var didInstallTap = false
+    /// True once ``beginSession()`` has activated the shared audio session, so
+    /// ``stop()`` only deactivates the session THIS instance activated — never
+    /// another app's (or our own already-released) session. US-1230.
+    private var didActivateSession = false
 
     public init(locale: Locale = .current) {
         self.recognizer = SFSpeechRecognizer(locale: locale)
@@ -82,6 +99,9 @@ public final class SpeechDictation {
 
     public func start() async {
         guard !isRecording else { return }
+        // Clear the prior session's finalized segment so the bound view never
+        // re-applies a stale final value on the next dictation (US-1230).
+        finalizedText = nil
         do {
             try await beginSession()
             isRecording = true
@@ -92,22 +112,34 @@ public final class SpeechDictation {
         }
     }
 
+    /// Tear down the engine, recognizer, tap, and audio session. Idempotent
+    /// (US-1230): the tap-removal and session-deactivation each run at most once
+    /// per activation, so a second call — or the error+final double callback —
+    /// is a safe no-op and never touches a session this instance didn't own.
     public func stop() {
         isRecording = false
         audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if didInstallTap {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            didInstallTap = false
+        }
         request?.endAudio()
         task?.cancel()
         request = nil
         task = nil
         // US-1178: release the audio session so other apps' audio isn't left
-        // ducked (the session is activated with .duckOthers in start()).
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        // ducked (the session is activated with .duckOthers in start()) — but
+        // only the session we activated, exactly once (US-1230).
+        if didActivateSession {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            didActivateSession = false
+        }
     }
 
     public func reset() {
         stop()
         recognizedText = ""
+        finalizedText = nil
     }
 
     // MARK: - Session setup
@@ -139,6 +171,7 @@ public final class SpeechDictation {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.record, mode: .measurement, options: .duckOthers)
         try session.setActive(true, options: .notifyOthersOnDeactivation)
+        didActivateSession = true
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -158,6 +191,7 @@ public final class SpeechDictation {
             // which we bounce to main below.
             self?.request?.append(buffer)
         }
+        didInstallTap = true
 
         audioEngine.prepare()
         do {
@@ -171,8 +205,15 @@ public final class SpeechDictation {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let result {
-                    self.recognizedText = result.bestTranscription.formattedString
-                    if result.isFinal { self.stop() }
+                    let transcript = result.bestTranscription.formattedString
+                    self.recognizedText = transcript
+                    if result.isFinal {
+                        // Publish the final segment BEFORE stop() flips
+                        // isRecording=false, so the bound view can apply it even
+                        // though the recognizedText path is now guard-gated (US-1230).
+                        self.finalizedText = transcript
+                        self.stop()
+                    }
                 }
                 if error != nil {
                     self.stop()

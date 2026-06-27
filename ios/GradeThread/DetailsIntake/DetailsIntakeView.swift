@@ -172,13 +172,31 @@ struct DetailsIntakeView: View {
         // had typed text, dictation extends it instead of overwriting.
         .onChange(of: dictation.recognizedText) { _, newText in
             guard dictation.isRecording else { return }
-            if notesAnchorBeforeDictation.isEmpty {
-                form.notes = newText
-            } else {
-                let separator = notesAnchorBeforeDictation.hasSuffix(" ") ? "" : " "
-                form.notes = notesAnchorBeforeDictation + separator + newText
-            }
+            applyDictatedNotes(newText)
         }
+        // US-1230: the FINAL recognition segment arrives on `finalizedText`
+        // because the recognizer flips `isRecording` to false in the same
+        // main-actor turn that delivers it — the partial-stream handler above
+        // would drop it behind its `isRecording` guard. Apply it here so the
+        // user's last spoken words land in Notes.
+        .onChange(of: dictation.finalizedText) { _, finalText in
+            guard let finalText, !finalText.isEmpty else { return }
+            applyDictatedNotes(finalText)
+        }
+    }
+
+    /// Merge a dictation transcript into the notes snapshot captured when
+    /// dictation started. Extends pre-existing text rather than overwriting it.
+    /// Pure (no view state) so it's unit-testable.
+    static func mergedDictationNotes(anchor: String, transcript: String) -> String {
+        guard !anchor.isEmpty else { return transcript }
+        let separator = anchor.hasSuffix(" ") ? "" : " "
+        return anchor + separator + transcript
+    }
+
+    private func applyDictatedNotes(_ transcript: String) {
+        form.notes = Self.mergedDictationNotes(
+            anchor: notesAnchorBeforeDictation, transcript: transcript)
     }
 
     // MARK: - Dictation control
