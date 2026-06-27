@@ -79,6 +79,11 @@ const SERVICE_ROLE_ONLY = new Set([
   // is written only by the grant_appstore_credits SECURITY DEFINER RPC via the
   // service-role edge client; the SPA never reads it.
   "appstore_processed_transactions",
+  // Google Play consumable dedup ledger (00321): RLS enabled, zero policies by
+  // design — written only by the service-role edge (POST /api/payments/google/
+  // verify); the SPA never reads it. The Android analogue of
+  // appstore_processed_transactions.
+  "google_processed_purchases",
   // US-771 per-grade refund operator queue: RLS enabled, zero policies by design
   // (migration 00123). Written by the grading pipeline and read/resolved ONLY by
   // the admin billing endpoints via the service-role edge client; the SPA never

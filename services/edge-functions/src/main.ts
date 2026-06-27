@@ -9,6 +9,7 @@ import { emailSnsRoutes } from "./routes/email-sns.ts";
 import { emailEngagementRoutes } from "./routes/email-engagement.ts";
 import { paymentRoutes } from "./routes/payments.ts";
 import { appstoreVerifyRoutes, appstoreWebhookRoutes } from "./routes/appstore.ts";
+import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
@@ -796,6 +797,7 @@ app.route("/api/payments", paymentRoutes);
 // StoreKit IAP: verify is authed (/api/payments/* covers it); the App Store
 // Server Notifications webhook is unauthed (verified by Apple's JWS signature).
 app.route("/api/payments/appstore", appstoreVerifyRoutes);
+app.route("/api/payments/google", googlePlayVerifyRoutes);
 app.route("/api/webhooks", webhookRoutes);
 // US-914: SES bounce/complaint feedback via SNS (public, signature-verified).
 app.route("/api/email", emailSnsRoutes);
