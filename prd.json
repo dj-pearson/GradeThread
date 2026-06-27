@@ -5846,7 +5846,7 @@
     {
       "id": "US-1264",
       "priority": 1264,
-      "passes": false,
+      "passes": true,
       "title": "iOS publish composer: apply ALL template fields (category, policies, item specifics), not just description/condition",
       "description": "As a seller hand-publishing with a template, applying it should set the category, business policies, and item specifics it configures, so the composer matches AutoLister's server-side template application and the editor's promised defaults.",
       "acceptanceCriteria": [

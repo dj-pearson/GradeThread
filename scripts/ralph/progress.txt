@@ -3938,3 +3938,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:23:41 AM
 ---
+## US-1264: iOS publish composer: apply ALL template fields (category, policies, item specifics), not just description/condition
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:30:41 AM
+---
