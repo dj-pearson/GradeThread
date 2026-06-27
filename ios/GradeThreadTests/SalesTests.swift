@@ -15,9 +15,19 @@ final class SalesTests: XCTestCase {
         """#)
         XCTAssertEqual(sale.salePrice, 42.5)
         XCTAssertEqual(sale.platformFees, 6.4)
-        XCTAssertEqual(sale.net, 36.1, accuracy: 0.001)
+        XCTAssertEqual(sale.proceeds, 36.1, accuracy: 0.001)
         XCTAssertEqual(sale.itemTitle, "Levi's 501")
         XCTAssertEqual(sale.buyerUsername, "buyer1")
+    }
+
+    /// US-1245: pins the relabel — the Sales list figure is gross PROCEEDS
+    /// (price − fees), deliberately NOT the unified net profit. A future change
+    /// that folds cost basis / shipping / processing fees in must rename it.
+    func test_proceeds_isPriceMinusFeesOnly() throws {
+        let sale = try decode(#"""
+        {"id":"s4","sale_price":80,"platform_fees":12,"sale_date":"2026-05-04"}
+        """#)
+        XCTAssertEqual(sale.proceeds, 68, accuracy: 0.001)
     }
 
     /// PostgREST can return decimal columns as strings — must still parse.

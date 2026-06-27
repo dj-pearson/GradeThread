@@ -19,12 +19,24 @@ final class MoneyRollupTests: XCTestCase {
         XCTAssertEqual(m.revenueThisMonth, 100, accuracy: 0.001)
     }
 
-    func test_grossProfit_subtractsFeesAndCostBasis() {
+    // US-1245: `netProfitThisMonth` (formerly mislabeled `grossProfit`) is the
+    // FULL SalePnL net — revenue (incl. shipping collected) − all fees − seller
+    // costs − cost basis — matching Dashboard/Analytics, NOT `price − fees − cogs`.
+    func test_netProfit_usesFullSalePnLDefinition() {
         let item = makeItem(id: "i1", cost: 30)
         let sale = makeSale(itemId: "i1", price: 100, fees: 12, date: now)
+        sale.shippingCollected = 10
+        sale.paymentProcessingFees = 3
+        sale.shippingCost = 5
+        sale.gradingCost = 2
+        sale.otherCosts = 1
         let m = MoneyRollup.compute(items: [item], sales: [sale], now: now, calendar: cal)
-        XCTAssertEqual(m.grossProfitThisMonth, 58, accuracy: 0.001) // 100 − 12 − 30
-        XCTAssertEqual(m.roiThisMonth ?? -1, 58.0 / 30.0, accuracy: 0.001)
+        // revenue 110 − fees 15 − sellerCosts 8 − cost basis 30 = 57
+        XCTAssertEqual(m.netProfitThisMonth, 57, accuracy: 0.001)
+        // The rollup must agree with the canonical helper to the cent.
+        XCTAssertEqual(m.netProfitThisMonth, SalePnL.net(sale, costBasis: 30), accuracy: 0.001)
+        // ROI is net / cost basis (return on cost), not gross-margin.
+        XCTAssertEqual(m.roiThisMonth ?? -1, 57.0 / 30.0, accuracy: 0.001)
     }
 
     func test_roi_isNilWhenNoCostBasis() {

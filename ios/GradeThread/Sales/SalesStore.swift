@@ -20,8 +20,9 @@ final class SalesStore {
         return []
     }
 
-    /// Running total of net proceeds (price − fees) across all loaded sales.
-    var totalNet: Double { sales.reduce(0) { $0 + $1.net } }
+    /// Running total of gross proceeds (price − fees) across all loaded sales.
+    /// "Proceeds", not net — see ``RemoteSale/proceeds``.
+    var totalProceeds: Double { sales.reduce(0) { $0 + $1.proceeds } }
 
     func refresh() async {
         phase = .loading

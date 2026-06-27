@@ -15,17 +15,21 @@ struct MonthlyRevenue: Equatable, Identifiable {
 /// layered on in the view since they live server-side, not in SwiftData.
 struct MoneyMetrics: Equatable {
     let revenueThisMonth: Double
-    /// Revenue − platform fees − cost basis of the items sold (before
-    /// operating expenses).
-    let grossProfitThisMonth: Double
-    /// grossProfit / cost basis. Nil when no cost basis is recorded (can't
-    /// divide by zero — show "—" rather than a fake 0%).
+    /// Realized NET profit on this month's completed sales, summed through
+    /// ``SalePnL/net(_:costBasis:)`` (revenue − fees − seller costs − cost
+    /// basis) — the SAME definition Dashboard (`netProfitThisWeek`) and
+    /// Analytics use. This is BEFORE operating expenses (those live server-side
+    /// and are layered on in the view). Formerly mislabeled `grossProfit`.
+    let netProfitThisMonth: Double
+    /// Return on cost basis = ``netProfitThisMonth`` / cost basis (a NET /
+    /// "marginal" ROI, not gross-margin). Nil when no cost basis is recorded
+    /// (can't divide by zero — show "—" rather than a fake 0%).
     let roiThisMonth: Double?
     /// Last 6 months of revenue, oldest → newest (current month last).
     let monthlyRevenue: [MonthlyRevenue]
 
     static let empty = MoneyMetrics(
-        revenueThisMonth: 0, grossProfitThisMonth: 0, roiThisMonth: nil, monthlyRevenue: []
+        revenueThisMonth: 0, netProfitThisMonth: 0, roiThisMonth: nil, monthlyRevenue: []
     )
 }
 
@@ -57,10 +61,12 @@ enum MoneyRollup {
         // US-790: exact-Decimal sums so monthly revenue/profit don't drift.
         let revenue = Money.sum(monthSales) { SalePnL.revenue($0) }
         let cost = Money.sum(monthSales) { costById[$0.inventoryItemId] ?? 0 }
-        let grossProfit = Money.sum(monthSales) {
+        // Net through the shared SalePnL helper so Money, Home, Analytics + web
+        // all agree on what "net profit" means (not a partial gross figure).
+        let netProfit = Money.sum(monthSales) {
             SalePnL.net($0, costBasis: costById[$0.inventoryItemId] ?? 0)
         }
-        let roi: Double? = cost > 0 ? grossProfit / cost : nil
+        let roi: Double? = cost > 0 ? netProfit / cost : nil
 
         // 6-month revenue series, oldest first.
         var months: [MonthlyRevenue] = []
@@ -82,7 +88,7 @@ enum MoneyRollup {
 
         return MoneyMetrics(
             revenueThisMonth: revenue,
-            grossProfitThisMonth: grossProfit,
+            netProfitThisMonth: netProfit,
             roiThisMonth: roi,
             monthlyRevenue: months
         )

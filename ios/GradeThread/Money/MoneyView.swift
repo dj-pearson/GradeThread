@@ -26,7 +26,7 @@ struct MoneyView: View {
         MoneyRollup.compute(items: items, sales: sales, now: .now)
     }
     private var netProfit: Double {
-        metrics.grossProfitThisMonth - expensesThisMonthTotal()
+        metrics.netProfitThisMonth - expensesThisMonthTotal()
     }
 
     // US-812: web `/finances`-parity analytics, all pure rollups over the local

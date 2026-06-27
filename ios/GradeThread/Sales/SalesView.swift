@@ -19,9 +19,13 @@ struct SalesView: View {
     private var itemsById: [String: LocalInventoryItem] {
         Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
-    /// Net proceeds = sale price − marketplace fees, matching MoneyView.
-    private var totalNet: Double {
-        sales.reduce(0) { $0 + ($1.salePrice - $1.platformFees) }
+    /// Gross PROCEEDS = sale price − marketplace fees. Deliberately NOT the
+    /// unified net profit on the Money/Dashboard tabs (which nets out shipping,
+    /// processing fees, seller costs, and cost basis via ``SalePnL``) — the
+    /// Sales list is a quick per-order payout view, labeled "proceeds" so the
+    /// same order is never shown as "net" with a different number elsewhere.
+    private var totalProceeds: Double {
+        Money.sum(sales) { $0.salePrice - $0.platformFees }
     }
 
     var body: some View {
@@ -61,9 +65,9 @@ struct SalesView: View {
             List {
                 Section {
                     HStack {
-                        Text("Net proceeds")
+                        Text("Proceeds (price − fees)")
                         Spacer()
-                        Text(currency.formatDisplay(totalNet))
+                        Text(currency.formatDisplay(totalProceeds))
                             .font(.brandHeadline)
                             .foregroundStyle(Color.brandNavy)
                     }
@@ -101,7 +105,8 @@ private struct SaleRow: View {
     let sale: LocalSale
     let currency: CurrencyFormatter
 
-    private var net: Double { sale.salePrice - sale.platformFees }
+    /// Gross proceeds (price − fees) — see ``SalesView`` for why this is not net.
+    private var proceeds: Double { sale.salePrice - sale.platformFees }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -122,7 +127,7 @@ private struct SaleRow: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(currency.formatDisplay(sale.salePrice))
                         .font(.subheadline.weight(.semibold))
-                    Text("net \(currency.formatDisplay(net))")
+                    Text("proceeds \(currency.formatDisplay(proceeds))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

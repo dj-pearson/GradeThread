@@ -78,7 +78,7 @@ final class ListingComposerTests: XCTestCase {
 
             // Exact equality: both sides are `Money.cents` of the identical net.
             XCTAssertEqual(
-                estimate.netCents, metrics.grossProfitThisMonth,
+                estimate.netCents, metrics.netProfitThisMonth,
                 "composer net must equal Money tab net to the cent for price \(price)"
             )
         }

@@ -13,8 +13,12 @@ struct RemoteSale: Decodable, Identifiable, Equatable {
     let buyerUsername: String?
     let itemTitle: String?
 
-    /// Sale price minus marketplace fees.
-    var net: Double { salePrice - platformFees }
+    /// Gross PROCEEDS = sale price − marketplace fees. This is deliberately NOT
+    /// the unified net profit (``SalePnL/net(_:costBasis:)``): this lightweight
+    /// list query carries neither shipping/processing fees nor seller costs nor
+    /// cost basis, so it cannot compute net. Named "proceeds" so the same order
+    /// is never shown as "net" with a different number than Money/Dashboard.
+    var proceeds: Double { salePrice - platformFees }
 
     /// Parsed `saleDate`. Handles full ISO 8601 (with/without fractional
     /// seconds) and the date-only `YYYY-MM-DD` the legacy pull writes.
