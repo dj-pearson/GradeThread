@@ -3914,3 +3914,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  1:32:38 AM
 ---
+## US-1281: Verified 360 — photogrammetric/LiDAR capture on capable devices (premium)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  1:47:50 AM
+---

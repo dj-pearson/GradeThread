@@ -6098,7 +6098,7 @@
         "Passing 360 capture raises coverage confidence and unlocks a '360-Verified' certificate badge",
         "Spike the ARKit/photogrammetry approach and device matrix before committing the full build"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Coverage][iOS] Research/premium follow-on to the 2D coverage engine; needs real-device QA. Depends on [[US-1276]]. Added 2026-06-26."
     },
     {
