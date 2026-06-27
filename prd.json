@@ -6198,7 +6198,7 @@
         "The unfurl uses the slab OG image (already wired)",
         "Share channel is tracked; QA confirms the referral code is present in generated links"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][LHF][Growth] Closes the viral loop — referral engine + slab OG already exist; sharing is manual today. Added 2026-06-26."
     },
     {
@@ -6347,7 +6347,7 @@
     },
     {
       "id": "US-1299",
-      "priority": 1299,
+      "priority": -98701,
       "passes": false,
       "title": "Android conversion: epic — native Kotlin/Compose client at iOS parity",
       "description": "As the GradeThread team, we want a native Android client at full feature parity with the iOS app — same Supabase + edge backend, data model, offline-first behavior, and monetization — so Android resellers get the same product. This umbrella tracks the US-1300…US-1396 conversion backlog and its cross-cutting decisions.",
@@ -6361,7 +6361,7 @@
     },
     {
       "id": "US-1300",
-      "priority": 1300,
+      "priority": -98700,
       "passes": false,
       "title": "Android project scaffold & module structure",
       "description": "As an Android developer, I want a Gradle (Kotlin DSL) project with a clean module layout, Hilt DI, Compose, and the base dependency set wired, so feature work has a consistent home.",
@@ -6375,7 +6375,7 @@
     },
     {
       "id": "US-1301",
-      "priority": 1301,
+      "priority": -98699,
       "passes": false,
       "title": "Build config, flavors & secrets (BuildConfig) + network security",
       "description": "As an Android developer, I want debug/release build types with build-time config (endpoints, keys) sourced from secrets, so no credentials live in source and HTTPS is enforced.",
@@ -6389,7 +6389,7 @@
     },
     {
       "id": "US-1302",
-      "priority": 1302,
+      "priority": -98698,
       "passes": false,
       "title": "Material 3 brand theme: colors, typography, tokens, dark mode",
       "description": "As a user, I want the Android app to look like GradeThread — navy/red/night/gray brand palette, Outfit + Inter fonts, consistent spacing/radius — in light and dark mode.",
@@ -6403,7 +6403,7 @@
     },
     {
       "id": "US-1303",
-      "priority": 1303,
+      "priority": -98697,
       "passes": false,
       "title": "Reusable Compose component library",
       "description": "As an Android developer, I want the shared UI primitives the iOS app relies on, so feature screens compose consistently.",
@@ -6417,7 +6417,7 @@
     },
     {
       "id": "US-1304",
-      "priority": 1304,
+      "priority": -98696,
       "passes": false,
       "title": "Accessibility foundation (TalkBack, reduced motion, font scaling)",
       "description": "As a user relying on accessibility services, I want TalkBack announcements, reduced-motion respect, and font-scale-aware icons from day one.",
@@ -6431,7 +6431,7 @@
     },
     {
       "id": "US-1305",
-      "priority": 1305,
+      "priority": -98695,
       "passes": false,
       "title": "Haptics & system sounds",
       "description": "As a user, I want typed haptic + sound feedback for taps, captures, successes, and failures, matching the iOS feel.",
@@ -6444,7 +6444,7 @@
     },
     {
       "id": "US-1306",
-      "priority": 1306,
+      "priority": -98694,
       "passes": false,
       "title": "Networking core: EdgeAPI (OkHttp/Retrofit) with auth, retry, plan-gate",
       "description": "As an Android developer, I want a single typed HTTP layer that attaches the bearer token, refreshes on 401, backs off on transient/429, and surfaces plan-gate signals — mirroring iOS EdgeAPI.",
@@ -6458,7 +6458,7 @@
     },
     {
       "id": "US-1307",
-      "priority": 1307,
+      "priority": -98693,
       "passes": false,
       "title": "Supabase Kotlin SDK integration (auth, PostgREST, Realtime, Storage)",
       "description": "As an Android developer, I want supabase-kt configured with PKCE auth, encrypted session storage, and bounded HTTP, so auth/db/realtime/storage all use one client.",
@@ -6472,7 +6472,7 @@
     },
     {
       "id": "US-1308",
-      "priority": 1308,
+      "priority": -98692,
       "passes": false,
       "title": "Telemetry: Sentry + PostHog with PII scrubbing & opt-out",
       "description": "As the team, I want crash reporting always-on and product analytics opt-out-respecting, with PII scrubbed before the wire, matching the iOS Telemetry rules.",
@@ -6486,7 +6486,7 @@
     },
     {
       "id": "US-1309",
-      "priority": 1309,
+      "priority": -98691,
       "passes": false,
       "title": "Workspace tenant-scope utility + X-Workspace-Owner header",
       "description": "As an Android developer, I want a single source of truth for the active workspace owner id so every scoped query/header is consistent, mirroring WorkspaceScope.",
@@ -6499,7 +6499,7 @@
     },
     {
       "id": "US-1310",
-      "priority": 1310,
+      "priority": -98690,
       "passes": false,
       "title": "Email/password PKCE auth + session storage + auth-state Flow",
       "description": "As a user, I want to sign in or sign up with email/password and stay signed in across launches, with clear errors.",
@@ -6513,7 +6513,7 @@
     },
     {
       "id": "US-1311",
-      "priority": 1311,
+      "priority": -98689,
       "passes": false,
       "title": "OAuth sign-in (Google) via Custom Tabs + deep-link callback",
       "description": "As a user, I want to continue with Google (and Apple via web) using an in-app browser, returning cleanly to the app.",
@@ -6527,7 +6527,7 @@
     },
     {
       "id": "US-1312",
-      "priority": 1312,
+      "priority": -98688,
       "passes": false,
       "title": "Turnstile captcha (WebView bridge) on signup/sign-in/recover",
       "description": "As the team, I want Cloudflare Turnstile on auth in production so signups are bot-resisted, mirroring iOS.",
@@ -6540,7 +6540,7 @@
     },
     {
       "id": "US-1313",
-      "priority": 1313,
+      "priority": -98687,
       "passes": false,
       "title": "App shell: adaptive bottom-nav / navigation-rail with per-section back stacks",
       "description": "As a user, I want the five-section shell (Home, Inventory, Add, Money, Marketplaces) + Settings, with each section keeping its own navigation, adapting to tablets/foldables.",
@@ -6554,7 +6554,7 @@
     },
     {
       "id": "US-1314",
-      "priority": 1314,
+      "priority": -98686,
       "passes": false,
       "title": "Deep links & verified App Links routing",
       "description": "As a user, taps from push, widgets, shortcuts, and auth/email links open the right screen, even mid-sign-in.",
@@ -6568,7 +6568,7 @@
     },
     {
       "id": "US-1315",
-      "priority": 1315,
+      "priority": -98685,
       "passes": false,
       "title": "Biometric app lock + privacy cover + anti-lockout",
       "description": "As a user, I want an optional biometric/device-credential lock and a hidden app-switcher preview so my sales/payout figures stay private.",
@@ -6582,7 +6582,7 @@
     },
     {
       "id": "US-1316",
-      "priority": 1316,
+      "priority": -98684,
       "passes": false,
       "title": "Room schema: 7 entities, indexes, migrations & corruption recovery",
       "description": "As an Android developer, I want the offline cache schema (the 7 SwiftData models) as Room entities with the same indexes/relations and a corruption-recovery path.",
@@ -6596,7 +6596,7 @@
     },
     {
       "id": "US-1317",
-      "priority": 1317,
+      "priority": -98683,
       "passes": false,
       "title": "SyncEngine pull: watermark delta, pagination, resilient decode, drop-safe advance",
       "description": "As a user, I want my data to sync incrementally and resiliently so a single bad row never blanks a table and nothing is silently skipped.",
@@ -6610,7 +6610,7 @@
     },
     {
       "id": "US-1318",
-      "priority": 1318,
+      "priority": -98682,
       "passes": false,
       "title": "Merge + ConflictPolicy (4 strategies incl. eBay listing-origin)",
       "description": "As a user, my local edits and server truth merge predictably so neither clobbers the other incorrectly.",
@@ -6624,7 +6624,7 @@
     },
     {
       "id": "US-1319",
-      "priority": 1319,
+      "priority": -98681,
       "passes": false,
       "title": "Offline mutation queue: replay, idempotency, ordering, terminal-vs-transient",
       "description": "As a user, edits I make offline are queued and replayed safely when I reconnect, without duplicates or lost edits.",
@@ -6638,7 +6638,7 @@
     },
     {
       "id": "US-1320",
-      "priority": 1320,
+      "priority": -98680,
       "passes": false,
       "title": "Delete reconciliation (id-fetch, throttle, protected set)",
       "description": "As a user, rows deleted on the web or another device disappear locally so my Money totals aren’t inflated by stale rows.",
@@ -6651,7 +6651,7 @@
     },
     {
       "id": "US-1321",
-      "priority": 1321,
+      "priority": -98679,
       "passes": false,
       "title": "Realtime service: live inventory updates with re-subscribe catch-up",
       "description": "As a user, server-side inventory changes appear live, and nothing is missed across reconnects.",
@@ -6665,7 +6665,7 @@
     },
     {
       "id": "US-1322",
-      "priority": 1322,
+      "priority": -98678,
       "passes": false,
       "title": "Connectivity monitor, debouncer, sync status & save-failure health",
       "description": "As a user, I want a clear sync/offline indicator and a heads-up if my device genuinely can’t save locally.",
@@ -6678,7 +6678,7 @@
     },
     {
       "id": "US-1323",
-      "priority": 1323,
+      "priority": -98677,
       "passes": false,
       "title": "Sign-out wipe & workspace-switch re-scope correctness",
       "description": "As a user switching accounts or workspaces, I never see or flush the previous tenant’s data.",
@@ -6691,7 +6691,7 @@
     },
     {
       "id": "US-1324",
-      "priority": 1324,
+      "priority": -98676,
       "passes": false,
       "title": "CameraX photo-first intake: slots, strip, auto-advance, draft recovery",
       "description": "As a seller, I want to capture garment photos into category slots with a live preview, auto-advancing to the next empty slot, and resume if interrupted.",
@@ -6705,7 +6705,7 @@
     },
     {
       "id": "US-1325",
-      "priority": 1325,
+      "priority": -98675,
       "passes": false,
       "title": "Photo compression + EXIF strip + thumbnail cache",
       "description": "As a seller, my photos are downsized, orientation-baked, and stripped of GPS/serial/time before upload (US-276 parity).",
@@ -6718,7 +6718,7 @@
     },
     {
       "id": "US-1326",
-      "priority": 1326,
+      "priority": -98674,
       "passes": false,
       "title": "Category photo profiles (server-driven slots + bundled fallback)",
       "description": "As a seller listing a non-clothing item (e.g. watch), I see category-specific photo roles instead of clothing defaults.",
@@ -6731,7 +6731,7 @@
     },
     {
       "id": "US-1327",
-      "priority": 1327,
+      "priority": -98673,
       "passes": false,
       "title": "Photo library import via Android Photo Picker",
       "description": "As a seller, I can pick existing photos (up to 8) into intake without granting full library access.",
@@ -6744,7 +6744,7 @@
     },
     {
       "id": "US-1328",
-      "priority": 1328,
+      "priority": -98672,
       "passes": false,
       "title": "Secure two-phase photo upload (signed URL, bucket routing, deterministic ids, WorkManager)",
       "description": "As a seller, my photos upload reliably in the background, survive app death, and queue when offline — without leaking a long-lived token to disk.",
@@ -6758,7 +6758,7 @@
     },
     {
       "id": "US-1329",
-      "priority": 1329,
+      "priority": -98671,
       "passes": false,
       "title": "Private-bucket signed read URLs (TTL + refresh skew)",
       "description": "As a seller, my sensitive photos (tags, certificates) display via short-lived signed URLs that never get cached long-term.",
@@ -6771,7 +6771,7 @@
     },
     {
       "id": "US-1330",
-      "priority": 1330,
+      "priority": -98670,
       "passes": false,
       "title": "Details-first manual intake form + autosave + duplicate-SKU merge",
       "description": "As a seller, I can add an item by typing its details, with my draft autosaved and a guard against duplicate SKUs.",
@@ -6785,7 +6785,7 @@
     },
     {
       "id": "US-1331",
-      "priority": 1331,
+      "priority": -98669,
       "passes": false,
       "title": "Voice dictation for the notes field (SpeechRecognizer)",
       "description": "As a seller, I can dictate item notes hands-free.",
@@ -6798,7 +6798,7 @@
     },
     {
       "id": "US-1332",
-      "priority": 1332,
+      "priority": -98668,
       "passes": false,
       "title": "Barcode scan-to-SKU (ML Kit)",
       "description": "As a seller, I can scan a barcode to auto-fill the SKU.",
@@ -6810,7 +6810,7 @@
     },
     {
       "id": "US-1333",
-      "priority": 1333,
+      "priority": -98667,
       "passes": false,
       "title": "On-device OCR size-tag inference (ML Kit) — offline brand/size fallback",
       "description": "As a seller, when the AI extract misses brand/size, an on-device OCR fallback fills them from the tag photo offline.",
@@ -6823,7 +6823,7 @@
     },
     {
       "id": "US-1334",
-      "priority": 1334,
+      "priority": -98666,
       "passes": false,
       "title": "AI attribute extraction + review sheet",
       "description": "As a seller, my photos are auto-analyzed into suggested fields I review and confirm before they save.",
@@ -6837,7 +6837,7 @@
     },
     {
       "id": "US-1335",
-      "priority": 1335,
+      "priority": -98665,
       "passes": false,
       "title": "Snap-to-Value free AI grade",
       "description": "As a visitor, I can snap one photo and get an instant grade + resale value range, nudged toward certified grading or listing.",
@@ -6850,7 +6850,7 @@
     },
     {
       "id": "US-1336",
-      "priority": 1336,
+      "priority": -98664,
       "passes": false,
       "title": "Certified grading: validate → tier → confirm spend → submit → poll",
       "description": "As a seller, I can request a certified grade for an item: see readiness/cost, pick a tier, confirm any credit spend, and watch it grade live.",
@@ -6864,7 +6864,7 @@
     },
     {
       "id": "US-1337",
-      "priority": 1337,
+      "priority": -98663,
       "passes": false,
       "title": "Grade report UI + confidence/human-review gate + certificate share",
       "description": "As a seller, I can read the grade report and share the certificate once it’s certified.",
@@ -6877,7 +6877,7 @@
     },
     {
       "id": "US-1338",
-      "priority": 1338,
+      "priority": -98662,
       "passes": false,
       "title": "In-flow credit top-up during grading (Play Billing)",
       "description": "As a seller blocked on credits, I can buy a credit pack without leaving the grade flow.",
@@ -6889,7 +6889,7 @@
     },
     {
       "id": "US-1339",
-      "priority": 1339,
+      "priority": -98661,
       "passes": false,
       "title": "Bulk grading (batch validate/submit, partial OK)",
       "description": "As a seller, I can grade a multi-selection at once, submitting only the ready items.",
@@ -6901,7 +6901,7 @@
     },
     {
       "id": "US-1340",
-      "priority": 1340,
+      "priority": -98660,
       "passes": false,
       "title": "Grade disputes (14-day window)",
       "description": "As a seller, I can dispute a grade within 14 days, mirroring the web reasons.",
@@ -6913,7 +6913,7 @@
     },
     {
       "id": "US-1341",
-      "priority": 1341,
+      "priority": -98659,
       "passes": false,
       "title": "Grades list / history",
       "description": "As a seller, I can see all my certified grades in one place.",
@@ -6925,7 +6925,7 @@
     },
     {
       "id": "US-1342",
-      "priority": 1342,
+      "priority": -98658,
       "passes": false,
       "title": "Inventory list: stages, search, filters/facets, sort, kanban",
       "description": "As a seller, I can triage my inventory by stage, search it, filter/sort by many facets, and switch to a board view.",
@@ -6938,7 +6938,7 @@
     },
     {
       "id": "US-1343",
-      "priority": 1343,
+      "priority": -98657,
       "passes": false,
       "title": "Item canvas: inline-editable identity/pricing/notes with optimistic writes",
       "description": "As a seller, I can open an item and edit its core fields inline, with instant local feedback and rollback on failure.",
@@ -6951,7 +6951,7 @@
     },
     {
       "id": "US-1344",
-      "priority": 1344,
+      "priority": -98656,
       "passes": false,
       "title": "Item canvas: photos section (add/manage/reorder/cover/remove/share)",
       "description": "As a seller, I can manage an item’s photos — add to empty slots, reorder, set the cover, remove, duplicate the item, and share its certificate.",
@@ -6963,7 +6963,7 @@
     },
     {
       "id": "US-1345",
-      "priority": 1345,
+      "priority": -98655,
       "passes": false,
       "title": "Item canvas: measurements + AI size inference",
       "description": "As a seller, I can record garment measurements and infer them from photos.",
@@ -6975,7 +6975,7 @@
     },
     {
       "id": "US-1346",
-      "priority": 1346,
+      "priority": -98654,
       "passes": false,
       "title": "Item canvas: eBay comps (fetch + use-median)",
       "description": "As a seller, I can pull live eBay comps for an item and apply the median to my target price.",
@@ -6987,7 +6987,7 @@
     },
     {
       "id": "US-1347",
-      "priority": 1347,
+      "priority": -98653,
       "passes": false,
       "title": "Item canvas: eBay specifics/aspects editor + auto-sync",
       "description": "As a seller, I can edit category-specific eBay aspects, and edits to brand/size/color/material re-derive the auto-sourced specifics.",
@@ -7000,7 +7000,7 @@
     },
     {
       "id": "US-1348",
-      "priority": 1348,
+      "priority": -98652,
       "passes": false,
       "title": "Bulk actions (multi-select batch + undo)",
       "description": "As a seller, I can select multiple items and batch-change status/price, delete, or grade, with undo.",
@@ -7013,7 +7013,7 @@
     },
     {
       "id": "US-1349",
-      "priority": 1349,
+      "priority": -98651,
       "passes": false,
       "title": "Global search across inventory/listings/sales/sources",
       "description": "As a seller, I can search everything from a single sheet.",
@@ -7026,7 +7026,7 @@
     },
     {
       "id": "US-1350",
-      "priority": 1350,
+      "priority": -98650,
       "passes": false,
       "title": "eBay OAuth connect (Custom Tabs, multi-account, disconnect)",
       "description": "As a seller, I can connect (and manage multiple) eBay accounts and disconnect them.",
@@ -7039,7 +7039,7 @@
     },
     {
       "id": "US-1351",
-      "priority": 1351,
+      "priority": -98649,
       "passes": false,
       "title": "eBay listing sync (pull, poll, merge)",
       "description": "As a seller, my eBay listings pull into the app and merge into the local cache.",
@@ -7051,7 +7051,7 @@
     },
     {
       "id": "US-1352",
-      "priority": 1352,
+      "priority": -98648,
       "passes": false,
       "title": "Listing publish / relist with profit estimate",
       "description": "As a seller, I can publish (or relist) an item to eBay with a pre-flight validation and live profit estimate.",
@@ -7064,7 +7064,7 @@
     },
     {
       "id": "US-1353",
-      "priority": 1353,
+      "priority": -98647,
       "passes": false,
       "title": "eBay category specifics editor (listing-time)",
       "description": "As a seller, I can fill category-specific aspects when composing a listing.",
@@ -7077,7 +7077,7 @@
     },
     {
       "id": "US-1354",
-      "priority": 1354,
+      "priority": -98646,
       "passes": false,
       "title": "Negotiation inbox (offers, send-offer, buyer messages)",
       "description": "As a seller, I can manage best offers and buyer messages from one inbox.",
@@ -7089,7 +7089,7 @@
     },
     {
       "id": "US-1355",
-      "priority": 1355,
+      "priority": -98645,
       "passes": false,
       "title": "Bulk pricing",
       "description": "As a seller, I can adjust prices across many active listings at once and push to eBay.",
@@ -7102,7 +7102,7 @@
     },
     {
       "id": "US-1356",
-      "priority": 1356,
+      "priority": -98644,
       "passes": false,
       "title": "Reconciliation of orphan eBay listings + shell banner",
       "description": "As a seller, eBay listings with no matching item are surfaced so I can create, link, or ignore them.",
@@ -7114,7 +7114,7 @@
     },
     {
       "id": "US-1357",
-      "priority": 1357,
+      "priority": -98643,
       "passes": false,
       "title": "Post-sale actions + promotions/sale boosts",
       "description": "As a seller, I can run post-sale steps and per-listing promotions/markdowns.",
@@ -7126,7 +7126,7 @@
     },
     {
       "id": "US-1358",
-      "priority": 1358,
+      "priority": -98642,
       "passes": false,
       "title": "Repricing rules + AI suggestions + scan",
       "description": "As a seller, I can set condition-aware repricing rules and act on AI price suggestions.",
@@ -7138,7 +7138,7 @@
     },
     {
       "id": "US-1359",
-      "priority": 1359,
+      "priority": -98641,
       "passes": false,
       "title": "AutoLister: batch jobs, photo classify/QA, drafts library",
       "description": "As a seller, I can batch-generate listing drafts from photos, review them, and bulk-edit the drafts.",
@@ -7151,7 +7151,7 @@
     },
     {
       "id": "US-1360",
-      "priority": 1360,
+      "priority": -98640,
       "passes": false,
       "title": "Disclosure: annotated photos + apply to listing",
       "description": "As a seller, I can annotate flaw photos and push the disclosure into the live eBay listing.",
@@ -7164,7 +7164,7 @@
     },
     {
       "id": "US-1361",
-      "priority": 1361,
+      "priority": -98639,
       "passes": false,
       "title": "Scheduled drops (timezone-aware)",
       "description": "As a seller, I can schedule draft listings to publish at chosen local times (server cron publishes).",
@@ -7176,7 +7176,7 @@
     },
     {
       "id": "US-1362",
-      "priority": 1362,
+      "priority": -98638,
       "passes": false,
       "title": "Automations (trigger/action/scope rules)",
       "description": "As a seller, I can define trigger-based rules (e.g. drop price 10% after 30 days) applied by the server cron.",
@@ -7188,7 +7188,7 @@
     },
     {
       "id": "US-1363",
-      "priority": 1363,
+      "priority": -98637,
       "passes": false,
       "title": "Money dashboard (KPIs + charts, cash flow, aging, ROI, P&L)",
       "description": "As a seller, I can see my profit/revenue KPIs, trends, cash flow, inventory aging, ROI by source, and per-item P&L — all computed offline from the local cache.",
@@ -7201,7 +7201,7 @@
     },
     {
       "id": "US-1364",
-      "priority": 1364,
+      "priority": -98636,
       "passes": false,
       "title": "Expenses CRUD",
       "description": "As a seller, I can record and edit business expenses that feed my P&L.",
@@ -7213,7 +7213,7 @@
     },
     {
       "id": "US-1365",
-      "priority": 1365,
+      "priority": -98635,
       "passes": false,
       "title": "Payout reconciliation",
       "description": "As a seller, I can reconcile recorded sales against actual eBay payouts and spot mismatches.",
@@ -7226,7 +7226,7 @@
     },
     {
       "id": "US-1366",
-      "priority": 1366,
+      "priority": -98634,
       "passes": false,
       "title": "Google Play Billing integration (+ server google/verify)",
       "description": "As a seller, I can subscribe and buy grading credits via Google Play, with server-side verification flipping my plan/credits.",
@@ -7240,7 +7240,7 @@
     },
     {
       "id": "US-1367",
-      "priority": 1367,
+      "priority": -98633,
       "passes": false,
       "title": "Paywall, post-signup plan step & plan-gate presentation",
       "description": "As a seller, I see a clear paywall with tiers + credit packs, a one-time post-signup plan step, and contextual upgrade prompts when I hit a cap.",
@@ -7253,7 +7253,7 @@
     },
     {
       "id": "US-1368",
-      "priority": 1368,
+      "priority": -98632,
       "passes": false,
       "title": "Analytics (distributions, brands, sell-through, performance, AI narrative)",
       "description": "As a seller, I can analyze grade distribution, top brands, sell-through, inventory value, and listing performance, with an on-demand AI summary.",
@@ -7266,7 +7266,7 @@
     },
     {
       "id": "US-1369",
-      "priority": 1369,
+      "priority": -98631,
       "passes": false,
       "title": "Community insights / benchmarks",
       "description": "As a seller, I can compare my numbers against anonymized community benchmarks.",
@@ -7279,7 +7279,7 @@
     },
     {
       "id": "US-1370",
-      "priority": 1370,
+      "priority": -98630,
       "passes": false,
       "title": "Home dashboard (snapshot, sparkline, quick actions, activation checklist)",
       "description": "As a seller, I want a glanceable home: inventory value, active listings, recent money, aging nudges, quick actions, and a setup checklist.",
@@ -7291,7 +7291,7 @@
     },
     {
       "id": "US-1371",
-      "priority": 1371,
+      "priority": -98629,
       "passes": false,
       "title": "Sales view + per-item P&L",
       "description": "As a seller, I can browse my sales and see realized profit per item.",
@@ -7304,7 +7304,7 @@
     },
     {
       "id": "US-1372",
-      "priority": 1372,
+      "priority": -98628,
       "passes": false,
       "title": "Consignment (consignors, splits, report)",
       "description": "As a seller, I can manage consignors, assign split % to items, and view a consignment report.",
@@ -7317,7 +7317,7 @@
     },
     {
       "id": "US-1373",
-      "priority": 1373,
+      "priority": -98627,
       "passes": false,
       "title": "Listing templates",
       "description": "As a seller, I can save and apply listing templates.",
@@ -7330,7 +7330,7 @@
     },
     {
       "id": "US-1374",
-      "priority": 1374,
+      "priority": -98626,
       "passes": false,
       "title": "Scout (find underpriced deals) + Prospect (in-store)",
       "description": "As a seller, I can scout eBay for underpriced deals and prospect an in-store item by photo.",
@@ -7342,7 +7342,7 @@
     },
     {
       "id": "US-1375",
-      "priority": 1375,
+      "priority": -98625,
       "passes": false,
       "title": "Verified seller badge",
       "description": "As a seller, I can see my verification status and requirements.",
@@ -7355,7 +7355,7 @@
     },
     {
       "id": "US-1376",
-      "priority": 1376,
+      "priority": -98624,
       "passes": false,
       "title": "Item passport (pedigree timeline)",
       "description": "As a seller, I can see an item’s lifecycle timeline with confidence scoring.",
@@ -7368,7 +7368,7 @@
     },
     {
       "id": "US-1377",
-      "priority": 1377,
+      "priority": -98623,
       "passes": false,
       "title": "Fulfillment / shipping",
       "description": "As a seller, I can track shipping status, tracking, and completion.",
@@ -7381,7 +7381,7 @@
     },
     {
       "id": "US-1378",
-      "priority": 1378,
+      "priority": -98622,
       "passes": false,
       "title": "FCM push: channels, registration, deep-link routing, action buttons",
       "description": "As a seller, I get real-time push for sales, payouts, grades, offers, messages, listing ends, support replies, and token-expiry — with inline actions.",
@@ -7395,7 +7395,7 @@
     },
     {
       "id": "US-1379",
-      "priority": 1379,
+      "priority": -98621,
       "passes": false,
       "title": "WorkManager background refresh + new-sale/new-grade notifications",
       "description": "As a seller, the app opportunistically syncs in the background and notifies me of new sales/grades.",
@@ -7408,7 +7408,7 @@
     },
     {
       "id": "US-1380",
-      "priority": 1380,
+      "priority": -98620,
       "passes": false,
       "title": "Glance home-screen widgets (seller snapshot)",
       "description": "As a seller, I get a home-screen widget showing active listings, sold-today, and pending payout.",
@@ -7421,7 +7421,7 @@
     },
     {
       "id": "US-1381",
-      "priority": 1381,
+      "priority": -98619,
       "passes": false,
       "title": "App Shortcuts + Assistant App Actions",
       "description": "As a seller, I can launch Snap-to-Value / Add-item and ask \"what sold today\" via shortcuts/Assistant.",
@@ -7433,7 +7433,7 @@
     },
     {
       "id": "US-1382",
-      "priority": 1382,
+      "priority": -98618,
       "passes": false,
       "title": "Android share target → intake handoff",
       "description": "As a seller, I can share 1–8 photos from any app into a new GradeThread intake.",
@@ -7445,7 +7445,7 @@
     },
     {
       "id": "US-1383",
-      "priority": 1383,
+      "priority": -98617,
       "passes": false,
       "title": "Settings screen",
       "description": "As a user, I want a structured Settings screen: account, connections, preferences, notifications, support, and about.",
@@ -7458,7 +7458,7 @@
     },
     {
       "id": "US-1384",
-      "priority": 1384,
+      "priority": -98616,
       "passes": false,
       "title": "Onboarding flow",
       "description": "As a new user, I get a first-run welcome, pick a use case that routes my first action, select a plan, and grant permissions.",
@@ -7471,7 +7471,7 @@
     },
     {
       "id": "US-1385",
-      "priority": 1385,
+      "priority": -98615,
       "passes": false,
       "title": "Referrals",
       "description": "As a user, I can view and share my referral link and redeem codes.",
@@ -7484,7 +7484,7 @@
     },
     {
       "id": "US-1386",
-      "priority": 1386,
+      "priority": -98614,
       "passes": false,
       "title": "Support tickets (+ support.reply deep link)",
       "description": "As a user, I can create support tickets and read agent replies in-app.",
@@ -7496,7 +7496,7 @@
     },
     {
       "id": "US-1387",
-      "priority": 1387,
+      "priority": -98613,
       "passes": false,
       "title": "Feedback / bug report",
       "description": "As a user, I can send feedback or a bug report from within the app.",
@@ -7509,7 +7509,7 @@
     },
     {
       "id": "US-1388",
-      "priority": 1388,
+      "priority": -98612,
       "passes": false,
       "title": "Team / workspaces switcher",
       "description": "As a workspace member, I can switch between my personal and shared workspaces, re-scoping the app.",
@@ -7521,7 +7521,7 @@
     },
     {
       "id": "US-1389",
-      "priority": 1389,
+      "priority": -98611,
       "passes": false,
       "title": "CSV / Sheets import",
       "description": "As a seller migrating in, I can import inventory from CSV/Sheets.",
@@ -7534,7 +7534,7 @@
     },
     {
       "id": "US-1390",
-      "priority": 1390,
+      "priority": -98610,
       "passes": false,
       "title": "State restoration: config change, process death, multi-window/foldable",
       "description": "As a user, my place in the app survives rotation, process death, and split-screen/foldable transitions.",
@@ -7546,7 +7546,7 @@
     },
     {
       "id": "US-1391",
-      "priority": 1391,
+      "priority": -98609,
       "passes": false,
       "title": "Gradle build, signing config & Android CI workflow",
       "description": "As the team, I want reproducible debug/release builds, a signing config, and CI that builds + tests every PR.",
@@ -7559,7 +7559,7 @@
     },
     {
       "id": "US-1392",
-      "priority": 1392,
+      "priority": -98608,
       "passes": false,
       "title": "Release workflow → Play Console (AAB via Fastlane supply)",
       "description": "As the team, I want a release workflow that builds a signed AAB and uploads to the Play Console internal/beta/production tracks.",
@@ -7572,7 +7572,7 @@
     },
     {
       "id": "US-1393",
-      "priority": 1393,
+      "priority": -98607,
       "passes": false,
       "title": "Localization (string resources, locale selector, pseudolocale)",
       "description": "As an international user, I want a fully externalized, translatable UI with a locale override.",
@@ -7585,7 +7585,7 @@
     },
     {
       "id": "US-1394",
-      "priority": 1394,
+      "priority": -98606,
       "passes": false,
       "title": "Privacy & Play data-safety (form, export compliance, encrypted storage)",
       "description": "As the team, I want Play data-safety + export-compliance completed and sensitive data encrypted at rest, mirroring the iOS privacy manifest.",
@@ -7598,7 +7598,7 @@
     },
     {
       "id": "US-1395",
-      "priority": 1395,
+      "priority": -98605,
       "passes": false,
       "title": "Test suite: sync/conflict/billing unit + critical-flow E2E",
       "description": "As the team, I want the same test posture as iOS so the port’s correctness-critical logic is guarded.",
@@ -7611,7 +7611,7 @@
     },
     {
       "id": "US-1396",
-      "priority": 1396,
+      "priority": -98604,
       "passes": false,
       "title": "Accessibility audit (TalkBack, contrast, touch targets, font scale)",
       "description": "As a user with accessibility needs, I want the app to pass a TalkBack/contrast/touch-target/font-scale audit before release.",

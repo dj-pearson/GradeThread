@@ -3886,3 +3886,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026  5:40:31 PM
 ---
+## US-1288: Viral social share with pre-filled referral on the certificate
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026 10:09:09 PM
+---
