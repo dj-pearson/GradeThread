@@ -47,7 +47,7 @@ struct DraftEditRow: Identifiable, Equatable {
         DraftEdit(
             id: id,
             title: Self.nilIfBlank(title),
-            price: Double(price) ?? 0,
+            price: Self.parsePrice(price) ?? 0,
             condition: Self.nilIfBlank(condition),
             quantity: max(1, Int(quantity) ?? 1),
             bestOffer: bestOffer,
@@ -65,7 +65,7 @@ struct DraftEditRow: Identifiable, Equatable {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { out.append("Title is empty") }
         else if title.count > 80 { out.append("Title over 80 chars") }
-        if (Double(price) ?? 0) <= 0 { out.append("Price not set") }
+        if (Self.parsePrice(price) ?? 0) <= 0 { out.append("Price not set") }
         if condition.isEmpty { out.append("No condition") }
         if categoryId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append("No category") }
         return out
@@ -76,11 +76,36 @@ struct DraftEditRow: Identifiable, Equatable {
         return t.isEmpty ? nil : t
     }
 
-    /// Clean editable string for a price (no trailing ".00", no exponent).
-    static func priceString(_ value: Double?) -> String {
+    /// Clean editable string for a price in the user's locale decimal format, so
+    /// it round-trips through ``parsePrice`` regardless of locale (US-1236).
+    /// Whole numbers render with no decimals; fractional values render 2dp.
+    static func priceString(_ value: Double?, locale: Locale = .current) -> String {
         guard let value else { return "" }
         if value == value.rounded() { return String(Int(value)) }
-        return String(format: "%.2f", value)
+        return priceString2dp(value, locale: locale)
+    }
+
+    /// Locale-aware always-2-decimal price string (no grouping) — the grid's
+    /// inline-field convention. Round-trips through ``parsePrice`` (US-1236):
+    /// `String(format: "%.2f", …)` always emits a "." separator, which a
+    /// comma-decimal locale would then misread, so format through the locale.
+    static func priceString2dp(_ value: Double, locale: Locale = .current) -> String {
+        let nf = NumberFormatter()
+        nf.locale = locale
+        nf.numberStyle = .decimal
+        nf.minimumFractionDigits = 2
+        nf.maximumFractionDigits = 2
+        nf.usesGroupingSeparator = false
+        return nf.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+    }
+
+    /// Locale-aware parse of an editable row's price string. The seeded canonical
+    /// form (``priceString``) and a user-typed value both use the locale's
+    /// decimal separator, so a single parser round-trips both — fixing the bug
+    /// where a comma-decimal entry ("19,99") fell through `Double(_:)` to $0 and
+    /// silently skipped the "Price not set" warning (US-1236).
+    static func parsePrice(_ s: String, locale: Locale = .current) -> Double? {
+        CurrencyFormatter(locale: locale).parse(s)
     }
 }
 
@@ -207,8 +232,10 @@ final class DraftsBulkEditStore {
     /// in the grid's always-2dp convention so the inline field reads cleanly.
     private func applyPrice(_ change: DraftBulkMutation.PriceChange) {
         applyToTargets { row in
-            guard let p = DraftBulkMutation.newPrice(for: Double(row.price), change: change) else { return }
-            row.price = String(format: "%.2f", p)
+            // US-1236: read/write the row price locale-aware so a comma-decimal
+            // current value isn't misread and the written value round-trips.
+            guard let p = DraftBulkMutation.newPrice(for: DraftEditRow.parsePrice(row.price), change: change) else { return }
+            row.price = DraftEditRow.priceString2dp(p)
         }
     }
 

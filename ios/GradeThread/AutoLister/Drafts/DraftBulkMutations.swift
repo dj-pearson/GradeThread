@@ -55,7 +55,9 @@ enum DraftBulkMutation {
     static func apply(_ change: FieldChange, to row: inout DraftEditRow) {
         switch change {
         case .price(let pc):
-            if let p = newPrice(for: Double(row.price), change: pc) {
+            // US-1236: parse the current price locale-aware so a comma-decimal
+            // value ("19,99") is read correctly, not coerced to nil by `Double`.
+            if let p = newPrice(for: DraftEditRow.parsePrice(row.price), change: pc) {
                 row.price = DraftEditRow.priceString(p)
             }
         case .condition(let condition):

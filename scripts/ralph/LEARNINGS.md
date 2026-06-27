@@ -546,6 +546,14 @@ memory — not a progress log (the harness records progress separately).
   (NSDecimalRound rounds half-away, printf rounds half-even). Keep
   `ListingProfit.estimate` itself raw (it mirrors the web `estimateListingProfit`
   field-for-field); round only at the display boundary (`netCents`/`feesCents`).
+- A row price stored as a String that a user edits in a `.decimalPad` is in the
+  user's LOCALE separator ("19,99" in de_DE) — parse it with
+  `CurrencyFormatter().parse`, never `Double(_:)` (which is "."-only → nil → $0,
+  silently skipping the "Price not set" check). The seeded/echoed string MUST
+  also be locale-formatted (US-1236 `DraftEditRow.priceString`/`priceString2dp`
+  go through a locale `NumberFormatter`, not `String(format:"%.2f")`) or the
+  parse misreads a canonical "." seed as grouping (de_DE "19.99"→1999). Seed,
+  bulk-write, and parse must all use the SAME locale convention to round-trip.
 - Dynamic-Type-scale an SF Symbol glyph with `.scaledIconFont(size:weight:relativeTo:maxSize:)`
   (Accessibility/ScaledIconFont.swift) — NOT `.font(.system(size:))`, which pins
   the glyph to a fixed point size that ignores accessibility text settings. There

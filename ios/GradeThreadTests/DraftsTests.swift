@@ -73,6 +73,36 @@ final class DraftsTests: XCTestCase {
         XCTAssertEqual(DraftEditRow.priceString(nil), "")
     }
 
+    // US-1236: a comma-decimal locale's row price must round-trip through
+    // priceString → parsePrice (seeded canonical form AND a user-typed value),
+    // not fall through `Double(_:)` to $0 the way "19,99" did before.
+    func test_priceString_parsePrice_commaLocaleRoundTrip() {
+        let deDE = Locale(identifier: "de_DE")
+        // Seeded canonical form is now emitted in the locale separator…
+        let seeded = DraftEditRow.priceString(19.99, locale: deDE)
+        XCTAssertEqual(seeded, "19,99")
+        // …and parses back to the same value.
+        XCTAssertEqual(DraftEditRow.parsePrice(seeded, locale: deDE) ?? .nan, 19.99, accuracy: 0.001)
+        // A user typing the comma form directly parses correctly (not 1999, not 0).
+        XCTAssertEqual(DraftEditRow.parsePrice("19,99", locale: deDE) ?? .nan, 19.99, accuracy: 0.001)
+        // The 2dp inline-grid form is locale-aware too.
+        XCTAssertEqual(DraftEditRow.priceString2dp(11, locale: deDE), "11,00")
+        // Truly empty / unparseable → nil (the "no price entered" signal).
+        XCTAssertNil(DraftEditRow.parsePrice("", locale: deDE))
+        XCTAssertNil(DraftEditRow.parsePrice("   ", locale: deDE))
+    }
+
+    // US-1236: toEdit/issues parse via the locale-aware path — a valid price is
+    // persisted and not flagged; a truly blank price is 0 and IS flagged.
+    func test_toEdit_parsesPriceAndFlagsBlank() {
+        var row = DraftEditRow(from: draft("l1", price: 19.99))
+        XCTAssertEqual(row.toEdit().price, 19.99, accuracy: 0.001)
+        XCTAssertFalse(row.issues.contains("Price not set"))
+        row.price = ""
+        XCTAssertEqual(row.toEdit().price, 0, accuracy: 0.001)
+        XCTAssertTrue(row.issues.contains("Price not set"))
+    }
+
     func test_toEdit_blanksBecomeNil() {
         var row = DraftEditRow(from: draft("l1", title: "x", price: 5, category: "11"))
         row.title = "   "
