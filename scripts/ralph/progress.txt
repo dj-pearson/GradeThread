@@ -4126,3 +4126,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 11:54:23 AM
 ---
+## US-1378: FCM push: channels, registration, deep-link routing, action buttons
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 11:55:02 AM
+---

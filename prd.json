@@ -7382,7 +7382,7 @@
     {
       "id": "US-1378",
       "priority": -98622,
-      "passes": false,
+      "passes": true,
       "title": "FCM push: channels, registration, deep-link routing, action buttons",
       "description": "As a seller, I get real-time push for sales, payouts, grades, offers, messages, listing ends, support replies, and token-expiry — with inline actions.",
       "acceptanceCriteria": [
