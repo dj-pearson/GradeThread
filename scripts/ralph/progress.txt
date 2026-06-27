@@ -3958,3 +3958,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:54:24 AM
 ---
+## US-1259: iOS background-refresh + new-sale/grade detection reliability
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  3:02:59 AM
+---

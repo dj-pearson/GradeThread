@@ -5781,7 +5781,7 @@
     {
       "id": "US-1259",
       "priority": 1259,
-      "passes": false,
+      "passes": true,
       "title": "iOS background-refresh + new-sale/grade detection reliability",
       "description": "As a user, new-sale/new-grade alerts should fire for items synced in the foreground too, the Settings toggle should drive the live service, and the BG task shouldn't try to prompt for permission, so alerts are reliable and the BG budget isn't wasted.",
       "acceptanceCriteria": [
