@@ -65,6 +65,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
+import { RepairTriagePanel } from "@/components/grade/repair-triage-panel";
 import { GarmentPassportPanel } from "@/components/passport/garment-passport-panel";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
@@ -1145,6 +1146,11 @@ export function SubmissionDetailPage() {
                   </CardContent>
                 </Card>
               )}
+
+            {/* US-1286: AI repair triage — which reversible/repairable defects
+                are worth fixing, and what that recovers in grade + resale value.
+                Renders nothing when there's no actionable (non-permanent) flaw. */}
+            <RepairTriagePanel defects={gradeReport.defects_found} />
 
             {/* Model version */}
             <div className="text-xs text-muted-foreground">

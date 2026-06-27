@@ -505,6 +505,14 @@ export interface DefectFound {
   severity: "minor" | "moderate" | "major";
   location: string;
   impact_on_grade?: string;
+  // US-1027/1028/1286: the structured taxonomy the edge persists into the
+  // defects_found jsonb (defect-weighting.ts). Optional for back-compat —
+  // historical grades graded before the taxonomy never set them. Powers the
+  // AI repair-triage recovered-value recommendations (lib/repair-triage.ts).
+  defect_type?: string;
+  repairability?: "reversible" | "repairable" | "permanent";
+  size_bucket?: "pinhole" | "small" | "medium" | "large" | "extensive" | "unknown";
+  area_pct?: number | null;
 }
 
 // US-1287: sanitized per-image defect callout exposed by the public_grade_reports
