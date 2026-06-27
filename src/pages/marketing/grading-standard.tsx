@@ -10,6 +10,13 @@ import {
   GRADING_STANDARD_FAQS,
   gradingStandardJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
+import {
+  GRADE_FIELD_NAME,
+  GRADE_FIELD_PROPERTY_ID,
+  GRADE_ITEM_SPECIFIC,
+  GRADE_STANDARD_SCHEMA_URL,
+  GRADE_STANDARD_VERSION,
+} from "@/lib/grade-standard";
 
 const FACTORS = Object.values(GRADE_FACTORS);
 
@@ -146,6 +153,117 @@ export function GradingStandardPage() {
               </p>
             </li>
           </ol>
+        </div>
+      </section>
+
+      {/* Open spec — the machine-readable GradeThread Grade field (US-1284) */}
+      <section
+        id="grade-field-spec"
+        className="border-t bg-card px-6 py-16 scroll-mt-24"
+      >
+        <div className="mx-auto max-w-3xl">
+          <span className="inline-flex items-center rounded-full bg-brand-navy/10 px-3 py-1 text-xs font-semibold text-brand-navy dark:bg-foreground/10 dark:text-foreground">
+            Open spec · v{GRADE_STANDARD_VERSION}
+          </span>
+          <h2 className="mt-4 text-3xl font-bold">
+            The {GRADE_FIELD_NAME} field — an open standard
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            A grade is only useful if it travels. The{" "}
+            <span className="font-medium text-foreground">{GRADE_FIELD_NAME}</span>{" "}
+            is a published, versioned, machine-readable field anyone can embed in
+            a listing — so a pre-owned garment can carry "{GRADE_FIELD_NAME} 8.0"
+            the way a trading card carries a third-party grade. This is an{" "}
+            <span className="font-medium text-foreground">open specification</span>
+            : free to read and implement, with no proprietary lock-in. We publish
+            the standard; we don't claim anyone else has adopted it.
+          </p>
+
+          <h3 className="mt-10 text-xl font-semibold">The field</h3>
+          <p className="mt-2 text-muted-foreground">
+            The grade is expressed as a{" "}
+            <a
+              href="https://schema.org/PropertyValue"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              schema.org <code>PropertyValue</code>
+            </a>{" "}
+            (an <code>additionalProperty</code> on the item), with a stable{" "}
+            <code>propertyID</code> of{" "}
+            <code className="break-all">{GRADE_FIELD_PROPERTY_ID}</code>:
+          </p>
+          <pre className="mt-4 overflow-x-auto rounded-lg border bg-background p-4 text-xs leading-relaxed">
+            <code>{`{
+  "@type": "PropertyValue",
+  "propertyID": "${GRADE_FIELD_PROPERTY_ID}",
+  "name": "${GRADE_FIELD_NAME}",
+  "value": 8.0,            // 1.0–10.0, half-point increments
+  "minValue": 1,
+  "maxValue": 10,
+  "alternateName": "Excellent",   // the named tier
+  "url": "https://gradethread.com/cert/<id>"   // verifiable certificate
+}`}</code>
+          </pre>
+          <p className="mt-4 text-muted-foreground">
+            The full field shape is documented by a stable, citable JSON Schema:{" "}
+            <a
+              href={GRADE_STANDARD_SCHEMA_URL}
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              grade-standard.schema.json
+            </a>
+            . The spec and schema are published under a CC BY 4.0 license.
+          </p>
+
+          <h3 className="mt-10 text-xl font-semibold">
+            How it's embedded everywhere
+          </h3>
+          <p className="mt-2 text-muted-foreground">
+            Every listing GradeThread publishes carries the field in a consistent
+            way, adapted to each marketplace's rules:
+          </p>
+          <div className="mt-6 overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold">Surface</th>
+                  <th className="px-4 py-3 text-left font-semibold">
+                    How the grade is carried
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-t">
+                  <td className="px-4 py-3 font-medium">eBay</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    A "{GRADE_ITEM_SPECIFIC}" item specific plus the certificate
+                    number in the description (eBay disallows off-site links, so
+                    no URL).
+                  </td>
+                </tr>
+                <tr className="border-t">
+                  <td className="px-4 py-3 font-medium">Shopify · Depop</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    A grade line plus a machine-readable{" "}
+                    <code>[gradethread-grade]…[/gradethread-grade]</code> marker
+                    and the certificate verify link in the description.
+                  </td>
+                </tr>
+                <tr className="border-t">
+                  <td className="px-4 py-3 font-medium">Certificate page</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    The grade is emitted as schema.org structured data on the
+                    public <code>/cert/&lt;id&gt;</code> page for any crawler or
+                    AI engine to ingest.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

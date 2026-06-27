@@ -15,6 +15,7 @@ import { handleDepopOrderEvent } from "../depop-orders.ts";
 import { supabaseAdmin } from "../supabase.ts";
 import { mapSiblingListingFields } from "../cross-listing-fields.ts";
 import type { StoredPlatformVariant } from "../cross-listing-fields.ts";
+import { buildGtGradeField, embedGtGradeBlock } from "../gt-grade-standard.ts";
 import { getMarketplaceSpec, mapCondition } from "../marketplace-specs.ts";
 import {
   type AdapterEndInput,
@@ -60,6 +61,7 @@ interface DepopListingRow {
     item_category: string | null;
     grade_value: number | null;
     grade_label: string | null;
+    certificate_url: string | null;
   };
 }
 
@@ -75,7 +77,8 @@ async function loadOwnedDepopListing(
     .select(
       "id, inventory_item_id, platform, platform_listing_id, listing_title, " +
         "listing_description, listing_price, platform_fields, " +
-        "inventory_items!inner(user_id, title, brand, sku, item_category, grade_value, grade_label)",
+        "inventory_items!inner(user_id, title, brand, sku, item_category, " +
+        "grade_value, grade_label, certificate_url)",
     )
     .eq("id", listingRowId)
     .maybeSingle();
@@ -150,8 +153,27 @@ async function publishDepop(
 
   // Depop has no title field — the description is the listing text. Prefer the
   // mapped per-platform description, else fall back to the title as a seed.
-  const description = (row.listing_description ?? row.listing_title ?? item.title ?? "")
-    .slice(0, spec.descriptionMaxLength ?? 1000);
+  // US-1284: embed the canonical, machine-readable GradeThread Standard field
+  // (Depop allows off-site links, so the verify URL is included). The grade
+  // block is appended first, then the whole thing is clamped to Depop's cap;
+  // reserve room so the marker survives the slice.
+  const descCap = spec.descriptionMaxLength ?? 1000;
+  let description = row.listing_description ?? row.listing_title ?? item.title ?? "";
+  if (item.grade_value != null) {
+    const block = embedGtGradeBlock(
+      "",
+      buildGtGradeField({
+        grade: item.grade_value,
+        tier: item.grade_label,
+        certUrl: item.certificate_url,
+      }),
+      { includeCertUrl: true },
+    );
+    const base = description.slice(0, Math.max(0, descCap - block.length - 2)).trim();
+    description = base ? `${base}\n\n${block}` : block;
+  } else {
+    description = description.slice(0, descCap);
+  }
 
   // Condition: prefer the AI variant's chosen value, else derive from the grade.
   const condition = variant?.condition?.value ??

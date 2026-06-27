@@ -12,6 +12,7 @@ import {
 } from "../shopify-graphql.ts";
 import { getMarketplaceSpec } from "../marketplace-specs.ts";
 import { mapSiblingListingFields } from "../cross-listing-fields.ts";
+import { buildGtGradeField, embedGtGradeBlock } from "../gt-grade-standard.ts";
 import {
   type AdapterResult,
   type MarketplaceAdapter,
@@ -39,6 +40,9 @@ interface ShopifyListingRow {
     brand: string | null;
     sku: string | null;
     item_category: string | null;
+    grade_value: number | null;
+    grade_label: string | null;
+    certificate_url: string | null;
   };
 }
 
@@ -54,7 +58,8 @@ async function loadOwnedShopifyListing(
     .select(
       "id, inventory_item_id, platform, platform_listing_id, listing_title, " +
         "listing_description, listing_price, primary_photo_id, " +
-        "inventory_items!inner(user_id, title, brand, sku, item_category)",
+        "inventory_items!inner(user_id, title, brand, sku, item_category, " +
+        "grade_value, grade_label, certificate_url)",
     )
     .eq("id", listingRowId)
     .maybeSingle();
@@ -118,7 +123,22 @@ async function publishShopify(
     .slice(0, spec.titleMaxLength ?? 255);
   // body_html carries the grade-aware AI draft (condition/grade copy is already
   // folded into listing_description upstream by mapSiblingListingFields).
-  const bodyHtml = row.listing_description ?? "";
+  // US-1284: embed the canonical, machine-readable GradeThread Standard field so
+  // a Shopify listing cites "GradeThread 8.0" the documented way every adapter
+  // does. Shopify permits off-site links, so the verify URL is included.
+  const item = row.inventory_items;
+  let bodyHtml = row.listing_description ?? "";
+  if (item.grade_value != null) {
+    bodyHtml = embedGtGradeBlock(
+      bodyHtml,
+      buildGtGradeField({
+        grade: item.grade_value,
+        tier: item.grade_label,
+        certUrl: item.certificate_url,
+      }),
+      { includeCertUrl: true },
+    );
+  }
   const imageUrls = await resolveImageUrls(row.inventory_item_id, spec);
 
   // US-710: publish via the GraphQL Admin API (productSet → inventory →

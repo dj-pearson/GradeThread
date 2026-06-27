@@ -89,6 +89,11 @@ import {
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
 import { ensureCertificateNumber } from "../lib/cert-number.ts";
 import {
+  formatGtGrade,
+  GT_GRADE_FIELD_NAME,
+  GT_GRADE_ITEM_SPECIFIC,
+} from "../lib/gt-grade-standard.ts";
+import {
   captureListingAcceptance,
   markListingPromptSold,
 } from "../lib/listing-acceptance.ts";
@@ -6348,8 +6353,12 @@ function deriveAspectsFromItem(
 // client template already wrote (which references the cert by NUMBER, not URL).
 // Applied to EVERY graded item. Mutates `aspects` in place; returns the
 // link-stripped description.
-const GRADE_ITEM_SPECIFIC = "Condition Grade";
-
+//
+// US-1284: the field name + item-specific key come from the shared GradeThread
+// Standard (lib/gt-grade-standard.ts) so eBay embeds the grade the same canonical
+// way every other adapter does. eBay is the one platform that must NOT carry the
+// off-site machine-readable marker (it bans off-eBay links), so the grade rides
+// the structured "Condition Grade" aspect + the cert NUMBER instead.
 async function applyGradeListingPromotion(
   item: PublishItem,
   aspects: Record<string, string[]>,
@@ -6358,12 +6367,12 @@ async function applyGradeListingPromotion(
   let out = stripCertLinks(description);
   if (item.grade_value == null) return out;
 
-  const grade = item.grade_value.toFixed(1);
+  const grade = formatGtGrade(item.grade_value);
 
   // Item specific, e.g. "Condition Grade = GradeThread 9.5". Structured + shows
   // in the eBay spec table. Never overwrite a value the seller already set.
-  if (!aspects[GRADE_ITEM_SPECIFIC]?.length) {
-    aspects[GRADE_ITEM_SPECIFIC] = [`GradeThread ${grade}`];
+  if (!aspects[GT_GRADE_ITEM_SPECIFIC]?.length) {
+    aspects[GT_GRADE_ITEM_SPECIFIC] = [`${GT_GRADE_FIELD_NAME.replace(" Grade", "")} ${grade}`];
   }
 
   // PSA-style certificate NUMBER as plain text — never a URL (eBay bans off-eBay

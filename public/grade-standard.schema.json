@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gradethread.com/grade-standard.schema.json",
+  "title": "GradeThread Grade Field",
+  "description": "The GradeThread Standard v1.0 — an open, versioned specification for the machine-readable GradeThread condition grade field. Attach this to a listing, Product, or Offer so the grade is comparable and citable the way card listings cite a PSA grade. This describes the open standard only; it makes no claim that any third party has adopted it. Spec: https://gradethread.com/grading-standard. Licensed CC BY 4.0.",
+  "type": "object",
+  "required": ["standard", "version", "grade", "scaleMin", "scaleMax"],
+  "additionalProperties": false,
+  "properties": {
+    "standard": {
+      "const": "gradethread",
+      "description": "Fixed discriminator identifying the GradeThread Standard."
+    },
+    "version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Spec version. Bumped only on a breaking change to this shape."
+    },
+    "grade": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "The overall condition grade on the GradeThread 1.0–10.0 scale, in half-point increments."
+    },
+    "scaleMin": {
+      "const": 1,
+      "description": "Lowest possible grade on the scale."
+    },
+    "scaleMax": {
+      "const": 10,
+      "description": "Highest possible grade on the scale."
+    },
+    "tier": {
+      "type": ["string", "null"],
+      "description": "Named tier the grade maps to (NWT, NWOT, Excellent, Very Good, Good, Fair, Poor).",
+      "enum": ["NWT", "NWOT", "Excellent", "Very Good", "Good", "Fair", "Poor", null]
+    },
+    "cert": {
+      "type": ["string", "null"],
+      "description": "PSA-style certificate number, e.g. \"GT-ABC123\"."
+    },
+    "certUrl": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "Public certificate URL a buyer can open to verify the grade."
+    },
+    "spec": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical URL of the published specification."
+    }
+  },
+  "examples": [
+    {
+      "standard": "gradethread",
+      "version": "1.0",
+      "grade": 8,
+      "scaleMin": 1,
+      "scaleMax": 10,
+      "tier": "Excellent",
+      "cert": "GT-ABC123",
+      "certUrl": "https://gradethread.com/cert/EXAMPLE",
+      "spec": "https://gradethread.com/grading-standard"
+    }
+  ]
+}

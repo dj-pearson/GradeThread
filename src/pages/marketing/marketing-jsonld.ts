@@ -23,6 +23,7 @@ import {
   GLOSSARY_ENTRIES,
   type GlossaryEntry,
 } from "@/lib/seo/glossary";
+import { gradeStandardSpecJsonLd } from "@/lib/grade-standard";
 
 // ── /how-it-works ──────────────────────────────────────────────────
 export const HOW_IT_WORKS_STEPS = [
@@ -160,10 +161,18 @@ export const GRADING_STANDARD_FAQS = [
     q: "Is a GradeThread grade verifiable by buyers?",
     a: "Yes. Every grade produces a public certificate with a unique URL and QR code showing the overall score, tier, factor-by-factor breakdown, and garment photos — so a buyer can independently confirm the condition against the standard, no account required.",
   },
+  {
+    q: "Can other platforms or partners use the GradeThread Grade field?",
+    a: "Yes. The GradeThread Grade is published as an open, versioned specification: a machine-readable field expressed as a schema.org PropertyValue (additionalProperty), documented on this page and as a stable JSON Schema at /grade-standard.schema.json under a CC BY 4.0 license. Anyone can read and implement it to carry a grade in a listing or ingest it from one. It describes the open standard only — we make no claim that any third party has adopted it.",
+  },
 ];
 
 export function gradingStandardJsonLd(): JsonLd[] {
-  return [faqPageLd(GRADING_STANDARD_FAQS)];
+  // US-1284: publish the open grade-field spec (a TechArticle linking the JSON
+  // Schema + a worked PropertyValue example) alongside the FAQ, so the
+  // "GradeThread Grade" field is discoverable + citable from this page's
+  // structured data.
+  return [gradeStandardSpecJsonLd(), faqPageLd(GRADING_STANDARD_FAQS)];
 }
 
 // ── /transparency (US-326) ──────────────────────────────────────────
