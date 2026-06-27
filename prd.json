@@ -5965,7 +5965,7 @@
       "id": "US-1273",
       "priority": 1273,
       "title": "iOS ShareInbox: decode shared photos off the main actor and don't drop error alerts",
-      "passes": false,
+      "passes": true,
       "description": "As a user sharing photos into the app, a multi-photo share shouldn't freeze the UI during decode, and an empty/undecodable batch's error shouldn't be swallowed by a following batch, so the share flow is smooth and communicative.",
       "acceptanceCriteria": [
         "ShareInboxConsumer decodes/thumbnails shared images in Task.detached and hops back to publish, instead of Data(contentsOf:)+UIImage+preparingThumbnail on the @MainActor",

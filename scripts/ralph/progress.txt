@@ -3918,3 +3918,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  1:47:50 AM
 ---
+## US-1273: iOS ShareInbox: decode shared photos off the main actor and don't drop error alerts
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  1:53:38 AM
+---
