@@ -7434,7 +7434,7 @@
     {
       "id": "US-1382",
       "priority": -98618,
-      "passes": false,
+      "passes": true,
       "title": "Android share target → intake handoff",
       "description": "As a seller, I can share 1–8 photos from any app into a new GradeThread intake.",
       "acceptanceCriteria": [
