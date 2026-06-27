@@ -3942,3 +3942,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:30:41 AM
 ---
+## US-1263: iOS dashboard performance: scope queries and memoize derived item subsets
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:34:19 AM
+---

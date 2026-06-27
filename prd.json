@@ -5833,7 +5833,7 @@
     {
       "id": "US-1263",
       "priority": 1263,
-      "passes": false,
+      "passes": true,
       "title": "iOS dashboard performance: scope queries and memoize derived item subsets",
       "description": "As a power user with thousands of items, the dashboard shouldn't fetch every item unfiltered and re-filter on each render, so it stays smooth at scale.",
       "acceptanceCriteria": [
