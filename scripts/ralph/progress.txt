@@ -3894,3 +3894,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026 10:32:21 PM
 ---
+## US-1286: AI repair triage — recovered-value recommendations from the defect taxonomy
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026 11:01:24 PM
+---

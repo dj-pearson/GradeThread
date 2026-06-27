@@ -6170,7 +6170,7 @@
         "Shown only for defects classified reversible/repairable; permanent defects make no repair promise",
         "Tests: a reversible stain yields a positive projected lift; a permanent tear yields none"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Repair] Moves GradeThread up the value chain from measuring to improving condition. Added 2026-06-26."
     },
     {
