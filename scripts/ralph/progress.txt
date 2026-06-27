@@ -3926,3 +3926,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  1:58:23 AM
 ---
+## US-1268: iOS templates display polish: real condition labels, no-default semantics, list pagination
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:02:45 AM
+---

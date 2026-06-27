@@ -5898,7 +5898,7 @@
     {
       "id": "US-1268",
       "priority": 1268,
-      "passes": false,
+      "passes": true,
       "title": "iOS templates display polish: real condition labels, no-default semantics, list pagination",
       "description": "As a seller, template rows should show the real stored condition (not a fallback), 'No default' should behave consistently, and large template/drop lists should scale, so the UI isn't misleading or sluggish.",
       "acceptanceCriteria": [
