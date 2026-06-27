@@ -433,6 +433,17 @@ private struct ComposerForm: View {
     @State private var conditionDescription: String
     @State private var description: String
 
+    // US-1264: template-applied fields that aren't free-text composer inputs.
+    // They're set by `apply(_:)` and ride along in `ComposerEdits` so the push's
+    // saveDraft persists them onto the listing draft (matching AutoLister, which
+    // applies the same template fields server-side). Empty/nil = no template
+    // applied, so the draft's existing values are left untouched.
+    @State private var templateItemSpecifics: [String: String] = [:]
+    @State private var templateCategoryId: String?
+    @State private var templateReturnPolicyId: String?
+    @State private var templateShippingPolicyId: String?
+    @State private var templatePaymentPolicyId: String?
+
     /// US-969: keyboard Next/Return traversal across the editable text fields
     /// (the condition Picker and read-only price are skipped).
     @FocusState private var focusedField: Field?
@@ -616,7 +627,12 @@ private struct ComposerForm: View {
                         title: trimmedTitle,
                         condition: condition,
                         conditionDescription: conditionDescription,
-                        description: description
+                        description: description,
+                        itemSpecifics: templateItemSpecifics,
+                        ebayCategoryId: templateCategoryId,
+                        returnPolicyId: templateReturnPolicyId,
+                        shippingPolicyId: templateShippingPolicyId,
+                        paymentPolicyId: templatePaymentPolicyId
                     ))
                 } label: {
                     Text(pushLabel)
@@ -704,24 +720,35 @@ private struct ComposerForm: View {
         }
     }
 
-    /// Pre-fill the composer from a template: boilerplate is appended to the
-    /// description; condition + note overwrite only when the template sets them.
+    /// Pre-fill the composer from a template. Boilerplate is appended to the
+    /// description; condition + note overwrite only when the template sets them
+    /// (US-1268). US-1264: also applies the template's item specifics, eBay
+    /// category, and the three business policies — so applying a template in the
+    /// composer sets the FULL field set AutoLister applies server-side, not just
+    /// description/condition. The non-text fields aren't shown in the composer
+    /// UI; they're persisted onto the listing draft at push (see ComposerEdits).
+    /// The actual transform is the pure ``ComposerTemplateApply`` so it's tested
+    /// without the view.
     private func apply(_ template: ListingTemplate) {
-        if let boiler = template.descriptionTemplate, !boiler.isEmpty {
-            let base = description.trimmingCharacters(in: .whitespacesAndNewlines)
-            description = base.isEmpty ? boiler : "\(base)\n\n\(boiler)"
-        }
-        // US-1268: overwrite only when the template sets a RECOGNIZED condition.
-        // An empty value ("No default") OR a non-empty-but-unrecognized stored
-        // string is a deliberate no-op — consistent with the editor, which
-        // renders both as "No default" — rather than coercing to "Excellent"
-        // via EbayCondition.resolve.
-        if let cond = template.ebayCondition, let parsed = EbayCondition(rawValue: cond) {
-            condition = parsed
-        }
-        if let note = template.conditionDescription, !note.isEmpty {
-            conditionDescription = note
-        }
+        let applied = ComposerTemplateApply.apply(
+            template: template,
+            description: description,
+            condition: condition,
+            conditionDescription: conditionDescription,
+            itemSpecifics: templateItemSpecifics,
+            ebayCategoryId: templateCategoryId,
+            returnPolicyId: templateReturnPolicyId,
+            shippingPolicyId: templateShippingPolicyId,
+            paymentPolicyId: templatePaymentPolicyId
+        )
+        description = applied.description
+        condition = applied.condition
+        conditionDescription = applied.conditionDescription
+        templateItemSpecifics = applied.itemSpecifics
+        templateCategoryId = applied.ebayCategoryId
+        templateReturnPolicyId = applied.returnPolicyId
+        templateShippingPolicyId = applied.shippingPolicyId
+        templatePaymentPolicyId = applied.paymentPolicyId
         HapticFeedback.success()
     }
 

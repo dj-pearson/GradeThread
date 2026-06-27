@@ -220,4 +220,107 @@ final class TemplatesTests: XCTestCase {
         XCTAssertEqual(store.templates.map(\.id), ["a"])
         XCTAssertNotNil(store.actionError)
     }
+
+    // MARK: - Composer apply (US-1264): applying a template in the publish
+    // composer must set the FULL field set (item specifics, category, business
+    // policies) into composer state, not just description/condition — matching
+    // AutoLister, which overlays the same fields server-side.
+
+    /// Start from an empty composer (no prior edits).
+    private func emptyApply(_ template: ListingTemplate) -> ComposerTemplateApply {
+        ComposerTemplateApply.apply(
+            template: template,
+            description: "",
+            condition: .usedExcellent,
+            conditionDescription: "",
+            itemSpecifics: [:],
+            ebayCategoryId: nil,
+            returnPolicyId: nil,
+            shippingPolicyId: nil,
+            paymentPolicyId: nil
+        )
+    }
+
+    func test_composerApply_setsCategoryPoliciesAndSpecifics() {
+        let template = ListingTemplate(
+            id: "t", name: "Full kit",
+            descriptionTemplate: "Ships in 1 business day.",
+            ebayCondition: "USED_GOOD",
+            conditionDescription: "light wear at cuffs",
+            itemSpecifics: ["Brand": "Levi's", "Department": "Men"],
+            ebayCategoryId: "57988",
+            returnPolicyId: "rp-1",
+            shippingPolicyId: "sp-1",
+            paymentPolicyId: "pp-1"
+        )
+        let applied = emptyApply(template)
+
+        // Description + condition + note (existing behavior).
+        XCTAssertEqual(applied.description, "Ships in 1 business day.")
+        XCTAssertEqual(applied.condition, .usedGood)
+        XCTAssertEqual(applied.conditionDescription, "light wear at cuffs")
+        // US-1264: the previously-dropped fields are now applied.
+        XCTAssertEqual(applied.itemSpecifics, ["Brand": "Levi's", "Department": "Men"])
+        XCTAssertEqual(applied.ebayCategoryId, "57988")
+        XCTAssertEqual(applied.returnPolicyId, "rp-1")
+        XCTAssertEqual(applied.shippingPolicyId, "sp-1")
+        XCTAssertEqual(applied.paymentPolicyId, "pp-1")
+    }
+
+    /// The applied state flows into ComposerEdits, which saveDraft persists onto
+    /// the listing draft where the server-side publish context reads them.
+    func test_composerApply_flowsIntoComposerEdits() {
+        let template = ListingTemplate(
+            id: "t", name: "Kit",
+            itemSpecifics: ["Brand": "Nike"],
+            ebayCategoryId: "11450",
+            returnPolicyId: "rp", shippingPolicyId: "sp", paymentPolicyId: "pp"
+        )
+        let applied = emptyApply(template)
+        let edits = ComposerEdits(
+            title: "Nike tee",
+            condition: applied.condition,
+            conditionDescription: applied.conditionDescription,
+            description: applied.description,
+            itemSpecifics: applied.itemSpecifics,
+            ebayCategoryId: applied.ebayCategoryId,
+            returnPolicyId: applied.returnPolicyId,
+            shippingPolicyId: applied.shippingPolicyId,
+            paymentPolicyId: applied.paymentPolicyId
+        )
+        XCTAssertEqual(edits.itemSpecifics, ["Brand": "Nike"])
+        XCTAssertEqual(edits.ebayCategoryId, "11450")
+        XCTAssertEqual(edits.shippingPolicyId, "sp")
+        XCTAssertEqual(edits.paymentPolicyId, "pp")
+        XCTAssertEqual(edits.returnPolicyId, "rp")
+    }
+
+    /// A sparse template only sets what it provides — unset category/policies/
+    /// specifics leave the composer's existing values untouched (no clobber).
+    func test_composerApply_sparseTemplateLeavesExistingValuesIntact() {
+        let sparse = ListingTemplate(
+            id: "t", name: "Note only",
+            conditionDescription: "minor pilling"
+        )
+        let applied = ComposerTemplateApply.apply(
+            template: sparse,
+            description: "Original copy.",
+            condition: .likeNew,
+            conditionDescription: "",
+            itemSpecifics: ["Brand": "Existing"],
+            ebayCategoryId: "existing-cat",
+            returnPolicyId: "existing-rp",
+            shippingPolicyId: "existing-sp",
+            paymentPolicyId: "existing-pp"
+        )
+        // Note overwrote (provided); everything else stayed put.
+        XCTAssertEqual(applied.conditionDescription, "minor pilling")
+        XCTAssertEqual(applied.description, "Original copy.")
+        XCTAssertEqual(applied.condition, .likeNew)
+        XCTAssertEqual(applied.itemSpecifics, ["Brand": "Existing"])
+        XCTAssertEqual(applied.ebayCategoryId, "existing-cat")
+        XCTAssertEqual(applied.returnPolicyId, "existing-rp")
+        XCTAssertEqual(applied.shippingPolicyId, "existing-sp")
+        XCTAssertEqual(applied.paymentPolicyId, "existing-pp")
+    }
 }

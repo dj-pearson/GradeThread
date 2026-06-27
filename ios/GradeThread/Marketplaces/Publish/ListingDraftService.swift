@@ -81,12 +81,26 @@ struct ListingDraftService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let conditionDescriptionOrNil = conditionDescription.isEmpty ? nil : conditionDescription
 
+        // US-1264: template-applied fields are persisted onto the SAME draft so
+        // the server-side publish context picks them up (it reads
+        // platform_category_id / item_specifics_override / *_policy_id straight
+        // off the listing row — see assemblePublishContext). They're nil/empty
+        // when no template was applied, and supabase-swift omits a nil optional
+        // from an `.update`, so an unset field never clobbers an existing draft
+        // value — matching AutoLister's overlay, which only writes provided keys.
+        let itemSpecificsOrNil = edits.itemSpecifics.isEmpty ? nil : edits.itemSpecifics
+
         if let row = existing.first {
             struct Update: Encodable {
                 let listing_title: String
                 let listing_description: String
                 let ebay_condition: String
                 let ebay_condition_description: String?
+                let item_specifics_override: [String: String]?
+                let platform_category_id: String?
+                let return_policy_id: String?
+                let shipping_policy_id: String?
+                let payment_policy_id: String?
             }
             try await supabase
                 .from("listings")
@@ -94,7 +108,12 @@ struct ListingDraftService {
                     listing_title: edits.title,
                     listing_description: edits.description,
                     ebay_condition: edits.condition.rawValue,
-                    ebay_condition_description: conditionDescriptionOrNil
+                    ebay_condition_description: conditionDescriptionOrNil,
+                    item_specifics_override: itemSpecificsOrNil,
+                    platform_category_id: edits.ebayCategoryId,
+                    return_policy_id: edits.returnPolicyId,
+                    shipping_policy_id: edits.shippingPolicyId,
+                    payment_policy_id: edits.paymentPolicyId
                 ))
                 .eq("id", value: row.id)
                 .execute()
@@ -108,6 +127,11 @@ struct ListingDraftService {
                 let listing_description: String
                 let ebay_condition: String
                 let ebay_condition_description: String?
+                let item_specifics_override: [String: String]?
+                let platform_category_id: String?
+                let return_policy_id: String?
+                let shipping_policy_id: String?
+                let payment_policy_id: String?
             }
             try await supabase
                 .from("listings")
@@ -119,7 +143,12 @@ struct ListingDraftService {
                     listing_title: edits.title,
                     listing_description: edits.description,
                     ebay_condition: edits.condition.rawValue,
-                    ebay_condition_description: conditionDescriptionOrNil
+                    ebay_condition_description: conditionDescriptionOrNil,
+                    item_specifics_override: itemSpecificsOrNil,
+                    platform_category_id: edits.ebayCategoryId,
+                    return_policy_id: edits.returnPolicyId,
+                    shipping_policy_id: edits.shippingPolicyId,
+                    payment_policy_id: edits.paymentPolicyId
                 ))
                 .execute()
         }
@@ -154,9 +183,96 @@ struct ListingDraftService {
 }
 
 /// The editable fields the composer collects before publishing.
+///
+/// US-1264: in addition to the free-text fields the seller types (title /
+/// condition / note / description), the composer carries the non-text fields a
+/// listing template applies — item specifics, eBay category, and the three
+/// business policies. These aren't editable in the composer UI; they ride along
+/// so ``ListingDraftService/saveDraft(inventoryItemId:priceValue:edits:)``
+/// persists them onto the `listings` draft, where the server-side publish
+/// context (`assemblePublishContext`) reads them — matching AutoLister, which
+/// overlays the same template fields onto the draft server-side.
 struct ComposerEdits: Equatable {
     let title: String
     let condition: EbayCondition
     let conditionDescription: String
     let description: String
+    /// Template-applied item specifics (e.g. ["Brand": "Levi's"]). Empty = none.
+    var itemSpecifics: [String: String] = [:]
+    /// Template-applied eBay leaf category id; nil = leave the draft's as-is.
+    var ebayCategoryId: String? = nil
+    var returnPolicyId: String? = nil
+    var shippingPolicyId: String? = nil
+    var paymentPolicyId: String? = nil
+}
+
+/// US-1264: pure, testable transform that computes the composer's field values
+/// after applying a listing template. Mirrors AutoLister's server-side overlay
+/// (`buildTemplateListingPatch`): description boilerplate is APPENDED (never
+/// clobbered); condition, note, item specifics, category, and business policies
+/// overwrite ONLY when the template actually provides them, so a sparse template
+/// leaves the seller's existing values intact. Extracted from the SwiftUI view
+/// so the apply behavior is unit-tested without instantiating it.
+struct ComposerTemplateApply: Equatable {
+    var description: String
+    var condition: EbayCondition
+    var conditionDescription: String
+    var itemSpecifics: [String: String]
+    var ebayCategoryId: String?
+    var returnPolicyId: String?
+    var shippingPolicyId: String?
+    var paymentPolicyId: String?
+
+    static func apply(
+        template: ListingTemplate,
+        description: String,
+        condition: EbayCondition,
+        conditionDescription: String,
+        itemSpecifics: [String: String],
+        ebayCategoryId: String?,
+        returnPolicyId: String?,
+        shippingPolicyId: String?,
+        paymentPolicyId: String?
+    ) -> ComposerTemplateApply {
+        var result = ComposerTemplateApply(
+            description: description,
+            condition: condition,
+            conditionDescription: conditionDescription,
+            itemSpecifics: itemSpecifics,
+            ebayCategoryId: ebayCategoryId,
+            returnPolicyId: returnPolicyId,
+            shippingPolicyId: shippingPolicyId,
+            paymentPolicyId: paymentPolicyId
+        )
+        // Description: append the boilerplate below any existing text (US-972).
+        if let boiler = template.descriptionTemplate, !boiler.isEmpty {
+            let base = description.trimmingCharacters(in: .whitespacesAndNewlines)
+            result.description = base.isEmpty ? boiler : "\(base)\n\n\(boiler)"
+        }
+        // Condition: overwrite only when the template sets a RECOGNIZED value
+        // (US-1268 — an unrecognized/"No default" stored string is a no-op, not
+        // a coerce-to-Excellent).
+        if let cond = template.ebayCondition, let parsed = EbayCondition(rawValue: cond) {
+            result.condition = parsed
+        }
+        if let note = template.conditionDescription, !note.isEmpty {
+            result.conditionDescription = note
+        }
+        if !template.itemSpecifics.isEmpty {
+            result.itemSpecifics = template.itemSpecifics
+        }
+        if let cat = template.ebayCategoryId, !cat.isEmpty {
+            result.ebayCategoryId = cat
+        }
+        if let rp = template.returnPolicyId, !rp.isEmpty {
+            result.returnPolicyId = rp
+        }
+        if let sp = template.shippingPolicyId, !sp.isEmpty {
+            result.shippingPolicyId = sp
+        }
+        if let pp = template.paymentPolicyId, !pp.isEmpty {
+            result.paymentPolicyId = pp
+        }
+        return result
+    }
 }
