@@ -3906,3 +3906,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 12:31:50 AM
 ---
+## US-1283: Live Capture — fraud-proof grading mode (in-app camera only, device-attested)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  1:02:10 AM
+---

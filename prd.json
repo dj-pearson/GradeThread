@@ -6128,7 +6128,7 @@
         "Clear UX explaining the value ('un-fakeable condition proof')",
         "Tests cover provenance pass/fail gating the badge"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Fraud] The flagship launch story; pairs naturally with the coverage % and the guarantee. Builds on verified-capture (US-339 area). Added 2026-06-26."
     },
     {
