@@ -56,12 +56,16 @@ enum SizeTagInference {
     // MARK: - Brand
 
     static func detectBrand(in lines: [String]) -> String? {
-        // Known-brand whitelist ONLY — substring match against the joined
-        // lowercase form so multi-word brands ('the north face') don't get
-        // split. Pick the LONGEST match: `knownBrands` is a Set with overlapping
-        // entries ('north face' ⊂ 'the north face', 'levis' ⊂ "levi's"), and
-        // iterating it in hash order would return a non-deterministic,
-        // often-truncated brand.
+        // Known-brand whitelist ONLY — matched on tokenized WORD BOUNDARIES
+        // against the joined lowercase form, NOT a naked substring `contains`.
+        // A substring match misfires on common fabric/care words ("fleece"
+        // contains "lee", "supremely" contains "supreme"); a `\b…\b` match
+        // requires the brand to stand as its own token(s), so "fleece" no
+        // longer infers the brand "Lee". Multi-word brands ('the north face')
+        // match across whitespace runs. Pick the LONGEST match: `knownBrands`
+        // is a Set with overlapping entries ('north face' ⊂ 'the north face',
+        // 'levis' ⊂ "levi's"), and iterating it in hash order would return a
+        // non-deterministic, often-truncated brand.
         //
         // We intentionally do NOT fall back to a "first prominent uppercase
         // line" heuristic: on a real care/brand tag that line is just as often a
@@ -73,13 +77,30 @@ enum SizeTagInference {
         // still lets the user fill it.
         let joinedLower = lines.joined(separator: " ").lowercased()
         guard let brand = knownBrands
-            .filter({ joinedLower.contains($0) })
+            .filter({ brandMatches($0, in: joinedLower) })
             .max(by: { $0.count < $1.count })
         else { return nil }
         return brand
             .split(separator: " ")
             .map { $0.prefix(1).uppercased() + $0.dropFirst() }
             .joined(separator: " ")
+    }
+
+    /// True when `brand` appears in `haystack` (already lowercased) on
+    /// tokenized word boundaries — so "lee" matches "lee" / "lee jeans" but
+    /// NOT the "lee" inside "fleece". Whitespace inside a multi-word brand
+    /// matches any whitespace run; punctuation in a brand ("levi's", "j.crew")
+    /// is matched literally.
+    static func brandMatches(_ brand: String, in haystack: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: brand)
+            .replacingOccurrences(of: " ", with: #"\s+"#)
+        let pattern = #"\b"# + escaped + #"\b"#
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive]
+        ) else { return false }
+        let range = NSRange(haystack.startIndex..<haystack.endIndex, in: haystack)
+        return regex.firstMatch(in: haystack, range: range) != nil
     }
 
     // MARK: - Size
@@ -135,7 +156,9 @@ enum SizeTagInference {
         else { return nil }
         let raw = String(line[valueRange]).uppercased()
         if alphaSizes.contains(raw) { return raw }
-        if let n = Int(raw), n >= 0, n <= 60 { return raw }
+        // Require n >= 1: a bare "0" here is far more often a care-symbol code
+        // or OCR noise than a real explicit size annotation.
+        if let n = Int(raw), n >= 1, n <= 60 { return raw }
         return nil
     }
 
@@ -145,11 +168,14 @@ enum SizeTagInference {
         return alphaSizes.contains(upper) ? upper : nil
     }
 
-    /// Bare numeric size 0–60 on its own line — defensive on the upper
-    /// bound to avoid matching dates or batch numbers.
+    /// Bare numeric size on its own line, constrained to a plausible clothing
+    /// size range (1–54). A bare line is the LEAST confident size signal, so
+    /// the bounds are deliberately tight: the lower bound rejects a stray "0"
+    /// (a care code, not a size), and the upper bound rejects years/batch/lot
+    /// numbers ("2024") and other large care codes.
     static func matchNumericSize(_ line: String) -> String? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard let n = Int(trimmed), n >= 0, n <= 60 else { return nil }
+        guard let n = Int(trimmed), n >= 1, n <= 54 else { return nil }
         return String(n)
     }
 }

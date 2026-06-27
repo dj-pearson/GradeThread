@@ -47,6 +47,25 @@ final class SizeTagInferenceTests: XCTestCase {
         XCTAssertNil(result.brand)
     }
 
+    func test_brand_substringInsideWordIsNotMatched() {
+        // Word-boundary match: "lee" is a real brand, but it must not be
+        // inferred from the "lee" buried inside "fleece". Naked substring
+        // `contains` was the bug this story fixes.
+        XCTAssertNil(SizeTagInference.infer(lines: ["100% Fleece", "Made in China", "L"]).brand)
+        XCTAssertNil(SizeTagInference.infer(lines: ["Polar Fleece Jacket", "XL"]).brand)
+        // "supreme" buried inside "supremely" must not infer the brand.
+        XCTAssertNil(SizeTagInference.infer(lines: ["Supremely Soft", "M"]).brand)
+        // "gap" inside "gaps" must not infer the brand.
+        XCTAssertNil(SizeTagInference.infer(lines: ["Mind the gaps", "Cotton"]).brand)
+    }
+
+    func test_brand_standaloneTokenStillMatchesAfterBoundaryFix() {
+        // The boundary fix must NOT regress real standalone hits.
+        XCTAssertEqual(SizeTagInference.infer(lines: ["Lee", "W32 L30"]).brand, "Lee")
+        XCTAssertEqual(SizeTagInference.infer(lines: ["LEE RIDERS", "501"]).brand, "Lee")
+        XCTAssertEqual(SizeTagInference.infer(lines: ["Supreme", "Box Logo", "L"]).brand, "Supreme")
+    }
+
     // MARK: - Size detection
 
     func test_size_alphaTokenAlone() {
@@ -88,6 +107,29 @@ final class SizeTagInferenceTests: XCTestCase {
         // 2024 is a year, not a size — guard against capturing dates.
         let result = SizeTagInference.infer(lines: ["Brand", "2024"])
         XCTAssertNil(result.size)
+    }
+
+    func test_size_rejectsBareZero() {
+        // A stray "0" line (care-symbol code / OCR noise) must not be read as
+        // a size. n >= 1 lower bound.
+        XCTAssertNil(SizeTagInference.infer(lines: ["Carhartt", "0", "100% Cotton"]).size)
+    }
+
+    func test_size_rejectsExplicitSizeZero() {
+        // "Size 0" via the explicit prefix is also rejected (n >= 1).
+        XCTAssertNil(SizeTagInference.infer(lines: ["Carhartt", "Size 0"]).size)
+    }
+
+    func test_size_rejectsImplausiblyLargeBareNumber() {
+        // 55 is outside the plausible bare-numeric size range (1–54) — likely
+        // a lot/care code, not a size.
+        XCTAssertNil(SizeTagInference.infer(lines: ["Brand", "55"]).size)
+    }
+
+    func test_size_acceptsPlausibleBareNumberAtBounds() {
+        // The boundary fix must not regress legitimate bare numeric sizes.
+        XCTAssertEqual(SizeTagInference.infer(lines: ["Brand", "1"]).size, "1")
+        XCTAssertEqual(SizeTagInference.infer(lines: ["Brand", "54"]).size, "54")
     }
 
     func test_size_prefersWaistLengthOverAlpha() {
