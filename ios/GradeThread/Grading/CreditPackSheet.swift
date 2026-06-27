@@ -58,6 +58,15 @@ struct CreditPackSheet: View {
             } message: {
                 Text("Your purchase needs approval before it completes. Once it's approved, your credits are added automatically — no need to buy again.")
             }
+            // US-1251: report the restore outcome instead of silently no-op'ing.
+            .alert("Restore purchases", isPresented: Binding(
+                get: { store.restoreResult != nil },
+                set: { if !$0 { store.restoreResult = nil } }
+            )) {
+                Button("OK", role: .cancel) { store.restoreResult = nil }
+            } message: {
+                Text(store.restoreResultMessage ?? "")
+            }
             .task {
                 if store.phase == .loading {
                     Telemetry.event("grade.credit_pack_opened")
@@ -140,8 +149,15 @@ struct CreditPackSheet: View {
             Button {
                 Task { await store.restore(); HapticFeedback.light() }
             } label: {
-                Label("Restore purchases", systemImage: "arrow.clockwise")
+                HStack {
+                    Label("Restore purchases", systemImage: "arrow.clockwise")
+                    if store.restoring {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
             }
+            .disabled(store.restoring)
         } footer: {
             Text("Bought credits on this Apple ID already? Restore to re-link them.")
         }

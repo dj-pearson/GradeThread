@@ -103,6 +103,16 @@ struct PaywallView: View {
         } message: {
             Text("You have an active subscription billed on the web. Cancel it there before switching to App Store billing.")
         }
+        // US-1251: report what Restore Purchases actually did (restored / nothing
+        // to restore / failed) instead of silently doing nothing.
+        .alert("Restore purchases", isPresented: Binding(
+            get: { store.restoreResult != nil },
+            set: { if !$0 { store.restoreResult = nil } }
+        )) {
+            Button("OK", role: .cancel) { store.restoreResult = nil }
+        } message: {
+            Text(store.restoreResultMessage ?? "")
+        }
         .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
         .onChange(of: showManageSubscriptions) { _, presented in
             // Returning from the system sheet: the user may have toggled
@@ -393,8 +403,15 @@ struct PaywallView: View {
             Button {
                 Task { await store.restore(); HapticFeedback.light() }
             } label: {
-                Label("Restore purchases", systemImage: "arrow.clockwise")
+                HStack {
+                    Label("Restore purchases", systemImage: "arrow.clockwise")
+                    if store.restoring {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
             }
+            .disabled(store.restoring)
             .accessibilityIdentifier("paywall.restore") // US-1173: stable UI-test selector
         } footer: {
             Text("Already subscribed on this Apple ID? Restore to re-link it.")

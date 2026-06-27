@@ -16,6 +16,30 @@ enum PurchaseOutcome: Equatable {
     case stripeConflict
 }
 
+/// Result of loading StoreKit display prices. Distinguishes a thrown error
+/// (network/StoreKit hiccup — RETRYABLE) from a successfully-returned but
+/// genuinely empty product list (App Store Connect misconfig — a config error),
+/// so the paywall can show "retry" vs "temporarily unavailable" messaging
+/// instead of collapsing both into one ambiguous empty map (US-1251).
+enum PriceLoadResult: Equatable {
+    /// `Product.products(for:)` returned — the map may be partial or empty.
+    case loaded([String: String])
+    /// The call threw (network/StoreKit). Retryable; the message is surfaced.
+    case failed(String)
+}
+
+/// Outcome of restoring purchases. This boundary only reports whether
+/// `AppStore.sync()` itself succeeded; `PaywallStore` decides "restored" vs
+/// "nothing-to-restore" afterwards by re-checking entitlements (US-1251).
+enum RestoreOutcome: Equatable {
+    /// `AppStore.sync()` completed — the caller re-checks entitlements.
+    case synced
+    /// The user dismissed the sign-in sheet — stay quiet (no error to show).
+    case cancelled
+    /// `AppStore.sync()` threw. The message is surfaced so the UI can report it.
+    case failed(String)
+}
+
 /// The user's current on-device auto-renewable subscription, derived from
 /// `Transaction.currentEntitlements`. StoreKit types stay hidden so
 /// `PaywallStore` (and its tests) remain StoreKit-free.
@@ -31,11 +55,14 @@ struct SubscriptionEntitlement: Equatable {
 /// with an in-memory fake. The concrete impl is IMPURE (StoreKit + network) and
 /// is NOT unit-tested — the purchase handshake needs sandbox + a real device.
 protocol StoreKitProviding {
-    /// productId → localized display price (e.g. "$59.00"). Empty on failure.
-    func loadPrices(ids: [String]) async -> [String: String]
+    /// Load productId → localized display price (e.g. "$59.00"). The result
+    /// distinguishes a thrown error from a (possibly empty) returned list so the
+    /// paywall can tell a retryable hiccup from a config error (US-1251).
+    func loadPrices(ids: [String]) async -> PriceLoadResult
     /// Buy a product; on a verified transaction, report it to the edge + finish it.
     func purchase(productId: String, appAccountToken: UUID) async -> PurchaseOutcome
-    func restore() async
+    /// Restore purchases (`AppStore.sync()`); reports whether the sync succeeded.
+    func restore() async -> RestoreOutcome
     /// The active auto-renewable subscription on this Apple ID, or nil if none.
     /// Used to surface renewal date + auto-renew state in the management card.
     func currentSubscription() async -> SubscriptionEntitlement?
@@ -56,14 +83,21 @@ struct StoreKitService: StoreKitProviding {
         self.api = api
     }
 
-    func loadPrices(ids: [String]) async -> [String: String] {
+    func loadPrices(ids: [String]) async -> PriceLoadResult {
         do {
             let products = try await Product.products(for: ids)
             var map: [String: String] = [:]
             for product in products { map[product.id] = product.displayPrice }
-            return map
+            // A successful call with an empty map is a CONFIG error (products not
+            // attached / approved), not a transient failure — report it as loaded
+            // so the caller routes to "temporarily unavailable", not "retry".
+            return .loaded(map)
         } catch {
-            return [:]
+            // A thrown error (network/StoreKit) is retryable — surface it so the
+            // paywall shows a retry affordance rather than treating it as empty.
+            Telemetry.backgroundBreadcrumb(
+                "IAP price load threw: \(error.localizedDescription)", category: "iap")
+            return .failed(error.localizedDescription)
         }
     }
 
@@ -104,8 +138,22 @@ struct StoreKitService: StoreKitProviding {
         }
     }
 
-    func restore() async {
-        try? await AppStore.sync()
+    func restore() async -> RestoreOutcome {
+        do {
+            try await AppStore.sync()
+            return .synced
+        } catch StoreKitError.userCancelled {
+            // The user dismissed the App Store sign-in sheet — not an error.
+            return .cancelled
+        } catch {
+            // US-1251: previously `try?`-swallowed, so a failed restore looked
+            // identical to a successful one. Surface it (+ breadcrumb) so the UI
+            // can tell the user it didn't work instead of silently doing nothing.
+            Telemetry.backgroundBreadcrumb(
+                "IAP restore (AppStore.sync) failed: \(error.localizedDescription)",
+                category: "iap")
+            return .failed(error.localizedDescription)
+        }
     }
 
     func currentSubscription() async -> SubscriptionEntitlement? {

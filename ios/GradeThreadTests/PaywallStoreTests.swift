@@ -260,6 +260,90 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertNil(s.purchaseError)
     }
 
+    // MARK: - Restore (US-1251)
+
+    // A successful sync that re-links an active auto-renewable subscription
+    // reports "restored" so the UI can confirm it (not silently no-op).
+    func test_restore_syncedWithSubscription_reportsRestored() async {
+        let fake = FakeStoreKit()
+        fake.restoreOutcome = .synced
+        fake.entitlement = SubscriptionEntitlement(
+            productId: "com.gradethread.sub.pro.monthly",
+            renewalDate: nil, willAutoRenew: true)
+        let s = store(service: fake)
+        await s.restore()
+        XCTAssertTrue(fake.restored)
+        XCTAssertEqual(s.restoreResult, .restored)
+        XCTAssertFalse(s.restoring)                       // spinner cleared
+        XCTAssertEqual(s.restoreResultMessage, "Your purchases were restored.")
+    }
+
+    // A successful sync with nothing on this Apple ID reports "nothing to
+    // restore" rather than implying a restore happened.
+    func test_restore_syncedWithoutEntitlement_reportsNothingToRestore() async {
+        let fake = FakeStoreKit()
+        fake.restoreOutcome = .synced
+        fake.entitlement = nil
+        let s = store(service: fake)
+        await s.restore()
+        XCTAssertEqual(s.restoreResult, .nothingToRestore)
+        XCTAssertNotNil(s.restoreResultMessage)
+    }
+
+    // A failed AppStore.sync surfaces a failure result the UI shows as an alert,
+    // instead of the old `try?`-swallowed silent no-op.
+    func test_restore_failure_surfacesFailedResult() async {
+        let fake = FakeStoreKit()
+        fake.restoreOutcome = .failed("network down")
+        let s = store(service: fake)
+        await s.restore()
+        guard case .failed = s.restoreResult else {
+            return XCTFail("Expected .failed, got \(String(describing: s.restoreResult))")
+        }
+        XCTAssertFalse(s.restoring)
+        XCTAssertNotNil(s.restoreResultMessage)
+    }
+
+    // The user dismissing the sign-in sheet is not an error — stay quiet (no alert).
+    func test_restore_cancelled_isQuiet() async {
+        let fake = FakeStoreKit()
+        fake.restoreOutcome = .cancelled
+        let s = store(service: fake)
+        await s.restore()
+        XCTAssertNil(s.restoreResult)
+    }
+
+    // Re-entrant taps while a restore is in flight are ignored (guard !restoring).
+    func test_restore_ignoresReentrantCallWhileInFlight() async {
+        let fake = FakeStoreKit()
+        let s = store(service: fake)
+        s.restoring = true                               // simulate in-flight restore
+        await s.restore()
+        XCTAssertFalse(fake.restored)                    // service not called again
+    }
+
+    // MARK: - Price load distinction (US-1251)
+
+    // A THROWN price-load error (network/StoreKit) is retryable and gets the
+    // retry message — distinct from the empty-list config message below.
+    func test_load_priceLoadThrew_failsWithRetryMessage() async {
+        let fake = FakeStoreKit()
+        fake.priceResult = .failed("offline")
+        let s = store(service: fake, catalog: [])
+        await s.load()
+        XCTAssertEqual(s.phase, .failed(PaywallStore.priceLoadRetryMessage))
+    }
+
+    // A successful-but-empty product list is a config error, not a transient
+    // hiccup — it gets the config message, NOT the retry message.
+    func test_load_emptyProducts_failsWithConfigMessage() async {
+        let fake = FakeStoreKit()                         // prices empty → .loaded([:])
+        let s = store(service: fake, catalog: [])
+        await s.load()
+        XCTAssertEqual(s.phase, .failed(PaywallStore.priceLoadConfigMessage))
+        XCTAssertNotEqual(s.phase, .failed(PaywallStore.priceLoadRetryMessage))
+    }
+
     // MARK: - Disclosures (Guideline 3.1.2)
 
     func test_subscriptionDisclosure_statesAutoRenewCadence() {
@@ -294,12 +378,18 @@ final class PaywallStoreTests: XCTestCase {
 private final class FakeStoreKit: StoreKitProviding {
     var outcome: PurchaseOutcome = .success
     var prices: [String: String] = [:]
+    /// When set, overrides the `prices`-derived `.loaded` result so a test can
+    /// simulate a THROWN price-load error (US-1251).
+    var priceResult: PriceLoadResult?
+    var restoreOutcome: RestoreOutcome = .synced
     var entitlement: SubscriptionEntitlement?
     private(set) var purchasedProductId: String?
     private(set) var purchasedToken: UUID?
     private(set) var restored = false
 
-    func loadPrices(ids: [String]) async -> [String: String] { prices }
+    func loadPrices(ids: [String]) async -> PriceLoadResult {
+        priceResult ?? .loaded(prices)
+    }
 
     func purchase(productId: String, appAccountToken: UUID) async -> PurchaseOutcome {
         purchasedProductId = productId
@@ -307,7 +397,7 @@ private final class FakeStoreKit: StoreKitProviding {
         return outcome
     }
 
-    func restore() async { restored = true }
+    func restore() async -> RestoreOutcome { restored = true; return restoreOutcome }
 
     func currentSubscription() async -> SubscriptionEntitlement? { entitlement }
 }

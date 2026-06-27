@@ -76,6 +76,38 @@ final class PaywallStore {
     /// silently (US-1144).
     var purchasePending = false
 
+    /// Outcome of the most recent Restore Purchases tap (US-1251). Previously
+    /// restore was fire-and-forget, so a successful restore, a "nothing here",
+    /// and a hard failure all looked identical (the screen just did nothing).
+    enum RestoreResult: Equatable {
+        /// `AppStore.sync()` succeeded and re-linked an active subscription.
+        case restored
+        /// `AppStore.sync()` succeeded but there was nothing to restore.
+        case nothingToRestore
+        /// `AppStore.sync()` failed; the message is shown to the user.
+        case failed(String)
+    }
+
+    /// The last restore outcome, surfaced by the UI as an alert. `nil` once shown
+    /// (the binding clears it) or when restore was quietly cancelled by the user.
+    var restoreResult: RestoreResult?
+    /// True while a restore is in flight (drives the button's spinner).
+    var restoring = false
+
+    /// User-facing copy for the current ``restoreResult`` (`nil` when none/cancelled).
+    var restoreResultMessage: String? {
+        switch restoreResult {
+        case .restored:
+            return "Your purchases were restored."
+        case .nothingToRestore:
+            return "There were no purchases to restore on this Apple ID."
+        case .failed:
+            return "We couldn't restore your purchases. Check your connection and try again."
+        case nil:
+            return nil
+        }
+    }
+
     /// Observes ``StoreKitService/entitlementsDidChangeNotification`` so an
     /// out-of-band renewal/refund/revoke (delivered to the transaction listener)
     /// re-fetches billing state and clears stale paid features.
@@ -200,25 +232,45 @@ final class PaywallStore {
             catalogFallback = Dictionary(
                 uniqueKeysWithValues: catalog.map { ($0.productId, $0.referencePriceDisplay) })
         }
-        prices = await service.loadPrices(ids: IAPCatalog.allIds)
+        // US-1251: a thrown price-load error (network/StoreKit) is RETRYABLE and
+        // must not be confused with a successfully-returned empty product list
+        // (App Store Connect misconfig). Each gets its own messaging below.
+        switch await service.loadPrices(ids: IAPCatalog.allIds) {
+        case .failed:
+            Telemetry.backgroundBreadcrumb(
+                "Paywall: StoreKit price load threw — IAP temporarily unreachable",
+                category: "iap")
+            phase = .failed(Self.priceLoadRetryMessage)
+            return
+        case .loaded(let map):
+            prices = map
+        }
         await refreshBilling()
         // App Store 2.1(b): when StoreKit resolves NO products for any id, the
-        // IAP layer is unavailable (offline, sandbox/App Store Connect misconfig,
-        // or products not yet in a reviewable state). Surface a recoverable
-        // failure with a retry instead of rendering a paywall of fallback-priced
-        // rows that dead-end on "this item is unavailable" when tapped. A partial
-        // result (some products resolved) still renders — gaps fall back to the
-        // server catalog / hardcoded reference prices.
+        // IAP layer is unavailable. Unlike a thrown error, an empty-but-successful
+        // list is a config error (products not attached / approved) — surface a
+        // recoverable "temporarily unavailable" failure with a retry instead of
+        // rendering a paywall of fallback-priced rows that dead-end on "this item
+        // is unavailable" when tapped. A partial result (some products resolved)
+        // still renders — gaps fall back to the server catalog / hardcoded prices.
         if prices.isEmpty {
             Telemetry.backgroundBreadcrumb(
                 "Paywall: StoreKit returned 0 of \(IAPCatalog.allIds.count) products — IAP unavailable",
                 category: "iap")
-            phase = .failed(
-                "We couldn't reach the App Store to load plans. Check your connection and try again.")
+            phase = .failed(Self.priceLoadConfigMessage)
             return
         }
         phase = .ready
     }
+
+    /// Shown when price load THREW — a transient connection/StoreKit hiccup the
+    /// user can resolve by retrying.
+    static let priceLoadRetryMessage =
+        "We couldn't reach the App Store to load plans. Check your connection and try again."
+    /// Shown when price load SUCCEEDED but returned no products — a server/config
+    /// problem the user can't fix by reconnecting, only wait out.
+    static let priceLoadConfigMessage =
+        "Plans aren't available right now. This is usually temporary — please try again shortly."
 
     // MARK: - Purchase
 
@@ -259,8 +311,28 @@ final class PaywallStore {
     }
 
     func restore() async {
-        await service.restore()
-        await refreshBilling()
+        guard !restoring else { return }
+        restoring = true
+        restoreResult = nil
+        defer { restoring = false }
+
+        switch await service.restore() {
+        case .cancelled:
+            // The user dismissed the App Store sign-in sheet — stay quiet.
+            return
+        case .failed(let message):
+            Telemetry.backgroundBreadcrumb(
+                "Paywall restore failed: \(message)", category: "iap")
+            restoreResult = .failed(message)
+        case .synced:
+            await refreshBilling()
+            // The sync succeeded; whether anything was actually restored depends
+            // on the on-device entitlement (consumables aren't restorable, so an
+            // active auto-renewable subscription is the signal). Tell the user
+            // which happened rather than leaving them guessing.
+            let hasSubscription = await service.currentSubscription() != nil
+            restoreResult = hasSubscription ? .restored : .nothingToRestore
+        }
     }
 
     /// Re-fetch billing state after an out-of-band change (e.g. returning from
