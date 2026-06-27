@@ -40,6 +40,7 @@ import {
 import { rubricForKey } from "@/lib/rubrics";
 import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
+import { CoverageHeatmap } from "@/components/certificate/coverage-heatmap";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
 import {
@@ -803,6 +804,25 @@ export function CertificatePage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* US-1278: photo-coverage badge + silhouette heatmap. Shows what
+            fraction of the garment the seller documented and which zones are
+            outside the grade/guarantee scope. Degrades gracefully — hidden on
+            older certificates (pre-00308) that carry no coverage record. */}
+        {gradeReport.coverage && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Coverage</CardTitle>
+              <CardDescription>
+                How much of the garment the seller&apos;s photos documented. The
+                grade and Grade Accuracy Guarantee cover only documented zones.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CoverageHeatmap coverage={gradeReport.coverage} />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Condition & Flaws — the genuine defects behind the grade, so a buyer
             sees exactly WHY the score is what it is. */}

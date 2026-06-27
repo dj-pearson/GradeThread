@@ -802,6 +802,26 @@ export interface PublicGradeReportRow {
   // Always an array (the view COALESCEs to []); absent/[] on grades whose
   // defects were never localized — the cert falls back to the text flaw list.
   defect_annotations?: PublicImageDefectAnnotations[] | null;
+  // US-1278: the 2D inspection-zone coverage record (US-1276) powering the
+  // certificate coverage badge + silhouette heatmap. Null on reports graded
+  // before 00308 — the cert widget hides itself in that case.
+  coverage?: PublicCoverageRecord | null;
+}
+
+// US-1278: buyer-safe shape of grade_reports.coverage as projected by the
+// public_grade_reports view. Mirrors the grading engine's CoverageResult
+// (services/edge-functions/src/lib/coverage.ts) — kept inline so this types
+// file stays free of edge-runtime imports.
+export interface PublicCoverageRecord {
+  garment_category: string;
+  // Zones this garment type legitimately has — the coverage denominator.
+  applicable_zones: string[];
+  covered_zones: string[];
+  // applicable_zones that no submitted photo documented (out of grade scope).
+  missing_zones: string[];
+  // covered / applicable, 0–100, whole percent.
+  coverage_pct: number;
+  coverage_source?: "photos_2d" | "geometric_360";
 }
 
 export interface DisputeRow {
