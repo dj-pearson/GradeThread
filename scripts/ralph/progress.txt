@@ -3954,3 +3954,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:49:30 AM
 ---
+## US-1260: iOS iPad split-view: fix the dead detail pane for Money and Marketplaces sections
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:54:24 AM
+---

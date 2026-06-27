@@ -5794,7 +5794,7 @@
     {
       "id": "US-1260",
       "priority": 1260,
-      "passes": false,
+      "passes": true,
       "title": "iOS iPad split-view: fix the dead detail pane for Money and Marketplaces sections",
       "description": "As an iPad user, selecting Money or Marketplaces shouldn't leave a permanent 'Make a selection' placeholder in the detail column, so the layout doesn't look broken.",
       "acceptanceCriteria": [
