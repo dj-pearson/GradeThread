@@ -221,6 +221,36 @@ final class DraftsTests: XCTestCase {
         XCTAssertNil(store.actionError)
     }
 
+    // US-1242: eBay-originated rows are excluded from the dirty set UP FRONT —
+    // an edit (per-field or bulk) must never dirty a locked mirror, so it can't
+    // be silently "marked saved" in `save()`.
+    @MainActor
+    func test_bulk_updateOnEbayOriginatedRow_neverDirties() async {
+        let ebay = DraftListing(
+            id: "l2", inventoryItemId: "i2", batchId: "b1", listingOrigin: "ebay"
+        )
+        let store = DraftsBulkEditStore(service: FakeService(drafts: [ebay]))
+        await store.load()
+        store.update("l2") { $0.title = "ignored" }
+        XCTAssertEqual(store.dirtyCount, 0)
+        XCTAssertEqual(store.row(id: "l2")?.title ?? "x", "")
+    }
+
+    @MainActor
+    func test_bulk_applyOnEbayOriginatedRow_skipsAndDoesNotDirty() async {
+        let gt = DraftListing(id: "l1", inventoryItemId: "i1", listingPrice: 10, batchId: "b1")
+        let ebay = DraftListing(
+            id: "l2", inventoryItemId: "i2", listingPrice: 20, batchId: "b1", listingOrigin: "ebay"
+        )
+        let store = DraftsBulkEditStore(service: FakeService(drafts: [gt, ebay]))
+        await store.load()
+        store.applyRound99()                                 // no selection -> all rows
+        XCTAssertEqual(store.row(id: "l1")?.price, "10.99")  // GT row changed
+        XCTAssertEqual(store.row(id: "l2")?.price, "20")     // eBay row untouched
+        XCTAssertFalse(store.row(id: "l2")?.dirty ?? true)   // and not dirtied
+        XCTAssertEqual(store.dirtyCount, 1)
+    }
+
     func test_editRow_isEbayOriginated_trueFalse() {
         let gt = DraftEditRow(from: DraftListing(id: "a", inventoryItemId: "i", listingOrigin: "gradethread"))
         let eb = DraftEditRow(from: DraftListing(id: "b", inventoryItemId: "i", listingOrigin: "ebay"))

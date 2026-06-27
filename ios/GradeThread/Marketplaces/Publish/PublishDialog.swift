@@ -336,12 +336,18 @@ struct PublishDialog: View {
         phase = .pushing
         Telemetry.breadcrumb("Publishing to eBay", category: "publish")
 
+        // US-1242: prefer an inline price fix over the (possibly zero) summary
+        // price so a draft published with no price set on the canvas can be
+        // corrected right here instead of dead-ending.
+        let editedPrice = edits.price.trimmingCharacters(in: .whitespacesAndNewlines)
+        let priceValue = editedPrice.isEmpty ? summary.priceValue : editedPrice
+
         // Persist composer edits to the listings draft first; the push
         // re-reads the publish context server-side, so these reach eBay.
         do {
             try await ListingDraftService().saveDraft(
                 inventoryItemId: inventoryItemId,
-                priceValue: summary.priceValue,
+                priceValue: priceValue,
                 edits: edits
             )
         } catch {
@@ -432,6 +438,11 @@ private struct ComposerForm: View {
     @State private var condition: EbayCondition
     @State private var conditionDescription: String
     @State private var description: String
+    /// US-1242: editable price, seeded from the validated summary. When the draft
+    /// has no usable price the seller can set it inline here instead of being
+    /// bounced to the canvas; otherwise the price stays read-only (the canvas is
+    /// its home) and this just mirrors the summary value.
+    @State private var priceInput: String
 
     // US-1264: template-applied fields that aren't free-text composer inputs.
     // They're set by `apply(_:)` and ride along in `ComposerEdits` so the push's
@@ -447,7 +458,19 @@ private struct ComposerForm: View {
     /// US-969: keyboard Next/Return traversal across the editable text fields
     /// (the condition Picker and read-only price are skipped).
     @FocusState private var focusedField: Field?
-    private enum Field: Hashable { case title, conditionNote, description }
+    private enum Field: Hashable { case title, conditionNote, description, price }
+
+    /// US-1242: the validated summary had no usable price (zero/blank/unparseable),
+    /// so the composer offers inline price entry. Computed from the immutable
+    /// summary so the inline field doesn't vanish the moment a valid price is typed.
+    private var summaryPriceMissing: Bool {
+        Money.cents(CurrencyFormatter().parse(summary.priceValue) ?? 0) <= 0
+    }
+
+    /// Current effective price is still not a positive amount (gates Push).
+    private var priceInvalid: Bool {
+        Money.cents(CurrencyFormatter().parse(priceInput) ?? 0) <= 0
+    }
 
     // AI copy generation.
     @State private var isGenerating = false
@@ -503,6 +526,7 @@ private struct ComposerForm: View {
         _condition = State(initialValue: EbayCondition.resolve(summary.condition))
         _conditionDescription = State(initialValue: summary.conditionDescription ?? "")
         _description = State(initialValue: summary.description)
+        _priceInput = State(initialValue: summary.priceValue)
     }
 
     private var trimmedTitle: String {
@@ -580,15 +604,7 @@ private struct ComposerForm: View {
                         .onSubmit { focusedField = nil }
                 }
 
-                HStack {
-                    Text("Price")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(summary.currency ?? "USD") \(MoneyFieldValidation.twoDecimalDisplay(summary.priceValue))")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.brandNavy)
-                }
+                priceSection
                 profitEstimate
                 // US-1167: comp context (median + spread) from eBay so the seller
                 // can sanity-check the price before publishing. The string is built
@@ -602,20 +618,6 @@ private struct ComposerForm: View {
                     .font(.caption2)
                     .foregroundStyle(Color.brandNavy)
                 }
-                Text("Edit price on the item canvas.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .task { await loadComps() }
-
-                // US-1190: price is read-only here, so an empty/zero price can't
-                // be fixed in this dialog — disable Push with a clear notice
-                // instead of enabling it into a repeating `invalidPrice` failure.
-                let priceInvalid = Money.cents(CurrencyFormatter().parse(summary.priceValue) ?? 0) <= 0
-                if priceInvalid {
-                    Label("Set a price on the item canvas before publishing.", systemImage: "exclamationmark.triangle")
-                        .font(.caption2)
-                        .foregroundStyle(Color.brandRed)
-                }
 
                 if NetworkMonitor.isOffline(networkMonitor) {
                     OfflineNotice(intent: .blocked, detail: "to publish to eBay")
@@ -628,6 +630,7 @@ private struct ComposerForm: View {
                         condition: condition,
                         conditionDescription: conditionDescription,
                         description: description,
+                        price: priceInput,
                         itemSpecifics: templateItemSpecifics,
                         ebayCategoryId: templateCategoryId,
                         returnPolicyId: templateReturnPolicyId,
@@ -842,6 +845,56 @@ private struct ComposerForm: View {
         }
     }
 
+    // MARK: - Price (US-1242)
+
+    /// Price entry. When the validated draft has no usable price the seller can
+    /// set it right here — a zero-price draft used to dead-end the dialog with
+    /// "set a price on the item canvas" and a disabled Push, bouncing them out of
+    /// the flow. When a price IS already set it stays read-only (the canvas is the
+    /// price's home, US-1190) and this just displays it.
+    @ViewBuilder
+    private var priceSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if summaryPriceMissing {
+                Text("Price")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(summary.currency ?? "USD")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("0.00", text: $priceInput)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .price)
+                }
+                if priceInvalid {
+                    Label("Enter a price greater than 0 to publish.", systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(Color.brandRed)
+                } else {
+                    Text("Saved back to the item when you publish.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                HStack {
+                    Text("Price")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(summary.currency ?? "USD") \(MoneyFieldValidation.twoDecimalDisplay(priceInput))")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.brandNavy)
+                }
+                Text("Edit price on the item canvas.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task { await loadComps() }
+    }
+
     // MARK: - Profit estimate
 
     @ViewBuilder
@@ -851,7 +904,9 @@ private struct ComposerForm: View {
         // the listing price that's persisted/pushed AND to the Money tab's
         // realized net for an equivalent completed sale (US-1002). 0 is fine
         // here (display-only — the insert path validates before persisting, US-789).
-        let price = Money.cents(CurrencyFormatter().parse(summary.priceValue) ?? 0)
+        // US-1242: read the editable `priceInput` so an inline price fix updates
+        // the estimate live (equals the summary price when nothing was edited).
+        let price = Money.cents(CurrencyFormatter().parse(priceInput) ?? 0)
         let estimate = ListingProfit.estimate(price: price, costBasis: acquiredCost)
         HStack(alignment: .firstTextBaseline) {
             Text("Est. net profit")

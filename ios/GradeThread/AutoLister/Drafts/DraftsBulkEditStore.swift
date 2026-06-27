@@ -175,6 +175,11 @@ final class DraftsBulkEditStore {
 
     func update(_ id: String, _ mutate: (inout DraftEditRow) -> Void) {
         guard let i = indexById[id], rows.indices.contains(i) else { return }
+        // US-1242: eBay-originated rows are locked read-only mirrors (eBay owns
+        // their fields). Never let an edit dirty one — `save()` would otherwise
+        // silently clear its dirty flag as if it had persisted, hiding that the
+        // edit was dropped. Keep them out of the dirty set up front instead.
+        guard !rows[i].isEbayOriginated else { return }
         mutate(&rows[i])
         rows[i].dirty = true
     }
@@ -232,6 +237,9 @@ final class DraftsBulkEditStore {
     private func applyToTargets(_ mutate: (inout DraftEditRow) -> Void) {
         let ids = targetIds
         for i in rows.indices where ids.contains(rows[i].id) {
+            // US-1242: skip eBay-originated read-only mirrors so a bulk edit never
+            // dirties a row whose changes can't persist (eBay owns its fields).
+            if rows[i].isEbayOriginated { continue }
             mutate(&rows[i])
             rows[i].dirty = true
         }
@@ -258,8 +266,10 @@ final class DraftsBulkEditStore {
         // bounded-concurrency chunks (same pattern as DraftsLibraryStore.applyBulk)
         // so a large dirty batch isn't needlessly serial. Each save is an
         // independent row update with no shared state, so parallelism is safe.
-        // eBay-originated rows are locked read-only mirrors (US-1086): clear their
-        // dirty flag without a network call; the next sync re-asserts eBay's values.
+        // US-1242: eBay-originated rows are excluded from the dirty set up front
+        // now (see `update`/`applyToTargets`), so this is a defensive backstop:
+        // if one is somehow dirty, clear it without a network call rather than
+        // attempting a save that can't persist (eBay owns its fields).
         var work: [(id: String, label: String, edit: DraftEdit)] = []
         for row in dirty {
             if row.isEbayOriginated { savedIds.insert(row.id); continue }
@@ -339,10 +349,19 @@ final class DraftsBulkEditStore {
         let publish = publish ?? EbayPublishService()
         let targets = rows.filter { targetIds.contains($0.id) }
         guard !targets.isEmpty else { return }
-        // Require saved edits so the server reflects the latest category/price.
+        // US-1242: don't dead-end on "Save your changes before publishing" — that
+        // generic block never said WHICH rows were unsaved. The user already
+        // confirmed publish, so persist the unsaved targeted rows first
+        // (save-then-publish), then name any that still couldn't be saved so they
+        // know exactly what to fix instead of being silently stuck.
         if targets.contains(where: \.dirty) {
-            actionError = "Save your changes before publishing."
-            return
+            await save()
+            let stillDirty = rows.filter { targetIds.contains($0.id) && $0.dirty }
+            if !stillDirty.isEmpty {
+                let names = stillDirty.map(displayTitle).joined(separator: ", ")
+                actionError = "Couldn't save these before publishing — fix and retry: \(names)."
+                return
+            }
         }
         isPublishing = true
         defer { isPublishing = false }

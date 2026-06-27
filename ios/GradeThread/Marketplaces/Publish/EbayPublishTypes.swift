@@ -36,12 +36,16 @@ struct PublishSummary: Decodable, Equatable {
     /// wipes the title/condition/description the user just typed (US-1006).
     static func merging(_ edits: ComposerEdits, into base: PublishSummary) -> PublishSummary {
         let note = edits.conditionDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        // US-1242: an inline price fix wins over the (possibly zero) base price so
+        // a resumed composer restores the value the seller just typed; a blank
+        // edit keeps the validated base price.
+        let editedPrice = edits.price.trimmingCharacters(in: .whitespacesAndNewlines)
         return PublishSummary(
             title: edits.title,
             description: edits.description,
             condition: edits.condition.rawValue,
             conditionDescription: note.isEmpty ? nil : note,
-            priceValue: base.priceValue,
+            priceValue: editedPrice.isEmpty ? base.priceValue : editedPrice,
             currency: base.currency
         )
     }

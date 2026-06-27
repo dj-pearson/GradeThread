@@ -173,6 +173,21 @@ final class EbayPublishTests: XCTestCase {
         XCTAssertEqual(merged.currency, "USD")
     }
 
+    func test_publishSummaryMerging_inlinePriceFixWins_blankKeepsBase() {
+        // US-1242: an inline price the seller typed in the composer must survive a
+        // resume (Try again), overriding the (possibly zero) base price...
+        let withPrice = ComposerEdits(
+            title: "t", condition: .usedGood, conditionDescription: "", description: "d",
+            price: "57.50"
+        )
+        XCTAssertEqual(PublishSummary.merging(withPrice, into: sampleSummary()).priceValue, "57.50")
+        // ...while a blank inline price leaves the validated base price anchored.
+        let noPrice = ComposerEdits(
+            title: "t", condition: .usedGood, conditionDescription: "", description: "d"
+        )
+        XCTAssertEqual(PublishSummary.merging(noPrice, into: sampleSummary()).priceValue, "42.00")
+    }
+
     func test_publishSummaryMerging_blankConditionNote_becomesNil() {
         let edits = ComposerEdits(
             title: "t",

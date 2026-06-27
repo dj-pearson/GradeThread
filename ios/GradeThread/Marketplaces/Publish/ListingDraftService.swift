@@ -197,6 +197,12 @@ struct ComposerEdits: Equatable {
     let condition: EbayCondition
     let conditionDescription: String
     let description: String
+    /// US-1242: the price the seller can set INLINE in the publish composer when
+    /// the draft has no usable price — a zero-price draft otherwise dead-ends the
+    /// dialog ("set a price on the canvas") with no way to fix it here. Blank =
+    /// use the validated summary price; the parent's `saveDraft` prefers a
+    /// non-blank value here so an inline fix reaches eBay.
+    var price: String = ""
     /// Template-applied item specifics (e.g. ["Brand": "Levi's"]). Empty = none.
     var itemSpecifics: [String: String] = [:]
     /// Template-applied eBay leaf category id; nil = leave the draft's as-is.
