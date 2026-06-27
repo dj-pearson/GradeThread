@@ -458,6 +458,15 @@ memory — not a progress log (the harness records progress separately).
   highest-priority web/edge story instead when one is available.
 
 ## iOS (Swift)
+- The two intake draft stores are INDEPENDENT by design (US-1234): details-first
+  `DetailsIntakeView` owns only `IntakeDraftStore`, photo-first `PhotoIntakeView`
+  owns only `PhotoDraftStore`; the flows have separate entry points and never
+  co-create both drafts for one item. Each already clears its OWN draft on
+  save/discard. Do NOT make one flow cross-clear the other's store — a pending
+  photo draft belongs to a SEPARATE still-unsaved photo-first session, so
+  clearing it from a details-first save discards the user's captures. Locked in
+  by `IntakeDraftCleanSlateTests`; an audit may re-flag this as a "desync bug" —
+  it isn't.
 - Changing ANY `@Model` in `Persistence/Models/` (even an additive, defaulted
   optional like US-1249's `hasLocalChanges` on LocalListing/LocalSale) requires
   the `GradeThreadSchema.swift` migration discipline: add `GradeThreadSchemaVN`,
