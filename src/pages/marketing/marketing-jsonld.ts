@@ -9,6 +9,7 @@ import {
   faqPageLd,
   articleLd,
   aboutPageLd,
+  breadcrumbLd,
   transparencyDatasetLd,
   resaleConditionDatasetLd,
   definedTermLd,
@@ -607,6 +608,69 @@ export function buyerGuaranteeJsonLd(): JsonLd[] {
       dateModified: BUYER_GUARANTEE_MODIFIED,
     }),
     faqPageLd(BUYER_GUARANTEE_FAQS),
+  ];
+}
+
+// ── /flipdesk (US-1397, SEO) ────────────────────────────────────────
+// FlipDesk's public surface: a dedicated SoftwareApplication node (the reseller
+// suite, distinct from the grading SoftwareApplication emitted site-wide) + an
+// FAQ block targeting reseller-tool questions + breadcrumb. Answers are framed
+// around the grading differentiator (the moat) and use first-party capability,
+// not generic listicle copy, per the SEO strategy.
+export const FLIPDESK_FAQS = [
+  {
+    q: "What is FlipDesk?",
+    a: "FlipDesk is GradeThread's eBay reseller-management suite. It runs the full pipeline — sourcing and cost basis, measurements, guided photos, condition grading, sold comps and pricing, AI-assisted listing, rules-based repricing, and payout reconciliation — in one workspace. What sets it apart from a standalone crosslister or repricer is that a standardized 1.0–10.0 condition grade and a verifiable certificate are built into every listing.",
+  },
+  {
+    q: "How is FlipDesk different from a crosslister like Vendoo or List Perfectly?",
+    a: "Crosslisters move a listing across marketplaces; repricers adjust price. FlipDesk covers the whole reseller workflow AND adds the one thing those tools can't: an objective, third-party condition grade and a public certificate. Buyers can verify the grade, which builds trust and reduces 'not as described' returns, and the comps are condition-aware so you price to what your grade actually sells for.",
+  },
+  {
+    q: "Does FlipDesk help me price items?",
+    a: "Yes. FlipDesk pulls real eBay sold comps and keeps them condition-aware, so an item graded Excellent (8) is priced against what comparable Excellent items actually sold for — not a blind average. Rules-based repricing then keeps stale inventory moving without racing to the bottom.",
+  },
+  {
+    q: "Do I have to grade every item to use FlipDesk?",
+    a: "No — FlipDesk's sourcing, measurements, listing, repricing, and reconciliation work on their own. But grading is the differentiator: a standardized condition grade and certificate are the trust signal a raw listing photo can't fake, and they drive condition-aware pricing.",
+  },
+  {
+    q: "Which marketplaces does FlipDesk support?",
+    a: "FlipDesk is built around the full eBay lifecycle — listing, repricing, sold comps, and payout reconciliation. The condition grade and verifiable certificate travel with the item, so the trust they build applies wherever you sell.",
+  },
+];
+
+export function flipdeskJsonLd(): JsonLd[] {
+  const url = absoluteUrl("/flipdesk");
+  const flipdeskApp: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "@id": `${url}#flipdesk`,
+    name: "FlipDesk",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    url,
+    description:
+      "FlipDesk is GradeThread's eBay reseller-management suite: source, measure, photograph, grade, comp, list, reprice, and reconcile in one workspace — with a standardized condition grade and verifiable certificate built into every listing.",
+    isPartOf: { "@type": "WebSite", url: `${SITE_URL}/` },
+    publisher: { "@type": "Organization", name: "GradeThread", url: `${SITE_URL}/` },
+    featureList: [
+      "eBay listing management and AI-assisted drafting",
+      "Cross-listing and inventory management",
+      "Condition-aware sold comps and pricing",
+      "Rules-based repricing",
+      "Measurements and guided photo capture",
+      "Standardized 1.0–10.0 condition grading + verifiable certificates",
+      "Payout, fee, and shipping reconciliation",
+    ],
+  };
+  return [
+    flipdeskApp,
+    faqPageLd(FLIPDESK_FAQS),
+    breadcrumbLd([
+      { name: "Home", url: `${SITE_URL}/` },
+      { name: "FlipDesk", url },
+    ]),
   ];
 }
 

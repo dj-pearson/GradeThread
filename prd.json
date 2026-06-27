@@ -7626,7 +7626,7 @@
       "id": "US-1397",
       "title": "SEO: FlipDesk marketing/SEO surface",
       "priority": 1400,
-      "passes": false,
+      "passes": true,
       "description": "As a prospective reseller, I can find a public FlipDesk page that ranks for eBay reseller-tool keywords and ties grading to resale.",
       "acceptanceCriteria": [
         "New /flipdesk public route (+ reseller-tools angle) registered in PUBLIC_ROUTES + prerender + sitemap",

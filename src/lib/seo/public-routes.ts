@@ -57,6 +57,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/how-it-works": "2026-06-01",
   "/pricing": "2026-06-01",
   "/for-resellers": "2026-06-01",
+  "/flipdesk": "2026-06-27",
   "/faq": "2026-06-01",
   "/condition-grading": "2026-06-01",
   "/grading-standard": "2026-06-26",
@@ -126,6 +127,14 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "For Resellers",
     description:
       "Standardized condition grades that build buyer trust, cut returns, and speed up sales for eBay, Poshmark, Mercari, Depop, and Grailed sellers.",
+    changefreq: "monthly",
+    priority: 0.8,
+  },
+  {
+    path: "/flipdesk",
+    title: "FlipDesk — eBay Reseller Management, Backed by Condition Grades",
+    description:
+      "FlipDesk is GradeThread's eBay reseller suite: source, measure, photograph, grade, comp, list, reprice, and reconcile in one place — with a standardized condition grade and verifiable certificate in every listing.",
     changefreq: "monthly",
     priority: 0.8,
   },
