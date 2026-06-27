@@ -4070,3 +4070,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:46:34 AM
 ---
+## US-1392: Release workflow → Play Console (AAB via Fastlane supply)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:52:16 AM
+---

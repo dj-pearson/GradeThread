@@ -7560,7 +7560,7 @@
     {
       "id": "US-1392",
       "priority": -98608,
-      "passes": false,
+      "passes": true,
       "title": "Release workflow → Play Console (AAB via Fastlane supply)",
       "description": "As the team, I want a release workflow that builds a signed AAB and uploads to the Play Console internal/beta/production tracks.",
       "acceptanceCriteria": [
