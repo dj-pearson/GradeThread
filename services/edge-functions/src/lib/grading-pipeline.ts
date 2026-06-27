@@ -27,7 +27,9 @@ import { generateUniqueCertNumber } from "./cert-number.ts";
 import { createSingleHopPassport, storeGarmentFingerprint } from "./passport-write.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
+  evaluateLiveCapture,
   evaluateVerifiedCapture,
+  liveCaptureBoost,
   verifiedCaptureBoost,
 } from "./verified-capture.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
@@ -879,7 +881,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, authenticity_addon, forensic_addon, service_tier, created_at")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, authenticity_addon, forensic_addon, service_tier, created_at")
       .eq("id", submissionId)
       .single();
 
@@ -890,7 +892,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, storage_path, display_order, phash, exif, original_storage_path")
+      .select("id, image_type, storage_path, display_order, phash, exif, original_storage_path, capture_source")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -1475,6 +1477,52 @@ export async function processSubmission(submissionId: string) {
         : fusedTamper.summary;
     }
 
+    // US-1283: Live Capture — fraud-proof grading mode. Built ON the Verified
+    // Capture result + device-attestation (every photo captured live in-app) +
+    // the fused manipulation verdict. A Live-Verified submission earns the
+    // distinct, stronger badge AND a larger confidence boost; any provenance /
+    // attestation / manipulation failure DOWNGRADES it (never a silent pass) to
+    // the standard Verified Capture badge when provenance still independently
+    // passed, else no badge. Runs after the forensic pass so the manipulation
+    // signal is final. Never lowers a grade.
+    const manipulationSuspected = fusedTamper.manipulation_suspected === true ||
+      authenticity.manipulation_suspected === true ||
+      authenticity.screenshot_or_watermark_detected === true;
+    const liveCapture = evaluateLiveCapture({
+      liveCaptureOptIn: (submission as { live_capture_opt_in?: boolean })
+        .live_capture_opt_in === true,
+      verifiedCapture,
+      images: images.map((img) => ({
+        image_type: img.image_type,
+        capture_source:
+          (img as { capture_source?: string | null }).capture_source ?? null,
+      })),
+      manipulationSuspected,
+      nowMs: Date.now(),
+    });
+    if (liveCapture.badge === "live_verified") {
+      // Live-Verified is the strongest provenance tier — apply the INCREMENTAL
+      // boost over the standard Verified Capture boost already added above (a
+      // live_verified result implies verifiedCapture.verified). Respect the
+      // partial-image ceiling so an incomplete set can't be boosted past its cap.
+      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      const extra = Math.max(0, liveCaptureBoost() - verifiedCaptureBoost());
+      compositeResult.confidence_score = Math.min(
+        ceiling,
+        compositeResult.confidence_score + extra,
+      );
+      detailedNotes["live_capture"] =
+        `Live-Verified earned — ${liveCapture.reasons.join("; ")}.`;
+    } else if (
+      (submission as { live_capture_opt_in?: boolean })
+        .live_capture_opt_in === true
+    ) {
+      // Opted into Live Capture but didn't earn the top badge — record exactly
+      // why for admin review. Not a flag, not a penalty.
+      detailedNotes["live_capture"] =
+        `Live-Verified not earned — ${liveCapture.reasons.join("; ")}.`;
+    }
+
     // US-333: tamper-evident integrity. Hash the canonical (already-public)
     // grade fields and sign the hash if CERT_SIGNING_KEY is set. The public
     // /cert/:id/verify endpoint re-derives this from the stored row to confirm
@@ -1608,6 +1656,10 @@ export async function processSubmission(submissionId: string) {
         // US-340: Verified Capture provenance result. Structured detail kept for
         // admin review; the public view exposes only the pass/fail boolean.
         verified_capture: verifiedCapture,
+        // US-1283: Live Capture (fraud-proof mode) evaluation. Structured detail
+        // (badge tier, device-attestation, downgrade reasons) kept for admin
+        // review; the public view exposes only the earned badge tier.
+        live_capture: liveCapture,
         // US-861: POSITIVE "original photos verified" anti-fraud signal derived
         // from the photo-reuse scan. Only the `verified` boolean is exposed on
         // the public certificate (no hashes/match details leak).

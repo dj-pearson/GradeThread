@@ -48,6 +48,8 @@ interface PublicCertificate {
   verified_capture_passed?: boolean;
   // US-861: true when the photo-reuse scan found no cross-account match.
   original_photos_verified?: boolean;
+  // US-1283: true when the submission earned the fraud-proof Live-Verified badge.
+  live_capture_verified?: boolean;
 }
 
 interface CertResponse {
@@ -148,7 +150,9 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     <div><div style="font-weight:600">${escape(cert.grade_tier)}</div><div style="color:var(--muted);font-size:0.9rem">Overall Condition Grade · out of 10</div></div>
   </div>
   ${
-    cert.verified_capture_passed
+    cert.live_capture_verified
+      ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#fee2e2;color:#9f1239;font-size:0.85rem;font-weight:600">&#10003; Live-Verified · un-fakeable capture</p>`
+      : cert.verified_capture_passed
       ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:0.85rem;font-weight:600">&#10003; Verified Capture</p>`
       : ""
   }

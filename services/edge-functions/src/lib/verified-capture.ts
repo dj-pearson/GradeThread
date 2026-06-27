@@ -239,3 +239,145 @@ export function evaluateVerifiedCapture(opts: {
     ],
   };
 }
+
+// ── Live Capture — fraud-proof grading mode (US-1283) ──────────────────────────
+//
+// The flagship anti-fraud tier built ON TOP of Verified Capture. A seller may
+// opt into the "Live Capture" path: every photo must be captured LIVE in-app
+// (device-attested, no library upload) so condition proof cannot be Photoshopped
+// or pulled from a stock listing. When the submission is device-attested AND
+// passes ALL the standard provenance checks AND shows no manipulation, it earns
+// the distinct, STRONGER "Live-Verified" certificate badge.
+//
+// DESIGN — never a silent pass (AC3): any provenance, attestation, or
+// manipulation failure DOWNGRADES the badge. A live-capture submission whose
+// provenance still independently qualifies falls back to the standard
+// "Verified Capture" badge; otherwise it earns no badge. The downgrade reason is
+// always recorded server-side for admin review — the public surface only ever
+// sees the earned tier.
+
+// The capture_source value an image must carry to count as device-attested
+// (captured live in the in-app camera, not picked from the library).
+export const IN_APP_CAPTURE_SOURCE = "in_app_camera";
+
+// The earned certificate badge tier. 'live_verified' is the strongest (un-fakeable
+// condition proof); 'verified' is the standard Verified Capture fallback; null =
+// no badge.
+export type LiveCaptureBadge = "live_verified" | "verified" | null;
+
+export interface LiveCaptureImage {
+  image_type: string;
+  // How this photo entered the app. Only IN_APP_CAPTURE_SOURCE is device-attested.
+  capture_source: string | null;
+}
+
+export interface LiveCaptureResult {
+  badge: LiveCaptureBadge;
+  // True when the seller chose the Live Capture path for this submission.
+  live_capture: boolean;
+  // True only when EVERY image was captured live in-app (no library upload).
+  device_attested: boolean;
+  // Human-readable detail for admin review (server-side only).
+  reasons: string[];
+  checked_at: string;
+}
+
+// Stronger confidence boost earned by a Live-Verified submission — bounded and
+// always ≥ the standard Verified Capture boost so the strongest provenance tier
+// never corroborates LESS than the weaker one.
+export function liveCaptureBoost(): number {
+  const raw = Number(Deno.env.get("GRADING_LIVE_CAPTURE_CONFIDENCE_BOOST"));
+  const v = Number.isFinite(raw) && raw >= 0 && raw <= 0.3 ? raw : 0.1;
+  return Math.max(v, verifiedCaptureBoost());
+}
+
+/**
+ * Evaluate the Live Capture badge for a submission. Pure (clock injected) so it's
+ * deterministic + unit-testable. Composes the already-computed Verified Capture
+ * result with device-attestation + a manipulation verdict.
+ *
+ * Outcomes:
+ *   - 'live_verified' : opted in, every photo device-attested, provenance
+ *                       verified, and no manipulation suspected.
+ *   - 'verified'      : a DOWNGRADE — provenance still independently passed, but
+ *                       attestation or the manipulation check did not.
+ *   - null            : no badge.
+ * It NEVER lowers a grade; the only effect is which (if any) badge is earned.
+ */
+export function evaluateLiveCapture(opts: {
+  liveCaptureOptIn: boolean;
+  verifiedCapture: VerifiedCaptureResult;
+  images: LiveCaptureImage[];
+  manipulationSuspected: boolean;
+  nowMs: number;
+}): LiveCaptureResult {
+  const checked_at = new Date(opts.nowMs).toISOString();
+  // The strongest badge the standard provenance result alone can support.
+  const verifiedFallback: LiveCaptureBadge = opts.verifiedCapture.verified
+    ? "verified"
+    : null;
+
+  if (!opts.liveCaptureOptIn) {
+    return {
+      badge: verifiedFallback,
+      live_capture: false,
+      device_attested: false,
+      reasons: ["not opted into Live Capture"],
+      checked_at,
+    };
+  }
+
+  const total = opts.images.length;
+  const attested = opts.images.filter(
+    (i) => (i.capture_source ?? "").toLowerCase() === IN_APP_CAPTURE_SOURCE,
+  ).length;
+  const deviceAttested = total > 0 && attested === total;
+
+  // Collect every reason the strongest tier was not earned (never a silent pass).
+  const failures: string[] = [];
+  if (total === 0) {
+    failures.push("no images");
+  } else if (!deviceAttested) {
+    failures.push(
+      `${total - attested} of ${total} photo(s) were not captured live in-app`,
+    );
+  }
+  if (!opts.verifiedCapture.verified) {
+    failures.push(
+      ...(opts.verifiedCapture.reasons.length
+        ? opts.verifiedCapture.reasons
+        : ["provenance checks did not pass"]),
+    );
+  }
+  if (opts.manipulationSuspected) {
+    failures.push("image manipulation suspected");
+  }
+
+  if (
+    deviceAttested && opts.verifiedCapture.verified &&
+    !opts.manipulationSuspected
+  ) {
+    return {
+      badge: "live_verified",
+      live_capture: true,
+      device_attested: true,
+      reasons: [
+        `all ${total} photos captured live in-app, device-attested, provenance verified, no manipulation`,
+      ],
+      checked_at,
+    };
+  }
+
+  return {
+    badge: verifiedFallback,
+    live_capture: true,
+    device_attested: deviceAttested,
+    reasons: [
+      `Live-Verified not earned — ${failures.join("; ")}`,
+      ...(verifiedFallback === "verified"
+        ? ["downgraded to standard Verified Capture"]
+        : []),
+    ],
+    checked_at,
+  };
+}

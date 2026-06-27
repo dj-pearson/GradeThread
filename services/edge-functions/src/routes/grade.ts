@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
 import { getSettingSync } from "../lib/system-settings.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import { IN_APP_CAPTURE_SOURCE } from "../lib/verified-capture.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
@@ -237,7 +238,11 @@ gradeRoutes.post("/submit", async (c) => {
   // US-340: the seller opted into the Verified Capture provenance path. This
   // flag alone earns nothing — the badge is only awarded if the server-side
   // checks in verified-capture.ts pass at grading time. Never lowers a grade.
-  const verifiedCaptureOptIn =
+  const liveCaptureOptIn =
+    (formData.get("live_capture_opt_in") as string | null) === "true";
+  // Live Capture builds ON Verified Capture: opting into the fraud-proof live
+  // mode always opts into the underlying provenance path too.
+  const verifiedCaptureOptIn = liveCaptureOptIn ||
     (formData.get("verified_capture_opt_in") as string | null) === "true";
   // US-601: premium authenticity / counterfeit-confidence add-on opt-in. Only
   // HONORED on a paid Premium/Express tier (the higher per-tier charge covers it)
@@ -280,9 +285,13 @@ gradeRoutes.post("/submit", async (c) => {
   // dodge a match against a stolen/stock photo already on file.
   // US-339: provenance EXIF per image, aligned to imageFiles by push order.
   const imageExif: (Record<string, unknown> | null)[] = [];
+  // US-1283: per-image capture_source ('in_app_camera' = device-attested live
+  // capture, else library/null), aligned to imageFiles by push order.
+  const imageCaptureSource: (string | null)[] = [];
   const allEntries = formData.getAll("images");
   const allTypes = formData.getAll("image_types");
   const allExif = formData.getAll("exif_metadata");
+  const allCaptureSources = formData.getAll("capture_sources");
   // US-339: optional uncompressed originals, sent (in image order) only when
   // the client opted in. Consumed only if RETAIN_ORIGINAL_IMAGES is set.
   const allOriginals = formData.getAll("original_images");
@@ -306,6 +315,10 @@ gradeRoutes.post("/submit", async (c) => {
         imageFiles.push(entry);
         imageTypes.push(type);
         imageExif.push(sanitizeExif(allExif[i]));
+        const src = allCaptureSources[i];
+        imageCaptureSource.push(
+          typeof src === "string" && src.trim() ? src.trim() : null,
+        );
       }
     }
   }
@@ -320,6 +333,21 @@ gradeRoutes.post("/submit", async (c) => {
   }
   if (!imageTypes.some((t) => t.startsWith("detail"))) {
     errors.push("At least one 'detail' image is required");
+  }
+
+  // US-1283: Live Capture accepts ONLY in-app camera images — a single
+  // library/gallery upload defeats the un-fakeable guarantee, so reject the
+  // submission rather than silently downgrade it at submit time. (The grade-time
+  // evaluation in verified-capture.ts is the second, server-authoritative gate.)
+  if (liveCaptureOptIn) {
+    const notLive = imageCaptureSource.filter(
+      (s) => (s ?? "").toLowerCase() !== IN_APP_CAPTURE_SOURCE,
+    ).length;
+    if (notLive > 0) {
+      errors.push(
+        "Live Capture requires every photo to be captured live in the app (no library uploads)",
+      );
+    }
   }
 
   if (errors.length > 0) {
@@ -400,6 +428,7 @@ gradeRoutes.post("/submit", async (c) => {
       description: description?.trim() || null,
       style_attributes: styleAttributes,
       verified_capture_opt_in: verifiedCaptureOptIn,
+      live_capture_opt_in: liveCaptureOptIn,
       authenticity_addon: authenticityAddon,
       forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,
@@ -428,6 +457,7 @@ gradeRoutes.post("/submit", async (c) => {
     phash: string | null;
     exif: Record<string, unknown> | null;
     original_storage_path: string | null;
+    capture_source: string | null;
   }> = [];
 
   for (let i = 0; i < imageFiles.length; i++) {
@@ -514,6 +544,7 @@ gradeRoutes.post("/submit", async (c) => {
       phash: serverPhash,
       exif: imageExif[i] ?? null,
       original_storage_path: originalStoragePath,
+      capture_source: imageCaptureSource[i] ?? null,
     });
   }
 

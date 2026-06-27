@@ -916,11 +916,34 @@ export function CertificatePage() {
                 </div>
               ))}
 
+            {/* US-1283: Live-Verified badge — the flagship fraud-proof tier.
+                Shown only when every photo was captured live in-app
+                (device-attested), provenance verified, and no manipulation was
+                detected. Un-fakeable condition proof: it can't be Photoshopped or
+                pulled from a stock listing. Stronger than (and shown instead of)
+                the standard Verified Capture badge below. */}
+            {gradeReport.live_capture_verified && (
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-red dark:text-brand-red" />
+                <div>
+                  <p className="text-sm font-medium">Live-Verified</p>
+                  <p className="text-xs text-muted-foreground">
+                    Every photo was captured live in the GradeThread app —
+                    device-attested and timestamped, with verified provenance and
+                    no signs of manipulation. Un-fakeable condition proof that
+                    can&apos;t be edited or pulled from a stock listing.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* US-340: Verified Capture badge — shown only when the seller's
                 opt-in provenance checks passed (consistent, recent, unedited
                 device capture; no reused photos). A positive trust signal; its
-                absence is never a negative. */}
-            {gradeReport.verified_capture_passed && (
+                absence is never a negative. Suppressed when the stronger
+                Live-Verified badge above is present (it supersedes this one). */}
+            {!gradeReport.live_capture_verified &&
+              gradeReport.verified_capture_passed && (
               <div className="flex items-start gap-3">
                 <BadgeCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                 <div>

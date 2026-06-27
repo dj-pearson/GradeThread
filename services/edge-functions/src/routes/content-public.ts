@@ -172,6 +172,9 @@ interface CertReportRow {
   // US-861: structured original-photos result; only the pass/fail boolean is
   // exposed publicly (reuse-scan counts stay server-side).
   original_photos: { verified?: boolean } | null;
+  // US-1283: structured Live Capture result; only the earned badge tier is
+  // exposed publicly (the raw downgrade reasons stay server-side).
+  live_capture: { badge?: string } | null;
 }
 
 /**
@@ -539,7 +542,7 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
 const CERT_REPORT_COLUMNS =
   "overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
   "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, " +
-  "ai_summary, buyer_writeup, certificate_id, certificate_number, created_at, submission_id, verified_capture, original_photos";
+  "ai_summary, buyer_writeup, certificate_id, certificate_number, created_at, submission_id, verified_capture, original_photos, live_capture";
 
 // Signed-URL TTL for certificate images (seconds). Long enough for an edge
 // cache window; the cert SSR caches the HTML, not the URL, so this just needs
@@ -613,11 +616,15 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   delete publicReport.submission_id;
   delete publicReport.verified_capture;
   delete publicReport.original_photos;
+  delete publicReport.live_capture;
 
   return c.json({
     certificate: {
       ...publicReport,
       verified_capture_passed: rep.verified_capture?.verified === true,
+      // US-1283: positive-only. True iff the submission earned the strongest
+      // fraud-proof "Live-Verified" badge; the downgrade reasons stay server-side.
+      live_capture_verified: rep.live_capture?.badge === "live_verified",
       // US-861: positive-only. True iff the photo-reuse scan ran and found no
       // cross-account match. Never leaks hashes/distances.
       original_photos_verified: rep.original_photos?.verified === true,

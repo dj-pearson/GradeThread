@@ -975,6 +975,30 @@ export function NewSubmissionPage() {
                     </p>
                   </div>
                 </label>
+
+                {/* Live Capture explainer (US-1283) — the flagship fraud-proof
+                    tier. Live Capture is in-app-camera-only (device-attested),
+                    which a browser file upload can't provide, so on web we
+                    explain the value and point sellers to the app rather than
+                    offering a toggle that can't truly attest. */}
+                <div className="flex items-start gap-3 rounded-lg border border-brand-red/30 bg-brand-red/5 p-3">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red" />
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium">
+                      Want un-fakeable condition proof?
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Grade in the GradeThread app with{" "}
+                      <span className="font-medium">Live Capture</span> — every
+                      photo is taken live in-app and device-attested, so your
+                      condition proof can&apos;t be Photoshopped or pulled from a
+                      stock listing. Submissions that pass every provenance and
+                      manipulation check earn the stronger{" "}
+                      <span className="font-medium">Live-Verified</span>{" "}
+                      certificate badge.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <Separator />

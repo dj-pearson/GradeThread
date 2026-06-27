@@ -779,6 +779,12 @@ export interface PublicGradeReportRow {
   // different account ("Original photos verified" badge). Positive-only — the
   // raw reuse-scan counts stay server-side.
   original_photos_verified: boolean;
+  // US-1283: true when this submission earned the strongest fraud-proof
+  // "Live-Verified" badge (every photo captured live in-app, device-attested,
+  // provenance verified, no manipulation). A downgrade to standard Verified
+  // Capture surfaces via verified_capture_passed instead. Positive-only — the
+  // raw downgrade reasons stay server-side.
+  live_capture_verified?: boolean;
   // Non-clothing grading (migration 00231): generic { factor_key: score } map +
   // the rubric that produced it (e.g. "sports_cards"). Absent/null on clothing &
   // legacy certificates — the cert renders the typed factor columns instead. The

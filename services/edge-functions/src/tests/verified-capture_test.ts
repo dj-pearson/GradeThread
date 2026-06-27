@@ -7,9 +7,13 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  evaluateLiveCapture,
   evaluateVerifiedCapture,
+  IN_APP_CAPTURE_SOURCE,
+  type LiveCaptureImage,
   parseExifDate,
   type VerifiedCaptureImage,
+  type VerifiedCaptureResult,
 } from "../lib/verified-capture.ts";
 
 // Derive timestamps via the same parser so the test is timezone-independent.
@@ -130,4 +134,102 @@ Deno.test("any image missing provenance → not verified (never penalized elsewh
     nowMs: SUBMIT,
   });
   assertEquals(r.verified, false);
+});
+
+// ── Live Capture — fraud-proof grading mode (US-1283) ────────────────────────
+
+// A passing/failing standard Verified Capture result to compose with.
+const VERIFIED: VerifiedCaptureResult = {
+  verified: true,
+  reasons: ["ok"],
+  device: "Apple iPhone 14 Pro",
+  with_exif: 2,
+  total: 2,
+  max_age_days: 30,
+  checked_at: new Date(SUBMIT).toISOString(),
+};
+const NOT_VERIFIED: VerifiedCaptureResult = {
+  ...VERIFIED,
+  verified: false,
+  reasons: ["photos were captured on more than one device"],
+};
+
+function liveImg(image_type: string, source: string | null): LiveCaptureImage {
+  return { image_type, capture_source: source };
+}
+
+const LIVE = IN_APP_CAPTURE_SOURCE;
+
+Deno.test("live: not opted in → no Live-Verified, mirrors the verified fallback", () => {
+  const r = evaluateLiveCapture({
+    liveCaptureOptIn: false,
+    verifiedCapture: VERIFIED,
+    images: [liveImg("front", LIVE), liveImg("back", LIVE)],
+    manipulationSuspected: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, "verified");
+  assertEquals(r.live_capture, false);
+});
+
+Deno.test("live: device-attested + provenance verified + no manipulation → live_verified", () => {
+  const r = evaluateLiveCapture({
+    liveCaptureOptIn: true,
+    verifiedCapture: VERIFIED,
+    images: [liveImg("front", LIVE), liveImg("back", LIVE)],
+    manipulationSuspected: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, "live_verified");
+  assert(r.device_attested);
+  assert(r.live_capture);
+});
+
+Deno.test("live: a single library upload downgrades the badge (never a silent pass)", () => {
+  const r = evaluateLiveCapture({
+    liveCaptureOptIn: true,
+    verifiedCapture: VERIFIED,
+    images: [liveImg("front", LIVE), liveImg("back", "library")],
+    manipulationSuspected: false,
+    nowMs: SUBMIT,
+  });
+  // Provenance still passed, so it falls back to standard Verified Capture.
+  assertEquals(r.badge, "verified");
+  assertEquals(r.device_attested, false);
+  assert(r.reasons.some((x) => x.includes("not captured live in-app")));
+});
+
+Deno.test("live: manipulation suspected downgrades the badge", () => {
+  const r = evaluateLiveCapture({
+    liveCaptureOptIn: true,
+    verifiedCapture: VERIFIED,
+    images: [liveImg("front", LIVE), liveImg("back", LIVE)],
+    manipulationSuspected: true,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, "verified");
+  assert(r.reasons.some((x) => x.includes("manipulation")));
+});
+
+Deno.test("live: failed provenance + not attested → no badge at all", () => {
+  const r = evaluateLiveCapture({
+    liveCaptureOptIn: true,
+    verifiedCapture: NOT_VERIFIED,
+    images: [liveImg("front", "library"), liveImg("back", null)],
+    manipulationSuspected: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, null);
+  assertEquals(r.device_attested, false);
+});
+
+Deno.test("live: attested but provenance failed → no live_verified, drops to no badge", () => {
+  const r = evaluateLiveCapture({
+    liveCaptureOptIn: true,
+    verifiedCapture: NOT_VERIFIED,
+    images: [liveImg("front", LIVE), liveImg("back", LIVE)],
+    manipulationSuspected: false,
+    nowMs: SUBMIT,
+  });
+  assertEquals(r.badge, null);
 });
