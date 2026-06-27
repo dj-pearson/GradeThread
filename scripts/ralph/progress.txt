@@ -4106,3 +4106,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 11:35:23 AM
 ---
+## US-1383: Settings screen
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 11:42:34 AM
+---

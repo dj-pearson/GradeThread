@@ -7446,7 +7446,7 @@
     {
       "id": "US-1383",
       "priority": -98617,
-      "passes": false,
+      "passes": true,
       "title": "Settings screen",
       "description": "As a user, I want a structured Settings screen: account, connections, preferences, notifications, support, and about.",
       "acceptanceCriteria": [
