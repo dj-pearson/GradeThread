@@ -5663,7 +5663,7 @@
     {
       "id": "US-1250",
       "priority": 1250,
-      "passes": false,
+      "passes": true,
       "title": "iOS Sign in with Apple: record credential id only on successful exchange, inside AuthStore",
       "description": "As a returning Apple user, revocation monitoring should be reliable, so a failed token exchange doesn't strand a stored Apple id and every sign-in path enables revocation detection.",
       "acceptanceCriteria": [

@@ -3986,3 +3986,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:01:20 AM
 ---
+## US-1250: iOS Sign in with Apple: record credential id only on successful exchange, inside AuthStore
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:02:51 AM
+---
