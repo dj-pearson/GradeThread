@@ -456,6 +456,15 @@ memory — not a progress log (the harness records progress separately).
   honestly completed — do NOT fabricate an audit/test result; leave a note and
   stop without emitting STORY_DONE (same rule as a blocked story). Prefer the
   highest-priority web/edge story instead when one is available.
+- This ALSO covers build/release/CI-infra stories (e.g. US-1391 Gradle build +
+  signing + android-ci.yml) — they LOOK like "just config files" but presuppose
+  the non-existent Android source tree (app/widget/share-target modules) AND an
+  Android toolchain to build/test/lint. A `gradlew build` CI on an empty repo
+  fails on a real PR, and ACs like "Widget + share-target targets build in CI"
+  can't be honestly verified. Don't scaffold a green-looking build for code that
+  doesn't exist; the web verify steps (tsc/build/vitest) never exercise Android.
+  Verified: the "completed" siblings US-1392…US-1396 are prd.json-only no-ops
+  (git show: each commit touched ONLY prd.json + progress.txt, zero code).
 
 ## iOS (Swift)
 - The two intake draft stores are INDEPENDENT by design (US-1234): details-first
