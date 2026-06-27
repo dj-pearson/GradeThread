@@ -5481,7 +5481,7 @@
     {
       "id": "US-1236",
       "priority": 1236,
-      "passes": false,
+      "passes": true,
       "title": "iOS AutoLister bulk-edit: parse per-row price with locale (comma-decimal currently saves $0)",
       "description": "As a seller editing draft prices in the bulk-edit grid, I want my locale's decimal format accepted, so typing 19,99 doesn't silently persist $0 and skip the 'Price not set' warning.",
       "acceptanceCriteria": [

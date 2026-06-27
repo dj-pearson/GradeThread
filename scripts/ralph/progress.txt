@@ -4022,3 +4022,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:58:22 AM
 ---
+## US-1236: iOS AutoLister bulk-edit: parse per-row price with locale (comma-decimal currently saves $0)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:04:42 AM
+---
