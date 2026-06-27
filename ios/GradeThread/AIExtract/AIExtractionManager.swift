@@ -34,6 +34,14 @@ final class AIExtractionManager {
     /// nothing to send, leaving an "Untitled" item (US-686 follow-up).
     private static let waitTimeoutSeconds: Double = 180
 
+    /// Brief window for the asynchronously-enqueued upload tasks to register
+    /// before ``waitForUploads`` treats an empty task list as "done".
+    private static let uploadRegisterGraceSeconds: Double = 1.5
+
+    /// Long-edge the tag capture is downsampled to before the (slow) `.accurate`
+    /// Vision OCR pass — full-res adds latency with no accuracy gain on tag text.
+    private static let ocrMaxLongEdge: CGFloat = 1600
+
     func phase(for itemId: String) -> Phase? { phases[itemId] }
 
     func isRunning(_ itemId: String) -> Bool {
@@ -97,15 +105,28 @@ final class AIExtractionManager {
             "offline": isOffline,
         ])
 
+        let store = AIExtractStore()
+
         if isOffline {
-            Telemetry.event("ai_extract_bail", props: ["reason": "offline", "item_id": itemId])
-            phases[itemId] = .failed(
-                "You're offline. Reconnect and reopen this item to let AI read your photos — they're saved and waiting."
-            )
+            // Offline: the server is unreachable, but on-device OCR can still
+            // read the tag for a brand/size, so seed a title from that instead
+            // of immediately leaving an "Untitled" item (US-1231). Fall back to
+            // .failed only when OCR finds nothing usable. The capture bytes are
+            // in memory, so this needs neither network nor finished uploads.
+            if await applyLiveTextFallback(photos: photos, store: store) {
+                Telemetry.event("ai_extract_offline_livetext", props: ["item_id": itemId])
+                await finish(itemId: itemId, store: store)
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                phases[itemId] = .ready
+            } else {
+                Telemetry.event("ai_extract_bail", props: ["reason": "offline", "item_id": itemId])
+                phases[itemId] = .failed(
+                    "You're offline. Reconnect and reopen this item to let AI read your photos — they're saved and waiting."
+                )
+            }
             return
         }
 
-        let store = AIExtractStore()
         await waitForUploads(itemId: itemId, photos: photos, uploadStore: uploadStore)
 
         // Build the extract request from whatever uploaded so far.
@@ -156,20 +177,7 @@ final class AIExtractionManager {
         } catch let error as EdgeAPIError {
             // On a server/transport failure, fall back to on-device OCR for
             // brand+size so the user still gets something to opt into.
-            let liveText = await liveTextSuggestions(photos: photos)
-            if !liveText.isEmpty {
-                let synthetic = AIExtractResponse(
-                    suggestions: liveText,
-                    conditionSummary: nil,
-                    conflicts: [],
-                    measurements: nil,
-                    model: nil,
-                    logId: nil,
-                    actionsRemaining: AIExtractResponse.actionsRemainingUnknown
-                )
-                store.applyResponse(synthetic)
-                store.liveTextFallbackUsed = true
-            } else {
+            if !(await applyLiveTextFallback(photos: photos, store: store)) {
                 phases[itemId] = .failed(error.errorDescription ?? "Unknown error")
                 return
             }
@@ -197,17 +205,34 @@ final class AIExtractionManager {
 
     /// Polls the upload store until every queued photo lands in a terminal
     /// state (or times out). Failed uploads are fine — we just skip them.
+    ///
+    /// Upload tasks are enqueued asynchronously right after capture, so an early
+    /// poll can see FEWER registered tasks than the user captured. We must wait
+    /// until every captured photo's task has registered (`allTasks.count >=
+    /// photos.count`) AND all of them are terminal — not just until the
+    /// already-registered ones settle. The old `complete >= max(allTasks.count,
+    /// photos.count)` form could satisfy vacuously while the task list was still
+    /// filling in (or empty), sending fewer photos than captured and leaving an
+    /// "Untitled" item (US-1231 / US-686 follow-up). A small initial grace gives
+    /// the tasks a moment to appear so the first poll can't return on an
+    /// empty/partial list.
     private func waitForUploads(
         itemId: String,
         photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
         uploadStore: PhotoUploadStore
     ) async {
-        let deadline = Date.now.addingTimeInterval(Self.waitTimeoutSeconds)
+        let start = Date.now
+        let deadline = start.addingTimeInterval(Self.waitTimeoutSeconds)
         while Date.now < deadline {
             let allTasks = uploadStore.tasks(inventoryItemId: itemId)
-            let complete = allTasks.filter { $0.isTerminal }.count
-            let total = max(allTasks.count, photos.count)
-            if total > 0, complete >= total { return }
+            let registeredAll = allTasks.count >= photos.count
+            let allTerminal = allTasks.allSatisfy { $0.isTerminal }
+            let graceElapsed = Date.now.timeIntervalSince(start) >= Self.uploadRegisterGraceSeconds
+            // Return once every expected task is registered and terminal. When
+            // the task list is still empty (e.g. nothing to upload) require the
+            // grace to elapse first so we don't return on a vacuously-terminal
+            // empty list during the enqueue window.
+            if registeredAll, allTerminal, !allTasks.isEmpty || graceElapsed { return }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
     }
@@ -290,6 +315,30 @@ final class AIExtractionManager {
 
     // MARK: - Live Text fallback (US-177)
 
+    /// Runs on-device OCR and, when it finds a brand/size, applies it to `store`
+    /// as a synthetic extraction result (seeding a title downstream). Returns
+    /// whether anything was applied. Shared by the offline branch and the
+    /// server-failure (`EdgeAPIError`) fallback so they degrade identically.
+    private func applyLiveTextFallback(
+        photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
+        store: AIExtractStore
+    ) async -> Bool {
+        let liveText = await liveTextSuggestions(photos: photos)
+        guard !liveText.isEmpty else { return false }
+        let synthetic = AIExtractResponse(
+            suggestions: liveText,
+            conditionSummary: nil,
+            conflicts: [],
+            measurements: nil,
+            model: nil,
+            logId: nil,
+            actionsRemaining: AIExtractResponse.actionsRemainingUnknown
+        )
+        store.applyResponse(synthetic)
+        store.liveTextFallbackUsed = true
+        return true
+    }
+
     private func runLiveTextFallbackIfNeeded(
         photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
         store: AIExtractStore
@@ -311,8 +360,16 @@ final class AIExtractionManager {
     ) async -> [String: FieldSuggestion] {
         guard let tagEntry = photos.first(where: { $0.slot == .tag }) else { return [:] }
         let imageData = tagEntry.capture.imageData
+        // Downsample (~1600px long edge) BEFORE the `.accurate` Vision pass: a
+        // full-res capture (2048px+) makes accurate OCR crawl with no accuracy
+        // gain on tag text, and the decode+resize stays off the main actor
+        // (US-1231).
+        let maxLongEdge = Self.ocrMaxLongEdge
         guard let image = await Task.detached(priority: .userInitiated, operation: {
-            UIImage(data: imageData)
+            autoreleasepool { () -> UIImage? in
+                guard let full = UIImage(data: imageData) else { return nil }
+                return PhotoCompressor.resize(full, maxLongEdge: maxLongEdge)
+            }
         }).value else { return [:] }
         let recognizer = TagTextRecognizer()
         let lines: [RecognizedLine]
