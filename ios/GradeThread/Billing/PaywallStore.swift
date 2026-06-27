@@ -86,26 +86,54 @@ final class PaywallStore {
     /// at dealloc — there's no actual race to guard against.
     nonisolated(unsafe) private var entitlementObserver: Task<Void, Never>?
 
+    /// US-1253: coalesces back-to-back entitlement-change notifications. StoreKit
+    /// can deliver several `Transaction.updates` in a burst (a renewal + the
+    /// matching revoke of the prior product, a restore replaying every
+    /// transaction), which would otherwise fire one billing re-fetch per
+    /// notification. A debounce window collapses a storm into a single refresh.
+    ///
+    /// `nonisolated(unsafe)` for the same reason as ``entitlementObserver``: only
+    /// mutated on the main actor, and `deinit` cancels it exactly once.
+    nonisolated(unsafe) private var entitlementRefreshTask: Task<Void, Never>?
+    private let entitlementRefreshDebounce: Duration
+
     init(
         userId: UUID,
         service: StoreKitProviding = StoreKitService(),
         billingFetcher: @escaping () async -> BillingSnapshot? = PaywallStore.liveBillingFetcher,
-        catalogLoader: @escaping () async -> [CatalogProduct] = PaywallStore.liveCatalogLoader
+        catalogLoader: @escaping () async -> [CatalogProduct] = PaywallStore.liveCatalogLoader,
+        entitlementRefreshDebounce: Duration = .milliseconds(400)
     ) {
         self.userId = userId
         self.service = service
         self.billingFetcher = billingFetcher
         self.catalogLoader = catalogLoader
+        self.entitlementRefreshDebounce = entitlementRefreshDebounce
         entitlementObserver = Task { [weak self] in
             let stream = NotificationCenter.default.notifications(
                 named: StoreKitService.entitlementsDidChangeNotification)
             for await _ in stream {
-                await self?.refreshBillingState()
+                self?.scheduleEntitlementRefresh()
             }
         }
     }
 
-    deinit { entitlementObserver?.cancel() }
+    deinit {
+        entitlementObserver?.cancel()
+        entitlementRefreshTask?.cancel()
+    }
+
+    /// Restarts the debounce timer on every entitlement-change notification, so
+    /// only the last notification in a burst actually drives a billing re-fetch.
+    private func scheduleEntitlementRefresh() {
+        entitlementRefreshTask?.cancel()
+        let debounce = entitlementRefreshDebounce
+        entitlementRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: debounce)
+            guard !Task.isCancelled else { return }
+            await self?.refreshBilling()
+        }
+    }
 
     // MARK: - Derived (pure, tested)
 

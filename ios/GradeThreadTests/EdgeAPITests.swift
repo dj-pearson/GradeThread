@@ -124,6 +124,22 @@ final class EdgeAPITests: XCTestCase {
         await XCTAssertThrowsItem(.rateLimited, with: makeAPI())
     }
 
+    // US-1253: the 429 `Retry-After` hint is carried on the error so the UI can
+    // show a concrete "try again in Ns" instead of a vague "in a moment".
+    func test_rateLimited_errorDescription_surfacesRetryAfterSeconds() {
+        XCTAssertEqual(
+            EdgeAPIError.rateLimited(retryAfter: 5).errorDescription,
+            "You're going a little too fast. Try again in 5s.")
+        // A sub-second / zero hint and a missing hint both fall back to the
+        // vague copy (no "0s").
+        XCTAssertEqual(
+            EdgeAPIError.rateLimited(retryAfter: nil).errorDescription,
+            "You're going a little too fast. Try again in a moment.")
+        XCTAssertEqual(
+            EdgeAPIError.rateLimited(retryAfter: 0).errorDescription,
+            "You're going a little too fast. Try again in a moment.")
+    }
+
     // US-1145: a 429 is transient — it retries and succeeds when the next
     // attempt is allowed through (the request was rejected, not processed, so a
     // retry is safe).

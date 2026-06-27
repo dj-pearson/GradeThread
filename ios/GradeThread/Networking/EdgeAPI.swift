@@ -343,6 +343,9 @@ public actor EdgeAPI {
                             "Edge 429 rate-limited [\(method) \(path)]"
                                 + (retryAfterHint.map { " retryAfter=\(Int($0))s" } ?? ""),
                             category: "network")
+                        // US-1253: carry the Retry-After hint on the error so a
+                        // caller that exhausts retries can show "try again in Ns".
+                        throw EdgeAPIError.rateLimited(retryAfter: retryAfterHint)
                     }
                     throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
                 }

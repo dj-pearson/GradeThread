@@ -458,6 +458,14 @@ memory — not a progress log (the harness records progress separately).
   highest-priority web/edge story instead when one is available.
 
 ## iOS (Swift)
+- Adding a DEFAULT-valued associated value to an existing enum case is fully
+  backward-compatible: `case rateLimited(retryAfter: TimeInterval? = nil)` lets
+  every bare `.rateLimited` CONSTRUCTION keep compiling (default fills in) AND
+  every value-less `case .rateLimited:` MATCH still matches (ignoring the
+  payload), and synthesized `Equatable` still derives. That's how US-1253
+  carried the 429 `Retry-After` onto `EdgeAPIError.rateLimited` without touching
+  the ~6 existing call/match sites — contrast the `.badRequest(detail:)` case in
+  US-1255 where adding values would have broken dozens of matchers.
 - `@SceneStorage` is keyed by string and SCENE-scoped (per iPad window): a child
   view and the shell can share per-scene state by declaring the SAME key (US-1157
   `shell.focusedItemId` — `ItemCanvasSceneHost` writes it, `MainShell` restores

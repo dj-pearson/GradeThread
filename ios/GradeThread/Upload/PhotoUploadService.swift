@@ -109,6 +109,13 @@ public final class PhotoUploadService {
                 Task { @MainActor in completion() }
             }
         }
+
+        // US-1253: sweep stranded staged JPEGs at launch, independent of the
+        // sign-out `cancelAll` reset. A temp file is orphaned if the app is
+        // killed between `writeToTempFile` and a terminal upload state, so
+        // neither the post-link unlink nor `finalizeCancellation`'s sweep ever
+        // runs for it — those files would otherwise accumulate across launches.
+        cleanupStaleTempFiles()
     }
 
     // MARK: - Public API
@@ -528,6 +535,26 @@ public final class PhotoUploadService {
         let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         for url in urls where url.lastPathComponent.hasPrefix("photo-upload-") {
             try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// US-1253: removes staged `photo-upload-*` JPEGs older than `maxAge`,
+    /// independent of the sign-out `cancelAll` path. A file this old is past any
+    /// reasonable in-flight or pending-retry window — a `LocalPendingMutation`
+    /// re-uploads from disk on the very next sync (minutes), so a JPEG still
+    /// present a day later is genuinely orphaned (the app was killed mid-upload).
+    /// `maxAge` / `now` are injectable so the age threshold is unit-testable.
+    func cleanupStaleTempFiles(olderThan maxAge: TimeInterval = 24 * 60 * 60, now: Date = .now) {
+        let dir = FileManager.default.temporaryDirectory
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .creationDateKey]
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: Array(keys))) ?? []
+        for url in urls where url.lastPathComponent.hasPrefix("photo-upload-") {
+            let values = try? url.resourceValues(forKeys: keys)
+            guard let stamp = values?.contentModificationDate ?? values?.creationDate else { continue }
+            if now.timeIntervalSince(stamp) > maxAge {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
     }
 }

@@ -12,7 +12,13 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     /// unverified). The classic App Store rejection trip-wire when a demo /
     /// review account signs in via email-password without confirming.
     case emailUnverified
-    case rateLimited
+    /// US-1253: a 429 rate-limit. `retryAfter` carries the server's
+    /// `Retry-After` hint (seconds) when present so the UI can show a concrete
+    /// "try again in Ns" instead of a vague "in a moment". The associated value
+    /// has a `nil` default so every existing `.rateLimited` construction / match
+    /// site keeps compiling (the multipart + `from(statusCode:)` paths have no
+    /// header to read and stay nil).
+    case rateLimited(retryAfter: TimeInterval? = nil)
     case notFound(detail: String?)
     case badRequest(detail: String?)
     case serverError(detail: String?)
@@ -31,7 +37,10 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return "Your session expired. Sign in again to continue."
         case .emailUnverified:
             return "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
-        case .rateLimited:
+        case .rateLimited(let retryAfter):
+            if let retryAfter, retryAfter >= 1 {
+                return "You're going a little too fast. Try again in \(Int(retryAfter.rounded(.up)))s."
+            }
             return "You're going a little too fast. Try again in a moment."
         case .notFound(let detail):
             return detail ?? "We couldn't find that."
