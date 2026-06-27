@@ -107,3 +107,4 @@ __pycache__/
 listings_rows.csv
 export/
 scripts/seed-demo-account.sql
+supabase/.temp/cli-latest
