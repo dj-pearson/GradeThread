@@ -3930,3 +3930,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:02:45 AM
 ---
+## US-1267: iOS automations: send a minimal isActive PATCH on toggle instead of rebuilding the whole rule
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:08:05 AM
+---

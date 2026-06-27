@@ -5885,7 +5885,7 @@
     {
       "id": "US-1267",
       "priority": 1267,
-      "passes": false,
+      "passes": true,
       "title": "iOS automations: send a minimal isActive PATCH on toggle instead of rebuilding the whole rule",
       "description": "As a user toggling an automation, the toggle shouldn't round-trip the entire rule through a draft and clobber server-managed fields or concurrent edits, so toggling is safe.",
       "acceptanceCriteria": [
