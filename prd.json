@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1397,
+  "nextId": 1405,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -7621,6 +7621,113 @@
         "Reduced-motion respected throughout"
       ],
       "notes": "[P2][Android/Release] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated."
+    },
+    {
+      "id": "US-1397",
+      "title": "SEO: FlipDesk marketing/SEO surface",
+      "priority": 1400,
+      "passes": false,
+      "description": "As a prospective reseller, I can find a public FlipDesk page that ranks for eBay reseller-tool keywords and ties grading to resale.",
+      "acceptanceCriteria": [
+        "New /flipdesk public route (+ reseller-tools angle) registered in PUBLIC_ROUTES + prerender + sitemap",
+        "SoftwareApplication JSON-LD (FlipDesk: crosslisting, repricing, comps, inventory, reconciliation) + FAQPage + BreadcrumbList; SSR/prerendered (AI crawlers do not run JS)",
+        "Keyword-mapped copy tying grading->eBay resale; links to grading standard + condition index",
+        "build + eslint + prerender sync-guard clean"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1398",
+      "title": "SEO: codify the grading standard with exact tolerances + standard framing",
+      "priority": 1399,
+      "passes": false,
+      "description": "As GradeThread, I publish exact per-tier + per-factor tolerances and assert our scale AS the clothing condition standard, like PSA.",
+      "acceptanceCriteria": [
+        "/grading-standard + /condition-grading state exact per-tier measurable definitions and per-factor (Fabric30/Structural25/Cosmetic20/Functional15/Odor10) tolerances",
+        "Explicit market-descriptive standard-setting framing (the canonical clothing condition standard)",
+        "Strengthened DefinedTermSet/DefinedTerm + a spec Dataset/TechArticle entity, emitted in SSR",
+        "build + eslint + jsonld parity clean"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1399",
+      "title": "SEO: AI-crawler SSR/crawlability hardening",
+      "priority": 1398,
+      "passes": false,
+      "description": "As AI answer engines (which mostly do NOT run JS), I can read the grading standard, condition-index data, transparency figures, and certificates as server HTML.",
+      "acceptanceCriteria": [
+        "Audit + fix any client-only data surfaces (e.g. /transparency, condition-index) so key facts render in prerender/Pages-Function HTML",
+        "Key numeric facts present in initial HTML (no JS required)",
+        "Verify via curl/no-JS fetch of the key routes",
+        "no regression to existing prerender parity tests"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1400",
+      "title": "SEO: Condition Index as the canonical record (Pop Report equivalent)",
+      "priority": 1350,
+      "passes": false,
+      "description": "As a buyer/seller/AI engine, I treat the Condition Index as the system-of-record for clothing condition->value.",
+      "acceptanceCriteria": [
+        "Frame + strengthen /condition-index as the canonical record; surface grade->realized-price prominently",
+        "Aggregate-only, sample-size gated, non-thin (original data); Dataset JSON-LD complete",
+        "SSR; internal links to standard + FlipDesk"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1401",
+      "title": "SEO: eBay marketplace guides (grading + FlipDesk)",
+      "priority": 1349,
+      "passes": false,
+      "description": "As a reseller searching how to sell used clothes on eBay, I find non-commodity guides that tie condition grading + FlipDesk.",
+      "acceptanceCriteria": [
+        "Guide(s): how to sell used clothes on eBay / eBay condition for used clothes / cross-listing, answer-capsule + Q&A formatted",
+        "Use first-party data (condition index), not generic listicle; Article + FAQPage",
+        "Registered, prerendered, internally linked"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1402",
+      "title": "SEO: keyword-target registry",
+      "priority": 1348,
+      "passes": false,
+      "description": "As the team, route copy + new content is keyword-mapped (primary/secondary/question) per cluster, not narrative.",
+      "acceptanceCriteria": [
+        "A keyword registry (per-route primary/secondary/question keywords + intent + cluster)",
+        "Used to guide titles/descriptions/H1s on key routes",
+        "Documented; no thin keyword stuffing"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1403",
+      "title": "SEO: GEO content-formatting pass",
+      "priority": 1347,
+      "passes": false,
+      "description": "As an AI engine, key pages open with a 40-60 word answer capsule and Q&A pairs, and Organization carries entity sameAs.",
+      "acceptanceCriteria": [
+        "Answer-capsule openings on key authority pages; FAQ as Q&A pairs",
+        "Organization sameAs extended (Wikidata/LinkedIn/Crunchbase when available)",
+        "build/parity clean"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1404",
+      "title": "SEO: IndexNow automation",
+      "priority": 1300,
+      "passes": false,
+      "description": "As content publishes/deploys, URLs are auto-submitted to IndexNow.",
+      "acceptanceCriteria": [
+        "Host /<key>.txt; auto-submit on blog/cert publish; deploy-time bulk submit",
+        "Gated on INDEXNOW_KEY; no-op when unset",
+        "wired in content publish hooks + a deploy step"
+      ],
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
     }
   ]
 }
