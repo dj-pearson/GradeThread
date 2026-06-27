@@ -5716,7 +5716,7 @@
     {
       "id": "US-1254",
       "priority": 1254,
-      "passes": false,
+      "passes": true,
       "title": "iOS Team management: scope to the active workspace and gate writes on the caller's role",
       "description": "As an admin operating inside a shared workspace, the Team screen should manage that workspace's team, not my personal one, so multi-workspace management isn't a dead-end showing the wrong members.",
       "acceptanceCriteria": [

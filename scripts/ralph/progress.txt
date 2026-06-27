@@ -3970,3 +3970,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  8:30:30 AM
 ---
+## US-1254: iOS Team management: scope to the active workspace and gate writes on the caller's role
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  8:39:17 AM
+---
