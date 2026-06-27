@@ -7485,7 +7485,7 @@
     {
       "id": "US-1386",
       "priority": -98614,
-      "passes": false,
+      "passes": true,
       "title": "Support tickets (+ support.reply deep link)",
       "description": "As a user, I can create support tickets and read agent replies in-app.",
       "acceptanceCriteria": [
