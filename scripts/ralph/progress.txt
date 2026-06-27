@@ -3994,3 +3994,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:19:40 AM
 ---
+## US-1247: iOS inventory price filter: define explicit semantics for unpriced items (don't silently drop)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:22:34 AM
+---
