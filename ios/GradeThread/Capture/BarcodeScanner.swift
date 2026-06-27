@@ -52,6 +52,18 @@ public final class BarcodeScanner: NSObject {
     private var lastEmittedAt: Date = .distantPast
     private static let dedupeWindow: TimeInterval = 1.0
 
+    /// Single-shot gate. Once the first code is delivered we suppress every
+    /// later emit and finish the stream, so two simultaneously-visible
+    /// barcodes can't race to deliver different codes after the consumer has
+    /// already accepted one. Reset when a fresh `detections()` stream opens.
+    private var hasEmitted = false
+
+    /// One reusable Vision request, lazily built and reused across every
+    /// sample buffer instead of allocating a fresh request per frame.
+    /// Only ever touched on the serial `videoQueue`, so `nonisolated(unsafe)`
+    /// is race-free here.
+    nonisolated(unsafe) private var barcodeRequest: VNDetectBarcodesRequest?
+
     // MARK: - Permission
 
     public static func authorizationStatus() -> AVAuthorizationStatus {
@@ -102,7 +114,12 @@ public final class BarcodeScanner: NSObject {
     /// receives one detected code; iterate at most once for the
     /// single-shot scan-and-dismiss flow the AC describes.
     public func detections() -> AsyncStream<String> {
-        AsyncStream { continuation in
+        // A fresh consumer begins a new single-shot scan, so re-open the gate
+        // and clear the dedupe memory from any prior scan.
+        hasEmitted = false
+        lastEmittedCode = nil
+        lastEmittedAt = .distantPast
+        return AsyncStream { continuation in
             detectionContinuation = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
@@ -172,12 +189,21 @@ public final class BarcodeScanner: NSObject {
     }
 
     private func deliver(code: String) {
+        // Single-shot: the first code wins. Runs on the main actor, so this
+        // gate is serialized — a second frame carrying a different barcode
+        // can't slip an emit through after the first.
+        guard !hasEmitted else { return }
         if code == lastEmittedCode, Date().timeIntervalSince(lastEmittedAt) < Self.dedupeWindow {
             return
         }
+        hasEmitted = true
         lastEmittedCode = code
         lastEmittedAt = .now
         detectionContinuation?.yield(code)
+        // Close the stream so the consumer's `for await` ends after exactly
+        // one code and no further frames are emitted.
+        detectionContinuation?.finish()
+        detectionContinuation = nil
     }
 }
 
@@ -191,6 +217,26 @@ extension BarcodeScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
     ) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
+        // Build the Vision request once and reuse it across frames — Vision
+        // re-runs the same request object per `perform`, so there's no need to
+        // allocate (and configure symbologies on) a new one every sample
+        // buffer. Safe to lazily init here: this delegate only ever fires on
+        // the serial `videoQueue`.
+        let request = reusableBarcodeRequest()
+
+        let handler = VNImageRequestHandler(
+            cvPixelBuffer: pixelBuffer,
+            orientation: .right,  // back camera natively rotated
+            options: [:]
+        )
+        try? handler.perform([request])
+    }
+
+    /// Lazily builds (once) and returns the shared barcode request. Only
+    /// called from `captureOutput`, which runs serially on `videoQueue`, so
+    /// the check-then-store is race-free.
+    nonisolated private func reusableBarcodeRequest() -> VNDetectBarcodesRequest {
+        if let existing = barcodeRequest { return existing }
         let request = VNDetectBarcodesRequest { [weak self] request, _ in
             guard let observations = request.results as? [VNBarcodeObservation] else { return }
             for obs in observations {
@@ -200,12 +246,7 @@ extension BarcodeScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
         request.symbologies = BarcodeScanner.symbologies
-
-        let handler = VNImageRequestHandler(
-            cvPixelBuffer: pixelBuffer,
-            orientation: .right,  // back camera natively rotated
-            options: [:]
-        )
-        try? handler.perform([request])
+        barcodeRequest = request
+        return request
     }
 }

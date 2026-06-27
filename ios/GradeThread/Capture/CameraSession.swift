@@ -116,6 +116,18 @@ public final class CameraSession: NSObject {
             // shop. We never request flash explicitly — outdoor / indoor
             // sourcing is fine on a modern back camera.
             settings.flashMode = .off
+            // Opt this shot in to the highest quality the output allows.
+            // `maxPhotoQualityPrioritization` (set to `.quality` at config
+            // time) only raises the *ceiling*; each settings object still
+            // defaults to `.balanced`, so without this the full-quality
+            // pipeline is never actually exercised. We clamp to the output's
+            // configured ceiling so we never request a level it can't honour
+            // (rawValue compare — the Obj-C enum isn't `Comparable`).
+            settings.photoQualityPrioritization =
+                output.maxPhotoQualityPrioritization.rawValue
+                    >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue
+                ? .quality
+                : output.maxPhotoQualityPrioritization
 
             output.capturePhoto(with: settings, delegate: self)
         }
