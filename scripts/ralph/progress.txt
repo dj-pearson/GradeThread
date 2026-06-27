@@ -4010,3 +4010,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:42:41 AM
 ---
+## US-1240: iOS reconcile 'Create all': bounded concurrency + per-item progress
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:47:10 AM
+---

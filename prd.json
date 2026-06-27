@@ -5532,7 +5532,7 @@
     {
       "id": "US-1240",
       "priority": 1240,
-      "passes": false,
+      "passes": true,
       "title": "iOS reconcile 'Create all': bounded concurrency + per-item progress",
       "description": "As a seller reconciling orphan orders, I want 'Create all' to run with bounded concurrency and show progress, so a large queue isn't a multi-second-per-item serial march.",
       "acceptanceCriteria": [
