@@ -7662,7 +7662,7 @@
         "Verify via curl/no-JS fetch of the key routes",
         "no regression to existing prerender parity tests"
       ],
-      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+      "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived. [DEFERRED 2026-06-27: /transparency already SSRs all authority content (methodology, section headings, FAQ); only live numeric values hydrate client-side. Server-rendering them needs a build-time fetch of the prod API (fragile — could fail CI builds) for moderate gain. condition-index is fully SSR. Revisit only if AI-citation analytics show the live figures matter.]"
     },
     {
       "id": "US-1400",
@@ -7707,7 +7707,7 @@
       "id": "US-1403",
       "title": "SEO: GEO content-formatting pass",
       "priority": 1347,
-      "passes": false,
+      "passes": true,
       "description": "As an AI engine, key pages open with a 40-60 word answer capsule and Q&A pairs, and Organization carries entity sameAs.",
       "acceptanceCriteria": [
         "Answer-capsule openings on key authority pages; FAQ as Q&A pairs",
