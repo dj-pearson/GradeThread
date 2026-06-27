@@ -206,6 +206,16 @@ struct AIExtractView: View {
     }
 
     private func retry() {
+        // US-1212/US-1231: if the failure was photos not landing, restarting the
+        // extract alone is a no-op — the upload tasks are already terminal
+        // (.failed), so waitForUploads returns immediately on the same empty set
+        // and we bail again ("says Try again but nothing happens"). Re-enqueue the
+        // failed uploads first so the retry actually re-sends the photos; the
+        // restarted extract then waits for them and runs server-side once they
+        // land.
+        if failedUploadCount > 0 {
+            onRetryUploads()
+        }
         manager.clear(for: inventoryItemId)
         manager.start(
             itemId: inventoryItemId,

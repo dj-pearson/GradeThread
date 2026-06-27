@@ -160,12 +160,39 @@ final class AIExtractionManager {
         ])
 
         guard !extractPhotos.isEmpty else {
+            // No photo reached the server (failed signed-URL mint, storage PUT,
+            // or item_photos link), so the extract endpoint is NEVER called —
+            // the tell-tale "Untitled item with nothing in the edge logs"
+            // (uploads/DB hit Supabase/Kong, not the edge). Break down the
+            // terminal upload states so the underlying failure is diagnosable
+            // from telemetry next time.
+            let terminal = uploadStore.tasks(inventoryItemId: itemId)
+            func count(_ predicate: (PhotoUploadTask) -> Bool) -> Int { terminal.filter(predicate).count }
             Telemetry.event("ai_extract_bail", props: [
                 "reason": "no_uploads",
                 "item_id": itemId,
                 "captured": photos.count,
+                "tasks": terminal.count,
+                "failed": count { if case .failed = $0.phase { return true }; return false },
+                "uploaded": count { if case .uploaded = $0.phase { return true }; return false },
+                "cancelled": count { if case .cancelled = $0.phase { return true }; return false },
             ])
-            phases[itemId] = .failed("Your photos didn't finish uploading in time — check your connection and reopen this item to try again.")
+            // Degrade like the offline and server-error branches instead of
+            // dead-ending on a bare "Untitled" item: on-device OCR can still read
+            // the tag for a brand/size from the in-memory capture (no upload
+            // needed) and seed a title, so the user lands on a usable item with a
+            // review. The photos keep retrying in the background via the queued
+            // pending mutations (US-1231 follow-up).
+            if await applyLiveTextFallback(photos: photos, store: store) {
+                Telemetry.event("ai_extract_no_uploads_livetext", props: ["item_id": itemId])
+                await finish(itemId: itemId, store: store)
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                phases[itemId] = .ready
+            } else {
+                phases[itemId] = .failed(
+                    "Your photos didn't finish uploading — check your connection, then tap Try again. They're saved and keep retrying in the background."
+                )
+            }
             return
         }
 
