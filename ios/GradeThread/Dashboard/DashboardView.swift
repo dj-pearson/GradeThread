@@ -49,16 +49,19 @@ struct DashboardView: View {
 
     var body: some View {
         Group {
-            if items.isEmpty && sales.isEmpty {
-                // US-693: while the very first sync is still pulling, show
-                // skeleton cards instead of flashing the Welcome empty state.
-                if syncStatus.phase == .syncing {
-                    loadingState
-                } else {
-                    emptyState
-                }
-            } else {
+            // US-1261: route the empty cache through `display` so an existing
+            // user on an offline cold launch sees an unavailable/retry state
+            // rather than the first-run Welcome (which looked like their
+            // inventory had vanished). See `DashboardView.display`.
+            switch display {
+            case .content:
                 dashboard
+            case .loading:
+                loadingState
+            case .welcome:
+                emptyState
+            case .unavailable:
+                unavailableState
             }
         }
         .navigationTitle("Home")
@@ -83,6 +86,51 @@ struct DashboardView: View {
         // field they actually read changes, not on every unrelated re-render.
         .onChange(of: derivedSignature, initial: true) { _, _ in
             rebuildRollups()
+        }
+    }
+
+    /// US-1261: which of the four home surfaces to render for the current
+    /// `@Query` snapshot + sync phase. Computed from a PURE decision (testable
+    /// without a `ModelContainer`) so the offline-cold-launch path is covered.
+    private var display: HomeDisplay {
+        DashboardView.display(
+            hasItems: !items.isEmpty,
+            hasSales: !sales.isEmpty,
+            phase: syncStatus.phase
+        )
+    }
+
+    /// The four mutually-exclusive home surfaces.
+    enum HomeDisplay: Equatable {
+        /// Real KPI dashboard — the cache has rows.
+        case content
+        /// Skeletons while the first sync is actively pulling (US-693).
+        case loading
+        /// First-run Welcome — genuinely empty AND online/synced.
+        case welcome
+        /// US-1261: offline with an empty cache — we can't tell "no inventory"
+        /// from "not synced to this device yet", so show an unavailable/retry
+        /// state instead of falsely claiming the user has no items.
+        case unavailable
+    }
+
+    /// Pure mapping from cache emptiness + sync phase to the home surface.
+    ///
+    /// The empty cache is ambiguous offline: a brand-new user and an existing
+    /// user whose data hasn't reached this device both have zero local rows.
+    /// Resolve it by the sync phase — only show the first-run Welcome when we're
+    /// genuinely online/synced (`.idle`/`.pending`); treat `.offline` as an
+    /// unavailable/retry state, and an in-flight `.syncing`/`.reconnecting` as a
+    /// loading state.
+    static func display(hasItems: Bool, hasSales: Bool, phase: SyncStatusStore.Phase) -> HomeDisplay {
+        if hasItems || hasSales { return .content }
+        switch phase {
+        case .syncing, .reconnecting:
+            return .loading
+        case .offline:
+            return .unavailable
+        case .idle, .pending:
+            return .welcome
         }
     }
 
@@ -399,6 +447,26 @@ struct DashboardView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .accessibilityLabel("Loading your dashboard")
+    }
+
+    // MARK: - Unavailable (offline, empty cache) state
+
+    /// US-1261: shown when the cache is empty AND we're offline — an existing
+    /// user opening the app before sync populates would otherwise see the
+    /// first-run Welcome and think their inventory vanished. Reuses the shared
+    /// `ErrorStateView` so the retry affordance matches the rest of the app; the
+    /// retry re-requests an inventory pull (same as pull-to-refresh).
+    private var unavailableState: some View {
+        ErrorStateView(
+            title: "Dashboard unavailable",
+            message: "You're offline and your inventory hasn't synced to this device yet. Reconnect to load it.",
+            systemImage: "wifi.slash",
+            retryTitle: "Retry",
+            retry: {
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            }
+        )
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     // MARK: - Empty (first-run) state
