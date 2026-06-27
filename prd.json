@@ -7459,7 +7459,7 @@
     {
       "id": "US-1384",
       "priority": -98616,
-      "passes": false,
+      "passes": true,
       "title": "Onboarding flow",
       "description": "As a new user, I get a first-run welcome, pick a use case that routes my first action, select a plan, and grant permissions.",
       "acceptanceCriteria": [
