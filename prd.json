@@ -5442,7 +5442,7 @@
     {
       "id": "US-1233",
       "priority": 1233,
-      "passes": false,
+      "passes": true,
       "title": "iOS Vision inference precision: brand word-boundary match + numeric-size lower bound",
       "description": "As a seller, I want brand/size auto-detection from the tag to avoid false positives, so 'fleece' doesn't infer brand 'Lee' and a stray '0' isn't read as a size.",
       "acceptanceCriteria": [

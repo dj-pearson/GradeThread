@@ -4034,3 +4034,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:11:20 AM
 ---
+## US-1233: iOS Vision inference precision: brand word-boundary match + numeric-size lower bound
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:15:48 AM
+---
