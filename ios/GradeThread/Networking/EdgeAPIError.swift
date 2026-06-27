@@ -91,7 +91,7 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         switch statusCode {
         case 401, 403: return .unauthorized
         case 404:      return .notFound(detail: detail)
-        case 429:      return .rateLimited
+        case 429:      return .rateLimited()
         case 400...499: return .badRequest(detail: detail)
         case 500...599: return .serverError(detail: detail)
         default:        return .serverError(detail: detail)
