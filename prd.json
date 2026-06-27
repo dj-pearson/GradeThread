@@ -7694,7 +7694,7 @@
       "id": "US-1402",
       "title": "SEO: keyword-target registry",
       "priority": 1348,
-      "passes": false,
+      "passes": true,
       "description": "As the team, route copy + new content is keyword-mapped (primary/secondary/question) per cluster, not narrative.",
       "acceptanceCriteria": [
         "A keyword registry (per-route primary/secondary/question keywords + intent + cluster)",
