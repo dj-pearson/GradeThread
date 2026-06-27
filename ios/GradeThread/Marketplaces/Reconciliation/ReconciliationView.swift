@@ -162,26 +162,40 @@ struct ReconciliationView: View {
     }
 
     private var bulkBar: some View {
-        HStack {
-            Text("\(store.count) unmatched listing\(store.count == 1 ? "" : "s")")
-                .font(.subheadline)
-            Spacer()
-            Button {
-                AppRouter.haptic()
-                bulkConfirming = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "square.and.arrow.down.on.square")
-                    Text("Create all (\(store.count))")
+        HStack(spacing: 10) {
+            // US-1240: while a bulk Create-All runs, show per-item progress
+            // instead of the static count + button so a large queue isn't an
+            // opaque multi-second wait.
+            if let progress = store.bulkProgress {
+                ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+                    .tint(Color.brandNavy)
+                    .frame(maxWidth: 120)
+                Text("Creating \(progress.done) of \(progress.total)…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Spacer()
+            } else {
+                Text("\(store.count) unmatched listing\(store.count == 1 ? "" : "s")")
+                    .font(.subheadline)
+                Spacer()
+                Button {
+                    AppRouter.haptic()
+                    bulkConfirming = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.down.on.square")
+                        Text("Create all (\(store.count))")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.brandNavy)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
                 }
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.brandNavy)
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
+                .disabled(store.isWorking)
             }
-            .disabled(store.isWorking)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

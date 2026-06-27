@@ -12,6 +12,15 @@ public final class ReconciliationStore {
         case failed(message: String)
     }
 
+    /// Incremental progress for the bulk Create-All run (US-1240). nil when no
+    /// bulk run is in flight; otherwise carries `(done, total)` so the view can
+    /// surface per-item progress instead of a single opaque spinner.
+    public struct BulkProgress: Equatable {
+        public let done: Int
+        public let total: Int
+        public init(done: Int, total: Int) { self.done = done; self.total = total }
+    }
+
     public var phase: Phase = .loading
     public var lastBulkResult: ReconciliationBulkResult?
     /// Transient error from a single Create/Link action, surfaced as a toast.
@@ -19,6 +28,8 @@ public final class ReconciliationStore {
     /// than replacing the whole screen with a load-failure banner.
     public var lastActionError: String?
     public var isWorking: Bool = false
+    /// Live progress of a bulk Create-All run (US-1240); nil when idle.
+    public var bulkProgress: BulkProgress?
 
     private let service: ReconciliationService
 
@@ -82,12 +93,18 @@ public final class ReconciliationStore {
         service: ReconciliationService
     ) async {
         guard !isWorking else { return }
-        isWorking = true
-        defer { isWorking = false }
-
         let snapshot = orphans
         guard !snapshot.isEmpty else { return }
-        let result = await service.createAll(snapshot, userId: userId)
+        isWorking = true
+        bulkProgress = BulkProgress(done: 0, total: snapshot.count)
+        defer { isWorking = false; bulkProgress = nil }
+
+        // US-1240: the service runs the creates with bounded concurrency and
+        // reports incremental progress; mirror each tick onto the observable
+        // `bulkProgress` so the view shows "Creating X of Y…".
+        let result = await service.createAll(snapshot, userId: userId) { [weak self] done, total in
+            self?.bulkProgress = BulkProgress(done: done, total: total)
+        }
         lastBulkResult = result
 
         // Remove the ones that succeeded — anything in `failures` stays.

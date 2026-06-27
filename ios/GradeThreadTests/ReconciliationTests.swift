@@ -118,6 +118,20 @@ final class ReconciliationTests: XCTestCase {
         }
         XCTAssertEqual(store.count, 0)
         XCTAssertNil(store.lastBulkResult)
+        // US-1240: no bulk run in flight initially.
+        XCTAssertNil(store.bulkProgress)
+    }
+
+    // US-1240: per-item progress is surfaced beyond the single isWorking flag.
+    func test_store_bulkProgress_isEquatableByDoneAndTotal() {
+        XCTAssertEqual(
+            ReconciliationStore.BulkProgress(done: 2, total: 5),
+            ReconciliationStore.BulkProgress(done: 2, total: 5)
+        )
+        XCTAssertNotEqual(
+            ReconciliationStore.BulkProgress(done: 2, total: 5),
+            ReconciliationStore.BulkProgress(done: 3, total: 5)
+        )
     }
 
     func test_store_runAction_removesOnSuccess() async {

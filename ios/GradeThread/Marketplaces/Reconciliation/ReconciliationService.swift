@@ -155,25 +155,62 @@ public final class ReconciliationService {
         }
     }
 
-    /// Runs `createItem` for every orphan. Per-row failures are
-    /// collected; one bad row doesn't stop the batch.
+    /// Maximum number of orphans to create concurrently in `createAll`. Mirrors
+    /// `DraftsLibraryStore.bulkSaveConcurrency` (US-1166): each create is an
+    /// independent multi-row write (inventory_items insert + listing mirror +
+    /// match flip) with no shared mutable state, so a small bounded fan-out turns
+    /// the old multi-second-per-item serial march into overlapping round-trips
+    /// without flooding the connection pool.
+    static let bulkCreateConcurrency = 4
+
+    /// Runs `createItem` for every orphan with bounded concurrency (US-1240).
+    /// Per-row failures are collected (one bad row doesn't stop the batch), and
+    /// `progress` is invoked on the main actor with `(done, total)` after each
+    /// chunk resolves so the UI can surface incremental progress instead of a
+    /// single opaque spinner.
     public func createAll(
         _ orphans: [OrphanEbayListing],
-        userId: String
+        userId: String,
+        progress: (@MainActor (Int, Int) -> Void)? = nil
     ) async -> ReconciliationBulkResult {
+        let total = orphans.count
+        guard total > 0 else { return ReconciliationBulkResult(succeeded: 0, failures: []) }
+
         var succeeded = 0
         var failures: [(String, String)] = []
-        for orphan in orphans {
-            let outcome = await createItem(from: orphan, userId: userId)
-            switch outcome.kind {
-            case .created:
-                succeeded += 1
-            case .failed(let message):
-                failures.append((orphan.id, message))
-            case .linked, .ignored:
-                // Shouldn't happen from createItem but guard explicitly.
-                break
+        var done = 0
+        progress?(0, total)
+
+        // US-1240: create in bounded-concurrency chunks instead of awaiting each
+        // createItem serially. Each create is independent, so the chunked task
+        // group is safe; results fold back here on the @MainActor service.
+        for chunk in orphans.chunked(into: Self.bulkCreateConcurrency) {
+            let results = await withTaskGroup(
+                of: (orphanId: String, ok: Bool, message: String?).self
+            ) { group -> [(orphanId: String, ok: Bool, message: String?)] in
+                for orphan in chunk {
+                    group.addTask {
+                        let outcome = await self.createItem(from: orphan, userId: userId)
+                        switch outcome.kind {
+                        case .created:
+                            return (orphan.id, true, nil)
+                        case .failed(let message):
+                            return (orphan.id, false, message)
+                        case .linked, .ignored:
+                            // createItem only ever returns .created/.failed; guard.
+                            return (orphan.id, false, "Unexpected outcome.")
+                        }
+                    }
+                }
+                var acc: [(orphanId: String, ok: Bool, message: String?)] = []
+                for await r in group { acc.append(r) }
+                return acc
             }
+            for r in results {
+                done += 1
+                if r.ok { succeeded += 1 } else { failures.append((r.orphanId, r.message ?? "Create failed.")) }
+            }
+            progress?(done, total)
         }
         return ReconciliationBulkResult(succeeded: succeeded, failures: failures)
     }
@@ -309,5 +346,17 @@ private extension String {
     var nonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+// US-1240: split a collection into fixed-size chunks for bounded-concurrency
+// processing (mirrors the US-1166 helper in DraftsLibraryStore). private so it
+// can't collide with a future shared helper.
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
     }
 }
