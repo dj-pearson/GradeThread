@@ -160,7 +160,12 @@ private struct TemplateRow: View {
 
     private var summary: String? {
         var parts: [String] = []
-        if let c = template.ebayCondition { parts.append(EbayCondition.resolve(c).label) }
+        // US-1268: show the real stored condition (recognized → its label,
+        // unrecognized → the raw value), never a coerced "Excellent" fallback;
+        // a blank/absent condition contributes nothing.
+        if let conditionLabel = EbayCondition.displayLabel(for: template.ebayCondition) {
+            parts.append(conditionLabel)
+        }
         if template.descriptionTemplate?.isEmpty == false { parts.append("boilerplate") }
         if !template.itemSpecifics.isEmpty {
             parts.append("\(template.itemSpecifics.count) specific\(template.itemSpecifics.count == 1 ? "" : "s")")

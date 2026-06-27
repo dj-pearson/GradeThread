@@ -43,14 +43,19 @@ final class ScheduledDropsStore {
         }
     }
 
-    /// Reschedule a drop to an explicit instant. Optimistically updates + re-sorts
-    /// the local list on success; surfaces an error alert on failure.
+    /// Reschedule a drop to an explicit instant. Optimistically moves the row to
+    /// its new sorted slot on success; surfaces an error alert on failure.
     func reschedule(_ drop: ScheduledDrop, to date: Date) async {
         do {
             try await service.reschedule(listingId: drop.id, to: date)
             if let index = drops.firstIndex(where: { $0.id == drop.id }) {
-                drops[index] = drop.withScheduledDate(date)
-                drops.sort { $0.scheduledPublishAt < $1.scheduledPublishAt }
+                // US-1268: move just the changed row to its sorted slot rather
+                // than re-sorting the whole (server-sorted) list each time.
+                let updated = drop.withScheduledDate(date)
+                drops.remove(at: index)
+                let insertAt = drops.firstIndex { $0.scheduledPublishAt > updated.scheduledPublishAt }
+                    ?? drops.endIndex
+                drops.insert(updated, at: insertAt)
             }
             actionBanner = "Drop rescheduled."
             HapticFeedback.success()

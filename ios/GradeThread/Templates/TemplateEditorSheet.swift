@@ -157,6 +157,9 @@ struct TemplateEditorSheet: View {
     private func save() async {
         isSaving = true
         defer { isSaving = false }
+        // "No default" (nil selection) persists as "" — PublishDialog.apply then
+        // treats an empty (or unrecognized) condition as a deliberate no-op,
+        // leaving the composer's condition untouched (US-1268).
         draft.ebayCondition = conditionSelection?.rawValue ?? ""
         draft.itemSpecifics = Self.collapse(specifics)
         let ok = await store.save(draft, editingId: existing?.id)

@@ -711,8 +711,13 @@ private struct ComposerForm: View {
             let base = description.trimmingCharacters(in: .whitespacesAndNewlines)
             description = base.isEmpty ? boiler : "\(base)\n\n\(boiler)"
         }
-        if let cond = template.ebayCondition, !cond.isEmpty {
-            condition = EbayCondition.resolve(cond)
+        // US-1268: overwrite only when the template sets a RECOGNIZED condition.
+        // An empty value ("No default") OR a non-empty-but-unrecognized stored
+        // string is a deliberate no-op — consistent with the editor, which
+        // renders both as "No default" — rather than coercing to "Excellent"
+        // via EbayCondition.resolve.
+        if let cond = template.ebayCondition, let parsed = EbayCondition(rawValue: cond) {
+            condition = parsed
         }
         if let note = template.conditionDescription, !note.isEmpty {
             conditionDescription = note

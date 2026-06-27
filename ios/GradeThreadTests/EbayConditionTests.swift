@@ -34,4 +34,23 @@ final class EbayConditionTests: XCTestCase {
             XCTAssertEqual(EbayCondition.resolve(condition.rawValue), condition)
         }
     }
+
+    // MARK: - displayLabel (US-1268: no invented fallback)
+
+    func test_displayLabel_recognizedValueMapsToLabel() {
+        XCTAssertEqual(EbayCondition.displayLabel(for: "USED_GOOD"), EbayCondition.usedGood.label)
+        XCTAssertEqual(EbayCondition.displayLabel(for: "NEW"), EbayCondition.new.label)
+    }
+
+    func test_displayLabel_unrecognizedValueShownVerbatim_notExcellent() {
+        // Must NOT coerce to "Pre-owned – Excellent" the way resolve() does.
+        XCTAssertEqual(EbayCondition.displayLabel(for: "USED"), "USED")
+        XCTAssertEqual(EbayCondition.displayLabel(for: "SOMETHING_NEW"), "SOMETHING_NEW")
+    }
+
+    func test_displayLabel_blankOrNilReturnsNil() {
+        XCTAssertNil(EbayCondition.displayLabel(for: nil))
+        XCTAssertNil(EbayCondition.displayLabel(for: ""))
+        XCTAssertNil(EbayCondition.displayLabel(for: "   "))
+    }
 }

@@ -78,24 +78,28 @@ final class TemplateStore {
     // MARK: - Private
 
     private func upsert(_ t: ListingTemplate) {
-        if let i = templates.firstIndex(where: { $0.id == t.id }) {
-            templates[i] = t
-        } else {
-            templates.append(t)
-        }
+        // US-1268: mutate the already-sorted list in place rather than
+        // re-sorting the whole array on every optimistic change. Drop the prior
+        // copy (if editing) and re-insert at its sorted slot.
+        templates.removeAll { $0.id == t.id }
         // The server enforces a single default; mirror that locally so the UI
         // doesn't briefly show two defaults before the next reload.
         if t.isDefault {
-            for i in templates.indices where templates[i].id != t.id {
+            for i in templates.indices {
                 templates[i].isDefault = false
             }
         }
-        templates = sorted(templates)
+        let index = templates.firstIndex { !orderedBefore($0, t) } ?? templates.endIndex
+        templates.insert(t, at: index)
     }
 
     private func sorted(_ list: [ListingTemplate]) -> [ListingTemplate] {
-        list.sorted {
-            ($0.sortOrder, $0.name.lowercased()) < ($1.sortOrder, $1.name.lowercased())
-        }
+        list.sorted(by: orderedBefore)
+    }
+
+    /// Ordering predicate matching the server sort (`sort_order` then case-
+    /// insensitive `name`), reused for both the load sort and the in-place upsert.
+    private func orderedBefore(_ a: ListingTemplate, _ b: ListingTemplate) -> Bool {
+        (a.sortOrder, a.name.lowercased()) < (b.sortOrder, b.name.lowercased())
     }
 }

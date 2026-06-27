@@ -28,11 +28,26 @@ enum EbayCondition: String, CaseIterable, Identifiable {
 
     /// Resolves a server condition string to a case, defaulting to
     /// "Pre-owned – Excellent" (the most common resale condition) when the
-    /// value is missing or unrecognized.
+    /// value is missing or unrecognized. Use this only where a concrete
+    /// condition must be chosen (e.g. the publish composer's initial picker);
+    /// for display, prefer ``displayLabel(for:)`` so an unrecognized value
+    /// isn't misrepresented as "Excellent".
     static func resolve(_ raw: String?) -> EbayCondition {
         guard let raw, let match = EbayCondition(rawValue: raw) else {
             return .usedExcellent
         }
         return match
+    }
+
+    /// A human label for a stored condition string that invents NO fallback
+    /// (US-1268): a recognized value maps to its label; an unrecognized but
+    /// non-empty value is shown verbatim so a row never misrepresents what's
+    /// actually stored. Returns nil for a missing/blank value (nothing to show).
+    static func displayLabel(for raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return EbayCondition(rawValue: trimmed)?.label ?? trimmed
     }
 }
