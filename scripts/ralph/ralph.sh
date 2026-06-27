@@ -125,11 +125,16 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # signal honored here — the loose `[[US-xxxx]]` links in `notes` prose are
   # NOT parsed (they mix "depends on" with "pairs with" and would deadlock).
   OPEN_COUNT=$(jq '[.userStories[] | select(.passes==false)] | length' "$PRD_FILE")
+  # NOTE: bind the dep id to $d before the `$open | …` pipe. Writing
+  # `($open | index(.))` rebinds `.` to $open inside the pipe, so it computes
+  # index($open) (an array self-match = 0, never null) and EVERY story with a
+  # non-empty dependsOn is wrongly treated as blocked. `. as $d | index($d)`
+  # keeps the dep id, so a story is blocked only by deps that are genuinely open.
   STORY_JSON=$(jq -c '
     ([.userStories[] | select(.passes==false) | .id]) as $open
     | [ .userStories[]
         | select(.passes==false)
-        | select( any((.dependsOn // [])[]; ($open | index(.)) != null) | not ) ]
+        | select( any((.dependsOn // [])[]; . as $d | ($open | index($d)) != null) | not ) ]
     | sort_by(.priority) | reverse | .[0] // empty
   ' "$PRD_FILE")
 
@@ -152,7 +157,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       ([.userStories[] | select(.passes==false) | .id]) as $open
       | .userStories[]
       | select(.passes==false)
-      | [ (.dependsOn // [])[] | select( ($open | index(.)) != null ) ] as $unmet
+      | [ (.dependsOn // [])[] | . as $d | select( ($open | index($d)) != null ) ] as $unmet
       | select($unmet | length > 0)
       | "         \(.id) (prio \(.priority)) blocked by: \($unmet | join(", "))"
     ' "$PRD_FILE"
