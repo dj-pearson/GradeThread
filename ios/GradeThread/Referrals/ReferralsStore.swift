@@ -37,7 +37,11 @@ final class ReferralsStore {
     }
 
     /// People referred who are awaiting qualification or the reward grant.
-    var inProgress: Int { (me?.stats.pending ?? 0) + (me?.stats.qualified ?? 0) }
+    /// US-1255: derived as total − granted (clamped ≥ 0) rather than
+    /// pending + qualified, so the three stat columns ALWAYS reconcile
+    /// (Referred = In progress + Rewarded) even if the server adds an
+    /// intermediate `reward_status` that isn't pending/qualified/granted.
+    var inProgress: Int { max(0, (me?.stats.total ?? 0) - (me?.stats.granted ?? 0)) }
 
     var alreadyReferred: Bool { me?.referredBy != nil }
 
@@ -69,9 +73,10 @@ final class ReferralsStore {
         do {
             let res = try await service.redeem(code: code)
             guard res.ok else {
-                // US-1205: ok:false (invalid/expired/self code) used to return
-                // silently — give the user a reason instead of a bare error buzz.
-                redeemError = "That code isn't valid. Double-check it and try again."
+                // US-1205/US-1255: a rejected redeem now carries a machine reason
+                // (invalid/expired/self/already-referred/suspended) — map it to
+                // specific copy instead of one generic "code isn't valid".
+                redeemError = RedeemRejection.message(for: res.reason)
                 return false
             }
             redeemSucceeded = true

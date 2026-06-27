@@ -165,6 +165,33 @@ public actor EdgeAPI {
         try await performRaw(method: method, path: path, query: query, bodyData: bodyData)
     }
 
+    /// US-1255: POSTs `bodyData` and returns the raw `(status, body)` so the
+    /// caller can read a domain-specific `error_code`/reason out of a 4xx body —
+    /// detail the typed `EdgeAPIError` mapping collapses (e.g. a 403 becomes the
+    /// generic `.unauthorized`). Goes through the same request build + plan-gate
+    /// interception as the typed helpers, but skips the retry/refresh loop: the
+    /// lone caller (referral redeem) is a rare manual action the user can retry,
+    /// and a thrown error here would discard exactly the reason we need. Throws
+    /// only on a transport failure (no HTTP response).
+    public func postForStatus(
+        _ path: String,
+        bodyData: Data
+    ) async throws -> (status: Int, body: Data) {
+        let request = try await buildRequest(method: "POST", path: path, query: [], bodyData: bodyData)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw EdgeAPIError.network(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw EdgeAPIError.network("Non-HTTP response")
+        }
+        interceptPlanSignals(http, data: data)
+        return (http.statusCode, data)
+    }
+
     /// POSTs a single image part (plus optional string fields) as
     /// `multipart/form-data`. Used for eBay payment-dispute evidence uploads
     /// (US-1049). Not retried — uploads aren't idempotent.

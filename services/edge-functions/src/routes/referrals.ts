@@ -332,10 +332,14 @@ referralRoutes.post("/redeem", async (c) => {
   try {
     body = await c.req.json();
   } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
+    return c.json({ error: "Invalid JSON body", error_code: "invalid_body" }, 400);
   }
+  // US-1255: every failure carries a machine-readable `error_code` so the iOS
+  // client can map invalid/self/already-referred/suspended to specific copy
+  // instead of one generic "that code isn't valid". The web client ignores it
+  // (it surfaces `error`), so this is purely additive.
   const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
-  if (!code) return c.json({ error: "code is required" }, 400);
+  if (!code) return c.json({ error: "code is required", error_code: "missing_code" }, 400);
   // US-603: attribution channel. Only 'affiliate' (a stored ?ref= captured off an
   // earned link / "Graded by GradeThread" badge) is meaningful here; anything
   // else is a manually-typed code → 'direct'.
@@ -348,10 +352,10 @@ referralRoutes.post("/redeem", async (c) => {
     .select("suspended")
     .eq("id", userId)
     .maybeSingle();
-  if (!me) return c.json({ error: "Account not found." }, 404);
+  if (!me) return c.json({ error: "Account not found.", error_code: "account_not_found" }, 404);
   if ((me as { suspended?: boolean }).suspended) {
     return c.json(
-      { error: "Suspended accounts can't redeem referral codes." },
+      { error: "Suspended accounts can't redeem referral codes.", error_code: "account_suspended" },
       403,
     );
   }
@@ -362,7 +366,9 @@ referralRoutes.post("/redeem", async (c) => {
     .select("id")
     .eq("referred_user_id", userId)
     .maybeSingle();
-  if (existing) return c.json({ error: "You've already redeemed a referral code." }, 409);
+  if (existing) {
+    return c.json({ error: "You've already redeemed a referral code.", error_code: "already_referred" }, 409);
+  }
 
   // Resolve the code → referrer.
   const { data: owner } = await supabaseAdmin
@@ -370,9 +376,9 @@ referralRoutes.post("/redeem", async (c) => {
     .select("user_id")
     .eq("code", code)
     .maybeSingle();
-  if (!owner) return c.json({ error: "That referral code doesn't exist." }, 404);
+  if (!owner) return c.json({ error: "That referral code doesn't exist.", error_code: "invalid_code" }, 404);
   if (owner.user_id === userId) {
-    return c.json({ error: "You can't redeem your own referral code." }, 400);
+    return c.json({ error: "You can't redeem your own referral code.", error_code: "self_referral" }, 400);
   }
 
   const { data: inserted, error } = await supabaseAdmin
@@ -389,10 +395,10 @@ referralRoutes.post("/redeem", async (c) => {
   if (error) {
     // Unique violation (raced) → treat as already redeemed.
     if ((error as { code?: string }).code === "23505") {
-      return c.json({ error: "You've already redeemed a referral code." }, 409);
+      return c.json({ error: "You've already redeemed a referral code.", error_code: "already_referred" }, 409);
     }
     console.error("[referrals] redeem insert failed:", error);
-    return c.json({ error: "Couldn't redeem that code." }, 500);
+    return c.json({ error: "Couldn't redeem that code.", error_code: "redeem_failed" }, 500);
   }
 
   // US-1070: apply the configured referred-user SIGNUP incentive (welcome credits

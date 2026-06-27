@@ -544,6 +544,14 @@ memory — not a progress log (the harness records progress separately).
   `{error:"ACTIVE_STRIPE_SUBSCRIPTION"}` (no `detail`) surfaces as
   `.badRequest(detail:"ACTIVE_STRIPE_SUBSCRIPTION")` — match on that string to
   branch (US-806 routes it to web billing). No dedicated EdgeAPIError case.
+- `EdgeAPIError.from` DISCARDS the `error_code` discriminator for the generic 4xx
+  cases (only workspace/email get typed cases), so a thrown EdgeAPIError can't
+  tell self-referral (400) from already-referred (409) — both collapse to
+  `.badRequest`. To branch on a domain `error_code` on iOS, call the raw
+  `EdgeAPI.postForStatus(path:bodyData:)` (returns `(status, body)` without the
+  retry/refresh loop) and decode the code yourself — don't add associated values
+  to the shared enum's cases (dozens of `.badRequest(detail:)` call sites + the
+  `case .badRequest(let detail)` matchers would break). US-1255 redeem.
 - StoreKit native sub management (US-806): `.manageSubscriptionsSheet(isPresented:)`
   (SwiftUI, iOS 17+, target is 18) is the system cancel/auto-renew sheet — no
   scene plumbing needed; refresh billing in `.onChange(of:)` when it dismisses.

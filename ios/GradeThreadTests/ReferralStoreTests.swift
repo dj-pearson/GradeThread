@@ -29,10 +29,71 @@ final class ReferralStoreTests: XCTestCase {
         XCTAssertNil(store.referralURL) // me not loaded
     }
 
-    func test_inProgress_sumsPendingQualified() {
+    func test_inProgress_isTotalMinusGranted() {
+        // US-1255: derived from total − granted so the columns reconcile.
         let store = ReferralsStore(service: FakeReferralService(me: makeMe()))
-        store.me = makeMe(pending: 1, qualified: 2, granted: 4)
-        XCTAssertEqual(store.inProgress, 3)
+        store.me = makeMe(total: 5, pending: 1, qualified: 2, granted: 2)
+        XCTAssertEqual(store.inProgress, 3) // 5 − 2
+    }
+
+    func test_statColumns_reconcile() {
+        // Referred == In progress + Rewarded, by construction.
+        let store = ReferralsStore(service: FakeReferralService(me: makeMe()))
+        store.me = makeMe(total: 7, pending: 3, qualified: 1, granted: 2)
+        let stats = store.me!.stats
+        XCTAssertEqual(stats.total, store.inProgress + stats.granted)
+    }
+
+    func test_inProgress_clampsNegativeToZero() {
+        // A granted count that somehow exceeds total never shows a negative.
+        let store = ReferralsStore(service: FakeReferralService(me: makeMe()))
+        store.me = makeMe(total: 1, granted: 3)
+        XCTAssertEqual(store.inProgress, 0)
+    }
+
+    func test_redeem_mapsReasonToSpecificCopy() async {
+        let cases: [(reason: String, expected: String)] = [
+            ("self_referral", RedeemRejection.message(for: "self_referral")),
+            ("already_referred", RedeemRejection.message(for: "already_referred")),
+            ("invalid_code", RedeemRejection.message(for: "invalid_code")),
+            ("expired", RedeemRejection.message(for: "expired")),
+        ]
+        for c in cases {
+            let store = ReferralsStore(
+                service: FakeReferralService(
+                    me: makeMe(),
+                    redeem: .success(RedeemResponse(ok: false, reason: c.reason)))
+            )
+            store.redeemCode = "FRND12"
+            let ok = await store.redeem()
+            XCTAssertFalse(ok)
+            XCTAssertEqual(store.redeemError, c.expected)
+            XCTAssertFalse(store.redeemSucceeded)
+            // Each reason maps to a distinct, non-generic message.
+            XCTAssertNotEqual(store.redeemError, RedeemRejection.generic)
+        }
+    }
+
+    func test_redeem_unknownReasonFallsBackToGeneric() async {
+        let store = ReferralsStore(
+            service: FakeReferralService(
+                me: makeMe(),
+                redeem: .success(RedeemResponse(ok: false, reason: "something_new")))
+        )
+        store.redeemCode = "FRND12"
+        let ok = await store.redeem()
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.redeemError, RedeemRejection.generic)
+    }
+
+    func test_redeemRejection_mappingIsExhaustiveAndDistinct() {
+        // Pure mapper: each known reason yields specific, distinct copy.
+        let reasons = ["invalid_code", "self_referral", "already_referred",
+                       "expired", "account_suspended", "missing_code"]
+        let messages = reasons.map { RedeemRejection.message(for: $0) }
+        XCTAssertEqual(Set(messages).count, reasons.count) // all distinct
+        for m in messages { XCTAssertNotEqual(m, RedeemRejection.generic) }
+        XCTAssertEqual(RedeemRejection.message(for: nil), RedeemRejection.generic)
     }
 
     func test_load_setsReadyAndMe() async {

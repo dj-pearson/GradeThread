@@ -28,5 +28,13 @@ final class ReferralDecodeTests: XCTestCase {
     func test_decodesRedeem() throws {
         let r = try JSONDecoder.iso8601.decode(RedeemResponse.self, from: Data(#"{"ok":true}"#.utf8))
         XCTAssertTrue(r.ok)
+        XCTAssertNil(r.reason) // US-1255: reason is optional, absent on success
+    }
+
+    func test_decodesRedeem_withReason() throws {
+        let r = try JSONDecoder.iso8601.decode(
+            RedeemResponse.self, from: Data(#"{"ok":false,"reason":"self_referral"}"#.utf8))
+        XCTAssertFalse(r.ok)
+        XCTAssertEqual(r.reason, "self_referral")
     }
 }
