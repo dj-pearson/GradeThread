@@ -7396,7 +7396,7 @@
     {
       "id": "US-1379",
       "priority": -98621,
-      "passes": false,
+      "passes": true,
       "title": "WorkManager background refresh + new-sale/new-grade notifications",
       "description": "As a seller, the app opportunistically syncs in the background and notifies me of new sales/grades.",
       "acceptanceCriteria": [

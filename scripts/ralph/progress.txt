@@ -4122,3 +4122,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 11:49:01 AM
 ---
+## US-1379: WorkManager background refresh + new-sale/new-grade notifications
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 11:54:23 AM
+---
