@@ -6156,7 +6156,7 @@
         "The API is scoped + rate-limited like api-v1, with a sandbox example",
         "Never expose per-user/PII rows; aggregates only, behind a minimum-sample threshold"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Data] Revenue line + the strongest GEO/citation lever. Added 2026-06-26."
     },
     {

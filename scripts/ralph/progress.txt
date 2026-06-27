@@ -3898,3 +3898,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026 11:01:24 PM
 ---
+## US-1285: Resale Condition Index — turn the proprietary data into a price-guide product + API
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026 11:28:54 PM
+---
