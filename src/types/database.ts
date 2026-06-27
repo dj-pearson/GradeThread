@@ -507,6 +507,24 @@ export interface DefectFound {
   impact_on_grade?: string;
 }
 
+// US-1287: sanitized per-image defect callout exposed by the public_grade_reports
+// view (migration 00313). One genuine, LOCALIZED defect: the same issue/severity/
+// location already public via defects_found, plus the normalized [x,y,w,h] bbox
+// (0..1, top-left + w/h) so the certificate can draw a PSA-style box over the
+// photo. `bbox` is non-null in the view (only localized defects are projected),
+// but typed nullable for client-side robustness.
+export interface PublicDefectAnnotation {
+  issue: string;
+  severity: "minor" | "moderate" | "major";
+  location: string;
+  bbox: [number, number, number, number] | null;
+}
+
+export interface PublicImageDefectAnnotations {
+  image_type: string;
+  annotations: PublicDefectAnnotation[];
+}
+
 // Aggregated photo-authenticity assessment from the grading vision pass
 // (US-336/US-338). A suspected result forces a human review; surfaced on the
 // public certificate. Null on grades created before migration 00061.
@@ -761,6 +779,11 @@ export interface PublicGradeReportRow {
   // fallback runs.
   factor_scores?: Record<string, number> | null;
   rubric_key?: string | null;
+  // US-1287: genuine, localized defects with their normalized bounding boxes,
+  // grouped per image_type, for the certificate's PSA-style photo callouts.
+  // Always an array (the view COALESCEs to []); absent/[] on grades whose
+  // defects were never localized — the cert falls back to the text flaw list.
+  defect_annotations?: PublicImageDefectAnnotations[] | null;
 }
 
 export interface DisputeRow {

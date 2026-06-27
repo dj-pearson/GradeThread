@@ -41,6 +41,10 @@ import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
+import {
+  AnnotatedDefectPhoto,
+  buildAnnotatedGroups,
+} from "@/components/certificate/annotated-defect-photo";
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CopyField } from "@/components/verified/copy-field";
 import {
@@ -422,6 +426,22 @@ export function CertificatePage() {
       (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY_RANK[b.severity] ?? 3)
   );
 
+  // US-1287: PSA-style defect callouts. The grader localizes most defects to a
+  // normalized bbox (exposed on the public view, migration 00313). Number them
+  // across images and keep only groups whose source photo we have a URL for.
+  // Defects with no bbox aren't drawn — they stay in the text list above.
+  const annotatedGroups = buildAnnotatedGroups(gradeReport.defect_annotations);
+  const urlByImageType = new Map<string, string>();
+  for (const img of images) {
+    const url = imageUrls[img.id];
+    if (url && !urlByImageType.has(img.image_type)) {
+      urlByImageType.set(img.image_type, url);
+    }
+  }
+  const renderableAnnotations = annotatedGroups.filter((g) =>
+    urlByImageType.has(g.image_type)
+  );
+
   // US-336/US-338 + US-348: authenticity result, reduced to public-safe booleans
   // by the view (raw detection tells stay server-side so they can't be used to
   // evade the check). `authenticity_checked` is false for grades created before
@@ -658,6 +678,32 @@ export function CertificatePage() {
             onClose={() => setLightboxIndex(null)}
             onNavigate={setLightboxIndex}
           />
+        )}
+
+        {/* US-1287: Defect callouts — the stored bounding boxes drawn over the
+            relevant photos, PSA-style, so a buyer sees exactly WHERE each flaw
+            is, not just a text list. Defects the grader couldn't localize stay
+            in the "Condition & Flaws" list below. */}
+        {renderableAnnotations.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Defect Callouts</CardTitle>
+              <CardDescription>
+                Each documented flaw highlighted on the photo, labeled by type
+                and severity — the same defects detailed in the report below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {renderableAnnotations.map((group) => (
+                <AnnotatedDefectPhoto
+                  key={group.image_type}
+                  imageType={group.image_type}
+                  url={urlByImageType.get(group.image_type)!}
+                  annotations={group.annotations}
+                />
+              ))}
+            </CardContent>
+          </Card>
         )}
 
         {/* About this item (US-760) — the structured facts a buyer wants,
