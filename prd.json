@@ -7599,7 +7599,7 @@
     {
       "id": "US-1395",
       "priority": -98605,
-      "passes": false,
+      "passes": true,
       "title": "Test suite: sync/conflict/billing unit + critical-flow E2E",
       "description": "As the team, I want the same test posture as iOS so the port’s correctness-critical logic is guarded.",
       "acceptanceCriteria": [
