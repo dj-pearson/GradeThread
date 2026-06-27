@@ -5429,7 +5429,7 @@
     {
       "id": "US-1232",
       "priority": 1232,
-      "passes": false,
+      "passes": true,
       "title": "iOS capture pipeline: honor photoQualityPrioritization, reuse barcode request, deterministic single-shot scan",
       "description": "As a user, I want full-quality captures and reliable single-barcode scanning, so quality config isn't dead and the wrong SKU isn't grabbed.",
       "acceptanceCriteria": [

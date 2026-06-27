@@ -4038,3 +4038,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:15:48 AM
 ---
+## US-1232: iOS capture pipeline: honor photoQualityPrioritization, reuse barcode request, deterministic single-shot scan
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:19:07 AM
+---
