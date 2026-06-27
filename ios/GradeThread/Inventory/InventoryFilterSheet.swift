@@ -164,10 +164,17 @@ struct InventoryFilterSheet: View {
         } header: {
             Text("Price")
         } footer: {
-            if let bounds = facets.priceBounds {
-                Text("Items range \(currencyFormatter.formatDisplay(bounds.lowerBound)) – \(currencyFormatter.formatDisplay(bounds.upperBound)). Compares the listed, then target, then cost price.")
-            } else {
-                Text("Compares the listed, then target, then cost price.")
+            VStack(alignment: .leading, spacing: 4) {
+                if let bounds = facets.priceBounds {
+                    Text("Items range \(currencyFormatter.formatDisplay(bounds.lowerBound)) – \(currencyFormatter.formatDisplay(bounds.upperBound)). Compares the listed, then target, then cost price.")
+                } else {
+                    Text("Compares the listed, then target, then cost price.")
+                }
+                // US-1247: unpriced items stay reachable under a max-only band,
+                // but a minimum hides them (an unknown price can't clear a floor).
+                if facets.unpricedCount > 0 {
+                    Text("\(facets.unpricedCount) item\(facets.unpricedCount == 1 ? "" : "s") have no price — kept when only a max is set, hidden when a min is set.")
+                }
             }
         }
     }

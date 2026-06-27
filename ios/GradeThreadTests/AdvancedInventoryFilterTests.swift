@@ -101,10 +101,23 @@ final class AdvancedInventoryFilterTests: XCTestCase {
         XCTAssertFalse(InventoryFilter.matches(item, c))
     }
 
-    func test_matches_priceBand_dropsItemsWithNoPrice() throws {
+    // US-1247: explicit null-price semantics. A `maxPrice`-only band keeps an
+    // unpriced item (the backlog stays reachable); any active `minPrice` drops
+    // it (an unknown price can't be proven to clear a floor).
+    func test_matches_priceBand_keepsUnpricedItemUnderMaxOnly() throws {
         let ctx = ModelContext(try makeContainer())
         let item = makeItem(id: "p", context: ctx)   // no prices
         var c = InventoryFilterCriteria(); c.maxPrice = 100
+        XCTAssertTrue(InventoryFilter.matches(item, c))
+    }
+
+    func test_matches_priceBand_dropsUnpricedItemUnderMinBound() throws {
+        let ctx = ModelContext(try makeContainer())
+        let item = makeItem(id: "p", context: ctx)   // no prices
+        var c = InventoryFilterCriteria(); c.minPrice = 10
+        XCTAssertFalse(InventoryFilter.matches(item, c))
+        // A min+max band still hides the unpriced item (the min governs).
+        c.maxPrice = 100
         XCTAssertFalse(InventoryFilter.matches(item, c))
     }
 
@@ -199,6 +212,19 @@ final class AdvancedInventoryFilterTests: XCTestCase {
         let ctx = ModelContext(try makeContainer())
         let facets = InventoryFacets.derive(from: [makeItem(id: "a", context: ctx)])
         XCTAssertNil(facets.priceBounds)
+    }
+
+    // US-1247: the bounds derivation excludes unpriced items from `priceBounds`
+    // (an unknown price has no slider position) but counts them so the UI can
+    // explain a max-only band keeps them.
+    func test_facets_unpricedCount_excludedFromBoundsButCounted() throws {
+        let ctx = ModelContext(try makeContainer())
+        let priced = makeItem(id: "a", context: ctx); priced.listingPrice = 25
+        let unpriced1 = makeItem(id: "b", context: ctx)   // no price
+        let unpriced2 = makeItem(id: "c", context: ctx)   // no price
+        let facets = InventoryFacets.derive(from: [priced, unpriced1, unpriced2])
+        XCTAssertEqual(facets.priceBounds, 25...26)   // single priced value, degenerate-guarded
+        XCTAssertEqual(facets.unpricedCount, 2)
     }
 
     // MARK: - SavedFilterStore

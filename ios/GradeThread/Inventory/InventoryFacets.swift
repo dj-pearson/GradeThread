@@ -41,9 +41,17 @@ public struct InventoryFacets: Equatable {
     /// none do. Used to seed the price-band slider bounds.
     public let priceBounds: ClosedRange<Double>?
 
+    /// US-1247: how many items in the snapshot carry NO effective price. The
+    /// price band excludes these from `priceBounds` (an unknown price has no
+    /// place on the slider), but a `maxPrice`-only filter deliberately KEEPS
+    /// them (see ``InventoryFilter/matches``). Surfacing the count lets the
+    /// filter UI explain that an unpriced backlog stays reachable under a
+    /// ceiling-only band rather than silently vanishing.
+    public let unpricedCount: Int
+
     public static let empty = InventoryFacets(
         brands: [], sizes: [], colors: [], locationBins: [],
-        sources: [], categories: [], priceBounds: nil
+        sources: [], categories: [], priceBounds: nil, unpricedCount: 0
     )
 
     /// Builds the facet index from a snapshot of items. Values are trimmed;
@@ -71,6 +79,7 @@ public struct InventoryFacets: Equatable {
         var categoryCounts: [String: Int] = [:]
         var minPrice: Double?
         var maxPrice: Double?
+        var unpricedCount = 0
 
         for item in items {
             if let b = item.brand?.facetTrimmed { brandCounts[b, default: 0] += 1 }
@@ -82,6 +91,8 @@ public struct InventoryFacets: Equatable {
             if let p = InventoryFilter.effectivePrice(item) {
                 minPrice = min(minPrice ?? p, p)
                 maxPrice = max(maxPrice ?? p, p)
+            } else {
+                unpricedCount += 1
             }
         }
 
@@ -101,7 +112,8 @@ public struct InventoryFacets: Equatable {
             locationBins: byFrequency(locationCounts),
             sources: byFrequency(sourceCounts) { sourceNames[$0] ?? $0 },
             categories: byFrequency(categoryCounts, label: Self.categoryLabel),
-            priceBounds: bounds
+            priceBounds: bounds,
+            unpricedCount: unpricedCount
         )
     }
 

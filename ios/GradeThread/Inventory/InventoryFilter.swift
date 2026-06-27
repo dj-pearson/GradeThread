@@ -97,10 +97,19 @@ public enum InventoryFilter {
             if let floor = criteria.minGrade, grade < floor { return false }
         }
 
+        // Price band (US-1247): an item with NO effective price is NOT silently
+        // dropped whenever a bound is active. Explicit null-price semantics:
+        //   • a `maxPrice`-only band KEEPS the unpriced item — an unpriced
+        //     backlog item is "≤ any ceiling" and must stay reachable;
+        //   • any active `minPrice` DROPS it — an unknown price can't be proven
+        //     to clear a floor.
         if criteria.minPrice != nil || criteria.maxPrice != nil {
-            guard let price = effectivePrice(item) else { return false }
-            if let lo = criteria.minPrice, price < lo { return false }
-            if let hi = criteria.maxPrice, price > hi { return false }
+            if let price = effectivePrice(item) {
+                if let lo = criteria.minPrice, price < lo { return false }
+                if let hi = criteria.maxPrice, price > hi { return false }
+            } else if criteria.minPrice != nil {
+                return false
+            }
         }
 
         switch criteria.photoState {
