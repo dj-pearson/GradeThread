@@ -22,12 +22,39 @@ struct PublishSummary: Decodable, Equatable {
     /// it that way client-side.
     let priceValue: String
     let currency: String?
+    /// US-1237: the server-resolved eBay item specifics (Brand/Size/Color/…),
+    /// so the composer's comp lookup can scope by brand + size the same way the
+    /// item canvas does instead of searching on bare title with nil brand/size.
+    /// Optional — older drafts / non-clothing items may omit it.
+    let aspects: [String: [String]]?
 
     private enum CodingKeys: String, CodingKey {
         case title, description, condition
         case conditionDescription = "conditionDescription"
         case priceValue = "priceValue"
         case currency
+        case aspects
+    }
+
+    /// US-1237: best-effort brand pulled from the eBay aspect map, used to
+    /// narrow the composer's comp lookup. The aspect key is canonical-cased
+    /// ("Brand"), but a decoder that camelCases nested jsonb could lower it, so
+    /// look up both forms.
+    var brand: String? { aspectValue(forKeys: "Brand", "brand") }
+
+    /// US-1237: best-effort size pulled from the eBay aspect map (see `brand`).
+    var size: String? { aspectValue(forKeys: "Size", "size") }
+
+    private func aspectValue(forKeys keys: String...) -> String? {
+        guard let aspects else { return nil }
+        for key in keys {
+            if let value = aspects[key]?.first(where: {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) {
+                return value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
     }
 
     /// Rebuilds a summary that reflects the user's in-progress composer edits,
@@ -46,7 +73,8 @@ struct PublishSummary: Decodable, Equatable {
             condition: edits.condition.rawValue,
             conditionDescription: note.isEmpty ? nil : note,
             priceValue: editedPrice.isEmpty ? base.priceValue : editedPrice,
-            currency: base.currency
+            currency: base.currency,
+            aspects: base.aspects
         )
     }
 }

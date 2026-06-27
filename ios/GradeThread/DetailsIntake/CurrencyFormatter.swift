@@ -13,7 +13,12 @@ public struct CurrencyFormatter {
     private let decimalFormatter: NumberFormatter
     private let currencyFormatter: NumberFormatter
 
-    public init(locale: Locale = .current) {
+    /// `currencyCode` (US-1237) lets a caller pin the display currency for a
+    /// value that isn't in the user's own currency (e.g. an eBay comp median
+    /// returned in the marketplace's currency), so it's never silently rendered
+    /// with the wrong symbol. When nil the user's override / locale currency is
+    /// used, preserving the previous behavior.
+    public init(locale: Locale = .current, currencyCode: String? = nil) {
         self.locale = locale
 
         let decimal = NumberFormatter()
@@ -30,8 +35,10 @@ public struct CurrencyFormatter {
         currency.maximumFractionDigits = 2
         currency.minimumFractionDigits = 2
         // US-648: honor the user's currency override when set; otherwise fall
-        // back to the locale's currency (the previous behavior).
-        if let code = AppPreferences.currencyCode {
+        // back to the locale's currency (the previous behavior). US-1237: an
+        // explicit `currencyCode` arg wins over both (pins a foreign comp value
+        // to its own currency).
+        if let code = currencyCode ?? AppPreferences.currencyCode {
             currency.currencyCode = code
         }
         self.currencyFormatter = currency

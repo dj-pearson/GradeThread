@@ -149,8 +149,29 @@ final class EbayPublishTests: XCTestCase {
             condition: "USED_GOOD",
             conditionDescription: "server note",
             priceValue: "42.00",
-            currency: "USD"
+            currency: "USD",
+            aspects: nil
         )
+    }
+
+    // US-1237: brand/size are derived from the eBay aspect map so the composer's
+    // comp lookup can scope by them. Tolerant of casing + blank entries.
+    func test_publishSummary_brandSize_fromAspects() {
+        let summary = PublishSummary(
+            title: "Patagonia Better Sweater M",
+            description: "desc",
+            condition: "USED_GOOD",
+            conditionDescription: nil,
+            priceValue: "42.00",
+            currency: "USD",
+            aspects: ["Brand": ["  Patagonia  "], "Size": ["", "M"], "Color": ["Blue"]]
+        )
+        XCTAssertEqual(summary.brand, "Patagonia")
+        XCTAssertEqual(summary.size, "M")
+
+        // Missing aspects → nil (no over-broad lookup args).
+        XCTAssertNil(sampleSummary().brand)
+        XCTAssertNil(sampleSummary().size)
     }
 
     func test_publishSummaryMerging_keepsUserEdits_andBasePrice() {

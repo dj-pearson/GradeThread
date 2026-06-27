@@ -485,7 +485,14 @@ private struct ComposerForm: View {
     private func loadComps() async {
         guard !compsLoaded else { return }
         compsLoaded = true
-        if let lookup = try? await CompsService().lookup(title: summary.title, brand: nil, size: nil) {
+        // US-1237: scope the comp lookup to the LIVE composer title (what the
+        // seller is actually about to publish) plus the item's brand/size — the
+        // same dimensions the item-canvas comps search uses — instead of the
+        // server summary title with nil brand/size, which over-broadens results.
+        let lookupTitle = trimmedTitle.isEmpty ? summary.title : trimmedTitle
+        if let lookup = try? await CompsService().lookup(
+            title: lookupTitle, brand: summary.brand, size: summary.size
+        ) {
             comps = lookup.stats
         }
     }
@@ -495,9 +502,19 @@ private struct ComposerForm: View {
     /// usable comps.
     private var compContextLabel: String? {
         guard let stats = comps, stats.count > 0, let median = stats.median else { return nil }
-        let amount = MoneyFieldValidation.twoDecimalDisplay(String(median))
+        // US-1237: format the median through the currency-aware formatter, pinned
+        // to the COMP's currency (eBay returns it in the marketplace currency),
+        // so it never renders with the wrong symbol.
+        let amount = CurrencyFormatter(currencyCode: stats.currency).formatDisplay(median)
         let plural = stats.count == 1 ? "" : "s"
-        return "Active comps: median \(stats.currency) \(amount) across \(stats.count) listing\(plural)"
+        // US-1237: the price beside this line is in the listing's currency. If the
+        // comp currency differs we must NOT imply a direct comparison — flag the
+        // comp currency explicitly so the seller reads it as a different unit.
+        let listingCurrency = summary.currency ?? "USD"
+        if stats.currency != listingCurrency {
+            return "Active comps (\(stats.currency)): median \(amount) across \(stats.count) listing\(plural)"
+        }
+        return "Active comps: median \(amount) across \(stats.count) listing\(plural)"
     }
 
     // US-674: listing templates, selectable to pre-fill the draft.
@@ -655,6 +672,10 @@ private struct ComposerForm: View {
         .scrollDismissesKeyboard(.interactively)
         .keyboardDoneToolbar()
         .task { await templateStore.load() }
+        // US-1237: load comps from the ALWAYS-present composer body, not the comp
+        // caption (conditionally rendered) — so the lookup fires even when there
+        // are no comps yet to show / the price section's layout changes.
+        .task { await loadComps() }
         // US-972: applying a template overwrites the condition note (and adds
         // boilerplate to the description) — confirm before replacing the user's
         // existing content rather than silently clobbering it.
@@ -892,7 +913,6 @@ private struct ComposerForm: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .task { await loadComps() }
     }
 
     // MARK: - Profit estimate
