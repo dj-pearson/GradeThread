@@ -75,8 +75,8 @@ const PIPELINE = [
 export function FlipDeskPage() {
   return (
     <MarketingLayout
-      title="FlipDesk — eBay Reseller Management, Backed by Condition Grades"
-      description="FlipDesk is GradeThread's eBay reseller suite: source, measure, photograph, grade, comp, list, reprice, and reconcile in one place — with a standardized condition grade and verifiable certificate built into every listing."
+      title="FlipDesk — eBay Reseller Management"
+      description="FlipDesk is GradeThread's eBay reseller suite: grade, comp, list, reprice, and reconcile in one place — with a verifiable condition grade in every listing."
       canonicalPath="/flipdesk"
       jsonLd={flipdeskJsonLd()}
     >

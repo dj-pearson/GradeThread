@@ -7640,7 +7640,7 @@
       "id": "US-1398",
       "title": "SEO: codify the grading standard with exact tolerances + standard framing",
       "priority": 1399,
-      "passes": false,
+      "passes": true,
       "description": "As GradeThread, I publish exact per-tier + per-factor tolerances and assert our scale AS the clothing condition standard, like PSA.",
       "acceptanceCriteria": [
         "/grading-standard + /condition-grading state exact per-tier measurable definitions and per-factor (Fabric30/Structural25/Cosmetic20/Functional15/Odor10) tolerances",

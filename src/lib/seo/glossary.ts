@@ -411,6 +411,45 @@ function buildTierEntries(): GlossaryEntry[] {
   });
 }
 
+/** A one-line summary of a grade tier for the standard page's scale table. */
+export interface TierSummary {
+  /** The tier term, e.g. "NWT". */
+  term: string;
+  /** Numeric anchor on the 1.0–10.0 scale (string so "3–4" works for Poor). */
+  score: string;
+  /** Display label — term plus its expansion when it's an abbreviation. */
+  label: string;
+  /** Concise lead-sentence definition (sourced from the canonical glossary). */
+  summary: string;
+  /** The tier's `/grading/<slug>` spoke. */
+  path: string;
+}
+
+/**
+ * US-1398: the ordered grade tiers (10 → Poor) as one-line summaries, for the
+ * grading-standard page to show the FULL named scale on the standard page itself
+ * (PSA-style — the complete, quotable scale in one authoritative place). Sourced
+ * from the same canonical TIER_CONTENT as the glossary spokes, so the standard
+ * page and the per-tier pages can never drift.
+ */
+export function tierSummaries(): TierSummary[] {
+  return GRADE_TIERS.map((term) => {
+    const content = TIER_CONTENT[term];
+    if (!content) {
+      throw new Error(`[glossary] missing TIER_CONTENT for grade tier "${term}"`);
+    }
+    const lead = content.definition.split(". ")[0] ?? content.definition;
+    const summary = lead.endsWith(".") ? lead : `${lead}.`;
+    return {
+      term,
+      score: content.score,
+      label: content.expansion ? `${term} — ${content.expansion}` : term,
+      summary,
+      path: `/grading/${tierSlug(term)}`,
+    };
+  });
+}
+
 function buildFactorEntries(): GlossaryEntry[] {
   const keys = Object.keys(GRADE_FACTORS) as GradeFactorKey[];
   const factorSlugs = keys.map(factorSlug);

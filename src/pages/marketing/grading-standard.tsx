@@ -5,6 +5,7 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { GRADE_FACTORS } from "@/lib/constants";
+import { tierSummaries } from "@/lib/seo/glossary";
 import { StandardJustifications } from "@/components/marketing/standard-justifications";
 import {
   GRADING_STANDARD_FAQS,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/grade-standard";
 
 const FACTORS = Object.values(GRADE_FACTORS);
+const TIERS = tierSummaries();
 
 const FAQS = GRADING_STANDARD_FAQS;
 
@@ -36,13 +38,17 @@ export function GradingStandardPage() {
             The GradeThread grading standard
           </h1>
           <p className="mt-6 text-lg text-muted-foreground">
-            A standard is only a standard if it's objective, published,
-            reproducible, and independently verifiable. GradeThread grades every
-            pre-owned garment against one fixed rubric — five weighted factors
-            combined into a single 1.0–10.0 score mapped to seven named tiers —
-            so a grade means the same thing no matter who is selling. This page
-            documents that methodology in full: how the score is built, how we
-            keep it consistent, and how anyone can verify it.
+            Pre-owned clothing has never had a single, objective condition
+            standard — &ldquo;Excellent&rdquo; means one thing to one seller and
+            something else to the next. GradeThread&rsquo;s 1.0&ndash;10.0 scale
+            is that standard. A standard is only a standard if it&rsquo;s
+            objective, published, reproducible, and independently verifiable, so
+            GradeThread grades every pre-owned garment against one fixed rubric —
+            five weighted factors combined into a single 1.0&ndash;10.0 score
+            mapped to seven named tiers — and a grade means the same thing no
+            matter who is selling. This page documents that methodology in full:
+            how the score is built, how we keep it consistent, and how anyone can
+            verify it.
           </p>
         </div>
       </section>
@@ -94,6 +100,47 @@ export function GradingStandardPage() {
             </Link>
             .
           </p>
+        </div>
+      </section>
+
+      {/* The full named scale — every tier on the standard page itself */}
+      <section className="border-t px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-3xl font-bold">The scale: ten to one</h2>
+          <p className="mt-3 text-muted-foreground">
+            Every grade resolves to a named tier so the number always carries the
+            same meaning. This is the complete GradeThread condition scale — the
+            same seven tiers a buyer reads on any certificate.
+          </p>
+          <div className="mt-8 overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold">Grade</th>
+                  <th className="px-4 py-3 text-left font-semibold">Tier</th>
+                  <th className="px-4 py-3 text-left font-semibold">What it means</th>
+                </tr>
+              </thead>
+              <tbody>
+                {TIERS.map((t) => (
+                  <tr key={t.term} className="border-t align-top">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums">
+                      {t.score}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <Link
+                        to={t.path}
+                        className="font-medium text-brand-navy hover:underline dark:text-foreground"
+                      >
+                        {t.label}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{t.summary}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
