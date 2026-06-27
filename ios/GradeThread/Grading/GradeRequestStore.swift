@@ -47,6 +47,12 @@ final class GradeRequestStore {
     /// The bridge submission id we poll on after submit.
     private var submissionRef: String?
 
+    /// US-1229: the in-flight submit→poll task, tracked so the sheet can cancel
+    /// it on dismissal. Without this the poll loop keeps hitting the network for
+    /// the full ~2-minute window after the user has left (its `Task.isCancelled`
+    /// guard never trips because nothing ever cancels the fire-and-forget task).
+    private var submitTask: Task<Void, Never>?
+
     // Polling cadence: ~2 minutes total. Standard SLA is hours, but the AI
     // pipeline usually finishes in seconds — we poll for the common fast path
     // and fall back to `.stillProcessing` (sync delivers the rest).
@@ -143,9 +149,27 @@ final class GradeRequestStore {
         }
     }
 
-    /// Submit the item for grading, then poll until the grade lands.
-    func submit() async {
+    /// Submit the item for grading, then poll until the grade lands. The work
+    /// runs in a tracked task so ``stop()`` (called when the sheet is dismissed)
+    /// can cancel the poll loop — its `Task.isCancelled` guard then trips and no
+    /// further status requests fire. `[weak self]` avoids a store→task→store
+    /// retain cycle (see `GradeRequestStore` leak test).
+    func submit() {
         guard canSubmit else { return }
+        submitTask?.cancel()
+        submitTask = Task { @MainActor [weak self] in
+            await self?.runSubmit()
+        }
+    }
+
+    /// Cancel the in-flight submit/poll task. Called from the sheet's
+    /// `.onDisappear` so leaving the flow stops the ~2-minute poll loop.
+    func stop() {
+        submitTask?.cancel()
+        submitTask = nil
+    }
+
+    private func runSubmit() async {
         phase = .submitting
         Telemetry.event("grade.requested", props: ["tier": tier.rawValue])
         do {

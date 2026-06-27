@@ -55,6 +55,10 @@ struct GradeRequestSheet: View {
                 if store == nil { store = GradeRequestStore(inventoryItemId: item.id) }
                 await store?.load()
             }
+            // US-1229: cancel the in-flight submit/poll task when the sheet is
+            // dismissed so it stops hitting the status endpoint every backoff
+            // interval for the rest of the ~2-minute poll window.
+            .onDisappear { store?.stop() }
         }
         .interactiveDismissDisabled(isWorking)
         .sheet(isPresented: $showCreditPaywall, onDismiss: { Task { await store?.load() } }) {
@@ -348,7 +352,7 @@ struct GradeRequestSheet: View {
             if paid {
                 showSpendConfirm = true
             } else {
-                Task { await store.submit() }
+                store.submit()
             }
         } label: {
             Label("Get certified grade", systemImage: "checkmark.seal.fill")
@@ -365,7 +369,7 @@ struct GradeRequestSheet: View {
             titleVisibility: .visible
         ) {
             Button("Grade for \(credits) credit\(credits == 1 ? "" : "s")") {
-                Task { await store.submit() }
+                store.submit()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
