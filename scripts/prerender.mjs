@@ -249,6 +249,28 @@ if (existsSync(redirectsPath)) {
   fail("dist/_redirects not found — cannot enforce the trailing-slash policy.");
 }
 
+// US-1404: host the IndexNow key file. IndexNow verifies ownership by fetching
+// https://<host>/<INDEXNOW_KEY>.txt and expecting it to contain exactly the key —
+// so without this file, every submission (the publish hooks in content-blog.ts /
+// grading-pipeline.ts and the deploy-time submit-indexnow.mjs) is rejected. We
+// emit it as a STATIC dist file when INDEXNOW_KEY is present in the build env
+// (no-op otherwise, matching the rest of the IndexNow infra). _routes.json is a
+// specific allow-list (no "/*"), so this .txt is served as a static asset, not a
+// Pages Function. The key is a 32–128 char hex/alphanumeric string.
+const indexNowKey = (process.env.INDEXNOW_KEY ?? "").trim();
+if (indexNowKey) {
+  if (/^[a-zA-Z0-9-]{8,128}$/.test(indexNowKey)) {
+    writeFileSync(join(distDir, `${indexNowKey}.txt`), indexNowKey);
+    console.log(`[prerender] wrote IndexNow key file dist/${indexNowKey}.txt`);
+  } else {
+    console.warn(
+      "[prerender] INDEXNOW_KEY is set but not a valid key (8–128 chars of [A-Za-z0-9-]) — skipping key file.",
+    );
+  }
+} else {
+  console.log("[prerender] INDEXNOW_KEY not set — IndexNow key file skipped (submissions no-op).");
+}
+
 // Force a clean exit. All work above is synchronous/awaited and finished by here
 // (vite.close() ran, dist files + _headers + _redirects are written). Vite's
 // middleware-mode dev server leaves dangling handles on Windows even after

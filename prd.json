@@ -7720,7 +7720,7 @@
       "id": "US-1404",
       "title": "SEO: IndexNow automation",
       "priority": 1300,
-      "passes": false,
+      "passes": true,
       "description": "As content publishes/deploys, URLs are auto-submitted to IndexNow.",
       "acceptanceCriteria": [
         "Host /<key>.txt; auto-submit on blog/cert publish; deploy-time bulk submit",
