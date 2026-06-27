@@ -5468,7 +5468,7 @@
     {
       "id": "US-1235",
       "priority": 1235,
-      "passes": false,
+      "passes": true,
       "title": "iOS Disclosure: composite defect photos with bounded concurrency",
       "description": "As a user generating a disclosure sheet, I want defect-photo composites to render in parallel, so N photos don't take N serial download+composite cycles.",
       "acceptanceCriteria": [

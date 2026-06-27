@@ -4026,3 +4026,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:04:42 AM
 ---
+## US-1235: iOS Disclosure: composite defect photos with bounded concurrency
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:07:15 AM
+---
