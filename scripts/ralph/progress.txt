@@ -3934,3 +3934,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  2:08:05 AM
 ---
+## US-1265: iOS templates: don't clear the previous default before the write succeeds
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  2:23:41 AM
+---

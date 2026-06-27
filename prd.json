@@ -5859,7 +5859,7 @@
     {
       "id": "US-1265",
       "priority": 1265,
-      "passes": false,
+      "passes": true,
       "title": "iOS templates: don't clear the previous default before the write succeeds",
       "description": "As a seller setting a template as default, a failed save shouldn't leave me with zero defaults, so clearing only happens once the new default is persisted.",
       "acceptanceCriteria": [
