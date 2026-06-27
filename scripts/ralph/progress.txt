@@ -4078,3 +4078,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 11:00:59 AM
 ---
+## US-1390: State restoration: config change, process death, multi-window/foldable
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 11:10:01 AM
+---

@@ -7535,7 +7535,7 @@
     {
       "id": "US-1390",
       "priority": -98610,
-      "passes": false,
+      "passes": true,
       "title": "State restoration: config change, process death, multi-window/foldable",
       "description": "As a user, my place in the app survives rotation, process death, and split-screen/foldable transitions.",
       "acceptanceCriteria": [
