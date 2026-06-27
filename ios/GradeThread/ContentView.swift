@@ -554,7 +554,7 @@ struct MainShell: View {
             // @SceneStorage before any other appear-time routing runs, so a
             // relaunched/teardown-recovered window lands where it left off.
             restorePersistedScene(router: router)
-            drainSharedInboxIfNeeded()
+            await drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.
             refreshReconcileBadge()
             // US-804: offer the one-time post-signup plan step to a fresh account.
@@ -564,7 +564,7 @@ struct MainShell: View {
         }
         .onChange(of: scenePhase) { _, newValue in
             if newValue == .active {
-                drainSharedInboxIfNeeded()
+                Task { await drainSharedInboxIfNeeded() }
                 // US-749: re-check orphan listings on foreground (an eBay sync
                 // while backgrounded may have produced new unmatched rows).
                 refreshReconcileBadge()
@@ -595,10 +595,9 @@ struct MainShell: View {
             }
             .onDisappear {
                 ShareInboxConsumer.finish(drained)
-                // Tail-recursively drain the next pending batch (if any)
-                // so a multi-share session walks the user through each
-                // batch one at a time.
-                drainSharedInboxIfNeeded()
+                // Drain the next pending batch (if any) so a multi-share
+                // session walks the user through each batch one at a time.
+                Task { await drainSharedInboxIfNeeded() }
             }
         }
         // US-804: one-time post-signup plan-selection step. Presented over the
@@ -612,11 +611,21 @@ struct MainShell: View {
         // (80% X-Plan-Warning), fed by EdgeAPI's centralized plan-gate interceptor.
         .planGatePresentation()
         // US-1181: tell the user when shared photos couldn't be read.
+        // US-1273: resume draining only after the alert is dismissed, so each
+        // queued empty batch surfaces its OWN alert instead of being silently
+        // overwritten by the next drain.
         .alert(
             "Couldn't read the shared photos",
-            isPresented: Binding(get: { shareImportError != nil }, set: { if !$0 { shareImportError = nil } })
+            isPresented: Binding(
+                get: { shareImportError != nil },
+                set: { presented in
+                    guard !presented else { return }
+                    shareImportError = nil
+                    Task { await drainSharedInboxIfNeeded() }
+                }
+            )
         ) {
-            Button("OK") { shareImportError = nil }
+            Button("OK") {}
         } message: {
             Text(shareImportError ?? "")
         }
@@ -639,15 +648,21 @@ struct MainShell: View {
     /// PhotoIntakeView pre-staged with its photos. No-op when nothing's
     /// pending, the user's signed out, or we're mid-present (the
     /// fullScreenCover guard).
-    private func drainSharedInboxIfNeeded() {
-        guard sharedIntakeBatch == nil else { return }
-        guard let drained = ShareInboxConsumer.popNext() else { return }
-        // Empty drain (every photo failed to decode) — finish, tell the user
-        // (US-1181: previously silent), then recurse to the next batch.
+    @MainActor
+    private func drainSharedInboxIfNeeded() async {
+        // Don't pop a new batch while one is presented OR while a previous
+        // batch's error alert is still up: presenting/draining the next batch
+        // would dismiss that alert and swallow the error (US-1273). The alert's
+        // dismiss handler resumes draining once the user has seen it.
+        guard sharedIntakeBatch == nil, shareImportError == nil else { return }
+        guard let drained = await ShareInboxConsumer.popNext() else { return }
+        // Empty drain (every photo failed to decode) — finish + tell the user
+        // (US-1181: previously silent), then STOP. We resume on the next batch
+        // only after this alert is dismissed (US-1273), so a following batch —
+        // successful OR another empty one — can't suppress this error.
         guard !drained.slotPhotos.isEmpty else {
             ShareInboxConsumer.finish(drained)
             shareImportError = "We couldn't read the photos you shared. Try sharing them again from the Photos app."
-            drainSharedInboxIfNeeded()
             return
         }
         Telemetry.event("share_extension_intake_opened")

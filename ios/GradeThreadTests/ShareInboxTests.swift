@@ -134,6 +134,46 @@ final class ShareInboxTests: XCTestCase {
         XCTAssertNil(mapped[.back])
     }
 
+    func test_materializeSlotPhotos_decodesBatchOffMainAndMapsSlots() throws {
+        // US-1273: the decode/thumbnail path now lives in the reusable,
+        // nonisolated `materializeSlotPhotos` (run off-main by popNext). Drive
+        // it directly from a disk batch — a known slot maps, an unknown one is
+        // dropped, and the thumbnail is materialised.
+        let inbox = sandbox.appendingPathComponent("intake-inbox", isDirectory: true)
+        try writeRawBatch(
+            into: inbox,
+            id: "materialize",
+            createdAt: Date(),
+            photos: [
+                ("front",      makeJPEG(color: .red)),
+                ("not-a-slot", makeJPEG(color: .black)),
+            ]
+        )
+        guard let batch = readBatches(from: inbox).first else {
+            return XCTFail("expected one batch")
+        }
+        let mapped = ShareInboxConsumer.materializeSlotPhotos(in: batch)
+        XCTAssertEqual(Set(mapped.keys), [.front])
+        XCTAssertNotNil(mapped[.front]?.thumbnail)
+        XCTAssertEqual(mapped[.front]?.source, .library)
+    }
+
+    func test_materializeSlotPhotos_emptyWhenNoSlotsDecode() throws {
+        // Every entry has an unknown slot → empty map (the caller treats this
+        // as the "couldn't read the shared photos" case and alerts, US-1273).
+        let inbox = sandbox.appendingPathComponent("intake-inbox", isDirectory: true)
+        try writeRawBatch(
+            into: inbox,
+            id: "all-unknown",
+            createdAt: Date(),
+            photos: [("mystery-slot", makeJPEG(color: .red))]
+        )
+        guard let batch = readBatches(from: inbox).first else {
+            return XCTFail("expected one batch")
+        }
+        XCTAssertTrue(ShareInboxConsumer.materializeSlotPhotos(in: batch).isEmpty)
+    }
+
     // MARK: - ShareIntakeView slot constants
 
     func test_shareExtensionSlotConstants_alignWithPhotoSlotType() {

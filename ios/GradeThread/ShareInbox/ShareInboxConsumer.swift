@@ -29,12 +29,39 @@ enum ShareInboxConsumer {
     /// materialised photos. Returns nil when the inbox is empty or
     /// every photo decode failed (the empty batch is consumed either
     /// way so a corrupted share doesn't replay forever).
-    static func popNext() -> DrainedBatch? {
+    ///
+    /// The expensive part — reading each JPEG off disk, decoding it into a
+    /// `UIImage`, and downsampling a thumbnail — runs in a detached task so
+    /// a multi-photo share never blocks the main actor while it decodes
+    /// (US-1273). Only the cheap manifest scan + the final publish stay on
+    /// `@MainActor`.
+    static func popNext() async -> DrainedBatch? {
         let batches = IntakeInbox.pendingBatches()
         guard let next = batches.first else { return nil }
 
+        // Decode/thumbnail off-main, then hop back here to publish.
+        let mapped = await Task.detached(priority: .userInitiated) {
+            materializeSlotPhotos(in: next)
+        }.value
+
+        if mapped.isEmpty {
+            // Empty batch — consume so the bad share doesn't replay,
+            // but signal no photos so the caller can skip the present.
+            IntakeInbox.consume(next)
+            return DrainedBatch(batch: next, slotPhotos: [:])
+        }
+        return DrainedBatch(batch: next, slotPhotos: mapped)
+    }
+
+    /// Materialises a batch's JPEGs into the `[PhotoSlotType: PhotoCapture]`
+    /// shape PhotoIntakeView expects. `nonisolated` so ``popNext()`` can run
+    /// it inside a detached task, off the main actor — it touches only the
+    /// filesystem + image decode, no main-actor state.
+    nonisolated static func materializeSlotPhotos(
+        in batch: IntakeInbox.Batch
+    ) -> [PhotoSlotType: PhotoCapture] {
         var mapped: [PhotoSlotType: PhotoCapture] = [:]
-        for entry in IntakeInbox.materializePhotos(in: next) {
+        for entry in IntakeInbox.materializePhotos(in: batch) {
             guard let slot = PhotoSlotType(rawValue: entry.slot),
                   // Build a thumbnail at the same size the camera flow
                   // uses so the slot strip preview looks consistent.
@@ -50,14 +77,7 @@ enum ShareInboxConsumer {
                 source: .library
             )
         }
-
-        if mapped.isEmpty {
-            // Empty batch — consume so the bad share doesn't replay,
-            // but signal no photos so the caller can skip the present.
-            IntakeInbox.consume(next)
-            return DrainedBatch(batch: next, slotPhotos: [:])
-        }
-        return DrainedBatch(batch: next, slotPhotos: mapped)
+        return mapped
     }
 
     /// Removes the batch's files from the App Group container. Caller
@@ -67,6 +87,7 @@ enum ShareInboxConsumer {
         IntakeInbox.consume(drained.batch)
     }
 
-    /// Same dimension PhotoLibraryPicker uses (US-174).
-    private static let thumbnailSize = CGSize(width: 240, height: 240)
+    /// Same dimension PhotoLibraryPicker uses (US-174). `nonisolated` so the
+    /// off-main ``materializeSlotPhotos(in:)`` can read it.
+    nonisolated private static let thumbnailSize = CGSize(width: 240, height: 240)
 }

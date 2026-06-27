@@ -649,6 +649,12 @@ memory — not a progress log (the harness records progress separately).
   per field). Add new saved-filter fields the same way — synthesized Codable
   would throw on legacy blobs missing the key, and `SavedFilterStore.load` uses
   `try?` so one decode failure silently wipes ALL saved views.
+- SwiftUI swallows a present that fires while another is dismissing: setting a
+  `.alert`/`.fullScreenCover` trigger in the SAME pass that dismisses the prior
+  one is dropped. When walking a QUEUE (US-1273 ShareInbox batches), don't
+  recurse to the next item synchronously after presenting an error — resume the
+  drain from the dismiss handler (alert `isPresented` binding `set:`/cover
+  `onDisappear`) so each item gets its own present.
 
 ## Frontend conventions
 - Adding a non-optional field to `ItemFullRow` (src/types/database.ts) breaks two
