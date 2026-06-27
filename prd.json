@@ -7472,7 +7472,7 @@
     {
       "id": "US-1385",
       "priority": -98615,
-      "passes": false,
+      "passes": true,
       "title": "Referrals",
       "description": "As a user, I can view and share my referral link and redeem codes.",
       "acceptanceCriteria": [
