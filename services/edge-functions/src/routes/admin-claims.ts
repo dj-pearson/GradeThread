@@ -12,6 +12,16 @@ import {
   applyClaimAccuracySignal,
   neutralizeClaimAccuracySignal,
 } from "../lib/accuracy-tracking.ts";
+import {
+  type ClaimedIssue,
+  type CoverageRecord,
+  evaluateClaimScope,
+  issueGuaranteeRemedy,
+  type RemedyContext,
+  type RemedyDeps,
+} from "../lib/guarantee-remedy.ts";
+import { getStripe } from "../lib/stripe-client.ts";
+import { sendGuaranteeRemedyEmail } from "../lib/email.ts";
 
 // US-867: admin review of buyer trust-guarantee claims. Mounted at
 // /api/admin/claims — inherits authMiddleware + adminAuthMiddleware from main.ts
@@ -74,6 +84,8 @@ interface ReportRow {
   defects_found: unknown;
   detected_style_attributes: unknown;
   detailed_notes: unknown;
+  // US-1279: documented coverage scope, for the out-of-scope claim flagging.
+  coverage?: CoverageRecord | null;
 }
 
 function auditLog(
@@ -117,6 +129,146 @@ async function loadClaimContext(claimId: string) {
   return claim as unknown as ClaimRow;
 }
 
+// US-1280: issue the grade-fee-back remedy for an APPROVED, in-scope claim.
+// Fail-soft — the approval is already committed, so a remedy hiccup is logged for
+// operator follow-up and never throws back into the request. Idempotent via the
+// guarantee_remedies ledger (claim_id UNIQUE), so a re-approve never double-pays.
+async function runGuaranteeRemedy(c: Context<AdminEnv>, claim: ClaimRow): Promise<void> {
+  try {
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select("submission_id, coverage")
+      .eq("id", claim.grade_report_id)
+      .maybeSingle();
+    if (!report) return;
+    const r = report as { submission_id: string; coverage: CoverageRecord | null };
+
+    const { data: sub } = await supabaseAdmin
+      .from("submissions")
+      .select(
+        "id, title, garment_category, payment_status, stripe_payment_intent_id, service_tier",
+      )
+      .eq("id", r.submission_id)
+      .maybeSingle();
+    if (!sub) return;
+    const s = sub as {
+      title: string | null;
+      garment_category: string | null;
+      payment_status: string | null;
+      stripe_payment_intent_id: string | null;
+      service_tier: string | null;
+    };
+
+    const claimedIssues = (Array.isArray(claim.claimed_issues)
+      ? claim.claimed_issues
+      : []) as ClaimedIssue[];
+    const scope = evaluateClaimScope(claimedIssues, r.coverage, s.garment_category ?? "");
+
+    const ctx: RemedyContext = {
+      claimId: claim.id,
+      gradeReportId: claim.grade_report_id,
+      submissionId: r.submission_id,
+      sellerUserId: claim.seller_user_id,
+      scope,
+      payment: {
+        paymentStatus: s.payment_status ?? "unpaid",
+        stripePaymentIntentId: s.stripe_payment_intent_id,
+        serviceTier: s.service_tier ?? "standard",
+      },
+    };
+
+    const deps: RemedyDeps = {
+      claimRemedy: async (cx) => {
+        // INSERT ... ON CONFLICT (claim_id) DO NOTHING via PostgREST upsert with
+        // ignoreDuplicates: a returned row means WE inserted it (own the remedy);
+        // an empty result means a remedy already exists → skip.
+        const { data, error } = await supabaseAdmin
+          .from("guarantee_remedies")
+          .upsert(
+            {
+              claim_id: cx.claimId,
+              grade_report_id: cx.gradeReportId,
+              submission_id: cx.submissionId,
+              seller_user_id: cx.sellerUserId,
+              documented_zones: cx.scope.documentedZones,
+            },
+            { onConflict: "claim_id", ignoreDuplicates: true },
+          )
+          .select("id");
+        if (error) throw new Error(error.message);
+        return (data?.length ?? 0) > 0;
+      },
+      refundStripe: async (paymentIntentId, claimId) => {
+        const stripe = getStripe();
+        if (!stripe) throw new Error("Stripe not configured (STRIPE_SECRET_KEY)");
+        const refund = await stripe.refunds.create(
+          {
+            payment_intent: paymentIntentId,
+            reason: "requested_by_customer",
+            metadata: { guarantee_claim_id: claimId, refund_reason: "grade_accuracy_guarantee" },
+          },
+          { idempotencyKey: `guarantee-remedy:${claimId}` },
+        );
+        return { refundId: refund.id, cents: refund.amount ?? 0 };
+      },
+      grantCredits: async (userId, credits, notes) => {
+        const { error } = await supabaseAdmin.rpc("grant_grade_credits", {
+          p_user_id: userId,
+          p_credits: credits,
+          p_reason: "refund",
+          p_notes: notes,
+        });
+        if (error) throw new Error(error.message);
+      },
+      recordResult: async (claimId, result) => {
+        await supabaseAdmin
+          .from("guarantee_remedies")
+          .update({
+            fee_refund_method: result.feeRefundMethod,
+            fee_refund_cents: result.feeRefundCents,
+            fee_refund_credits: result.feeRefundCredits,
+            regrade_credits: result.regradeCredits,
+            stripe_refund_id: result.stripeRefundId,
+          })
+          .eq("claim_id", claimId);
+      },
+    };
+
+    const result = await issueGuaranteeRemedy(ctx, deps);
+    if (!result.issued) return;
+
+    const emailData = {
+      itemTitle: s.title ?? "your graded item",
+      feeRefundMethod: result.feeRefundMethod,
+      feeRefundCents: result.feeRefundCents,
+      feeRefundCredits: result.feeRefundCredits,
+      regradeCredits: result.regradeCredits,
+    };
+    if (claim.claimant_email) {
+      await sendGuaranteeRemedyEmail(claim.claimant_email, "buyer", emailData).catch(() => {});
+    }
+    const { data: seller } = await supabaseAdmin
+      .from("users")
+      .select("email")
+      .eq("id", claim.seller_user_id)
+      .maybeSingle();
+    const sellerEmail = (seller as { email?: string } | null)?.email;
+    if (sellerEmail) {
+      await sendGuaranteeRemedyEmail(sellerEmail, "seller", emailData).catch(() => {});
+    }
+
+    await auditLog(c, "guarantee_remedy_issued", claim.id, {
+      fee_refund_method: result.feeRefundMethod,
+      fee_refund_cents: result.feeRefundCents,
+      fee_refund_credits: result.feeRefundCredits,
+      regrade_credits: result.regradeCredits,
+      stripe_refund_id: result.stripeRefundId,
+    });
+  } catch (err) {
+    console.error("[admin-claims] guarantee remedy failed:", err);
+  }
+}
+
 // ── GET / ─────────────────────────────────────────────────────────
 // List claims (optional ?status=) newest first, enriched with the certified
 // disclosure + grade + garment metadata so the reviewer can judge the claim
@@ -144,7 +296,7 @@ adminClaimsRoutes.get("/", async (c) => {
     .from("grade_reports")
     .select(
       "id, submission_id, certificate_id, overall_score, grade_tier, ai_summary, " +
-        "buyer_writeup, defects_found, detected_style_attributes, detailed_notes",
+        "buyer_writeup, defects_found, detected_style_attributes, detailed_notes, coverage",
     )
     .in("id", reportIds);
   const reports = (reportsData ?? []) as unknown as (ReportRow & { certificate_id: string })[];
@@ -182,6 +334,15 @@ adminClaimsRoutes.get("/", async (c) => {
   const enriched = claims.map((cl) => {
     const report = reportById.get(cl.grade_report_id);
     const submission = report ? subById.get(report.submission_id) : undefined;
+    // US-1279 AC2: line the buyer's claimed defect zones up against the
+    // documented coverage scope so the reviewer immediately sees which claims
+    // fall on a NOT-DOCUMENTED zone (OUT OF SCOPE — the grade never covered it,
+    // so no remedy is owed) vs a documented one (in-scope → eligible remedy).
+    const scope = evaluateClaimScope(
+      Array.isArray(cl.claimed_issues) ? (cl.claimed_issues as ClaimedIssue[]) : [],
+      report?.coverage ?? null,
+      (submission?.garment_category as string | undefined) ?? "",
+    );
     return {
       claim: cl,
       grade: report
@@ -192,6 +353,9 @@ adminClaimsRoutes.get("/", async (c) => {
             buyer_writeup: report.buyer_writeup,
           }
         : null,
+      // US-1279 AC2: { inScope, fullyCovered, documentedZones, undocumentedZones,
+      // hasCoverage } — the coverage-gated scope of this claim.
+      coverage_scope: scope,
       disclosure: report ? disclosureForReport(report) : null,
       garment: submission
         ? {
@@ -284,6 +448,11 @@ function decisionHandler(decision: "approved" | "rejected", action: string) {
         seller_user_id: claim.seller_user_id,
         claimed_issues: claim.claimed_issues,
       });
+      // US-1280: a coverage-gated remedy when the approved claim falls within the
+      // documented scope — refund the grading fee + grant a free re-grade. Out-of-
+      // scope claims (defect in a zone the photos never showed) get no remedy.
+      // Idempotent + fail-soft; runs AFTER the decision commits.
+      await runGuaranteeRemedy(c, claim);
     } else if (decision === "rejected") {
       await neutralizeClaimAccuracySignal(claimId);
     }

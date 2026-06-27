@@ -33,10 +33,12 @@ export function BuyerGuaranteePage() {
           </h1>
           <p className="mt-6 text-lg text-muted-foreground">
             A GradeThread grade is only as valuable as it is trustworthy. Our
-            condition-backed guarantee makes the grade financially meaningful:
-            if a graded item arrives <strong>materially not as graded</strong>,
-            you can file a mediation claim, and we review it against the exact,
-            certified condition report the item was sold with.
+            Grade Accuracy Guarantee makes the grade financially meaningful: if a
+            graded item arrives <strong>materially not as graded</strong> on an
+            area the certificate documented, we make it right —{" "}
+            <strong>refund the grading fee and grant a free re-grade</strong>. You
+            file a claim, and we review it against the exact, certified condition
+            report the item was sold with.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link to="/buyer-guarantee/claim">
@@ -144,9 +146,13 @@ export function BuyerGuaranteePage() {
                     design features
                   </Link>{" "}
                   (factory distressing, raw hems, acid washes) graded as styling
-                  — these are documented before you buy. Buyer&rsquo;s remorse,
-                  fit, and changes that happen after delivery are also outside
-                  the guarantee.
+                  — these are documented before you buy. Defects in an{" "}
+                  <strong>undocumented area</strong> — a zone the seller&rsquo;s
+                  photos never showed, marked on every certificate&rsquo;s
+                  coverage map — are out of scope, since the grade never covered
+                  them. Buyer&rsquo;s remorse, fit, the item&rsquo;s purchase
+                  price and shipping, and changes that happen after delivery are
+                  also outside the guarantee.
                 </p>
               </div>
             </div>
@@ -171,21 +177,42 @@ export function BuyerGuaranteePage() {
               up for more detail.
             </li>
             <li className="rounded-lg border bg-card p-4">
-              <span className="font-semibold">3. Decision.</span> We record an
-              approved or rejected decision with a written rationale. Approved
-              claims confirm a misgrade and feed our grade-review process.
+              <span className="font-semibold">3. Decision &amp; remedy.</span> We
+              record an approved or rejected decision with a written rationale.
+              When a claim is approved and the issue falls on an area the
+              certificate documented, we issue the remedy automatically: a refund
+              of the grading fee plus a free re-grade. Approved claims also
+              confirm a misgrade and feed our grade-review process.
             </li>
           </ol>
 
-          <div className="mt-8 rounded-lg border bg-muted/40 p-4">
+          <div className="mt-8 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
+            <p className="font-semibold text-emerald-900 dark:text-emerald-200">
+              The remedy: grade-fee-back + a free re-grade
+            </p>
+            <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-300">
+              When our grade was wrong on a <strong>documented</strong> area, we
+              make it right by refunding the <strong>grading fee</strong> the
+              seller paid and granting a <strong>free re-grade</strong> — that&rsquo;s
+              the cost of the grade we got wrong, back, plus a fresh look.
+            </p>
+            <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-300">
+              We do <strong>not</strong> refund the item&rsquo;s purchase price or
+              shipping — those stay with the marketplace&rsquo;s buyer protection,
+              which this guarantee complements rather than replaces. Our remedy is
+              scoped to the thing we&rsquo;re responsible for: the accuracy of the
+              grade.
+            </p>
+          </div>
+
+          <div className="mt-4 rounded-lg border bg-muted/40 p-4">
             <p className="text-sm text-muted-foreground">
-              <strong>Scope of this version.</strong> The guarantee currently
-              provides <strong>mediation and a documented decision</strong> — it
-              does not issue automated refunds or payouts. Any refund or remedy
-              is resolved between you and the seller and through the marketplace
-              you purchased on. GradeThread&rsquo;s role is to hold the grade
-              accountable to its certified disclosure. This complements, and does
-              not replace, marketplace buyer protections.
+              <strong>Coverage-gated.</strong> Every certificate shows how much of
+              the garment the seller&rsquo;s photos documented. The guarantee
+              covers only the zones that were actually shown — a defect in an area
+              the photos never documented is out of scope, because the grade never
+              claimed to cover it. Full-coverage submissions earn the widest
+              guarantee.
             </p>
           </div>
 

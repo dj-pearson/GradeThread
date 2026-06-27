@@ -715,6 +715,65 @@ export async function sendDisputeResolvedEmail(
   });
 }
 
+// US-1280: Grade Accuracy Guarantee remedy notice (buyer + seller). Sent when an
+// approved, in-scope claim issues the grade-fee-back remedy.
+export interface GuaranteeRemedyEmailData {
+  itemTitle: string;
+  feeRefundMethod: "stripe" | "credit" | "none";
+  feeRefundCents: number;
+  feeRefundCredits: number;
+  regradeCredits: number;
+}
+
+export async function sendGuaranteeRemedyEmail(
+  to: string,
+  audience: "buyer" | "seller",
+  data: GuaranteeRemedyEmailData,
+): Promise<boolean> {
+  // Describe the grading-fee refund by the rail it was issued on. We are careful
+  // never to imply item value/shipping were refunded — the guarantee is
+  // grade-fee-back only; marketplace protection covers the item.
+  const feeLine =
+    data.feeRefundMethod === "stripe"
+      ? `Grading fee refunded: <strong>$${(data.feeRefundCents / 100).toFixed(2)}</strong> to the original payment method.`
+      : data.feeRefundMethod === "credit"
+        ? `Grading fee returned: <strong>${data.feeRefundCredits} grade credit${data.feeRefundCredits === 1 ? "" : "s"}</strong>.`
+        : `No grading fee was charged for this grade, so there's nothing to refund.`;
+
+  const regradeLine = `A <strong>free re-grade credit</strong> has been added so the item can be re-graded at no cost.`;
+
+  const intro =
+    audience === "seller"
+      ? `A Grade Accuracy Guarantee claim on your graded item <strong>"${escapeHtml(data.itemTitle)}"</strong> was approved. We've made it right:`
+      : `Your Grade Accuracy Guarantee claim for <strong>"${escapeHtml(data.itemTitle)}"</strong> was approved. Here's how we've made it right:`;
+
+  const scopeNote =
+    `<p style="margin: 16px 0 0; color: #888; font-size: 13px; line-height: 1.5;">` +
+    `The Grade Accuracy Guarantee refunds the grading fee and provides a free re-grade when our grade was wrong on a documented area. ` +
+    `It does not refund the item's purchase price or shipping — that's handled by the marketplace's buyer protection.</p>`;
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Grade Accuracy Guarantee — Approved
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      ${intro}
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 8px; border: 1px solid #eee; border-radius: 8px;">
+      <tr><td style="padding: 12px; border-bottom: 1px solid #eee; font-size: 14px; color: #333; line-height: 1.5;">${feeLine}</td></tr>
+      <tr><td style="padding: 12px; font-size: 14px; color: #333; line-height: 1.5;">${regradeLine}</td></tr>
+    </table>
+    ${scopeNote}
+  `;
+
+  return await sendEmail({
+    to,
+    subject: `Grade Accuracy Guarantee approved: ${data.itemTitle}`,
+    html: emailLayout(content),
+    category: "guarantee_remedy",
+  });
+}
+
 /**
  * Welcome email: sent after user completes signup.
  */

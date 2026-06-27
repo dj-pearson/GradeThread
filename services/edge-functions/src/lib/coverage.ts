@@ -288,8 +288,11 @@ const HINT_ALIASES: Array<[string, string]> = [
   ["back", "back"],
 ];
 
-/** Zones referenced by a single free-text hint (a string may name several). */
-function zonesFromHint(hint: string): string[] {
+/** Zones referenced by a single free-text hint (a string may name several).
+ * Exported (US-1279) so the guarantee/dispute review can map a buyer's claimed
+ * defect LOCATION onto the same inspection zones the coverage engine credits,
+ * and check whether that zone was actually documented (in-scope) or not. */
+export function zonesFromHint(hint: string): string[] {
   const h = hint.toLowerCase();
   const out: string[] = [];
   for (const [token, zone] of HINT_ALIASES) {

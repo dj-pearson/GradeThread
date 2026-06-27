@@ -570,24 +570,25 @@ export function gradingByCategoryJsonLd(): JsonLd[] {
 // The condition-backed buyer trust guarantee + mediation policy. Article +
 // FAQPage, like the cornerstone pages, but its own published/modified date.
 const BUYER_GUARANTEE_PUBLISHED = "2026-06-13";
-const BUYER_GUARANTEE_MODIFIED = "2026-06-13";
+// US-1298: rewritten to the grade-fee-back + coverage-gated remedy model.
+const BUYER_GUARANTEE_MODIFIED = "2026-06-27";
 
 export const BUYER_GUARANTEE_FAQS = [
   {
     q: "What does the GradeThread buyer guarantee cover?",
-    a: "It covers an item that arrives 'materially not as graded' — where the actual condition is meaningfully worse than the certified grade and its disclosed defects. The certificate's structured disclosure (the documented flaws and the 1.0–10.0 grade across five factors) is the reference point, so the guarantee is anchored to an objective record, not an opinion.",
+    a: "The Grade Accuracy Guarantee covers an item that arrives 'materially not as graded' on an area the certificate documented — where the actual condition is meaningfully worse than the certified grade and its disclosed defects. The certificate's structured disclosure (the documented flaws and the 1.0–10.0 grade across five factors), plus the coverage map showing which zones the photos documented, is the reference point. When an approved claim falls within that documented scope, we refund the grading fee and grant a free re-grade.",
   },
   {
     q: "What does 'materially not as graded' mean?",
-    a: "A difference big enough to change the deal: a significant defect that wasn't disclosed on the certificate, or wear well beyond what the grade represents. Normal, already-disclosed flaws and intentional design features (factory distressing, raw hems) are not covered — they're documented on the certificate before you buy.",
+    a: "A difference big enough to change the deal: a significant defect that wasn't disclosed on the certificate, or wear well beyond what the grade represents — on an area the certificate's photos actually documented. Normal, already-disclosed flaws and intentional design features (factory distressing, raw hems) are not covered, and neither are defects in zones the photos never showed (every certificate marks its coverage), because the grade never claimed to cover them.",
   },
   {
     q: "How do I file a claim?",
-    a: "Open the item's certificate, note its certificate number, and submit a claim with your contact email, a description of how the item differs from its grade, and any supporting photo links. You don't need a GradeThread account. A reviewer compares your claim against the certified disclosure and records a decision.",
+    a: "Open the item's certificate, note its certificate number, and submit a claim with your contact email, a description of how the item differs from its grade, and any supporting photo links. You don't need a GradeThread account. A reviewer compares your claim against the certified disclosure and coverage map and records a decision.",
   },
   {
     q: "Does GradeThread issue refunds?",
-    a: "Not in this version. GradeThread mediates by reviewing the claim against the certified disclosure and issuing a decision; any refund or remedy is handled between you and the seller (and through the marketplace you purchased on). The guarantee makes the grade financially meaningful by holding it to account, not by acting as an escrow or insurer.",
+    a: "Yes — but specifically a grade-fee-back remedy, not item value. When a claim is approved and the issue falls on a documented area, GradeThread refunds the grading fee the seller paid and grants a free re-grade. We do not refund the item's purchase price or shipping — those are covered by the marketplace's buyer protection, which this guarantee complements rather than replaces. Our remedy is scoped to what we're responsible for: the accuracy of the grade.",
   },
   {
     q: "Who can file — do I need an account?",
