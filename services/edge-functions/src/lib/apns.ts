@@ -13,6 +13,7 @@
 //   APNS_BUNDLE_ID  the app bundle id → apns-topic (e.g. com.pearsonmedia.gradethread)
 
 import { supabaseAdmin } from "./supabase.ts";
+import { FCM_DEAD_REASONS, isFcmConfigured, sendFcmToToken } from "./fcm.ts";
 
 const PROD_HOST = "https://api.push.apple.com";
 const SANDBOX_HOST = "https://api.sandbox.push.apple.com";
@@ -167,19 +168,23 @@ async function sendToToken(
 const DEAD_REASONS = new Set(["Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic"]);
 
 /**
- * Send a push to every active device of a user. Returns a per-token result
- * set. No-ops (sent=0) when APNs isn't configured — never throws.
+ * Send a push to every active device of a user, routing each token to its
+ * transport — APNs for iOS ('apns') rows, FCM for Android ('fcm') rows
+ * (push_device_tokens.platform, migration 00320). Returns a per-token result
+ * set. No-ops (configured=false) only when NEITHER transport is configured;
+ * an APNs-only or FCM-only deployment still serves its platform. Never throws.
  */
 export async function sendPushToUser(
   userId: string,
   payload: PushPayload,
 ): Promise<{ configured: boolean; sent: number; failed: number; results: PushTokenResult[] }> {
   const cfg = apnsConfig();
-  if (!cfg) return { configured: false, sent: 0, failed: 0, results: [] };
+  const fcmReady = isFcmConfigured();
+  if (!cfg && !fcmReady) return { configured: false, sent: 0, failed: 0, results: [] };
 
   const { data: tokens } = await supabaseAdmin
     .from("push_device_tokens")
-    .select("id, device_token, environment")
+    .select("id, device_token, environment, platform")
     .eq("user_id", userId)
     .eq("is_active", true);
 
@@ -187,15 +192,20 @@ export async function sendPushToUser(
     id: string;
     device_token: string;
     environment: "development" | "production";
+    platform?: string | null;
   }>;
   if (rows.length === 0) return { configured: true, sent: 0, failed: 0, results: [] };
 
-  let jwt: string;
-  try {
-    jwt = await providerToken(cfg);
-  } catch (err) {
-    console.error("[apns] provider token signing failed:", err);
-    return { configured: true, sent: 0, failed: rows.length, results: [] };
+  // Sign the APNs provider JWT once, only if there are APNs rows to serve.
+  const hasApnsRows = rows.some((r) => (r.platform ?? "apns") !== "fcm");
+  let jwt: string | null = null;
+  if (cfg && hasApnsRows) {
+    try {
+      jwt = await providerToken(cfg);
+    } catch (err) {
+      console.error("[apns] provider token signing failed:", err);
+      jwt = null;
+    }
   }
 
   const results: PushTokenResult[] = [];
@@ -204,15 +214,30 @@ export async function sendPushToUser(
   let failed = 0;
 
   for (const row of rows) {
-    const r = await sendToToken(cfg, jwt, row.device_token, row.environment, payload);
+    const platform = row.platform === "fcm" ? "fcm" : "apns";
+    let r: { status: number; reason?: string };
+    let dead = false;
+    if (platform === "fcm") {
+      if (!fcmReady) {
+        r = { status: 0, reason: "fcm_unconfigured" };
+      } else {
+        r = await sendFcmToToken(row.device_token, payload);
+        dead = r.status === 404 || (r.reason ? FCM_DEAD_REASONS.has(r.reason) : false);
+      }
+    } else {
+      if (!cfg || !jwt) {
+        r = { status: 0, reason: "apns_unconfigured" };
+      } else {
+        r = await sendToToken(cfg, jwt, row.device_token, row.environment, payload);
+        dead = r.status === 410 || (r.reason ? DEAD_REASONS.has(r.reason) : false);
+      }
+    }
     const ok = r.status === 200;
     results.push({ tokenId: row.id, ok, status: r.status, reason: r.reason });
     if (ok) sent++;
     else {
       failed++;
-      if (r.status === 410 || (r.reason && DEAD_REASONS.has(r.reason))) {
-        deadTokenIds.push(row.id);
-      }
+      if (dead) deadTokenIds.push(row.id);
     }
   }
 

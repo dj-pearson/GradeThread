@@ -443,6 +443,7 @@ notificationRoutes.post("/register", async (c) => {
   let body: {
     device_token?: unknown;
     environment?: unknown;
+    platform?: unknown;
     device_name?: unknown;
     os_version?: unknown;
     app_version?: unknown;
@@ -458,11 +459,21 @@ notificationRoutes.post("/register", async (c) => {
   if (!deviceToken || deviceToken.length < 32) {
     return c.json({ error: "device_token is required" }, 400);
   }
+  // Push transport: 'apns' (iOS, default) or 'fcm' (Android). Migration 00320.
+  const platform = body.platform === "fcm" ? "fcm" : "apns";
+
   // US-795: reject an explicit, unrecognized environment instead of silently
-  // mis-registering the token under the wrong APNs environment.
-  const environment = parsePushEnvironment(body.environment);
-  if (environment === "invalid") {
-    return c.json({ error: "environment must be 'development' or 'production'" }, 400);
+  // mis-registering the token under the wrong APNs environment. FCM has no
+  // dev/prod gateway split, so an Android token just carries 'production'.
+  let environment: "development" | "production";
+  if (platform === "fcm") {
+    environment = "production";
+  } else {
+    const parsed = parsePushEnvironment(body.environment);
+    if (parsed === "invalid") {
+      return c.json({ error: "environment must be 'development' or 'production'" }, 400);
+    }
+    environment = parsed;
   }
 
   const { data: existing } = await supabaseAdmin
@@ -476,6 +487,7 @@ notificationRoutes.post("/register", async (c) => {
     user_id: userId,
     device_token: deviceToken,
     environment,
+    platform,
     device_name: typeof body.device_name === "string" ? body.device_name : null,
     os_version: typeof body.os_version === "string" ? body.os_version : null,
     app_version: typeof body.app_version === "string" ? body.app_version : null,
