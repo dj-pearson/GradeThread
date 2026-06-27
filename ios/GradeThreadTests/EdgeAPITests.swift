@@ -14,7 +14,13 @@ final class EdgeAPITests: XCTestCase {
 
     private func makeAPI(
         token: String? = "tk_test",
-        tokenRefresher: @escaping @Sendable () async -> String? = { nil }
+        tokenRefresher: @escaping @Sendable () async -> String? = { nil },
+        // Optional dynamic provider. Defaults to a static `{ token }`; a refresh
+        // test passes a provider backed by a mutable box so it can model
+        // production, where `tokenProvider` reflects the token the refresher just
+        // minted (SupabaseShared.refreshAccessToken updates the session the
+        // provider reads). Required to assert the retry carries the FRESH token.
+        tokenProvider: (@Sendable () async -> String?)? = nil
     ) -> EdgeAPI {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
@@ -22,7 +28,7 @@ final class EdgeAPITests: XCTestCase {
         return EdgeAPI(
             baseURL: URL(string: "https://example.test")!,
             session: session,
-            tokenProvider: { token },
+            tokenProvider: tokenProvider ?? { token },
             tokenRefresher: tokenRefresher
         )
     }
@@ -370,7 +376,16 @@ final class EdgeAPITests: XCTestCase {
                     headerFields: ["Content-Type": "application/json"])!,
                 Data(#"{"ok":true}"#.utf8))
         }
-        let api = makeAPI(token: "stale", tokenRefresher: { _ = refreshes.next(); return "fresh_token" })
+        // Model production: the refresher mints a new token AND updates the
+        // session the provider reads, so the rebuilt retry request carries it.
+        let tokenBox = TokenBox("stale")
+        let api = makeAPI(
+            tokenRefresher: {
+                _ = refreshes.next()
+                tokenBox.set("fresh_token")
+                return "fresh_token"
+            },
+            tokenProvider: { tokenBox.value })
         struct Ack: Decodable { let ok: Bool }
         let ack: Ack = try await api.postMultipartImage(
             "/api/flipdesk/disputes/evidence",
@@ -637,6 +652,17 @@ final class AuthBox: @unchecked Sendable {
     func record(_ value: String?) { lock.lock(); defer { lock.unlock() }; values.append(value) }
     var first: String? { lock.lock(); defer { lock.unlock() }; return values.first ?? nil }
     var last: String? { lock.lock(); defer { lock.unlock() }; return values.last ?? nil }
+}
+
+/// Thread-safe mutable token holder. Lets a refresh test model production, where
+/// the `tokenRefresher` mints a new token AND updates the session the
+/// `tokenProvider` reads — so the rebuilt retry request picks up the fresh token.
+final class TokenBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: String?
+    init(_ value: String?) { _value = value }
+    var value: String? { lock.lock(); defer { lock.unlock() }; return _value }
+    func set(_ newValue: String?) { lock.lock(); defer { lock.unlock() }; _value = newValue }
 }
 
 // MARK: - Mock URLProtocol
