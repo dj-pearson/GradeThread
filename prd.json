@@ -6030,7 +6030,7 @@
         "Frontend consumes the coverage engine output (US-1276); no duplicate zone logic in the client",
         "build + eslint clean"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Coverage] Gamified completeness -> more photos -> better grades + wider guarantee scope. Depends on [[US-1276]]. Added 2026-06-26."
     },
     {

@@ -59,6 +59,8 @@ import {
 } from "@/components/submission/photo-upload";
 import type { RetakeBridgeState } from "@/lib/retake-submission";
 import { GradePricingSummary } from "@/components/submission/grade-pricing-summary";
+import { CoverageMeter } from "@/components/submission/coverage-meter";
+import { coverageFromImageTypes, COVERAGE_GUARANTEE_FLOOR } from "@/lib/coverage";
 
 const STEPS = [
   { label: "Garment Info", description: "Describe your garment" },
@@ -449,6 +451,20 @@ export function NewSubmissionPage() {
     requiredPhotosUploaded.some((p) => p.imageType === "back") &&
     requiredPhotosUploaded.some((p) => p.imageType === "label") &&
     requiredPhotosUploaded.some((p) => p.imageType === "detail");
+
+  // US-1277: live coverage for the in-flow meter. Scored by the shared engine
+  // (US-1276) so the percent/missing zones match exactly what the server will
+  // seal onto the certificate — no duplicate zone logic in the client. Computed
+  // only once at least one photo is staged and a garment category is known.
+  const coverage = useMemo(() => {
+    if (photos.length === 0 || !garmentInfo?.garmentCategory) return null;
+    return coverageFromImageTypes(
+      garmentInfo.garmentCategory,
+      photos.map((p) => p.imageType)
+    );
+  }, [photos, garmentInfo?.garmentCategory]);
+  const belowCoverageFloor =
+    coverage !== null && coverage.coverage_pct < COVERAGE_GUARANTEE_FLOOR;
 
   // US-948: auto-advance to Review the moment all four required photos are
   // present and validated, so the seller isn't left hunting for "Continue".
@@ -843,6 +859,23 @@ export function NewSubmissionPage() {
                 }
                 highlightSlotKeys={flaggedSlotKeys}
               />
+              {/* US-1277: live coverage meter + specific missing-zone nudge.
+                  Appears once a photo is staged; updates as photos are added. */}
+              {coverage && <CoverageMeter coverage={coverage} />}
+              {/* US-1277 AC3: below the guarantee floor we WARN (narrower
+                  guarantee scope) but never hard-block submission. */}
+              {belowCoverageFloor && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  <p className="font-medium">
+                    Lower coverage limits your guarantee.
+                  </p>
+                  <p className="mt-1">
+                    You can submit now, but the Grade Accuracy Guarantee only
+                    covers zones your photos actually document. Adding the
+                    missing shots above widens what&apos;s protected.
+                  </p>
+                </div>
+              )}
               {/* US-339: provenance/EXIF disclosure. We read camera metadata
                   (and location, if your photo contains it) from the original
                   file to support authenticity features. It is access-controlled
