@@ -60,6 +60,34 @@ final class PerRenderMemoTests: XCTestCase {
         XCTAssertNotEqual(sig, DashboardView.trendSignature(sales: sales, items: items))
     }
 
+    // MARK: - DashboardView rollup subsets (US-1263)
+
+    func test_dashboardDerivedSignature_stableUntilARollupFieldChanges() throws {
+        let context = ModelContext(try makeContainer())
+        let items = [makeItem(id: "a", title: "Tee", context: context),
+                     makeItem(id: "b", title: "Jeans", context: context)]
+        items[0].status = "listed"
+        let sales = [makeSale(id: "s1", itemId: "a", price: 20, context: context)]
+
+        let sig = DashboardView.derivedSignature(items: items, sales: sales)
+        // Same snapshot across many `body` passes → identical signature.
+        XCTAssertEqual(sig, DashboardView.derivedSignature(items: items, sales: sales))
+
+        // A status change moves on-hand / listed / aging counts.
+        items[1].status = "listed"
+        let afterStatus = DashboardView.derivedSignature(items: items, sales: sales)
+        XCTAssertNotEqual(sig, afterStatus)
+
+        // Grading an item changes the graded subset.
+        items[0].gradeValue = 8.5
+        let afterGrade = DashboardView.derivedSignature(items: items, sales: sales)
+        XCTAssertNotEqual(afterStatus, afterGrade)
+
+        // A new sale changes the week rollup.
+        let moreSales = sales + [makeSale(id: "s2", itemId: "b", price: 30, context: context)]
+        XCTAssertNotEqual(afterGrade, DashboardView.derivedSignature(items: items, sales: moreSales))
+    }
+
     // MARK: - ItemCanvasView per-render derivations (AC #4)
 
     func test_itemEditableSignature_stableUntilAnEditableFieldChanges() throws {

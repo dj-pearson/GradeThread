@@ -31,20 +31,21 @@ struct DashboardView: View {
 
     private let currency = CurrencyFormatter()
 
-    private var metrics: DashboardMetrics {
-        DashboardRollup.compute(items: items, sales: sales, now: .now)
-    }
+    // US-1263: the home rollup and its aging/graded subsets are memoized in
+    // `@State` (rebuilt only when the underlying rows change) instead of being
+    // recomputed on every `body` pass. `metrics` alone was read ~8× per pass,
+    // each read re-reducing every item and sale on the main actor; `agingItems`
+    // and `gradedItems` re-filtered the full table per read too. Same pattern as
+    // the US-967 `trendPoints` series below — rebuilt via `.onChange` keyed on a
+    // cheap signature of just the fields these rollups consume.
+    @State private var metrics: DashboardMetrics = .empty
 
     /// Oldest-first (the `@Query` sort) on-hand items past the aging
     /// threshold, capped to a short nudge list.
-    private var agingItems: [LocalInventoryItem] {
-        let now = Date.now
-        return Array(
-            items.lazy
-                .filter { DashboardRollup.isAging($0, now: now) }
-                .prefix(5)
-        )
-    }
+    @State private var agingItems: [LocalInventoryItem] = []
+
+    /// Certified-graded items (for the grades card).
+    @State private var gradedItems: [LocalInventoryItem] = []
 
     var body: some View {
         Group {
@@ -78,6 +79,58 @@ struct DashboardView: View {
         .onChange(of: trendSignature, initial: true) { _, _ in
             trendPoints = DashboardTrend.dailySeries(sales: sales, items: items, days: 14, now: .now)
         }
+        // US-1263: rebuild the metrics rollup + aging/graded subsets only when a
+        // field they actually read changes, not on every unrelated re-render.
+        .onChange(of: derivedSignature, initial: true) { _, _ in
+            rebuildRollups()
+        }
+    }
+
+    /// US-1263: recompute the memoized rollup subsets from the current `@Query`
+    /// snapshot. Driven by `.onChange(of: derivedSignature)` so the O(n) reduce
+    /// + filters run once per data change instead of on every `body` pass.
+    private func rebuildRollups() {
+        let now = Date.now
+        metrics = DashboardRollup.compute(items: items, sales: sales, now: now)
+        agingItems = Array(
+            items.lazy
+                .filter { DashboardRollup.isAging($0, now: now) }
+                .prefix(5)
+        )
+        gradedItems = items.filter { $0.gradeValue != nil }
+    }
+
+    /// Cheap signature over exactly the fields the memoized rollups consume
+    /// (`DashboardRollup.compute` + the aging predicate + the graded filter), so
+    /// they rebuild when — and only when — one of those inputs changes.
+    private var derivedSignature: Int { DashboardView.derivedSignature(items: items, sales: sales) }
+
+    static func derivedSignature(items: [LocalInventoryItem], sales: [LocalSale]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(items.count)
+        for item in items {
+            hasher.combine(item.id)
+            hasher.combine(item.status)
+            hasher.combine(item.updatedAt)
+            hasher.combine(item.listingPrice)
+            hasher.combine(item.targetPrice)
+            hasher.combine(item.acquiredPrice)
+            hasher.combine(item.gradeValue)
+        }
+        hasher.combine(sales.count)
+        for sale in sales {
+            hasher.combine(sale.inventoryItemId)
+            hasher.combine(sale.saleDate)
+            hasher.combine(sale.status)
+            hasher.combine(sale.salePrice)
+            hasher.combine(sale.platformFees)
+            hasher.combine(sale.paymentProcessingFees)
+            hasher.combine(sale.shippingCollected)
+            hasher.combine(sale.shippingCost)
+            hasher.combine(sale.gradingCost)
+            hasher.combine(sale.otherCosts)
+        }
+        return hasher.finalize()
     }
 
     // MARK: - Populated dashboard
@@ -109,11 +162,6 @@ struct DashboardView: View {
             hasher.combine(item.acquiredPrice)
         }
         return hasher.finalize()
-    }
-
-    /// Certified-graded items, newest first (for the grades card).
-    private var gradedItems: [LocalInventoryItem] {
-        items.filter { $0.gradeValue != nil }
     }
 
     private var dashboard: some View {
