@@ -17,9 +17,8 @@ Deno.env.set(
 const { backfillCertificateIntegrity, recordCertificateIntegrityShare } = await import(
   "../lib/cert-integrity-backfill.ts"
 );
-const { _resetSigningKeyCacheForTest, verifyCertIntegrity } = await import(
-  "../lib/cert-integrity.ts"
-);
+const { _resetSigningKeyCacheForTest, verifyCertIntegrity, CERT_INTEGRITY_VERSION } =
+  await import("../lib/cert-integrity.ts");
 import type {
   CertBackfillStore,
   CertIntegrityShare,
@@ -81,7 +80,7 @@ Deno.test("backfill seals every certified row missing a hash", async () => {
     for (const integ of sealedRows.values()) {
       assertEquals(integ.content_hash.length, 64);
       assert(integ.content_signature, "key configured → backfilled rows must be signed");
-      assertEquals(integ.integrity_version, 2);
+      assertEquals(integ.integrity_version, CERT_INTEGRITY_VERSION);
     }
   } finally {
     Deno.env.delete("CERT_SIGNING_KEY");

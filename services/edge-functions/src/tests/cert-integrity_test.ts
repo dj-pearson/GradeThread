@@ -208,8 +208,94 @@ Deno.test("v2 seals buyer_writeup: tampering it is detected", async () => {
 Deno.test("a v2 row with no write-up still verifies (buyer_writeup defaults to empty)", async () => {
   _resetSigningKeyCacheForTest();
   Deno.env.delete("CERT_SIGNING_KEY");
-  // BASE has no buyer_writeup; under v2 it's sealed as "".
+  // BASE has no buyer_writeup; it's sealed as "".
   const { content_hash, integrity_version } = await buildCertIntegrity(BASE);
   const ok = await verifyCertIntegrity(BASE, content_hash, null, integrity_version);
+  assertEquals(ok.status, "verified");
+});
+
+// US-1279: v3 additionally seals the documented coverage scope (coverage_pct +
+// the covered-zone set), so the guarantee scope is tamper-evident and provable.
+Deno.test("v3 seals the covered-zone scope: tampering it is detected", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+  const fields: CertIntegrityFields = {
+    ...BASE,
+    coverage_pct: 80,
+    covered_zones: ["front", "back", "collar_neckline", "cuffs"],
+  };
+  const { content_hash, integrity_version } = await buildCertIntegrity(fields);
+  assertEquals(integrity_version, CERT_INTEGRITY_VERSION); // 3
+
+  // Same scope → verified.
+  const ok = await verifyCertIntegrity(fields, content_hash, null, integrity_version);
+  assertEquals(ok.status, "verified");
+
+  // Widening the sealed covered set (claiming a zone was documented when it
+  // wasn't) against the same stored hash → mismatch. This is the exact attack
+  // the coverage-gated guarantee must resist.
+  const widened = await verifyCertIntegrity(
+    { ...fields, covered_zones: [...fields.covered_zones!, "lining", "hem"] },
+    content_hash,
+    null,
+    integrity_version,
+  );
+  assertEquals(widened.status, "mismatch");
+  assertEquals(widened.verified, false);
+});
+
+Deno.test("v3 seals coverage_pct: tampering it is detected", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+  const fields: CertIntegrityFields = { ...BASE, coverage_pct: 60, covered_zones: ["front"] };
+  const { content_hash, integrity_version } = await buildCertIntegrity(fields);
+  const bad = await verifyCertIntegrity(
+    { ...fields, coverage_pct: 100 },
+    content_hash,
+    null,
+    integrity_version,
+  );
+  assertEquals(bad.status, "mismatch");
+});
+
+Deno.test("v3 covered_zones is order-insensitive (canonicalized sorted)", () => {
+  // The covered set is a SET; the hash must not depend on the order the zones
+  // happen to be listed in the stored jsonb.
+  const a = canonicalizeCertificate(
+    { ...BASE, coverage_pct: 75, covered_zones: ["front", "back", "cuffs"] },
+    3,
+  );
+  const b = canonicalizeCertificate(
+    { ...BASE, coverage_pct: 75, covered_zones: ["cuffs", "front", "back"] },
+    3,
+  );
+  assertEquals(a, b);
+});
+
+Deno.test("a v3 row with no coverage still verifies (empty scope)", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+  // A grade with no coverage record (pre-00308) seals an empty scope under v3
+  // and round-trips, exactly as the verify endpoint passes back null coverage.
+  const fields: CertIntegrityFields = { ...BASE, coverage_pct: null, covered_zones: null };
+  const { content_hash, integrity_version } = await buildCertIntegrity(fields);
+  assertEquals(integrity_version, 3);
+  const ok = await verifyCertIntegrity(fields, content_hash, null, integrity_version);
+  assertEquals(ok.status, "verified");
+});
+
+Deno.test("legacy v2 row still verifies after the version bump to v3", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+  // Seal explicitly under v2 (a row finalized before the v3 bump), then verify
+  // it carrying its stored integrity_version=2 — coverage must be ignored.
+  const v2Fields: CertIntegrityFields = { ...BASE, buyer_writeup: "Sealed under v2." };
+  const hashV2 = await computeContentHash(v2Fields, 2);
+  const ok = await verifyCertIntegrity(
+    { ...v2Fields, coverage_pct: 42, covered_zones: ["front"] }, // ignored at v2
+    hashV2,
+    null,
+    2,
+  );
   assertEquals(ok.status, "verified");
 });

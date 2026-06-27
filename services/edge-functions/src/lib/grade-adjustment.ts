@@ -28,6 +28,12 @@ export interface AdjustableReport {
   certificate_id: string | null;
   ai_summary: string;
   buyer_writeup: string | null;
+  // US-1279: the sealed coverage scope, carried verbatim into the reseal so the
+  // integrity-v3 hash keeps matching (a score adjustment never changes which
+  // zones the photos documented). Null on pre-00308 grades / pre-v3 seals.
+  coverage?:
+    | { coverage_pct?: number | null; covered_zones?: string[] | null }
+    | null;
 }
 
 export interface GradeAdjustmentResult {
@@ -69,6 +75,9 @@ export async function applyGradeAdjustment(
       ...factors,
       ai_summary: report.ai_summary,
       buyer_writeup: report.buyer_writeup,
+      // US-1279: reseal with the unchanged coverage scope so the v3 hash matches.
+      coverage_pct: report.coverage?.coverage_pct ?? null,
+      covered_zones: report.coverage?.covered_zones ?? null,
     });
     update.content_hash = integrity.content_hash;
     update.content_signature = integrity.content_signature;

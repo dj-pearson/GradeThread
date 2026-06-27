@@ -25,7 +25,13 @@
 // v1 (US-333): scores + tier + ai_summary + certificate_id.
 // v2 (US-770): additionally seals buyer_writeup (the buyer-facing certified
 //   condition report, US-759). Old v1 rows still verify under version 1.
-export const CERT_INTEGRITY_VERSION = 2;
+// v3 (US-1279): additionally seals the photo-coverage SCOPE — coverage_pct and
+//   the sorted covered-zone set — so the documented scope of the grade (and thus
+//   the coverage-gated guarantee, US-1280) is tamper-evident and provable after
+//   the fact. A claim that a defect sits in a zone the certificate never sealed
+//   as covered can be shown out-of-scope. Old v1/v2 rows still verify under their
+//   stored version (coverage simply isn't part of their canonical form).
+export const CERT_INTEGRITY_VERSION = 3;
 
 const SIGNING_KEY_ENV = "CERT_SIGNING_KEY";
 
@@ -42,6 +48,13 @@ export interface CertIntegrityFields {
   // US-759/US-770: the longer buyer-facing write-up. Sealed from v2 onward;
   // absent/ignored when canonicalizing under version 1.
   buyer_writeup?: string | null;
+  // US-1279: the documented photo-coverage scope. Sealed from v3 onward; absent/
+  // ignored under versions 1–2. `coverage_pct` is 0–100; `covered_zones` is the
+  // set of inspection-zone ids the photos documented (order-insensitive — it's
+  // canonicalized sorted). Null/empty on grades with no coverage record (pre
+  // 00308), which seal as v3 with an empty coverage scope.
+  coverage_pct?: number | null;
+  covered_zones?: string[] | null;
 }
 
 export interface CertIntegrity {
@@ -101,6 +114,20 @@ export function canonicalizeCertificate(
   // this key, so they keep hashing exactly as they did before the bump.
   if (version >= 2) {
     obj.buyer_writeup = (f.buyer_writeup ?? "").normalize("NFC");
+  }
+  // US-1279: v3+ seals the photo-coverage scope. coverage_pct is normalized to a
+  // whole-percent string; covered_zones is sorted + comma-joined so the set is
+  // order-insensitive and deterministic. A row with no coverage record seals an
+  // empty scope ("" / "") — a defined v3 value, not a missing key.
+  if (version >= 3) {
+    obj.coverage_pct =
+      f.coverage_pct == null || !Number.isFinite(Number(f.coverage_pct))
+        ? ""
+        : String(Math.round(Number(f.coverage_pct)));
+    obj.covered_zones = [...(f.covered_zones ?? [])]
+      .map((z) => String(z))
+      .sort()
+      .join(",");
   }
   // Pass the sorted key list as the replacer so output order is fixed
   // regardless of insertion order.

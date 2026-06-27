@@ -1536,29 +1536,6 @@ export async function processSubmission(submissionId: string) {
         `Live-Verified not earned — ${liveCapture.reasons.join("; ")}.`;
     }
 
-    // US-333: tamper-evident integrity. Hash the canonical (already-public)
-    // grade fields and sign the hash if CERT_SIGNING_KEY is set. The public
-    // /cert/:id/verify endpoint re-derives this from the stored row to confirm
-    // the certificate hasn't been altered (or a screenshot forged).
-    const integrity = await buildCertIntegrity({
-      certificate_id: certificateId,
-      overall_score: compositeResult.overall_score,
-      grade_tier: compositeResult.grade_tier,
-      fabric_condition_score: compositeResult.factor_scores.fabric_condition,
-      structural_integrity_score:
-        compositeResult.factor_scores.structural_integrity,
-      cosmetic_appearance_score:
-        compositeResult.factor_scores.cosmetic_appearance,
-      functional_elements_score:
-        compositeResult.factor_scores.functional_elements,
-      odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
-      ai_summary: compositeResult.ai_summary,
-      // US-770: the buyer-facing write-up is a certified claim sealed into the
-      // content hash (integrity v2). Any future reseal-on-edit path (US-475)
-      // MUST likewise pass buyer_writeup so the recomputed hash keeps matching.
-      buyer_writeup: compositeResult.buyer_writeup,
-    });
-
     // US-484: evaluate moderation flags BEFORE the certificate becomes public.
     // The grade_reports insert below carries a non-null certificate_id, which is
     // what makes /api/content/public/certificates/:id resolvable. If we only
@@ -1663,6 +1640,34 @@ export async function processSubmission(submissionId: string) {
       // Not a flag, not a penalty; the 2D coverage stands.
       detailedNotes["verified_360"] = `${verified360.reasons.join("; ")}.`;
     }
+
+    // US-333 + US-1279: tamper-evident integrity. Hash the canonical
+    // (already-public) grade fields and sign the hash if CERT_SIGNING_KEY is set.
+    // The public /cert/:id/verify endpoint re-derives this from the stored row to
+    // confirm the certificate hasn't been altered (or a screenshot forged).
+    // Sealed AFTER coverageFinal is determined (incl. the Verified-360 upgrade)
+    // so the documented coverage SCOPE is part of the hash (integrity v3) — that
+    // scope is what the coverage-gated guarantee (US-1280) is underwritten on, so
+    // it must be provable after the fact. Any reseal-on-edit path (human-review)
+    // MUST likewise pass buyer_writeup + coverage so the recomputed hash matches.
+    const integrity = await buildCertIntegrity({
+      certificate_id: certificateId,
+      overall_score: compositeResult.overall_score,
+      grade_tier: compositeResult.grade_tier,
+      fabric_condition_score: compositeResult.factor_scores.fabric_condition,
+      structural_integrity_score:
+        compositeResult.factor_scores.structural_integrity,
+      cosmetic_appearance_score:
+        compositeResult.factor_scores.cosmetic_appearance,
+      functional_elements_score:
+        compositeResult.factor_scores.functional_elements,
+      odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
+      ai_summary: compositeResult.ai_summary,
+      buyer_writeup: compositeResult.buyer_writeup,
+      // US-1279: seal the documented coverage scope (v3).
+      coverage_pct: coverageFinal.coverage_pct,
+      covered_zones: coverageFinal.covered_zones,
+    });
 
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")

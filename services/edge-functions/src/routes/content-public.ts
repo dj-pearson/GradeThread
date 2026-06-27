@@ -714,7 +714,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
       "certificate_id, submission_id, overall_score, grade_tier, fabric_condition_score, " +
         "structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, " +
-        "buyer_writeup, content_hash, content_signature, integrity_version, created_at",
+        "buyer_writeup, coverage, content_hash, content_signature, integrity_version, created_at",
     )
     .eq("certificate_id", certId)
     .not("certificate_id", "is", null)
@@ -734,6 +734,11 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     odor_cleanliness_score: number | string;
     ai_summary: string | null;
     buyer_writeup: string | null;
+    // US-1279: the sealed coverage scope. Only consulted when integrity_version
+    // >= 3; v1/v2 rows canonicalize without it.
+    coverage:
+      | { coverage_pct?: number | null; covered_zones?: string[] | null }
+      | null;
     content_hash: string | null;
     content_signature: string | null;
     integrity_version: number | null;
@@ -769,6 +774,10 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
       // US-770: sealed under integrity v2. v1 rows store integrity_version=1,
       // and verifyCertIntegrity canonicalizes them under v1 (ignoring this).
       buyer_writeup: r.buyer_writeup ?? "",
+      // US-1279: sealed under integrity v3. v1/v2 rows canonicalize without
+      // coverage (the verifier keys off the row's stored integrity_version).
+      coverage_pct: r.coverage?.coverage_pct ?? null,
+      covered_zones: r.coverage?.covered_zones ?? null,
     },
     r.content_hash,
     r.content_signature,

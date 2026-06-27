@@ -37,6 +37,10 @@ export interface UnsealedCertRow {
   odor_cleanliness_score: number | string;
   ai_summary: string | null;
   buyer_writeup: string | null;
+  // US-1279: sealed coverage scope (v3). Null on legacy rows → empty scope.
+  coverage?:
+    | { coverage_pct?: number | null; covered_zones?: string[] | null }
+    | null;
 }
 
 export interface CertIntegrityShare {
@@ -78,7 +82,7 @@ const defaultStore: CertBackfillStore = {
       .select(
         "id, certificate_id, overall_score, grade_tier, fabric_condition_score, " +
           "structural_integrity_score, cosmetic_appearance_score, " +
-          "functional_elements_score, odor_cleanliness_score, ai_summary, buyer_writeup",
+          "functional_elements_score, odor_cleanliness_score, ai_summary, buyer_writeup, coverage",
       )
       .not("certificate_id", "is", null)
       .is("content_hash", null)
@@ -164,9 +168,11 @@ export async function backfillCertificateIntegrity(
     for (const row of fresh) {
       seen.add(row.id);
       try {
-        // Seal under the CURRENT scheme: legacy rows have no buyer_writeup, so
-        // v2 canonicalizes it as "" — exactly what the verify endpoint passes
-        // back (`r.buyer_writeup ?? ""`), so the backfilled hash round-trips.
+        // Seal under the CURRENT scheme (v3): legacy rows have no buyer_writeup
+        // or coverage, so those canonicalize as "" — exactly what the verify
+        // endpoint passes back (`r.buyer_writeup ?? ""`, `r.coverage?... ?? null`),
+        // so the backfilled hash round-trips. A row that DOES carry coverage
+        // seals its real scope.
         const integrity = await buildCertIntegrity({
           certificate_id: row.certificate_id,
           overall_score: row.overall_score,
@@ -178,6 +184,8 @@ export async function backfillCertificateIntegrity(
           odor_cleanliness_score: row.odor_cleanliness_score,
           ai_summary: row.ai_summary ?? "",
           buyer_writeup: row.buyer_writeup,
+          coverage_pct: row.coverage?.coverage_pct ?? null,
+          covered_zones: row.coverage?.covered_zones ?? null,
         });
         if (await store.seal(row.id, integrity)) {
           sealed += 1;

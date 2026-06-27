@@ -1909,7 +1909,7 @@ async function loadReportForReview(reportId: string) {
     .select(
       "id, submission_id, overall_score, grade_tier, ai_summary, buyer_writeup, certificate_id, " +
         "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
-        "functional_elements_score, odor_cleanliness_score",
+        "functional_elements_score, odor_cleanliness_score, coverage",
     )
     .eq("id", reportId)
     .maybeSingle();
@@ -1922,6 +1922,10 @@ async function loadReportForReview(reportId: string) {
     ai_summary: string;
     buyer_writeup: string | null;
     certificate_id: string | null;
+    // US-1279: carried into a reseal so the integrity-v3 hash keeps matching.
+    coverage:
+      | { coverage_pct?: number | null; covered_zones?: string[] | null }
+      | null;
   };
 }
 

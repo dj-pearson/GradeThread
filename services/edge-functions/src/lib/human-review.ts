@@ -56,15 +56,20 @@ export function scoreToGradeTier(score: number): string {
 }
 
 // The grade_reports fields that feed the certificate integrity hash and that the
-// adjust path is allowed to change. ai_summary + buyer_writeup are NOT edited by
-// a score adjustment, so they're carried through unchanged from the stored row
-// (they still must be passed so the recomputed hash keeps matching the v2 scheme).
+// adjust path is allowed to change. ai_summary + buyer_writeup + coverage are NOT
+// edited by a score adjustment, so they're carried through unchanged from the
+// stored row (they still must be passed so the recomputed hash keeps matching the
+// current canonical scheme — v3 seals the coverage scope, US-1279).
 export interface ResealInput extends FactorScores {
   certificate_id: string;
   overall_score: number;
   grade_tier: string;
   ai_summary: string;
   buyer_writeup: string | null;
+  // US-1279: the documented coverage scope, carried verbatim from the stored row
+  // (a score adjustment never changes which zones the photos documented).
+  coverage_pct?: number | null;
+  covered_zones?: string[] | null;
 }
 
 // Recompute the certificate integrity (hash + signature + version) for an
@@ -82,5 +87,8 @@ export function resealCertificate(input: ResealInput): Promise<CertIntegrity> {
     odor_cleanliness_score: input.odor_cleanliness_score,
     ai_summary: input.ai_summary,
     buyer_writeup: input.buyer_writeup,
+    // US-1279: carry the unchanged coverage scope so the v3 hash keeps matching.
+    coverage_pct: input.coverage_pct,
+    covered_zones: input.covered_zones,
   });
 }
