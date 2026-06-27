@@ -986,12 +986,61 @@ private struct SidebarSplitView: View {
     @Bindable var router: AppRouter
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } content: {
-            contentColumn
-        } detail: {
-            detailColumn
+        if router.selection.ownsContentNavigation {
+            // US-1260: Money/Marketplaces/Settings render their whole UI plus
+            // their own in-view navigation in a single NavigationStack (US-1199).
+            // In the three-column layout that left the detail (right) column
+            // stuck on a "Make a selection" placeholder nothing ever filled —
+            // the layout looked broken. Use a two-column split for these
+            // sections, where the section's own stack IS the detail column, so
+            // in-view links and value-based deep links share one place to land.
+            NavigationSplitView {
+                sidebar
+            } detail: {
+                sectionStack
+            }
+        } else {
+            // Home/Inventory keep the three-column list→detail layout: their
+            // value-based NavigationLinks resolve in the detail column.
+            NavigationSplitView {
+                sidebar
+            } content: {
+                contentColumn
+            } detail: {
+                detailColumn
+            }
+        }
+    }
+
+    /// US-1260: detail column for sections that own their navigation. The
+    /// section's main view sits at the root of a NavigationStack bound to its
+    /// per-section path, so both in-view destination links and value-based deep
+    /// links (e.g. a `sale.created` push, a negotiation deep link) resolve here.
+    private var sectionStack: some View {
+        NavigationStack(path: detailPathBinding) {
+            sectionRoot
+                .navigationDestination(for: LocalInventoryItem.self) { item in
+                    ItemCanvasSceneHost(item: item)
+                }
+                .navigationDestination(for: IntakeRoute.self) { route in
+                    IntakePlaceholder(route: route)
+                }
+                .navigationDestination(for: GradesRoute.self) { _ in
+                    GradesListView()
+                }
+                .navigationDestination(for: NegotiationRoute.self) { route in
+                    NegotiationInboxView(filterItemId: route.filterItemId)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var sectionRoot: some View {
+        switch router.selection {
+        case .sales:        MoneyPlaceholder()
+        case .marketplaces: MarketplacesPlaceholder()
+        case .settings:     SettingsView()
+        default:            EmptyView()
         }
     }
 
@@ -1034,18 +1083,11 @@ private struct SidebarSplitView: View {
             DashboardView(router: router)
         case .inventory:
             InventoryListView()
-        // US-1199: Money/Marketplaces/Settings use destination-closure
-        // NavigationLinks (e.g. MoneyView "Profit by item"), which need an
-        // enclosing NavigationStack. Without one they dead-ended on iPad. Wrap
-        // each in its own stack so in-view taps push within the content column;
-        // deep links (per-section paths) still resolve in the detail column.
-        case .sales:
-            NavigationStack { MoneyPlaceholder() }
-        case .marketplaces:
-            NavigationStack { MarketplacesPlaceholder() }
-        case .settings:
-            NavigationStack { SettingsView() }
-        case .add:
+        // US-1199/US-1260: Money/Marketplaces/Settings own their navigation in a
+        // single content-column NavigationStack, so they render in the
+        // two-column layout's `sectionStack` (detail column) instead — this
+        // branch is never reached for them. Kept exhaustive for the compiler.
+        case .sales, .marketplaces, .settings, .add:
             EmptyView()
         }
     }
@@ -1145,6 +1187,18 @@ private struct SidebarSplitView: View {
 /// stable.
 enum AppSection: String, Hashable {
     case home, inventory, add, sales, marketplaces, settings
+
+    /// US-1199/US-1260: sections that render their whole UI plus their own
+    /// in-view navigation inside one NavigationStack. On iPad they use a
+    /// two-column split (sidebar + that stack as the detail column) so there's
+    /// no dead detail placeholder. Home/Inventory instead drive a three-column
+    /// list→detail layout, so they return `false`.
+    var ownsContentNavigation: Bool {
+        switch self {
+        case .sales, .marketplaces, .settings: return true
+        case .home, .inventory, .add:          return false
+        }
+    }
 }
 
 /// Intake destinations pushed onto the active tab's NavigationStack after
