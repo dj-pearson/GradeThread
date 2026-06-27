@@ -3966,3 +3966,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  3:06:07 AM
 ---
+## US-1255: iOS Referrals: reconcile funnel stats and surface specific redeem error reasons
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  8:30:30 AM
+---

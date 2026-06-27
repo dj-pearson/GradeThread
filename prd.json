@@ -5729,7 +5729,7 @@
     {
       "id": "US-1255",
       "priority": 1255,
-      "passes": false,
+      "passes": true,
       "title": "iOS Referrals: reconcile funnel stats and surface specific redeem error reasons",
       "description": "As a user, the referral stats should add up and a failed redeem should tell me why, so 'Referred/In progress/Rewarded' aren't contradictory and I get actionable guidance.",
       "acceptanceCriteria": [
