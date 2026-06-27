@@ -45,6 +45,11 @@ export interface CoverageResult {
   missing_zones: string[];
   // covered / applicable, 0–100, rounded to a whole percent.
   coverage_pct: number;
+  // US-1281: true when a passing Verified 360 capture upgraded this result to
+  // geometric-complete coverage (every applicable zone documented). Absent on the
+  // ordinary 2D path. The source of the coverage figure, for the cert/guarantee.
+  verified_360?: boolean;
+  coverage_source?: "photos_2d" | "geometric_360";
 }
 
 // --- View groups ---

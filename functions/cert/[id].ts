@@ -50,6 +50,8 @@ interface PublicCertificate {
   original_photos_verified?: boolean;
   // US-1283: true when the submission earned the fraud-proof Live-Verified badge.
   live_capture_verified?: boolean;
+  // US-1281: true when the submission earned the premium 360-Verified badge.
+  verified_360_badge?: boolean;
 }
 
 interface CertResponse {
@@ -154,6 +156,11 @@ async function renderCertificate(context: Ctx): Promise<Response> {
       ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#fee2e2;color:#9f1239;font-size:0.85rem;font-weight:600">&#10003; Live-Verified · un-fakeable capture</p>`
       : cert.verified_capture_passed
       ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:0.85rem;font-weight:600">&#10003; Verified Capture</p>`
+      : ""
+  }
+  ${
+    cert.verified_360_badge
+      ? `<p style="display:inline-block;margin:0 0 16px 8px;padding:4px 12px;border-radius:9999px;background:#e0e7ff;color:#3730a3;font-size:0.85rem;font-weight:600">&#10003; 360-Verified · true geometric coverage</p>`
       : ""
   }
   ${

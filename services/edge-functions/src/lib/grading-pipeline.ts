@@ -55,7 +55,16 @@ import {
 } from "./grading-lifecycle-notify.ts";
 import { recordAiUsage, type AiTokenUsage } from "./ai-usage.ts";
 import { decideEscalation, getCascadeConfig } from "./model-routing.ts";
-import { computeCoverage, type CoverageImageSignal } from "./coverage.ts";
+import {
+  computeCoverage,
+  type CoverageImageSignal,
+  type CoverageResult,
+} from "./coverage.ts";
+import {
+  type Capture360Report,
+  evaluateVerified360,
+  verified360Boost,
+} from "./verified-360.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -885,7 +894,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, verified_360_opt_in, capture_360, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id")
       .eq("id", submissionId)
       .single();
 
@@ -1611,6 +1620,50 @@ export async function processSubmission(submissionId: string) {
     }));
     const coverage = computeCoverage(submission.garment_category, coverageSignals);
 
+    // US-1281: Verified 360 — premium photogrammetric/LiDAR true-geometric
+    // capture. On a capable device the seller may opt into a guided 360 capture
+    // that reports surface-coverage metrics; this server-side evaluator is the
+    // authoritative gate. A passing capture earns the distinct '360-Verified'
+    // badge, a bounded confidence boost, AND upgrades the stored coverage to
+    // geometric-complete (every applicable zone documented → the widest
+    // coverage-gated guarantee scope, US-1279). Any shortfall falls back to the
+    // 2D zone coverage above; never required, never lowers a grade.
+    const verified360 = evaluateVerified360({
+      optedIn:
+        (submission as { verified_360_opt_in?: boolean }).verified_360_opt_in ===
+          true,
+      report:
+        ((submission as { capture_360?: Capture360Report | null }).capture_360 ??
+          null),
+      nowMs: Date.now(),
+    });
+    let coverageFinal: CoverageResult = coverage;
+    if (verified360.verified) {
+      // True geometric coverage documents the whole garment, so every applicable
+      // inspection zone is covered — raise coverage confidence accordingly.
+      coverageFinal = {
+        ...coverage,
+        covered_zones: coverage.applicable_zones,
+        missing_zones: [],
+        coverage_pct: coverage.applicable_zones.length === 0 ? 0 : 100,
+        verified_360: true,
+        coverage_source: "geometric_360",
+      };
+      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      compositeResult.confidence_score = Math.min(
+        ceiling,
+        compositeResult.confidence_score + verified360Boost(),
+      );
+      detailedNotes["verified_360"] = `${verified360.reasons.join("; ")}.`;
+    } else if (
+      (submission as { verified_360_opt_in?: boolean }).verified_360_opt_in ===
+        true
+    ) {
+      // Opted in but didn't clear the thresholds — record why for admin review.
+      // Not a flag, not a penalty; the 2D coverage stands.
+      detailedNotes["verified_360"] = `${verified360.reasons.join("; ")}.`;
+    }
+
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")
       .insert({
@@ -1636,7 +1689,13 @@ export async function processSubmission(submissionId: string) {
         per_image_analysis: perImageResults,
         // US-1276: per-garment inspection-zone coverage (covered/missing zones +
         // coverage_pct) scoped to what the submitted photos actually documented.
-        coverage,
+        // US-1281: upgraded to geometric-complete when a Verified 360 capture passed.
+        coverage: coverageFinal,
+        // US-1281: server-side Verified 360 evaluation { verified, badge,
+        // geometric_coverage_pct, depth_used, angles, reasons[], checked_at }.
+        // Structured detail kept for admin review; the public view exposes only
+        // the earned '360-Verified' badge tier.
+        verified_360: verified360,
         // US-1296: whether the paid Forensic defect-zoom re-analysis ran. Which
         // defects were zoom-refined is in per_image_analysis (zoom_refined) +
         // detailed_notes.forensic_summary.

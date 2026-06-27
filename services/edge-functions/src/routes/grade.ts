@@ -244,6 +244,27 @@ gradeRoutes.post("/submit", async (c) => {
   // mode always opts into the underlying provenance path too.
   const verifiedCaptureOptIn = liveCaptureOptIn ||
     (formData.get("verified_capture_opt_in") as string | null) === "true";
+  // US-1281: the seller opted into the premium Verified 360 capture path
+  // (photogrammetric / LiDAR true-geometric coverage), only offered on capable
+  // devices. The device reports its guided-capture metrics as a JSON blob; the
+  // badge is only AWARDED if those metrics clear the server-side thresholds in
+  // verified-360.ts at grading time. Never required; never lowers a grade.
+  const verified360OptIn =
+    (formData.get("verified_360_opt_in") as string | null) === "true";
+  let capture360: Record<string, unknown> | null = null;
+  if (verified360OptIn) {
+    const raw = formData.get("capture_360") as string | null;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          capture360 = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Malformed metrics simply fail the badge check; never blocks the grade.
+      }
+    }
+  }
   // US-601: premium authenticity / counterfeit-confidence add-on opt-in. Only
   // HONORED on a paid Premium/Express tier (the higher per-tier charge covers it)
   // and when the kill-switch flag is on — both enforced just below.
@@ -452,6 +473,8 @@ gradeRoutes.post("/submit", async (c) => {
       style_attributes: styleAttributes,
       verified_capture_opt_in: verifiedCaptureOptIn,
       live_capture_opt_in: liveCaptureOptIn,
+      verified_360_opt_in: verified360OptIn,
+      capture_360: capture360,
       authenticity_addon: authenticityAddon,
       forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,

@@ -18,6 +18,7 @@ import {
   Camera,
   Store,
   Image as ImageIcon,
+  Box,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
@@ -915,6 +916,26 @@ export function CertificatePage() {
                   </div>
                 </div>
               ))}
+
+            {/* US-1281: 360-Verified badge — the premium photogrammetric/LiDAR
+                capture tier. Shown only when a guided 360 capture proved true
+                geometric coverage of the garment (every inspection zone
+                documented). An orthogonal coverage signal — it can appear
+                alongside the Live-Verified / Verified Capture badges. */}
+            {gradeReport.verified_360_badge && (
+              <div className="flex items-start gap-3">
+                <Box className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-brand-red" />
+                <div>
+                  <p className="text-sm font-medium">360-Verified</p>
+                  <p className="text-xs text-muted-foreground">
+                    Captured with a guided multi-angle (and where available depth)
+                    scan that proves true geometric coverage of the garment — every
+                    inspection zone is documented, so the grade and guarantee cover
+                    the whole item, not just what a few flat photos show.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* US-1283: Live-Verified badge — the flagship fraud-proof tier.
                 Shown only when every photo was captured live in-app

@@ -785,6 +785,10 @@ export interface PublicGradeReportRow {
   // Capture surfaces via verified_capture_passed instead. Positive-only — the
   // raw downgrade reasons stay server-side.
   live_capture_verified?: boolean;
+  // US-1281: true when this submission earned the premium "360-Verified" badge
+  // (a passing photogrammetric/LiDAR true-geometric capture). Positive-only —
+  // the raw capture metrics stay server-side.
+  verified_360_badge?: boolean;
   // Non-clothing grading (migration 00231): generic { factor_key: score } map +
   // the rubric that produced it (e.g. "sports_cards"). Absent/null on clothing &
   // legacy certificates — the cert renders the typed factor columns instead. The
