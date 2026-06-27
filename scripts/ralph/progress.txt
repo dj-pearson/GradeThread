@@ -4006,3 +4006,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  9:32:25 AM
 ---
+## US-1242: iOS publish dialog: inline price fix instead of a zero-price dead-end; surface eBay-originated discard
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  9:42:41 AM
+---

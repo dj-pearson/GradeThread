@@ -5558,7 +5558,7 @@
     {
       "id": "US-1242",
       "priority": 1242,
-      "passes": false,
+      "passes": true,
       "title": "iOS publish dialog: inline price fix instead of a zero-price dead-end; surface eBay-originated discard",
       "description": "As a seller, when a draft has no price I want to set it right in the publish dialog, and when a bulk save/publish is blocked I want to know which rows are blocking, so I'm not bounced back to the canvas or silently dropped.",
       "acceptanceCriteria": [
