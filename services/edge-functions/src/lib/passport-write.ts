@@ -143,6 +143,91 @@ export async function createSingleHopPassport(
 }
 
 /**
+ * US-1282: append a RE-GRADE to an existing garment's passport instead of
+ * minting a new one. A re-grade is an ordinary, billable grade (it reuses the
+ * grading pipeline) of a physical garment we already passported — months later,
+ * after wear, or by a new owner — so its condition history accumulates on ONE
+ * garment identity and the public passport can render a condition-over-time
+ * curve (the "Carfax for clothing").
+ *
+ * This links the new grade_report to the existing garment and APPENDS a
+ * deterministic 'graded' event to its append-only ledger, with the garment's
+ * CURRENT owner node as the actor (the party who re-graded it). Idempotent (a
+ * no-op if the report is already linked) and best-effort (never throws).
+ *
+ * Tenant-scoping (US-268): the garment is re-fetched scoped by created_by ==
+ * createdByUserId — a forged/foreign regrade_of_garment_id resolves to no row
+ * and falls back to a fresh passport (handled by the caller). The report id is
+ * caller-owned (the pipeline produced it for this submission).
+ */
+export async function appendRegradeEvent(
+  input: SingleHopPassportInput & { garmentId: string },
+): Promise<string | null> {
+  try {
+    // Idempotency: skip if this report is already linked to a garment.
+    const { data: existing } = await supabaseAdmin
+      .from("grade_reports")
+      .select("garment_id")
+      .eq("id", input.gradeReportId)
+      .maybeSingle();
+    if (existing && (existing as { garment_id: string | null }).garment_id) {
+      return (existing as { garment_id: string }).garment_id;
+    }
+
+    // US-268: the garment must belong to this workspace owner. A non-owned id
+    // resolves to no row → null (the caller mints a fresh passport instead).
+    const { data: garment } = await supabaseAdmin
+      .from("garments")
+      .select("id, current_owner_node_id")
+      .eq("id", input.garmentId)
+      .eq("created_by", input.createdByUserId)
+      .maybeSingle();
+    if (!garment) return null;
+    const g = garment as { id: string; current_owner_node_id: string | null };
+
+    // Append the deterministic 'graded' event. PII-free payload mirrors the
+    // single-hop seed (the public passport reads per-factor scores from the
+    // public_grade_reports view; the event carries only the headline + cert link).
+    const { error: evErr } = await supabaseAdmin.from("garment_events").insert({
+      garment_id: g.id,
+      event_type: "graded",
+      actor_node_id: g.current_owner_node_id,
+      payload: {
+        overall_score: input.overallScore,
+        grade_tier: input.gradeTier,
+        confidence_label: confidenceLabel(input.confidenceScore),
+        certificate: input.certificateId,
+        regrade: true,
+      },
+      confidence: "deterministic",
+      source: "grading-pipeline",
+    });
+    if (evErr) {
+      console.error("[passport-write] regrade event insert failed:", evErr.message);
+      return null;
+    }
+
+    // Link the report → the existing garment (scoped by report id, caller-owned).
+    const { error: updErr } = await supabaseAdmin
+      .from("grade_reports")
+      .update({ garment_id: g.id })
+      .eq("id", input.gradeReportId);
+    if (updErr) {
+      console.error("[passport-write] regrade link failed:", updErr.message);
+      return null;
+    }
+
+    return g.id;
+  } catch (e) {
+    console.error(
+      "[passport-write] appendRegradeEvent failed:",
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  }
+}
+
+/**
  * US-1124: guarantee a grade_report has its single-hop passport, seeding it from
  * the report + its submission if missing. Idempotent (returns the existing
  * garment_id when already linked) and best-effort (never throws). This is the

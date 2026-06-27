@@ -23,6 +23,7 @@ import {
 } from "../lib/garment-match.ts";
 import { getSettingSync } from "../lib/system-settings.ts";
 import { detectRelistCandidates } from "../lib/relist-detect.ts";
+import { buildConditionCurve, type PublicGradePoint } from "../lib/passport-curve.ts";
 
 // Garment Passport edge API (US-1092). Mounted at /api/passport.
 //
@@ -206,6 +207,26 @@ passportRoutes.get("/:slug", async (c) => {
     }
   }
 
+  // US-1282: the condition-over-time curve across re-grades. Read STRICTLY from
+  // the PII-free public_grade_reports view (never the base grade_reports table)
+  // so the passport surfaces only public-safe, FINALIZED grades (the view filters
+  // to certificated + approved/modified). Each finalized grade on this garment —
+  // its first grade plus every re-grade — contributes a point; buildConditionCurve
+  // computes the per-factor deltas between consecutive grades. Empty / single-grade
+  // → no curve to render (the page hides the section).
+  const { data: gradeRows } = await supabaseAdmin
+    .from("public_grade_reports")
+    .select(
+      "certificate_id, created_at, overall_score, grade_tier, confidence_label, " +
+        "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
+        "functional_elements_score, odor_cleanliness_score",
+    )
+    .eq("garment_id", g.id)
+    .order("created_at", { ascending: true });
+  const gradeCurve = buildConditionCurve(
+    ((gradeRows ?? []) as unknown as PublicGradePoint[]),
+  );
+
   return c.json({
     slug: g.public_passport_slug,
     sku_class: g.sku_class ?? {},
@@ -213,6 +234,8 @@ passportRoutes.get("/:slug", async (c) => {
     created_at: g.created_at,
     // US-1101: PII-free origin-seller verified badge (null unless opted in).
     origin_verified_seller: originVerified,
+    // US-1282: condition-over-time curve (per-factor deltas across re-grades).
+    grade_curve: gradeCurve,
     events: rows.map((r) => ({
       event_type: r.event_type,
       confidence: r.confidence,

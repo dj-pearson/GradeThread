@@ -264,6 +264,12 @@ gradeRoutes.post("/submit", async (c) => {
   // needs_photos/expired one. The prior row is validated for ownership + a
   // retakeable status below, then marked superseded after this row is created.
   const retakeOf = (formData.get("retake_of") as string | null)?.trim() || null;
+  // US-1282: re-grade of an existing Garment Passport. When present (and the
+  // garment is owned by this workspace), the grade links to that garment and
+  // appends to its condition history (the over-time curve) instead of minting a
+  // new passport. Validated for ownership below (US-268); a foreign id is ignored
+  // and the grade behaves as a fresh first grade.
+  const regradeOf = (formData.get("regrade_of") as string | null)?.trim() || null;
 
   const errors: string[] = [];
   if (!title || title.trim().length === 0) errors.push("title is required");
@@ -415,6 +421,23 @@ gradeRoutes.post("/submit", async (c) => {
     }
   }
 
+  // US-1282: validate the re-grade target BEFORE creating the submission so a
+  // forged/foreign garment id can't link a re-grade across tenants (US-268). The
+  // garment must belong to this workspace owner (created_by) and be active.
+  // Anything else is ignored (treated as a fresh first grade) rather than failing.
+  let regradeTargetGarmentId: string | null = null;
+  if (regradeOf) {
+    const { data: priorGarment } = await supabaseAdmin
+      .from("garments")
+      .select("id, status")
+      .eq("id", regradeOf)
+      .eq("created_by", ownerId)
+      .maybeSingle();
+    if (priorGarment && priorGarment.status === "active") {
+      regradeTargetGarmentId = priorGarment.id;
+    }
+  }
+
   // Create submission (unpaid). user_id is the workspace owner so the row
   // is visible to all workspace members via the additive RLS.
   const { data: submission, error: submissionError } = await supabaseAdmin
@@ -432,6 +455,7 @@ gradeRoutes.post("/submit", async (c) => {
       authenticity_addon: authenticityAddon,
       forensic_addon: forensicAddon,
       retake_of_submission_id: retakeTargetId,
+      regrade_of_garment_id: regradeTargetGarmentId,
       // The requested grade-speed tier drives the review SLA + queue priority
       // (express > premium > standard) once the AI grade lands in human review.
       service_tier: tier,

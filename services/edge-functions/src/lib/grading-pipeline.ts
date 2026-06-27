@@ -24,7 +24,11 @@ import { notifyAdminsGradeReviewNeeded } from "./grade-review-notify.ts";
 import { autoApproveThreshold, shouldAutoApprove } from "./grade-auto-approve.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { generateUniqueCertNumber } from "./cert-number.ts";
-import { createSingleHopPassport, storeGarmentFingerprint } from "./passport-write.ts";
+import {
+  appendRegradeEvent,
+  createSingleHopPassport,
+  storeGarmentFingerprint,
+} from "./passport-write.ts";
 import { detectPhotoReuse, originalPhotosVerified } from "./photo-reuse.ts";
 import {
   evaluateLiveCapture,
@@ -881,7 +885,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, authenticity_addon, forensic_addon, service_tier, created_at")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, live_capture_opt_in, authenticity_addon, forensic_addon, service_tier, created_at, regrade_of_garment_id")
       .eq("id", submissionId)
       .single();
 
@@ -1700,12 +1704,18 @@ export async function processSubmission(submissionId: string) {
     // fire from finalizeGradeReview (when a human makes the grade official), not
     // here — a preliminary grade isn't a completed grade.
 
-    // US-1091: seed this certificate's single-hop Garment Passport (garment +
-    // pseudonymous origin seller node + deterministic 'graded' event) and link
-    // it via grade_reports.garment_id. Best-effort — createSingleHopPassport
-    // never throws; a passport failure must never fail a completed paid grade
-    // (the 00257 backfill is idempotent and repairs any gaps later).
-    const passportGarmentId = await createSingleHopPassport({
+    // US-1091/US-1282: seed (or grow) this certificate's Garment Passport and
+    // link it via grade_reports.garment_id. Best-effort — neither path throws; a
+    // passport failure must never fail a completed paid grade (the 00257 backfill
+    // is idempotent and repairs any gaps later).
+    //
+    // US-1282: when the submission declares a re-grade of an EXISTING garment
+    // (regrade_of_garment_id), APPEND a 'graded' event to that garment's ledger
+    // so its condition history accumulates on one identity (the over-time curve)
+    // instead of minting a second, unrelated passport. appendRegradeEvent is
+    // tenant-scoped (created_by) and returns null for a forged/foreign id, in
+    // which case we fall back to a fresh single-hop passport.
+    const seedInput = {
       gradeReportId: gradeReport.id,
       createdByUserId: submission.user_id,
       skuClass: {
@@ -1717,7 +1727,20 @@ export async function processSubmission(submissionId: string) {
       gradeTier: compositeResult.grade_tier,
       confidenceScore: compositeResult.confidence_score,
       certificateId: certificateId,
-    });
+    };
+    const regradeOfGarmentId =
+      (submission as { regrade_of_garment_id?: string | null }).regrade_of_garment_id ?? null;
+    let passportGarmentId: string | null = null;
+    if (regradeOfGarmentId) {
+      passportGarmentId = await appendRegradeEvent({
+        ...seedInput,
+        garmentId: regradeOfGarmentId,
+      });
+    }
+    // First grade, or a re-grade whose target wasn't owned/resolvable → fresh seed.
+    if (!passportGarmentId) {
+      passportGarmentId = await createSingleHopPassport(seedInput);
+    }
 
     // US-1097: store the garment's visual fingerprint (perceptual hashes of the
     // structured photos — reusing the phash already computed at upload — plus the

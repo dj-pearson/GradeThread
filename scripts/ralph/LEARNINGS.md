@@ -793,6 +793,20 @@ memory — not a progress log (the harness records progress separately).
   (entry carries `sellThroughScope:"platform"` to say so). Read-scoped, so it
   rides the existing `/api/v1/*` api-key auth + read rate-limit — no new scope.
 
+## Garment Passport re-grade + condition curve (US-1282)
+- A re-grade links to an EXISTING garment via `submissions.regrade_of_garment_id`
+  (00315). The grading pipeline branches on it: set → `appendRegradeEvent`
+  (passport-write.ts, tenant-scoped by created_by; appends a 'graded' event +
+  links grade_reports.garment_id to that garment) instead of
+  `createSingleHopPassport` (a fresh passport). A forged/foreign id returns null
+  → falls back to a fresh seed. grade.ts validates the `regrade_of` form field's
+  ownership (garments.created_by == owner, status='active') before storing it.
+- The condition-over-time curve reads ONLY the PII-free `public_grade_reports`
+  view (added `garment_id`, 00315), never base grade_reports — so it surfaces
+  only FINALIZED (certificated + approved/modified) grades. Pure builder =
+  `lib/passport-curve.ts` `buildConditionCurve` (per-factor deltas, rounded to
+  1dp); endpoint returns `grade_curve`; UI = `condition-curve.tsx` (≥2 grades).
+
 ## DB schema ownership gotchas
 - `grade_reports` has NO `user_id` column — ownership flows through
   `submissions.user_id` (`grade_reports.submission_id → submissions.id`). A

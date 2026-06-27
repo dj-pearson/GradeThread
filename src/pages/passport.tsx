@@ -25,6 +25,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
+import {
+  ConditionCurve,
+  type ConditionCurvePoint,
+} from "@/components/passport/condition-curve";
 import { passportLd, breadcrumbLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { track } from "@/lib/analytics";
@@ -62,6 +66,8 @@ type PassportResponse = {
     display_name: string | null;
     since: string | null;
   } | null;
+  // US-1282: condition-over-time curve across re-grades (per-factor deltas).
+  grade_curve?: ConditionCurvePoint[];
   events: PassportEvent[];
 };
 
@@ -481,6 +487,10 @@ export function PassportPage() {
             </Card>
           );
         })()}
+
+        {/* US-1282: condition-over-time curve. Only renders with ≥2 grades (a
+            re-grade) — a single-grade garment has nothing to plot. */}
+        {data.grade_curve && <ConditionCurve points={data.grade_curve} />}
 
         {/* Provenance timeline */}
         <section>
