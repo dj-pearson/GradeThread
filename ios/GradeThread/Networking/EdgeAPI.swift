@@ -194,7 +194,12 @@ public actor EdgeAPI {
 
     /// POSTs a single image part (plus optional string fields) as
     /// `multipart/form-data`. Used for eBay payment-dispute evidence uploads
-    /// (US-1049). Not retried — uploads aren't idempotent.
+    /// (US-1049). Not retried for transient network/5xx (uploads aren't
+    /// idempotent), but it DOES perform the same single forced token-refresh on
+    /// a rejected token (401/403) as ``performRaw`` (US-1146/US-1252) — a
+    /// present-but-stale token gets one explicit refresh + rebuilt request
+    /// before surfacing "session expired", so a queued evidence/photo upload
+    /// isn't dead-ended mid-task.
     public func postMultipartImage<Response: Decodable>(
         _ path: String,
         fieldName: String,
@@ -203,6 +208,54 @@ public actor EdgeAPI {
         data: Data,
         fields: [String: String] = [:]
     ) async throws -> Response {
+        // The multipart body is token-independent, so build it ONCE and reuse
+        // the bytes across the single 401-refresh retry; only the request (which
+        // carries the bearer token) is rebuilt with the fresh token (US-1252).
+        let boundary = "Boundary-\(UUID().uuidString)"
+        let body = Self.multipartBody(
+            boundary: boundary, fieldName: fieldName, fileName: fileName,
+            mimeType: mimeType, data: data, fields: fields)
+
+        var request = try await buildMultipartRequest(path: path, boundary: boundary)
+
+        // US-1252: allow exactly one forced token refresh + retry on a 401/403.
+        // The single auth rebuild is safe even though uploads aren't idempotent
+        // — a rejected token means the request never reached server-side logic.
+        var didRefreshAuth = false
+        while true {
+            let (respData, response): (Data, URLResponse)
+            do {
+                (respData, response) = try await session.upload(for: request, from: body)
+            } catch {
+                throw EdgeAPIError.network(error.localizedDescription)
+            }
+            guard let http = response as? HTTPURLResponse else {
+                throw EdgeAPIError.network("Non-HTTP response")
+            }
+            interceptPlanSignals(http, data: respData)
+            guard (200..<300).contains(http.statusCode) else {
+                let mapped = EdgeAPIError.from(statusCode: http.statusCode, body: respData)
+                if case .unauthorized = mapped, !didRefreshAuth {
+                    didRefreshAuth = true
+                    if await tokenRefresher() != nil {
+                        request = try await buildMultipartRequest(path: path, boundary: boundary)
+                        continue
+                    }
+                }
+                throw mapped
+            }
+            do {
+                return try decoder.decode(Response.self, from: respData)
+            } catch {
+                throw EdgeAPIError.decoding(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Builds the `multipart/form-data` request for ``postMultipartImage``,
+    /// attaching the current auth token + active-workspace scope. Separated so a
+    /// forced 401-refresh can rebuild it with a freshly-minted token (US-1252).
+    private func buildMultipartRequest(path: String, boundary: String) async throws -> URLRequest {
         let url = try resolve(path: path, query: [])
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -213,13 +266,24 @@ public actor EdgeAPI {
         if let workspaceOwner = WorkspaceScope.activeOwnerId {
             request.setValue(workspaceOwner, forHTTPHeaderField: "X-Workspace-Owner")
         }
-
-        let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue(
             "multipart/form-data; boundary=\(boundary)",
             forHTTPHeaderField: "Content-Type"
         )
+        return request
+    }
 
+    /// Encodes the multipart body for a single image part plus optional string
+    /// fields. `static` (token-independent) so it's built once and reused across
+    /// the 401-refresh retry without re-serializing the image bytes (US-1252).
+    private static func multipartBody(
+        boundary: String,
+        fieldName: String,
+        fileName: String,
+        mimeType: String,
+        data: Data,
+        fields: [String: String]
+    ) -> Data {
         var body = Data()
         func append(_ string: String) {
             body.append(Data(string.utf8))
@@ -237,25 +301,7 @@ public actor EdgeAPI {
         body.append(data)
         append("\r\n")
         append("--\(boundary)--\r\n")
-
-        let (respData, response): (Data, URLResponse)
-        do {
-            (respData, response) = try await session.upload(for: request, from: body)
-        } catch {
-            throw EdgeAPIError.network(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw EdgeAPIError.network("Non-HTTP response")
-        }
-        interceptPlanSignals(http, data: respData)
-        guard (200..<300).contains(http.statusCode) else {
-            throw EdgeAPIError.from(statusCode: http.statusCode, body: respData)
-        }
-        do {
-            return try decoder.decode(Response.self, from: respData)
-        } catch {
-            throw EdgeAPIError.decoding(error.localizedDescription)
-        }
+        return body
     }
 
     // MARK: - Internals

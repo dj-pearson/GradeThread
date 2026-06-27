@@ -238,6 +238,87 @@ final class PhotoUploadTests: XCTestCase {
         XCTAssertEqual(payload.local_file_url, task.localFileURL.path)
     }
 
+    // MARK: - Storage upload auth-failure re-queue (US-1252)
+
+    /// A storage upload rejected with 401/403 (an expired/invalid signed-upload
+    /// token or per-user-folder RLS) must NOT dead-end as a terminal `.failed`:
+    /// it routes through the network-failure path so the task is marked failed
+    /// for the UI AND a pending mutation is queued, letting the next SyncEngine
+    /// pass re-mint a fresh signed URL and re-upload from disk.
+    func test_storageUpload_401_requeuesForReupload() throws {
+        try assertUploadStatusRequeues(code: 401)
+    }
+
+    func test_storageUpload_403_requeuesForReupload() throws {
+        try assertUploadStatusRequeues(code: 403)
+    }
+
+    /// A transient storage 5xx is also recoverable on a re-upload.
+    func test_storageUpload_503_requeuesForReupload() throws {
+        try assertUploadStatusRequeues(code: 503)
+    }
+
+    private func assertUploadStatusRequeues(code: Int) throws {
+        let store = PhotoUploadStore()
+        let container = try makeContainer()
+        let service = PhotoUploadService(
+            store: store,
+            modelContainer: container,
+            sessionIdentifier: "test-upload\(code)-\(UUID().uuidString)"
+        )
+        let task = makeTask(slot: .front, itemId: "item-A")
+        store.upsert(task)
+
+        service.handleFailedUploadStatus(task, code: code)
+
+        // Surfaced as failed for the UI...
+        if case let .failed(error) = store.tasks[task.id]?.phase {
+            XCTAssertTrue(error.contains("\(code)"))
+        } else {
+            XCTFail("expected failed phase for HTTP \(code)")
+        }
+        // ...AND a pending mutation was queued so the next sync re-mints + re-uploads.
+        let context = ModelContext(container)
+        let mutations = try context.fetch(FetchDescriptor<LocalPendingMutation>())
+        XCTAssertEqual(mutations.count, 1, "HTTP \(code) should queue a re-upload")
+        XCTAssertEqual(mutations.first?.kindEnum, .uploadPhoto)
+        XCTAssertEqual(mutations.first?.targetId, "item-A")
+    }
+
+    /// A deterministic client error (e.g. 400) stays terminal — re-minting won't
+    /// help — so it does NOT queue a re-upload mutation.
+    func test_storageUpload_400_isTerminal_noRequeue() throws {
+        let store = PhotoUploadStore()
+        let container = try makeContainer()
+        let service = PhotoUploadService(
+            store: store,
+            modelContainer: container,
+            sessionIdentifier: "test-upload400-\(UUID().uuidString)"
+        )
+        let task = makeTask(slot: .front, itemId: "item-A")
+        store.upsert(task)
+
+        service.handleFailedUploadStatus(task, code: 400)
+
+        if case .failed = store.tasks[task.id]?.phase {} else {
+            XCTFail("expected failed phase")
+        }
+        let context = ModelContext(container)
+        let mutations = try context.fetch(FetchDescriptor<LocalPendingMutation>())
+        XCTAssertTrue(mutations.isEmpty, "deterministic client errors should not queue a re-upload")
+    }
+
+    func test_isRecoverableUploadStatus_classification() {
+        XCTAssertTrue(PhotoUploadService.isRecoverableUploadStatus(401))
+        XCTAssertTrue(PhotoUploadService.isRecoverableUploadStatus(403))
+        XCTAssertTrue(PhotoUploadService.isRecoverableUploadStatus(500))
+        XCTAssertTrue(PhotoUploadService.isRecoverableUploadStatus(503))
+        XCTAssertFalse(PhotoUploadService.isRecoverableUploadStatus(400))
+        XCTAssertFalse(PhotoUploadService.isRecoverableUploadStatus(404))
+        XCTAssertFalse(PhotoUploadService.isRecoverableUploadStatus(409))
+        XCTAssertFalse(PhotoUploadService.isRecoverableUploadStatus(200))
+    }
+
     // MARK: - Helpers
 
     private func makeContainer() throws -> ModelContainer {

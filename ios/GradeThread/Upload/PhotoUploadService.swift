@@ -324,16 +324,7 @@ public final class PhotoUploadService {
 
         guard let response, (200..<300).contains(response.statusCode) else {
             let code = response?.statusCode ?? -1
-            // The #1 diagnostic for "photos missing → Untitled": a 401/403 here
-            // means the storage POST was rejected (expired token / per-user
-            // folder RLS), so nothing lands and the AI run has nothing to read.
-            Telemetry.event("photo_upload_failed", props: [
-                "reason": "http_\(code)",
-                "slot": task.slot.serverPhotoType,
-                "bucket": task.slot.storageBucket,
-                "item_id": task.inventoryItemId,
-            ])
-            store.updatePhase(id, to: .failed(error: "Storage upload failed (HTTP \(code))"))
+            handleFailedUploadStatus(task, code: code)
             startNextIfPossible()
             return
         }
@@ -437,6 +428,45 @@ public final class PhotoUploadService {
     }
 
     // MARK: - Failure handling
+
+    /// Routes a non-2xx storage-upload response. A recoverable status — 401/403
+    /// (the signed-upload token expired or was rejected by per-user-folder RLS)
+    /// or a transient 5xx — goes through ``handleNetworkFailure`` so the task is
+    /// marked `.failed` for the UI AND a pending mutation is queued; the next
+    /// SyncEngine pass then re-mints a fresh signed URL and re-uploads the staged
+    /// JPEG from disk (US-1252), instead of stranding the file on a terminal
+    /// failure. Deterministic client errors (400/404/409/…) stay terminal — a
+    /// fresh token won't fix them. `internal` so the routing decision is unit-
+    /// testable without a live background URLSession.
+    func handleFailedUploadStatus(_ task: PhotoUploadTask, code: Int) {
+        // The #1 diagnostic for "photos missing → Untitled": a 401/403 here means
+        // the storage PUT was rejected (expired token / per-user folder RLS), so
+        // nothing lands and the AI run has nothing to read.
+        Telemetry.event("photo_upload_failed", props: [
+            "reason": "http_\(code)",
+            "slot": task.slot.serverPhotoType,
+            "bucket": task.slot.storageBucket,
+            "item_id": task.inventoryItemId,
+        ])
+        if Self.isRecoverableUploadStatus(code) {
+            handleNetworkFailure(
+                task,
+                message: "Storage upload failed (HTTP \(code)) — retrying on the next sync."
+            )
+        } else {
+            store.updatePhase(task.id, to: .failed(error: "Storage upload failed (HTTP \(code))"))
+        }
+    }
+
+    /// US-1252: storage-upload HTTP statuses worth re-minting a signed URL and
+    /// re-uploading for, versus a terminal failure. A 401/403 means the signed
+    /// token expired or was rejected; a 5xx is a transient storage error — both
+    /// clear on the fresh signed URL the next SyncEngine pass mints. Every other
+    /// 4xx is deterministic and a retry won't help. `nonisolated static` so it's
+    /// a pure, unit-testable classifier.
+    nonisolated static func isRecoverableUploadStatus(_ code: Int) -> Bool {
+        code == 401 || code == 403 || (500...599).contains(code)
+    }
 
     private func handleNetworkFailure(_ task: PhotoUploadTask, message: String) {
         Telemetry.event("photo_upload_failed", props: [

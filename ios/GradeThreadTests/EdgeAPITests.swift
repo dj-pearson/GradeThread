@@ -347,6 +347,66 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertEqual(calls.count, 2)
     }
 
+    // MARK: - postMultipartImage auth refresh (US-1252)
+
+    /// A multipart image upload performs the SAME single forced token-refresh on
+    /// a 401 as the JSON/raw paths (US-1146): the first attempt's stale token is
+    /// rejected, the client refreshes once, rebuilds the multipart request with
+    /// the fresh token, and the retry succeeds — instead of dead-ending the
+    /// queued upload on "session expired".
+    func test_postMultipartImage_401_refreshesTokenAndRetriesOnce() async throws {
+        let calls = CallBox()
+        let refreshes = CallBox()
+        let observedAuth = AuthBox()
+        MockURLProtocol.handler = { request in
+            let n = calls.next()
+            observedAuth.record(request.value(forHTTPHeaderField: "Authorization"))
+            if n == 1 {
+                return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            return (
+                HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"])!,
+                Data(#"{"ok":true}"#.utf8))
+        }
+        let api = makeAPI(token: "stale", tokenRefresher: { _ = refreshes.next(); return "fresh_token" })
+        struct Ack: Decodable { let ok: Bool }
+        let ack: Ack = try await api.postMultipartImage(
+            "/api/flipdesk/disputes/evidence",
+            fieldName: "file", fileName: "e.jpg", mimeType: "image/jpeg",
+            data: Data([0xFF, 0xD8, 0xFF]),
+            fields: ["dispute_id": "d1"])
+        XCTAssertTrue(ack.ok)
+        XCTAssertEqual(refreshes.count, 1)             // refreshed exactly once
+        XCTAssertEqual(calls.count, 2)                 // 401 then success
+        XCTAssertEqual(observedAuth.first, "Bearer stale")
+        XCTAssertEqual(observedAuth.last, "Bearer fresh_token", "retry must carry the refreshed token")
+    }
+
+    /// When the refresh can't mint a token, the 401 surfaces (no retry, no loop).
+    func test_postMultipartImage_401_refreshFails_surfacesUnauthorized() async {
+        let calls = CallBox()
+        MockURLProtocol.handler = { request in
+            _ = calls.next()
+            return (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        let api = makeAPI(tokenRefresher: { nil })
+        struct Ack: Decodable { let ok: Bool }
+        do {
+            let _: Ack = try await api.postMultipartImage(
+                "/api/flipdesk/disputes/evidence",
+                fieldName: "file", fileName: "e.jpg", mimeType: "image/jpeg",
+                data: Data([0xFF]))
+            XCTFail("Expected unauthorized")
+        } catch let error as EdgeAPIError {
+            XCTAssertEqual(error, .unauthorized)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertEqual(calls.count, 1, "no retry when refresh yields nothing")
+    }
+
     func test_400_mapsToBadRequest_withDetail() async {
         MockURLProtocol.handler = { request in
             (
@@ -566,6 +626,17 @@ final class CallBox: @unchecked Sendable {
     private var _count = 0
     func next() -> Int { lock.lock(); defer { lock.unlock() }; _count += 1; return _count }
     var count: Int { lock.lock(); defer { lock.unlock() }; return _count }
+}
+
+/// Thread-safe recorder for the `Authorization` header observed across the
+/// sequential attempts of a single call — lets a refresh test assert the retry
+/// carried a DIFFERENT (refreshed) token than the first attempt.
+final class AuthBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String?] = []
+    func record(_ value: String?) { lock.lock(); defer { lock.unlock() }; values.append(value) }
+    var first: String? { lock.lock(); defer { lock.unlock() }; return values.first ?? nil }
+    var last: String? { lock.lock(); defer { lock.unlock() }; return values.last ?? nil }
 }
 
 // MARK: - Mock URLProtocol
