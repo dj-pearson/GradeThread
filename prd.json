@@ -5390,7 +5390,7 @@
     {
       "id": "US-1229",
       "priority": 1229,
-      "passes": false,
+      "passes": true,
       "title": "iOS: cancel grade-status polling when the grade sheet is dismissed",
       "description": "As a user, when I close the grade request sheet, the app should stop polling the grading status, so it isn't hitting the network every backoff interval for ~2 minutes after I've left.",
       "acceptanceCriteria": [
