@@ -5689,7 +5689,7 @@
     {
       "id": "US-1252",
       "priority": 1252,
-      "passes": false,
+      "passes": true,
       "title": "iOS upload auth-failure resilience: refresh-on-401 for multipart, re-queue storage 401/403",
       "description": "As a user uploading evidence/photos, an expired token shouldn't dead-end the upload, so a queued background upload re-mints its token and retries instead of stranding the file.",
       "acceptanceCriteria": [

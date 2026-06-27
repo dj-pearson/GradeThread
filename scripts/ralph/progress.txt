@@ -3978,3 +3978,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  8:48:20 AM
 ---
+## US-1252: iOS upload auth-failure resilience: refresh-on-401 for multipart, re-queue storage 401/403
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  8:53:40 AM
+---
