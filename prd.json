@@ -7497,7 +7497,7 @@
     {
       "id": "US-1387",
       "priority": -98613,
-      "passes": false,
+      "passes": true,
       "title": "Feedback / bug report",
       "description": "As a user, I can send feedback or a bug report from within the app.",
       "acceptanceCriteria": [
