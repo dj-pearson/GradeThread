@@ -3922,3 +3922,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  1:53:38 AM
 ---
+## US-1271: iOS fulfillment: align ship-queue window with ranking key and assert eBay ship success
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  1:58:23 AM
+---

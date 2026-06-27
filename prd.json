@@ -5938,7 +5938,7 @@
       "id": "US-1271",
       "priority": 1271,
       "title": "iOS fulfillment: align ship-queue window with ranking key and assert eBay ship success",
-      "passes": false,
+      "passes": true,
       "description": "As a seller, old unshipped orders shouldn't fall out of the ship queue, and an eBay ship that didn't actually succeed shouldn't be marked shipped, so the queue is complete and correct.",
       "acceptanceCriteria": [
         "The ship-queue fetch filters shipped_at is null server-side (or orders by the same sold_at key the store ranks on) so a backfilled old-by-sold_at order can't fall outside the sale_date window",
