@@ -119,7 +119,10 @@ struct NegotiationInboxView: View {
             }
         }
         .sheet(isPresented: $showSendOffer) {
-            SendOfferSheet { pct, message in
+            // US-1238: blasting a discount to every interested buyer is an
+            // irreversible money action, so the sheet shows the eligible count up
+            // front and gates the send behind a confirmation (mirrors US-1160).
+            SendOfferSheet(loadEligibleCount: { await store.eligibleCount() }) { pct, message in
                 await store.sendOfferToAllEligible(discountPercentage: pct, message: message)
             }
         }
@@ -465,12 +468,35 @@ private struct MessageReplySheet: View {
 }
 
 private struct SendOfferSheet: View {
+    /// US-1238: count eligible listings up front so the seller sees how many
+    /// buyers this blast reaches before confirming. Returns nil on failure.
+    let loadEligibleCount: () async -> Int?
     let onSubmit: (String, String?) async -> Bool // US-1168: async + success
     @Environment(\.dismiss) private var dismiss
     @State private var discount: Double = 10
     @State private var message = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    // US-1238: eligible-count load + send confirmation.
+    @State private var eligibleCount: Int?
+    @State private var isLoadingCount = true
+    @State private var showConfirm = false
+
+    private func listingLabel(_ count: Int) -> String {
+        "\(count) listing\(count == 1 ? "" : "s")"
+    }
+
+    private var confirmMessage: String {
+        if let eligibleCount {
+            return "This sends a \(Int(discount))% offer to interested buyers on \(listingLabel(eligibleCount)). This can't be undone."
+        }
+        return "This sends a \(Int(discount))% offer to interested buyers on all eligible listings. This can't be undone."
+    }
+
+    private var confirmButtonLabel: String {
+        if let eligibleCount, eligibleCount > 0 { return "Send to \(listingLabel(eligibleCount))" }
+        return "Send offer"
+    }
 
     var body: some View {
         NavigationStack {
@@ -485,6 +511,23 @@ private struct SendOfferSheet: View {
                 } footer: {
                     Text("Sends a limited-time offer to buyers who've shown interest (watchers / cart) on all eligible listings.")
                 }
+                Section("Eligible listings") {
+                    if isLoadingCount {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Checking eligible listings…").foregroundStyle(.secondary)
+                        }
+                    } else if let eligibleCount {
+                        Text(eligibleCount == 0
+                            ? "No listings are currently eligible for an offer."
+                            : "\(listingLabel(eligibleCount)) will receive this offer.")
+                            .font(.callout)
+                            .foregroundStyle(eligibleCount == 0 ? .secondary : .primary)
+                    } else {
+                        Text("Couldn't check eligible listings — you can still send.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                }
                 Section("Message (optional)") {
                     TextField("Note to buyers", text: $message, axis: .vertical).lineLimit(2...4).disabled(isSubmitting)
                 }
@@ -498,8 +541,24 @@ private struct SendOfferSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isSubmitting) }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSubmitting { ProgressView() }
-                    else { Button("Send") { submit() } }
+                    // US-1238: require confirmation; disable when nothing is eligible.
+                    else { Button("Send") { showConfirm = true }.disabled(eligibleCount == 0) }
                 }
+            }
+            .task {
+                isLoadingCount = true
+                eligibleCount = await loadEligibleCount()
+                isLoadingCount = false
+            }
+            .confirmationDialog(
+                "Send \(Int(discount))% offer?",
+                isPresented: $showConfirm,
+                titleVisibility: .visible
+            ) {
+                Button(confirmButtonLabel) { submit() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(confirmMessage)
             }
         }
     }

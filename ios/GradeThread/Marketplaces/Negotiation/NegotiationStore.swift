@@ -62,9 +62,14 @@ final class NegotiationStore {
                 bestOfferId: offer.bestOfferId, itemId: offer.itemId,
                 action: action, counterPrice: counterPrice, message: message
             )
-            // Optimistically drop the handled offer; reload to confirm state.
-            offers.removeAll { $0.bestOfferId == offer.bestOfferId }
-            actionBanner = "Offer \(action.lowercased())ed."
+            // US-1238: Accept/Decline are terminal — drop the offer optimistically.
+            // A Counter leaves the negotiation OPEN (the buyer can still accept or
+            // counter back), so DON'T remove it or the seller loses track of the
+            // open thread. loadOffers() reconciles with the server either way.
+            if action != "Counter" {
+                offers.removeAll { $0.bestOfferId == offer.bestOfferId }
+            }
+            actionBanner = Self.banner(for: action)
             HapticFeedback.success()
             await loadOffers()
             return true
@@ -72,6 +77,28 @@ final class NegotiationStore {
             actionError = error.localizedDescription
             HapticFeedback.error()
             return false
+        }
+    }
+
+    /// US-1238: action-specific confirmation copy. A counter is NOT a resolution,
+    /// so its banner makes clear the offer stays open until the buyer responds.
+    private static func banner(for action: String) -> String {
+        switch action {
+        case "Accept": return "Offer accepted — the sale is confirmed."
+        case "Decline": return "Offer declined."
+        case "Counter": return "Counter sent — the offer stays open until the buyer responds."
+        default: return "Offer \(action.lowercased())ed."
+        }
+    }
+
+    /// US-1238: count listings eligible for a seller-initiated offer so the send
+    /// sheet can show how many buyers the blast will reach before confirming.
+    /// Returns nil on failure so the sheet can degrade to a generic confirmation.
+    func eligibleCount() async -> Int? {
+        do {
+            return try await service.eligibleItems().count
+        } catch {
+            return nil
         }
     }
 

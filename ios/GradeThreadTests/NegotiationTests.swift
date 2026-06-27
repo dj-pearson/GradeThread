@@ -69,6 +69,36 @@ final class NegotiationTests: XCTestCase {
         XCTAssertEqual(fake.respondCalls.last?.counterPrice, 33)
     }
 
+    // US-1238: a counter is not a resolution — the offer stays open (not
+    // optimistically removed) and the banner copy says so.
+    func test_store_counterKeepsOfferOpen() async {
+        let fake = FakeNegotiation(offers: [.init(bestOfferId: "bo1", itemId: "i1", price: 20)])
+        let store = NegotiationStore(service: fake)
+        await store.loadOffers()
+        await store.counter(store.offers[0], price: 33, message: nil)
+        XCTAssertEqual(store.offers.count, 1, "counter should leave the offer visible")
+        XCTAssertEqual(store.actionBanner, "Counter sent — the offer stays open until the buyer responds.")
+    }
+
+    // US-1238: accept resolves the offer with its own banner copy.
+    func test_store_acceptUsesActionSpecificBanner() async {
+        let fake = FakeNegotiation(offers: [.init(bestOfferId: "bo1", itemId: "i1")])
+        let store = NegotiationStore(service: fake)
+        await store.loadOffers()
+        await store.accept(store.offers[0])
+        XCTAssertEqual(store.actionBanner, "Offer accepted — the sale is confirmed.")
+    }
+
+    // US-1238: the send sheet reads this count to confirm the blast size.
+    func test_store_eligibleCount() async {
+        let fake = FakeNegotiation(eligible: [
+            .init(listingId: "l1", title: nil), .init(listingId: "l2", title: nil),
+        ])
+        let store = NegotiationStore(service: fake)
+        let count = await store.eligibleCount()
+        XCTAssertEqual(count, 2)
+    }
+
     func test_store_replyRequiresItemAndSender() async {
         let fake = FakeNegotiation(messages: [.init(messageId: "m1", itemId: nil, senderUsername: nil)])
         let store = NegotiationStore(service: fake)
@@ -123,7 +153,11 @@ final class NegotiationTests: XCTestCase {
 
         func respond(bestOfferId: String, itemId: String, action: String, counterPrice: Double?, message: String?) async throws {
             respondCalls.append((action, counterPrice))
-            offersList.removeAll { $0.bestOfferId == bestOfferId }
+            // US-1238: mirror real eBay semantics — only Accept/Decline are
+            // terminal server-side; a Counter leaves the offer open.
+            if action != "Counter" {
+                offersList.removeAll { $0.bestOfferId == bestOfferId }
+            }
         }
 
         func sendOffer(listingIds: [String], discountPercentage: String, message: String?) async throws {
