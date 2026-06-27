@@ -4118,3 +4118,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 11:46:45 AM
 ---
+## US-1380: Glance home-screen widgets (seller snapshot)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 11:49:01 AM
+---

@@ -7409,7 +7409,7 @@
     {
       "id": "US-1380",
       "priority": -98620,
-      "passes": false,
+      "passes": true,
       "title": "Glance home-screen widgets (seller snapshot)",
       "description": "As a seller, I get a home-screen widget showing active listings, sold-today, and pending payout.",
       "acceptanceCriteria": [
