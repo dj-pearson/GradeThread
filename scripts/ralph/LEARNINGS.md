@@ -671,6 +671,18 @@ memory — not a progress log (the harness records progress separately).
   recurse to the next item synchronously after presenting an error — resume the
   drain from the dismiss handler (alert `isPresented` binding `set:`/cover
   `onDisappear`) so each item gets its own present.
+- iPad `NavigationSplitView` (ContentView.swift `SidebarSplitView`): a section
+  that renders its whole UI + its own in-view nav in ONE content-column
+  NavigationStack (Money/Marketplaces/Settings) leaves a dead "Make a selection"
+  detail pane in the 3-column layout. Fix = branch `body` on
+  `AppSection.ownsContentNavigation`: TWO-column split (`sidebar`+`detail:`) for
+  those, with the section view as the detail stack root (bound to its per-section
+  path, carrying the deep-link `navigationDestination`s); 3-column only for
+  list→detail sections (Home/Inventory). You can't hide just the detail column of
+  a 3-column split (`columnVisibility .doubleColumn` hides the SIDEBAR), so use
+  the 2-vs-3 conditional — SwiftUI rebuilds the split view on cross-boundary
+  switches but the sidebar selection + NavigationPaths live in `AppRouter` so
+  they survive.
 
 ## Frontend conventions
 - Adding a non-optional field to `ItemFullRow` (src/types/database.ts) breaks two
