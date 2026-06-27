@@ -5416,7 +5416,7 @@
     {
       "id": "US-1231",
       "priority": 1231,
-      "passes": false,
+      "passes": true,
       "title": "iOS AIExtract robustness: upload-settle race, offline on-device OCR fallback, OCR downsample",
       "description": "As a seller, I want AI auto-fill to wait for photos to actually finish uploading, fall back to on-device OCR when offline, and not stall on full-res OCR, so titles aren't blank and extraction is fast and reliable.",
       "acceptanceCriteria": [
