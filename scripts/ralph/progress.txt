@@ -3974,3 +3974,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026  8:39:17 AM
 ---
+## US-1253: iOS networking/billing polish bucket: catalog via EdgeAPI, surface Retry-After, debounce billing refresh, temp-file cleanup
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026  8:48:20 AM
+---

@@ -5702,7 +5702,7 @@
     {
       "id": "US-1253",
       "priority": 1253,
-      "passes": false,
+      "passes": true,
       "title": "iOS networking/billing polish bucket: catalog via EdgeAPI, surface Retry-After, debounce billing refresh, temp-file cleanup",
       "description": "As a user, billing and catalog calls should be as resilient and efficient as the rest of the app, so transient failures recover, rate-limit waits are visible, and stranded temp files don't accumulate.",
       "acceptanceCriteria": [
