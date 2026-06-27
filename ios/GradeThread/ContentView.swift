@@ -1693,7 +1693,9 @@ struct SettingsView: View {
                     }
                 }
                 NavigationLink {
-                    TeamView(ownerId: ctx.activeOwnerId)
+                    // US-1254: ctx.activeOwnerId is already the active workspace
+                    // owner; pass selfUserId so the caller's real role is resolved.
+                    TeamView(ownerId: ctx.activeOwnerId, selfId: ctx.selfUserId)
                 } label: {
                     Label("Members", systemImage: "person.2")
                 }

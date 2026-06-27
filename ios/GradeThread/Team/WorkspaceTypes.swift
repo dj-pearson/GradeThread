@@ -21,6 +21,22 @@ enum WorkspaceRole: String, Codable, CaseIterable, Equatable {
     /// Roles an owner/admin can assign when inviting (mirrors the web).
     static let assignable: [WorkspaceRole] = [.admin, .listingManager, .member, .viewer]
 
+    /// Hierarchy rank (low→high). Mirrors web `ROLE_RANK`
+    /// (`src/lib/workspace-permissions.ts`) + migration 00042.
+    var rank: Int {
+        switch self {
+        case .viewer: return 1
+        case .member: return 2
+        case .listingManager: return 3
+        case .admin: return 4
+        case .owner: return 5
+        }
+    }
+
+    /// Whether this role can manage members — invite, change roles, remove,
+    /// revoke. Mirrors the web `manage_members` capability (min role = admin).
+    var canManageMembers: Bool { rank >= WorkspaceRole.admin.rank }
+
     var label: String {
         switch self {
         case .owner: return "Owner"

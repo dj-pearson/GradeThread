@@ -30,7 +30,7 @@ final class TeamStoreTests: XCTestCase {
             invite("active", expires: future),
             invite("revoked", expires: future, revoked: past),
         ])
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         await store.load()
 
         XCTAssertEqual(store.phase, .ready)
@@ -41,13 +41,13 @@ final class TeamStoreTests: XCTestCase {
     func test_load_failed() async {
         let fake = FakeTeamService()
         fake.membersResult = .failure(EdgeAPIError.network("offline"))
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         await store.load()
         if case .failed = store.phase {} else { XCTFail("expected .failed") }
     }
 
     func test_canInvite_validation() {
-        let store = TeamStore(ownerId: "o1", service: FakeTeamService())
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: FakeTeamService())
         store.inviteEmail = "nope"
         XCTAssertFalse(store.canInvite)
         store.inviteEmail = "teammate@shop.co"
@@ -57,7 +57,7 @@ final class TeamStoreTests: XCTestCase {
     func test_invite_success() async {
         let fake = FakeTeamService()
         fake.inviteResult = .success(sampleInviteResponse(email: "teammate@shop.co"))
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         store.inviteEmail = "teammate@shop.co"
         store.inviteRole = .admin
 
@@ -72,7 +72,7 @@ final class TeamStoreTests: XCTestCase {
 
     func test_invite_invalidEmail_doesNotCallService() async {
         let fake = FakeTeamService()
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         store.inviteEmail = "bad"
         let ok = await store.invite()
         XCTAssertFalse(ok)
@@ -83,7 +83,7 @@ final class TeamStoreTests: XCTestCase {
     func test_invite_error() async {
         let fake = FakeTeamService()
         fake.inviteResult = .failure(EdgeAPIError.badRequest(detail: "Upgrade to invite members."))
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         store.inviteEmail = "teammate@shop.co"
         let ok = await store.invite()
         XCTAssertFalse(ok)
@@ -93,7 +93,7 @@ final class TeamStoreTests: XCTestCase {
     func test_updateRole_callsServiceAndReloads() async {
         let fake = FakeTeamService()
         fake.membersResult = .success([member("a")])
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         await store.load()
         let callsAfterLoad = fake.membersCalls
 
@@ -105,14 +105,14 @@ final class TeamStoreTests: XCTestCase {
 
     func test_remove_callsService() async {
         let fake = FakeTeamService()
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         await store.remove(memberId: "a")
         XCTAssertEqual(fake.removedMemberId, "a")
     }
 
     func test_revoke_callsServiceAndReloads() async {
         let fake = FakeTeamService()
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         await store.revoke("i1")
         XCTAssertEqual(fake.revokedId, "i1")
     }
@@ -120,10 +120,69 @@ final class TeamStoreTests: XCTestCase {
     func test_resend_returnsEmailSent() async {
         let fake = FakeTeamService()
         fake.resendResult = .success(ResendInviteResponse(emailSent: true, acceptUrl: "https://x"))
-        let store = TeamStore(ownerId: "o1", service: fake)
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: fake)
         let sent = await store.resend("i1")
         XCTAssertEqual(sent, true)
         XCTAssertEqual(fake.resentId, "i1")
+    }
+
+    // MARK: - US-1254: role scoping + write gating
+
+    func test_owner_hasOwnerRole_andCanManage() {
+        let store = TeamStore(ownerId: "o1", selfId: "o1", service: FakeTeamService())
+        XCTAssertTrue(store.isOwner)
+        XCTAssertEqual(store.currentRole, .owner)
+        XCTAssertTrue(store.canManageMembers)
+    }
+
+    func test_member_roleResolvedFromMembership_excludesSelfFromList() async {
+        let fake = FakeTeamService()
+        fake.membersResult = .success([member("u2", role: .member), member("a", role: .viewer)])
+        // Caller u2 operates inside o1's shared workspace as a member.
+        let store = TeamStore(ownerId: "o1", selfId: "u2", service: fake)
+        XCTAssertFalse(store.isOwner)
+        await store.load()
+
+        XCTAssertEqual(store.currentRole, .member)
+        XCTAssertFalse(store.canManageMembers)
+        // The caller is rendered as the synthetic "You" row, not the roster.
+        XCTAssertEqual(store.otherMembers.map(\.memberId), ["a"])
+    }
+
+    func test_admin_canManage() async {
+        let fake = FakeTeamService()
+        fake.membersResult = .success([member("u3", role: .admin)])
+        let store = TeamStore(ownerId: "o1", selfId: "u3", service: fake)
+        await store.load()
+        XCTAssertEqual(store.currentRole, .admin)
+        XCTAssertTrue(store.canManageMembers)
+    }
+
+    func test_nonManager_writesAreNoOps() async {
+        let fake = FakeTeamService()
+        fake.membersResult = .success([member("u2", role: .member)])
+        let store = TeamStore(ownerId: "o1", selfId: "u2", service: fake)
+        await store.load()
+        XCTAssertFalse(store.canManageMembers)
+
+        store.inviteEmail = "teammate@shop.co"
+        XCTAssertFalse(store.canInvite)
+        let invited = await store.invite()
+        XCTAssertFalse(invited)
+        XCTAssertNil(fake.invitedEmail)
+
+        await store.updateRole(memberId: "a", to: .admin)
+        XCTAssertNil(fake.updatedRole)
+
+        await store.remove(memberId: "a")
+        XCTAssertNil(fake.removedMemberId)
+
+        await store.revoke("i1")
+        XCTAssertNil(fake.revokedId)
+
+        let resent = await store.resend("i1")
+        XCTAssertNil(resent)
+        XCTAssertNil(fake.resentId)
     }
 }
 

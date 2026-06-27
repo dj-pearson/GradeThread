@@ -1,15 +1,21 @@
 import SwiftUI
 
-/// Team management for the workspace you own (pushed from Settings → Team).
-/// Invite teammates, manage their roles, and handle pending invitations.
-/// Reuses `/api/workspace/*` + Supabase via `TeamStore`.
+/// Team management for the active workspace (pushed from Settings → Team).
+/// Invite teammates, manage their roles, and handle pending invitations. The
+/// write controls only appear when the caller's role can manage members; a
+/// member/viewer sees a read-only roster. Reuses `/api/workspace/*` + Supabase
+/// via `TeamStore`.
 struct TeamView: View {
     @State private var store: TeamStore
     @State private var removeTarget: WorkspaceMember?
     @State private var copiedInvite = false
 
-    init(ownerId: String) {
-        _store = State(initialValue: TeamStore(ownerId: ownerId))
+    /// - Parameters:
+    ///   - ownerId: the active workspace owner whose team is managed (pass
+    ///     `WorkspaceScope.tenantOwnerId(selfId:)`, NOT always the signed-in id).
+    ///   - selfId: the signed-in user's id, used to resolve their own role.
+    init(ownerId: String, selfId: String) {
+        _store = State(initialValue: TeamStore(ownerId: ownerId, selfId: selfId))
     }
 
     var body: some View {
@@ -20,7 +26,10 @@ struct TeamView: View {
             case .failed(let message):
                 failed(message)
             case .ready:
-                inviteSection
+                // US-1254: only managers (owner/admin) get the invite form.
+                if store.canManageMembers {
+                    inviteSection
+                }
                 membersSection
                 if !store.invitations.isEmpty {
                     invitationsSection
@@ -175,29 +184,42 @@ struct TeamView: View {
 
     private var membersSection: some View {
         Section {
-            // Synthetic owner row (you).
+            // Synthetic "you" row — reflects the caller's REAL role in this
+            // workspace, not an assumed owner (US-1254).
             HStack {
                 Label("You", systemImage: "person.crop.circle.fill")
                 Spacer()
-                Text(WorkspaceRole.owner.label)
+                Text(store.currentRole.label)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.brandNavy)
             }
 
-            ForEach(store.members) { member in
+            ForEach(store.otherMembers) { member in
                 memberRow(member)
             }
 
-            if store.members.isEmpty {
-                Text("No teammates yet. Invite someone above.")
+            if store.otherMembers.isEmpty {
+                Text(store.canManageMembers
+                    ? "No teammates yet. Invite someone above."
+                    : "No other teammates in this workspace yet.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         } header: {
             Text("Members")
         } footer: {
-            Text("You're the owner — full access, can't be removed. Set each teammate's role below.")
+            Text(membersFooter)
         }
+    }
+
+    private var membersFooter: String {
+        if store.isOwner {
+            return "You're the owner — full access, can't be removed. Set each teammate's role below."
+        }
+        if store.canManageMembers {
+            return "You're an admin — you can invite teammates and set their roles."
+        }
+        return "You have \(store.currentRole.label.lowercased()) access. Only the owner or an admin can change the team."
     }
 
     private func memberRow(_ member: WorkspaceMember) -> some View {
@@ -215,22 +237,32 @@ struct TeamView: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            Picker("Role", selection: memberRoleBinding) {
-                ForEach(WorkspaceRole.assignable, id: \.self) { role in
-                    Text(role.label).tag(role)
+            if store.canManageMembers {
+                Picker("Role", selection: memberRoleBinding) {
+                    ForEach(WorkspaceRole.assignable, id: \.self) { role in
+                        Text(role.label).tag(role)
+                    }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                // `.labelsHidden()` strips the picker's label, so VoiceOver announced
+                // a bare role with no owner. Name the control per member.
+                .accessibilityLabel("\(member.displayName) role")
+            } else {
+                // Read-only roster for members/viewers (US-1254).
+                Text(member.role.label)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("\(member.displayName) role: \(member.role.label)")
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            // `.labelsHidden()` strips the picker's label, so VoiceOver announced
-            // a bare role with no owner. Name the control per member.
-            .accessibilityLabel("\(member.displayName) role")
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                removeTarget = member
-            } label: {
-                Label("Remove", systemImage: "person.badge.minus")
+            if store.canManageMembers {
+                Button(role: .destructive) {
+                    removeTarget = member
+                } label: {
+                    Label("Remove", systemImage: "person.badge.minus")
+                }
             }
         }
     }
@@ -248,19 +280,23 @@ struct TeamView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Menu {
-                        Button {
-                            Task { await resend(invite.id) }
-                        } label: { Label("Resend email", systemImage: "paperplane") }
-                        Button {
-                            copyAcceptLink(invite)
-                        } label: { Label("Copy link", systemImage: "doc.on.doc") }
-                        Button(role: .destructive) {
-                            Task { await store.revoke(invite.id); HapticFeedback.warning() }
-                        } label: { Label("Revoke", systemImage: "trash") }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .foregroundStyle(Color.brandNavy)
+                    // US-1254: resend / copy capability-link / revoke are
+                    // member-management actions — managers only.
+                    if store.canManageMembers {
+                        Menu {
+                            Button {
+                                Task { await resend(invite.id) }
+                            } label: { Label("Resend email", systemImage: "paperplane") }
+                            Button {
+                                copyAcceptLink(invite)
+                            } label: { Label("Copy link", systemImage: "doc.on.doc") }
+                            Button(role: .destructive) {
+                                Task { await store.revoke(invite.id); HapticFeedback.warning() }
+                            } label: { Label("Revoke", systemImage: "trash") }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .foregroundStyle(Color.brandNavy)
+                        }
                     }
                 }
             }

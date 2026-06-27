@@ -93,17 +93,22 @@ struct ProfileSection: View {
         }
     }
 
-    private var ownerId: String? {
+    private var selfUserId: String? {
         if case let .signedIn(user) = authStore.phase { return user.id.uuidString }
         return nil
     }
 
     @ViewBuilder
     private var teamSection: some View {
-        if let ownerId {
+        if let selfUserId {
             Section {
                 NavigationLink {
-                    TeamView(ownerId: ownerId)
+                    // US-1254: scope to the ACTIVE workspace (which may be a
+                    // shared one), not always the signed-in user's own team.
+                    TeamView(
+                        ownerId: WorkspaceScope.tenantOwnerId(selfId: selfUserId),
+                        selfId: selfUserId
+                    )
                 } label: {
                     Label("Team", systemImage: "person.2")
                 }

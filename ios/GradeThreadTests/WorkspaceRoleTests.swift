@@ -19,6 +19,24 @@ final class WorkspaceRoleTests: XCTestCase {
         XCTAssertFalse(WorkspaceRole.assignable.contains(.owner))
     }
 
+    func test_rank_ordering() {
+        // Mirrors web ROLE_RANK (workspace-permissions.ts) + migration 00042.
+        XCTAssertEqual(WorkspaceRole.viewer.rank, 1)
+        XCTAssertEqual(WorkspaceRole.member.rank, 2)
+        XCTAssertEqual(WorkspaceRole.listingManager.rank, 3)
+        XCTAssertEqual(WorkspaceRole.admin.rank, 4)
+        XCTAssertEqual(WorkspaceRole.owner.rank, 5)
+        XCTAssertTrue(WorkspaceRole.owner.rank > WorkspaceRole.admin.rank)
+    }
+
+    func test_canManageMembers_ownerAndAdminOnly() {
+        XCTAssertTrue(WorkspaceRole.owner.canManageMembers)
+        XCTAssertTrue(WorkspaceRole.admin.canManageMembers)
+        XCTAssertFalse(WorkspaceRole.listingManager.canManageMembers)
+        XCTAssertFalse(WorkspaceRole.member.canManageMembers)
+        XCTAssertFalse(WorkspaceRole.viewer.canManageMembers)
+    }
+
     func test_labels() {
         XCTAssertEqual(WorkspaceRole.owner.label, "Owner")
         XCTAssertEqual(WorkspaceRole.listingManager.label, "Manager")
