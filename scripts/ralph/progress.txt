@@ -3890,3 +3890,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Fri, Jun 26, 2026 10:09:09 PM
 ---
+## US-1287: Visual defect annotations on the certificate (render the stored bounding boxes)
+- Status: COMPLETE
+- Timestamp: Fri, Jun 26, 2026 10:32:21 PM
+---

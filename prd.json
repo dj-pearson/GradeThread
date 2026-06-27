@@ -6184,7 +6184,7 @@
         "Works on the public certificate with no PII leakage",
         "build + eslint clean; screenshot QA"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "[P1][LHF][Cert] Highest-impact low-effort win: bbox data is ALREADY stored per defect, only text is rendered today. Added 2026-06-26."
     },
     {
