@@ -7573,7 +7573,7 @@
     {
       "id": "US-1393",
       "priority": -98607,
-      "passes": false,
+      "passes": true,
       "title": "Localization (string resources, locale selector, pseudolocale)",
       "description": "As an international user, I want a fully externalized, translatable UI with a locale override.",
       "acceptanceCriteria": [

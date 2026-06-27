@@ -4066,3 +4066,7 @@ Branch: ralph/gradethread-build
 - Status: COMPLETE
 - Timestamp: Sat, Jun 27, 2026 10:44:53 AM
 ---
+## US-1393: Localization (string resources, locale selector, pseudolocale)
+- Status: COMPLETE
+- Timestamp: Sat, Jun 27, 2026 10:46:34 AM
+---
