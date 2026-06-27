@@ -101,6 +101,10 @@ struct ContentView: View {
                     // does a clean full backfill instead of inheriting this
                     // user's watermark.
                     SyncWatermark().resetAll()
+                    // US-1259: clear the new-sale/new-grade detection baselines
+                    // too — they're global, so the next account's first sync
+                    // would otherwise look like a flood of "new" rows.
+                    backgroundRefreshService?.resetDetectionBaselines()
                     // Wipe the local SwiftData mirror + offline mutation queue so
                     // the next account can't SEE (dashboard / Money tab) or
                     // FLUSH the previous user's inventory, sales, and listings.
@@ -144,6 +148,10 @@ struct ContentView: View {
                     await syncEngine?.flushPending()
                     await MainActor.run {
                         SyncWatermark().resetAll()
+                        // US-1259: the active workspace's row set is about to be
+                        // swapped — reset detection baselines so the new
+                        // workspace's existing rows don't read as "new".
+                        backgroundRefreshService?.resetDetectionBaselines()
                         clearLocalTenantCache()
                     }
                     // US-1211: re-home the Realtime channel onto the new active
@@ -154,6 +162,11 @@ struct ContentView: View {
                         await realtimeService?.resubscribe(userId: ownerId)
                     }
                     await syncEngine?.sync()
+                    // US-1259: re-seed detection for the new workspace right
+                    // after its first re-pull (baselines were just reset), so
+                    // later arrivals in this workspace alert while its existing
+                    // rows stay silent.
+                    await backgroundRefreshService?.runForegroundDetection()
                 }
             }
             .onChange(of: scenePhase) { _, newValue in
@@ -177,8 +190,12 @@ struct ContentView: View {
             .onReceive(
                 NotificationCenter.default.publisher(for: .inventoryPullRequested)
             ) { _ in
-                // Inventory list pulled-to-refresh — route to the engine.
-                Task { await syncEngine?.sync() }
+                // Inventory list pulled-to-refresh — route to the engine, then
+                // run new-sale/new-grade detection over what it merged (US-1259).
+                Task {
+                    await syncEngine?.sync()
+                    await backgroundRefreshService?.runForegroundDetection()
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -249,7 +266,13 @@ struct ContentView: View {
             return
         }
         lastForegroundPullAt = .now
-        Task { await syncEngine?.sync() }
+        Task {
+            await syncEngine?.sync()
+            // US-1259: detect new sales/grades that the foreground pull merged,
+            // so foreground-arrived rows raise the alert (and advance the
+            // baseline) instead of only the BG task ever noticing them.
+            await backgroundRefreshService?.runForegroundDetection()
+        }
     }
 
     /// US-1172: if the user revoked Sign in with Apple for this app, the stored
@@ -359,6 +382,12 @@ struct ContentView: View {
         Task {
             await engine.start()
             await engine.sync()
+            // US-1259: run detection over the first sync of the session. On a
+            // fresh session this seeds the new-sale/new-grade baselines at
+            // sign-in so any row that later arrives (foreground OR background)
+            // raises an alert, instead of the BG task's silent first-run seed
+            // swallowing everything that landed before its first wake.
+            await backgroundRefreshService?.runForegroundDetection()
             // US-1262: a user who already onboarded but never opens the Money tab
             // still needs the push prompt. After the first sync of a signed-in
             // session, surface it once — gated on onboarding completion so the
@@ -1392,9 +1421,15 @@ private struct MarketplacesPlaceholder: View {
 /// well away from Sign Out so it can't be mis-tapped.
 struct SettingsView: View {
     @Environment(AuthStore.self) private var authStore
-    /// Mirrors BackgroundRefreshService.isEnabled — kept in @State so the
-    /// toggle binds correctly, written through on change.
-    @State private var bgRefreshEnabled: Bool = BackgroundRefreshService().isEnabled
+    /// US-1259: the injected/AppDelegate-owned background-refresh service — the
+    /// SAME instance holding the live container + SyncEngine. The toggle reads
+    /// and writes through this, never a throwaway, so the scheduler the user
+    /// controls is the one that actually runs.
+    @Environment(\.backgroundRefreshService) private var backgroundRefreshService
+    /// Mirrors the service's `isEnabled` so the toggle binds correctly; seeded
+    /// to the default-ON value and synced from the injected service in
+    /// `onAppear`, then written through on change.
+    @State private var bgRefreshEnabled: Bool = true
     @State private var showingFeedbackSheet = false
     @State private var showingSupportTickets = false   // US-1136 native ticket inbox
     @State private var showingDeleteAccountSheet = false
@@ -1701,9 +1736,19 @@ struct SettingsView: View {
             Toggle(isOn: $bgRefreshEnabled) {
                 Label("Refresh in background", systemImage: "arrow.clockwise.icloud")
             }
+            .onAppear {
+                // US-1259: reflect the injected/AppDelegate-owned service's
+                // state so the toggle and the live scheduler agree (not a
+                // throwaway read).
+                if let service = backgroundRefreshService {
+                    bgRefreshEnabled = service.isEnabled
+                }
+            }
             .onChange(of: bgRefreshEnabled) { _, newValue in
-                var service = BackgroundRefreshService()
-                service.isEnabled = newValue
+                // US-1259: route through the injected/AppDelegate-owned instance
+                // (the one holding the live container + SyncEngine), so the
+                // toggle drives the scheduler the BG task actually uses.
+                backgroundRefreshService?.isEnabled = newValue
             }
         } header: {
             Text("Preferences")

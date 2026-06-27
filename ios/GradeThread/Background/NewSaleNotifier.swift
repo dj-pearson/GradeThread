@@ -22,10 +22,14 @@ public final class NewSaleNotifier: NewSaleNotifying {
 
     nonisolated public init() {}
 
-    /// Requests permission for local notifications. The caller can
-    /// fire-and-forget; the notification system silently no-ops when
-    /// permission is denied, so we don't gate the BG sync itself on
-    /// the grant.
+    /// Requests permission for local notifications. MUST be called from a
+    /// FOREGROUND context (US-1259) — `requestAuthorization` can only present
+    /// its system prompt while the app is active, and a request from the BG
+    /// refresh task wastes the limited BG budget on a call that can't succeed.
+    /// The app already prompts at reliable foreground moments
+    /// (`PushService.requestPermissionAtReliableMomentIfNeeded` after the first
+    /// sync, and on the Money tab), so the notify path below only CHECKS the
+    /// existing grant and never requests.
     public func requestPermissionIfNeeded() async {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
@@ -34,11 +38,11 @@ public final class NewSaleNotifier: NewSaleNotifying {
         }
     }
 
-    /// Schedules an immediate-delivery local notification. iOS will
-    /// suppress it if permission isn't granted — no error to surface.
+    /// Schedules an immediate-delivery local notification — but only when
+    /// authorization is ALREADY granted. US-1259: this runs from the BG refresh
+    /// task, which must never trigger a permission request; if the grant is
+    /// undetermined we simply skip (a foreground context prompts instead).
     func notifyNewSales(count: Int, latest: LocalSale) async {
-        await requestPermissionIfNeeded()
-
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .authorized

@@ -156,6 +156,58 @@ final class BackgroundRefreshTests: XCTestCase {
         )
     }
 
+    // MARK: - runForegroundDetection (US-1259: foreground-arrived rows alert too)
+
+    /// A sale merged by a FOREGROUND sync must raise the alert via
+    /// `runForegroundDetection` — without it, only the BG task ever noticed
+    /// foreground arrivals (and its silent first-run seed could swallow them).
+    func test_runForegroundDetection_firesSaleNotification_forForegroundArrival() async throws {
+        let container = try makeContainer()
+        let saleNotifier = SpyNewSaleNotifier()
+        let gradeNotifier = SpyNewGradeNotifier()
+        let service = BackgroundRefreshService(
+            modelContainer: container,
+            notifier: saleNotifier,
+            gradeNotifier: gradeNotifier
+        )
+
+        // Non-nil baseline so detection isn't in its silent first-run mode.
+        UserDefaults.standard.set("baseline-sale", forKey: lastSaleSeenIdKey)
+
+        // Simulate a foreground sync committing a new sale to the local store.
+        await MainActor.run {
+            let ctx = ModelContext(container)
+            ctx.insert(LocalSale(
+                id: "fg-1",
+                inventoryItemId: "item-1",
+                salePrice: 19,
+                saleDate: .now
+            ))
+            try? ctx.save()
+        }
+
+        await service.runForegroundDetection()
+
+        XCTAssertEqual(
+            saleNotifier.notifiedCounts, [1],
+            "A sale merged by a foreground sync should fire exactly one notification"
+        )
+    }
+
+    /// No container attached (e.g. signed out / not yet booted) is a safe no-op
+    /// — never crash, never notify.
+    func test_runForegroundDetection_noContainer_isNoOp() async {
+        let saleNotifier = SpyNewSaleNotifier()
+        let gradeNotifier = SpyNewGradeNotifier()
+        let service = BackgroundRefreshService(
+            notifier: saleNotifier,
+            gradeNotifier: gradeNotifier
+        )
+        await service.runForegroundDetection()
+        XCTAssertTrue(saleNotifier.notifiedCounts.isEmpty)
+        XCTAssertTrue(gradeNotifier.notifiedCounts.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeContainer() throws -> ModelContainer {

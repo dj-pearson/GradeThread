@@ -193,6 +193,23 @@ public final class BackgroundRefreshService {
         return true
     }
 
+    /// US-1259: run new-sale / new-grade detection after a FOREGROUND sync.
+    /// The foreground ``SyncEngine`` (and Realtime) merge rows while the app is
+    /// active; without this, those arrivals were noticed ONLY by the BG task —
+    /// and on a fresh session the BG task's silent first-run seed would SWALLOW
+    /// them (folded into the baseline with no alert). Running detection here
+    /// seeds the baseline at sign-in and raises the alert for rows that land
+    /// while the app is open, while advancing the shared baselines so the BG
+    /// path can't later re-notify the same rows. Safe to call on every
+    /// foreground sync: the notifiers fire only when notification permission is
+    /// already granted (requested from a foreground context), and detection is
+    /// idempotent against the persisted baselines.
+    func runForegroundDetection() async {
+        guard modelContainer != nil else { return }
+        await detectNewSalesAndNotify()
+        await detectNewGradesAndNotify()
+    }
+
     /// Resolves the SyncEngine to drive this pass. Prefers the live engine
     /// ContentView injected; on a cold launch (the app was woken directly into
     /// the background, so the SwiftUI scene never built one) it constructs a
@@ -208,6 +225,17 @@ public final class BackgroundRefreshService {
             statusStore: SyncStatusStore(),
             networkMonitor: NetworkMonitor()
         )
+    }
+
+    /// US-1259: clears the new-sale / new-grade detection baselines so the next
+    /// detection pass re-seeds silently. MUST be called whenever the local cache
+    /// is wiped + re-scoped to a DIFFERENT row set — sign-out and workspace
+    /// switch — because the baselines are global (not workspace-scoped); without
+    /// this the next detection would see the new scope's back-catalog as "new"
+    /// and fire spurious alerts. Mirrors `SyncWatermark().resetAll()`.
+    public func resetDetectionBaselines() {
+        UserDefaults.standard.removeObject(forKey: Self.lastSaleSeenIdKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastGradedIdsKey)
     }
 
     // MARK: - New-sale detection

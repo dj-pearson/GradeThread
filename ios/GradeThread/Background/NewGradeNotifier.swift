@@ -21,8 +21,12 @@ public final class NewGradeNotifier: NewGradeNotifying {
 
     nonisolated public init() {}
 
-    /// Requests local-notification permission. Fire-and-forget — the system
-    /// silently no-ops when denied, so we never gate the sync on the grant.
+    /// Requests local-notification permission. MUST be called from a FOREGROUND
+    /// context (US-1259) — `requestAuthorization` can only present its prompt
+    /// while the app is active, and requesting from the BG refresh task wastes
+    /// the BG budget on a call that can't succeed. Foreground prompts already
+    /// happen (`PushService.requestPermissionAtReliableMomentIfNeeded`, Money
+    /// tab); the notify path below only CHECKS the existing grant.
     public func requestPermissionIfNeeded() async {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
@@ -31,11 +35,11 @@ public final class NewGradeNotifier: NewGradeNotifying {
         }
     }
 
-    /// Schedules an immediate local notification for one or more newly
-    /// graded items. iOS suppresses it when permission isn't granted.
+    /// Schedules an immediate local notification for one or more newly graded
+    /// items — but only when authorization is ALREADY granted. US-1259: this
+    /// runs from the BG refresh task and must never trigger a permission
+    /// request; an undetermined grant simply skips (foreground prompts instead).
     func notifyNewGrades(count: Int, latest: LocalInventoryItem) async {
-        await requestPermissionIfNeeded()
-
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .authorized
