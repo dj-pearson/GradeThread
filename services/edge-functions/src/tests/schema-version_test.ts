@@ -37,16 +37,60 @@ Deno.test("compareSchemaVersion: null/garbage latest is unknown", () => {
 
 // ── assertSchemaVersion behavior ─────────────────────────────────
 
-Deno.test("prod + behind → fatal", async () => {
+Deno.test("prod + behind (no grace) → fatal", async () => {
   let fatal: string | null = null;
   const cmp = await assertSchemaVersion({
     getLatest: () => Promise.resolve("00100"),
     env: "production",
     onFatal: (m) => { fatal = m; },
+    graceAttempts: 0, // opt out of the retry window for an instant assertion
   });
   assertEquals(cmp, "behind");
   assert(fatal, "onFatal must fire on a confirmed behind-version in prod");
   assert(String(fatal).includes("STALE"));
+});
+
+// Grace window (B): the deploy/migrate race — DB is behind at boot but the
+// migration lands within the window. The guard must re-poll and proceed, NOT
+// crash-loop the service.
+Deno.test("prod + behind that recovers within grace → proceeds, never fatal", async () => {
+  let fatal = false;
+  let slept = 0;
+  // First read is behind; the 2nd (after one grace sleep) catches up to the
+  // version this build expects. Subsequent reads stay caught up.
+  const reads = ["00100", EXPECTED_SCHEMA_VERSION];
+  let i = 0;
+  const cmp = await assertSchemaVersion({
+    getLatest: () => Promise.resolve(reads[Math.min(i++, reads.length - 1)]!),
+    env: "production",
+    onFatal: () => { fatal = true; },
+    graceAttempts: 5,
+    graceDelayMs: 1,
+    sleep: () => { slept++; return Promise.resolve(); },
+  });
+  assertEquals(fatal, false, "must NOT be fatal when the migration lands in-window");
+  assert(slept >= 1, "must have waited at least one grace interval");
+  assertEquals(cmp, "match");
+});
+
+// Grace window exhausted: a genuinely-forgotten migration. The guard still ends
+// in the loud fatal — just after the window, not before it.
+Deno.test("prod + behind for the whole window → fatal after exhausting grace", async () => {
+  let fatal: string | null = null;
+  let polls = 0;
+  const cmp = await assertSchemaVersion({
+    getLatest: () => { polls++; return Promise.resolve("00100"); },
+    env: "production",
+    onFatal: (m) => { fatal = m; },
+    graceAttempts: 3,
+    graceDelayMs: 1,
+    sleep: () => Promise.resolve(),
+  });
+  assertEquals(cmp, "behind");
+  assert(fatal, "onFatal must fire once the grace window is exhausted");
+  assert(String(fatal).includes("grace window"));
+  // 1 initial read + 3 in-window re-polls.
+  assertEquals(polls, 4);
 });
 
 Deno.test("dev + behind → warn, NOT fatal", async () => {

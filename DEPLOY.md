@@ -27,6 +27,14 @@ not stylistic:
    new container crash-loops (by design) — so migrate first. Migrations are also
    forward-only and written to be backward-compatible with the *currently
    running* edge build, so applying them early never breaks the old code.
+   **Automate this gate** so it's not a manual step you can forget: wire
+   `apply-prod-migrations.sh` (`npm run migrate:prod`) as the edge resource's
+   **Coolify Pre-deployment Command** — a failed migration then aborts the
+   rollout and the old container keeps serving (see
+   `services/edge-functions/COOLIFY.md` → "Apply migrations BEFORE the edge
+   rolls"). A boot-time **grace window** (≈40 s, `SCHEMA_GUARD_GRACE_ATTEMPTS`/
+   `_DELAY_MS`) absorbs the residual deploy/migrate race so a near-simultaneous
+   apply is a brief delayed start, not a 503 crash-loop.
 2. **Deploy the edge service second.** New API endpoints/fields must exist
    server-side before the frontend calls them. The edge is the contract.
 3. **Deploy the frontend last.** The SPA may rely on new edge endpoints; shipping
