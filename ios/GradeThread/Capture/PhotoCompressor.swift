@@ -14,10 +14,14 @@ public enum PhotoCompressor {
         public let thumbnail: UIImage    // Small UIImage for slot strip preview
     }
 
-    /// Default compression budget. Tweak via the explicit params on
-    /// ``compress(_:maxLongEdge:quality:)`` for one-off needs.
-    public static let defaultMaxLongEdge: CGFloat = 2048
-    public static let defaultJPEGQuality: CGFloat = 0.8
+    /// Default compression budget. Lowered from 2048px/0.8 → 1600px/0.75: the old
+    /// budget produced ~1 MB JPEGs that took 1.5–5s each to PUT against the (slow)
+    /// self-hosted storage, which made the background uploader thrash and drop
+    /// links. 1600px/0.75 is ~450–500 KB — roughly 2× faster uploads — and is
+    /// still above eBay's zoom threshold and ample for the AI vision pass.
+    /// Tweak via the explicit params on ``compress(_:maxLongEdge:quality:)``.
+    public static let defaultMaxLongEdge: CGFloat = 1600
+    public static let defaultJPEGQuality: CGFloat = 0.75
     public static let defaultThumbnailLongEdge: CGFloat = 160
 
     /// Resize + JPEG-encode `image` per the project's defaults. Returns
