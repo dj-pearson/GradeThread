@@ -65,6 +65,14 @@ public final class PhotoUploadService {
     /// done" callback. Cleared in ``didFinishBackgroundEvents()``.
     private var backgroundCompletion: (() -> Void)?
 
+    /// Serial chain for the `item_photos` link inserts. Each finished upload
+    /// appends its insert here and awaits the previous one, so the DB links run
+    /// ONE AT A TIME instead of a concurrent burst that raced the shared Supabase
+    /// client (the cause of photos whose bytes reached storage but never got a
+    /// row — and which photos lost varied run-to-run). MainActor-isolated, so
+    /// appends never race. Starts as an already-completed task.
+    private var linkChain: Task<Void, Never> = Task {}
+
     public init(
         store: PhotoUploadStore,
         supabaseClient: SupabaseClient = SupabaseShared.client,
@@ -214,6 +222,10 @@ public final class PhotoUploadService {
     /// store (the source of any on-screen progress), the session→upload id
     /// maps, and the staged temp files.
     private func finalizeCancellation() {
+        // Stop the serial link chain so we don't keep writing item_photos for the
+        // signed-out user, then reset it to a fresh completed task.
+        linkChain.cancel()
+        linkChain = Task {}
         store.reset()
         sessionTaskIdToUploadId.removeAll()
         sortOrderByUploadId.removeAll()
@@ -337,16 +349,29 @@ public final class PhotoUploadService {
         // Storage upload OK. Finish the second phase — insert the
         // item_photos row — then finalize.
         let sortOrder = sortOrderByUploadId.removeValue(forKey: id) ?? 0
-        Task { @MainActor [weak self] in
-            let linked = await self?.insertPhotoRow(for: task, sortOrder: sortOrder) ?? false
-            // Only discard the staged JPEG once the row is durably linked. If
-            // the DB insert failed we queued a pending mutation that re-uploads
-            // from this very file on the next sync — deleting it would strand
-            // that retry (replay reads `local_file_url`).
+        // Start the next queued upload immediately — the upload pipeline must NOT
+        // wait on the (now serialized) DB link.
+        startNextIfPossible()
+        // Link the row on the SERIAL chain with retry, so a burst of finished
+        // uploads can't race the Supabase client and silently drop links. Temp
+        // file cleanup happens inside the chain once the row is durably linked.
+        enqueueLink(for: task, sortOrder: sortOrder)
+    }
+
+    /// Appends a `item_photos` link insert to the serial ``linkChain`` so links
+    /// run one at a time. Each link awaits the previous, inserts (with retry),
+    /// and — only on a durable success — discards the staged JPEG. A failed link
+    /// keeps the file (the queued pending mutation re-uploads it from disk on the
+    /// next sync, reading `local_file_url`).
+    private func enqueueLink(for task: PhotoUploadTask, sortOrder: Int) {
+        let previous = linkChain
+        linkChain = Task { @MainActor [weak self] in
+            _ = await previous.value
+            guard let self, !Task.isCancelled else { return }
+            let linked = await self.insertPhotoRow(for: task, sortOrder: sortOrder)
             if linked {
                 try? FileManager.default.removeItem(at: task.localFileURL)
             }
-            self?.startNextIfPossible()
         }
     }
 
@@ -387,25 +412,37 @@ public final class PhotoUploadService {
             captured_at: task.capturedAt,
             reconcile_session_id: task.reconcileSessionId
         )
-        do {
-            // Upsert (not insert) keyed on the primary key: if a previous
-            // attempt's response was lost after the server committed, this
-            // updates that same row instead of creating a duplicate.
-            try await supabaseClient
-                .from("item_photos")
-                .upsert(row)
-                .execute()
-            store.updatePhase(task.id, to: .uploaded(publicURL: publicURL))
-            return true
-        } catch {
-            // Storage upload succeeded but the DB write failed (e.g. the access
-            // token expired between the two phases). Don't rely on the manual
-            // retry button — it's gone the moment the user leaves the capture
-            // screen. Queue a pending mutation so the next SyncEngine pass
-            // re-links the photo automatically (idempotent storage re-upload +
-            // upsert by the SAME deterministic id ⇒ no duplicate rows).
-            handlePhotoLinkFailure(task: task, message: error.localizedDescription)
-            return false
+        // Retry the link before giving up. The upsert is idempotent (keyed on the
+        // deterministic primary key, so a lost-response replay updates the same
+        // row rather than duplicating), and the failures we see are transient —
+        // token-refresh / connection contention when photos finish close together
+        // — which a short backoff clears. Only after exhausting the attempts do we
+        // mark the photo `.failed` and queue the SyncEngine replay.
+        let maxAttempts = 4
+        var attempt = 0
+        while true {
+            do {
+                try await supabaseClient
+                    .from("item_photos")
+                    .upsert(row)
+                    .execute()
+                store.updatePhase(task.id, to: .uploaded(publicURL: publicURL))
+                return true
+            } catch {
+                attempt += 1
+                if attempt >= maxAttempts {
+                    // Storage upload succeeded but the DB write kept failing (e.g.
+                    // a genuinely-expired token). Don't rely on the manual retry
+                    // button — it's gone the moment the user leaves the capture
+                    // screen. Queue a pending mutation so the next SyncEngine pass
+                    // re-links the photo automatically (idempotent storage
+                    // re-upload + upsert by the SAME deterministic id ⇒ no dupes).
+                    handlePhotoLinkFailure(task: task, message: error.localizedDescription)
+                    return false
+                }
+                // 0.3s, 0.6s, 0.9s backoff between attempts.
+                try? await Task.sleep(nanoseconds: UInt64(attempt) * 300_000_000)
+            }
         }
     }
 
