@@ -799,7 +799,10 @@ struct DetailsIntakeView: View {
         // pending-changes inspector (US-641) can name the row.
         guard let base = try? JSONEncoder().encode(payload),
               var dict = (try? JSONSerialization.jsonObject(with: base)) as? [String: Any] else { return }
-        let id = UUID().uuidString
+        // Lowercased to match Postgres `uuid` normalization (see PhotoIntakeView):
+        // an UPPERCASE client id would miss the case-sensitive sync-merge lookup
+        // on pull-back and duplicate the row.
+        let id = UUID().uuidString.lowercased()
         dict["id"] = id
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         let mutation = LocalPendingMutation(

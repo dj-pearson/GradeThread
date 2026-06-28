@@ -741,7 +741,16 @@ struct PhotoIntakeView: View {
         // the photo-first path survive a flaky/absent network the same way the
         // manual details form does, instead of dead-ending on "Couldn't create
         // your item" and discarding the captures.
-        let newItemId = UUID().uuidString
+        //
+        // LOWERCASED (load-bearing): Postgres normalizes the `uuid` column to
+        // lowercase, but Swift's `UUID().uuidString` is UPPERCASE. If the local
+        // SwiftData mirror below keeps the uppercase id, the next sync pull
+        // returns the row lowercased and the case-sensitive merge lookup
+        // (`existingById[remote.id]` in SyncMergeActor) MISSES — inserting a
+        // SECOND item. Photos (item_photos.inventory_item_id, also lowercased by
+        // Postgres) attach to the server/lowercase row, so you get a duplicate:
+        // one item WITH photos (lowercase) and one WITHOUT (uppercase mirror).
+        let newItemId = UUID().uuidString.lowercased()
         let payload = ItemInsert(
             id: newItemId,
             user_id: userId,

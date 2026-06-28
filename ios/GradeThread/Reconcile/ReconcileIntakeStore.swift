@@ -39,7 +39,9 @@ final class ReconcileIntakeStore {
             var snapshot: [ReconcileSnapshotEntry] = []
             var done = 0
             for capture in captures {
-                let photoId = UUID().uuidString
+                // Lowercased to match Postgres `uuid` normalization (the rest of
+                // the photo pipeline lowercases ids for the same reason).
+                let photoId = UUID().uuidString.lowercased()
                 let path = try await service.uploadStagedPhoto(
                     ownerId: ownerId,
                     sessionId: sessionId,

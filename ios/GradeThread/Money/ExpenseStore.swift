@@ -88,7 +88,10 @@ final class ExpenseStore {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd"
 
-        let id = UUID().uuidString
+        // Lowercased to match Postgres `uuid` normalization (see PhotoIntakeView):
+        // an UPPERCASE client id misses the case-sensitive sync-merge lookup on
+        // pull-back and would duplicate the expense row.
+        let id = UUID().uuidString.lowercased()
         let cleanDescription = description?.isEmpty == true ? nil : description
         let spentOnString = formatter.string(from: spentOn)
         let row = Insert(
