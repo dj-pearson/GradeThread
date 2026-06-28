@@ -44,6 +44,15 @@ actor SignedUploadURLProvider {
     /// is authenticated (this request is sent over the ephemeral session and is
     /// never persisted to disk). `x-upsert` so a re-upload of the same path
     /// overwrites instead of 409-ing, matching the prior direct-upload behavior.
+    ///
+    /// Sends an empty-JSON-object body (`{}`), exactly as supabase-js's
+    /// `createSignedUploadUrl` does. This is load-bearing: the request declares
+    /// `Content-Type: application/json`, and storage-api (Fastify) rejects a POST
+    /// that has that content-type with a ZERO-length body
+    /// (`FST_ERR_CTP_EMPTY_JSON_BODY` → **HTTP 400**). A 400 here makes the mint
+    /// return nil → every photo upload fails before any byte reaches storage → the
+    /// AI-extract run bails with "couldn't process your photos" and NOTHING shows
+    /// in the edge logs (the mint/PUT/insert all hit Supabase/Kong, not the edge).
     static func mintRequest(base: URL?, bucket: String, path: String, token: String?) -> URLRequest? {
         guard let url = StorageURL.uploadSign(base: base, bucket: bucket, path: path) else { return nil }
         var request = URLRequest(url: url)
@@ -52,6 +61,8 @@ actor SignedUploadURLProvider {
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
+        // Non-empty body required for the application/json content-type (above).
+        request.httpBody = Data("{}".utf8)
         return request
     }
 

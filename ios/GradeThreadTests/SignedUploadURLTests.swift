@@ -41,8 +41,12 @@ final class SignedUploadURLTests: XCTestCase {
         // background request.
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer tok-abc")
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-upsert"), "true")
-        // No image bytes ride along on the mint.
-        XCTAssertNil(request.httpBody)
+        // No image bytes ride along on the mint — but the body is NOT empty: it
+        // carries `{}` so the application/json content-type has a non-empty body.
+        // storage-api (Fastify) 400s a zero-length application/json POST
+        // (FST_ERR_CTP_EMPTY_JSON_BODY), which previously made every mint fail.
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertEqual(request.httpBody, Data("{}".utf8))
     }
 
     func test_resolve_buildsFullUploadURLFromRelativePath() {
