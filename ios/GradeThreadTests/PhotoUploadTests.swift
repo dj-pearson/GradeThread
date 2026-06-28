@@ -130,7 +130,7 @@ final class PhotoUploadTests: XCTestCase {
     func test_concurrencyCap_storeMath() {
         let store = PhotoUploadStore()
         let cap = PhotoUploadService.maxConcurrent
-        XCTAssertEqual(cap, 2, "Cap is documented at 2 — change tests if this changes")
+        XCTAssertEqual(cap, 1, "Cap is documented at 1 (strictly sequential) — change tests if this changes")
 
         // Simulate `cap` active uploads. activeCount must reflect them.
         let slots: [PhotoSlotType] = [.front, .back, .tag, .detail]

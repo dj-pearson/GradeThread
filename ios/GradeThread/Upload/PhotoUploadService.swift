@@ -23,11 +23,12 @@ import UIKit
 @MainActor
 public final class PhotoUploadService {
     public static let backgroundSessionIdentifier = "com.gradethread.app.photo-uploads"
-    // Lowered from 3: the self-hosted Supabase storage gateway intermittently
-    // 504s (Gateway Timeout) under concurrent upload load, so fewer simultaneous
-    // PUTs means fewer timeouts. The publish gate only waits on front/back, so
-    // the user-perceived latency is unaffected.
-    public static let maxConcurrent = 2
+    // Strictly sequential (1). A storage benchmark proved the self-hosted backend
+    // handles ONE ~700 KB PUT in ~1s but degrades to 3–4s and ABORTS some requests
+    // under concurrency (7-way → 2 aborted). One upload at a time is the only
+    // setting that never aborts. The publish gate only waits on front/back, so the
+    // ~1s-per-photo serial cost is invisible to the user. Was 3 → 2 → 1.
+    public static let maxConcurrent = 1
 
     /// How many times a single photo is re-minted + re-PUT on a transient/timeout
     /// failure (e.g. a storage-gateway 504) before falling back to the SyncEngine
@@ -145,6 +146,18 @@ public final class PhotoUploadService {
                 for t in tasks { t.cancel() }
                 Task { @MainActor in completion() }
             }
+        }
+
+        // The foreground path owns ALL new uploads; the background `session` is
+        // retained only because a background URLSession's stable identifier can't
+        // be cleanly abandoned while tasks from a PRIOR (background-uploader) build
+        // still sit in its on-disk queue. Left alone, those stale tasks AUTO-RESUME
+        // on launch and storm the slow storage — 10+ duplicate PUTs per photo, most
+        // aborting in ~4ms (exactly the failure we rebuilt away from). Purge them
+        // once at startup so the legacy queue drains to NOTHING instead of replaying.
+        // Safe: no new upload is ever enqueued onto `session`.
+        session.getAllTasks { tasks in
+            for t in tasks { t.cancel() }
         }
 
         // US-1253: sweep stranded staged JPEGs at launch, independent of the
