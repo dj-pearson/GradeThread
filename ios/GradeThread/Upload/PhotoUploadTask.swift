@@ -72,20 +72,18 @@ public struct PhotoUploadTask: Identifiable, Equatable {
         self.sessionTaskId = sessionTaskId
     }
 
-    /// Whether this task has reached a state the upload queue won't advance past
-    /// on its own. `.failed` IS terminal here: a failed upload has already queued
-    /// a `LocalPendingMutation` for the SyncEngine to retry out-of-band, so for
-    /// the purposes of "are we still actively uploading?" it's done. This is
-    /// load-bearing for `AIExtractionManager.waitForUploads`, whose own comment
-    /// says "failed uploads are fine — we just skip them": if `.failed` were
-    /// treated as non-terminal, a single failed photo (e.g. an item_photos link
-    /// that didn't stick) would block the AI-extract wait for its full 180s
-    /// timeout, so extract never fires for the photos that DID upload and the
-    /// user sees "couldn't process your photos" with nothing in the edge logs.
+    /// Whether the upload reached a genuinely-finished state. `.failed` is
+    /// deliberately NOT terminal: a failed upload has queued a pending mutation
+    /// to retry, so consumers like `AutoListerGenerator.isItemUploadComplete`
+    /// keep the item pending (count it toward a timeout / offer retry) rather
+    /// than treating it as done and generating a partial set. The AI-extract
+    /// publish gate has its OWN "settled" notion (uploaded/failed/cancelled) so
+    /// a single failed photo doesn't block it — see
+    /// `AIExtractionManager.waitForRequiredUploads`.
     public var isTerminal: Bool {
         switch phase {
-        case .uploaded, .cancelled, .failed: return true
-        case .queued, .uploading: return false
+        case .uploaded, .cancelled: return true
+        case .queued, .uploading, .failed: return false
         }
     }
 

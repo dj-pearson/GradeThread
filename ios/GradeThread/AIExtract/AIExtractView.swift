@@ -114,12 +114,64 @@ struct AIExtractView: View {
         case .ready:
             // Result is in; `onChange` is navigating to the item.
             applying
+        case .uploading(let done, let total):
+            // Publish gate: photos are being saved to the DB before the AI runs.
+            publishing(done: done, total: total)
         case .running, .none:
             processing
         }
     }
 
     // MARK: - States
+
+    /// Publish gate (the AI hasn't started yet): show how many photos have landed
+    /// in the DB. The AI kicks off automatically once the required (front/back)
+    /// photos are saved; optional photos keep uploading in the background.
+    private func publishing(done: Int, total: Int) -> some View {
+        VStack(spacing: 16) {
+            ProgressView(value: Double(done), total: Double(max(total, 1)))
+                .tint(Color.brandNavy)
+                .padding(.horizontal, 40)
+            Text("Saving your photos…")
+                .font(.brandHeadline)
+            Text("\(done) of \(total) saved")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("The AI starts as soon as your main photos are saved. You can keep working — it finishes on its own.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 28)
+
+            if failedUploadCount > 0 {
+                Button {
+                    AppRouter.haptic()
+                    onRetryUploads()
+                } label: {
+                    Text("Retry \(failedUploadCount) that didn't upload")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.brandNavy)
+                }
+                .padding(.top, 4)
+            }
+
+            Button {
+                AppRouter.haptic()
+                onBackground()
+            } label: {
+                Text("Continue in background")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Color.brandNavy)
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
 
     private var processing: some View {
         VStack(spacing: 16) {

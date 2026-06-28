@@ -19,6 +19,11 @@ final class AIExtractionManager {
     private init() {}
 
     enum Phase: Equatable {
+        /// Publish gate: the captured photos are being saved to storage + the
+        /// `item_photos` table. Held until the REQUIRED photos (front/back) have a
+        /// confirmed DB row, so the AI never starts against photos that haven't
+        /// landed. `done`/`total` drive the progress UI.
+        case uploading(done: Int, total: Int)
         case running
         case ready
         case failed(String)
@@ -44,9 +49,14 @@ final class AIExtractionManager {
 
     func phase(for itemId: String) -> Phase? { phases[itemId] }
 
+    /// True while this item is actively being processed — both the publish/upload
+    /// gate AND the AI run — so the inventory "AI processing…" pill stays up across
+    /// the whole flow (incl. when the user backgrounds during the upload gate).
     func isRunning(_ itemId: String) -> Bool {
-        if case .running = phases[itemId] { return true }
-        return false
+        switch phases[itemId] {
+        case .uploading, .running: return true
+        case .ready, .failed, .none: return false
+        }
     }
 
     /// Clears tracking for an item (cancels an in-flight run). The persisted
@@ -68,7 +78,7 @@ final class AIExtractionManager {
         isOffline: Bool
     ) {
         guard tasks[itemId] == nil else { return }
-        phases[itemId] = .running
+        phases[itemId] = .uploading(done: 0, total: photos.count)
         let task = Task { [weak self] in
             guard let self else { return }
             await self.run(
@@ -127,7 +137,11 @@ final class AIExtractionManager {
             return
         }
 
-        await waitForUploads(itemId: itemId, photos: photos, uploadStore: uploadStore)
+        // Publish gate: hold until the REQUIRED photos (front/back) are confirmed
+        // in item_photos, surfacing progress via the `.uploading` phase. Optional
+        // photos (detail, measurements, …) keep uploading in the background and
+        // are NOT waited on, so a slow/failed optional photo can't stall the AI.
+        await waitForRequiredUploads(itemId: itemId, photos: photos, uploadStore: uploadStore)
 
         // Build the extract request from whatever uploaded so far.
         var extractPhotos: [ExtractPhoto] = []
@@ -196,6 +210,8 @@ final class AIExtractionManager {
             return
         }
 
+        // Required photos are confirmed in the DB — now run the AI itself.
+        phases[itemId] = .running
         let request = AIExtractRequest(itemId: itemId, photos: extractPhotos, knownFields: nil, text: nil)
         do {
             let response = try await AIExtractService().extract(request)
@@ -243,23 +259,52 @@ final class AIExtractionManager {
     /// "Untitled" item (US-1231 / US-686 follow-up). A small initial grace gives
     /// the tasks a moment to appear so the first poll can't return on an
     /// empty/partial list.
-    private func waitForUploads(
+    /// Publish gate: hold until the REQUIRED photos (front/back) are SETTLED —
+    /// each either `.uploaded` (confirmed in item_photos) or terminally failed —
+    /// so the AI never starts against photos that haven't landed, while a slow or
+    /// failed OPTIONAL photo (detail, measurements, …) never blocks it. Publishes
+    /// `.uploading(done:total:)` each tick so the view shows progress.
+    ///
+    /// "Settled" here intentionally includes `.failed` (unlike `isTerminal`): a
+    /// failed required photo stops the wait so the existing handoff retry prompt
+    /// can surface it, rather than spinning for the full timeout. Falls back to
+    /// the whole captured set when none of the photos is a required slot.
+    private func waitForRequiredUploads(
         itemId: String,
         photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
         uploadStore: PhotoUploadStore
     ) async {
+        let requiredSlots = photos.map(\.slot).filter(\.isRequired)
+        let gateSlots = requiredSlots.isEmpty ? photos.map(\.slot) : requiredSlots
+        let total = photos.count
         let start = Date.now
         let deadline = start.addingTimeInterval(Self.waitTimeoutSeconds)
+
+        func isSettled(_ phase: PhotoUploadTask.Phase) -> Bool {
+            switch phase {
+            case .uploaded, .failed, .cancelled: return true
+            case .queued, .uploading: return false
+            }
+        }
+
         while Date.now < deadline {
             let allTasks = uploadStore.tasks(inventoryItemId: itemId)
-            let registeredAll = allTasks.count >= photos.count
-            let allTerminal = allTasks.allSatisfy { $0.isTerminal }
+            let uploaded = allTasks.reduce(0) { acc, t in
+                if case .uploaded = t.phase { return acc + 1 }
+                return acc
+            }
+            phases[itemId] = .uploading(done: uploaded, total: total)
+
+            let registeredAll = allTasks.count >= total
+            let gateSettled = gateSlots.allSatisfy { slot in
+                guard let task = uploadStore.task(for: slot, inventoryItemId: itemId) else { return false }
+                return isSettled(task.phase)
+            }
             let graceElapsed = Date.now.timeIntervalSince(start) >= Self.uploadRegisterGraceSeconds
-            // Return once every expected task is registered and terminal. When
-            // the task list is still empty (e.g. nothing to upload) require the
-            // grace to elapse first so we don't return on a vacuously-terminal
-            // empty list during the enqueue window.
-            if registeredAll, allTerminal, !allTasks.isEmpty || graceElapsed { return }
+            // Proceed once the gate photos are settled and every expected task has
+            // registered. The grace guard avoids returning on a vacuously-true
+            // empty set during the brief async enqueue window.
+            if registeredAll, gateSettled, !allTasks.isEmpty || graceElapsed { return }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
     }
