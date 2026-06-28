@@ -130,10 +130,11 @@ final class PhotoUploadTests: XCTestCase {
     func test_concurrencyCap_storeMath() {
         let store = PhotoUploadStore()
         let cap = PhotoUploadService.maxConcurrent
-        XCTAssertEqual(cap, 3, "Cap is documented at 3 — change tests if this changes")
+        XCTAssertEqual(cap, 2, "Cap is documented at 2 — change tests if this changes")
 
-        // Simulate three active uploads. activeCount must reflect them.
-        for slot in [PhotoSlotType.front, .back, .tag] {
+        // Simulate `cap` active uploads. activeCount must reflect them.
+        let slots: [PhotoSlotType] = [.front, .back, .tag, .detail]
+        for slot in slots.prefix(cap) {
             var t = makeTask(slot: slot, itemId: "item-A")
             t.phase = .uploading(progress: 0.1)
             store.upsert(t)
@@ -143,7 +144,7 @@ final class PhotoUploadTests: XCTestCase {
         // A new queued task does NOT auto-promote to uploading from the
         // store's perspective — the service is responsible for promoting
         // it when an active slot finishes. activeCount stays at the cap.
-        store.upsert(makeTask(slot: .detail, itemId: "item-A"))
+        store.upsert(makeTask(slot: slots[cap], itemId: "item-A"))
         XCTAssertEqual(store.activeCount(), cap)
     }
 

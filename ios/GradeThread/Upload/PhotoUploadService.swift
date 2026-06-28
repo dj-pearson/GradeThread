@@ -23,7 +23,17 @@ import UIKit
 @MainActor
 public final class PhotoUploadService {
     public static let backgroundSessionIdentifier = "com.gradethread.app.photo-uploads"
-    public static let maxConcurrent = 3
+    // Lowered from 3: the self-hosted Supabase storage gateway intermittently
+    // 504s (Gateway Timeout) under concurrent upload load, so fewer simultaneous
+    // PUTs means fewer timeouts. The publish gate only waits on front/back, so
+    // the user-perceived latency is unaffected.
+    public static let maxConcurrent = 2
+
+    /// How many times a single photo is re-minted + re-PUT on a transient/timeout
+    /// failure (e.g. a storage-gateway 504) before falling back to the SyncEngine
+    /// replay. The task stays non-terminal across these attempts so the publish
+    /// gate waits for it rather than proceeding without the photo.
+    static let maxUploadRetries = 3
 
     private let store: PhotoUploadStore
     private let supabaseClient: SupabaseClient
@@ -327,6 +337,8 @@ public final class PhotoUploadService {
             let nsError = error as NSError
             if nsError.code == NSURLErrorCancelled {
                 store.updatePhase(id, to: .cancelled)
+            } else if retryUploadIfPossible(task) {
+                // Transient network failure — re-queued for another attempt.
             } else {
                 handleNetworkFailure(task, message: error.localizedDescription)
             }
@@ -336,7 +348,19 @@ public final class PhotoUploadService {
 
         guard let response, (200..<300).contains(response.statusCode) else {
             let code = response?.statusCode ?? -1
-            handleFailedUploadStatus(task, code: code)
+            // Transient storage failures (504/5xx, 401/403) get a few immediate
+            // re-mint + re-PUT attempts before the terminal SyncEngine fallback,
+            // so the storage gateway's intermittent 504s under load don't drop
+            // the photo. Deterministic 4xx (400/404/409) still fail fast.
+            if Self.isRecoverableUploadStatus(code), retryUploadIfPossible(task) {
+                Telemetry.event("photo_upload_retry", props: [
+                    "code": "\(code)",
+                    "slot": task.slot.serverPhotoType,
+                    "item_id": task.inventoryItemId,
+                ])
+            } else {
+                handleFailedUploadStatus(task, code: code)
+            }
             startNextIfPossible()
             return
         }
@@ -465,6 +489,31 @@ public final class PhotoUploadService {
     }
 
     // MARK: - Failure handling
+
+    /// Re-queues a transiently-failed upload for another mint + PUT if it still
+    /// has retry budget. Returns true when a retry was scheduled (the caller must
+    /// then NOT mark the task terminal). The task is held nominally `.uploading`
+    /// during a short backoff so the immediate `startNextIfPossible()` doesn't
+    /// re-pick it instantly and the publish gate keeps waiting; it's re-queued
+    /// (which re-mints + re-PUTs in `start`) once the backoff elapses. This rides
+    /// out the storage gateway's intermittent 504s under concurrent load.
+    private func retryUploadIfPossible(_ task: PhotoUploadTask) -> Bool {
+        let attempts = store.tasks[task.id]?.retryCount ?? task.retryCount
+        guard attempts < Self.maxUploadRetries else { return false }
+        store.bumpRetry(task.id)
+        store.updatePhase(task.id, to: .uploading(progress: 0))
+        let delayNanos = UInt64(attempts + 1) * 700_000_000  // 0.7s / 1.4s / 2.1s
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delayNanos)
+            guard let self else { return }
+            // Only re-queue if still in the holding state (not cancelled/reset).
+            if case .uploading = self.store.tasks[task.id]?.phase {
+                self.store.updatePhase(task.id, to: .queued)
+                self.startNextIfPossible()
+            }
+        }
+        return true
+    }
 
     /// Routes a non-2xx storage-upload response. A recoverable status — 401/403
     /// (the signed-upload token expired or was rejected by per-user-folder RLS)
