@@ -145,25 +145,7 @@ struct AIExtractView: View {
 
             // Per-photo status — surfaces the EXACT failure reason for any photo
             // that doesn't land, so a stuck upload is diagnosable, not silent.
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(photos.map(\.slot), id: \.self) { slot in
-                    let phase = uploadStore.task(for: slot, inventoryItemId: inventoryItemId)?.phase
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        slotStatusIcon(phase)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(slot.label).font(.caption.weight(.semibold))
-                            if case let .failed(error) = phase {
-                                Text(error)
-                                    .font(.caption2)
-                                    .foregroundStyle(.red)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        Spacer()
-                    }
-                }
-            }
-            .padding(.horizontal, 28)
+            photoStatusList
 
             if failedUploadCount > 0 {
                 Button {
@@ -195,6 +177,32 @@ struct AIExtractView: View {
         .padding()
     }
 
+    /// Per-photo upload status with the exact failure reason under any that fail.
+    /// Shown on BOTH the publish gate AND the "AI is reading…" screen so the
+    /// errors stay readable through the ~20s AI call (the publish gate alone
+    /// flashes by in a couple of seconds once the required photos settle).
+    private var photoStatusList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(photos.map(\.slot), id: \.self) { slot in
+                let phase = uploadStore.task(for: slot, inventoryItemId: inventoryItemId)?.phase
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    slotStatusIcon(phase)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(slot.label).font(.caption.weight(.semibold))
+                        if case let .failed(error) = phase {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .padding(.horizontal, 28)
+    }
+
     /// Status glyph for a photo slot's upload phase (drives the publish-gate list).
     @ViewBuilder
     private func slotStatusIcon(_ phase: PhotoUploadTask.Phase?) -> some View {
@@ -221,6 +229,10 @@ struct AIExtractView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
             ProgressDots()
+
+            // Keep the per-photo upload status visible through the AI call so the
+            // failure reasons are readable (the publish gate flashes by too fast).
+            photoStatusList
 
             Button {
                 AppRouter.haptic()
