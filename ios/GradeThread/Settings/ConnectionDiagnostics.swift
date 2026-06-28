@@ -59,6 +59,10 @@ struct ConnectionDiagnostics {
         lines.append("— signed-upload mint + PUT (the REAL upload path) —")
         await probeUploadMint(userId: userId, into: &lines)
 
+        lines.append("")
+        lines.append("— item_photos INSERT (the real DB-link step) —")
+        await probeItemPhotoLink(userId: userId, into: &lines)
+
         return lines.joined(separator: "\n")
     }
 
@@ -224,5 +228,60 @@ struct ConnectionDiagnostics {
         } catch {
             lines.append("signed PUT ERROR: \(error.localizedDescription)")
         }
+    }
+
+    /// Probes the REAL `item_photos` INSERT — the authenticated, RLS-subject
+    /// upsert the photo pipeline runs after a successful PUT (the step the
+    /// mint+PUT probe does NOT cover, and the step the SQL showed failing). Tied
+    /// to the user's latest inventory item for the FK; reports success or the
+    /// EXACT error, then deletes the diagnostic row.
+    private func probeItemPhotoLink(userId: String?, into lines: inout [String]) async {
+        guard let userId else { lines.append("skipped: no user id"); return }
+        let itemId: String
+        do {
+            let resp = try await SupabaseShared.client
+                .from("inventory_items")
+                .select("id")
+                .order("created_at", ascending: false)
+                .limit(1)
+                .execute()
+            struct Row: Decodable { let id: String }
+            guard let first = (try? JSONDecoder().decode([Row].self, from: resp.data))?.first else {
+                lines.append("skipped: no inventory item to attach to")
+                return
+            }
+            itemId = first.id
+        } catch {
+            lines.append("couldn't fetch an item: \(error.localizedDescription)")
+            return
+        }
+
+        struct DiagPhotoRow: Encodable {
+            let id: String
+            let inventory_item_id: String
+            let photo_type: String
+            let storage_path: String
+            let photo_url: String
+            let sort_order: Int
+            let bytes: Int
+        }
+        let rowId = "00000000-0000-4000-8000-0000000d1a90"
+        let row = DiagPhotoRow(
+            id: rowId,
+            inventory_item_id: itemId,
+            photo_type: "detail",
+            storage_path: "\(userId.lowercased())/diagnostics/mint-probe.jpg",
+            photo_url: "",
+            sort_order: 999,
+            bytes: 1
+        )
+        do {
+            try await SupabaseShared.client.from("item_photos").upsert(row).execute()
+            lines.append("item_photos INSERT: OK (authenticated upsert succeeded for item \(itemId.prefix(8))…)")
+        } catch {
+            lines.append("item_photos INSERT FAILED: \(error.localizedDescription)")
+        }
+        // Best-effort cleanup of the diagnostic row.
+        _ = try? await SupabaseShared.client.from("item_photos").delete().eq("id", value: rowId).execute()
     }
 }

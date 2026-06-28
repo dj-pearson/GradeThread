@@ -143,6 +143,28 @@ struct AIExtractView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
 
+            // Per-photo status — surfaces the EXACT failure reason for any photo
+            // that doesn't land, so a stuck upload is diagnosable, not silent.
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(photos.map(\.slot), id: \.self) { slot in
+                    let phase = uploadStore.task(for: slot, inventoryItemId: inventoryItemId)?.phase
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        slotStatusIcon(phase)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(slot.label).font(.caption.weight(.semibold))
+                            if case let .failed(error) = phase {
+                                Text(error)
+                                    .font(.caption2)
+                                    .foregroundStyle(.red)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
+            }
+            .padding(.horizontal, 28)
+
             if failedUploadCount > 0 {
                 Button {
                     AppRouter.haptic()
@@ -171,6 +193,21 @@ struct AIExtractView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    /// Status glyph for a photo slot's upload phase (drives the publish-gate list).
+    @ViewBuilder
+    private func slotStatusIcon(_ phase: PhotoUploadTask.Phase?) -> some View {
+        switch phase {
+        case .uploaded:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+        case .failed:
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.caption)
+        case .cancelled:
+            Image(systemName: "minus.circle").foregroundStyle(.secondary).font(.caption)
+        case .uploading, .queued, .none:
+            ProgressView().controlSize(.mini)
+        }
     }
 
     private var processing: some View {
