@@ -42,6 +42,25 @@ public final class PhotoUploadService {
     private var session: URLSession!
     private let sessionDelegate: SessionDelegate
 
+    /// Foreground session for the deterministic per-photo upload. Unlike the
+    /// background `session` above (kept only to drain uploads a PREVIOUS build may
+    /// have queued), this does ONE PUT and returns the real HTTP result — no
+    /// automatic transfer retries to storm the slow self-hosted storage. Generous
+    /// timeouts: a ~500 KB PUT can take a few seconds against that backend.
+    private let foregroundUploadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 90
+        config.timeoutIntervalForResource = 180
+        config.waitsForConnectivity = true
+        config.allowsCellularAccess = true
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+
+    /// In-flight foreground upload tasks, keyed by `PhotoUploadTask.id`, so
+    /// `cancelAll` can stop them on sign-out.
+    private var uploadTasks: [UUID: Task<Void, Never>] = [:]
+
     /// Cancels every in-flight background-session task, then invokes
     /// `completion` on the MainActor once the session has reported them
     /// cancelled. Injectable so ``cancelAll``'s deterministic reset path can be
@@ -218,6 +237,10 @@ public final class PhotoUploadService {
         for id in store.tasks.keys {
             store.updatePhase(id, to: .cancelled)
         }
+        // Cancel in-flight foreground uploads (cancelling the Task cancels its
+        // URLSession upload), then clear the tracking.
+        for (_, work) in uploadTasks { work.cancel() }
+        uploadTasks.removeAll()
         // Reset deterministically once the session confirms its in-flight
         // tasks are cancelled — NOT after a fixed `Task.sleep`. Tearing the
         // store/id-maps down on the cancellation completion guarantees any
@@ -236,6 +259,8 @@ public final class PhotoUploadService {
         // signed-out user, then reset it to a fresh completed task.
         linkChain.cancel()
         linkChain = Task {}
+        for (_, work) in uploadTasks { work.cancel() }
+        uploadTasks.removeAll()
         store.reset()
         sessionTaskIdToUploadId.removeAll()
         sortOrderByUploadId.removeAll()
@@ -267,34 +292,77 @@ public final class PhotoUploadService {
     }
 
     private func start(_ task: PhotoUploadTask) {
-        Task { @MainActor in
-            // US-1219: mint a short-TTL signed upload URL up front (over an
-            // ephemeral session that is NOT persisted) rather than stamping a
-            // long-lived `Authorization: Bearer <user-jwt>` onto the request the
-            // background URLSession serializes to its on-disk task DB. The signed
-            // URL's single-object token lives only in the query string; an
-            // expired mint fails closed (mint returns nil) and routes to the same
-            // retry/queue path as a network error instead of a silent 401.
-            guard let url = await signedUploadURL(task.slot.storageBucket, task.storagePath) else {
-                Telemetry.event("photo_upload_failed", props: [
-                    "reason": "signed_upload_url_failed",
-                    "slot": task.slot.serverPhotoType,
-                    "bucket": task.slot.storageBucket,
-                    "item_id": task.inventoryItemId,
-                ])
-                // Treat a mint failure like a transient network failure: mark
-                // `.failed` AND queue a pending mutation so the next SyncEngine
-                // pass re-mints a fresh signed URL and re-uploads from disk.
+        // Mark in-progress immediately so it holds a concurrency slot through the
+        // mint, and launch a TRACKED foreground upload. The old path used the
+        // background URLSession, whose automatic transfer retries duplicated PUTs
+        // against the slow self-hosted storage (10+ aborted attempts per photo,
+        // file landing with no item_photos row). This does ONE clean PUT, awaits
+        // the real result, and links — with only the deliberate retries we own.
+        store.updatePhase(task.id, to: .uploading(progress: 0))
+        let work = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.uploadTasks[task.id] = nil
+                self.startNextIfPossible()
+            }
+            await self.performUpload(task)
+        }
+        uploadTasks[task.id] = work
+    }
+
+    /// One mint → PUT → (link | retry | fail) cycle for a single photo on the
+    /// foreground session. Runs inside the tracked `start` task.
+    private func performUpload(_ task: PhotoUploadTask) async {
+        // US-1219: mint a short-TTL signed upload URL (over an ephemeral session)
+        // so no long-lived bearer JWT rides on the PUT; an expired mint fails
+        // closed (nil) and routes to the same retry/queue path as a network error.
+        guard let url = await signedUploadURL(task.slot.storageBucket, task.storagePath) else {
+            Telemetry.event("photo_upload_failed", props: [
+                "reason": "signed_upload_url_failed",
+                "slot": task.slot.serverPhotoType,
+                "bucket": task.slot.storageBucket,
+                "item_id": task.inventoryItemId,
+            ])
+            if !retryUploadIfPossible(task) {
                 handleNetworkFailure(task, message: "Couldn't prepare a secure upload — will retry on the next sync.")
-                startNextIfPossible()
+            }
+            return
+        }
+
+        let request = Self.backgroundUploadRequest(signedURL: url)
+        do {
+            let (_, response) = try await foregroundUploadSession.upload(for: request, fromFile: task.localFileURL)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            guard (200..<300).contains(code) else {
+                // Transient (504/5xx, 401/403) → a few deliberate re-mint + re-PUT
+                // attempts; deterministic 4xx fail fast.
+                if Self.isRecoverableUploadStatus(code), retryUploadIfPossible(task) {
+                    Telemetry.event("photo_upload_retry", props: [
+                        "code": "\(code)",
+                        "slot": task.slot.serverPhotoType,
+                        "item_id": task.inventoryItemId,
+                    ])
+                } else {
+                    handleFailedUploadStatus(task, code: code)
+                }
                 return
             }
-            let request = Self.backgroundUploadRequest(signedURL: url)
-            let upload = session.uploadTask(with: request, fromFile: task.localFileURL)
-            sessionTaskIdToUploadId[upload.taskIdentifier] = task.id
-            store.setSessionTaskId(task.id, sessionTaskId: upload.taskIdentifier)
-            store.updatePhase(task.id, to: .uploading(progress: 0))
-            upload.resume()
+            // 2xx — storage upload OK. Link the item_photos row on the serial chain.
+            Telemetry.event("photo_upload_ok", props: [
+                "slot": task.slot.serverPhotoType,
+                "item_id": task.inventoryItemId,
+            ])
+            let sortOrder = sortOrderByUploadId.removeValue(forKey: task.id) ?? 0
+            enqueueLink(for: task, sortOrder: sortOrder)
+        } catch is CancellationError {
+            store.updatePhase(task.id, to: .cancelled)
+        } catch {
+            let nsError = error as NSError
+            if nsError.code == NSURLErrorCancelled {
+                store.updatePhase(task.id, to: .cancelled)
+            } else if !retryUploadIfPossible(task) {
+                handleNetworkFailure(task, message: error.localizedDescription)
+            }
         }
     }
 
@@ -396,6 +464,10 @@ public final class PhotoUploadService {
             if linked {
                 try? FileManager.default.removeItem(at: task.localFileURL)
             }
+            // The photo held its concurrency slot through the upload AND the link
+            // (it stays `.uploading` until insertPhotoRow flips it to `.uploaded`),
+            // so a slot only truly frees here — pump the queue to start the next.
+            self.startNextIfPossible()
         }
     }
 
