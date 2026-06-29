@@ -4,8 +4,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { SENSITIVE_ITEM_PHOTO_TYPES } from "../lib/item-photo-storage.ts";
 import { maybeFireImmediateConsignorPayout } from "../lib/consignor-payout.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
-import { resolveItemAspects } from "../lib/aspect-registry.ts";
-import type { RegistryAspect } from "../lib/aspect-registry.ts";
+import { applyColumnAspects, resolveItemAspects } from "../lib/aspect-registry.ts";
+import type { RegistryAspect, RegistryItem } from "../lib/aspect-registry.ts";
 import {
   type AspectSourceMap,
   mergeSources,
@@ -4136,7 +4136,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
-        "id, user_id, title, brand, size, sku, description, condition_notes, grade_value, grade_label, ebay_aspects"
+        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, ebay_aspects, ebay_category_id"
       )
       .eq("id", itemId)
       .maybeSingle();
@@ -4149,22 +4149,68 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       title: string | null;
       brand: string | null;
       size: string | null;
+      color: string | null;
+      material: string | null;
+      style: string | null;
+      item_category: string | null;
+      attributes: Record<string, string | string[]> | null;
       sku: string | null;
       description: string | null;
       condition_notes: string | null;
       grade_value: number | null;
       grade_label: string | null;
       ebay_aspects: Record<string, string[]> | null;
+      ebay_category_id: string | null;
     };
 
-    // US-1088: keep the eBay "Size" item specific in sync with the item's size
-    // field. The Size field is the source of truth, so mirror it into the aspect
-    // on every revise — eBay shows size from item specifics, not the title — so
-    // a Size AI fill (or any size edit) reaches buyers when pushed.
-    const aspects: Record<string, string[]> = { ...(item.ebay_aspects ?? {}) };
-    if (item.size && item.size.trim()) {
-      aspects.Size = [item.size.trim()];
+    // US-1088+: the structured columns (Brand/Size/Color/Material/Style) are the
+    // source of truth for their eBay item specifics. eBay shows these from item
+    // specifics, not the title — so any edit on the main listing must propagate,
+    // overwriting the previously-pushed value (which otherwise lingers and shows
+    // as <UNKNOWN>/stale to buyers). Rebuild the aspect map from the columns on
+    // every revise, then persist it so the composer + next publish stay in sync.
+    const { data: listingRow } = await supabaseAdmin
+      .from("listings")
+      .select("platform_category_id, item_specifics_override")
+      .eq("id", listingId)
+      .maybeSingle();
+    const reviseCategoryId =
+      (listingRow as { platform_category_id?: string | null } | null)
+        ?.platform_category_id ?? item.ebay_category_id ?? null;
+    const baseAspects: Record<string, string[]> =
+      (listingRow as
+        | { item_specifics_override?: Record<string, string[]> | null }
+        | null)?.item_specifics_override ??
+      item.ebay_aspects ??
+      {};
+    // Pull the category's real aspect spec (cached) so synonyms / SELECTION_ONLY
+    // validation match; degrade gracefully to the default column names on error.
+    let reviseAspectList: AspectSpecRaw[] | null = null;
+    if (reviseCategoryId) {
+      try {
+        const resp = await getCategoryAspects(reviseCategoryId);
+        const raw = (resp.aspects as Record<string, unknown>).aspects;
+        if (Array.isArray(raw)) reviseAspectList = raw as AspectSpecRaw[];
+      } catch (err) {
+        console.error("[flipdesk-ebay] revise aspect spec fetch failed:", err);
+      }
     }
+    const aspects = forceColumnAspects(
+      item as unknown as RegistryItem,
+      reviseAspectList,
+      baseAspects,
+    );
+    // Persist the rebuilt map so the in-app eBay specifics editor and the next
+    // publish reflect the current columns (canonical = listing override; mirror
+    // onto the item too for legacy/no-listing reads).
+    await supabaseAdmin
+      .from("listings")
+      .update({ item_specifics_override: aspects })
+      .eq("id", listingId);
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ ebay_aspects: aspects })
+      .eq("id", itemId);
     const sku =
       item.sku && item.sku.trim()
         ? item.sku.trim()
@@ -6318,6 +6364,18 @@ interface AspectSpecRaw {
   aspectValues?: Array<{ localizedValue?: string }>;
 }
 
+// Normalize eBay's raw aspect spec into the registry's RegistryAspect shape.
+function toRegistryAspects(aspectList: AspectSpecRaw[]): RegistryAspect[] {
+  return aspectList.map((a) => ({
+    name: a.localizedAspectName ?? "",
+    mode: a.aspectConstraint?.aspectMode,
+    multi: a.aspectConstraint?.itemToAspectCardinality === "MULTI",
+    allowedValues: (a.aspectValues ?? [])
+      .map((v) => v.localizedValue ?? "")
+      .filter((v) => v.length > 0),
+  }));
+}
+
 // Map an item's canonical fields (legacy columns + US-821 attributes) onto a
 // category's aspects so we can fill required specifics without an AI pass.
 // US-822: this is now a thin adapter over the single-source ASPECT_REGISTRY —
@@ -6330,16 +6388,38 @@ function deriveAspectsFromItem(
   aspectList: AspectSpecRaw[],
   existing: Record<string, string[]>,
 ): Record<string, string[]> {
-  const aspects: RegistryAspect[] = aspectList.map((a) => ({
-    name: a.localizedAspectName ?? "",
-    mode: a.aspectConstraint?.aspectMode,
-    multi: a.aspectConstraint?.itemToAspectCardinality === "MULTI",
-    allowedValues: (a.aspectValues ?? [])
-      .map((v) => v.localizedValue ?? "")
-      .filter((v) => v.length > 0),
-  }));
-  return resolveItemAspects(item, aspects, existing);
+  return resolveItemAspects(item, toRegistryAspects(aspectList), existing);
 }
+
+// US-1088+: the structured columns (brand/size/color/material/style) OWN their
+// eBay aspects. Force the CURRENT column values onto the aspect map so a later
+// edit on the main listing (e.g. changing Size) propagates to eBay instead of
+// the stale value surviving (resolveItemAspects never overwrites). Column-backed
+// aspects are overwritten or cleared; AI / manual / attribute aspects untouched.
+// When the category's real aspect spec isn't available, falls back to the
+// registry's default aspect names (FREE_TEXT) so the common fields still sync.
+function forceColumnAspects(
+  item: RegistryItem,
+  aspectList: AspectSpecRaw[] | null,
+  existing: Record<string, string[]>,
+): Record<string, string[]> {
+  const aspects: RegistryAspect[] =
+    aspectList && aspectList.length > 0
+      ? toRegistryAspects(aspectList)
+      : COLUMN_ASPECT_FALLBACK;
+  return applyColumnAspects(existing, item, aspects);
+}
+
+// Default aspect names for the column-backed fields, used when no category spec
+// is loaded (mirrors the registry's first candidate for each column entry). All
+// treated as FREE_TEXT so the raw column value is sent verbatim.
+const COLUMN_ASPECT_FALLBACK: RegistryAspect[] = [
+  { name: "Brand", mode: "FREE_TEXT", multi: false },
+  { name: "Size", mode: "FREE_TEXT", multi: false },
+  { name: "Color", mode: "FREE_TEXT", multi: false },
+  { name: "Material", mode: "FREE_TEXT", multi: false },
+  { name: "Style", mode: "FREE_TEXT", multi: false },
+];
 
 // eBay-policy: the grade authority signal is TEXT ONLY and contains NO links.
 // Two hard rules eBay enforces here:
@@ -6597,24 +6677,53 @@ export async function assemblePublishContext(
       const raw = (aspectsResp.aspects as Record<string, unknown>).aspects;
       const list = Array.isArray(raw) ? (raw as AspectSpecRaw[]) : [];
 
+      // US-1088+: the structured columns (Brand/Size/Color/Material/Style) OWN
+      // their eBay aspects. Force the current column values onto the map first —
+      // overwriting any stale value a previous publish left behind (which buyers
+      // would otherwise see as the old/<UNKNOWN> specific) and clearing aspects
+      // whose column was blanked. resolveItemAspects (below) never overwrites, so
+      // without this a later column edit would never reach an already-built map.
+      const forced = forceColumnAspects(
+        item as unknown as RegistryItem,
+        list,
+        aspectMap,
+      );
+      let columnAspectsChanged = false;
+      for (const k of Object.keys(aspectMap)) {
+        if (!(k in forced)) {
+          delete aspectMap[k];
+          columnAspectsChanged = true;
+        }
+      }
+      for (const [k, v] of Object.entries(forced)) {
+        if (JSON.stringify(aspectMap[k]) !== JSON.stringify(v)) {
+          aspectMap[k] = v;
+          columnAspectsChanged = true;
+        }
+      }
+
       // Auto-fill specifics from the item's structured columns so manually
       // cataloged items (which never ran AutoLister's AI aspect pass) don't
       // block publish on Brand/Size/Color/etc. that we already know. Only
       // fills aspects not already present; SELECTION_ONLY aspects are filled
       // only when the column value matches one of eBay's allowed values.
       const derived = deriveAspectsFromItem(item, list, aspectMap);
-      if (Object.keys(derived).length > 0) {
+      if (Object.keys(derived).length > 0 || columnAspectsChanged) {
         Object.assign(aspectMap, derived);
-        // US-825: record provenance for what we just auto-filled
-        // (inventory_derived), merged onto whatever sources already existed so
-        // an AI- or user-attributed aspect is never downgraded.
+        // US-825: record provenance for what we just auto-filled / re-asserted
+        // from columns (inventory_derived), merged onto whatever sources already
+        // existed so an AI- or user-attributed aspect is never downgraded —
+        // except the column-owned ones we just forced, which ARE now derived.
         const priorSources =
           (listing?.id
             ? listing.item_specifics_sources
             : item.ebay_aspect_sources) ?? {};
+        const derivedKeys = [
+          ...new Set([...Object.keys(derived), ...Object.keys(forced)]),
+        ];
         const sources = mergeSources(
           priorSources,
-          sourcesFor(Object.keys(derived), "inventory_derived"),
+          sourcesFor(derivedKeys, "inventory_derived"),
           aspectMap,
         );
         // Persist so the offer payload AND the composer's specifics editor

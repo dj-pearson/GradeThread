@@ -103,7 +103,13 @@ struct EbayCategorySpecificsView: View {
     private func categorySection(_ model: SpecificsEditorModel) -> some View {
         @Bindable var model = model
         Section("eBay category") {
-            if let current = model.selectedCategoryName ?? model.selectedCategoryId {
+            // Prefer the full breadcrumb path ("Clothing › … › Jeans"), then the
+            // leaf name, and only fall back to the raw id when neither resolved —
+            // never surface "Category 11554" when a human-readable name exists.
+            if let current = model.selectedCategoryPath
+                ?? model.selectedCategoryName
+                ?? model.selectedCategoryId
+            {
                 Label(current, systemImage: "tag.fill")
                     .foregroundStyle(Color.brandNavy)
             }

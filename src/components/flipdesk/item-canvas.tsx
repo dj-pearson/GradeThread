@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -284,6 +284,10 @@ export function ItemCanvas({
   const { workspaceOwnerId } = useWorkspace();
   const [state, setState] = useState<EditState>(() => toState(item));
   const [saving, setSaving] = useState(false);
+  // Baseline for the lazy-loaded color/material columns (absent from the
+  // items_full view, so not on `item`). Captured when they load so buildEbayPatch
+  // can tell whether the seller actually changed them and trigger the eBay sync.
+  const loadedExtras = useRef({ color: "", material: "" });
 
   // Live-listing state drives the unified "Save & sync to eBay" behavior: a
   // GradeThread-published listing (one with a Sell API offer id) is revised in
@@ -438,6 +442,10 @@ export function ItemCanvas({
           garment_type: GarmentType | null;
           garment_category: GarmentCategory | null;
           ai_field_sources: ItemFullRow["ai_field_sources"];
+        };
+        loadedExtras.current = {
+          color: row.color ?? "",
+          material: row.material ?? "",
         };
         setState((s) => ({
           ...s,
@@ -687,12 +695,18 @@ export function ItemCanvas({
     if (price != null && price > 0 && price !== liveListing.listing_price) {
       patch.listing_price = price;
     }
-    // Brand / category / condition aren't in the published listing snapshot;
-    // detect via dirty-vs-loaded-item so changing them still triggers the
-    // inventory re-PUT (which carries brand, item specifics, condition, photos).
+    // Brand / size / style / color / material / category / condition aren't in
+    // the published listing snapshot; detect via dirty-vs-loaded-item so changing
+    // any of them still triggers the inventory re-PUT (which now rebuilds the eBay
+    // item specifics from these columns — US-1088+ — alongside condition + photos).
+    // color/material aren't on the items_full view, so compare to the value that
+    // was lazy-loaded into `loadedExtras`.
     const structuralChanged =
       state.brand.trim() !== (item.brand ?? "").trim() ||
       state.size.trim() !== (item.size ?? "").trim() ||
+      state.style.trim() !== (item.style ?? "").trim() ||
+      state.color.trim() !== loadedExtras.current.color.trim() ||
+      state.material.trim() !== loadedExtras.current.material.trim() ||
       state.item_category !== ((item.category as string | null) ?? "") ||
       state.condition_notes.trim() !== (item.notes ?? "").trim();
     if (

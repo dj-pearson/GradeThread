@@ -790,40 +790,36 @@ export async function suggestCategories(
 // ebay_category_aspects.category_name so repeated lookups are free.
 //
 // NOTE: this only populates the cache. If the category isn't already in the
-// cache from a prior aspects fetch, this calls get_category_subtree which
-// returns enough metadata to fill in the name + ancestor path.
+// cache from a prior aspects fetch, this resolves the full ancestor path live
+// (see fetchCategoryBreadcrumb) and stores the WHOLE breadcrumb in
+// category_name so the next lookup is free.
 export interface CategoryNameInfo {
   id: string;
   name: string;
   path: string; // root → leaf breadcrumb
 }
 
-export async function getCategoryName(
+// The leaf segment of a breadcrumb path ("Clothing › Men › … › Jeans" → "Jeans").
+function leafOfPath(path: string): string {
+  const parts = path.split(" › ");
+  return parts[parts.length - 1]!.trim() || path;
+}
+
+// Resolve a category id to a FULL breadcrumb path via the Taxonomy API.
+//
+// eBay has no "ancestors by id" endpoint: get_category_subtree returns only the
+// node's own name (no ancestors). So we (1) get the leaf name from the subtree,
+// then (2) re-query get_category_suggestions with that leaf name and pick the
+// suggestion whose id matches ours — that response carries the ancestor chain
+// (categoryTreePath). When the leaf name is ambiguous and no suggestion matches
+// our exact id, we fall back to the leaf name alone (still far better than a raw
+// numeric id). No caching here — callers cache the result.
+async function fetchCategoryBreadcrumb(
   categoryId: string
-): Promise<CategoryNameInfo | null> {
+): Promise<{ name: string; path: string } | null> {
   const marketplaceId = getMarketplaceId();
   const treeId = getCategoryTreeId();
-
-  // Read-through cache first — most categories the user touches are
-  // already there from the composer's aspects fetch.
-  const { data: cached } = await supabaseAdmin
-    .from("ebay_category_aspects")
-    .select("category_name, aspects")
-    .eq("marketplace_id", marketplaceId)
-    .eq("category_tree_id", treeId)
-    .eq("category_id", categoryId)
-    .maybeSingle();
-
-  if (cached?.category_name) {
-    return {
-      id: categoryId,
-      name: cached.category_name as string,
-      path: cached.category_name as string,
-    };
-  }
-
-  // Fall back to a live Taxonomy lookup. get_category_subtree returns the
-  // node + its descendants — we only need the root of that subtree.
+  let leafName: string | null = null;
   try {
     const token = await getAppAccessToken();
     const url =
@@ -842,30 +838,66 @@ export async function getCategoryName(
         category?: { categoryId?: string; categoryName?: string };
       };
     };
-    const name = payload.categorySubtreeNode?.category?.categoryName;
-    if (!name) return null;
-
-    // Cache it for next time. Don't pre-fill aspects (those still need
-    // a separate fetch); we just want the name slot populated.
-    await supabaseAdmin.from("ebay_category_aspects").upsert(
-      {
-        marketplace_id: marketplaceId,
-        category_tree_id: treeId,
-        category_id: categoryId,
-        category_name: name,
-        // Keep aspects null when only fetching the name — the aspects
-        // path overrides this when called.
-        aspects: cached?.aspects ?? {},
-        fetched_at: new Date().toISOString(),
-      },
-      { onConflict: "marketplace_id,category_tree_id,category_id" }
-    );
-
-    return { id: categoryId, name, path: name };
+    leafName = payload.categorySubtreeNode?.category?.categoryName ?? null;
   } catch (err) {
-    console.error("[ebay-client] getCategoryName failed:", err);
+    console.error("[ebay-client] category subtree lookup failed:", err);
     return null;
   }
+  if (!leafName) return null;
+
+  // Build the ancestor breadcrumb by matching our id in the suggestions for
+  // the leaf name. Best-effort — fall back to the leaf name alone.
+  try {
+    const suggestions = await suggestCategories(leafName);
+    const match = suggestions.find((s) => s.categoryId === categoryId);
+    if (match) return { name: match.categoryName, path: match.categoryTreePath };
+  } catch (err) {
+    console.error("[ebay-client] breadcrumb ancestor lookup failed:", err);
+  }
+  return { name: leafName, path: leafName };
+}
+
+export async function getCategoryName(
+  categoryId: string
+): Promise<CategoryNameInfo | null> {
+  const marketplaceId = getMarketplaceId();
+  const treeId = getCategoryTreeId();
+
+  // Read-through cache first — most categories the user touches are
+  // already there from the composer's aspects fetch. category_name holds the
+  // FULL breadcrumb path once resolved.
+  const { data: cached } = await supabaseAdmin
+    .from("ebay_category_aspects")
+    .select("category_name, aspects")
+    .eq("marketplace_id", marketplaceId)
+    .eq("category_tree_id", treeId)
+    .eq("category_id", categoryId)
+    .maybeSingle();
+
+  if (cached?.category_name) {
+    const path = cached.category_name as string;
+    return { id: categoryId, name: leafOfPath(path), path };
+  }
+
+  // Not cached (or only aspects were cached with a null name) — resolve the
+  // full breadcrumb live and cache it.
+  const bc = await fetchCategoryBreadcrumb(categoryId);
+  if (!bc) return null;
+
+  // Cache it for next time. Don't clobber aspects when they're already present.
+  await supabaseAdmin.from("ebay_category_aspects").upsert(
+    {
+      marketplace_id: marketplaceId,
+      category_tree_id: treeId,
+      category_id: categoryId,
+      category_name: bc.path,
+      aspects: cached?.aspects ?? {},
+      fetched_at: new Date().toISOString(),
+    },
+    { onConflict: "marketplace_id,category_tree_id,category_id" }
+  );
+
+  return { id: categoryId, name: bc.name, path: bc.path };
 }
 
 // Aspect cache TTL: aspects change rarely. Keep entries warm for 30 days.
@@ -898,9 +930,25 @@ export async function getCategoryAspects(
     cached &&
     Date.now() - new Date(cached.fetched_at as string).getTime() < ASPECT_TTL_MS
   ) {
+    // Lazily backfill the breadcrumb if this entry was cached aspects-only
+    // (category_name null) — so already-saved categories show the human path
+    // instead of a raw id without waiting for the 30-day aspect TTL to lapse.
+    let name = (cached.category_name as string | null) ?? null;
+    if (!name) {
+      const bc = await fetchCategoryBreadcrumb(categoryId).catch(() => null);
+      if (bc) {
+        name = bc.path;
+        await supabaseAdmin
+          .from("ebay_category_aspects")
+          .update({ category_name: bc.path })
+          .eq("marketplace_id", marketplaceId)
+          .eq("category_tree_id", treeId)
+          .eq("category_id", categoryId);
+      }
+    }
     return {
       aspects: cached.aspects as Record<string, unknown>,
-      categoryName: (cached.category_name as string | null) ?? null,
+      categoryName: name,
       cached: true,
     };
   }
@@ -926,21 +974,28 @@ export async function getCategoryAspects(
   }
   const payload = (await res.json()) as Record<string, unknown>;
 
-  // Write-through cache. category_name comes from a separate node lookup;
-  // skip for now — we have the human path from suggestCategories already.
+  // Resolve the full breadcrumb path alongside the aspects so callers (the web
+  // picker, iOS specifics editor) can show "Clothing › … › Jeans" instead of a
+  // raw id. Best-effort: a failed breadcrumb lookup just leaves the name null,
+  // and a previously-cached path is preserved rather than nulled out.
+  const breadcrumb = await fetchCategoryBreadcrumb(categoryId).catch(() => null);
+  const categoryName =
+    breadcrumb?.path ?? ((cached?.category_name as string | null) ?? null);
+
+  // Write-through cache.
   await supabaseAdmin.from("ebay_category_aspects").upsert(
     {
       marketplace_id: marketplaceId,
       category_tree_id: treeId,
       category_id: categoryId,
-      category_name: null,
+      category_name: categoryName,
       aspects: payload,
       fetched_at: new Date().toISOString(),
     },
     { onConflict: "marketplace_id,category_tree_id,category_id" }
   );
 
-  return { aspects: payload, categoryName: null, cached: false };
+  return { aspects: payload, categoryName, cached: false };
 }
 
 // US-566: per-category allowed conditions. Taxonomy

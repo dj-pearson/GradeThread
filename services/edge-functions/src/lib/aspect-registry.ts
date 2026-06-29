@@ -305,3 +305,74 @@ export function resolveItemAspects(
   }
   return out;
 }
+
+/**
+ * The structured COLUMNS (brand, size, color, material, style) are the source of
+ * truth for their eBay aspects. Unlike resolveItemAspects (which fills gaps and
+ * NEVER overwrites), this projects the CURRENT column values onto a category's
+ * aspects authoritatively:
+ *  - `set`   — aspect name → value derived from the column (overwrite any prior).
+ *  - `clear` — aspect names whose backing column is now empty (drop the stale
+ *              value so an edit that BLANKS a field also clears it on eBay).
+ *
+ * Only `source: "column"` entries participate. US-821 attribute-derived aspects,
+ * AI-filled, and manually-typed aspects are never touched here — those keep
+ * their own provenance and are reconciled elsewhere. A column whose value can't
+ * be matched to a SELECTION_ONLY aspect's allowed list is left ALONE (neither
+ * set nor cleared) so we don't wipe a previously-valid value on a normalization
+ * miss; the publish-time value validator handles that case.
+ */
+export function columnAspectProjection(
+  item: RegistryItem,
+  aspects: RegistryAspect[],
+): { set: Record<string, string[]>; clear: string[] } {
+  const category = item.item_category ?? null;
+  const set: Record<string, string[]> = {};
+  const clear: string[] = [];
+  for (const aspect of aspects) {
+    const name = (aspect.name ?? "").trim();
+    if (!name || set[name]) continue;
+    const lname = name.toLowerCase();
+    const entry = ASPECT_REGISTRY.entries.find(
+      (e) =>
+        e.source === "column" &&
+        effectiveCandidates(e, category).includes(lname),
+    );
+    if (!entry) continue;
+    const values = canonicalValues(entry, item);
+    if (!values || values.length === 0) {
+      clear.push(name); // column blanked → drop the stale aspect
+      continue;
+    }
+    const filled = fillAspect(aspect, values, entry.multi);
+    if (filled.length > 0) set[name] = filled;
+    // else: SELECTION_ONLY normalization miss — leave the existing value as-is.
+  }
+  return { set, clear };
+}
+
+/**
+ * Apply the column projection onto an existing aspect map: column-sourced
+ * aspects are forced to the current column values, every other aspect is
+ * preserved. Returns a NEW map (input untouched).
+ *
+ * By default this is OVERWRITE-ONLY: it never removes an aspect just because its
+ * backing column is empty, because at publish/revise time we can't tell "the
+ * user blanked this field" from "this column was never populated but the aspect
+ * was AI- or manually-filled" — clearing the latter would silently destroy good
+ * data. Pass `{ clearEmpty: true }` only where the caller KNOWS a blank column
+ * means the seller intentionally removed the value.
+ */
+export function applyColumnAspects(
+  existing: Record<string, string[]>,
+  item: RegistryItem,
+  aspects: RegistryAspect[],
+  opts?: { clearEmpty?: boolean },
+): Record<string, string[]> {
+  const { set, clear } = columnAspectProjection(item, aspects);
+  const out: Record<string, string[]> = { ...existing, ...set };
+  if (opts?.clearEmpty) {
+    for (const name of clear) delete out[name];
+  }
+  return out;
+}

@@ -158,6 +158,13 @@ export function EbayCategoryPicker({
   const aspectsQuery = useEbayCategoryAspects(categoryId);
   const aiExtract = useAiExtractAspects();
 
+  // The human-readable breadcrumb to show for the chosen category. When the
+  // user picks a fresh suggestion we have the path immediately (`categoryPath`);
+  // when a saved draft is reopened we only have the id, so fall back to the
+  // breadcrumb the server resolves alongside the aspect spec — never show a raw
+  // "Category 11554" when a real path is available.
+  const displayCategoryPath = categoryPath ?? aspectsQuery.data?.categoryName ?? null;
+
   // US-557: keep the parent's lifted aspect state in lockstep with every edit
   // (manual, AI fill, category-change prune, prefill). The composer's single
   // Save reads this — no separate per-picker save to forget.
@@ -492,7 +499,7 @@ export function EbayCategoryPicker({
                 Selected category
               </div>
               <div className="font-medium">
-                {categoryPath ?? `Category ${categoryId}`}
+                {displayCategoryPath ?? `Category ${categoryId}`}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">

@@ -6,7 +6,9 @@
 //   deno test src/tests/aspect-registry_test.ts
 import { assertEquals } from "@std/assert";
 import {
+  applyColumnAspects,
   ASPECT_REGISTRY,
+  columnAspectProjection,
   inferDepartment,
   type RegistryAspect,
   type RegistryItem,
@@ -57,6 +59,62 @@ Deno.test("legacy: color/material synonyms (Colour, Fabric Type, Outer Shell Mat
     "Fabric Type": ["Wool"],
     "Outer Shell Material": ["Wool"],
   });
+});
+
+// ── US-1088+: columns OWN their aspects (overwrite on main-listing edit) ─────
+
+Deno.test("applyColumnAspects overwrites a stale column-backed aspect from the column", () => {
+  // Buyer-facing bug: Size was published as "M", the seller changes the column
+  // to "L"; resolveItemAspects would keep "M" (never overwrites). The column
+  // projection forces the new value.
+  const item: RegistryItem = { item_category: "clothing", size: "L", brand: "Nike" };
+  const aspects = [free("Size"), free("Brand")];
+  const existing = { Size: ["M"], Brand: ["Nike"], "Sleeve Length": ["Long"] };
+  assertEquals(applyColumnAspects(existing, item, aspects), {
+    Size: ["L"], // forced from the column
+    Brand: ["Nike"],
+    "Sleeve Length": ["Long"], // untouched (not a column-backed aspect)
+  });
+});
+
+Deno.test("applyColumnAspects is overwrite-only: a blank column never wipes an existing value by default", () => {
+  // The column is empty but the aspect was AI/manually filled — must survive.
+  const item: RegistryItem = { item_category: "clothing", size: "" };
+  assertEquals(
+    applyColumnAspects({ Size: ["One Size"] }, item, [free("Size")]),
+    { Size: ["One Size"] },
+  );
+  // Opt-in clearEmpty removes it (caller knows the seller blanked the field).
+  assertEquals(
+    applyColumnAspects({ Size: ["One Size"] }, item, [free("Size")], {
+      clearEmpty: true,
+    }),
+    {},
+  );
+});
+
+Deno.test("applyColumnAspects leaves non-column (attribute/AI) aspects alone", () => {
+  const item: RegistryItem = {
+    item_category: "clothing",
+    brand: "Levi's",
+    attributes: { pattern: "Striped" },
+  };
+  // Pattern is attribute-sourced; an AI value for it must not be overwritten.
+  const existing = { Pattern: ["Solid"], Brand: ["Old"] };
+  assertEquals(applyColumnAspects(existing, item, [free("Brand"), free("Pattern")]), {
+    Pattern: ["Solid"], // attribute-backed → not touched here
+    Brand: ["Levi's"], // column-backed → forced
+  });
+});
+
+Deno.test("columnAspectProjection: SELECTION_ONLY miss leaves the existing value (no wipe)", () => {
+  const item: RegistryItem = { item_category: "clothing", size: "XS" };
+  const { set, clear } = columnAspectProjection(item, [
+    sel("Size", ["Small", "Medium", "Large"]),
+  ]);
+  // "XS" doesn't normalize into the allowed list → neither set nor cleared.
+  assertEquals(set, {});
+  assertEquals(clear, []);
 });
 
 Deno.test("legacy: size_type defaults to Regular only for clothing", () => {
