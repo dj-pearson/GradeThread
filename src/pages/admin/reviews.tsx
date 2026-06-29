@@ -57,6 +57,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { toast } from "sonner";
 
 // US-775: low-confidence human-review queue. All reads + mutations go through the
@@ -207,6 +208,23 @@ export function AdminReviewsPage() {
   // Send-back confirmation
   const [rejectTarget, setRejectTarget] = useState<QueueItem | null>(null);
 
+  // Step-up MFA: the approve/adjust/send-back endpoints require a *fresh* (≤5 min)
+  // second-factor verification. On a 403 STEP_UP_REQUIRED we stash the action and
+  // open MfaStepUpDialog, which re-verifies TOTP (re-stamping the session's amr
+  // timestamp) and then re-runs the stashed action — no logout/login needed.
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [retry, setRetry] = useState<null | (() => void)>(null);
+
+  function handleStepUp(retryFn: () => void) {
+    setRetry(() => retryFn);
+    setStepUpOpen(true);
+  }
+
+  // True when the body of a 403 says step-up is required — open the dialog + retry.
+  function isStepUpRequired(status: number, json: unknown): boolean {
+    return status === 403 && (json as { code?: string })?.code === "STEP_UP_REQUIRED";
+  }
+
   // ─── Data Fetching (admin edge endpoint) ──────────────────────────
 
   const { data, isLoading } = useQuery({
@@ -320,9 +338,13 @@ export function AdminReviewsPage() {
     try {
       const res = await edgeFetch(
         `/api/admin/grading/review/${reviewingItem.report_id}/approve`,
-        { method: "POST", body: JSON.stringify({ notes: reviewNotes }) },
+        { method: "POST", json: { notes: reviewNotes }, silentGate: true },
       );
       const json = await res.json().catch(() => ({}));
+      if (isStepUpRequired(res.status, json)) {
+        handleStepUp(() => void handleApproveAsIs());
+        return;
+      }
       if (!res.ok) throw new Error(json.error || "Approve failed.");
       toast.success("Grade approved", {
         description: `Grade ${reviewingItem.overall_score.toFixed(1)} approved for "${reviewingItem.title ?? ""}".`,
@@ -358,14 +380,19 @@ export function AdminReviewsPage() {
         `/api/admin/grading/review/${reviewingItem.report_id}/adjust`,
         {
           method: "POST",
-          body: JSON.stringify({
+          json: {
             factors: adjustedScores,
             notes: reviewNotes,
             intentional_misread: intentionalMisread,
-          }),
+          },
+          silentGate: true,
         },
       );
       const json = await res.json().catch(() => ({}));
+      if (isStepUpRequired(res.status, json)) {
+        handleStepUp(() => void handleAdjustAndApprove());
+        return;
+      }
       if (!res.ok) throw new Error(json.error || "Adjust failed.");
       toast.success("Grade adjusted and approved", {
         description: `Grade updated from ${reviewingItem.overall_score.toFixed(1)} to ${Number(json.overall_score).toFixed(1)}${json.resealed ? " (certificate resealed)" : ""}.`,
@@ -387,9 +414,13 @@ export function AdminReviewsPage() {
     try {
       const res = await edgeFetch(
         `/api/admin/grading/review/${rejectTarget.report_id}/send-back`,
-        { method: "POST", body: JSON.stringify({ notes: reviewNotes }) },
+        { method: "POST", json: { notes: reviewNotes }, silentGate: true },
       );
       const json = await res.json().catch(() => ({}));
+      if (isStepUpRequired(res.status, json)) {
+        handleStepUp(() => void handleSendBack());
+        return;
+      }
       if (!res.ok) throw new Error(json.error || "Send-back failed.");
       toast.success("Sent back for better photos", {
         description: `"${rejectTarget.title ?? ""}" was returned to the seller for clearer photos.`,
@@ -904,6 +935,14 @@ export function AdminReviewsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Step-up MFA re-verification — opened when a mutate returns 403
+          STEP_UP_REQUIRED; on success it re-runs the stashed action. */}
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => retry?.()}
+      />
     </div>
   );
 }

@@ -15,13 +15,32 @@ struct CertifiedGradeSection: View {
     /// flow — closing the grade→list gap so they aren't two disconnected steps.
     var onListItem: (() -> Void)? = nil
 
-    @State private var showingRequest = false
-    @State private var showingReport = false
-    @State private var showingDisclosure = false
-    /// US-768: the graded-photo (digital slab) preview/save/share sheet.
-    @State private var showingGradedPhoto = false
-    /// US-1115: the Garment Passport (provenance timeline) viewer.
-    @State private var showingPassport = false
+    /// Which modal is presented. SwiftUI only reliably supports ONE presentation
+    /// modifier per view, so all of this section's sheets are driven by a single
+    /// `.sheet(item:)` over this enum — stacking five `.sheet(isPresented:)`
+    /// modifiers caused the first tap to present-then-immediately-dismiss (the
+    /// presentation slot was contested), forcing a second tap. One owner fixes it.
+    private enum ActiveSheet: Identifiable, Hashable {
+        case request
+        case report
+        case disclosure
+        /// US-768: the graded-photo (digital slab) preview/save/share sheet.
+        case gradedPhoto(URL)
+        /// US-1115: the Garment Passport (provenance timeline) viewer.
+        case passport
+
+        var id: String {
+            switch self {
+            case .request: return "request"
+            case .report: return "report"
+            case .disclosure: return "disclosure"
+            case let .gradedPhoto(url): return "gradedPhoto:\(url.absoluteString)"
+            case .passport: return "passport"
+            }
+        }
+    }
+
+    @State private var activeSheet: ActiveSheet?
 
     private var isGraded: Bool { item.gradeValue != nil }
     /// US-1209: a low-confidence grade is provisional (awaiting human review),
@@ -47,22 +66,19 @@ struct CertifiedGradeSection: View {
             Text(footerText)
                 .font(.caption)
         }
-        .sheet(isPresented: $showingRequest) {
-            GradeRequestSheet(item: item)
-        }
-        .sheet(isPresented: $showingReport) {
-            ItemGradeReportSheet(item: item)
-        }
-        .sheet(isPresented: $showingDisclosure) {
-            DisclosureView(itemId: item.id)
-        }
-        .sheet(isPresented: $showingGradedPhoto) {
-            if let certificateURL = item.certificateURL {
-                GradedPhotoView(certificateURL: certificateURL)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .request:
+                GradeRequestSheet(item: item)
+            case .report:
+                ItemGradeReportSheet(item: item)
+            case .disclosure:
+                DisclosureView(itemId: item.id)
+            case let .gradedPhoto(url):
+                GradedPhotoView(certificateURL: url.absoluteString)
+            case .passport:
+                PassportTimelineView(inventoryItemId: item.id, itemTitle: item.title)
             }
-        }
-        .sheet(isPresented: $showingPassport) {
-            PassportTimelineView(inventoryItemId: item.id, itemTitle: item.title)
         }
     }
 
@@ -118,7 +134,7 @@ struct CertifiedGradeSection: View {
 
             Button {
                 AppRouter.haptic()
-                showingReport = true
+                activeSheet = .report
             } label: {
                 Label("View full report", systemImage: "doc.text.magnifyingglass")
                     .font(.subheadline.weight(.medium))
@@ -126,7 +142,7 @@ struct CertifiedGradeSection: View {
 
             Button {
                 AppRouter.haptic()
-                showingDisclosure = true
+                activeSheet = .disclosure
             } label: {
                 Label("Defect disclosure", systemImage: "exclamationmark.bubble")
                     .font(.subheadline.weight(.medium))
@@ -136,7 +152,7 @@ struct CertifiedGradeSection: View {
             // shareable and claimable (parity with the web trust surface).
             Button {
                 AppRouter.haptic()
-                showingPassport = true
+                activeSheet = .passport
             } label: {
                 Label("Garment passport", systemImage: "clock.arrow.circlepath")
                     .font(.subheadline.weight(.medium))
@@ -152,7 +168,7 @@ struct CertifiedGradeSection: View {
                 // socials — preview, pick a format, save to Photos, or share.
                 Button {
                     AppRouter.haptic()
-                    showingGradedPhoto = true
+                    activeSheet = .gradedPhoto(certificateURL)
                 } label: {
                     Label("Graded photo", systemImage: "photo.badge.checkmark")
                         .font(.subheadline.weight(.medium))
@@ -161,7 +177,7 @@ struct CertifiedGradeSection: View {
 
             Button {
                 AppRouter.haptic()
-                showingRequest = true
+                activeSheet = .request
             } label: {
                 Label("Get an updated grade", systemImage: "arrow.triangle.2.circlepath")
                     .font(.subheadline.weight(.medium))
@@ -175,7 +191,7 @@ struct CertifiedGradeSection: View {
     private var ungradedContent: some View {
         Button {
             AppRouter.haptic()
-            showingRequest = true
+            activeSheet = .request
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.seal.fill")
