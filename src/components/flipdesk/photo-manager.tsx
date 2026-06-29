@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -45,9 +45,15 @@ interface PhotoManagerProps {
    *  editing inventory-based listing photos on its own site, so this is the
    *  supported path. null/undefined → photo edits stay local only. */
   liveListingId?: string | null;
+  /** Shared "photos changed this session" flag, owned by the parent canvas so
+   *  its "Save & sync" button can include photo-only edits (e.g. a rotate) in
+   *  the eBay patch and clear it after pushing — preventing this component's
+   *  unmount auto-sync from double-pushing the same change. When omitted, an
+   *  internal ref is used and edits sync only on unmount. */
+  dirtyRef?: MutableRefObject<boolean>;
 }
 
-export function PhotoManager({ itemId, liveListingId }: PhotoManagerProps) {
+export function PhotoManager({ itemId, liveListingId, dirtyRef }: PhotoManagerProps) {
   const qc = useQueryClient();
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   // US-1296+: coalesced auto-resync. Each photo edit persists immediately; we
@@ -55,7 +61,10 @@ export function PhotoManager({ itemId, liveListingId }: PhotoManagerProps) {
   // closing) instead of a full photo re-PUT per micro-edit. Refs so the cleanup
   // reads the latest values without re-subscribing.
   const revise = useEbayReviseListing();
-  const photosDirtyRef = useRef(false);
+  // Use the parent-owned dirty flag when provided so "Save & sync" and this
+  // unmount handler observe the same state; otherwise fall back to a local ref.
+  const internalDirtyRef = useRef(false);
+  const photosDirtyRef = dirtyRef ?? internalDirtyRef;
   const liveListingIdRef = useRef(liveListingId);
   liveListingIdRef.current = liveListingId;
   const reviseRef = useRef(revise);
@@ -71,6 +80,9 @@ export function PhotoManager({ itemId, liveListingId }: PhotoManagerProps) {
         reviseRef.current.mutate({ listingId: lid, patch: { photos: true } });
       }
     };
+    // Unmount-only: photosDirtyRef is a stable ref (own useRef or the parent's),
+    // and the other reads go through refs above — none belong in the dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
   const [removingBgId, setRemovingBgId] = useState<string | null>(null);

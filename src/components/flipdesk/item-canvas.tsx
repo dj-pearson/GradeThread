@@ -288,6 +288,11 @@ export function ItemCanvas({
   // items_full view, so not on `item`). Captured when they load so buildEbayPatch
   // can tell whether the seller actually changed them and trigger the eBay sync.
   const loadedExtras = useRef({ color: "", material: "" });
+  // Shared with <PhotoManager>: set true when a photo edit (reorder/retag/
+  // rotate/delete) is made this session. Lets "Save & sync" push photo-only
+  // changes (a rotate alone otherwise produced no eBay patch) and, once pushed,
+  // clears it so PhotoManager's unmount auto-sync doesn't double-push.
+  const photosDirtyRef = useRef(false);
 
   // Live-listing state drives the unified "Save & sync to eBay" behavior: a
   // GradeThread-published listing (one with a Sell API offer id) is revised in
@@ -713,7 +718,11 @@ export function ItemCanvas({
       patch.title === undefined &&
       patch.description === undefined &&
       patch.listing_price === undefined &&
-      !structuralChanged
+      !structuralChanged &&
+      // A photo-only edit (e.g. a rotate persisted by PhotoManager) is still an
+      // eBay-relevant change — push the current photo set even when no text/
+      // structural field moved.
+      !photosDirtyRef.current
     ) {
       return null;
     }
@@ -737,6 +746,9 @@ export function ItemCanvas({
             listingId: liveListing.id,
             patch: ebayPatch,
           });
+          // Photos (if any) reached eBay via this push — clear the shared flag so
+          // PhotoManager's unmount auto-sync doesn't re-push the same change.
+          photosDirtyRef.current = false;
           await qc.invalidateQueries({ queryKey: ["item_ebay_sync", item.id] });
           toast.success("Saved & synced to eBay.");
         } catch (e) {
@@ -1330,6 +1342,7 @@ export function ItemCanvas({
             <PhotoManager
               itemId={item.id}
               liveListingId={isGtLive && liveListing ? liveListing.id : null}
+              dirtyRef={photosDirtyRef}
             />
           </div>
         </div>

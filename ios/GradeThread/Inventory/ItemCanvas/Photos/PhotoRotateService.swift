@@ -122,6 +122,11 @@ struct PhotoRotateService {
         photo.thumbnailURL = newThumbnailURL
         photo.width = newWidth
         photo.height = newHeight
+        // Mark the parent item changed — mirrors PhotoEditService.applyLocalOrder
+        // (reorder/delete). Without this a rotate-only edit never bumps the item's
+        // updatedAt, so the sync engine + any "needs sync" affordance treat the
+        // item as unchanged and the rotation doesn't drive a Save & Sync.
+        photo.item?.updatedAt = .now
         context.saveOrLog("rotate")
     }
 
