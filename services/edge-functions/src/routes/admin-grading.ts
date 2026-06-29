@@ -1618,13 +1618,24 @@ const REVIEW_IMAGE_TTL = 900; // ≤ 900s signed URLs for the private bucket (US
 // may be reclaimed, so a crashed/idle session never wedges an item in the queue.
 const REVIEW_CLAIM_TTL_SEC = 15 * 60;
 
+// `confidence_label` is a computed CASE alias that lives ONLY in the
+// public_certificate VIEW (migration 00082+), never as a grade_reports column —
+// selecting it off the base table 42703s. Derive it in code from
+// confidence_score using the SAME thresholds as the view so the queue matches
+// the public certificate.
+function confidenceLabelFor(confidenceScore: number): string {
+  if (confidenceScore >= 0.9) return "very_high";
+  if (confidenceScore >= 0.75) return "high";
+  if (confidenceScore >= 0.6) return "moderate";
+  return "reviewed";
+}
+
 interface QueueReportRow {
   id: string;
   submission_id: string;
   overall_score: number;
   grade_tier: string;
   confidence_score: number;
-  confidence_label: string | null;
   fabric_condition_score: number;
   structural_integrity_score: number;
   cosmetic_appearance_score: number;
@@ -1650,7 +1661,7 @@ adminGradingRoutes.get("/review-queue", async (c) => {
   const { data: reportsRaw, error } = await supabaseAdmin
     .from("grade_reports")
     .select(
-      "id, submission_id, overall_score, grade_tier, confidence_score, confidence_label, " +
+      "id, submission_id, overall_score, grade_tier, confidence_score, " +
         "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, needs_human_review, " +
         "human_reviewed, review_claimed_by, review_claimed_at, review_due_at, created_at",
@@ -1742,7 +1753,7 @@ adminGradingRoutes.get("/review-queue", async (c) => {
       overall_score: Number(r.overall_score),
       grade_tier: r.grade_tier,
       confidence_score: Number(r.confidence_score),
-      confidence_label: r.confidence_label,
+      confidence_label: confidenceLabelFor(Number(r.confidence_score)),
       factor_scores: {
         fabric_condition_score: Number(r.fabric_condition_score),
         structural_integrity_score: Number(r.structural_integrity_score),

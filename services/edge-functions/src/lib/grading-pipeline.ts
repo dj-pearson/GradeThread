@@ -898,7 +898,17 @@ export async function processSubmission(submissionId: string) {
       .eq("id", submissionId)
       .single();
 
-    if (submissionError || !submission) {
+    if (submissionError) {
+      // A DB error here is NOT "row missing" — most often it's a schema-drift
+      // 42703 (the prod DB is behind this build, so a selected column doesn't
+      // exist yet). Surface the real Postgres message so the failure is
+      // diagnosable instead of being mislabeled as a missing submission.
+      throw new Error(
+        `Submission load failed for ${submissionId}: ${submissionError.message}` +
+          (submissionError.code ? ` (${submissionError.code})` : ""),
+      );
+    }
+    if (!submission) {
       throw new Error(`Submission not found: ${submissionId}`);
     }
 
