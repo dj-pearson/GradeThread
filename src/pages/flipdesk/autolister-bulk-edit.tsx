@@ -1028,10 +1028,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-markup-pct" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Price markup %
             </label>
             <Input
+              id="ale-markup-pct"
               type="number"
               value={markupPct}
               onChange={(e) => setMarkupPct(e.target.value)}
@@ -1049,10 +1050,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         {/* US-553: price rules beyond markup/.99. */}
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-median-discount" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Median comp −%
             </label>
             <Input
+              id="ale-median-discount"
               type="number"
               value={medianDiscountPct}
               onChange={(e) => setMedianDiscountPct(e.target.value)}
@@ -1071,10 +1073,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-margin-floor" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Floor at % margin
             </label>
             <Input
+              id="ale-margin-floor"
               type="number"
               value={marginFloorPct}
               onChange={(e) => setMarginFloorPct(e.target.value)}
@@ -1096,10 +1099,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-condition" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Condition
             </label>
             <select
+              id="ale-condition"
               value={bulkCondition}
               onChange={(e) => setBulkCondition(e.target.value)}
               className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-sm"
@@ -1123,10 +1127,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-quantity" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Quantity
             </label>
             <Input
+              id="ale-quantity"
               type="number"
               min="1"
               value={bulkQty}
@@ -1162,10 +1167,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-schedule" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Schedule publish
             </label>
             <Input
+              id="ale-schedule"
               type="datetime-local"
               value={bulkSchedule}
               onChange={(e) => setBulkSchedule(e.target.value)}
@@ -1190,10 +1196,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-category" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               eBay category
             </label>
             <CategorySearchControl
+              id="ale-category"
               categoryId={bulkCategory?.id ?? ""}
               categoryPath={bulkCategory?.path ?? ""}
               align="start"
@@ -1215,10 +1222,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-department" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Department
             </label>
             <select
+              id="ale-department"
               value={bulkDepartment}
               onChange={(e) => setBulkDepartment(e.target.value)}
               className="h-8 w-36 rounded-md border border-input bg-transparent px-2 text-sm"
@@ -1242,10 +1250,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-brand" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Brand
             </label>
             <Input
+              id="ale-brand"
               value={bulkBrand}
               onChange={(e) => setBulkBrand(e.target.value)}
               className="h-8 w-32"
@@ -1265,10 +1274,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         {/* US-555: find/replace across titles + descriptions. */}
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-find" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Find
             </label>
             <Input
+              id="ale-find"
               value={findText}
               onChange={(e) => setFindText(e.target.value)}
               className="h-8 w-28"
@@ -1276,10 +1286,11 @@ export function FlipdeskAutolisterBulkEditPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-replace" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Replace
             </label>
             <Input
+              id="ale-replace"
               value={replaceText}
               onChange={(e) => setReplaceText(e.target.value)}
               className="h-8 w-28"
@@ -1312,10 +1323,11 @@ export function FlipdeskAutolisterBulkEditPage() {
             policies. Each select is optional — apply any subset. */}
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-policy-shipping" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Shipping policy
             </label>
             <select
+              id="ale-policy-shipping"
               value={bulkPolicy.fulfillment}
               onChange={(e) =>
                 setBulkPolicy((p) => ({ ...p, fulfillment: e.target.value }))
@@ -1331,10 +1343,11 @@ export function FlipdeskAutolisterBulkEditPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-policy-payment" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Payment policy
             </label>
             <select
+              id="ale-policy-payment"
               value={bulkPolicy.payment}
               onChange={(e) =>
                 setBulkPolicy((p) => ({ ...p, payment: e.target.value }))
@@ -1350,10 +1363,11 @@ export function FlipdeskAutolisterBulkEditPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-policy-return" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Return policy
             </label>
             <select
+              id="ale-policy-return"
               value={bulkPolicy.return}
               onChange={(e) =>
                 setBulkPolicy((p) => ({ ...p, return: e.target.value }))
@@ -1383,10 +1397,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         {/* US-555: template apply, AI aspect-fill, and smart defaults. */}
         <div className="flex items-end gap-1.5">
           <div>
-            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+            <label htmlFor="ale-template" className="mb-1 block text-[10px] uppercase text-muted-foreground">
               Template
             </label>
             <select
+              id="ale-template"
               value={selectedTemplateId}
               onChange={(e) => setSelectedTemplateId(e.target.value)}
               className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-sm"
@@ -2144,6 +2159,7 @@ function useDebounced<T>(value: T, ms: number): T {
 // hardcoded. The popover content is portaled, so the table's horizontal scroll
 // container never clips the results.
 function CategorySearchControl({
+  id,
   categoryId,
   categoryPath,
   onPick,
@@ -2151,6 +2167,7 @@ function CategorySearchControl({
   triggerClassName,
   align = "center",
 }: {
+  id?: string;
   categoryId: string;
   categoryPath: string;
   onPick: (id: string, path: string) => void;
@@ -2171,6 +2188,7 @@ function CategorySearchControl({
       <PopoverTrigger asChild>
         <button
           type="button"
+          id={id}
           className={cn(
             "flex h-8 items-center gap-1.5 truncate rounded-md border border-input bg-transparent px-2 text-left text-xs",
             !label && "text-muted-foreground",

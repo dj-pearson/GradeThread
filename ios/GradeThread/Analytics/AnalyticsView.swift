@@ -21,6 +21,7 @@ struct AnalyticsView: View {
     // US-1026: pull-to-refresh fires a real sync; the engine dedupes concurrent
     // pulls, and a transient banner surfaces failures.
     @Environment(\.syncEngine) private var syncEngine
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var refreshError: String?
 
     // US-1169: AI period narrative. Fired on demand (not on open) so it never
@@ -102,7 +103,7 @@ struct AnalyticsView: View {
             return
         }
         if case let .failed(message) = await syncEngine.sync() {
-            await MainActor.run { withAnimation { refreshError = message } }
+            await MainActor.run { withAnimation(ReducedMotion.animation(.default)) { refreshError = message } }
         }
     }
 
@@ -117,10 +118,10 @@ struct AnalyticsView: View {
                 .background(Color.brandRed, in: Capsule())
                 .padding(.bottom, 24)
                 .shadow(radius: 6, y: 2)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 .task(id: refreshError) {
                     try? await Task.sleep(nanoseconds: 3_500_000_000)
-                    withAnimation { self.refreshError = nil }
+                    withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
                 }
         }
     }

@@ -598,7 +598,9 @@ export function AdminSubmissionsPage() {
                         <TableCell className="text-right">
                           <div
                             className="flex items-center justify-end gap-1"
+                            role="presentation"
                             onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
                           >
                             {r && (
                               <Button
@@ -714,7 +716,9 @@ export function AdminSubmissionsPage() {
                     <TableCell className="text-right">
                       <div
                         className="flex items-center justify-end gap-1"
+                        role="presentation"
                         onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
                       >
                         <Button
                           variant="ghost"

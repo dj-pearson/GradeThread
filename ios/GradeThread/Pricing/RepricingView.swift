@@ -8,6 +8,7 @@ struct RepricingView: View {
     @State private var store = RepricingStore()
     /// US-981: gate the network-only scan / apply actions when offline.
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isOffline: Bool { NetworkMonitor.isOffline(networkMonitor) }
 
@@ -23,7 +24,7 @@ struct RepricingView: View {
             .task(id: store.banner) {
                 guard store.banner != nil else { return }
                 try? await Task.sleep(for: .seconds(2.5))
-                withAnimation { store.banner = nil }
+                withAnimation(ReducedMotion.animation(.default)) { store.banner = nil }
             }
     }
 
@@ -157,7 +158,7 @@ struct RepricingView: View {
                 .background(Color.brandNavy, in: Capsule())
                 .shadow(radius: 6, y: 2)
                 .padding(.bottom, 16)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
 }

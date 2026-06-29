@@ -824,8 +824,10 @@ function DraggableItemCard({
       {/* Selection checkbox — pointer events kept off the drag handle. */}
       <div
         className="absolute left-1.5 top-1.5 z-10"
+        role="presentation"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
       >
         <input
           type="checkbox"
@@ -841,7 +843,20 @@ function DraggableItemCard({
       <div
         {...listeners}
         {...attributes}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${item.item_title}`}
         onClick={onClick}
+        onKeyDown={(e) => {
+          // Enter opens the item; other keys (Space) fall through to the
+          // dnd-kit keyboard sensor so drag-to-reorder still works.
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onClick();
+          } else {
+            listeners?.onKeyDown?.(e);
+          }
+        }}
         className={cn(
           "cursor-grab rounded-md active:cursor-grabbing",
           selected && "ring-2 ring-brand-navy",

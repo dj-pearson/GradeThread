@@ -237,8 +237,9 @@ export function AdminSupportTicketsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <label htmlFor="st-mine-only" className="flex cursor-pointer items-center gap-2 text-sm">
             <Checkbox
+              id="st-mine-only"
               checked={mineOnly}
               onCheckedChange={(v) => setMineOnly(v === true)}
             />
@@ -462,8 +463,9 @@ export function AdminSupportTicketsPage() {
                     disabled={acting}
                   />
                   <div className="flex items-center justify-between gap-2">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                    <label htmlFor="st-internal" className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
                       <Checkbox
+                        id="st-internal"
                         checked={internal}
                         onCheckedChange={(v) => setInternal(v === true)}
                       />

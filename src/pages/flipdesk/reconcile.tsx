@@ -1194,8 +1194,10 @@ function Thumb({
         {editable && (
           <div
             className="absolute left-1 top-1 z-10"
+            role="presentation"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
           >
             <input
               type="checkbox"

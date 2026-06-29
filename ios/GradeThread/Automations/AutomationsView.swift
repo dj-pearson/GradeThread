@@ -10,6 +10,7 @@ struct AutomationsView: View {
     @State private var sheet: AutomationRuleSheet?
     // US-1201: confirm before a swipe permanently deletes a configured rule.
     @State private var pendingDelete: AutomationRule?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         content
@@ -26,6 +27,7 @@ struct AutomationsView: View {
                             Label("Run now", systemImage: "play.circle")
                         }
                     }
+                    .accessibilityHint("Runs all active automation rules now")
                     .disabled(store.isRunning || !store.hasActiveRule)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -53,7 +55,7 @@ struct AutomationsView: View {
             .task(id: store.banner) {
                 guard store.banner != nil else { return }
                 try? await Task.sleep(for: .seconds(2.5))
-                withAnimation { store.banner = nil }
+                withAnimation(ReducedMotion.animation(.default)) { store.banner = nil }
             }
             .alert(
                 "Something went wrong",
@@ -182,7 +184,7 @@ struct AutomationsView: View {
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .background(Color.brandNavy, in: Capsule())
                 .padding(.bottom, 16)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
 }

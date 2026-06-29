@@ -44,6 +44,35 @@ export default tseslint.config(
       "jsx-a11y/aria-unsupported-elements": "error",
       "jsx-a11y/role-has-required-aria-props": "error",
       "jsx-a11y/role-supports-aria-props": "error",
+      // US-447..454: broader jsx-a11y enforcement, now adopted.
+      "jsx-a11y/alt-text": "error",
+      // depth:3 so labels that wrap a control plus a rich (icon + text in a
+      // nested <div>/<p>) description still resolve their accessible text.
+      "jsx-a11y/label-has-associated-control": ["error", { depth: 3 }],
+      "jsx-a11y/click-events-have-key-events": "error",
+      "jsx-a11y/no-static-element-interactions": "error",
+      "jsx-a11y/interactive-supports-focus": "error",
+      "jsx-a11y/anchor-is-valid": "error",
+      // onError/onLoad are media lifecycle events, not user interactions — drop
+      // them from the handler set so e.g. an <img onError> fallback isn't flagged
+      // (the real interaction handlers stay enforced).
+      "jsx-a11y/no-noninteractive-element-interactions": [
+        "error",
+        {
+          handlers: [
+            "onClick",
+            "onMouseDown",
+            "onMouseUp",
+            "onKeyPress",
+            "onKeyDown",
+            "onKeyUp",
+          ],
+        },
+      ],
+      "jsx-a11y/heading-has-content": "error",
+      "jsx-a11y/iframe-has-title": "error",
+      "jsx-a11y/no-redundant-roles": "error",
+      "jsx-a11y/tabindex-no-positive": "error",
     },
   }
 );

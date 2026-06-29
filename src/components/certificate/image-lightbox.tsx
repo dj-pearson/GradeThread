@@ -90,11 +90,17 @@ export function ImageLightbox({
       aria-modal="true"
       aria-label={`Photo: ${current.caption}`}
       className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm"
-      onClick={(e) => {
-        // Backdrop click (not the image/controls) closes.
-        if (e.target === overlayRef.current) onClose();
-      }}
     >
+      {/* Backdrop click-to-close. A dedicated button (behind the content via
+          -z-10) keeps the dismiss affordance for pointer users; keyboard users
+          dismiss with the toolbar Close button or Esc (focus trap). */}
+      <button
+        type="button"
+        aria-label="Close photo viewer"
+        tabIndex={-1}
+        onClick={onClose}
+        className="absolute inset-0 -z-10 cursor-default"
+      />
       {/* Top bar */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
         <div className="min-w-0">
@@ -156,17 +162,23 @@ export function ImageLightbox({
           touchStartX.current = null;
         }}
       >
-        <img
-          src={current.src}
-          alt={current.caption}
+        <button
+          type="button"
           onClick={() => setZoomed((z) => !z)}
-          className={cn(
-            "select-none transition-transform",
-            zoomed
-              ? "max-w-none scale-100 sm:scale-150"
-              : "max-h-full max-w-full object-contain",
-          )}
-        />
+          aria-label={zoomed ? "Zoom out" : "Zoom in"}
+          className="contents"
+        >
+          <img
+            src={current.src}
+            alt={current.caption}
+            className={cn(
+              "select-none transition-transform",
+              zoomed
+                ? "max-w-none scale-100 sm:scale-150"
+                : "max-h-full max-w-full object-contain",
+            )}
+          />
+        </button>
       </div>
 
       {/* Prev / next */}

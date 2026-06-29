@@ -24,6 +24,7 @@ struct GradesListView: View {
     // US-1026: pull-to-refresh fires a real sync; the engine dedupes concurrent
     // pulls, and a transient banner surfaces failures.
     @Environment(\.syncEngine) private var syncEngine
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var refreshError: String?
 
     /// US-819: the report sheet (which carries the dispute affordance) opened via
@@ -100,7 +101,7 @@ struct GradesListView: View {
             return
         }
         if case let .failed(message) = await syncEngine.sync() {
-            await MainActor.run { withAnimation { refreshError = message } }
+            await MainActor.run { withAnimation(ReducedMotion.animation(.default)) { refreshError = message } }
         }
     }
 
@@ -115,10 +116,10 @@ struct GradesListView: View {
                 .background(Color.brandRed, in: Capsule())
                 .padding(.bottom, 24)
                 .shadow(radius: 6, y: 2)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 .task(id: refreshError) {
                     try? await Task.sleep(nanoseconds: 3_500_000_000)
-                    withAnimation { self.refreshError = nil }
+                    withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
                 }
         }
     }

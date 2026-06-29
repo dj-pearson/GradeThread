@@ -522,6 +522,7 @@ function SampleCertificatePreview() {
                 </div>
                 <Progress
                   value={score * 10}
+                  aria-label={`${factor.label} score: ${score.toFixed(1)} out of 10`}
                   className="h-1.5 [&>div]:bg-emerald-500"
                 />
               </div>

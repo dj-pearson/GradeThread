@@ -55,7 +55,7 @@ struct InventoryFilterSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Reset") {
-                        withAnimation { draft = .empty }
+                        withAnimation(ReducedMotion.animation(.default)) { draft = .empty }
                         syncPriceText()
                     }
                     .disabled(!draft.isActive)
@@ -89,7 +89,7 @@ struct InventoryFilterSheet: View {
                 ForEach(savedFilters.filters) { saved in
                     Button {
                         AppRouter.haptic()
-                        withAnimation { draft = saved.criteria }
+                        withAnimation(ReducedMotion.animation(.default)) { draft = saved.criteria }
                         syncPriceText()
                     } label: {
                         HStack {
@@ -104,6 +104,7 @@ struct InventoryFilterSheet: View {
                             }
                         }
                     }
+                    .accessibilityHint("Applies this saved filter")
                 }
                 .onDelete { savedFilters.delete(at: $0) }
 

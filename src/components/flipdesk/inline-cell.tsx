@@ -89,6 +89,9 @@ export function InlineCell({
         }
       }}
       role="button"
+      // role="button" activates an inline text editor; the label states that so
+      // the "button" announcement matches the actual (text-edit) affordance.
+      aria-label={display != null ? `Edit: ${display}` : "Edit value"}
       className={cn(
         "cursor-text rounded-sm px-1 -mx-1 hover:bg-muted/60 focus:bg-muted focus:outline-none",
         pending && "bg-amber-100 ring-1 ring-amber-400/60 dark:bg-amber-950/40",

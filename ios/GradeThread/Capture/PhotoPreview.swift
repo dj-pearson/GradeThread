@@ -31,6 +31,7 @@ struct PhotoPreview: View {
                             .scaledIconFont(size: 30)
                             .foregroundStyle(.white, .black.opacity(0.5))
                     }
+                    .accessibilityLabel("Close")
                     .padding()
 
                     Spacer()

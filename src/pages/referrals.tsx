@@ -511,9 +511,10 @@ export function ReferralsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Embed code (HTML)</label>
+                <label htmlFor="ref-embed-code" className="text-xs font-medium text-muted-foreground">Embed code (HTML)</label>
                 <div className="flex gap-2">
                   <Textarea
+                    id="ref-embed-code"
                     readOnly
                     value={badgeEmbed}
                     rows={3}
@@ -529,9 +530,9 @@ export function ReferralsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Or just the link</label>
+                <label htmlFor="ref-badge-link" className="text-xs font-medium text-muted-foreground">Or just the link</label>
                 <div className="flex gap-2">
-                  <Input readOnly value={badgeLink} className="font-mono text-sm" />
+                  <Input id="ref-badge-link" readOnly value={badgeLink} className="font-mono text-sm" />
                   <Button
                     variant="outline"
                     onClick={() => copyTo(badgeLink, setCopiedBadgeLink)}
@@ -649,10 +650,11 @@ export function ReferralsPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
+                <label htmlFor="ref-display-name" className="text-xs font-medium text-muted-foreground">
                   Public display name
                 </label>
                 <Input
+                  id="ref-display-name"
                   value={leaderboardName}
                   onChange={(e) => setLeaderboardName(e.target.value.slice(0, 40))}
                   placeholder="e.g. ThriftKing"

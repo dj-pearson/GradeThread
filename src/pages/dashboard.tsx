@@ -653,9 +653,10 @@ export function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {recentSubmissions.map((sub) => (
-                <div
+                <button
                   key={sub.id}
-                  className="flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
+                  type="button"
+                  className="flex w-full cursor-pointer items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted/50"
                   onClick={() => navigate(`/dashboard/submissions/${sub.id}`)}
                 >
                   <div className="min-w-0 flex-1">
@@ -690,7 +691,7 @@ export function DashboardPage() {
                       </span>
                     )}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}

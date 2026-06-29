@@ -7,6 +7,7 @@ import SwiftUI
 struct SyncStatusBar: View {
     @Environment(SyncStatusStore.self) private var status
     @Environment(\.syncEngine) private var syncEngine
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showingInspector = false
 
     var body: some View {
@@ -38,7 +39,7 @@ struct SyncStatusBar: View {
             }
             .buttonStyle(.plain)
             .disabled(status.pendingCount == 0 || syncEngine == nil)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             .sheet(isPresented: $showingInspector) {
                 if let syncEngine {
                     PendingChangesView(engine: syncEngine)

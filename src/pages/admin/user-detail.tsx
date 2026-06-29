@@ -639,7 +639,7 @@ export function AdminUserDetailPage() {
               <div className="grid gap-4 sm:grid-cols-3">
                 {/* Change Plan */}
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">
+                  <label htmlFor="ud-plan" className="text-xs font-medium text-muted-foreground">
                     Change Plan
                   </label>
                   <Select
@@ -651,7 +651,7 @@ export function AdminUserDetailPage() {
                       }
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="ud-plan">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -665,7 +665,7 @@ export function AdminUserDetailPage() {
 
                 {/* Change Role */}
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">
+                  <label htmlFor="ud-role" className="text-xs font-medium text-muted-foreground">
                     Change Role
                   </label>
                   <Select
@@ -677,7 +677,7 @@ export function AdminUserDetailPage() {
                       }
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="ud-role">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -691,10 +691,11 @@ export function AdminUserDetailPage() {
 
                 {/* Suspend / Unsuspend */}
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">
+                  <label htmlFor="ud-account-status" className="text-xs font-medium text-muted-foreground">
                     Account Status
                   </label>
                   <Button
+                    id="ud-account-status"
                     variant={isSuspended ? "default" : "destructive"}
                     className="w-full"
                     onClick={() => setSuspendDialogOpen(true)}

@@ -885,8 +885,9 @@ function CreateItemFromListingDialog({
 
         <div className="space-y-3">
           <div className="space-y-1">
-            <label className="text-xs font-medium">Title</label>
+            <label htmlFor="esm-title" className="text-xs font-medium">Title</label>
             <Input
+              id="esm-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Item title"

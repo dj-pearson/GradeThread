@@ -129,6 +129,18 @@ enum GradeScale {
         return .brandRed
     }
 
+    /// A per-tier SF Symbol so a grade's tier is distinguishable WITHOUT color
+    /// (US-1281, Differentiate Without Color). Each band gets a visually
+    /// distinct glyph — not one fixed seal — keyed to the same score bands as
+    /// ``color(for:)``: Pristine seal, Excellent checkmark-seal, Good/Fair a
+    /// half-filled disc, Poor/Damaged a warning triangle.
+    static func tierSymbol(for score: Double) -> String {
+        if score >= 9.5 { return "seal.fill" }
+        if score >= 7.0 { return "checkmark.seal.fill" }
+        if score >= 5.0 { return "circle.bottomhalf.filled" }
+        return "exclamationmark.triangle.fill"
+    }
+
     /// Qualitative confidence bucket. Below ``gradeReviewConfidenceThreshold``
     /// routes to human review server-side, so we surface "Low" with a
     /// cautionary tone there.

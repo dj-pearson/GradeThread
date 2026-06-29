@@ -204,7 +204,7 @@ struct SnapView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(format: "%.1f", result.grade.overallScore))
-                        .font(.system(size: 40, weight: .bold))
+                        .font(.brandScore(40))
                         .foregroundStyle(GradeScale.color(for: result.grade.overallScore))
                     Text("\(result.grade.gradeTier.capitalized) · \(Int((result.grade.confidence * 100).rounded()))% confidence")
                         .font(.caption)

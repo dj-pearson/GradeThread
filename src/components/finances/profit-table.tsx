@@ -215,8 +215,9 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Date From</label>
+          <label htmlFor="pt-date-from" className="text-xs font-medium text-muted-foreground">Date From</label>
           <Input
+            id="pt-date-from"
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
@@ -224,8 +225,9 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Date To</label>
+          <label htmlFor="pt-date-to" className="text-xs font-medium text-muted-foreground">Date To</label>
           <Input
+            id="pt-date-to"
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
@@ -233,9 +235,9 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Profit</label>
+          <label htmlFor="pt-profit" className="text-xs font-medium text-muted-foreground">Profit</label>
           <Select value={profitFilter} onValueChange={(v) => setProfitFilter(v as ProfitFilter)}>
-            <SelectTrigger className="h-8 w-28">
+            <SelectTrigger id="pt-profit" className="h-8 w-28">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -246,9 +248,9 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
           </Select>
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Brand</label>
+          <label htmlFor="pt-brand" className="text-xs font-medium text-muted-foreground">Brand</label>
           <Select value={brandFilter} onValueChange={setBrandFilter}>
-            <SelectTrigger className="h-8 w-32">
+            <SelectTrigger id="pt-brand" className="h-8 w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -262,9 +264,9 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
           </Select>
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Category</label>
+          <label htmlFor="pt-category" className="text-xs font-medium text-muted-foreground">Category</label>
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="h-8 w-32">
+            <SelectTrigger id="pt-category" className="h-8 w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

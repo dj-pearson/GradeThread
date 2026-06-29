@@ -24,6 +24,7 @@ struct InventoryListView: View {
     @Query private var sales: [LocalSale]
 
     @Environment(\.syncEngine) private var syncEngine
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var selectedStage: InventoryStage = .all
     /// US-813: list vs. kanban-board layout. The board ignores the stage tabs
@@ -275,7 +276,7 @@ struct InventoryListView: View {
         .overlay(alignment: .bottom) {
             if let undo = undoContext {
                 BulkUndoBar(context: undo) {
-                    withAnimation { undoContext = nil }
+                    withAnimation(ReducedMotion.animation(.default)) { undoContext = nil }
                 }
                 .padding(.bottom, selection.isEditing ? 80 : 24)
             }
@@ -313,19 +314,19 @@ struct InventoryListView: View {
                 RefreshErrorBanner(
                     message: refreshError,
                     onRetry: {
-                        withAnimation { self.refreshError = nil }
+                        withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
                         Task { await refreshFromServer() }
                     },
-                    onDismiss: { withAnimation { self.refreshError = nil } }
+                    onDismiss: { withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil } }
                 )
                 .padding(.bottom, 24)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 .task(id: refreshError) {
                     // Auto-dismiss only when VoiceOver is OFF. With VoiceOver on
                     // the banner stays put until the user retries or dismisses.
                     guard !UIAccessibility.isVoiceOverRunning else { return }
                     try? await Task.sleep(nanoseconds: 3_500_000_000)
-                    withAnimation { self.refreshError = nil }
+                    withAnimation(ReducedMotion.animation(.default)) { self.refreshError = nil }
                 }
             }
         }
@@ -514,7 +515,7 @@ struct InventoryListView: View {
     /// reconciles with the server.
     private func moveItem(_ item: LocalInventoryItem, to status: String) async {
         if let error = await executor.moveStatus(item, to: status) {
-            withAnimation { refreshError = "Move failed: \(error)" }
+            withAnimation(ReducedMotion.animation(.default)) { refreshError = "Move failed: \(error)" }
             HapticFeedback.error()
         } else {
             HapticFeedback.success()
@@ -558,7 +559,7 @@ struct InventoryListView: View {
             } actions: {
                 Button("Clear filters") {
                     AppRouter.haptic()
-                    withAnimation { criteria = .empty }
+                    withAnimation(ReducedMotion.animation(.default)) { criteria = .empty }
                 }
             }
         } else {
@@ -642,7 +643,7 @@ struct InventoryListView: View {
                 // Leaving the list: drop any in-progress multi-selection so the
                 // board doesn't inherit a stale edit mode.
                 if next == .board, selection.isEditing { selection.toggleEditing() }
-                withAnimation { viewMode = next }
+                withAnimation(ReducedMotion.animation(.default)) { viewMode = next }
             } label: {
                 Image(systemName: viewMode == .list ? InventoryViewMode.board.systemImage : InventoryViewMode.list.systemImage)
                     .accessibilityLabel(viewMode == .list ? "Switch to board view" : "Switch to list view")
@@ -814,7 +815,7 @@ struct InventoryListView: View {
         let outcome = await syncEngine.sync()
         if case let .failed(message) = outcome {
             await MainActor.run {
-                withAnimation { refreshError = message }
+                withAnimation(ReducedMotion.animation(.default)) { refreshError = message }
                 HapticFeedback.error()
                 // US-1021: announce the failure to VoiceOver (WCAG 4.1.3) —
                 // a silent red capsule swap was previously inaudible.
@@ -917,7 +918,7 @@ struct InventoryListView: View {
     /// US-642 swipe delete: server delete then drop the local row.
     private func deleteItem(_ item: LocalInventoryItem) async {
         if let error = await executor.deleteItem(item) {
-            withAnimation { refreshError = error }
+            withAnimation(ReducedMotion.animation(.default)) { refreshError = error }
             HapticFeedback.error()
         } else {
             modelContext.delete(item)
@@ -990,6 +991,7 @@ private struct BulkUndoBar: View {
     var duration: Int = 6
     var onDismiss: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var remaining: Int = 6
 
     var body: some View {
@@ -1029,14 +1031,14 @@ private struct BulkUndoBar: View {
         .background(Color.brandNavy, in: Capsule())
         .shadow(radius: 8, y: 2)
         .padding(.horizontal, 16)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         // Restarts whenever a new bulk action replaces the context.
         .task(id: context.id) {
             remaining = duration
             while remaining > 0 {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if Task.isCancelled { return }
-                withAnimation { remaining -= 1 }
+                withAnimation(ReducedMotion.animation(.default)) { remaining -= 1 }
             }
             onDismiss()
         }

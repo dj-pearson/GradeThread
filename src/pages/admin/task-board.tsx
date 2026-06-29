@@ -455,7 +455,20 @@ function DraggableTaskCard({
       <div
         {...listeners}
         {...attributes}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open task: ${task.title}`}
         onClick={onClick}
+        onKeyDown={(e) => {
+          // Enter opens the task; other keys (Space) fall through to the
+          // dnd-kit keyboard sensor so drag-to-reorder still works.
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onClick();
+          } else {
+            listeners?.onKeyDown?.(e);
+          }
+        }}
         className="cursor-grab rounded-md active:cursor-grabbing"
       >
         <TaskCardVisual

@@ -111,9 +111,18 @@ struct GradeChip: View {
     let score: Double
     let label: String?
 
+    /// US-1281 (Differentiate Without Color): when the user asks the system to
+    /// avoid color-only meaning, strengthen the non-color cues — the per-tier
+    /// symbol already carries the tier, and we add a capsule outline so the chip
+    /// reads as a distinct shape even when its tint is imperceptible.
+    @Environment(\.accessibilityDifferentiateWithoutColor)
+    private var differentiateWithoutColor
+
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "checkmark.seal.fill")
+            // US-1281: a per-tier SF Symbol (not one fixed seal) so the grade
+            // tier is distinguishable without color. Mirrors GradeScale bands.
+            Image(systemName: GradeScale.tierSymbol(for: score))
                 .font(.caption2)
             Text(String(format: "%.1f", score))
                 .font(.caption2.weight(.bold))
@@ -128,6 +137,13 @@ struct GradeChip: View {
         .padding(.vertical, 3)
         .background(GradeScale.color(for: score).opacity(0.12))
         .clipShape(Capsule())
+        .overlay {
+            // US-1281: under Differentiate Without Color, outline the chip so
+            // it's legible as a shape even when its tint isn't perceived.
+            if differentiateWithoutColor {
+                Capsule().strokeBorder(GradeScale.color(for: score), lineWidth: 1)
+            }
+        }
         // US-1151: collapse the decorative seal + digits into one element so
         // VoiceOver speaks just the explicit label, not "checkmark seal, 8.5".
         .accessibilityElement(children: .ignore)

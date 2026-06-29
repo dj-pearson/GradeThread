@@ -69,6 +69,7 @@ struct BarcodeScanView: View {
                         .background(.black.opacity(0.45))
                         .clipShape(Circle())
                 }
+                .accessibilityLabel("Close")
                 Spacer()
                 Text("Scan barcode")
                     .font(.subheadline.weight(.semibold))

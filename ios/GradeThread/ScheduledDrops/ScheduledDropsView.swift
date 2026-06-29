@@ -12,6 +12,7 @@ struct ScheduledDropsView: View {
     // US-1266: persist the viewer's chosen display timezone across launches so
     // presets/times aren't reinterpreted in a different zone next session.
     @AppStorage("scheduledDrops.timeZone") private var persistedTimeZone = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let currency = CurrencyFormatter()
 
     var body: some View {
@@ -36,7 +37,7 @@ struct ScheduledDropsView: View {
             .task(id: store.actionBanner) {
                 guard store.actionBanner != nil else { return }
                 try? await Task.sleep(for: .seconds(2.5))
-                withAnimation { store.actionBanner = nil }
+                withAnimation(ReducedMotion.animation(.default)) { store.actionBanner = nil }
             }
             .alert(
                 "Something went wrong",
@@ -154,7 +155,7 @@ struct ScheduledDropsView: View {
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .background(Color.brandNavy, in: Capsule())
                 .padding(.bottom, 16)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
 }

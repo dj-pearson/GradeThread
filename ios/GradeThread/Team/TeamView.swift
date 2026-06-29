@@ -297,6 +297,7 @@ struct TeamView: View {
                             Image(systemName: "ellipsis.circle")
                                 .foregroundStyle(Color.brandNavy)
                         }
+                        .accessibilityLabel("Invite actions")
                     }
                 }
             }

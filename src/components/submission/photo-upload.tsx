@@ -505,12 +505,21 @@ export function PhotoUpload({
             state.isProcessing && "pointer-events-none opacity-60",
             state.errors.length > 0 && "border-destructive/50"
           )}
+          role="button"
+          tabIndex={0}
+          aria-label={`Upload ${slot.label} photo`}
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
           }}
           onDrop={(e) => handleDrop(slot.slotKey, e)}
           onClick={() => fileInputRefs.current[slot.slotKey]?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              fileInputRefs.current[slot.slotKey]?.click();
+            }
+          }}
         >
           <input
             ref={(el) => {

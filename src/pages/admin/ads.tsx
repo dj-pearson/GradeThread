@@ -355,11 +355,21 @@ export function AdminAdsPage() {
                 return (
                   <div
                     key={t.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selected}
+                    aria-label={`Select theme: ${t.theme}`}
                     className={cn(
                       "cursor-pointer rounded-md border p-3 transition-colors",
                       selected ? "border-primary bg-primary/5" : "hover:bg-muted/50",
                     )}
                     onClick={() => toggleTheme(t.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleTheme(t.id);
+                      }
+                    }}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-medium">{t.theme}</span>

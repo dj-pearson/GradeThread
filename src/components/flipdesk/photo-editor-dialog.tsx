@@ -328,6 +328,7 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
             <img
               ref={hiddenImgRef}
               src={blobUrl ?? undefined}
+              alt=""
               className="hidden"
               onLoad={() => {
                 const img = hiddenImgRef.current;

@@ -12,6 +12,8 @@ import { Package } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ItemCardList } from "@/components/flipdesk/item-card-list";
+import { FieldError, FormErrorSummary } from "@/components/ui/form-feedback";
+import { ImageLightbox } from "@/components/certificate/image-lightbox";
 import type { ItemFullRow } from "@/types/database";
 
 const sampleItem = {
@@ -46,6 +48,32 @@ const CASES: Array<[string, React.ReactNode]> = [
   [
     "item-card-list",
     <ItemCardList key="c" items={[sampleItem]} onOpen={() => {}} />,
+  ],
+  [
+    "field-error",
+    <FieldError key="fe" id="email-error">
+      Enter a valid email address
+    </FieldError>,
+  ],
+  [
+    "form-error-summary",
+    <FormErrorSummary
+      key="fes"
+      errors={["Email is required", "Password is too short"]}
+    />,
+  ],
+  [
+    "image-lightbox",
+    <ImageLightbox
+      key="lb"
+      images={[
+        { id: "1", src: "/a.jpg", caption: "Front" },
+        { id: "2", src: "/b.jpg", caption: "Back" },
+      ]}
+      index={0}
+      onClose={() => {}}
+      onNavigate={() => {}}
+    />,
   ],
 ];
 

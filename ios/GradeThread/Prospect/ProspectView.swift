@@ -145,6 +145,7 @@ struct ProspectView: View {
                                     .font(.title3)
                                     .foregroundStyle(.white, .black.opacity(0.5))
                             }
+                            .accessibilityLabel("Remove photo")
                             .padding(6)
                         }
                 }
@@ -277,7 +278,7 @@ struct ProspectView: View {
         if let stats = result.stats, stats.sufficient, stats.medianCents != nil {
             VStack(alignment: .leading, spacing: 2) {
                 Text(dollars(stats.medianCents))
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.brandData(36, weight: .bold))
                     .foregroundStyle(Color.brandNavy)
                 Text("going rate · range \(dollars(stats.lowCents))–\(dollars(stats.highCents))")
                     .font(.caption)
