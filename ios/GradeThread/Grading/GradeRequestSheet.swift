@@ -93,6 +93,8 @@ struct GradeRequestSheet: View {
             stillProcessingContent
         case .completed:
             completedContent(store)
+        case .pendingReview:
+            pendingReviewContent(store)
         case let .failed(message):
             failedContent(store, message)
         }
@@ -100,7 +102,7 @@ struct GradeRequestSheet: View {
 
     private var closeButtonTitle: String {
         switch store?.phase {
-        case .completed?, .stillProcessing?: return "Done"
+        case .completed?, .pendingReview?, .stillProcessing?: return "Done"
         // US-1176: dismissing while polling doesn't abort the grade (it lands via
         // sync), so make that explicit rather than the ambiguous "Cancel".
         case .processing?: return "Continue in background"
@@ -399,6 +401,27 @@ struct GradeRequestSheet: View {
             Label("Still grading", systemImage: "clock.badge.checkmark")
         } description: {
             Text("This grade is taking a little longer than usual. It'll appear on this item automatically as soon as it's ready — no need to resubmit.")
+        } actions: {
+            Button("Done") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.brandNavy)
+        }
+    }
+
+    // MARK: - Pending human review (mandatory review)
+
+    /// The AI grade is produced but withheld until a GradeThread reviewer
+    /// finalizes it. We show the provisional score (when returned) and explain
+    /// it'll go live automatically — never an endless "grading in progress".
+    private func pendingReviewContent(_ store: GradeRequestStore) -> some View {
+        ContentUnavailableView {
+            Label("Submitted for human review", systemImage: "person.fill.checkmark")
+        } description: {
+            if let report = store.report {
+                Text("Your preliminary grade is \(String(format: "%.1f", report.overallScore)) · \(report.gradeTier). A GradeThread expert is reviewing it before it becomes official — the certificate goes live and the grade appears on this item automatically once review is complete. No need to resubmit.")
+            } else {
+                Text("Your AI grade is being reviewed by a GradeThread expert before it becomes official. It'll appear on this item automatically once review is complete — no need to resubmit.")
+            }
         } actions: {
             Button("Done") { dismiss() }
                 .buttonStyle(.borderedProminent)

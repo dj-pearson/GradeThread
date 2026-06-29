@@ -87,6 +87,11 @@ struct GradingStatusResponse: Decodable {
 
     /// Terminal-completed when the pipeline has written the report back.
     var isCompleted: Bool { status == "completed" }
+    /// Mandatory review: the AI grade is produced but withheld until a human
+    /// finalizes it. Not completed, not failed — a distinct terminal-ish poll
+    /// state surfaced as "submitted for human review". `gradeReport` carries the
+    /// provisional score (the edge resolves the preliminary report by submission).
+    var isPendingReview: Bool { status == "pending_review" }
     /// Terminal-failed when the bridge recorded an error. (The pipeline's
     /// "needs better photos" path leaves the bridge row pending, so the
     /// poller also times out gracefully — see GradeRequestStore.)

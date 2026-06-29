@@ -653,6 +653,30 @@ async function applyPreliminaryReview(submissionId: string): Promise<string | nu
       itemErr instanceof Error ? itemErr.message : String(itemErr),
     );
   }
+
+  // Reflect the preliminary state on the FlipDesk bridge row so the in-app /
+  // web status poll shows "submitted for human review" instead of an endless
+  // "grading in progress" — the grade is DONE, it's just awaiting a human to
+  // finalize it. applyTerminalCompletion flips this to 'completed' on finalize.
+  try {
+    const { data: fdLink } = await supabaseAdmin
+      .from("flipdesk_grading_submissions")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .maybeSingle();
+    if (fdLink) {
+      await supabaseAdmin
+        .from("flipdesk_grading_submissions")
+        .update({ status: "pending_review" })
+        .eq("id", (fdLink as { id: string }).id);
+    }
+  } catch (fdErr) {
+    console.error(
+      `[Pipeline] FlipDesk preliminary bridge sync error for submission ${submissionId}:`,
+      fdErr instanceof Error ? fdErr.message : String(fdErr),
+    );
+  }
+
   return linkedItemId;
 }
 

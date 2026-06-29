@@ -21,6 +21,10 @@ final class GradeRequestStore {
         case processing
         /// Grade landed — `report` is populated.
         case completed
+        /// Grade produced but withheld for mandatory human review before it goes
+        /// official. Terminal for this poll; finalization arrives via sync.
+        /// `report` holds the provisional score when the edge returned it.
+        case pendingReview
         /// Grading is taking longer than the poll window. Not an error: the
         /// grade will still arrive via the next inventory sync.
         case stillProcessing
@@ -213,6 +217,10 @@ final class GradeRequestStore {
                     apply(report: report, item: status.item)
                     return
                 }
+                if status.isPendingReview {
+                    applyPendingReview(report: status.gradeReport)
+                    return
+                }
                 if status.isFailed {
                     phase = .failed(status.error ?? "Grading failed. You weren't charged — please retake the photos and try again.")
                     return
@@ -250,6 +258,18 @@ final class GradeRequestStore {
             "score": report.overallScore,
         ])
         HapticFeedback.success()
+    }
+
+    /// Mandatory review: the AI grade is produced but withheld until a human
+    /// finalizes it. We keep the provisional report for display but DON'T resolve
+    /// a certificate (held back until review clears) or stamp the item as graded —
+    /// the canvas stays in its pre-grade state until finalization syncs through.
+    private func applyPendingReview(report: GradeReportDTO?) {
+        self.report = report
+        self.certificateURL = nil
+        phase = .pendingReview
+        Telemetry.event("grade.pending_review", props: ["tier": tier.rawValue])
+        HapticFeedback.light()
     }
 
     private func message(from error: Error) -> String {

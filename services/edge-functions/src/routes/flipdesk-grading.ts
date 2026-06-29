@@ -685,14 +685,28 @@ flipdeskGradingRoutes.get("/submissions/:id", async (c) => {
 
   // Fetch the grade report on demand so a polling-only UI can render
   // results without a second round-trip.
+  const GRADE_REPORT_COLS =
+    "id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, ai_summary, confidence_score, certificate_id, created_at";
   let gradeReport: Record<string, unknown> | null = null;
   if (r.status === "completed" && r.inventory_items.grade_report_id) {
     const { data: gr } = await supabaseAdmin
       .from("grade_reports")
-      .select(
-        "id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, ai_summary, confidence_score, certificate_id, created_at",
-      )
+      .select(GRADE_REPORT_COLS)
       .eq("id", r.inventory_items.grade_report_id)
+      .maybeSingle();
+    if (gr) {
+      gradeReport = gr as unknown as Record<string, unknown>;
+    }
+  } else if (r.status === "pending_review" && r.submission_id) {
+    // Mandatory review: the grade is produced but the linked item isn't synced
+    // to a grade_report_id until a human finalizes it, so resolve the active
+    // (non-superseded) PRELIMINARY report by submission so the client can show
+    // the provisional score alongside "submitted for human review".
+    const { data: gr } = await supabaseAdmin
+      .from("grade_reports")
+      .select(GRADE_REPORT_COLS)
+      .eq("submission_id", r.submission_id)
+      .is("superseded_at", null)
       .maybeSingle();
     if (gr) {
       gradeReport = gr as unknown as Record<string, unknown>;

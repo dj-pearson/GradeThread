@@ -177,8 +177,14 @@ export function useItemGradingSubmissions(itemId: string | null) {
     // slow enough not to hammer the DB when many items are in progress.
     refetchInterval: (query) => {
       const rows = (query.state.data as FlipdeskGradingSubmissionRow[] | undefined) ?? [];
+      // Keep polling while a grade is mid-flight OR parked in pending_review
+      // (a human reviewer can finalize it at any time → status flips to
+      // 'completed', and we want the card to update without a manual refresh).
       const inflight = rows.some(
-        (r) => r.status === "pending" || r.status === "processing",
+        (r) =>
+          r.status === "pending" ||
+          r.status === "processing" ||
+          r.status === "pending_review",
       );
       return inflight ? 8_000 : false;
     },

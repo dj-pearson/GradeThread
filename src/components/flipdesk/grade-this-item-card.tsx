@@ -111,11 +111,15 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
   const latest = submissions[0] ?? null;
   const inflight =
     latest && (latest.status === "pending" || latest.status === "processing");
+  // Mandatory review: the AI grade is done but withheld until a human finalizes
+  // it. Distinct from `inflight` so the card shows "submitted for human review"
+  // (not "grading in progress") and doesn't re-offer the tier picker.
+  const pendingReview = latest != null && latest.status === "pending_review";
 
   // Re-run validate whenever the tier changes or photos may have been
   // updated. Cheap call; no records created.
   useEffect(() => {
-    if (inflight || item.grade_value != null) return;
+    if (inflight || pendingReview || item.grade_value != null) return;
     validate
       .mutateAsync({ inventoryItemId: item.id, tier })
       .then((res) => {
@@ -135,7 +139,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
     // garment_type/garment_category that the readiness gate requires) — the
     // save bumps updated_at and invalidates items_full, refreshing this prop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, item.id, item.updated_at, item.grade_value, inflight, submissions.length]);
+  }, [tier, item.id, item.updated_at, item.grade_value, inflight, pendingReview, submissions.length]);
 
   async function doSubmit() {
     try {
@@ -272,6 +276,31 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
           <p className="text-xs text-muted-foreground">
             We&apos;re analyzing your photos. This panel updates automatically
             when the grade lands.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── State 2.5: graded, submitted for human review ───────────────────
+  if (latest && pendingReview) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-brand-navy dark:text-foreground" />
+            Submitted for human review
+          </CardTitle>
+          <CardDescription>
+            Submitted {relativeTime(latest.submitted_at)} · {latest.tier}{" "}
+            tier · {fmtMoney(latest.cost)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground">
+            Your AI grade is ready and is being reviewed by a GradeThread expert
+            before it becomes official. The certificate goes live and the grade
+            appears here automatically once review is complete.
           </p>
         </CardContent>
       </Card>
