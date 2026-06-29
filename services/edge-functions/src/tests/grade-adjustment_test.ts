@@ -82,10 +82,11 @@ Deno.test("adjust → reseal → flags cleared for a CERTIFIED report", async ()
     assertEquals(values[k], FACTORS[k]);
   }
   // Overall + tier recomputed: 7.5*.30 + 8*.25 + 7*.20 + 8.5*.15 + 9*.10
-  // = 2.25 + 2.0 + 1.4 + 1.275 + 0.9 = 7.825 → 8.0 (half-point round).
-  assertEquals(values.overall_score, 8.0);
-  assertEquals(result.overall_score, 8.0);
-  assertEquals(values.grade_tier, "Excellent");
+  // = 2.25 + 2.0 + 1.4 + 1.275 + 0.9 = 7.825 → 7.8 (0.1 round; the overall is
+  // tenth-point now, so this lands just under the 8.0 Excellent boundary).
+  assertEquals(values.overall_score, 7.8);
+  assertEquals(result.overall_score, 7.8);
+  assertEquals(values.grade_tier, "Very Good");
 
   // Reseal fields present and the recomputed hash VERIFIES over the new fields.
   assert(typeof values.content_hash === "string" && (values.content_hash as string).length === 64);
@@ -93,8 +94,8 @@ Deno.test("adjust → reseal → flags cleared for a CERTIFIED report", async ()
   const verify = await verifyCertIntegrity(
     {
       certificate_id: "cert-1",
-      overall_score: 8.0,
-      grade_tier: "Excellent",
+      overall_score: 7.8,
+      grade_tier: "Very Good",
       ...FACTORS,
       ai_summary: "Adjusted by reviewer.",
       buyer_writeup: "Buyer-facing writeup.",

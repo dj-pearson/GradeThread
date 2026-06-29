@@ -35,12 +35,15 @@ export function clampScore(n: number): number {
   return Math.round(Math.min(10, Math.max(1, n)) * 2) / 2;
 }
 
-// Weighted overall, rounded to the nearest half-point (matches the AI composite
-// and the old frontend computeWeightedScore).
+// Weighted overall, rounded to the nearest 0.1 (the 5 factors stay in 0.5 steps,
+// but the aggregate is granular so a single-factor human correction actually
+// moves the overall — e.g. 8.6 — instead of being swallowed by 0.5 rounding).
+// Matches ai-grading.roundToTenth(weightedSum) and the admin reviews UI's
+// computeWeightedScore.
 export function computeWeightedOverall(f: FactorScores): number {
   let total = 0;
   for (const k of FACTOR_KEYS) total += f[k] * FACTOR_WEIGHTS[k];
-  return Math.round(total * 2) / 2;
+  return Math.round(total * 10) / 10;
 }
 
 // Map a 1.0–10.0 score to its tier (mirrors ai-grading.scoreToGradeTier and

@@ -29,7 +29,7 @@ Deno.test("clampScore bounds to 1..10 in 0.5 steps", () => {
   assertEquals(clampScore(NaN), 1);
 });
 
-Deno.test("computeWeightedOverall applies PRD weights, rounded to 0.5", () => {
+Deno.test("computeWeightedOverall applies PRD weights, rounded to 0.1", () => {
   const all8: FactorScores = {
     fabric_condition_score: 8,
     structural_integrity_score: 8,
@@ -39,7 +39,9 @@ Deno.test("computeWeightedOverall applies PRD weights, rounded to 0.5", () => {
   };
   assertEquals(computeWeightedOverall(all8), 8); // weights sum to 1
 
-  // 10*.30 + 6*.25 + 6*.20 + 6*.15 + 6*.10 = 3 + 1.5 + 1.2 + 0.9 + 0.6 = 7.2 → 7.0
+  // 10*.30 + 6*.25 + 6*.20 + 6*.15 + 6*.10 = 3 + 1.5 + 1.2 + 0.9 + 0.6 = 7.2.
+  // The overall is rounded to 0.1 now (not 0.5), so this stays 7.2 — the
+  // granularity that lets a single-factor human correction move the overall.
   const mixed: FactorScores = {
     fabric_condition_score: 10,
     structural_integrity_score: 6,
@@ -47,7 +49,18 @@ Deno.test("computeWeightedOverall applies PRD weights, rounded to 0.5", () => {
     functional_elements_score: 6,
     odor_cleanliness_score: 6,
   };
-  assertEquals(computeWeightedOverall(mixed), 7.0);
+  assertEquals(computeWeightedOverall(mixed), 7.2);
+
+  // A single 0.5 bump on one factor now nudges the overall (0.1 granularity):
+  // 8*.30 + 8.5*.25 + 8*.20 + 8*.15 + 8*.10 = 2.4+2.125+1.6+1.2+0.8 = 8.125 → 8.1
+  const oneBump: FactorScores = {
+    fabric_condition_score: 8,
+    structural_integrity_score: 8.5,
+    cosmetic_appearance_score: 8,
+    functional_elements_score: 8,
+    odor_cleanliness_score: 8,
+  };
+  assertEquals(computeWeightedOverall(oneBump), 8.1);
 });
 
 Deno.test("scoreToGradeTier maps the boundaries", () => {

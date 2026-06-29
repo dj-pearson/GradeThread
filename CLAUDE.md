@@ -70,7 +70,7 @@ Navy `#0F3460` (primary/headers/sidebar) · Red `#E94560` (accent/CTA/destructiv
 
 ## Grading System
 
-- Scale 1.0–10.0, half-points. Tiers: NWT 10, NWOT 9, Excellent 8, Very Good 7, Good 6, Fair 5, Poor 3–4.
+- Scale 1.0–10.0. The 5 FACTORS are graded in half-point (0.5) steps; the weighted OVERALL is rounded to 0.1 (e.g. 8.6) so a single-factor human-review correction actually moves it. Keep the three rounding sites in lockstep: `ai-grading.roundToTenth`, `human-review.computeWeightedOverall`, and the admin reviews UI `computeWeightedScore`. Tiers: NWT 10, NWOT 9, Excellent 8, Very Good 7, Good 6, Fair 5, Poor 3–4.
 - 5 factors: Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor/Cleanliness 10%.
 - Confidence 0–1; **< 0.75 → human review**. Photos: front/back/label/1+ detail required; +detail2 and ≤3 defects optional.
 

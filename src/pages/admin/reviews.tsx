@@ -161,12 +161,15 @@ function formatWaitingTime(ms: number): string {
   return `${days}d ${remainHours}h`;
 }
 
+// The 5 factors are graded in 0.5 steps, but the OVERALL is rounded to 0.1 so a
+// single-factor adjustment moves it (mirrors the edge: ai-grading.roundToTenth +
+// human-review.computeWeightedOverall — keep all three in lockstep).
 function computeWeightedScore(factors: FactorScores): number {
   let total = 0;
   for (const key of FACTOR_KEYS) {
     total += factors[key] * FACTOR_META[key].weight;
   }
-  return Math.round(total * 2) / 2;
+  return Math.round(total * 10) / 10;
 }
 
 const PAGE_SIZE = 20;
@@ -357,6 +360,19 @@ export function AdminReviewsPage() {
   const scoreDifference = reviewingItem
     ? Math.abs(computedOverallScore - reviewingItem.overall_score)
     : 0;
+
+  // Whether the reviewer changed ANY factor from the AI's original scores. This
+  // — not a move in the rounded overall — gates "Adjust & Approve", so a single
+  // factor correction is always submittable even when the lightest (10% Odor)
+  // factor's 0.5 nudge doesn't quite cross a 0.1 overall boundary.
+  const factorsChanged = useMemo(
+    () =>
+      !!reviewingItem &&
+      FACTOR_KEYS.some(
+        (key) => adjustedScores[key] !== reviewingItem.factor_scores[key],
+      ),
+    [adjustedScores, reviewingItem],
+  );
 
   const requiresSuperAdmin = scoreDifference > 1.5;
   const isSuperAdmin = profile?.role === "super_admin";
@@ -914,7 +930,7 @@ export function AdminReviewsPage() {
                 <Button
                   variant="secondary"
                   onClick={handleAdjustAndApprove}
-                  disabled={actionLoading || scoreDifference === 0 || (requiresSuperAdmin && !isSuperAdmin)}
+                  disabled={actionLoading || !factorsChanged || (requiresSuperAdmin && !isSuperAdmin)}
                   className="w-full sm:flex-1"
                 >
                   {actionLoading ? (

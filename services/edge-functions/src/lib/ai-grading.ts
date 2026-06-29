@@ -1323,7 +1323,7 @@ Apply the factor weights (Fabric 30%, Structural 25%, Cosmetic 20%, Functional 1
 
 Respond with a JSON object matching this exact schema:
 {
-  "overall_score": <1.0-10.0, weighted average rounded to nearest 0.5>,
+  "overall_score": <1.0-10.0, weighted average rounded to nearest 0.1>,
   "grade_tier": "<NWT|NWOT|Excellent|Very Good|Good|Fair|Poor>",
   "factor_scores": {
     "fabric_condition": <1.0-10.0>,
@@ -1361,7 +1361,7 @@ Respond with a JSON object matching this exact schema:
 }
 
 Rules:
-- overall_score must be the weighted average of factor scores, rounded to nearest 0.5
+- overall_score must be the weighted average of factor scores, rounded to nearest 0.1 (factor scores themselves stay in 0.5 steps)
 - grade_tier must match the overall_score according to the tier definitions
 - factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state. For each factor, IGNORE any per-image estimated score whose factor key appears in that image's unassessable_factors (it is a neutral placeholder, not evidence) — synthesize the factor only from images that could actually judge it. If NO image could assess a factor, set it to a neutral 7.0 and lower confidence_score, noting it in ai_summary.
 - ai_summary: professional, objective summary suitable for a grade certificate
@@ -1435,6 +1435,15 @@ function scoreToGradeTier(score: number): string {
 
 function roundToHalf(value: number): number {
   return Math.round(value * 2) / 2;
+}
+
+// The 5 FACTORS are graded in 0.5 steps, but the OVERALL is the weighted
+// aggregate and is rounded to 0.1 (e.g. 8.6) — so a single-factor correction in
+// human review actually moves the overall instead of being swallowed by 0.5
+// rounding. Keep this in lockstep with human-review.computeWeightedOverall and
+// the admin reviews UI's computeWeightedScore.
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 // US-483: when the composite model returns an invalid/missing factor value we
@@ -1765,12 +1774,14 @@ export async function compositeGrade(
     const largeDefectDivergence =
       weighting.divergence >= DEFECT_DIVERGENCE_REVIEW_THRESHOLD;
 
-    // Recalculate overall_score from the (defect-weighted) factor scores.
+    // Recalculate overall_score from the (defect-weighted) factor scores. The
+    // overall is rounded to 0.1 (factors stay 0.5) so the aggregate is granular
+    // enough that a one-factor human correction nudges it.
     let weightedSum = 0;
     for (const key of FACTOR_KEYS) {
       weightedSum += parsed.factor_scores[key] * FACTOR_WEIGHTS[key];
     }
-    const calculatedScore = roundToHalf(Math.max(1.0, Math.min(10.0, weightedSum)));
+    const calculatedScore = roundToTenth(Math.max(1.0, Math.min(10.0, weightedSum)));
 
     // Use calculated score (authoritative) and derive tier from it
     const overallScore = calculatedScore;
