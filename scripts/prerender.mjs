@@ -15,7 +15,7 @@
 //
 // Run: node scripts/prerender.mjs   (wired into `npm run build`)
 
-import { createServer } from "vite";
+import { createServer, loadEnv } from "vite";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,6 +99,21 @@ if (!template.includes(HEAD_START) || !template.includes(HEAD_END)) {
 }
 if (!template.includes(BODY_MARKER)) {
   fail(`index.html is missing the ${BODY_MARKER} marker.`);
+}
+
+// `vite build` runs in production mode and loads `.env.production` (where the
+// committed VITE_* build vars live — see that file's header), so the CLIENT
+// bundle gets them. But the SSR server below defaults to DEVELOPMENT mode, which
+// loads `.env`/`.env.development` and NOT `.env.production` — so the prerender's
+// SSR eval of supabase.ts would crash with "Missing VITE_SUPABASE_URL" even
+// though the var is committed and the client build has it. Seed the production
+// env into process.env (without clobbering anything already set, e.g. real CI/
+// dashboard vars) so Vite's loadEnv exposes them to import.meta.env regardless of
+// the dev-mode server. Keeps prerender working off the committed file alone —
+// immune to a dashboard/wrangler wipe, matching `.env.production`'s intent.
+const prodEnv = loadEnv("production", root, "VITE_");
+for (const [key, value] of Object.entries(prodEnv)) {
+  if (process.env[key] === undefined) process.env[key] = value;
 }
 
 const vite = await createServer({
