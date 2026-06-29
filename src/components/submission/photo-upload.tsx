@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { validateImage, compressImage, extractExif } from "@/lib/image-utils";
+import { normalizeToImageFile } from "@/lib/media-intake";
 import {
   CameraCaptureDialog,
   isCameraCaptureSupported,
@@ -361,13 +362,33 @@ export function PhotoUpload({
   );
 
   const processFile = useCallback(
-    async (slotKey: string, file: File) => {
+    async (slotKey: string, rawFile: File) => {
       setSlots((prev) => {
         const next = new Map(prev);
         const current = getSlot(prev, slotKey);
         next.set(slotKey, { ...current, isProcessing: true, errors: [] });
         return next;
       });
+
+      // US-1300: normalize odd iPhone inputs before validation — a Live Photo
+      // exported as a .mov/.mp4 video becomes a still JPEG frame and HEIC/HEIF
+      // becomes JPEG, so they pass the JPEG/PNG/WebP validator below instead of
+      // being rejected outright.
+      let file: File;
+      try {
+        file = await normalizeToImageFile(rawFile);
+      } catch (err) {
+        const message = err instanceof Error
+          ? err.message
+          : "Couldn't convert this file. Re-export it as a JPEG and try again.";
+        setSlots((prev) => {
+          const next = new Map(prev);
+          const current = getSlot(prev, slotKey);
+          next.set(slotKey, { ...current, isProcessing: false, errors: [message] });
+          return next;
+        });
+        return;
+      }
 
       const validation = await validateImage(file);
       if (!validation.valid) {
@@ -526,7 +547,7 @@ export function PhotoUpload({
               fileInputRefs.current[slot.slotKey] = el;
             }}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif,video/*,.mov,.mp4,.m4v"
             className="hidden"
             onChange={(e) =>
               handleFileSelect(slot.slotKey, e.target.files?.[0])

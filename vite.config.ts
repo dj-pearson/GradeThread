@@ -121,6 +121,12 @@ export default defineConfig({
         // revision hash, so a new deploy busts any stale shell (with
         // cleanupOutdatedCaches + skipWaiting below).
         globPatterns: ["**/*.{js,css,svg,woff2}", "index.html"],
+        // US-1300: the HEIC decoder (heic-to/csp) is a ~3MB WASM chunk that is
+        // dynamic-imported only when a HEIC/Live-Photo upload actually needs it.
+        // Keep it OUT of the install-time precache (it exceeds Workbox's size
+        // cap and has no business inflating the PWA install) — it loads on
+        // demand over the network instead.
+        globIgnores: ["**/heic-to-*.js"],
         navigateFallback: "/index.html",
         // Never serve the SPA shell for API calls, server-rendered Pages
         // Functions (blog/cert/og SSR, sitemaps, robots/llms, RSS), OR the

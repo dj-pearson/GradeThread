@@ -12,6 +12,7 @@ import { usePhotoProfile } from "@/lib/photo-profiles";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
+import { normalizeToImageFile } from "@/lib/media-intake";
 import { itemPhotoThumb } from "@/lib/images";
 import { cn } from "@/lib/utils";
 import type {
@@ -78,9 +79,24 @@ export function PhotoUploader({
   const byType = (t: FlipdeskPhotoType) =>
     photos.filter((p) => p.photo_type === t);
 
-  async function upload(file: File, photoType: FlipdeskPhotoType) {
+  async function upload(picked: File, photoType: FlipdeskPhotoType) {
     if (!user) return;
     setUploading(photoType);
+    // US-1300: normalize odd iPhone inputs first — a Live Photo exported as a
+    // .mov/.mp4 video becomes a still JPEG frame and HEIC/HEIF becomes JPEG, so
+    // the canvas compress/upload path below gets a decodable image.
+    let file: File;
+    try {
+      file = await normalizeToImageFile(picked);
+    } catch (err) {
+      setUploading(null);
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Couldn't convert this file. Re-export it as a JPEG and try again.",
+      );
+      return;
+    }
     try {
       // Compress + strip EXIF client-side via canvas re-encode. Falls back
       // to the original file if decode fails (e.g. HEIC in Chrome), so
@@ -380,7 +396,7 @@ function PhotoSlot({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif,video/*,.mov,.mp4,.m4v"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];

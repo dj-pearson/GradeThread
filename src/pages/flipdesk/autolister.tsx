@@ -37,6 +37,11 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { ImageDecodeError, processStagedImage } from "@/lib/image-worker-pool";
 import { runWithConcurrency } from "@/lib/concurrency";
 import { readCaptureTime } from "@/lib/exif";
+import {
+  isVideoFile,
+  MediaIntakeError,
+  normalizeToImageFile,
+} from "@/lib/media-intake";
 import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
@@ -195,6 +200,7 @@ interface BatchStats {
   ok: number;
   failed: number;
   heicFailed: number;
+  videoFailed: number;
   borderline: string[];
 }
 
@@ -204,29 +210,6 @@ const BORDERLINE_RESOLUTION = 1500;
 // US-957: covers scoring below this (0-100 listing-readiness) get a non-blocking
 // "reshoot recommended" nudge before Generate. Advisory only — never blocks.
 const COVER_QA_REVIEW_THRESHOLD = 60;
-
-function looksHeic(file: File): boolean {
-  const lc = file.name.toLowerCase();
-  return (
-    file.type === "image/heic" ||
-    file.type === "image/heif" ||
-    lc.endsWith(".heic") ||
-    lc.endsWith(".heif")
-  );
-}
-
-// US-531: transcode iPhone HEIC/HEIF to JPEG in the browser so those photos
-// "just work" instead of being skipped. heic2any (~1.4MB wasm) is dynamic-
-// imported ONLY when a HEIC file is actually present, so it never enters the
-// main bundle. Returns the original file unchanged for non-HEIC inputs.
-async function maybeTranscodeHeic(file: File): Promise<File> {
-  if (!looksHeic(file)) return file;
-  const { default: heic2any } = await import("heic2any");
-  const out = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
-  const blob = Array.isArray(out) ? out[0]! : out;
-  const name = file.name.replace(/\.(heic|heif)$/i, ".jpg");
-  return new File([blob], name, { type: "image/jpeg" });
-}
 
 // US-530: collect Files from a drag-and-drop, recursing into dropped FOLDERS
 // (webkitGetAsEntry). Falls back to the flat file list when the entries API
@@ -463,20 +446,25 @@ export function FlipdeskAutolisterPage() {
       // any transcode/recompression that may drop the metadata — it drives
       // capture-time auto-grouping.
       const capturedAt = await readCaptureTime(file).catch(() => null);
-      // US-531: iPhone HEIC/HEIF is transcoded to JPEG in the browser so it
-      // works instead of being rejected; non-HEIC files pass through.
+      // US-531 / US-1300: normalize odd iPhone inputs in the browser so they
+      // "just work" instead of being rejected — a Live Photo exported as a
+      // .mov/.mp4 video becomes a still JPEG frame, HEIC/HEIF becomes JPEG, and
+      // ordinary JPEG/PNG/WebP pass through untouched.
       let workFile: File;
       try {
-        workFile = await maybeTranscodeHeic(file);
-      } catch (heicErr) {
-        if (import.meta.env.DEV) console.warn("[autolister] HEIC transcode failed:", heicErr);
-        stats.heicFailed++;
+        workFile = await normalizeToImageFile(file);
+      } catch (convErr) {
+        if (import.meta.env.DEV) console.warn("[autolister] media intake failed:", convErr);
+        const kind = convErr instanceof MediaIntakeError ? convErr.kind : "heic";
+        if (kind === "video") stats.videoFailed++;
+        else stats.heicFailed++;
         stats.failed++;
         patchTask(id, {
           status: "error",
           retryable: false,
-          error:
-            "HEIC conversion failed. Re-export as JPEG (Photos → Share → Save as Files) and add it again.",
+          error: convErr instanceof Error
+            ? convErr.message
+            : "Couldn't convert this file. Re-export it as a JPEG and add it again.",
         });
         return;
       }
@@ -597,9 +585,20 @@ export function FlipdeskAutolisterPage() {
         },
       );
     }
-    if (stats.failed > stats.heicFailed) {
+    if (stats.videoFailed > 0) {
+      toast.warning(
+        `${stats.videoFailed} Live Photo / video${stats.videoFailed === 1 ? "" : "s"} couldn't be converted.`,
+        {
+          description:
+            "Open it in Photos, save a still (Share → Save as Current Photo / a frame), and add that JPEG.",
+          duration: 8_000,
+        },
+      );
+    }
+    const otherFailed = stats.failed - stats.heicFailed - stats.videoFailed;
+    if (otherFailed > 0) {
       toast.error(
-        `${stats.failed - stats.heicFailed} photo${stats.failed - stats.heicFailed === 1 ? "" : "s"} didn't make it.`,
+        `${otherFailed} photo${otherFailed === 1 ? "" : "s"} didn't make it.`,
         {
           description: "Each one is listed above with the reason — retry or dismiss.",
           duration: 8_000,
@@ -635,7 +634,7 @@ export function FlipdeskAutolisterPage() {
       file,
     }));
     setUploadTasks((prev) => [...prev.filter((t) => t.status !== "done"), ...tasks]);
-    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, borderline: [] };
+    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, borderline: [] };
     await runWithConcurrency(tasks, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
     reportBatch(stats);
     setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));
@@ -647,7 +646,7 @@ export function FlipdeskAutolisterPage() {
       (t) => taskIds.includes(t.id) && t.status === "error" && t.retryable !== false,
     );
     if (targets.length === 0) return;
-    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, borderline: [] };
+    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, videoFailed: 0, borderline: [] };
     await runWithConcurrency(targets, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
     reportBatch(stats);
     setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));
@@ -1510,7 +1509,7 @@ export function FlipdeskAutolisterPage() {
         onPaste={(e) => {
           if (!entitled) return;
           const imgs = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-            f.type.startsWith("image/"),
+            f.type.startsWith("image/") || isVideoFile(f),
           );
           if (imgs.length > 0) void handleFiles(imgs);
         }}
@@ -1518,7 +1517,7 @@ export function FlipdeskAutolisterPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,.heic,.heif"
+          accept="image/*,.heic,.heif,video/*,.mov,.mp4,.m4v"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -1556,7 +1555,7 @@ export function FlipdeskAutolisterPage() {
               : "Drag photos or a folder here, or click to choose"}
           </span>
           <span className="text-xs">
-            iPhone HEIC supported. Resized &amp; compressed in your browser before upload.
+            iPhone HEIC and Live Photos supported. Resized &amp; compressed in your browser before upload.
           </span>
         </button>
         <div className="mt-2 flex flex-wrap justify-center gap-2">
