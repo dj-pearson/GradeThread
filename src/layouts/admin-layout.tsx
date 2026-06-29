@@ -48,6 +48,7 @@ import {
   MailWarning,
   Mailbox,
   ClipboardCheck,
+  Menu,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -60,6 +61,11 @@ import { AdminNotificationBell } from "@/components/admin/admin-notification-bel
 import { CommandPalette } from "@/components/admin/command-palette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 const adminNavItems = [
   { to: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true, superAdminOnly: false },
@@ -219,10 +225,188 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
       : "text-white/70 hover:bg-white/10 hover:text-white"
   }`;
 
+// Nav badge counts, polled in AdminLayout and passed down so the sidebar body
+// renders identically on desktop and in the mobile drawer.
+interface AdminNavCounts {
+  review: number;
+  escalated: number;
+  openTickets: number;
+  failingJobs: number;
+  opsCritical: number;
+  marketplaceOps: number;
+  complianceOpen: number;
+}
+
+function navBadge(count: number) {
+  if (count <= 0) return null;
+  return (
+    <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+      {count}
+    </span>
+  );
+}
+
+// The scrollable nav + the "Back to Dashboard" footer. Shared by the desktop
+// `<aside>` and the mobile slide-in drawer. `onNavigate` is supplied only by the
+// mobile drawer (to close the sheet after a tap); on desktop it's undefined.
+function AdminSidebarBody({
+  isSuperAdmin,
+  counts,
+  onNavigate,
+}: {
+  isSuperAdmin: boolean;
+  counts: AdminNavCounts;
+  onNavigate?: () => void;
+}) {
+  const navigate = useNavigate();
+  const visibleNavItems = adminNavItems.filter(
+    (item) => !item.superAdminOnly || isSuperAdmin
+  );
+
+  return (
+    <>
+      <nav className="mt-2 flex-1 space-y-1 overflow-y-auto px-3">
+        {visibleNavItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={navLinkClass}
+            onClick={onNavigate}
+          >
+            <item.icon className="h-5 w-5" />
+            <span className="flex-1">{item.label}</span>
+            {item.to === "/admin/reviews" && navBadge(counts.review)}
+            {item.to === "/admin/support" && navBadge(counts.escalated)}
+            {item.to === "/admin/support-tickets" && navBadge(counts.openTickets)}
+          </NavLink>
+        ))}
+
+        {/* Revenue Ops (US-891). */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Revenue
+        </div>
+        {revenueNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            {item.label}
+          </NavLink>
+        ))}
+
+        {/* Analytics (US-907). */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Analytics
+        </div>
+        {analyticsNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            {item.label}
+          </NavLink>
+        ))}
+
+        {/* Trust & Safety (US-888). */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Trust &amp; Safety
+        </div>
+        {safetyNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            {item.label}
+          </NavLink>
+        ))}
+
+        {/* Growth / Promote suite. */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Growth
+        </div>
+        {growthNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            {item.label}
+          </NavLink>
+        ))}
+
+        {/* Operations console (US-881). */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Operations
+        </div>
+        {opsNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            <span className="flex-1">{item.label}</span>
+            {item.to === "/admin/ops/jobs" && navBadge(counts.failingJobs)}
+            {item.to === "/admin/ops/activity" && navBadge(counts.opsCritical)}
+          </NavLink>
+        ))}
+
+        {/* Marketplace ops (US-897). */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Marketplace
+        </div>
+        {marketplaceNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            <span className="flex-1">{item.label}</span>
+            {item.to === "/admin/marketplace-ops" && navBadge(counts.marketplaceOps)}
+          </NavLink>
+        ))}
+
+        {/* Compliance (US-903). */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Compliance
+        </div>
+        {complianceNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            <span className="flex-1">{item.label}</span>
+            {item.to === "/admin/compliance" && navBadge(counts.complianceOpen)}
+          </NavLink>
+        ))}
+
+        {/* Content module — visually grouped under its own heading. */}
+        <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+          Content
+        </div>
+        {contentNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass} onClick={onNavigate}>
+            <item.icon className="h-5 w-5" />
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+
+      {/* Back to dashboard link at bottom */}
+      <div className="border-t border-white/10 px-3 py-3">
+        <button
+          onClick={() => {
+            onNavigate?.();
+            navigate("/dashboard");
+          }}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          Back to Dashboard
+        </button>
+      </div>
+    </>
+  );
+}
+
+// The ADMIN wordmark header, shared by the desktop aside and the mobile drawer.
+function AdminSidebarHeader() {
+  return (
+    <div className="flex h-16 items-center gap-2 px-6">
+      <img src="/logo_icon.png" alt="GradeThread" className="h-7" />
+      <span className="text-sm font-bold tracking-wide text-white/90">ADMIN</span>
+    </div>
+  );
+}
+
 export function AdminLayout() {
   const { user, profile } = useAuth();
-  const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Mobile-only nav drawer (the desktop `<aside>` is hidden below `md`).
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // US-901: Cmd/Ctrl-K opens the global admin command palette. allowInInput so
   // it still fires while focus is in a field (the standard palette behaviour).
@@ -236,9 +420,6 @@ export function AdminLayout() {
   ]);
 
   const isSuperAdmin = profile?.role === "super_admin";
-  const visibleNavItems = adminNavItems.filter(
-    (item) => !item.superAdminOnly || isSuperAdmin
-  );
 
   // US-775: pending human-review count for the nav badge (light poll, 60s stale).
   const { data: reviewCount } = useQuery({
@@ -327,6 +508,16 @@ export function AdminLayout() {
     refetchInterval: 60 * 1000,
   });
 
+  const counts: AdminNavCounts = {
+    review: reviewCount ?? 0,
+    escalated: escalatedCount ?? 0,
+    openTickets: openTicketCount ?? 0,
+    failingJobs: failingJobsCount ?? 0,
+    opsCritical: opsCriticalCount ?? 0,
+    marketplaceOps: marketplaceOpsCount ?? 0,
+    complianceOpen: complianceOpenCount ?? 0,
+  };
+
   const initials = profile?.full_name
     ? profile.full_name
         .split(" ")
@@ -343,208 +534,42 @@ export function AdminLayout() {
       >
         Skip to content
       </a>
-      {/* Admin sidebar — darker treatment with brand-night bg */}
+      {/* Admin sidebar — darker treatment with brand-night bg. Desktop only;
+          below `md` it's replaced by the hamburger-triggered drawer below. */}
       <aside className="hidden w-64 flex-shrink-0 flex-col bg-brand-night text-white md:flex">
-        <div className="flex h-16 items-center justify-between px-6">
-          <div className="flex items-center gap-2">
-            <img src="/logo_icon.png" alt="GradeThread" className="h-7" />
-            <span className="text-sm font-bold tracking-wide text-white/90">ADMIN</span>
-          </div>
-        </div>
-
-        <nav className="mt-2 flex-1 space-y-1 overflow-y-auto px-3">
-          {visibleNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              <span className="flex-1">{item.label}</span>
-              {item.to === "/admin/reviews" && (reviewCount ?? 0) > 0 && (
-                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
-                  {reviewCount}
-                </span>
-              )}
-              {item.to === "/admin/support" && (escalatedCount ?? 0) > 0 && (
-                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
-                  {escalatedCount}
-                </span>
-              )}
-              {item.to === "/admin/support-tickets" && (openTicketCount ?? 0) > 0 && (
-                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
-                  {openTicketCount}
-                </span>
-              )}
-            </NavLink>
-          ))}
-
-          {/* Revenue Ops (US-891). */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Revenue
-          </div>
-          {revenueNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </NavLink>
-          ))}
-
-          {/* Analytics (US-907). */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Analytics
-          </div>
-          {analyticsNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </NavLink>
-          ))}
-
-          {/* Trust & Safety (US-888). */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Trust &amp; Safety
-          </div>
-          {safetyNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </NavLink>
-          ))}
-
-          {/* Growth / Promote suite. */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Growth
-          </div>
-          {growthNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </NavLink>
-          ))}
-
-          {/* Operations console (US-881). */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Operations
-          </div>
-          {opsNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              <span className="flex-1">{item.label}</span>
-              {item.to === "/admin/ops/jobs" && (failingJobsCount ?? 0) > 0 && (
-                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
-                  {failingJobsCount}
-                </span>
-              )}
-              {item.to === "/admin/ops/activity" && (opsCriticalCount ?? 0) > 0 && (
-                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
-                  {opsCriticalCount}
-                </span>
-              )}
-            </NavLink>
-          ))}
-
-          {/* Marketplace ops (US-897). */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Marketplace
-          </div>
-          {marketplaceNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              <span className="flex-1">{item.label}</span>
-              {item.to === "/admin/marketplace-ops" && (marketplaceOpsCount ?? 0) > 0 && (
-                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
-                  {marketplaceOpsCount}
-                </span>
-              )}
-            </NavLink>
-          ))}
-
-          {/* Compliance (US-903). */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Compliance
-          </div>
-          {complianceNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              <span className="flex-1">{item.label}</span>
-              {item.to === "/admin/compliance" && (complianceOpenCount ?? 0) > 0 && (
-                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
-                  {complianceOpenCount}
-                </span>
-              )}
-            </NavLink>
-          ))}
-
-          {/* Content module — visually grouped under its own heading. */}
-          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
-            Content
-          </div>
-          {contentNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={navLinkClass}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        {/* Back to dashboard link at bottom */}
-        <div className="border-t border-white/10 px-3 py-3">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <ArrowLeft className="h-5 w-5" />
-            Back to Dashboard
-          </button>
-        </div>
+        <AdminSidebarHeader />
+        <AdminSidebarBody isSuperAdmin={isSuperAdmin} counts={counts} />
       </aside>
+
+      {/* Mobile nav drawer — the same sidebar body in a left-side sheet. */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent
+          side="left"
+          className="flex w-72 flex-col gap-0 border-white/10 bg-brand-night p-0 text-white"
+        >
+          <SheetTitle className="sr-only">Admin navigation</SheetTitle>
+          <AdminSidebarHeader />
+          <AdminSidebarBody
+            isSuperAdmin={isSuperAdmin}
+            counts={counts}
+            onNavigate={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Admin header */}
-        <header className="flex h-16 items-center justify-between border-b bg-card px-6">
+        <header className="flex h-16 items-center justify-between border-b bg-card px-4 sm:px-6">
           <div className="flex items-center gap-2">
+            {/* Mobile-only nav toggle (the desktop sidebar is always visible). */}
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="-ml-1 rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent/50 md:hidden"
+              aria-label="Open admin navigation"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
             <span className="rounded bg-brand-red/10 px-2 py-1 text-xs font-semibold text-brand-red-text">
               Admin Panel
             </span>
@@ -565,7 +590,7 @@ export function AdminLayout() {
             </button>
             {/* US-909 admin notification center. */}
             <AdminNotificationBell />
-            <span className="text-sm text-muted-foreground">
+            <span className="hidden text-sm text-muted-foreground sm:inline">
               {profile?.full_name ?? user?.email}
             </span>
             <Avatar className="h-8 w-8">
@@ -580,7 +605,7 @@ export function AdminLayout() {
         <main
           id="main-content"
           tabIndex={-1}
-          className="flex-1 overflow-y-auto bg-background p-6 outline-none"
+          className="flex-1 overflow-y-auto bg-background p-4 outline-none sm:p-6"
         >
           {/* US-270: require MFA (AAL2) before any admin content renders. */}
           <AdminMfaGate>
