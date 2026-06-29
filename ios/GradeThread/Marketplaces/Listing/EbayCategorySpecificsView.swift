@@ -11,8 +11,10 @@ struct EbayCategorySpecificsView: View {
     @State private var aiFillEmptyNote = false
     @Environment(\.dismiss) private var dismiss
 
-    init(itemId: String) {
-        _model = State(initialValue: SpecificsEditorModel(itemId: itemId))
+    init(itemId: String, liveListingId: String? = nil) {
+        _model = State(
+            initialValue: SpecificsEditorModel(itemId: itemId, liveListingId: liveListingId)
+        )
     }
 
     var body: some View {

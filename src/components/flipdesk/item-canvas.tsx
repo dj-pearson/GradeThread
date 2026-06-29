@@ -1327,7 +1327,10 @@ export function ItemCanvas({
             <p className="text-xs font-medium text-muted-foreground">
               Reorder &amp; retag
             </p>
-            <PhotoManager itemId={item.id} />
+            <PhotoManager
+              itemId={item.id}
+              liveListingId={isGtLive && liveListing ? liveListing.id : null}
+            />
           </div>
         </div>
 

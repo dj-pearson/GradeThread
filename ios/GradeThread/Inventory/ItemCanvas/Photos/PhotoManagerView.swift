@@ -25,6 +25,13 @@ struct PhotoManagerView: View {
     @State private var isSyncing = false
     @State private var syncSucceeded = false
     @State private var errorMessage: String?
+    // US-1296+: a photo edit (rotate/reorder/retag/delete) was made this session.
+    // Each edit persists locally immediately; we push the result to the live eBay
+    // listing ONCE, when the sheet closes — coalescing a burst of edits into a
+    // single revise instead of a full photo re-PUT per micro-edit (eBay rate
+    // limits). The manual "Sync photo order to eBay" button clears this so closing
+    // afterward doesn't double-push.
+    @State private var photosChanged = false
     // US-1160: confirm before a swipe permanently deletes a photo + its bytes.
     @State private var pendingPhotoDelete: LocalItemPhoto?
 
@@ -41,6 +48,10 @@ struct PhotoManagerView: View {
         .onAppear {
             if working.isEmpty { working = photos }
         }
+        // Coalesced auto-resync on close: push the net result of this session's
+        // photo edits to the live eBay listing once, however the sheet is
+        // dismissed (Done or swipe).
+        .onDisappear { syncOnCloseIfNeeded() }
         // US-1186: if a background sync (or the canvas's own "Add photos")
         // changes the photo set while this sheet is open, re-seed the working
         // copy so the user isn't editing/reordering a stale snapshot — but only
@@ -66,7 +77,10 @@ struct PhotoManagerView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { EditButton() }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { dismiss() }.disabled(isSaving)
+                Button("Done") {
+                    syncOnCloseIfNeeded()
+                    dismiss()
+                }.disabled(isSaving)
             }
         }
         .overlay {
@@ -244,10 +258,12 @@ struct PhotoManagerView: View {
     private func confirmPhotoDelete(_ photo: LocalItemPhoto) {
         guard let index = working.firstIndex(where: { $0.id == photo.id }) else { return }
         working.remove(at: index)
+        photosChanged = true
         Task { await runDelete(photo) }
     }
 
     private func persistOrder() {
+        photosChanged = true
         let snapshot = working
         Task {
             isSaving = true
@@ -264,6 +280,7 @@ struct PhotoManagerView: View {
 
     private func retag(_ photo: LocalItemPhoto, to serverType: String) {
         AppRouter.haptic()
+        photosChanged = true
         Task {
             isSaving = true
             defer { isSaving = false }
@@ -300,6 +317,8 @@ struct PhotoManagerView: View {
             case .revised:
                 HapticFeedback.success()
                 syncSucceeded = true
+                // Manual push already reconciled eBay — don't push again on close.
+                photosChanged = false
             case .noOfferId:
                 errorMessage = "This listing has no eBay offer yet. Publish it first, then sync."
             case .failed(let message):
@@ -314,6 +333,7 @@ struct PhotoManagerView: View {
     /// eBay" then pushes the rotated image to the listing.
     private func rotate(_ photo: LocalItemPhoto, clockwise: Bool) {
         AppRouter.haptic()
+        photosChanged = true
         Task {
             isSaving = true
             defer { isSaving = false }
@@ -324,6 +344,20 @@ struct PhotoManagerView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    /// Coalesced auto-resync fired when the sheet closes (Done or swipe). Each
+    /// edit already wrote through to the server, so this just re-pushes the net
+    /// photo set to the live eBay listing once. Fire-and-forget: the view is gone,
+    /// so a failure surfaces on the listing (publish_error) + next sync pull
+    /// rather than inline. No-op when nothing changed or there's no live listing.
+    private func syncOnCloseIfNeeded() {
+        guard photosChanged, let listing = liveListing else { return }
+        photosChanged = false
+        let listingId = listing.id
+        Task {
+            _ = await EbayPublishService().revise(listingId: listingId, syncPhotos: true)
         }
     }
 

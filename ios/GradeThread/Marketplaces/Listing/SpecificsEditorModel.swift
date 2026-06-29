@@ -17,6 +17,10 @@ final class SpecificsEditorModel {
     }
 
     let itemId: String
+    /// When the item has a live (revisable) eBay listing, saving the specifics
+    /// also pushes them to that listing via the revise endpoint. nil for items
+    /// without a live GradeThread-published listing.
+    private let liveListingId: String?
     private let service: AspectsProviding
 
     var phase: Phase = .idle
@@ -54,8 +58,13 @@ final class SpecificsEditorModel {
     }
     var pendingCategoryChange: PendingCategoryChange?
 
-    init(itemId: String, service: AspectsProviding = EbayAspectsService()) {
+    init(
+        itemId: String,
+        liveListingId: String? = nil,
+        service: AspectsProviding = EbayAspectsService()
+    ) {
         self.itemId = itemId
+        self.liveListingId = liveListingId
         self.service = service
     }
 
@@ -261,11 +270,64 @@ final class SpecificsEditorModel {
                 ))
                 .eq("id", value: itemId)
                 .execute()
-            return true
         } catch {
             errorMessage = message(error)
             return false
         }
+        // Push the edit to the live eBay listing. Without this, an aspect edit
+        // (e.g. Inseam) only reached inventory_items.ebay_aspects, which a
+        // previously-written item_specifics_override on the listing shadowed — so
+        // the change never reached eBay. A push failure keeps the sheet open with
+        // an explanatory message; the local save already persisted.
+        if let listingId = liveListingId {
+            switch await resyncSpecifics(listingId: listingId, filled: filled) {
+            case .revised:
+                return true
+            case .noOfferId:
+                errorMessage =
+                    "Saved on your device, but this listing has no eBay offer to update."
+                return false
+            case .failed(let msg):
+                errorMessage =
+                    "Saved on your device, but the eBay update failed: \(msg)"
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Mirror the edited specifics onto the listing's canonical
+    /// `item_specifics_override` (the map the revise endpoint reads FIRST), then
+    /// revise. We MERGE onto the existing override so listing-only aspects we
+    /// don't surface in this editor — notably the "Condition Grade" item specific
+    /// — are preserved rather than dropped on the push.
+    private func resyncSpecifics(
+        listingId: String, filled: [String: [String]]
+    ) async -> ReviseOutcome {
+        struct Row: Decodable { let item_specifics_override: [String: [String]]? }
+        let rows: [Row]? = try? await SupabaseShared.client
+            .from("listings")
+            .select("item_specifics_override")
+            .eq("id", value: listingId)
+            .limit(1)
+            .execute()
+            .value
+        var merged = rows?.first?.item_specifics_override ?? [:]
+        for (key, value) in filled { merged[key] = value }
+
+        struct Patch: Encodable { let item_specifics_override: [String: [String]] }
+        do {
+            try await SupabaseShared.client
+                .from("listings")
+                .update(Patch(item_specifics_override: merged))
+                .eq("id", value: listingId)
+                .execute()
+        } catch {
+            // Couldn't refresh the canonical override — revise would push stale
+            // aspects, so surface the failure instead of a misleading success.
+            return .failed(message: message(error))
+        }
+        return await EbayPublishService().revise(listingId: listingId, syncPhotos: true)
     }
 
     // MARK: - Field editing (from the view)

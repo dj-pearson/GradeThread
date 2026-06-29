@@ -393,7 +393,7 @@ struct ItemCanvasView: View {
             }
         }
         .sheet(isPresented: $showingPhotoManager) {
-            PhotoManagerView(item: item, photos: allPhotos, liveListing: activeEbayListing)
+            PhotoManagerView(item: item, photos: allPhotos, liveListing: gtLiveListing)
         }
         // US-686: reversible review of the post-intake AI auto-fill.
         .sheet(isPresented: $showingAIReview) {
@@ -750,7 +750,7 @@ struct ItemCanvasView: View {
     private var specificsSection: some View {
         Section {
             NavigationLink {
-                EbayCategorySpecificsView(itemId: item.id)
+                EbayCategorySpecificsView(itemId: item.id, liveListingId: gtLiveListing?.id)
             } label: {
                 Label("Category & item specifics", systemImage: "list.bullet.rectangle")
             }
@@ -1734,8 +1734,14 @@ struct ItemCanvasView: View {
             let o = state.original
             let d = state.draft
             let titleChanged = d.title != o.title
+            // Any column that feeds an eBay item specific (rebuilt on the revise
+            // re-PUT via forceColumnAspects) must trigger the round-trip — not
+            // just brand/size. Color/material/style edits otherwise saved locally
+            // only and left the live listing's specifics stale.
             let structuralChanged =
                 d.brand != o.brand || d.size != o.size
+                    || d.color != o.color || d.material != o.material
+                    || d.style != o.style
                     || d.category != o.category
                     || d.conditionNotes != o.conditionNotes
             let newPrice = Double(

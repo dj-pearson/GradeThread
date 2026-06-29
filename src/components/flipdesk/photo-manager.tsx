@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -29,6 +29,7 @@ import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { useRemoveBackground, useRemoveBgCapability } from "@/hooks/use-remove-bg";
 import { itemPhotoThumb } from "@/lib/images";
+import { useEbayReviseListing } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -38,11 +39,39 @@ import type {
 
 interface PhotoManagerProps {
   itemId: string;
+  /** The item's live, revisable GradeThread eBay listing id, when one exists.
+   *  When set, a photo edit (reorder/retag/rotate/delete) made here is pushed to
+   *  the live listing once — coalesced — when this editor closes. eBay blocks
+   *  editing inventory-based listing photos on its own site, so this is the
+   *  supported path. null/undefined → photo edits stay local only. */
+  liveListingId?: string | null;
 }
 
-export function PhotoManager({ itemId }: PhotoManagerProps) {
+export function PhotoManager({ itemId, liveListingId }: PhotoManagerProps) {
   const qc = useQueryClient();
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
+  // US-1296+: coalesced auto-resync. Each photo edit persists immediately; we
+  // push the net result to the live eBay listing ONCE on unmount (the editor
+  // closing) instead of a full photo re-PUT per micro-edit. Refs so the cleanup
+  // reads the latest values without re-subscribing.
+  const revise = useEbayReviseListing();
+  const photosDirtyRef = useRef(false);
+  const liveListingIdRef = useRef(liveListingId);
+  liveListingIdRef.current = liveListingId;
+  const reviseRef = useRef(revise);
+  reviseRef.current = revise;
+  useEffect(() => {
+    return () => {
+      const lid = liveListingIdRef.current;
+      if (photosDirtyRef.current && lid) {
+        photosDirtyRef.current = false;
+        // Fire-and-forget: the component is unmounting, so a failure is recorded
+        // on the listing (publish_error) and surfaces on the next eBay-sync read
+        // rather than inline.
+        reviseRef.current.mutate({ listingId: lid, patch: { photos: true } });
+      }
+    };
+  }, []);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
   const [removingBgId, setRemovingBgId] = useState<string | null>(null);
   const removeBg = useRemoveBackground();
@@ -104,6 +133,7 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
   );
 
   async function persistOrder(next: ItemPhotoRow[]) {
+    photosDirtyRef.current = true;
     try {
       await Promise.all(
         next.map((p, i) =>
@@ -132,6 +162,7 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
   }
 
   async function retag(photo: ItemPhotoRow, photoType: FlipdeskPhotoType) {
+    photosDirtyRef.current = true;
     try {
       const { error } = await supabase
         .from("item_photos")
@@ -145,6 +176,7 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
   }
 
   async function remove(photo: ItemPhotoRow) {
+    photosDirtyRef.current = true;
     try {
       if (photo.storage_path) {
         await supabase.storage
@@ -227,6 +259,7 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
             .from("item-photos")
             .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
           if (upErr) throw upErr;
+          photosDirtyRef.current = true;
           const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
           await supabase
             .from("item_photos")
