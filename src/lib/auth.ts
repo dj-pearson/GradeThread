@@ -61,6 +61,24 @@ export async function signInWithGoogle() {
   return data;
 }
 
+// Web Sign in with Apple. Same GoTrue redirect routing as Google
+// (→ api.gradethread.com/auth/v1/authorize → Apple → /auth/v1/callback →
+// {origin}/auth/callback). NOTE: unlike iOS — which uses the NATIVE
+// signInWithIdToken flow keyed to the bundle id com.gradethread.app — this web
+// redirect flow requires Apple to be configured with a **Services ID** as the
+// OAuth client_id (the App/bundle id is rejected for web), and a client-secret
+// JWT whose `sub` is that Services ID. See ENVIRONMENT.md → OAuth providers.
+export async function signInWithApple() {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "apple",
+    options: {
+      redirectTo: `${window.location.origin}/auth/callback`,
+    },
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;

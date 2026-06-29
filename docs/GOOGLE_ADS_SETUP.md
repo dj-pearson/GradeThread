@@ -118,26 +118,85 @@ Format: `"phrase match"` and `[exact match]`.
 Create as a **shared negative keyword list** (Tools → Shared Library) and apply
 to Campaign A.
 
+One per line (Google pastes one keyword per line). These are **broad
+negatives** by default — for single words that blocks any query containing the
+word.
+
 ```
-free            buy             cheap           near me
-donate          donation        thrift store    secondhand store
-jobs            job             salary          hiring          career
-wholesale supplier   manufacturer   factory      bulk supplier
-custom          customised      customized      custom t shirt
-printing        print on demand  embroidery     screen printing
-sewing          pattern         how to make     diy
-wash            fold            stains removal   repair
-brand           shop            store           outlet
-womens          mens            kids            shoes only
-amazon          shein           temu            walmart
-meaning         definition      reddit
-sell my clothes  sell clothes for cash   get paid for clothes
-clothing line   start a clothing brand   clothing manufacturer
-ai generated clothing   ai fashion design   outfit generator
+free
+buy
+cheap
+near me
+donate
+donation
+thrift store
+secondhand store
+jobs
+job
+salary
+hiring
+career
+wholesale supplier
+manufacturer
+factory
+bulk supplier
+custom
+customised
+customized
+custom t shirt
+printing
+print on demand
+embroidery
+screen printing
+sewing
+pattern
+how to make
+diy
+wash
+fold
+stain removal
+repair
+shop
+store
+outlet
+womens
+mens
+kids
+amazon
+shein
+temu
+walmart
+meaning
+definition
+reddit
+sell my clothes
+sell clothes for cash
+get paid for clothes
+clothing line
+start a clothing brand
+clothing manufacturer
+ai generated clothing
+ai fashion design
+outfit generator
 ```
 
-Add negatives at the right **match type** where needed (e.g. exact-negative
-`[free clothes]`). Re-mine the Search Terms report weekly and keep appending.
+Optional **exact-match negatives** to hard-block the worst of Google's suggested
+terms (paste these too — brackets = exact):
+
+```
+[free clothes]
+[sell clothes]
+[sell used clothes]
+[poshmark selling]
+[customised clothing]
+[nwt clothing]
+[trust clothing]
+[all clothing]
+[clothing catalog]
+[clothing lots]
+```
+
+Re-mine the Search Terms report weekly and keep appending.
 
 **Also turn OFF, in campaign settings:**
 - Display Network & **Search Partners**.
