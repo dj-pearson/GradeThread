@@ -255,13 +255,27 @@ export function useGenerateBlogPost(id: string) {
         post: BlogPostRow;
         meta: Record<string, unknown>;
         title_suggestions?: TitleSuggestion[];
+        held?: boolean;
+        hold_reason?: string | null;
       }>(`/api/content/blog/${id}/generate`, { method: "POST", json: input ?? {} });
       return data;
     },
-    onSuccess: ({ post }) => {
+    onSuccess: ({ post, held, hold_reason }) => {
       qc.setQueryData(["blog_post", id], post);
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
-      toast.success("Draft generated.");
+      // Generated articles publish on completion; the safety gate can HOLD a
+      // flagged one as a draft for review.
+      if (held) {
+        toast.warning(
+          hold_reason
+            ? `Generated — held for review: ${hold_reason}`
+            : "Generated — held as a draft by the content safety check.",
+        );
+      } else if (post.status === "published") {
+        toast.success("Article generated & published.");
+      } else {
+        toast.success("Draft generated.");
+      }
       track("content.generated", {
         surface: "blog",
         product_focus: post.product_focus,

@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { reviewContentSafety } from "../lib/content-safety.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { applyInterlinks } from "../lib/content-interlink.ts";
 import { generateBlogArticle, loadKnowledge } from "../lib/content-ai-blog.ts";
@@ -279,28 +280,27 @@ contentBlogRoutes.delete("/:id", async (c) => {
 // ──────────────────────────────────────────────────────────
 // Sets status='published', stamps published_at, appends to the
 // history index. Hero generation + webhook dispatch land in Phase B/E.
-contentBlogRoutes.post("/:id/publish", async (c) => {
-  const id = c.req.param("id");
-  const { data: post, error: loadErr } = await supabaseAdmin
-    .from("blog_posts")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
-  if (!post) return c.json({ error: "Not found" }, 404);
-  if (!post.title || !post.body_html) {
-    return c.json({ error: "title and body required to publish" }, 400);
-  }
-
-  // Sanitize body_html server-side before exposing publicly. The Tiptap
-  // editor already outputs structured HTML; this strips any unsafe
-  // tags/attrs that slipped through (script, on*, javascript:, etc.).
-  const cleanHtml = sanitizeHtml(post.body_html);
+// Shared blog publish — the single transition that takes a draft live: sanitize
+// the body, ensure a hero image (so the OG/webhook carry it), stamp
+// status=published + published_at, mark the originating topic used, append to
+// the history index, interlink the topic cluster, purge the CDN, ping IndexNow,
+// and fire the Make webhook. Used by the manual /publish endpoint AND the
+// auto-publish-on-generate path so the two can't drift. `extra` carries optional
+// columns (e.g. safety_status/safety_checked_at from the safety gate).
+async function publishBlogPost(
+  c: Context<Env>,
+  post: { id: string; status: string; body_html: string | null },
+  extra: Record<string, unknown> = {},
+) {
+  // Sanitize body_html server-side before exposing publicly. The Tiptap editor
+  // already outputs structured HTML; this strips any unsafe tags/attrs that
+  // slipped through (script, on*, javascript:, etc.).
+  const cleanHtml = sanitizeHtml(post.body_html ?? "");
 
   // US-853: ensure a hero image exists before we publish so the OG/webhook
   // payload below carries hero_image_url. Best-effort + idempotent — a failure
   // logs and never blocks publish; an existing hero is left untouched.
-  const hero = await ensureHeroImage({ postId: id, surface: "blog" });
+  const hero = await ensureHeroImage({ postId: post.id, surface: "blog" });
   if (hero.status === "failed") {
     console.warn("[content-blog] hero generation failed (publishing anyway):", hero.reason);
   }
@@ -308,16 +308,16 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
   const now = new Date().toISOString();
   const { data: updated, error: upErr } = await supabaseAdmin
     .from("blog_posts")
-    .update({ status: "published", published_at: now, body_html: cleanHtml })
-    .eq("id", id)
+    .update({ status: "published", published_at: now, body_html: cleanHtml, ...extra })
+    .eq("id", post.id)
     .select("*")
     .single();
-  if (upErr) return c.json({ error: upErr.message }, 500);
+  if (upErr) throw new Error(upErr.message);
 
   await writeAuditLog(c, {
     action: "content.blog_publish",
     targetType: "blog_post",
-    targetId: id,
+    targetId: post.id,
     before: { status: post.status },
     after: { status: "published", published_at: now, slug: updated.slug },
   });
@@ -385,7 +385,28 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
     });
   })().catch((e) => console.error("[content-blog] webhook dispatch failed:", e));
 
-  return c.json({ post: updated });
+  return updated;
+}
+
+contentBlogRoutes.post("/:id/publish", async (c) => {
+  const id = c.req.param("id");
+  const { data: post, error: loadErr } = await supabaseAdmin
+    .from("blog_posts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!post) return c.json({ error: "Not found" }, 404);
+  if (!post.title || !post.body_html) {
+    return c.json({ error: "title and body required to publish" }, 400);
+  }
+
+  try {
+    const updated = await publishBlogPost(c, post);
+    return c.json({ post: updated });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
 });
 
 // Reads public_site_url from content_settings. Shared with the social
@@ -571,21 +592,56 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
       await replaceTags(id, article.tags);
     }
 
-    // US-853: kick off hero generation from the freshly-stored hero_prompt.
-    // Fire-and-forget so the editor gets the draft immediately; the hero fills
-    // in shortly after. Idempotent + best-effort (never throws).
-    ensureHeroImage({ postId: id, surface: "blog" })
-      .then((r) => {
-        if (r.status === "failed") {
-          console.warn("[content-blog] generate hero failed:", r.reason);
-        }
-      })
-      .catch((e) => console.error("[content-blog] generate hero error:", e));
+    // Publish on completion (product decision 2026-06): a generated article goes
+    // live immediately rather than sitting in draft. The AI content safety gate
+    // still runs first — a flagged article is HELD as a draft (safety_status
+    // 'held') for manual review instead of publishing. (The manual /publish path
+    // has a human in the loop, so it skips this gate.)
+    const safety = await reviewContentSafety({
+      surface: "blog",
+      title: updated.title,
+      body: updated.body_html ?? cleanHtml,
+      productFocus: updated.product_focus,
+    });
+    const checkedAt = new Date().toISOString();
+
+    if (safety.verdict !== "pass") {
+      await supabaseAdmin
+        .from("blog_posts")
+        .update({
+          safety_status: "held",
+          safety_notes: safety.reasons.join("; ").slice(0, 2000) || null,
+          safety_checked_at: checkedAt,
+        })
+        .eq("id", id);
+      // Still warm the hero so the held draft is publish-ready once cleared.
+      ensureHeroImage({ postId: id, surface: "blog" })
+        .then((r) => {
+          if (r.status === "failed") {
+            console.warn("[content-blog] generate hero failed:", r.reason);
+          }
+        })
+        .catch((e) => console.error("[content-blog] generate hero error:", e));
+      return c.json({
+        post: { ...updated, status: "draft", safety_status: "held" },
+        meta,
+        title_suggestions: article.titleSuggestions,
+        held: true,
+        hold_reason: safety.reasons.join("; ") || null,
+      });
+    }
+
+    // Safety passed — publish (publishBlogPost ensures the hero before going
+    // live so the OG/webhook carry it, then runs the full publish side-effects).
+    const published = await publishBlogPost(c, updated, {
+      safety_status: "passed",
+      safety_checked_at: checkedAt,
+    });
 
     // US-254: surface the A/B title candidates so the editor can offer them
     // as radio options. The chosen one is saved back via PATCH /:id (title).
     return c.json({
-      post: updated,
+      post: published,
       meta,
       title_suggestions: article.titleSuggestions,
     });

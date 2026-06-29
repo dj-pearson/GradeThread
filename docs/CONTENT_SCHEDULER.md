@@ -37,9 +37,11 @@ tick, in order:
 7. **Safety gate** (`reviewContentSafety`) — the autonomous path is the only one
    with no human review, so it must pass. On fail the post is **held** as a draft
    (`safety_status='held'`) with notes for a human; the topic stays `assigned`.
-8. **Weekly ceiling** — if AI posts published in the last 7 days ≥
-   `max_auto_publishes_per_week`, the tick still generates but demotes to draft
-   instead of publishing (hard cap independent of daily cadence).
+8. **Weekly ceiling** (SOCIAL only) — if AI posts published in the last 7 days ≥
+   `max_auto_publishes_per_week`, a social tick still generates but demotes to
+   draft instead of publishing (hard cap independent of daily cadence). **Blog is
+   uncapped** (product decision 2026-06): every generated blog article publishes
+   on completion; the safety gate (step 7) is the backstop that holds risky posts.
 9. **Publish** (only if the surface's `auto_publish_*` flag is on) → stamp
    `published_at` → mark topic `used` → append to history index → dispatch
    Make.com webhook → purge Cloudflare cache (blog) → write a system audit row.

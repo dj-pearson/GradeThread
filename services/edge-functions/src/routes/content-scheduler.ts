@@ -1051,7 +1051,12 @@ contentSchedulerRoutes.post("/tick", async (c) => {
   // if the per-day cadence is misconfigured. At the ceiling we still generate
   // the draft (content keeps flowing) but demote to draft instead of
   // publishing.
-  if (autoPublish) {
+  //
+  // Per product decision (2026-06): BLOG articles publish on completion with NO
+  // weekly cap — the content safety gate is the backstop that holds risky posts
+  // as drafts. The ceiling still guards SOCIAL auto-posts (higher volume, more
+  // spam-prone), so the helper stays in use.
+  if (autoPublish && surface === "social") {
     const weeklyCount = await aiPublishedLast7Days();
     if (weeklyCount >= settings.max_auto_publishes_per_week) {
       console.warn(
