@@ -1292,6 +1292,38 @@ void getSetting<number>("grading_review_confidence_threshold", 0.75);
 // is enforced from the first request (background, non-fatal).
 void refreshOverrideCache();
 
+// Stability guard: a long-running edge server must NEVER die from a DETACHED
+// background rejection. Deno treats an unhandled promise rejection (or uncaught
+// error) as FATAL, so one stray reject from a fire-and-forget task crash-loops
+// the whole container — which is exactly what happened in prod: denomailer's
+// SMTPClient runs an internal connection read-loop that rejects independently
+// of the awaited send()/close() when SES drops the socket mid-protocol, and
+// every completed grade fires a best-effort lifecycle email. preventDefault()
+// keeps the process alive; we log + report so the failure is still visible.
+// In-request errors are unaffected (Hono's onError still handles those).
+globalThis.addEventListener("unhandledrejection", (event) => {
+  event.preventDefault();
+  const reason = event.reason;
+  logEvent("error", "edge.unhandled_rejection", {
+    message: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+  try {
+    captureException(reason, { route: "process.unhandledrejection" });
+  } catch { /* the guard must never throw */ }
+});
+globalThis.addEventListener("error", (event) => {
+  event.preventDefault();
+  const err = event.error ?? event.message;
+  logEvent("error", "edge.uncaught_error", {
+    message: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
+  try {
+    captureException(err, { route: "process.uncaught_error" });
+  } catch { /* the guard must never throw */ }
+});
+
 const port = parseInt(Deno.env.get("PORT") || "8787");
 logEvent("info", "edge.boot", {
   port,
