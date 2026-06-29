@@ -1035,8 +1035,15 @@ export async function getItemConditionPolicies(
   }
 
   const token = await getAppAccessToken();
+  // getItemConditionPolicies is a Sell *Metadata* API method, keyed by
+  // marketplace id — NOT a Taxonomy/category_tree method. The old
+  // /commerce/taxonomy/v1/category_tree/{treeId}/get_item_condition_policies
+  // path does not exist and 404s, which silently disabled condition validation
+  // and let invalid conditions reach publish (eBay error 25021). The response
+  // shape (itemConditionPolicies[].itemConditions[]) parsed below is the
+  // Metadata API's, confirming this is the intended endpoint.
   const url =
-    `${apiHost()}/commerce/taxonomy/v1/category_tree/${treeId}` +
+    `${apiHost()}/sell/metadata/v1/marketplace/${encodeURIComponent(marketplaceId)}` +
     `/get_item_condition_policies?filter=categoryIds:${encodeURIComponent(
       `{${categoryId}}`,
     )}`;

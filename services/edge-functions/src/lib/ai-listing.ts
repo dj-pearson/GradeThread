@@ -102,6 +102,12 @@ export const LISTING_GEN_PROMPT_VERSION = "listing_gen_v1";
 // flipdesk-ebay.ts so generated drafts publish without a translation step.
 export const EBAY_CONDITION_VALUES = [
   "NEW",
+  // NEW_OTHER ("New without tags", id 1500) + NEW_WITH_DEFECTS ("New with
+  // defects", id 1750) are eBay's apparel-specific new conditions. Without them
+  // the grade-9 NWOT tier mismapped to LIKE_NEW (2750), which most apparel
+  // categories reject → publish error 25021.
+  "NEW_OTHER",
+  "NEW_WITH_DEFECTS",
   "LIKE_NEW",
   "USED_EXCELLENT",
   "USED_VERY_GOOD",
@@ -573,6 +579,8 @@ export async function generateListingFields(
 function conditionIdForComps(condition: EbayCondition): string {
   switch (condition) {
     case "NEW":
+    case "NEW_OTHER":
+    case "NEW_WITH_DEFECTS":
     case "LIKE_NEW":
       return "1000";
     case "FOR_PARTS_OR_NOT_WORKING":

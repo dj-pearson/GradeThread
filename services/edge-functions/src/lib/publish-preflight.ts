@@ -75,6 +75,8 @@ export function imageCapBlocker(
 // the set, so we validate against the category's allow-list before publishing.
 export const CONDITION_ENUM_TO_ID: Record<EbayCondition, string> = {
   NEW: "1000",
+  NEW_OTHER: "1500",
+  NEW_WITH_DEFECTS: "1750",
   LIKE_NEW: "2750",
   USED_EXCELLENT: "3000",
   USED_VERY_GOOD: "4000",
@@ -135,6 +137,73 @@ export function validateConditionForCategory(
     `"${labelForConditionId(id)}" isn't accepted in this eBay category. ` +
     `Allowed: ${allowedLabels.join(", ")}. Change the condition in the composer.`
   );
+}
+
+// Conditions we can EMIT to the Inventory API, ordered best→worst by quality
+// (eBay conditionId). Drives the auto-pick fallback below: when a category
+// rejects the chosen condition we only ever fall to an equal-or-WORSE one, so a
+// remap never overstates the item.
+const CONDITION_QUALITY_ORDER: readonly string[] = [
+  "1000", // New with tags
+  "1500", // New without tags
+  "1750", // New with defects
+  "2750", // Like new
+  "3000", // Used / pre-owned — Excellent
+  "4000", // Very good
+  "5000", // Good
+  "6000", // Acceptable
+  "7000", // For parts / not working
+];
+
+// Reverse of CONDITION_ENUM_TO_ID: conditionId → the enum we'd emit for it.
+const CONDITION_ID_TO_ENUM: Record<string, EbayCondition> = Object.fromEntries(
+  (Object.entries(CONDITION_ENUM_TO_ID) as [EbayCondition, string][]).map(
+    ([enumName, id]) => [id, enumName],
+  ),
+) as Record<string, EbayCondition>;
+
+/**
+ * US-1296+: auto-correct a chosen condition to one the leaf category accepts,
+ * never overstating quality. eBay rejects a publish (error 25021) when the
+ * condition id isn't in the category's allow-list — e.g. apparel categories
+ * reject LIKE_NEW (2750). Rather than fail, we pick the nearest ALLOWED
+ * condition of equal-or-worse quality.
+ *
+ * Returns:
+ *   • the same enum when it's already accepted, or the allow-list is empty/
+ *     unknown (don't touch what we can't verify);
+ *   • the nearest allowed enum of EQUAL-OR-WORSE quality when the chosen one is
+ *     rejected (e.g. NEW_OTHER → USED_EXCELLENT for a category without 1500);
+ *   • null when the category accepts ONLY conditions better than the chosen one,
+ *     or only ones we can't represent (e.g. refurbished tiers) — the caller
+ *     should surface a fixable blocker instead of silently overstating.
+ */
+export function remapConditionForCategory(
+  conditionEnum: string,
+  allowedConditionIds: string[],
+): EbayCondition | null {
+  if (!allowedConditionIds || allowedConditionIds.length === 0) {
+    return conditionEnum as EbayCondition;
+  }
+  const desiredId = CONDITION_ENUM_TO_ID[conditionEnum as EbayCondition];
+  // Unknown enum → leave it; the API will validate.
+  if (!desiredId) return conditionEnum as EbayCondition;
+  if (allowedConditionIds.includes(desiredId)) {
+    return conditionEnum as EbayCondition;
+  }
+  const desiredRank = CONDITION_QUALITY_ORDER.indexOf(desiredId);
+  if (desiredRank < 0) return conditionEnum as EbayCondition;
+
+  // Among allowed ids we can emit, pick the closest of equal-or-worse quality
+  // (rank ≥ desiredRank). Never choose a better-quality condition.
+  let best: { rank: number; cond: EbayCondition } | null = null;
+  for (const id of allowedConditionIds) {
+    const rank = CONDITION_QUALITY_ORDER.indexOf(id);
+    const cond = CONDITION_ID_TO_ENUM[id];
+    if (rank < desiredRank || !cond) continue; // better than ours / unrepresentable
+    if (best === null || rank < best.rank) best = { rank, cond };
+  }
+  return best ? best.cond : null;
 }
 
 // ── Image reachability ─────────────────────────────────────────────────

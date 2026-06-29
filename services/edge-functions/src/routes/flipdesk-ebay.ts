@@ -109,6 +109,7 @@ import {
   imageCapBlocker,
   reachabilityBlocker,
   validateConditionForCategory,
+  remapConditionForCategory,
 } from "../lib/publish-preflight.ts";
 import {
   getAllActiveEbaySelling,
@@ -4171,7 +4172,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     // every revise, then persist it so the composer + next publish stay in sync.
     const { data: listingRow } = await supabaseAdmin
       .from("listings")
-      .select("platform_category_id, item_specifics_override")
+      .select(
+        "platform_category_id, item_specifics_override, ebay_condition, ebay_condition_description",
+      )
       .eq("id", listingId)
       .maybeSingle();
     const reviseCategoryId =
@@ -4200,6 +4203,44 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       reviseAspectList,
       baseAspects,
     );
+
+    // Resolve + auto-correct the condition the same way the publish path does:
+    // the seller's stored ebay_condition wins over the grade-derived default,
+    // then it's reconciled against the category's allow-list so a revise re-PUT
+    // never sends a condition eBay rejects (error 25021). Best-effort — a policy
+    // fetch failure leaves the resolved value untouched.
+    const listingCondition = (
+      listingRow as { ebay_condition?: string | null } | null
+    )?.ebay_condition;
+    let reviseCondition =
+      listingCondition && listingCondition.trim()
+        ? listingCondition.trim()
+        : mapEbayCondition(item.grade_value, item.grade_label);
+    if (reviseCategoryId) {
+      try {
+        const { conditionIds } = await getItemConditionPolicies(reviseCategoryId);
+        const remapped = remapConditionForCategory(reviseCondition, conditionIds);
+        if (remapped !== null && remapped !== reviseCondition) {
+          console.log(
+            `[flipdesk-ebay] revise condition "${reviseCondition}" not accepted ` +
+              `by category ${reviseCategoryId}; auto-picked "${remapped}"`,
+          );
+          reviseCondition = remapped;
+        }
+      } catch (err) {
+        console.warn(
+          "[flipdesk-ebay] revise condition-policy (non-blocking):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    const reviseConditionDescription =
+      (
+        (listingRow as { ebay_condition_description?: string | null } | null)
+          ?.ebay_condition_description ??
+        item.condition_notes ??
+        ""
+      ).trim() || undefined;
     // Persist the rebuilt map so the in-app eBay specifics editor and the next
     // publish reflect the current columns (canonical = listing override; mirror
     // onto the item too for legacy/no-listing reads).
@@ -4263,8 +4304,8 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
               : "Unbranded",
           mpn: "Does Not Apply",
         },
-        condition: mapEbayCondition(item.grade_value, item.grade_label),
-        conditionDescription: item.condition_notes?.trim() || undefined,
+        condition: reviseCondition,
+        conditionDescription: reviseConditionDescription,
         availability: { shipToLocationAvailability: { quantity: 1 } },
       });
     } catch (err) {
@@ -6921,22 +6962,34 @@ export async function assemblePublishContext(
   const sku = item.sku && item.sku.trim() ? item.sku.trim() : `FD-${item.id.slice(0, 8)}`;
   // Condition: explicit editor value wins; only fall back to grade-derived
   // mapping when the user/AI hasn't set one.
-  const condition = (listing?.ebay_condition && listing.ebay_condition.trim())
+  let condition = (listing?.ebay_condition && listing.ebay_condition.trim())
     ? listing.ebay_condition.trim()
     : mapEbayCondition(item.grade_value, item.grade_label);
   const conditionDescription =
     (listing?.ebay_condition_description ?? item.condition_notes ?? "").trim();
 
-  // US-566: validate the resolved condition against the leaf category's allowed
-  // conditions (Taxonomy get_item_condition_policies, cached). Best-effort: a
-  // policy-fetch failure or an unrestricted category never blocks publish — we
-  // only block when eBay definitively says this category rejects the condition,
-  // turning a raw 25002/25019 into a fixable "change the condition" blocker.
+  // US-566 / US-1296+: reconcile the resolved condition with the leaf category's
+  // allowed conditions (Sell Metadata get_item_condition_policies, cached). eBay
+  // rejects a publish (error 25021) when the condition id isn't accepted by the
+  // category — e.g. apparel categories reject LIKE_NEW (2750). Auto-pick the
+  // nearest ALLOWED condition of equal-or-worse quality so publish just works
+  // without overstating; only block when no honest option exists (the category
+  // accepts only better/unrepresentable conditions). Best-effort: a policy-fetch
+  // failure or an unrestricted category leaves the condition untouched.
   if (categoryId) {
     try {
       const { conditionIds } = await getItemConditionPolicies(categoryId);
-      const condBlocker = validateConditionForCategory(condition, conditionIds);
-      if (condBlocker) blockers.push(condBlocker);
+      const remapped = remapConditionForCategory(condition, conditionIds);
+      if (remapped === null) {
+        const condBlocker = validateConditionForCategory(condition, conditionIds);
+        if (condBlocker) blockers.push(condBlocker);
+      } else if (remapped !== condition) {
+        console.log(
+          `[flipdesk-ebay] condition "${condition}" not accepted by category ` +
+            `${categoryId}; auto-picked "${remapped}"`,
+        );
+        condition = remapped;
+      }
     } catch (err) {
       console.warn(
         "[flipdesk-ebay] condition-policy validate (non-blocking):",
@@ -7054,16 +7107,26 @@ function mapEbayCondition(
   grade: number | null,
   label: string | null
 ): string {
-  const isNwt = (label ?? "").toUpperCase().includes("NWT");
+  // Tier labels (CLAUDE.md): NWT 10, NWOT 9, Excellent 8, … . eBay's apparel
+  // conditions distinguish New WITH tags (NEW/1000) from New WITHOUT tags
+  // (NEW_OTHER/1500). The grade-9 NWOT tier used to map to LIKE_NEW (2750),
+  // which most apparel categories reject (publish error 25021) — NEW_OTHER is
+  // the correct "new without tags" condition. The publish path further auto-
+  // corrects this against the leaf category's allow-list (remapConditionForCategory).
+  const upper = (label ?? "").toUpperCase();
+  const isNwot = upper.includes("NWOT") || upper.includes("WITHOUT TAGS");
+  const isNwt = !isNwot && (upper.includes("NWT") || upper.includes("WITH TAGS"));
+  if (isNwt) return "NEW";
+  if (isNwot) return "NEW_OTHER";
   if (grade != null) {
-    if (grade >= 9.75 || isNwt) return "NEW";
-    if (grade >= 9.0) return "LIKE_NEW";
+    if (grade >= 9.75) return "NEW";
+    if (grade >= 9.0) return "NEW_OTHER";
     if (grade >= 7.5) return "USED_EXCELLENT";
     if (grade >= 6.0) return "USED_VERY_GOOD";
     if (grade >= 4.5) return "USED_GOOD";
     return "USED_ACCEPTABLE";
   }
-  return isNwt ? "NEW" : "USED_EXCELLENT";
+  return "USED_EXCELLENT";
 }
 
 // Resolves an in-app path against the configured frontend origin. Used for

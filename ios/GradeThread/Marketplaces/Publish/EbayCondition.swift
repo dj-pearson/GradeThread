@@ -5,6 +5,12 @@ import Foundation
 /// in `listings.ebay_condition`). Mirrors the web composer's dropdown.
 enum EbayCondition: String, CaseIterable, Identifiable {
     case new = "NEW"
+    // eBay apparel "new" conditions. "New without tags" is NEW_OTHER (id 1500),
+    // NOT likeNew (2750) — most clothing categories reject 2750, so the old
+    // likeNew="New without tags" labeling sent an invalid condition (eBay error
+    // 25021). likeNew now carries its true "Like new" meaning.
+    case newOther = "NEW_OTHER"
+    case newWithDefects = "NEW_WITH_DEFECTS"
     case likeNew = "LIKE_NEW"
     case usedExcellent = "USED_EXCELLENT"
     case usedVeryGood = "USED_VERY_GOOD"
@@ -16,13 +22,15 @@ enum EbayCondition: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .new:            return "New with tags"
-        case .likeNew:        return "New without tags"
-        case .usedExcellent:  return "Pre-owned – Excellent"
-        case .usedVeryGood:   return "Pre-owned – Very Good"
-        case .usedGood:       return "Pre-owned – Good"
-        case .usedAcceptable: return "Pre-owned – Acceptable"
-        case .forParts:       return "For parts / not working"
+        case .new:             return "New with tags"
+        case .newOther:        return "New without tags"
+        case .newWithDefects:  return "New with defects"
+        case .likeNew:         return "Like new"
+        case .usedExcellent:   return "Pre-owned – Excellent"
+        case .usedVeryGood:    return "Pre-owned – Very Good"
+        case .usedGood:        return "Pre-owned – Good"
+        case .usedAcceptable:  return "Pre-owned – Acceptable"
+        case .forParts:        return "For parts / not working"
         }
     }
 

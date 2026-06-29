@@ -1137,6 +1137,39 @@ export function useSetItemAspect() {
   });
 }
 
+// Sets the eBay condition on the item's most-recent eBay listing so the publish
+// validator/push reads it (it resolves `listing.ebay_condition ?? grade-mapped`,
+// then auto-corrects against the category allow-list server-side). Returns false
+// when the item has no listing row yet (first publish — the composer owns
+// condition there), so the caller can hint the seller to use the composer.
+export function useSetListingCondition() {
+  const qc = useQueryClient();
+  return useMutation<boolean, Error, { itemId: string; condition: string }>({
+    mutationFn: async ({ itemId, condition }) => {
+      const { data: listingRow } = await supabase
+        .from("listings")
+        .select("id")
+        .eq("inventory_item_id", itemId)
+        .eq("platform", "ebay")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!listingRow) return false;
+      const { error } = await supabase
+        .from("listings")
+        .update({ ebay_condition: condition } as never)
+        .eq("id", (listingRow as { id: string }).id);
+      if (error) throw error;
+      return true;
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+      qc.invalidateQueries({ queryKey: ["inventory_item", vars.itemId] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 // ── US-1040/1041: Best Offers, send-offer, buyer messages ───────────
 // Edge returns camelCase keys (see ios NegotiationTypes). All hit the negotiation
 // + messages routes that already exist on the edge; this is the web client for

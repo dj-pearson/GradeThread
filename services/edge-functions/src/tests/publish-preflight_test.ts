@@ -9,6 +9,7 @@ import {
   EBAY_MAX_IMAGES,
   imageCapBlocker,
   reachabilityBlocker,
+  remapConditionForCategory,
   validateConditionForCategory,
 } from "../lib/publish-preflight.ts";
 
@@ -64,6 +65,45 @@ Deno.test("disallowed condition → fixable blocker naming allowed conditions", 
   assertEquals(typeof msg, "string");
   assertEquals(msg!.includes("Acceptable"), true);
   assertEquals(msg!.includes("New"), true);
+});
+
+// ── condition auto-pick (remap) ────────────────────────────────────────
+
+Deno.test("remap keeps an already-allowed condition unchanged", () => {
+  assertEquals(
+    remapConditionForCategory("USED_EXCELLENT", ["1000", "1500", "3000"]),
+    "USED_EXCELLENT",
+  );
+});
+
+Deno.test("remap leaves condition untouched when allow-list is empty/unknown", () => {
+  assertEquals(remapConditionForCategory("LIKE_NEW", []), "LIKE_NEW");
+});
+
+Deno.test("remap downgrades a rejected condition to the nearest worse allowed", () => {
+  // The classic apparel failure: LIKE_NEW (2750) rejected; category allows
+  // New-with-tags (1000), New-without-tags (1500), Used (3000). Never overstate,
+  // so fall to the nearest EQUAL-OR-WORSE → USED_EXCELLENT (3000).
+  assertEquals(
+    remapConditionForCategory("LIKE_NEW", ["1000", "1500", "3000"]),
+    "USED_EXCELLENT",
+  );
+  // NEW_OTHER (1500) rejected, only Used tiers allowed → nearest worse 3000.
+  assertEquals(
+    remapConditionForCategory("NEW_OTHER", ["3000", "4000"]),
+    "USED_EXCELLENT",
+  );
+});
+
+Deno.test("remap never overstates: blocks (null) when only better conditions allowed", () => {
+  // Item graded USED_GOOD (5000) but the category accepts only New → no honest
+  // equal-or-worse option, so signal the caller to block rather than upgrade.
+  assertEquals(remapConditionForCategory("USED_GOOD", ["1000", "1500"]), null);
+});
+
+Deno.test("remap returns null when only unrepresentable (refurb) conditions allowed", () => {
+  // 2000/2010 (refurbished) have no enum we emit → can't honestly remap.
+  assertEquals(remapConditionForCategory("USED_EXCELLENT", ["2000", "2010"]), null);
 });
 
 // ── image reachability ─────────────────────────────────────────────────
