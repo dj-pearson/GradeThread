@@ -205,8 +205,27 @@ export function AdminReviewsPage() {
   const [intentionalMisread, setIntentionalMisread] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Review/send-back dialog VISIBILITY is decoupled from their data
+  // (reviewingItem / rejectTarget) so we can hide a dialog without discarding
+  // the in-progress review. This matters for step-up MFA: stacking the
+  // MfaStepUpDialog on top of an open review modal leaves the review dialog
+  // aria-hidden with a stuck pointer-events lock (Radix), which silently kills
+  // its buttons ("Adjust & Approve" appears unclickable). We instead keep only
+  // ONE modal open at a time — hide the parent, show step-up, then restore.
+  const [reviewOpen, setReviewOpen] = useState(false);
+
   // Send-back confirmation
   const [rejectTarget, setRejectTarget] = useState<QueueItem | null>(null);
+  const [rejectOpen, setRejectOpen] = useState(false);
+
+  function closeReview() {
+    setReviewOpen(false);
+    setReviewingItem(null);
+  }
+  function closeReject() {
+    setRejectOpen(false);
+    setRejectTarget(null);
+  }
 
   // Step-up MFA: the approve/adjust/send-back endpoints require a *fresh* (≤5 min)
   // second-factor verification. On a 403 STEP_UP_REQUIRED we stash the action and
@@ -216,8 +235,19 @@ export function AdminReviewsPage() {
   const [retry, setRetry] = useState<null | (() => void)>(null);
 
   function handleStepUp(retryFn: () => void) {
+    // Hide the parent modal(s) so the step-up dialog is the ONLY open modal —
+    // their data is preserved (reviewingItem / rejectTarget) for the retry.
+    setReviewOpen(false);
+    setRejectOpen(false);
     setRetry(() => retryFn);
     setStepUpOpen(true);
+  }
+
+  // When the step-up dialog closes (verified or cancelled), bring the parent
+  // modal back so the admin lands where they left off.
+  function restoreParentAfterStepUp() {
+    if (rejectTarget) setRejectOpen(true);
+    else if (reviewingItem) setReviewOpen(true);
   }
 
   // True when the body of a 403 says step-up is required — open the dialog + retry.
@@ -291,6 +321,7 @@ export function AdminReviewsPage() {
 
   function openReview(item: QueueItem) {
     setReviewingItem(item);
+    setReviewOpen(true);
     setAdjustedScores({ ...item.factor_scores });
     setReviewNotes("");
     setIntentionalMisread(false);
@@ -350,7 +381,7 @@ export function AdminReviewsPage() {
         description: `Grade ${reviewingItem.overall_score.toFixed(1)} approved for "${reviewingItem.title ?? ""}".`,
       });
       queryClient.invalidateQueries({ queryKey: ["admin-review-queue"] });
-      setReviewingItem(null);
+      closeReview();
     } catch (err) {
       toast.error("Failed to approve grade", {
         description: err instanceof Error ? err.message : "Unknown error",
@@ -398,7 +429,7 @@ export function AdminReviewsPage() {
         description: `Grade updated from ${reviewingItem.overall_score.toFixed(1)} to ${Number(json.overall_score).toFixed(1)}${json.resealed ? " (certificate resealed)" : ""}.`,
       });
       queryClient.invalidateQueries({ queryKey: ["admin-review-queue"] });
-      setReviewingItem(null);
+      closeReview();
     } catch (err) {
       toast.error("Failed to adjust grade", {
         description: err instanceof Error ? err.message : "Unknown error",
@@ -426,8 +457,8 @@ export function AdminReviewsPage() {
         description: `"${rejectTarget.title ?? ""}" was returned to the seller for clearer photos.`,
       });
       queryClient.invalidateQueries({ queryKey: ["admin-review-queue"] });
-      setReviewingItem(null);
-      setRejectTarget(null);
+      closeReview();
+      closeReject();
     } catch (err) {
       toast.error("Failed to send back", {
         description: err instanceof Error ? err.message : "Unknown error",
@@ -656,18 +687,18 @@ export function AdminReviewsPage() {
 
       {/* ─── Review Detail Dialog ──────────────────────────────────── */}
       <Dialog
-        open={!!reviewingItem}
+        open={reviewOpen}
         onOpenChange={(open) => {
-          if (!open) setReviewingItem(null);
+          if (!open) closeReview();
         }}
       >
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-brand-red-text" />
-              Review: {reviewingItem?.title}
+              <MessageSquare className="h-5 w-5 shrink-0 text-brand-red-text" />
+              <span className="min-w-0 break-words">Review: {reviewingItem?.title}</span>
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="break-words">
               {reviewingItem?.garment_type} &middot; {reviewingItem?.user_email} &middot;
               {" "}Submitted {reviewingItem ? formatDate(reviewingItem.created_at) : ""}
             </DialogDescription>
@@ -679,7 +710,7 @@ export function AdminReviewsPage() {
               <div>
                 <h4 className="text-sm font-medium mb-3">Submitted Photos</h4>
                 {loadingPhotos ? (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     {Array.from({ length: 4 }).map((_, i) => (
                       <Skeleton key={i} className="aspect-square rounded-lg" />
                     ))}
@@ -687,7 +718,7 @@ export function AdminReviewsPage() {
                 ) : reviewImages.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No photos available.</p>
                 ) : (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     {reviewImages.map((img) => (
                       <div key={img.id} className="relative">
                         {img.signed_url ? (
@@ -716,7 +747,7 @@ export function AdminReviewsPage() {
               </div>
 
               {/* AI Grade + Confidence */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">AI Grade</CardTitle>
@@ -750,7 +781,7 @@ export function AdminReviewsPage() {
               {/* AI Summary */}
               <div>
                 <h4 className="text-sm font-medium mb-2">AI Summary</h4>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap rounded-lg border bg-muted/30 p-3">
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-3">
                   {reviewingItem.ai_summary}
                 </p>
               </div>
@@ -778,14 +809,14 @@ export function AdminReviewsPage() {
                     const adjustedScore = adjustedScores[key];
                     const diff = Math.abs(adjustedScore - aiScore);
                     return (
-                      <div key={key} className="grid grid-cols-12 items-center gap-3">
-                        <div className="col-span-5">
-                          <Label className="text-sm">
+                      <div key={key} className="grid grid-cols-12 items-center gap-2 sm:gap-3">
+                        <div className="col-span-6 min-w-0 sm:col-span-5">
+                          <Label className="text-sm break-words">
                             {meta.label} ({(meta.weight * 100).toFixed(0)}%)
                           </Label>
                           <p className="text-xs text-muted-foreground">AI: {aiScore.toFixed(1)}</p>
                         </div>
-                        <div className="col-span-4">
+                        <div className="col-span-4 min-w-0 sm:col-span-4">
                           <Input
                             type="number"
                             min={1}
@@ -793,10 +824,10 @@ export function AdminReviewsPage() {
                             step={0.5}
                             value={adjustedScore}
                             onChange={(e) => updateFactorScore(key, e.target.value)}
-                            className="tabular-nums"
+                            className="w-full tabular-nums"
                           />
                         </div>
-                        <div className="col-span-3 text-right">
+                        <div className="col-span-2 text-right sm:col-span-3">
                           {diff > 0 ? (
                             <span className={`text-sm font-medium ${diff > 1 ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
                               {adjustedScore > aiScore ? "+" : ""}
@@ -810,19 +841,19 @@ export function AdminReviewsPage() {
                     );
                   })}
 
-                  <div className="grid grid-cols-12 items-center gap-3 border-t pt-3">
-                    <div className="col-span-5">
+                  <div className="grid grid-cols-12 items-center gap-2 border-t pt-3 sm:gap-3">
+                    <div className="col-span-6 min-w-0 sm:col-span-5">
                       <Label className="text-sm font-medium">Weighted Overall</Label>
                       <p className="text-xs text-muted-foreground">
                         AI: {reviewingItem.overall_score.toFixed(1)}
                       </p>
                     </div>
-                    <div className="col-span-4">
+                    <div className="col-span-4 min-w-0 sm:col-span-4">
                       <span className="text-lg font-bold tabular-nums">
                         {computedOverallScore.toFixed(1)}
                       </span>
                     </div>
-                    <div className="col-span-3 text-right">
+                    <div className="col-span-2 text-right sm:col-span-3">
                       {scoreDifference > 0 ? (
                         <span
                           className={`text-sm font-medium ${scoreDifference > 1.5 ? "text-red-600 dark:text-red-400" : scoreDifference > 0.5 ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}
@@ -871,8 +902,8 @@ export function AdminReviewsPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-3 border-t pt-4">
-                <Button onClick={handleApproveAsIs} disabled={actionLoading} className="flex-1">
+              <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:gap-3">
+                <Button onClick={handleApproveAsIs} disabled={actionLoading} className="w-full sm:flex-1">
                   {actionLoading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
@@ -884,7 +915,7 @@ export function AdminReviewsPage() {
                   variant="secondary"
                   onClick={handleAdjustAndApprove}
                   disabled={actionLoading || scoreDifference === 0 || (requiresSuperAdmin && !isSuperAdmin)}
-                  className="flex-1"
+                  className="w-full sm:flex-1"
                 >
                   {actionLoading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -895,7 +926,11 @@ export function AdminReviewsPage() {
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={() => setRejectTarget(reviewingItem)}
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    setRejectTarget(reviewingItem);
+                    setRejectOpen(true);
+                  }}
                   disabled={actionLoading}
                 >
                   <RotateCcw className="mr-2 h-4 w-4" />
@@ -908,7 +943,12 @@ export function AdminReviewsPage() {
       </Dialog>
 
       {/* ─── Send-Back Confirmation ────────────────────────────────── */}
-      <AlertDialog open={!!rejectTarget} onOpenChange={() => setRejectTarget(null)}>
+      <AlertDialog
+        open={rejectOpen}
+        onOpenChange={(o) => {
+          if (!o) closeReject();
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Send back for better photos</AlertDialogTitle>
@@ -940,7 +980,12 @@ export function AdminReviewsPage() {
           STEP_UP_REQUIRED; on success it re-runs the stashed action. */}
       <MfaStepUpDialog
         open={stepUpOpen}
-        onOpenChange={setStepUpOpen}
+        onOpenChange={(o) => {
+          setStepUpOpen(o);
+          // Closing (verified OR cancelled) → restore the parent modal so the
+          // admin isn't dropped back to the bare queue.
+          if (!o) restoreParentAfterStepUp();
+        }}
         onVerified={() => retry?.()}
       />
     </div>
