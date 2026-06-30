@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { VerifyEmailGate } from "@/components/auth/verify-email-gate";
 import { LegalGate } from "@/components/auth/legal-gate";
@@ -6,6 +6,7 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 
 export function ProtectedRoute() {
   const { session, user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -16,7 +17,14 @@ export function ProtectedRoute() {
   }
 
   if (!session) {
-    return <Navigate to="/login" replace />;
+    // US-1430: preserve the attempted deep-link so the user lands back on it
+    // after signing in (LoginPage / the OAuth callback consume `?next=`).
+    const attempted = location.pathname + location.search;
+    const to =
+      attempted && attempted !== "/"
+        ? `/login?next=${encodeURIComponent(attempted)}`
+        : "/login";
+    return <Navigate to={to} replace />;
   }
 
   // US-366: a session whose email is unverified can't use the app (the edge

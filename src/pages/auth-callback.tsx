@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { isIdentityLinkingError, OAUTH_LINKING_MESSAGE } from "@/lib/auth-identity";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
+import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
 
 // How long to wait for the auth exchange to complete before giving up and
 // showing an error instead of an indefinite spinner (US-370).
@@ -33,7 +34,13 @@ export function AuthCallbackPage() {
       navigate(`/accept-invite?token=${pendingToken}`, { replace: true });
       return;
     }
-    navigate("/dashboard", { replace: true });
+    // US-1430: return the user to the deep-link they were trying to reach
+    // before being bounced to login (stashed by LoginPage across the OAuth
+    // round-trip). Validate it's internal; clear it either way; fall back to
+    // /dashboard.
+    const returnTo = sanitizeReturnTo(sessionStorage.getItem(RETURN_TO_KEY));
+    sessionStorage.removeItem(RETURN_TO_KEY);
+    navigate(returnTo ?? "/dashboard", { replace: true });
   }, [navigate]);
 
   useEffect(() => {

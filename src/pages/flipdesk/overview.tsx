@@ -294,7 +294,7 @@ export function FlipdeskOverviewPage() {
           label="Total items"
           value={stats.total.toLocaleString()}
           sub={fmtMoney(stats.inventoryValue) + " inventory value"}
-          to="/dashboard/flipdesk/items?view=all"
+          to="/dashboard/flipdesk/items?status=all"
         />
         <StatCard
           icon={<TrendingUp className="h-5 w-5" />}
