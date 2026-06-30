@@ -1,5 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Lightbulb,
   ArrowRight,
@@ -25,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryBoundary } from "@/components/ui/query-boundary";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
@@ -55,18 +57,13 @@ function formatLabel(value: string): string {
 export function PriceSuggestionsPage() {
   const { user } = useAuthStore();
   const { workspaceOwnerId } = useWorkspace();
-  const [items, setItems] = useState<InventoryItemRow[]>([]);
-  const [listings, setListings] = useState<ListingRow[]>([]);
-  const [sales, setSales] = useState<SaleRow[]>([]);
-  const [gradeReports, setGradeReports] = useState<GradeReportRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const ready = Boolean(user && workspaceOwnerId);
 
-  useEffect(() => {
-    if (!user || !workspaceOwnerId) return;
-
-    async function fetchData() {
-      setLoading(true);
-
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["price-suggestions", workspaceOwnerId],
+    enabled: ready,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
       const [itemsRes, listingsRes, salesRes, gradesRes] = await Promise.all([
         supabase
           .from("inventory_items")
@@ -78,15 +75,30 @@ export function PriceSuggestionsPage() {
         supabase.from("grade_reports").select("*"),
       ]);
 
-      setItems((itemsRes.data ?? []) as InventoryItemRow[]);
-      setListings((listingsRes.data ?? []) as ListingRow[]);
-      setSales((salesRes.data ?? []) as SaleRow[]);
-      setGradeReports((gradesRes.data ?? []) as GradeReportRow[]);
-      setLoading(false);
-    }
+      // Surface any failed call as an error so an outage routes to ErrorState
+      // instead of being disguised as an empty "no suggestions" result.
+      if (itemsRes.error) throw itemsRes.error;
+      if (listingsRes.error) throw listingsRes.error;
+      if (salesRes.error) throw salesRes.error;
+      if (gradesRes.error) throw gradesRes.error;
 
-    fetchData();
-  }, [user, workspaceOwnerId]);
+      return {
+        items: (itemsRes.data ?? []) as InventoryItemRow[],
+        listings: (listingsRes.data ?? []) as ListingRow[],
+        sales: (salesRes.data ?? []) as SaleRow[],
+        gradeReports: (gradesRes.data ?? []) as GradeReportRow[],
+      };
+    },
+  });
+
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const listings = useMemo(() => data?.listings ?? [], [data]);
+  const sales = useMemo(() => data?.sales ?? [], [data]);
+  const gradeReports = useMemo(() => data?.gradeReports ?? [], [data]);
+
+  // The query stays "pending" until the workspace owner is resolved; treat that
+  // not-ready window as loading rather than as an error or empty result.
+  const showLoading = !ready || isLoading;
 
   // Build suggestions for each item
   const suggestions = useMemo(() => {
@@ -173,7 +185,7 @@ export function PriceSuggestionsPage() {
     (s) => s.suggestion.severity === "warning"
   ).length;
 
-  if (loading) {
+  if (showLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -254,17 +266,29 @@ export function PriceSuggestionsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {suggestions.length === 0 ? (
-            <div className="py-12 text-center">
-              <Lightbulb className="mx-auto h-12 w-12 text-muted-foreground/40" />
-              <h3 className="mt-4 text-lg font-medium">
-                No active inventory items
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Add items to your inventory to get pricing recommendations.
-              </p>
-            </div>
-          ) : (
+          <QueryBoundary
+            isLoading={false}
+            isError={isError}
+            isEmpty={suggestions.length === 0}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            errorProps={{
+              title: "Couldn't load price suggestions",
+              description:
+                "Something went wrong while loading your pricing recommendations. This is usually temporary.",
+            }}
+            empty={
+              <div className="py-12 text-center">
+                <Lightbulb className="mx-auto h-12 w-12 text-muted-foreground/40" />
+                <h3 className="mt-4 text-lg font-medium">
+                  No active inventory items
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Add items to your inventory to get pricing recommendations.
+                </p>
+              </div>
+            }
+          >
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -377,7 +401,7 @@ export function PriceSuggestionsPage() {
                 </TableBody>
               </Table>
             </div>
-          )}
+          </QueryBoundary>
         </CardContent>
       </Card>
     </div>

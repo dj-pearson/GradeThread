@@ -73,6 +73,47 @@ export function sanitizePayload(payload: unknown): Record<string, unknown> {
   return out;
 }
 
+// US-1420: a tiny per-replica TTL cache for the PUBLIC passport chain response.
+// The chain is PII-free and slow-moving (events are appended rarely), so serving
+// a copy that's a few seconds old is fine and bounds the ~6 uncached DB queries
+// the read fans out into when the same slug is hammered. Per-replica (not
+// shared) — a CDN edge cache can layer on top. Exported for unit coverage.
+export class TtlCache<T> {
+  private store = new Map<string, { expiresAt: number; value: T }>();
+  constructor(private ttlMs: number, private maxEntries = 500) {}
+
+  get(key: string, now: number = Date.now()): T | undefined {
+    const hit = this.store.get(key);
+    if (!hit) return undefined;
+    if (hit.expiresAt <= now) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return hit.value;
+  }
+
+  set(key: string, value: T, now: number = Date.now()): void {
+    // Opportunistically evict expired entries (then, if still at cap, the oldest
+    // inserted) so a churn of distinct slugs can't grow the map without bound.
+    if (this.store.size >= this.maxEntries) {
+      for (const [k, v] of this.store) {
+        if (v.expiresAt <= now) this.store.delete(k);
+      }
+      while (this.store.size >= this.maxEntries) {
+        const oldest = this.store.keys().next().value;
+        if (oldest === undefined) break;
+        this.store.delete(oldest);
+      }
+    }
+    this.store.set(key, { expiresAt: now + this.ttlMs, value });
+  }
+}
+
+// Short cache for the public chain read (US-1420). Keep it brief so an appended
+// event surfaces quickly while still absorbing a same-slug flood.
+const CHAIN_CACHE_TTL_MS = 30_000;
+const chainCache = new TtlCache<Record<string, unknown>>(CHAIN_CACHE_TTL_MS);
+
 // Extract the phash map from a stored fingerprint row's payload (US-1098).
 function phashesOf(row: { payload: unknown }): Record<string, string> {
   const p = row.payload;
@@ -87,6 +128,12 @@ function phashesOf(row: { payload: unknown }): Record<string, string> {
 passportRoutes.get("/:slug", async (c) => {
   const slug = c.req.param("slug");
   if (!slug) return c.json({ error: "slug is required" }, 400);
+
+  // US-1420: serve a recent cached copy when present. Only successful chain
+  // responses are cached (below), so a flood of bogus slugs still misses and is
+  // governed by the per-IP limiter rather than poisoning the cache.
+  const cached = chainCache.get(slug);
+  if (cached) return c.json(cached);
 
   const { data: garment, error: gErr } = await supabaseAdmin
     .from("garments")
@@ -227,7 +274,7 @@ passportRoutes.get("/:slug", async (c) => {
     ((gradeRows ?? []) as unknown as PublicGradePoint[]),
   );
 
-  return c.json({
+  const responseBody: Record<string, unknown> = {
     slug: g.public_passport_slug,
     sku_class: g.sku_class ?? {},
     status: g.status,
@@ -247,7 +294,12 @@ passportRoutes.get("/:slug", async (c) => {
       payload: sanitizePayload(r.payload),
       created_at: r.created_at,
     })),
-  });
+  };
+
+  // US-1420: cache the assembled PII-free chain so a same-slug flood is served
+  // from memory instead of re-running the full fan-out of DB queries.
+  chainCache.set(slug, responseBody);
+  return c.json(responseBody);
 });
 
 // POST /garments/:id/events — authed, tenant-scoped, append-only.

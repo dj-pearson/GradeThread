@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-20
+# Last updated: 2026-06-30
 
 ## Completed Stories
 
@@ -6427,3 +6427,47 @@ to convention but UNCOMPILED (macOS-only); macOS iOS CI is the compile/test net.
 
 Open prd.json stories now 7 (down from 9): US-1153, US-1155, US-1157, US-1165,
 US-1167, US-1177, US-1221.
+
+## 2026-06-30 — Pre-launch audit batch (US-1418, US-1420) + CI unblock
+
+Two HIGH pre-launch-audit stories, quality-first, plus a CI-blocking regression fix.
+
+- US-1418 Price Suggestions error/failure state — NOW COMPLETE (passes:true).
+  src/pages/price-suggestions.tsx migrated off the legacy useEffect/useState
+  fetch (which ignored the { error } of all four Supabase calls and rendered a
+  failed load as an empty "no suggestions" table) to useQuery + <QueryBoundary>,
+  matching inventory.tsx. The queryFn THROWS on any { error } so an outage routes
+  to <ErrorState> (retry = refetch, isRetrying = isFetching) instead of an empty
+  table (AC2); the genuinely-empty case keeps its existing "No active inventory
+  items" copy (AC3). The not-ready window (no workspace owner yet) is treated as
+  loading, not empty.
+
+- US-1420 Rate-limit + cache the public passport chain read — NOW COMPLETE
+  (passes:true). main.ts adds a per-IP, fail-closed limiter on GET
+  /api/passport/:slug (rateLimiter(20, 60s, "passport-read", { failClosed,
+  methods:["GET"] })) consistent with the tag/claim budgets (AC1). GET-only +
+  the single-segment :slug match means it never double-limits POST /claim or the
+  multi-segment /tag/* and /garments/* paths (AC3). passport.ts adds a short
+  per-replica in-memory TtlCache (30s TTL, bounded with eviction) that caches
+  ONLY successful PII-free chain responses, so a same-slug flood is served from
+  memory instead of re-running the ~6-query fan-out (AC2). Bogus-slug floods miss
+  the cache and are governed by the limiter. New TtlCache unit coverage in
+  tests/passport_test.ts.
+
+- CI unblock (not a story): the latest main commit (US-1416) introduced a tsc
+  error in src/pages/submission-detail.tsx — disputePhotos[i] is File|undefined
+  under noUncheckedIndexedAccess. CI on main went red at e8aeb64. Added a
+  `if (!photo) continue;` guard so `npx tsc -b` is clean again.
+
+VERIFICATION (this container): frontend gate fully green — eslint (0 errors),
+`npx tsc -b` clean, vitest 985 pass / 3 skipped with coverage above all floors
+(stmts 75.5/72, branches 65.43/65, funcs 74.38/68, lines 77.4/72), `npm run
+build` + bundle-budget guard OK. Edge: `deno lint` clean on the changed files;
+the TtlCache class was type-checked and runtime-asserted standalone via deno.
+`deno check`/`deno test` could NOT run here (egress policy blocks esm.sh +
+deno.land/x, so hono/supabase/std don't resolve) — the new limiter line copies
+the exact shape of the existing passport limiters, and edge CI (security.yml
+deno-check) type-checks + runs the passport tests. One pre-existing flaky
+unhandled web-vitals error in analytics.test.ts (untouched) is unrelated.
+
+Open prd.json stories now 157 (down from 159).

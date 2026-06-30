@@ -7922,8 +7922,8 @@
         "Keep the existing empty-state copy for the genuinely-empty case."
       ],
       "priority": 2197,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/price-suggestions.tsx:64-89."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/price-suggestions.tsx:64-89. IMPLEMENTED 2026-06-30: src/pages/price-suggestions.tsx migrated from the legacy useEffect/useState fetch to useQuery + <QueryBoundary> (matching inventory.tsx). The queryFn throws on any of the four Supabase { error } responses so a failed load routes to <ErrorState> (retry wired to refetch, isRetrying=isFetching) instead of an empty table; the genuinely-empty case keeps its existing \"No active inventory items\" copy. The not-ready (no workspace owner) window is treated as loading."
     },
     {
       "id": "US-1419",
@@ -7947,8 +7947,8 @@
         "Ensure the new limiter does not double-limit /claim, /tag/*, /garments/*."
       ],
       "priority": 2195,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · edge · edge audit] Evidence: services/edge-functions/src/routes/passport.ts:87-251; main.ts:598-603,809."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · edge · edge audit] Evidence: services/edge-functions/src/routes/passport.ts:87-251; main.ts:598-603,809. IMPLEMENTED 2026-06-30: GET /api/passport/:slug now has a per-IP, fail-closed limiter (rateLimiter(20,60s,\"passport-read\",{failClosed,methods:[GET]})) in main.ts, GET-only + single-segment :slug so it never double-limits POST /claim, /tag/*, or /garments/* (AC3). Added a short per-replica in-memory TtlCache (30s, bounded+evicting) in passport.ts that caches only successful PII-free chain responses, so a same-slug flood is served from memory instead of re-running the ~6-query fan-out (AC2). Unit coverage for TtlCache in tests/passport_test.ts."
     },
     {
       "id": "US-1421",

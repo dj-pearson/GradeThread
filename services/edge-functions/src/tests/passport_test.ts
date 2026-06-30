@@ -9,7 +9,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { sanitizePayload } = await import("../routes/passport.ts");
+const { sanitizePayload, TtlCache } = await import("../routes/passport.ts");
 
 Deno.test("sanitizePayload: strips identity-bearing keys (AC#2 PII defense)", () => {
   const cleaned = sanitizePayload({
@@ -38,4 +38,33 @@ Deno.test("sanitizePayload: non-object input → empty object", () => {
   assertEquals(sanitizePayload(null), {});
   assertEquals(sanitizePayload("nope"), {});
   assertEquals(sanitizePayload(undefined), {});
+});
+
+// US-1420: the public chain read cache.
+Deno.test("TtlCache: hit within TTL, miss after expiry", () => {
+  const cache = new TtlCache<{ n: number }>(1_000);
+  cache.set("a", { n: 1 }, 0);
+  // Still inside the window → served from cache.
+  assertEquals(cache.get("a", 500), { n: 1 });
+  // At/after expiry → miss (and the stale entry is dropped).
+  assertEquals(cache.get("a", 1_000), undefined);
+  assertEquals(cache.get("a", 1_500), undefined);
+});
+
+Deno.test("TtlCache: unknown key misses", () => {
+  const cache = new TtlCache<number>(1_000);
+  assertEquals(cache.get("nope", 0), undefined);
+});
+
+Deno.test("TtlCache: evicts to stay bounded under distinct-key churn", () => {
+  const cache = new TtlCache<number>(60_000, 3);
+  // Insert past the cap with non-expired entries; the map must never exceed it.
+  for (let i = 0; i < 50; i++) cache.set(`slug-${i}`, i, 0);
+  let live = 0;
+  for (let i = 0; i < 50; i++) {
+    if (cache.get(`slug-${i}`, 0) !== undefined) live++;
+  }
+  assert(live <= 3, `cache kept ${live} entries, expected ≤ 3`);
+  // The most recently inserted key is still resolvable.
+  assertEquals(cache.get("slug-49", 0), 49);
 });
