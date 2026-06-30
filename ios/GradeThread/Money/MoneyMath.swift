@@ -18,6 +18,10 @@ enum Money {
     /// carries the float's full expansion; rounding to 2 places pins it back to
     /// the cents the value was always meant to represent.
     static func decimal(_ dollars: Double) -> Decimal {
+        // US-1412: `Decimal(nan/inf)` is undefined and would poison every sum /
+        // CSV export it flows into. All callers sum finite stored prices, so this
+        // is a latent guard — but a cheap one against a NaN ever sneaking in.
+        guard dollars.isFinite else { return .zero }
         var raw = Decimal(dollars)
         var rounded = Decimal()
         NSDecimalRound(&rounded, &raw, 2, .plain)

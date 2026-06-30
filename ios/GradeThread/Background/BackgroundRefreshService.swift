@@ -149,6 +149,17 @@ public final class BackgroundRefreshService {
             await self.performRefresh()
         }
 
+        // US-1412: enforce the self-imposed `budgetSeconds` — previously only the
+        // OS `expirationHandler` could cancel, so a non-cooperative `engine.sync()`
+        // could overrun toward the ~30s OS limit and get us throttled out of
+        // future slots. This watchdog cancels the work first; `performRefresh`
+        // observes `Task.isCancelled` and bails, and `setTaskCompleted` reports
+        // the honest (unfinished) outcome.
+        let watchdog = Task {
+            try? await Task.sleep(nanoseconds: UInt64(Self.budgetSeconds * 1_000_000_000))
+            work.cancel()
+        }
+
         task.expirationHandler = { [work] in
             // iOS is about to kill us — cancel the work so we don't get
             // throttled out of future schedules. `performRefresh` observes
@@ -162,6 +173,7 @@ public final class BackgroundRefreshService {
         }
 
         let success = await work.value
+        watchdog.cancel()
         task.setTaskCompleted(success: success)
     }
 

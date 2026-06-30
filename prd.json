@@ -7815,7 +7815,7 @@
       ],
       "priority": 1410,
       "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (iPad/scene/deeplink sweep). Two HIGH cold-launch dead-ends + cover collision + widget fake-data. Warm-path deep links, AASA, orientation, share-extension edge cases already correct. Scene-restoration verification is Mac/Stage-Manager-gated."
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (iPad/scene/deeplink sweep). Two HIGH cold-launch dead-ends + cover collision + widget fake-data. Warm-path deep links, AASA, orientation, share-extension edge cases already correct. Scene-restoration verification is Mac/Stage-Manager-gated. IMPLEMENTED 2026-06-30 on branch claude/ios-app-bug-audit-9in0xv (DeepLinkRouter persist/drain/clear + App Intents persist + ContentView startup drain & clear-on-live-handle for cold-launch route replay; handleDeepLink cancels onboarding pendingFirstAction so deep link isnt clobbered; planStep/sharedIntakeBatch fullScreenCover serialized; widget getSnapshot -> signedOut not fake placeholder) — pending iOS CI. DEFERRED: @SceneStorage focusedItemId keyed-by-section (intricate scene restoration, device-gated) and the iPad blank-detail latent guard."
     },
     {
       "id": "US-1411",
@@ -7830,7 +7830,7 @@
       ],
       "priority": 1411,
       "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (accessibility sweep). Marketplace OAuth/publish/money math all clean. Most fixes route through the app's own existing helpers (scaledIconFont, A11yAnnounce, .accessibilityActions, 44pt brand button styles). Mac/simulator VoiceOver verification recommended."
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (accessibility sweep). Marketplace OAuth/publish/money math all clean. Most fixes route through the app's own existing helpers (scaledIconFont, A11yAnnounce, .accessibilityActions, 44pt brand button styles). Mac/simulator VoiceOver verification recommended. IMPLEMENTED 2026-06-30 (AutoListerView photo actions mirrored to .accessibilityActions; EbaySyncModal glyphs->scaledIconFont + .isModal + A11yAnnounce on completed/timedOut/failed + 44pt Done/Close/retry; MarketplacesView Sync/Reconnect/Disconnect 44pt; RepricingRules row .isButton + labeled toggle) — pending iOS CI. DEFERRED (lower-value, additive): MarketplacesView card-icon scaling, EbayCategorySpecificsView provenance badge, RuleEditorSheet floor-price label/clip, MoneyView Add button, RepricingView chip combine."
     },
     {
       "id": "US-1412",
@@ -7845,7 +7845,7 @@
       ],
       "priority": 1412,
       "passes": false,
-      "notes": "[P2][iOS] From 2026-06-30 audit (crash sweep + misc). Codebase is defensively clean (Tolerant enum decode, StorageURL nil-safe, bounds checks, FP div->nan). Highest-value item is the release-config gate: the most likely real source of any reviewer 'crashes on launch' report is a misconfigured Release build."
+      "notes": "[P2][iOS] From 2026-06-30 audit (crash sweep + misc). Codebase is defensively clean (Tolerant enum decode, StorageURL nil-safe, bounds checks, FP div->nan). Highest-value item is the release-config gate: the most likely real source of any reviewer 'crashes on launch' report is a misconfigured Release build. IMPLEMENTED 2026-06-30 (ios-release.yml Require-core-backend-config gate rejects empty/placeholder SUPABASE_ANON_KEY before archive — closes the AppConfig fatalError 100%-launch-crash gap; ReconcileIntakeService components.url! -> guard let + ServiceError.invalidURL; BackgroundRefreshService budgetSeconds watchdog cancels overrun sync; MoneyMath.decimal isFinite guard + test) — pending iOS CI. TagPhotoQuality comment already fixed in US-1408."
     }
   ]
 }

@@ -16,6 +16,9 @@ struct EbaySyncModal: View {
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .presentationDetents([.medium])
         .interactiveDismissDisabled(!canDismissInteractively)
+        // US-1411: trap VoiceOver focus inside the sheet (WCAG 4.1.3) so focus
+        // can't wander to the content behind it.
+        .accessibilityAddTraits(.isModal)
     }
 
     @ViewBuilder
@@ -98,7 +101,7 @@ struct EbaySyncModal: View {
     private func completedBody(_ summary: EbaySyncSummary) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
+                .scaledIconFont(size: 48)  // US-1411: honor Dynamic Type
                 .foregroundStyle(.brandEmerald)
             Text("Sync complete")
                 .font(.brandTitle2)
@@ -130,7 +133,7 @@ struct EbaySyncModal: View {
             } label: {
                 Text("Done")
                     .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 44)  // US-1411: 44pt tap target
                     .padding(.vertical, 12)
                     .background(Color.brandNavy)
                     .foregroundStyle(.white)
@@ -141,12 +144,14 @@ struct EbaySyncModal: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 24)
+        // US-1411: announce the in-place phase change for VoiceOver (WCAG 4.1.3).
+        .onAppear { A11yAnnounce.screenChanged(focusing: "Sync complete") }
     }
 
     private var timedOutBody: some View {
         VStack(spacing: 14) {
             Image(systemName: "clock.badge.exclamationmark")
-                .font(.system(size: 44))
+                .scaledIconFont(size: 44)  // US-1411: honor Dynamic Type
                 .foregroundStyle(.brandAmber)
             Text("Still syncing in the background")
                 .font(.brandHeadline)
@@ -163,7 +168,7 @@ struct EbaySyncModal: View {
                 Text("Close")
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
+                    .frame(minHeight: 44)  // US-1411: 44pt tap target
                     .background(Color.brandNavy)
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
@@ -171,6 +176,8 @@ struct EbaySyncModal: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        // US-1411: announce the timeout for VoiceOver (WCAG 4.1.3).
+        .onAppear { A11yAnnounce.screenChanged(focusing: "Still syncing in the background") }
     }
 
     private func failedBody(
@@ -182,7 +189,7 @@ struct EbaySyncModal: View {
     ) -> some View {
         VStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 44))
+                .scaledIconFont(size: 44)  // US-1411: honor Dynamic Type
                 .foregroundStyle(color)
             Text(title)
                 .font(.brandHeadline)
@@ -198,7 +205,7 @@ struct EbaySyncModal: View {
                 Text(retryLabel)
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
+                    .frame(minHeight: 44)  // US-1411: 44pt tap target
                     .background(Color.brandNavy)
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
@@ -206,6 +213,8 @@ struct EbaySyncModal: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        // US-1411: announce the failure for VoiceOver (WCAG 4.1.3).
+        .onAppear { A11yAnnounce.screenChanged(focusing: title) }
     }
 
     // MARK: - Summary row

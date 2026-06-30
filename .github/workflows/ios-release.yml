@@ -353,6 +353,21 @@ jobs:
             exit 1
           fi
 
+      - name: Require core backend config
+        # US-1412: the Archive step's `${SUPABASE_ANON_KEY:?}` guard catches an
+        # EMPTY key, but NOT the committed placeholder
+        # (REPLACE_ME_WITH_REAL_SUPABASE_ANON_KEY) leaking through if the Infisical
+        # injection silently no-ops. AppConfig.swift fatal-errors on that
+        # placeholder at launch too — a 100% launch crash that reads to App Review
+        # as "crashes on launch". Reject the placeholder (and empty) BEFORE we
+        # archive, alongside the SENTRY_DSN / TURNSTILE_SITE_KEY gates above.
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ANON_KEY:-}" ] || [ "${SUPABASE_ANON_KEY:-}" = "REPLACE_ME_WITH_REAL_SUPABASE_ANON_KEY" ]; then
+            echo "::error::SUPABASE_ANON_KEY is empty or still the placeholder — AppConfig.swift fatalErrors on launch (every device). Add the real SUPABASE_ANON_KEY to Infisical (prod env)." >&2
+            exit 1
+          fi
+
       - name: Archive
         working-directory: ios
         run: |

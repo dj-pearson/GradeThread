@@ -578,7 +578,7 @@ struct MarketplacesView: View {
                     }
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    .frame(minHeight: 44)  // US-1411: 44pt tap target
                     .background(Color.brandNavy)
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
@@ -595,7 +595,7 @@ struct MarketplacesView: View {
                     Text("Disconnect")
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .frame(minHeight: 44)  // US-1411: 44pt tap target
                         .background(Color.brandRed.opacity(0.1))
                         .foregroundStyle(Color.brandRed)
                         .clipShape(Capsule())
@@ -693,7 +693,7 @@ struct MarketplacesView: View {
                 Text(label).font(.subheadline.weight(.semibold))
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .frame(minHeight: 44)  // US-1411: 44pt tap target
             .background(Color.brandNavy)
             .foregroundStyle(.white)
             .clipShape(Capsule())

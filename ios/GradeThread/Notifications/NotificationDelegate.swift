@@ -243,4 +243,55 @@ public enum DeepLinkRouter {
             userInfo: [routeUserInfoKey: route]
         )
     }
+
+    // MARK: - Cold-launch persistence (US-1410)
+
+    /// App Intents (Siri / Shortcuts / Spotlight) cold-launch the app and `post`
+    /// their route immediately in `perform()` — BEFORE `ContentView` subscribes
+    /// to `notificationName`, so on a cold launch the route is lost and the user
+    /// lands on a bare dashboard instead of (e.g.) the camera. The intents also
+    /// persist their route here; the app drains it on startup and replays it.
+    /// Only the parameterless navigation routes need this (push/widget links
+    /// arrive while the app is already subscribed) — see ``coldLaunchToken``.
+    private static let pendingRouteKey = "com.gradethread.app.pendingDeepLinkRoute"
+
+    public static func persistPending(_ route: DeepLinkRoute) {
+        guard let token = route.coldLaunchToken else { return }
+        UserDefaults.standard.set(token, forKey: pendingRouteKey)
+    }
+
+    /// Returns and clears a persisted cold-launch route, if any.
+    public static func drainPending() -> DeepLinkRoute? {
+        guard let token = UserDefaults.standard.string(forKey: pendingRouteKey) else { return nil }
+        UserDefaults.standard.removeObject(forKey: pendingRouteKey)
+        return DeepLinkRoute(coldLaunchToken: token)
+    }
+
+    /// Clears any persisted route without consuming it — called after the live
+    /// (warm) path handles a posted route, so a warm intent doesn't leave a stale
+    /// token that would replay on the next unrelated cold launch.
+    public static func clearPending() {
+        UserDefaults.standard.removeObject(forKey: pendingRouteKey)
+    }
+}
+
+extension DeepLinkRoute {
+    /// Stable token for the parameterless navigation routes that App Intents
+    /// cold-launch the app with (US-1410). Only these round-trip through
+    /// cold-launch persistence; everything else returns nil.
+    var coldLaunchToken: String? {
+        switch self {
+        case .captureItem: return "captureItem"
+        case .addItem: return "addItem"
+        default: return nil
+        }
+    }
+
+    init?(coldLaunchToken token: String) {
+        switch token {
+        case "captureItem": self = .captureItem
+        case "addItem": self = .addItem
+        default: return nil
+        }
+    }
 }

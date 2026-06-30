@@ -60,6 +60,12 @@ struct ContentView: View {
                 // share sheet left behind in the protected Exports/ dir.
                 SecureTempFile.sweep()
                 Telemetry.event(TelemetryEvent.appOpen)
+                // US-1410: replay an App Intent route that COLD-launched the app
+                // (Siri / Shortcuts / Spotlight posted it in `perform()` before
+                // this view subscribed to the deep-link bus, so the live post was
+                // lost). `handleDeepLink` applies it now, or queues it until
+                // sign-in completes.
+                if let pending = DeepLinkRouter.drainPending() { handleDeepLink(pending) }
             }
             // US-661: complete auth handshakes delivered as a Universal Link
             // (password-reset / magic-link email opened from Mail lands on
@@ -212,6 +218,10 @@ struct ContentView: View {
                 guard let route = notification.userInfo?[DeepLinkRouter.routeUserInfoKey]
                         as? DeepLinkRoute else { return }
                 handleDeepLink(route)
+                // US-1410: the warm path handled this live — drop any persisted
+                // copy so an intent run while the app was open can't replay a
+                // stale route on the next cold launch.
+                DeepLinkRouter.clearPending()
             }
             .fullScreenCover(isPresented: $showingOnboarding) {
                 // US-747: persist completion + the chosen use case, and queue the
@@ -240,6 +250,12 @@ struct ContentView: View {
     }
 
     private func handleDeepLink(_ route: DeepLinkRoute) {
+        // US-1410: an explicit deep link (push tap, widget, Siri/Shortcut) is a
+        // more specific intent than the onboarding "first action" nudge, which
+        // `consumeOnboardingFirstAction` would otherwise apply when onboarding
+        // finishes — clobbering the routed destination on a fresh install. Cancel
+        // that nudge so the deep link wins. No-op when onboarding isn't pending.
+        OnboardingState().pendingFirstAction = false
         // We don't own AppRouter directly (it lives inside MainShell).
         // Re-post via a more specific notification so MainShell can
         // mutate its router state without us threading a handle through
@@ -605,11 +621,14 @@ struct MainShell: View {
             // @SceneStorage before any other appear-time routing runs, so a
             // relaunched/teardown-recovered window lands where it left off.
             restorePersistedScene(router: router)
+            // US-804/US-1410: offer the one-time post-signup plan step BEFORE
+            // draining shared photos — both use fullScreenCover(item:) and only
+            // one can present, so the drain is gated on planStep == nil (and
+            // resumes when the plan step is dismissed).
+            offerPlanSelectionIfNeeded()
             await drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.
             refreshReconcileBadge()
-            // US-804: offer the one-time post-signup plan step to a fresh account.
-            offerPlanSelectionIfNeeded()
             // US-696: cold-launch / first-render unlock prompt.
             if appLock.state == .locked { await appLock.authenticate() }
         }
@@ -656,6 +675,9 @@ struct MainShell: View {
         .fullScreenCover(item: $planStep) { step in
             OnboardingPlanStepView(userId: step.userId) {
                 planStep = nil
+                // US-1410: resume the shared-photo drain that was gated while the
+                // plan step was presented.
+                Task { await drainSharedInboxIfNeeded() }
             }
         }
         // US-805: shell-level upgrade prompt (402 hard cap) + soft warning banner
@@ -701,6 +723,12 @@ struct MainShell: View {
     /// fullScreenCover guard).
     @MainActor
     private func drainSharedInboxIfNeeded() async {
+        // US-1410: the one-time post-signup plan step and the shared-intake batch
+        // both present via `fullScreenCover(item:)`, and SwiftUI honors only one
+        // full-screen presentation per view — so don't drain while the plan step
+        // is up, or the batch silently fails to present (stranding the shared
+        // photos). The plan step's dismissal resumes the drain.
+        guard planStep == nil else { return }
         // Don't pop a new batch while one is presented OR while a previous
         // batch's error alert is still up: presenting/draining the next batch
         // would dismiss that alert and swallow the error (US-1273). The alert's
