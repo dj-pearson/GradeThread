@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1405,
+  "nextId": 1413,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -7728,6 +7728,124 @@
         "wired in content publish hooks + a deploy step"
       ],
       "notes": "[SEO] See SEO_STRATEGY.md. 2026-06-27 deep-research + codebase-audit derived."
+    },
+    {
+      "id": "US-1405",
+      "title": "iOS StoreKit: start Transaction.updates listener at launch + bound paywall product fetch",
+      "description": "As a buyer, I want purchases to always be honored and the paywall to never spin forever, so I'm never charged-without-entitlement and App Review can complete a purchase. Fixes the StoreKit timing/hang class behind the Guideline 2.1(b) paywall rejection.",
+      "acceptanceCriteria": [
+        "Transaction.updates listener is started synchronously at process launch (GradeThreadApp.init / AppDelegate.didFinishLaunchingWithOptions), NOT in ContentView's .task after an await (App.swift:59-66), so transactions resolved during launch (deferred/Ask-to-Buy/refund/interrupted) are never missed",
+        "Product.products(for:) in StoreKitService.loadPrices (StoreKitService.swift:86-102) and in the purchase() prefetch (104-110) are wrapped in a bounded ~15s timeout that routes a stall to PaywallStore .failed(retry) instead of an infinite ProgressView",
+        "Foreground consumable purchase (StoreKitService.swift:115-117) uses reportWithRetry and only calls transaction.finish() after the server report succeeds (or a terminal stripeConflict), matching the Transaction.updates path; never finishes an unreported consumable",
+        "After a successful subscription purchase, PaywallStore optimistically sets currentPlan/subscriptionStatus from the purchased product (PaywallStore.swift:288-290) instead of relying solely on the lagging server users row, so the purchased tier shows 'Current' immediately",
+        "GradeThread.storekit has a real _developerTeamID and a failure-testing scheme so Ask-to-Buy/declined-card paths get coverage; existing unit/UI tests stay green"
+      ],
+      "priority": 1405,
+      "passes": false,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 deep iOS bug audit (paywall/IAP sweep). CRITICAL: launch-timing listener miss = charged-but-not-entitled. HIGH: unbounded product fetch = infinite paywall spinner (the 2.1(b) reject pattern). Restore/terms/manage-sub links + verification/empty-products handling already correct."
+    },
+    {
+      "id": "US-1406",
+      "title": "iOS auth: surface actionable email-unverified message on ALL surfaces (not just AI/grade)",
+      "description": "As an unverified reviewer/user, I want every blocked feature to tell me to confirm my email, so I never hit a confusing 'Couldn't save'/'session expired' dead-end. Closes the relocated Guideline 2.1 rejection on the save and publish paths.",
+      "acceptanceCriteria": [
+        "FriendlyErrorCopy (FriendlyErrorCopy.swift:120-129) matches the typed EdgeAPIError.emailUnverified case DIRECTLY (like isOffline matches .network) and returns the actionable verify-email copy in both authMessage and actionMessage, so Details-first intake save (DetailsIntakeView.swift:583) and photo intake (PhotoIntakeView.swift:934) no longer show the generic 'Couldn't save your item. Try again.' dead-end",
+        "EbayPublishService (EbayPublishService.swift:190-191,221-224) decodes the response body code/error_code before mapping a 403; email_unverified shows the verify-email message and workspace_access_revoked shows the workspace message, instead of mapping every 403 to 'Your session expired. Sign in again.'",
+        "The 'Confirm your email / Resend' card in LoginView (LoginView.swift:81-93,269-272) is driven off FriendlyErrorCopy.isEmailNotConfirmed regardless of .signIn/.signUp mode, so the resend action is offered during the post-signup transition too",
+        "A unit test asserts EdgeAPIError.emailUnverified produces the verify-email copy through both FriendlyErrorCopy paths"
+      ],
+      "priority": 1406,
+      "passes": false,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (auth/session sweep). CRITICAL — re-introduces the exact 2.1 reject on the SAVE path: emailUnverified is string-matched to .emailNotConfirmed which returns the bare fallback. AI/grade paths already surface it correctly via errorDescription; this makes it uniform."
+    },
+    {
+      "id": "US-1407",
+      "title": "iOS: eliminate 60s network hangs (default-arg URLSession.shared) + add missing retry states",
+      "description": "As a user/reviewer, I want every screen to fail fast and offer retry instead of spinning ~60s, so no flow looks frozen. Closes the systemic hang class the prior audit missed (it fixed call-sites but not the default-argument form).",
+      "acceptanceCriteria": [
+        "Every service defaulting 'session: URLSession = .shared' is changed to EdgeNetwork.shared (or EdgeNetwork.aiSession for AI calls): EbayAspectsService:24, CompsService:37, ScoutService:28, ProspectService:23, RepricingService:42, EbayPublishService:14, GradingService:17, ListingCopyService:49 (aiSession), NegotiationDraftService:46 (aiSession), AnalyticsNarrativeService:53 (aiSession)",
+        "EbayCategorySpecificsView .failed phase (EbayCategorySpecificsView.swift:29-33 / SpecificsEditorModel.swift:221) renders the canonical ErrorStateView with an in-place retry (model gains a reload()), replacing the bare non-retryable Label",
+        "A CI lint (extend Scripts or ios-ci.yml) greps for the default-argument signature `URLSession = .shared` in app sources and fails the build, so the class can't regress",
+        "ReconcileIntakeStore.sync() (ReconcileIntakeStore.swift:34) guards on its existing isSyncing flag to prevent overlapping upload loops stranding the progress counter",
+        "Re-entrancy guards (inFlight + guard/defer) added to CommunityInsightsStore.refresh:52, ProfileStore.refresh:51, PlanStore.load:59, ReferralsStore.load:54, RepricingRulesStore.load:33"
+      ],
+      "priority": 1407,
+      "passes": false,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (network-hang sweep). The dominant reject pattern (spinner ~60s / no recovery). Root cause: prior fix patched `URLSession.shared` call-sites but missed the `session: URLSession = .shared` DEFAULT-ARG form in ~11 services. EbayCategorySpecificsView .failed has no retry = stranded."
+    },
+    {
+      "id": "US-1408",
+      "title": "iOS camera: restart capture session after backgrounding/interruption (fix frozen viewfinder)",
+      "description": "As a user/reviewer, I want the camera preview to recover after a phone call, Control Center, or backgrounding, so I never see a permanently black viewfinder with a dead shutter. A classic reproducible reject.",
+      "acceptanceCriteria": [
+        "PhotoIntakeView (PhotoIntakeView.swift:103-143) and BarcodeScanView (BarcodeScanView.swift:32-33) observe @Environment(\\.scenePhase) and restart the session on .active / stop on .background, since the .task does not re-fire on foreground return from a fullScreenCover",
+        "CameraSession observes AVCaptureSession.wasInterruptedNotification / interruptionEndedNotification / runtimeErrorNotification and calls startRunning() again when an interruption (call, Control Center, FaceTime PiP) ends; isRunning reflects real state",
+        "GradedPhotoView 'Save to Photos' denied path (GradedPhotoView.swift:218-224) adds an 'Open Settings' button (UIApplication.openSettingsURLString), matching PhotoIntakeView/SnapView",
+        "Manual verification on a device/simulator: capture, trigger an interruption, return — preview resumes and shutter works"
+      ],
+      "priority": 1408,
+      "passes": false,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (camera/permissions sweep). HIGH — iOS auto-stops AVCaptureSession on background and does not auto-resume; no scenePhase/interruption handling exists today (only ContentView uses scenePhase, for sync). Permission deny/fallback/EXIF/rotate already handled correctly. Mac/simulator-gated verification."
+    },
+    {
+      "id": "US-1409",
+      "title": "iOS grading: drive pending-review & certificate gating from server state, not raw confidence",
+      "description": "As a user/reviewer, I want certified grades to show as certified and be shareable, so a finished grade never looks 'stuck pending review' or hides its Share button. Fixes the client/server review-state divergence.",
+      "acceptanceCriteria": [
+        "GradeReportView (GradeReportView.swift:22-46) derives pendingReview from an authoritative server signal (certificateId/certificate_url presence or a review_status/finalized field) instead of GradeScale.requiresReview(confidence) at threshold 0.75, so a human-approved <0.75 grade with a real certificate shows Certified and keeps its Share Certificate button",
+        "LocalInventoryItem.isGradePendingReview (LocalInventoryItem.swift:165-167) is driven by an explicit synced server review-status field rather than 'graded && certificateURL isEmpty', so legitimately cert-withheld (moderation US-484) or supersede-nulled grades are not shown 'Pending review' forever or excluded from counts",
+        "GradeRequestStore optimistic stamp (GradeRequestStore.swift:267-279) bases the provisional pending flag on server review state, so a just-completed certified grade doesn't momentarily present as pending on the canvas",
+        "Sync/decode carries the server review-status field into the iOS model; unit test covers approved-low-confidence and cert-withheld cases",
+        "GradeRequestStore poll window comment/maxPolls reconciled (GradeRequestStore.swift:71,261 — comment says ~2min, maxPolls=40 is ~5min): either lower maxPolls to ~22 or correct the comment"
+      ],
+      "priority": 1409,
+      "passes": false,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (grading-journey sweep). Root class: client re-derives review state from confidence/missing-cert-URL. Live request flow (terminal states, cancel-on-dismiss, decode tolerance) already sound; iOS displays server overall_score (no client rounding)."
+    },
+    {
+      "id": "US-1410",
+      "title": "iOS: fix cold-launch deep-link / App Intent / onboarding route drops & cover collisions",
+      "description": "As a user/reviewer launching from Siri/Shortcuts, a widget, or a universal link on a fresh install, I want to land on the intended screen, so declared shortcuts and links never no-op. Apple exercises App Shortcuts and deep links.",
+      "acceptanceCriteria": [
+        "App Intents (GradeThreadAppIntents.swift:34,50) that post DeepLinkRouter routes persist the last route (UserDefaults/App Group) in DeepLinkRouter.post; ContentView's startup .task (ContentView.swift:209-215,242-259) drains and replays any pending route after auth, then clears it — so 'Snap to value' on cold launch opens the camera, not a bare dashboard",
+        "A deep link arriving while the first-run onboarding fullScreenCover is up (ContentView.swift:73-88,216-227) is queued and replayed AFTER consumeOnboardingFirstAction (or dismisses onboarding), instead of being clobbered",
+        "The sharedIntakeBatch and planStep fullScreenCovers on MainShell (ContentView.swift:643-660) are serialized into a single enum-driven cover so a fresh sign-in that triggers both doesn't strand one (reachable when a reviewer shares photos into a new account)",
+        "Widget getSnapshot (GradeThreadWidget.swift:49-54) falls back to .signedOut() (not the fake $312 .placeholder) for a real non-preview signed-out user, matching getTimeline",
+        "@SceneStorage('shell.focusedItemId') (ContentView.swift:869-880,889-967) is keyed by section (or stores the owning section) so multi-tab scene restoration re-pushes the item onto the correct stack"
+      ],
+      "priority": 1410,
+      "passes": false,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (iPad/scene/deeplink sweep). Two HIGH cold-launch dead-ends + cover collision + widget fake-data. Warm-path deep links, AASA, orientation, share-extension edge cases already correct. Scene-restoration verification is Mac/Stage-Manager-gated."
+    },
+    {
+      "id": "US-1411",
+      "title": "iOS accessibility: VoiceOver actions, Dynamic Type icons, and 44pt tap targets",
+      "description": "As a VoiceOver/Switch Control/large-text user (and reviewer), I want every action reachable, labeled, scalable, and tappable, so the app passes accessibility review. Apple rejects for these.",
+      "acceptanceCriteria": [
+        "AutoListerView photo actions (AutoListerView.swift:218,222-262) currently only in .contextMenu are mirrored via .accessibilityActions so VoiceOver/Switch Control can reach cover/rotate/split/move/remove (pattern exists in EbayAccountsView.swift:181)",
+        "Fixed-size status/card glyphs route through the existing scaledIconFont helper: EbaySyncModal.swift:100,148,184; MarketplacesView.swift:193-198,399-404,431-436,481-483; EbayCategorySpecificsView.swift:285 provenance badge",
+        "EbaySyncModal phase swaps (98/146/176) add .accessibilityAddTraits(.isModal) and announce completion/failure via the existing A11yAnnounce helper (WCAG 4.1.3)",
+        "Sub-44pt tap targets get .frame(minHeight:44) or brand button styles: MarketplacesView.swift:565-602 (Sync/Reconnect/Disconnect), EbaySyncModal.swift:131/163/198 (Done/Close/retry), MoneyView.swift:429-437 (Add expense)",
+        "RepricingRulesView rule rows (RepricingRulesView.swift:129,187) become Buttons with labeled toggles; RuleEditorSheet floor-price field (RuleEditorSheet.swift:101-109) gets an accessibilityLabel, the currency symbol is accessibilityHidden, and the fixed maxWidth no longer clips at AX text sizes; RepricingView chips (RepricingView.swift:85-101) combine icon+count"
+      ],
+      "priority": 1411,
+      "passes": false,
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (accessibility sweep). Marketplace OAuth/publish/money math all clean. Most fixes route through the app's own existing helpers (scaledIconFont, A11yAnnounce, .accessibilityActions, 44pt brand button styles). Mac/simulator VoiceOver verification recommended."
+    },
+    {
+      "id": "US-1412",
+      "title": "iOS hardening: release-config launch-crash gate, URL force-unwrap, BG-refresh timeout, NaN guard",
+      "description": "As the team, I want the remaining lower-severity crash/robustness gaps closed so a misconfigured archive or edge input can't crash on launch or strand background work.",
+      "acceptanceCriteria": [
+        "A CI/release assertion (fastlane release lane or ios-ci) fails the build if the prod Release xcconfig ships placeholder/missing SUPABASE_URL/ANON_KEY/EDGE_API_URL, since AppConfig.swift:13/26/35 fatalError on launch otherwise (100% launch crash = immediate reject)",
+        "ReconcileIntakeService.swift:115 replaces `components.url!` with a guard let / StorageURL.object(...) so a URL-illegal id can't trap (the only force-unwrapped components.url in the app)",
+        "BackgroundRefreshService (BackgroundRefreshService.swift:143-166) enforces its declared budgetSeconds=25 by racing engine.sync() against a timeout, so a non-cooperative sync yields before the OS kill and the app isn't throttled out of future BG slots",
+        "MoneyMath.decimal (MoneyMath.swift:21) guards `dollars.isFinite` before Decimal(dollars) to prevent latent NaN propagation",
+        "TagPhotoQuality.swift:24-27 stale comment corrected (1600px, not 2048px)"
+      ],
+      "priority": 1412,
+      "passes": false,
+      "notes": "[P2][iOS] From 2026-06-30 audit (crash sweep + misc). Codebase is defensively clean (Tolerant enum decode, StorageURL nil-safe, bounds checks, FP div->nan). Highest-value item is the release-config gate: the most likely real source of any reviewer 'crashes on launch' report is a misconfigured Release build."
     }
   ]
 }
