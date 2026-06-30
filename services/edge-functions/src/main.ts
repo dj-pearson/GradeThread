@@ -601,6 +601,13 @@ app.use("/api/passport/tag/*", rateLimiter(20, 60_000, "passport-tag", undefined
 // append) + the candidate-match service (US-1098) — capped per-IP on top of the
 // auth + tenant scoping.
 app.use("/api/passport/garments/*", rateLimiter(30, 60_000, "passport-garments", undefined, { methods: ["POST"] }));
+// US-1420: the PUBLIC, unauthenticated chain read (GET /:slug) fans out into ~6
+// uncached DB queries per request, so cap it per-IP and fail-closed — consistent
+// with its abusable siblings above — so a flood can't drive unbounded DB load.
+// GET-only, so it never double-limits the POST /claim or the /garments writes
+// (those carry their own limiters); the single-segment `:slug` match also never
+// reaches the multi-segment /tag/* and /garments/* paths.
+app.use("/api/passport/:slug", rateLimiter(20, 60_000, "passport-read", undefined, { failClosed: true, methods: ["GET"] }));
 // US-1105: identity-reveal management (authed) — capped per-IP on top of auth.
 app.use("/api/passport-identity/*", rateLimiter(30, 60_000, "passport-identity"));
 // US-884: the grade cap is read through the DB-backed settings registry

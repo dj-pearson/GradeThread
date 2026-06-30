@@ -7922,8 +7922,8 @@
         "Keep the existing empty-state copy for the genuinely-empty case."
       ],
       "priority": 2197,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/price-suggestions.tsx:64-89."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/price-suggestions.tsx:64-89. IMPLEMENTED 2026-06-30: src/pages/price-suggestions.tsx migrated from the legacy useEffect/useState fetch to useQuery + <QueryBoundary> (matching inventory.tsx). The queryFn throws on any of the four Supabase { error } responses so a failed load routes to <ErrorState> (retry wired to refetch, isRetrying=isFetching) instead of an empty table; the genuinely-empty case keeps its existing \"No active inventory items\" copy. The not-ready (no workspace owner) window is treated as loading."
     },
     {
       "id": "US-1419",
@@ -7947,8 +7947,8 @@
         "Ensure the new limiter does not double-limit /claim, /tag/*, /garments/*."
       ],
       "priority": 2195,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · edge · edge audit] Evidence: services/edge-functions/src/routes/passport.ts:87-251; main.ts:598-603,809."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · edge · edge audit] Evidence: services/edge-functions/src/routes/passport.ts:87-251; main.ts:598-603,809. IMPLEMENTED 2026-06-30: GET /api/passport/:slug now has a per-IP, fail-closed limiter (rateLimiter(20,60s,\"passport-read\",{failClosed,methods:[GET]})) in main.ts, GET-only + single-segment :slug so it never double-limits POST /claim, /tag/*, or /garments/* (AC3). Added a short per-replica in-memory TtlCache (30s, bounded+evicting) in passport.ts that caches only successful PII-free chain responses, so a same-slug flood is served from memory instead of re-running the ~6-query fan-out (AC2). Unit coverage for TtlCache in tests/passport_test.ts."
     },
     {
       "id": "US-1421",
@@ -8063,8 +8063,8 @@
         "Add a test asserting each link resolves to the intended filtered view."
       ],
       "priority": 2186,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/pages/flipdesk/overview.tsx:297-322,348-355; pipeline.tsx:677; listings.tsx:398-401."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/pages/flipdesk/overview.tsx:297-322,348-355; pipeline.tsx:677; listings.tsx:398-401. IMPLEMENTED 2026-06-30: the inventory triage table (listings.tsx) now reads ?status= and maps it to the matching tab via a new pure statusParamToTab() (extracted to src/pages/flipdesk/inventory-tabs.ts so unit tests don't drag the heavy page into coverage). ?tab= still wins; ?status= falls through to it; else default. Overview \"Total items\" card switched from the no-op ?view=all to ?status=all; the pipeline-grid, stat-card, and Kanban \"+N more\" ?status= links now all resolve. Also added the mid-grade \"grading\" stage to TO_LIST_STATUSES so it isn't stranded out of To List (matching the tab's stated intent). Test (status-param-to-tab.test.ts) asserts every FLIPDESK_PIPELINE + stat-card status resolves to the intended tab."
     },
     {
       "id": "US-1430",
@@ -8076,8 +8076,8 @@
         "Validate the target is an internal path before redirecting."
       ],
       "priority": 2100,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/components/auth/protected-route.tsx:18-20; src/pages/login.tsx:48-49."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/components/auth/protected-route.tsx:18-20; src/pages/login.tsx:48-49. IMPLEMENTED 2026-06-30: ProtectedRoute now redirects an unauthenticated deep-link to /login?next=<path+search>. LoginPage reads & validates ?next= (new sanitizeReturnTo in src/lib/return-to.ts — rejects //host, /\\host, encoded-slash, absolute URLs, control chars, and auth surfaces) and navigates there on email sign-in (invite flow still special-cased), falling back to /dashboard. OAuth (Google/Apple) stashes the validated next in sessionStorage (RETURN_TO_KEY) since the provider round-trip drops the query param; auth-callback consumes + clears it after the invite check. Test (return-to.test.ts) covers the open-redirect guard."
     },
     {
       "id": "US-1431",

@@ -111,6 +111,7 @@ import {
   type FilterQuery,
 } from "@/lib/item-filter";
 import { downloadItemsCsv } from "@/lib/items-csv";
+import { type TabId, statusParamToTab } from "@/pages/flipdesk/inventory-tabs";
 import {
   useEbayConnection,
   useEbayEndListing,
@@ -127,15 +128,6 @@ import type {
   ListingInsert,
   ListingPlatform,
 } from "@/types/database";
-
-type TabId =
-  | "all"
-  | "to_list"
-  | "drafts"
-  | "active"
-  | "sold"
-  | "shipped"
-  | "returned";
 
 type SortPreset = "listability" | "oldest" | "best_roi" | "highest_comp";
 type SoldFilter = "all" | "awaiting_payout" | "discrepancy" | "d7" | "d30" | "ytd";
@@ -166,6 +158,10 @@ const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set([
   "cataloged",
   "measured",
   "photographed",
+  // US-1429: `grading` (mid-grade) is a pre-listed prep stage too — include it
+  // so an item being graded isn't stranded out of To List (and so an Overview
+  // "?status=grading" deep-link lands on a tab that actually shows it).
+  "grading",
   "graded",
   "comped",
 ]);
@@ -395,10 +391,14 @@ export function FlipdeskListingsPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get("tab") as TabId) ?? "to_list";
-  const [tab, setTab] = useState<TabId>(
-    TABS.some((t) => t.id === initialTab) ? initialTab : "to_list",
-  );
+  // US-1429: an explicit `?tab=` wins; otherwise honor a `?status=` deep-link
+  // from Overview/Kanban by mapping it onto the matching tab; else default.
+  const tabParam = searchParams.get("tab") as TabId | null;
+  const initialTab: TabId =
+    tabParam && TABS.some((t) => t.id === tabParam)
+      ? tabParam
+      : statusParamToTab(searchParams.get("status")) ?? "to_list";
+  const [tab, setTab] = useState<TabId>(initialTab);
   // US-958: search lives in the URL (`?q=`) so it survives switching between
   // the unified Inventory view modes (table/grid/kanban).
   const [search, setSearch] = useUrlParamState("q", "");

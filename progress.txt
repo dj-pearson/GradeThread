@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-20
+# Last updated: 2026-06-30
 
 ## Completed Stories
 
@@ -6427,3 +6427,88 @@ to convention but UNCOMPILED (macOS-only); macOS iOS CI is the compile/test net.
 
 Open prd.json stories now 7 (down from 9): US-1153, US-1155, US-1157, US-1165,
 US-1167, US-1177, US-1221.
+
+## 2026-06-30 — Pre-launch audit batch (US-1418, US-1420) + CI unblock
+
+Two HIGH pre-launch-audit stories, quality-first, plus a CI-blocking regression fix.
+
+- US-1418 Price Suggestions error/failure state — NOW COMPLETE (passes:true).
+  src/pages/price-suggestions.tsx migrated off the legacy useEffect/useState
+  fetch (which ignored the { error } of all four Supabase calls and rendered a
+  failed load as an empty "no suggestions" table) to useQuery + <QueryBoundary>,
+  matching inventory.tsx. The queryFn THROWS on any { error } so an outage routes
+  to <ErrorState> (retry = refetch, isRetrying = isFetching) instead of an empty
+  table (AC2); the genuinely-empty case keeps its existing "No active inventory
+  items" copy (AC3). The not-ready window (no workspace owner yet) is treated as
+  loading, not empty.
+
+- US-1420 Rate-limit + cache the public passport chain read — NOW COMPLETE
+  (passes:true). main.ts adds a per-IP, fail-closed limiter on GET
+  /api/passport/:slug (rateLimiter(20, 60s, "passport-read", { failClosed,
+  methods:["GET"] })) consistent with the tag/claim budgets (AC1). GET-only +
+  the single-segment :slug match means it never double-limits POST /claim or the
+  multi-segment /tag/* and /garments/* paths (AC3). passport.ts adds a short
+  per-replica in-memory TtlCache (30s TTL, bounded with eviction) that caches
+  ONLY successful PII-free chain responses, so a same-slug flood is served from
+  memory instead of re-running the ~6-query fan-out (AC2). Bogus-slug floods miss
+  the cache and are governed by the limiter. New TtlCache unit coverage in
+  tests/passport_test.ts.
+
+- CI unblock (not a story): the latest main commit (US-1416) introduced a tsc
+  error in src/pages/submission-detail.tsx — disputePhotos[i] is File|undefined
+  under noUncheckedIndexedAccess. CI on main went red at e8aeb64. Added a
+  `if (!photo) continue;` guard so `npx tsc -b` is clean again.
+
+VERIFICATION (this container): frontend gate fully green — eslint (0 errors),
+`npx tsc -b` clean, vitest 985 pass / 3 skipped with coverage above all floors
+(stmts 75.5/72, branches 65.43/65, funcs 74.38/68, lines 77.4/72), `npm run
+build` + bundle-budget guard OK. Edge: `deno lint` clean on the changed files;
+the TtlCache class was type-checked and runtime-asserted standalone via deno.
+`deno check`/`deno test` could NOT run here (egress policy blocks esm.sh +
+deno.land/x, so hono/supabase/std don't resolve) — the new limiter line copies
+the exact shape of the existing passport limiters, and edge CI (security.yml
+deno-check) type-checks + runs the passport tests. One pre-existing flaky
+unhandled web-vitals error in analytics.test.ts (untouched) is unrelated.
+
+Open prd.json stories now 157 (down from 159).
+
+## 2026-06-30 — Pre-launch audit batch 2 (US-1429, US-1430)
+
+Two more pre-launch-audit stories, quality-first, both fully unit-tested.
+
+- US-1429 Overview/Kanban stage links actually filter the Inventory table —
+  NOW COMPLETE (passes:true). The Overview pipeline grid, stat cards, and Kanban
+  "+N more" navigated with ?status=<stage>, but the triage table (the default
+  inventory mode, listings.tsx) only read ?tab/q/sort/filter — so every such
+  link landed on the default tab. Added a pure statusParamToTab() mapping
+  (extracted to src/pages/flipdesk/inventory-tabs.ts with the TabId type — kept
+  OUT of the 2.5k-line listings.tsx so importing it for a test doesn't drag the
+  whole page into the coverage denominator) and wired it into the table's
+  initialTab (explicit ?tab= still wins; ?status= maps in; else default). Fixed
+  the Overview "Total items" card's no-op ?view=all → ?status=all. Also folded
+  the mid-grade `grading` stage into TO_LIST_STATUSES so it isn't stranded out
+  of To List (the tab's own comment says every pre-listed stage belongs there),
+  which also makes a ?status=grading link land on a tab that shows it. Test:
+  status-param-to-tab.test.ts asserts every FLIPDESK_PIPELINE stage + each
+  stat-card status resolves to the intended tab.
+
+- US-1430 Preserve the attempted URL through the login redirect — NOW COMPLETE
+  (passes:true). ProtectedRoute now captures the attempted location and redirects
+  to /login?next=<path+search> instead of a bare /login. New src/lib/return-to.ts
+  exports sanitizeReturnTo() — an open-redirect guard that accepts only same-
+  origin internal paths (rejecting //host, /\host, encoded-slash, absolute URLs,
+  control chars, and auth surfaces) — plus RETURN_TO_KEY. LoginPage navigates to
+  the validated next on email sign-in (invite flow still special-cased), falling
+  back to /dashboard; for OAuth it stashes next in sessionStorage (the provider
+  round-trip drops the query param) and auth-callback consumes + clears it after
+  the invite check. Test: return-to.test.ts covers the guard.
+
+VERIFICATION (this container): frontend gate fully green — eslint (0 errors, 0
+new warnings), `npx tsc -b` clean, vitest 1003 pass with coverage above all
+floors (stmts 75.56/72, branches 65.68/65, funcs 74.36/68, lines 77.46/72),
+`npm run build` + bundle-budget OK. No edge changes this batch. (Note: the
+extraction to inventory-tabs.ts was specifically to keep coverage honest — a
+first pass that imported listings.tsx directly collapsed the coverage % by
+pulling the page's whole module graph into the denominator.)
+
+Open prd.json stories now 155 (down from 157).

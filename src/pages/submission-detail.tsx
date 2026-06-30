@@ -451,6 +451,7 @@ export function SubmissionDetailPage() {
         let failures = 0;
         for (let i = 0; i < disputePhotos.length; i++) {
           const photo = disputePhotos[i];
+          if (!photo) continue;
           const ext = photo.name.split(".").pop() ?? "jpg";
           const path = `${folderUserId}/${submission.id}/dispute_${Date.now()}_${i}.${ext}`;
           const { error: uploadError } = await supabase.storage

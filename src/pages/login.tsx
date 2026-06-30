@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithEmail, signInWithGoogle, signInWithApple } from "@/lib/auth";
 import { SIGN_IN_FAILED_MESSAGE } from "@/lib/auth-identity";
+import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,9 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const inviteToken = params.get("invite");
+  // US-1430: the validated deep-link to return to after sign-in (?next=),
+  // falling back to /dashboard. Invite flow keeps its own special-case below.
+  const returnTo = sanitizeReturnTo(params.get("next"));
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -46,7 +50,11 @@ export function LoginPage() {
     setIsLoading(true);
     try {
       await signInWithEmail(email, password, captchaToken ?? undefined);
-      navigate(inviteToken ? `/accept-invite?token=${inviteToken}` : "/dashboard");
+      navigate(
+        inviteToken
+          ? `/accept-invite?token=${inviteToken}`
+          : returnTo ?? "/dashboard",
+      );
     } catch {
       // US-369: a single generic message for ALL sign-in failures so the error
       // text can't be used to enumerate accounts (invalid password vs unknown
@@ -65,8 +73,17 @@ export function LoginPage() {
     }
   }
 
+  // US-1430: the OAuth round-trip drops the URL's `?next=`, so persist the
+  // validated return-to in sessionStorage for the callback to pick up (clear it
+  // when there's none so a stale value from an earlier attempt can't leak in).
+  function rememberReturnTo() {
+    if (returnTo) sessionStorage.setItem(RETURN_TO_KEY, returnTo);
+    else sessionStorage.removeItem(RETURN_TO_KEY);
+  }
+
   async function handleGoogleSignIn() {
     try {
+      rememberReturnTo();
       await signInWithGoogle();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to sign in with Google");
@@ -75,6 +92,7 @@ export function LoginPage() {
 
   async function handleAppleSignIn() {
     try {
+      rememberReturnTo();
       await signInWithApple();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to sign in with Apple");
