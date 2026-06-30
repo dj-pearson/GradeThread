@@ -2137,6 +2137,33 @@ export async function withdrawOffer(
   );
 }
 
+// A withdrawOffer / end-listing call can legitimately fail because the eBay
+// listing is ALREADY not live — the seller ended it on eBay, eBay removed it
+// for a policy issue, or a prior end already withdrew it. eBay then refuses the
+// withdraw (4xx, "offer not published" / not found), but the END is effectively
+// already done, so callers should treat it as success and reconcile locally
+// rather than leaving the listing stuck "active".
+//
+// We deliberately distinguish that from a TRANSIENT failure (rate-limit 429 or
+// an eBay 5xx) where the live state is still unknown — there the caller should
+// surface a retry instead of marking the listing ended. Any other 4xx on a
+// withdraw of a known offerId means eBay won't withdraw it, which only happens
+// when the listing is no longer live.
+export function isOfferAlreadyEndedError(err: unknown): boolean {
+  const e = err as { status?: number; message?: string } | null;
+  if (!e) return false;
+  const status = typeof e.status === "number" ? e.status : 0;
+  // Transient / unknown live-state — do NOT treat as already-ended.
+  if (status === 429 || status >= 500) return false;
+  // Any 4xx on a withdraw of a known offer = not in a withdraw-able (live) state.
+  if (status >= 400 && status < 500) return true;
+  // Non-HTTP error (no numeric status) — fall back to a message match.
+  const msg = (e.message ?? "").toLowerCase();
+  return /not published|not found|no active|already ended|cannot be withdrawn|does not exist|not\s+live/.test(
+    msg,
+  );
+}
+
 // US-568: multi-variant (size/color) listings. eBay models them as an
 // inventory_item_group: each variant is its own inventory_item (SKU) carrying
 // the variation aspects, and the group ties them together with the shared

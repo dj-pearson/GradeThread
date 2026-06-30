@@ -55,6 +55,7 @@ import {
   EBAY_BULK_MAX,
   upsertConnection,
   withdrawOffer,
+  isOfferAlreadyEndedError,
   findEligibleNegotiationItems,
   getBrowseItemByLegacyId,
   sendOfferToInterestedBuyers,
@@ -1590,8 +1591,32 @@ async function doListingsPull(
 
   for (const o of offers) {
     try {
-      // Drafts (unpublished offers) have no listingId yet — skip in this pass.
+      // No live listingId on this offer. Normally that's a genuine draft
+      // (unpublished offer) — skip. BUT if we still hold a LIVE local listing
+      // for this SKU, eBay just told us it's no longer live: the listing ended,
+      // sold out, or was REMOVED BY EBAY for a policy issue (eBay drops a
+      // policy-removed listing out of the active feed, so it returns with no
+      // listingId). Reconcile it to ended so Path A (below) drops the item back
+      // to Drafts and it becomes relistable, instead of leaving it stuck
+      // "active" forever. Gate on an existing ACTIVE local row so a legitimately
+      // unpublished draft is never touched.
       if (!o.listingId) {
+        const goneItemId = o.sku ? skuToItemId.get(o.sku) ?? null : null;
+        const goneExisting = goneItemId
+          ? existingListingByItem.get(goneItemId) ?? null
+          : null;
+        if (
+          goneItemId &&
+          goneExisting &&
+          (goneExisting.is_active === true ||
+            goneExisting.listing_status === "active")
+        ) {
+          applyListingPatch(ensurePendingListing(goneItemId), {
+            listing_status: "ended",
+            is_active: false,
+          });
+          endedItemIds.add(goneItemId);
+        }
         skipped += 1;
         continue;
       }
@@ -2533,6 +2558,22 @@ async function doListingsPull(
         | undefined;
       if (row) {
         endedToDraft += 1;
+        // Record a seller-facing reason on the listing so the Drafts surface can
+        // explain WHY it reappeared (it ended, sold out, or was removed by eBay
+        // for a policy issue) and prompt a relist. Stored in publish_error (no
+        // schema change); cleared automatically on the next successful publish.
+        // Scoped to this owner's ebay listing for the item — and we don't stomp
+        // a more specific publish-failure message already on the row.
+        await supabaseAdmin
+          .from("listings")
+          .update({
+            publish_error:
+              "eBay shows this listing is no longer active — it may have ended, sold out, or been removed by eBay (e.g. a policy issue). Review the item and relist when ready.",
+            publish_failed_at: new Date().toISOString(),
+          })
+          .eq("inventory_item_id", itemId)
+          .eq("platform", "ebay")
+          .is("publish_error", null);
         // US-737 / US-1054: real status transition (listed → drafted), fires once
         // (the .select() above returns the row only when the update applied).
         void notifyListingEnded(userId, { itemTitle: row.title, itemId });
@@ -4597,28 +4638,40 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
 
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
-  if (!row.listing.platform_offer_id) {
-    return c.json(
-      {
-        error:
-          "This listing has no eBay offer id. Sync from eBay to enable remote end.",
-      },
-      409
-    );
-  }
 
-  try {
-    await withdrawOffer(userId, row.listing.platform_offer_id);
-  } catch (err) {
-    console.error("[flipdesk-ebay] withdrawOffer failed:", err);
-    return c.json(
-      {
-        error: "eBay rejected the end-listing call.",
-        detail:
-          err instanceof Error ? err.message.slice(0, 500) : String(err),
-      },
-      502
-    );
+  // Best-effort withdraw of the live eBay offer, then ALWAYS reconcile the local
+  // row to ended. A withdraw can legitimately fail because the listing is already
+  // not live — the seller ended it on eBay, eBay removed it for a policy issue,
+  // or a prior end already withdrew it. Previously that threw a 502 and left the
+  // row stuck "active", so "End"/"Relist" became no-ops on a policy-removed
+  // listing. Now only a TRANSIENT failure (rate-limit / eBay 5xx) blocks the end
+  // so the user can retry; an already-not-live offer reconciles locally.
+  let endedOnEbay = false;
+  let note: string | null = null;
+  if (row.listing.platform_offer_id) {
+    try {
+      await withdrawOffer(userId, row.listing.platform_offer_id);
+      endedOnEbay = true;
+    } catch (err) {
+      if (!isOfferAlreadyEndedError(err)) {
+        console.error("[flipdesk-ebay] withdrawOffer failed (transient):", err);
+        return c.json(
+          {
+            error: "eBay rejected the end-listing call. Please try again.",
+            detail:
+              err instanceof Error ? err.message.slice(0, 500) : String(err),
+          },
+          502
+        );
+      }
+      note = "eBay shows this listing was already inactive; ended in FlipDesk.";
+      console.warn(
+        "[flipdesk-ebay] end: offer already not live, reconciling locally:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  } else {
+    note = "No eBay offer was linked; ended in FlipDesk only.";
   }
 
   await supabaseAdmin
@@ -4626,12 +4679,15 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
     .update({ listing_status: "ended", is_active: false })
     .eq("id", listingId);
   // Move the item back to drafted so the user can relist if they want.
-  await supabaseAdmin
-    .from("inventory_items")
-    .update({ status: "drafted" })
-    .eq("id", row.listing.inventory_item_id);
+  if (row.listing.inventory_item_id) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ status: "drafted" })
+      .eq("id", row.listing.inventory_item_id)
+      .eq("user_id", userId);
+  }
 
-  return c.json({ ok: true, listing_id: listingId });
+  return c.json({ ok: true, listing_id: listingId, ended_on_ebay: endedOnEbay, note });
 });
 
 flipdeskEbayRoutes.post("/listings/validate", async (c) => {
@@ -4801,12 +4857,17 @@ export async function publishItemForOwner(
     return { ok: false, status: 422, body: { ok: false, blockers: [reachBlocker] } };
   }
 
-  // Relist (end-old-then-relist): when the caller asks to relist and this item
-  // still has a LIVE eBay listing, withdraw it first so the publish below mints
-  // a brand-new listing id instead of publishOrAdoptOffer (US-464) adopting the
-  // still-live one. eBay only allows one live offer per SKU, so we end the old
-  // listing rather than create a duplicate. Best-effort: an already-ended offer
-  // throws here, which is fine — we just want it not-live before re-publishing.
+  // Relist (end-old-then-relist): when the caller asks to relist, withdraw any
+  // existing offer first so the publish below mints a brand-new listing id
+  // instead of publishOrAdoptOffer (US-464) adopting a stale/removed one. eBay
+  // only allows one live offer per SKU, so we end the old listing rather than
+  // create a duplicate. We attempt the withdraw whenever an offer id exists —
+  // NOT only when our local row still reads "active" — because a listing eBay
+  // removed for a policy issue (or one the seller ended on eBay) can still read
+  // active locally yet must be withdrawn before a fresh publish; conversely a
+  // stale offer the row already thinks ended must still be cleared. An
+  // already-not-live offer throws here, which is expected (isOfferAlreadyEnded);
+  // only an unexpected/transient failure is worth logging loudly.
   if (opts.relist) {
     const { data: liveRow } = await supabaseAdmin
       .from("listings")
@@ -4819,19 +4880,19 @@ export async function publishItemForOwner(
     const live = liveRow as
       | { platform_offer_id: string | null; is_active: boolean | null; listing_status: string | null }
       | null;
-    const stillLive =
-      !!live?.platform_offer_id &&
-      (live.is_active === true || live.listing_status === "active");
-    if (stillLive && live?.platform_offer_id) {
+    if (live?.platform_offer_id) {
       try {
         await withdrawOffer(ownerId, live.platform_offer_id);
       } catch (err) {
-        // Already ended / not found → proceed. A real failure (still genuinely
-        // live) would surface on publish as an adopt instead of a fresh listing.
-        console.warn(
-          "[flipdesk-ebay] relist: withdrawOffer before re-publish failed (continuing):",
-          err instanceof Error ? err.message : String(err),
-        );
+        if (!isOfferAlreadyEndedError(err)) {
+          // Unexpected failure — proceed anyway; publish will adopt rather than
+          // mint a fresh listing, which the caller can re-run.
+          console.warn(
+            "[flipdesk-ebay] relist: withdrawOffer before re-publish failed (continuing):",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        // Already-not-live offer → nothing to withdraw; continue to re-publish.
       }
     }
   }

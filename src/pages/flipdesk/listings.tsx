@@ -13,6 +13,7 @@ import {
   Upload,
   Clock,
   AlertCircle,
+  AlertTriangle,
   FileText,
   Loader2,
   Truck,
@@ -614,6 +615,36 @@ export function FlipdeskListingsPage() {
           status: row.listing_status,
         });
         map.set(row.inventory_item_id, arr);
+      }
+      return map;
+    },
+  });
+
+  // Per-item "needs attention" reason for eBay listings the sync (or an end)
+  // moved back to Drafts because eBay no longer shows them active — ended, sold
+  // out, or removed for a policy issue. The edge stores the reason in
+  // listings.publish_error; we surface it as a warning on the Drafts row so the
+  // seller knows why it reappeared and can review + relist. Lightweight direct
+  // read (RLS-scoped) rather than widening the items_full view.
+  const { data: publishIssuesByItem } = useQuery({
+    queryKey: ["items_full", "listings", "publish_issues", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, string>> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("inventory_item_id, publish_error")
+        .eq("platform", "ebay")
+        .not("publish_error", "is", null);
+      if (error) throw error;
+      const map = new Map<string, string>();
+      for (const row of (data ?? []) as Array<{
+        inventory_item_id: string | null;
+        publish_error: string | null;
+      }>) {
+        if (row.inventory_item_id && row.publish_error) {
+          map.set(row.inventory_item_id, row.publish_error);
+        }
       }
       return map;
     },
@@ -2465,6 +2496,18 @@ export function FlipdeskListingsPage() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="flex items-center justify-end gap-1">
+                                {(() => {
+                                  const issue = publishIssuesByItem?.get(it.id);
+                                  return issue ? (
+                                    <span
+                                      title={issue}
+                                      className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                                    >
+                                      <AlertTriangle className="h-3 w-3" />
+                                      eBay inactive — review &amp; relist
+                                    </span>
+                                  ) : null;
+                                })()}
                                 {(() => {
                                   const isRelist = it.listing_status === "ended";
                                   if (ebayConnection) {
