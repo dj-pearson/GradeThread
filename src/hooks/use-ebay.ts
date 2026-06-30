@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -229,13 +230,15 @@ export function useCreateEbayLocation() {
 // edgeAuthHeaders() from @/lib/edge-fetch, which also attaches the
 // X-Workspace-Owner header.
 async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  // getFreshAccessToken() refreshes a near-expiry token before we send it, so an
+  // eBay edge call made just past the 1h token boundary doesn't 401 into a
+  // spurious "session expired" (these fetch sites don't have edgeFetch's
+  // 401-retry backstop, so the proactive refresh is what keeps them alive).
+  const token = await getFreshAccessToken();
+  if (!token) {
     throw new Error("You must be signed in.");
   }
-  return `Bearer ${session.access_token}`;
+  return `Bearer ${token}`;
 }
 
 // Returns Authorization + X-Workspace-Owner so eBay endpoints scope to the

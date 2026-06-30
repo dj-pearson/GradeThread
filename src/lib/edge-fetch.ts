@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import { getFreshAccessToken, forceRefreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
 import { useAuthStore } from "@/stores/auth-store";
@@ -53,14 +53,12 @@ export interface EdgeFetchOptions extends RequestInit {
 export async function edgeAuthHeaders(
   contentType: string | null = "application/json",
 ): Promise<Record<string, string>> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  const token = await getFreshAccessToken();
+  if (!token) {
     throw new Error("You must be signed in.");
   }
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${session.access_token}`,
+    Authorization: `Bearer ${token}`,
   };
   if (contentType) headers["Content-Type"] = contentType;
   const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
@@ -75,14 +73,13 @@ export async function edgeFetch(
 ): Promise<Response> {
   const headers = new Headers(opts.headers);
 
-  if (!opts.unauthenticated) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) {
+  const authed = !opts.unauthenticated;
+  if (authed) {
+    const token = await getFreshAccessToken();
+    if (!token) {
       throw new Error("You must be signed in.");
     }
-    headers.set("Authorization", `Bearer ${session.access_token}`);
+    headers.set("Authorization", `Bearer ${token}`);
 
     // Forward the active workspace so edge routes can scope writes to the
     // correct tenant (owner_id). For solo users this is identical to their
@@ -103,7 +100,20 @@ export async function edgeFetch(
   }
 
   const url = path.startsWith("http") ? path : `${edgeApiUrl()}${path}`;
-  const res = await fetch(url, { ...opts, headers, body });
+  let res = await fetch(url, { ...opts, headers, body });
+
+  // One forced token-refresh + retry on a 401 from an authenticated request.
+  // The access token lapsed (the SDK's auto-refresh timer is suspended while the
+  // tab is backgrounded / device asleep) and the edge rejected it. Refresh once
+  // and retry with the fresh token so an active user isn't dead-ended on
+  // "session expired" at the 1h access-token boundary — mirrors iOS US-1146.
+  if (res.status === 401 && authed) {
+    const fresh = await forceRefreshAccessToken();
+    if (fresh) {
+      headers.set("Authorization", `Bearer ${fresh}`);
+      res = await fetch(url, { ...opts, headers, body });
+    }
+  }
 
   if (!opts.silentGate) {
     const warn = res.headers.get("X-Plan-Warning");

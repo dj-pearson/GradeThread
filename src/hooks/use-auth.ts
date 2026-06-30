@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
+import { initIdleLogout } from "@/lib/idle-logout";
 import type {
   UserRow,
   WorkspaceMemberRow,
@@ -141,6 +142,10 @@ export async function refreshAuthProfile(): Promise<void> {
 function initAuth() {
   if (authInitialized) return;
   authInitialized = true;
+
+  // Web-only 12h idle auto-logout (iOS stays long-lived via GoTrue). Safe to
+  // start before the session hydrates — it gates on the store's session.
+  initIdleLogout();
 
   const store = useAuthStore.getState();
   supabase.auth.getSession().then(({ data: { session } }) => {

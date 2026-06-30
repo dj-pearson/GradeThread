@@ -54,7 +54,14 @@ public enum SupabaseShared {
     /// tripping an idle timeout regardless.
     private static let boundedSession: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 20
+        // 30s (was 20s): this session also backs the Auth client, so it bounds
+        // token REFRESHES too. A 20s idle cap could fail a refresh against a
+        // cold/loaded self-hosted GoTrue as `URLError.timedOut` → the SDK
+        // surfaces it as no session → the app shows a spurious "session expired"
+        // right at the 1h access-token boundary. 30s gives the refresh room
+        // while staying well under URLSession.shared's 60s default (the App
+        // Store 2.1(b) anti-hang reason this session exists at all).
+        config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config)
     }()
 
