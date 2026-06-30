@@ -8024,7 +8024,7 @@
         "Regression test asserting a DB error triggers retry/capture rather than a clean 204."
       ],
       "priority": 2189,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: services/edge-functions/src/routes/flipdesk-webhooks.ts:1155-1168,1174-1188,1211."
     },
     {
@@ -8381,7 +8381,7 @@
         "Test the eBay-withdraw-succeeds / local-update-fails path."
       ],
       "priority": 2076,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-automations.ts:311-319 (vs 285,293)."
     },
     {

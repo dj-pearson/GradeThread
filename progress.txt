@@ -2,6 +2,42 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 8 (US-1426, US-1454) — don't ack false success on write failure
+
+- US-1426 Retry or surface eBay account-deletion deactivation failures instead
+  of acking 204 — NOW COMPLETE (passes:true). The eBay marketplace-account-
+  deletion handler (flipdesk-webhooks.ts) deactivated marketplace_connections
+  (nulling OAuth tokens) but, if those UPDATEs errored, only console.error'd and
+  still returned 204 — so the connection + long-lived refresh token persisted
+  while eBay treated the deletion as acknowledged (compliance + lingering-
+  credential risk). Now collects both deactivation-update errors; new exported
+  helper accountDeletionOutcome(updateErrors) returns 'retry' on ANY error. On
+  'retry' the handler emits a webhook.process_failed metric, captureException
+  (level error), releases the idempotency claim (releaseWebhookEvent — so eBay's
+  retry re-runs the mutation) and returns 500 (eBay retries non-2xx) instead of a
+  clean 204 (AC1/AC2). Regression test account-deletion-retry_test.ts asserts a
+  DB error → 'retry' and clean updates → 'ack' (AC3).
+
+- US-1454 Fix end-listing automation reporting success when local DB writes fail
+  — NOW COMPLETE (passes:true). In applyMatch (flipdesk-automations.ts) the
+  end_listing branch ignored the error from both the listings->ended and
+  inventory_items->drafted updates (unlike price_drop/set_promo_rate), then
+  recorded the action and returned true — so an eBay withdrawOffer success + local
+  write failure left the listing active locally / ended on eBay, logged as
+  applied. Now captures both write errors; new exported helper
+  endListingWritesApplied(...errors) gates the action: on either error the handler
+  logs and returns false BEFORE inserting the flipdesk_automation_actions row
+  (AC1/AC2). Regression test automation-end-listing_test.ts covers the
+  withdraw-succeeds / local-write-fails path (AC3).
+
+VERIFICATION (this container): edge-only batch — no web changes. Deno not
+installable here (proxy 403 on the install script) so the edge lane (deno
+lint/check/test) runs in GitHub Actions; the new pure helpers + their tests were
+written to compile under deno strict and import from the route files (same
+pattern as per-grade-idempotency_test importing routes/payments.ts). Reviewed
+captureException/recordMetric/releaseWebhookEvent signatures against their defs.
+Open prd.json stories now 143.
+
 ## 2026-06-30 — Pre-launch audit batch 7 (US-1480, US-1481) — Google connection hardening
 
 - US-1480 Persist rotated Google refresh tokens on token refresh — NOW COMPLETE
