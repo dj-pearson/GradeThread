@@ -689,6 +689,11 @@ export interface ReviseListingPatch {
   // US-1079: quantity pushes up too — full eBay-owned field coverage.
   quantity?: number;
   photos?: boolean;
+  // US-1490: re-assert the structured eBay-owned fields the seller edited
+  // post-publish — category, condition, and item specifics — which the server
+  // sources from the (already-saved) listing/inventory rows. Lets a
+  // specifics/category/condition-only edit reach a live listing.
+  resync_ebay_fields?: boolean;
 }
 
 export function useEbayReviseListing() {

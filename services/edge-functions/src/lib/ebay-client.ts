@@ -2043,6 +2043,11 @@ export async function updateOfferFields(
     // US-1079: re-assert quantity on the live offer (availableQuantity is the
     // offer field that controls the listed quantity for a single-SKU offer).
     availableQuantity?: number;
+    // US-1490: the eBay leaf category lives on the OFFER (not the inventory
+    // item), so a post-publish category change must be re-asserted here too — a
+    // revise that only re-PUTs the inventory item would leave the live listing
+    // in its original category.
+    categoryId?: string;
   }
 ): Promise<void> {
   const current = await getOffer(userId, offerId);
@@ -2063,6 +2068,10 @@ export async function updateOfferFields(
 
   if (patch.availableQuantity !== undefined) {
     current.availableQuantity = patch.availableQuantity;
+  }
+
+  if (patch.categoryId !== undefined && patch.categoryId) {
+    current.categoryId = patch.categoryId;
   }
 
   await fetchAuthed<unknown>(

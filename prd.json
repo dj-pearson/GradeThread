@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1490,
+  "nextId": 1491,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -8809,6 +8809,20 @@
       "priority": 1971,
       "passes": false,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: billing.tsx:129,146; certificate.tsx:288; new-submission.tsx:324; flipdesk/listings.tsx:494,506,543; pipeline.tsx:187,198; autolister-drafts.tsx:197,413; +~18 more."
+    },
+    {
+      "id": "US-1490",
+      "title": "Edit & resubmit an already-published eBay listing from the web composer (specifics, category, condition, price, photos)",
+      "description": "The web composer could create/publish a listing but had no way to push edits to an ALREADY-published eBay listing. Add a Save-&-Resubmit flow that edits a live listing in place and pushes specifics/category/condition (not just title/price/photos) to eBay.",
+      "acceptanceCriteria": [
+        "The composer detects a live listing (listing_status=active + platform_offer_id) and swaps the Publish action for Save & resubmit to eBay, updating the existing active row in place (never inserting a draft, never flipping listing_status/is_active).",
+        "Resubmit pushes the full eBay-owned field set: title, description, price, photos AND the structured fields category, condition, and item specifics.",
+        "The edge /listings/:id/revise endpoint gains a resync_ebay_fields flag that forces the inventory-item re-PUT (aspects + condition) and re-asserts the category on the live offer; updateOfferFields gains categoryId.",
+        "An Edit eBay listing entry point is available for GradeThread-originated listed items (eBay-originated mirrors remain read-only / link out to eBay)."
+      ],
+      "priority": 2200,
+      "passes": true,
+      "notes": "[FEATURE 2026-06-30 · user-requested] IMPLEMENTED: edge — ebay-client.ts updateOfferFields() gains categoryId (re-asserts the leaf category on the live offer); flipdesk-ebay.ts /listings/:id/revise gains a resync_ebay_fields flag that widens the inventory re-PUT gate (pushing rebuilt aspects + auto-corrected condition) and the offer-update gate (pushing categoryId via the lifted reviseCategoryId), included in the at-least-one validation and the eBay-origin lock. Frontend — useEbayReviseListing ReviseListingPatch gains resync_ebay_fields; composer.tsx detects isLiveListing and renders a live banner + Save & resubmit to eBay, backed by a new saveLiveListing() (updates the active row in place, mirrors category/aspects to the item without regressing status) + handleResubmitClick() (save then revise with photos + resync_ebay_fields); resolveListingFields() shared by the draft and live save paths to avoid drift; item-canvas adds an Edit eBay listing overflow action for GradeThread-originated listed items. VERIFY: frontend eslint/tsc/vitest(1008)/build/bundle all green; deno lint clean on the two edge files (deno check/test blocked by egress here — edge CI is the net)."
     }
   ]
 }

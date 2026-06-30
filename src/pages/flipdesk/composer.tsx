@@ -121,7 +121,11 @@ import {
   ListingFormatControls,
   type ListingFormatValue,
 } from "@/components/flipdesk/listing-format-controls";
-import { useEbayConnection, useEbayPolicies } from "@/hooks/use-ebay";
+import {
+  useEbayConnection,
+  useEbayPolicies,
+  useEbayReviseListing,
+} from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
@@ -249,6 +253,8 @@ export function FlipdeskComposerPage() {
   // lines. Only fetch once eBay is connected.
   const { data: ebayPolicies } = useEbayPolicies(!!ebayConnection);
   const crossPush = useCrossPush();
+  // US-1490: push edits to an ALREADY-published eBay listing (Save & resubmit).
+  const reviseListing = useEbayReviseListing();
 
   // Shared items_full read — single source of truth across FlipDesk (US-419).
   const { data: items = [], isLoading } = useItemsFull();
@@ -586,6 +592,49 @@ export function FlipdeskComposerPage() {
   // default the user STAYS on the composer — the publish CTA lives here, so
   // navigating away after save (the old behavior) forced a detour through
   // the Drafts list to publish.
+  // US-1490: a published listing the seller can revise in place. The composer
+  // doubles as the live-listing editor; this gates the "Save & resubmit to eBay"
+  // action and banner. platform_offer_id is required for a revise (the server
+  // 409s without it), so include it in the live check.
+  const isLiveListing =
+    !!listing &&
+    listing.listing_status === "active" &&
+    !!listing.platform_offer_id;
+
+  // Resolve the eBay-owned fields from the live picker state, falling back to the
+  // saved listing override and the inventory mirror — shared by the draft save
+  // and the live "Save & resubmit" so the two paths can't drift (US-557/US-825).
+  function resolveListingFields() {
+    const parsedPrice = Number.parseFloat(price);
+    // First POSITIVE price wins (mirrors the seed logic) — never persist a
+    // 0 that would later shadow the item's target price at publish.
+    const resolvedPrice =
+      [
+        Number.isFinite(parsedPrice) ? parsedPrice : null,
+        item?.target_price,
+        item?.list_price,
+      ].find((p): p is number => p != null && p > 0) ?? 0;
+    const resolvedCategoryId =
+      livePickedCategoryId ??
+      listing?.platform_category_id ??
+      ebayMapping?.ebay_category_id ??
+      null;
+    const liveAspects =
+      livePickedAspects ??
+      listing?.item_specifics_override ??
+      ebayMapping?.ebay_aspects ??
+      null;
+    const resolvedAspects =
+      liveAspects && Object.keys(liveAspects).length > 0 ? liveAspects : null;
+    const liveSources =
+      livePickedSources ??
+      listing?.item_specifics_sources ??
+      ebayMapping?.ebay_aspect_sources ??
+      null;
+    const resolvedSources = resolvedAspects ? (liveSources ?? {}) : {};
+    return { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources };
+  }
+
   async function saveDraft(): Promise<string | null> {
     if (!item) return null;
     if (!title.trim()) {
@@ -594,43 +643,18 @@ export function FlipdeskComposerPage() {
     }
     setSaving(true);
     try {
-      const parsedPrice = Number.parseFloat(price);
-      // First POSITIVE price wins (mirrors the seed logic) — never persist a
-      // 0 that would later shadow the item's target price at publish.
-      const resolvedPrice =
-        [
-          Number.isFinite(parsedPrice) ? parsedPrice : null,
-          item.target_price,
-          item.list_price,
-        ].find((p): p is number => p != null && p > 0) ?? 0;
       // US-557: ONE coherent save. The category picker reports its live aspect
       // map up via onAspectsChange; here we write it to BOTH the listing
       // override (item_specifics_override — the per-listing canonical copy
       // publish reads first) AND the inventory mirror (ebay_aspects — the
       // fallback) in the same save, so the two stores never diverge and a
-      // picker edit can't vanish by skipping a separate save. Fall back to the
-      // saved values when the picker hasn't reported yet.
-      const resolvedCategoryId =
-        livePickedCategoryId ??
-        listing?.platform_category_id ??
-        ebayMapping?.ebay_category_id ??
-        null;
-      const liveAspects =
-        livePickedAspects ??
-        listing?.item_specifics_override ??
-        ebayMapping?.ebay_aspects ??
-        null;
-      const resolvedAspects =
-        liveAspects && Object.keys(liveAspects).length > 0 ? liveAspects : null;
-      // US-825: persist provenance parallel to the aspect map. Falls back to the
-      // saved sources when the picker hasn't reported (e.g. user never touched
-      // specifics this session). Empty map when there are no aspects.
-      const liveSources =
-        livePickedSources ??
-        listing?.item_specifics_sources ??
-        ebayMapping?.ebay_aspect_sources ??
-        null;
-      const resolvedSources = resolvedAspects ? (liveSources ?? {}) : {};
+      // picker edit can't vanish by skipping a separate save.
+      const {
+        resolvedPrice,
+        resolvedCategoryId,
+        resolvedAspects,
+        resolvedSources,
+      } = resolveListingFields();
       const payload: ListingInsert = {
         inventory_item_id: item.id,
         platform: "ebay",
@@ -728,6 +752,88 @@ export function FlipdeskComposerPage() {
       else next.add(platform);
       return next;
     });
+  }
+
+  // US-1490: save edits to an ALREADY-published listing IN PLACE — update the
+  // existing active row (never insert a new draft) and never flip
+  // listing_status/is_active, so it stays live on eBay. Mirrors category/aspects
+  // onto the item WITHOUT regressing its 'listed' status. Returns the listing id.
+  async function saveLiveListing(): Promise<string | null> {
+    if (!item || !item.listing_id) return null;
+    if (!title.trim()) {
+      toast.error("Title is required.");
+      return null;
+    }
+    setSaving(true);
+    try {
+      const { resolvedPrice, resolvedCategoryId, resolvedAspects, resolvedSources } =
+        resolveListingFields();
+      const { error } = await supabase
+        .from("listings")
+        .update({
+          listing_price: resolvedPrice,
+          listing_title: title.trim(),
+          listing_description: description.trim() || null,
+          ebay_condition: ebayCondition || null,
+          ebay_condition_description: conditionDesc.trim() || null,
+          platform_category_id: resolvedCategoryId,
+          item_specifics_override: resolvedAspects,
+          item_specifics_sources: resolvedSources,
+          price_is_estimated: false,
+        } as never)
+        .eq("id", item.listing_id);
+      if (error) throw error;
+      // Mirror onto the item, but DON'T touch status — it stays 'listed'.
+      const { error: sErr } = await supabase
+        .from("inventory_items")
+        .update({
+          ebay_category_id: resolvedCategoryId,
+          ebay_aspects: resolvedAspects,
+          ebay_aspect_sources: resolvedSources,
+        } as never)
+        .eq("id", item.id);
+      if (sErr) throw sErr;
+      await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
+      await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+      return item.listing_id;
+    } catch (err) {
+      toast.error(
+        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // US-1490: persist the live edits, then push them to eBay via the revise
+  // endpoint. resync_ebay_fields re-asserts category/condition/specifics (which
+  // the server reads back from the rows we just saved); photos re-syncs the
+  // gallery; title/description/price ride along.
+  async function handleResubmitClick() {
+    const listingId = await saveLiveListing();
+    if (!listingId) return;
+    const { resolvedPrice } = resolveListingFields();
+    try {
+      await reviseListing.mutateAsync({
+        listingId,
+        patch: {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          listing_price: resolvedPrice > 0 ? resolvedPrice : undefined,
+          photos: true,
+          resync_ebay_fields: true,
+        },
+      });
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Changes saved and pushed to eBay.");
+    } catch (err) {
+      const e = err as Error & { status?: number };
+      toast.error(
+        `eBay rejected the update: ${e.message}. Your changes are saved — fix the issue and resubmit.`,
+        { duration: 12_000 },
+      );
+    }
   }
 
   // Publish reads the DATABASE, not the form — so save first, then push. One
@@ -1671,49 +1777,81 @@ export function FlipdeskComposerPage() {
         </div>
       )}
 
+      {/* US-1490: a published listing edits in place — re-pushing to eBay rather
+          than re-publishing. Swap the draft/publish actions for "Save &
+          resubmit", and explain that edits go live on eBay. */}
+      {isLiveListing && (
+        <div className="flex items-start justify-end gap-2 text-right">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">
+              This listing is live on eBay.
+            </span>{" "}
+            Saving will push your edits — including category, condition, and item
+            specifics — to the active listing.
+          </p>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
           Close
         </Button>
-        <Button
-          variant="outline"
-          onClick={saveDraft}
-          disabled={saving}
-        >
-          {saving ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="mr-2 h-4 w-4" />
-          )}
-          Save draft
-        </Button>
-        <Button
-          onClick={() => void handlePublishClick()}
-          disabled={
-            saving ||
-            crossPush.isPending ||
-            pushPlatforms.size === 0 ||
-            (pushPlatforms.has("ebay") && !ebayConnection)
-          }
-          title={
-            pushPlatforms.has("ebay") && !ebayConnection
-              ? "Connect eBay first on the Marketplaces page."
-              : pushPlatforms.size === 0
-                ? "Pick at least one marketplace in the Push to card."
-                : "Saves the draft, then publishes."
-          }
-        >
-          {crossPush.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Rocket className="mr-2 h-4 w-4" />
-          )}
-          {pushPlatforms.size === 1 && pushPlatforms.has("ebay")
-            ? "Save & publish to eBay"
-            : `Save & push to ${pushPlatforms.size} marketplace${
-                pushPlatforms.size === 1 ? "" : "s"
-              }`}
-        </Button>
+        {isLiveListing ? (
+          <Button
+            onClick={() => void handleResubmitClick()}
+            disabled={saving || reviseListing.isPending || !ebayConnection}
+            title={
+              !ebayConnection
+                ? "Connect eBay first on the Marketplaces page."
+                : "Saves your edits, then pushes them to the live eBay listing."
+            }
+          >
+            {saving || reviseListing.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="mr-2 h-4 w-4" />
+            )}
+            Save &amp; resubmit to eBay
+          </Button>
+        ) : (
+          <>
+            <Button variant="outline" onClick={saveDraft} disabled={saving}>
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save draft
+            </Button>
+            <Button
+              onClick={() => void handlePublishClick()}
+              disabled={
+                saving ||
+                crossPush.isPending ||
+                pushPlatforms.size === 0 ||
+                (pushPlatforms.has("ebay") && !ebayConnection)
+              }
+              title={
+                pushPlatforms.has("ebay") && !ebayConnection
+                  ? "Connect eBay first on the Marketplaces page."
+                  : pushPlatforms.size === 0
+                    ? "Pick at least one marketplace in the Push to card."
+                    : "Saves the draft, then publishes."
+              }
+            >
+              {crossPush.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="mr-2 h-4 w-4" />
+              )}
+              {pushPlatforms.size === 1 && pushPlatforms.has("ebay")
+                ? "Save & publish to eBay"
+                : `Save & push to ${pushPlatforms.size} marketplace${
+                    pushPlatforms.size === 1 ? "" : "s"
+                  }`}
+            </Button>
+          </>
+        )}
       </div>
 
       <ListingKit

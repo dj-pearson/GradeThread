@@ -23,6 +23,7 @@ import {
   Hourglass,
   Lock,
   ExternalLink,
+  Pencil,
 } from "lucide-react";
 import {
   Dialog,
@@ -982,6 +983,11 @@ export function ItemCanvas({
     rankOf(item.status) >= rankOf("comped") &&
     rankOf(item.status) < rankOf("listed");
   const showRecordSaleAction = item.status === "listed";
+  // US-1490: a GradeThread-originated live listing can be revised in the
+  // composer (which doubles as the live-listing editor). eBay-originated mirrors
+  // are read-only (lockedByEbay) and instead link out to eBay above.
+  const showEditListingAction =
+    item.status === "listed" && !!item.listing_id && !lockedByEbay;
   const showShipAction = item.status === "sold";
   const showCompleteAction = item.status === "shipped";
 
@@ -1462,6 +1468,17 @@ export function ItemCanvas({
                   <DropdownMenuItem onClick={() => setMarkListedItem(item)}>
                     <Rocket className="mr-2 h-4 w-4" />
                     Mark as listed
+                  </DropdownMenuItem>
+                )}
+                {showEditListingAction && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      onCancel?.();
+                      navigate(`/dashboard/flipdesk/items/${item.id}/draft`);
+                    }}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit eBay listing
                   </DropdownMenuItem>
                 )}
                 {showRecordSaleAction && (
