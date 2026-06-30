@@ -18,6 +18,7 @@ import {
   mapSubscriptionToFlipdeskPlan,
 } from "./webhooks.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
+import { resolveChargeMetadata } from "../lib/stripe-metadata.ts";
 
 const SITE_URL = Deno.env.get("SITE_URL") ?? "https://gradethread.com";
 
@@ -585,9 +586,23 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
     return c.json({ error: `Charge lookup failed: ${msg}` }, 404);
   }
 
+  // US-1414: charge.metadata is empty for Checkout payments (metadata lives on
+  // the PaymentIntent), so resolve it before the ownership/product/credits
+  // checks — otherwise every pack refund wrongly 403s/422s ("not a credit-pack
+  // charge") because the fields read as undefined.
+  const meta = await resolveChargeMetadata(charge, async (id) => {
+    try {
+      const pi = await stripe.paymentIntents.retrieve(id);
+      return (pi.metadata ?? {}) as Record<string, string>;
+    } catch (err) {
+      console.error("[admin-billing] PaymentIntent metadata lookup failed:", err);
+      return null;
+    }
+  });
+
   // Tenant scoping (CLAUDE.md US-268): the charge MUST belong to this user —
   // by the user_id stamped on the pack checkout, or its Stripe customer.
-  const chargeUserId = charge.metadata?.user_id ?? null;
+  const chargeUserId = meta.user_id ?? null;
   const customerId = typeof charge.customer === "string"
     ? charge.customer
     : charge.customer?.id ?? null;
@@ -597,7 +612,7 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
   if (!ownsByMetadata && !ownsByCustomer) {
     return c.json({ error: "Charge does not belong to this user." }, 403);
   }
-  if (charge.metadata?.product !== "credit_pack") {
+  if (meta.product !== "credit_pack") {
     return c.json(
       { error: "Not a credit-pack charge. Use Recent charges → Refund for other charges." },
       422,
@@ -607,7 +622,7 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", async (c) => {
     return c.json({ error: "Charge is already fully refunded." }, 409);
   }
 
-  const credits = Number.parseInt(charge.metadata?.credits ?? "", 10);
+  const credits = Number.parseInt(meta.credits ?? "", 10);
   if (!Number.isFinite(credits) || credits <= 0) {
     return c.json({ error: "Charge has no valid credit count in metadata." }, 422);
   }

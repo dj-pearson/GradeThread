@@ -7870,8 +7870,8 @@
         "Verify admin /refund-pack ownership + product/credits checks pass when metadata lives on the PI."
       ],
       "priority": 2299,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · BLOCKER · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:1048-1070; admin-billing.ts:590-612; metadata set only on PI/session at payments.ts:515-521,635-641."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · BLOCKER · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:1048-1070; admin-billing.ts:590-612; metadata set only on PI/session at payments.ts:515-521,635-641. | DONE 2026-06-30: refund webhook + admin refund-pack now resolve metadata from the PaymentIntent (charge.metadata empty on Checkout). Shared pure helper lib/stripe-metadata.ts (resolveChargeMetadata/resolveDisputeMetadata, injectable PI fetcher) + 8 passing tests. deno check/lint/test green; existing webhook tests unaffected."
     },
     {
       "id": "US-1415",
@@ -7934,8 +7934,8 @@
         "Test using a webhook-shaped dispute (string payment_intent) asserting the submission is flagged with flag_reason='payment_disputed'."
       ],
       "priority": 2196,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:1195-1223."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:1195-1223. | DONE 2026-06-30: dispute webhook resolves metadata via PaymentIntent retrieval (unexpanded string id). Shared pure helper lib/stripe-metadata.ts (resolveChargeMetadata/resolveDisputeMetadata, injectable PI fetcher) + 8 passing tests. deno check/lint/test green; existing webhook tests unaffected."
     },
     {
       "id": "US-1420",

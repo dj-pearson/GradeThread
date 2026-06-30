@@ -31,6 +31,11 @@ import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
 import { recordDripConversion } from "../lib/drip-conversion.ts";
+import {
+  resolveChargeMetadata,
+  resolveDisputeMetadata,
+  type PaymentIntentMetadataFetcher,
+} from "../lib/stripe-metadata.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -1045,14 +1050,50 @@ async function handlePerGradePurchase(
 
 // ── Refund handler ───────────────────────────────────────────────
 
+// US-1414/US-1419: lazy Stripe client used ONLY to retrieve a PaymentIntent's
+// metadata when a Charge/Dispute doesn't carry our app metadata (Checkout puts
+// it on the PaymentIntent, not the Charge). Same apiVersion as the route's
+// client. Cached across events in the warm isolate.
+let _metaStripe: Stripe | null = null;
+function metaStripe(): Stripe | null {
+  if (_metaStripe) return _metaStripe;
+  const key = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!key) return null;
+  _metaStripe = new Stripe(key, {
+    apiVersion: "2024-04-10",
+    timeout: 20_000,
+    maxNetworkRetries: 2,
+  });
+  return _metaStripe;
+}
+
+const fetchPaymentIntentMetadata: PaymentIntentMetadataFetcher = async (id) => {
+  const stripe = metaStripe();
+  if (!stripe) return null;
+  try {
+    const pi = await stripe.paymentIntents.retrieve(id);
+    return (pi.metadata ?? {}) as Record<string, string>;
+  } catch (err) {
+    console.error(
+      `[Webhook] failed to retrieve PaymentIntent ${id} for metadata:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+};
+
 async function handleChargeRefunded(event: Stripe.Event) {
   const charge = event.data.object as Stripe.Charge;
-  const userId = charge.metadata?.user_id;
-  const product = charge.metadata?.product;
+  // US-1414: charge.metadata is EMPTY for Checkout payments (metadata lives on
+  // the PaymentIntent). Resolve it so credit-pack clawbacks + per-grade cert
+  // withholding actually fire on Dashboard/admin-initiated refunds.
+  const meta = await resolveChargeMetadata(charge, fetchPaymentIntentMetadata);
+  const userId = meta.user_id;
+  const product = meta.product;
 
   // US-385: a refunded per-grade purchase must withhold the grade it paid for.
   if (userId && product === "per_grade") {
-    await refundPerGrade(event, charge, userId);
+    await refundPerGrade(event, charge, userId, meta);
     return;
   }
 
@@ -1062,7 +1103,7 @@ async function handleChargeRefunded(event: Stripe.Event) {
     return;
   }
 
-  const creditsStr = charge.metadata?.credits;
+  const creditsStr = meta.credits;
   const credits = Number.parseInt(creditsStr ?? "", 10);
   if (!Number.isFinite(credits) || credits <= 0) {
     console.error(`[Webhook] charge.refunded credit_pack invalid credits metadata`);
@@ -1129,8 +1170,11 @@ async function refundPerGrade(
   event: Stripe.Event,
   charge: Stripe.Charge,
   userId: string,
+  meta: Record<string, string>,
 ) {
-  const submissionId = charge.metadata?.submission_id;
+  // US-1414: submission_id comes from the resolved metadata (PaymentIntent),
+  // not charge.metadata, which is empty for Checkout payments.
+  const submissionId = meta.submission_id;
   if (!submissionId) {
     console.error(`[Webhook] per_grade refund missing submission_id (charge=${charge.id})`);
     return;
@@ -1191,11 +1235,11 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
   const charge = dispute.charge;
   const chargeId = typeof charge === "string" ? charge : charge?.id ?? null;
 
-  // The dispute carries the PaymentIntent; its metadata mirrors the charge's.
-  const meta = (dispute.payment_intent &&
-      typeof dispute.payment_intent !== "string"
-    ? dispute.payment_intent.metadata
-    : undefined) ?? {};
+  // US-1419: in a raw charge.dispute.created webhook, dispute.payment_intent is
+  // an UNEXPANDED string id — so reading dispute.payment_intent.metadata always
+  // yielded {} and the submission was never flagged for review. Resolve via the
+  // PaymentIntent (where Checkout actually stores our metadata).
+  const meta = await resolveDisputeMetadata(dispute, fetchPaymentIntentMetadata);
   const userId = meta.user_id;
   const product = meta.product;
   const submissionId = meta.submission_id;
