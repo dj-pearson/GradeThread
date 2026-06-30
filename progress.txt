@@ -6616,3 +6616,34 @@ branches 65.76/65, funcs 74.39/68, lines 77.44/72), build + bundle-budget OK. No
 edge changes this batch.
 
 Open prd.json stories now 151.
+
+## 2026-06-30 — Pre-launch audit batch 5 (US-1439, US-1462) — final round before loop pause
+
+- US-1439 Remove the always-empty 'Grade' and 'Listed Price' inventory columns —
+  NOW COMPLETE (passes:true). The desktop inventory table (src/pages/inventory.tsx)
+  rendered Grade + Listed Price headers whose cells were hardcoded to "—" for
+  every row (their data isn't fetched — grade lives in grade_reports), while the
+  mobile card view omitted them. Removed the two dead columns (AC1 "remove until
+  wired"); desktop now matches mobile (AC2). Chose removal over populate to avoid
+  adding a dependent grade_reports fetch + mobile-parity work for a hygiene fix.
+
+- US-1462 Add loading/disabled state to the OAuth provider buttons — NOW COMPLETE
+  (passes:true). login.tsx + signup.tsx track an oauthPending provider state; the
+  Google/Apple handlers guard re-entry and set it before redirecting (reset only
+  on failure, since success navigates away). While pending, both provider buttons
+  AND the submit button are disabled and the active provider shows a spinner +
+  "Redirecting…" (AC1/AC2/AC3).
+
+VERIFICATION (this container): frontend gate fully green — eslint (0 errors), tsc
+-b clean, vitest 1010 pass with coverage above all floors, build + bundle-budget
+OK. No edge changes this batch.
+
+LOOP PAUSED at user request after this round. Open prd.json stories now 149.
+
+### Session recap (2026-06-30)
+Shipped in verified PRs off main, each marked in prd.json + logged here:
+- PR #147: US-1418, US-1420, US-1429, US-1430 (+ CI-unblock tsc fix in submission-detail.tsx from US-1416)
+- PR #148: US-1432, US-1436
+- PR #149: US-1490 (user-requested feature — edit & resubmit a published eBay listing from the web)
+- PR #150: US-1431, US-1461
+- PR (this round): US-1439, US-1462
