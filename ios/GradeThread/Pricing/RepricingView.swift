@@ -96,6 +96,10 @@ struct RepricingView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(entry.reason.tint.opacity(0.12), in: Capsule())
+                // US-1411: read the chip as one element (icon + count + reason)
+                // instead of a fragmented icon / text pair.
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(entry.count) \(entry.reason.label.lowercased())")
             }
             Spacer(minLength: 0)
         }

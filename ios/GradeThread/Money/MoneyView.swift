@@ -431,9 +431,9 @@ struct MoneyView: View {
                 } label: {
                     Label("Add", systemImage: "plus")
                         .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)  // US-1411: 44pt tap target
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
                 .tint(Color.brandNavy)
             }
             .padding(.horizontal, 14)
