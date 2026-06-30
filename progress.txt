@@ -2,6 +2,38 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 6 (US-1469, US-1479) — loop resumed
+
+- US-1469 Add an idempotency key (or in-flight guard) to credit-pack Checkout
+  creation — NOW COMPLETE (passes:true). /gradethread/credit-pack created a
+  payable Stripe Checkout Session with NO idempotency key (unlike /subscribe and
+  /per-grade), so a double-submit or client retry could mint multiple distinct
+  payable sessions. Added creditPackIdempotencyKey(user, packSize, nowMs) — a
+  short-window (60s) coarse-time-bucket key in payments.ts: rapid duplicate POSTs
+  in one window collapse to ONE session, while a deliberate repurchase a window
+  later still gets its own session (packs are intentionally repeatable, so a
+  stable key would wrongly dedupe — that's why per-grade's stable key can't be
+  reused here). Wired into checkout.sessions.create; removed the stale "No
+  session idempotency key" comment. AC2 (disable the Buy-credits button while the
+  request is in flight) was already satisfied on both client surfaces
+  (credit-pack-dialog.tsx + upgrade-required-dialog.tsx both disable on
+  buyPack.isPending). New regression test: credit-pack-idempotency_test.ts
+  (stable within bucket, distinct across user/pack, rolls over in a later window).
+
+- US-1479 Seed CreateItemFromListing dialog form via useEffect, not useMemo —
+  NOW COMPLETE (passes:true). CreateItemFromListingDialog (ebay-sku-match.tsx)
+  re-seeded title/SKU by calling setState inside a useMemo — a side effect during
+  render that can misbehave under StrictMode/concurrent rendering. Swapped to a
+  useEffect keyed on listing; added useEffect to the react import (useMemo still
+  used elsewhere in the file). Pre-fill on successive listings still works (effect
+  re-runs on listing identity change).
+
+VERIFICATION (this container): web gate green — tsc -b clean, eslint 0 errors
+(only pre-existing react-refresh/exhaustive-deps warnings), vitest 1009 pass / 3
+skip. Edge lane (deno) not runnable locally in this container (deno not
+installed) — relying on GitHub Actions edge lane for payments.ts + the new
+credit-pack-idempotency_test.ts. Open prd.json stories now 147.
+
 ## Completed Stories
 
 ### Phase 1: Foundation (US-001 → US-021)

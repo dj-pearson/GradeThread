@@ -8567,7 +8567,7 @@
         "Disable the 'Buy credits' button while the create-session request is in flight on the client."
       ],
       "priority": 1991,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · payments · payments audit] Evidence: payments.ts:530-539; compare per-grade key at 663-665, subscribe at 441-443."
     },
     {
@@ -8687,7 +8687,7 @@
         "Verify pre-fill still works when opened on successive listings."
       ],
       "priority": 1981,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: src/components/flipdesk/ebay-sku-match.tsx:850-855."
     },
     {
