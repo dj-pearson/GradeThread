@@ -10,6 +10,11 @@ import {
 } from "@/lib/auth";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
+import {
+  AUTH_NETWORK_ERROR_MESSAGE,
+  AUTH_RATE_LIMIT_MESSAGE,
+  classifyAuthFailure,
+} from "@/lib/auth-error";
 import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,7 +151,17 @@ export function SignupPage() {
       if (msg.includes("registered") || msg.includes("already") || msg.includes("exists")) {
         setIsConfirmation(true);
       } else {
-        toast.error("We couldn't create your account. Please check your details and try again.");
+        // US-1432: don't collapse a rate-limit (429, common on the email-send
+        // path) or an offline/network failure into "check your details" — show a
+        // distinct message for each; only genuine failures get the generic one.
+        const kind = classifyAuthFailure(err);
+        toast.error(
+          kind === "rate_limit"
+            ? AUTH_RATE_LIMIT_MESSAGE
+            : kind === "network"
+              ? AUTH_NETWORK_ERROR_MESSAGE
+              : "We couldn't create your account. Please check your details and try again.",
+        );
         // US-368: the Turnstile token was consumed — reset for the retry.
         setCaptchaToken(null);
         setCaptchaReset((n) => n + 1);
