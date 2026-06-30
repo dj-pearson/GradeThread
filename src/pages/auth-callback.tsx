@@ -2,24 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { isIdentityLinkingError, OAUTH_LINKING_MESSAGE } from "@/lib/auth-identity";
+import { readAuthError } from "@/lib/auth-error";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
 
 // How long to wait for the auth exchange to complete before giving up and
 // showing an error instead of an indefinite spinner (US-370).
 const CALLBACK_TIMEOUT_MS = 15_000;
-
-// OAuth/recovery errors can arrive as query params OR in the URL hash fragment
-// (implicit flow). Read both.
-function readAuthError(): { error: string; description: string | null } | null {
-  const query = new URLSearchParams(window.location.search);
-  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-  const error = query.get("error") ?? hash.get("error");
-  if (!error) return null;
-  const description =
-    query.get("error_description") ?? hash.get("error_description");
-  return { error, description };
-}
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();

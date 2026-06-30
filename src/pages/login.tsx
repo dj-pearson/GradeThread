@@ -2,6 +2,11 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithEmail, signInWithGoogle, signInWithApple } from "@/lib/auth";
 import { SIGN_IN_FAILED_MESSAGE } from "@/lib/auth-identity";
+import {
+  AUTH_NETWORK_ERROR_MESSAGE,
+  AUTH_RATE_LIMIT_MESSAGE,
+  classifyAuthFailure,
+} from "@/lib/auth-error";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
@@ -55,15 +60,24 @@ export function LoginPage() {
           ? `/accept-invite?token=${inviteToken}`
           : returnTo ?? "/dashboard",
       );
-    } catch {
-      // US-369: a single generic message for ALL sign-in failures so the error
-      // text can't be used to enumerate accounts (invalid password vs unknown
-      // email vs unconfirmed email all read identically).
-      // US-380: the message also nudges users who originally signed up with a
-      // different method (e.g. Google) toward "Continue with Google" — an
-      // enumeration-safe hint shown on every failure, so it never confirms the
-      // account exists.
-      toast.error(SIGN_IN_FAILED_MESSAGE);
+    } catch (err) {
+      // US-1432: a rate-limit (429) or an offline/network failure is NOT a
+      // credential problem — telling the user to check their password would
+      // mislead them. Show a distinct (still enumeration-safe) message for each;
+      // only genuine 400/401 failures fall through to the generic credential
+      // message below.
+      // US-369: that generic message is identical for invalid password / unknown
+      // email / unconfirmed email so the text can't be used to enumerate
+      // accounts. US-380: it also nudges users who originally signed up a
+      // different way (e.g. Google) — an enumeration-safe hint on every failure.
+      const kind = classifyAuthFailure(err);
+      toast.error(
+        kind === "rate_limit"
+          ? AUTH_RATE_LIMIT_MESSAGE
+          : kind === "network"
+            ? AUTH_NETWORK_ERROR_MESSAGE
+            : SIGN_IN_FAILED_MESSAGE,
+      );
       // US-368: the Turnstile token was consumed by the failed attempt — reset
       // for the retry.
       setCaptchaToken(null);

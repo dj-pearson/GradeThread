@@ -4,6 +4,7 @@ import { resetPassword, updatePassword } from "@/lib/auth";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { supabase } from "@/lib/supabase";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
+import { readAuthError } from "@/lib/auth-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -143,6 +144,15 @@ function UpdatePasswordForm() {
   const [phase, setPhase] = useState<"checking" | "ready" | "expired">("checking");
 
   useEffect(() => {
+    // US-1436: an expired/invalid recovery link comes back with an
+    // error/error_description in the URL (query or hash). Fail fast — exactly as
+    // the OAuth callback does — instead of waiting out the full timeout while a
+    // recovery session that will never arrive is hoped for.
+    if (readAuthError()) {
+      setPhase("expired");
+      return;
+    }
+
     let active = true;
     void supabase.auth.getSession().then(({ data }) => {
       if (active && data.session) setPhase("ready");

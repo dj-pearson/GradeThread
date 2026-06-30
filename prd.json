@@ -8102,8 +8102,8 @@
         "Keep the generic credential message only for genuine 400/401 auth failures."
       ],
       "priority": 2098,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/login.tsx:50-58; signup.tsx:129-142; auth-identity.ts:23-25."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/login.tsx:50-58; signup.tsx:129-142; auth-identity.ts:23-25. IMPLEMENTED 2026-06-30: new src/lib/auth-error.ts classifyAuthFailure(err) buckets a thrown auth error into rate_limit (429 / over_request_rate_limit / over_email_send_rate_limit) | network (TypeError, AuthRetryableFetchError, status 0/502/503/504, fetch/network/timeout messages) | credentials (genuine 400/401, the default). LoginPage and SignupPage now show distinct enumeration-safe messages (AUTH_RATE_LIMIT_MESSAGE / AUTH_NETWORK_ERROR_MESSAGE) for the first two and keep their generic credential message only for real auth failures. Unit test (auth-error.test.ts) covers each bucket + precedence + the safe default."
     },
     {
       "id": "US-1433",
@@ -8154,8 +8154,8 @@
         "Reuse the existing readAuthError helper for consistency."
       ],
       "priority": 2094,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/reset-password.tsx:145-166; contrast auth-callback.tsx:13-54."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/reset-password.tsx:145-166; contrast auth-callback.tsx:13-54. IMPLEMENTED 2026-06-30: readAuthError() (error/error_description from query AND hash) was extracted from auth-callback.tsx into the shared src/lib/auth-error.ts (AC3 reuse) and auth-callback now imports it. UpdatePasswordForm (reset-password.tsx) calls readAuthError() on mount and goes straight to the expired/invalid state when the recovery link carries an error, instead of spinning for the full 10s RECOVERY_SESSION_TIMEOUT_MS; the timeout remains only as the fallback for the no-session/no-error case (AC2)."
     },
     {
       "id": "US-1437",
