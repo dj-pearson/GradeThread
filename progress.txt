@@ -6547,3 +6547,41 @@ warnings), `npx tsc -b` clean, vitest 1008 pass with coverage above all floors
 build` + bundle-budget OK. No edge changes this batch.
 
 Open prd.json stories now 153 (down from 155).
+
+## 2026-06-30 — Feature: edit & resubmit a published eBay listing from the web (US-1490)
+
+User-requested (not from the audit backlog). The web composer already had eBay
+category/specifics/condition editors + a publish flow; the missing piece was
+editing an ALREADY-published listing and pushing the changes — including the
+structured fields — back to eBay. (Verified via an Explore pass that capabilities
+a–d already existed; only the post-publish edit/resubmit was absent.)
+
+- EDGE: ebay-client.ts updateOfferFields() gains `categoryId` (the eBay leaf
+  category lives on the offer, not the inventory item, so a category change must
+  be re-asserted there). flipdesk-ebay.ts POST /listings/:id/revise gains a
+  `resync_ebay_fields` flag: it widens the inventory-item re-PUT gate (which
+  already rebuilds aspects from columns + auto-corrects condition against the
+  category policy) and the offer-update gate (now pushing the lifted
+  reviseCategoryId), and is folded into the at-least-one validation + the
+  eBay-origin lock (category/condition/specifics are eBay-owned too).
+
+- FRONTEND: useEbayReviseListing's ReviseListingPatch gains resync_ebay_fields.
+  composer.tsx detects isLiveListing (listing_status=active + platform_offer_id)
+  and renders a "live on eBay" banner + a "Save & resubmit to eBay" action in
+  place of Publish. New saveLiveListing() updates the EXISTING active row in
+  place (never inserts a draft, never flips listing_status/is_active) and mirrors
+  category/aspects to the item WITHOUT regressing its 'listed' status;
+  handleResubmitClick() saves then revises with { photos, resync_ebay_fields }.
+  resolveListingFields() is shared by the draft + live save paths so they can't
+  drift. item-canvas.tsx adds an "Edit eBay listing" overflow action for
+  GradeThread-originated listed items (eBay-originated mirrors stay read-only and
+  link out to eBay).
+
+VERIFICATION (this container): frontend gate green — eslint (0 errors), tsc -b
+clean, vitest 1008 pass, build + bundle-budget OK. Edge: deno lint clean on the
+two changed files; deno check/test couldn't run (egress blocks esm.sh +
+deno.land/x) — edge CI (security.yml deno-check) type-checks + tests it. eBay
+API calls (offer category re-assert, inventory re-PUT) are exercised against the
+sandbox by CI/manual QA, not in this container.
+
+prd.json: added US-1490 (passes:true), nextId bumped 1490→1491.

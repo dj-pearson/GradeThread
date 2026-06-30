@@ -4010,6 +4010,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     listing_price?: unknown;
     quantity?: unknown;
     photos?: unknown;
+    resync_ebay_fields?: unknown;
   };
   try {
     body = await c.req.json();
@@ -4039,12 +4040,19 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   // `photos: true` forces the inventory_item re-PUT so the current photo set
   // and sort order reach eBay even when no text field changed.
   const syncPhotos = body.photos === true;
+  // US-1490: `resync_ebay_fields: true` re-asserts the eBay-owned STRUCTURED
+  // fields the seller edited post-publish — category, condition, and item
+  // specifics — which the inventory re-PUT (aspects + condition) and the offer
+  // category push below already source from the DB. It forces both pushes even
+  // when no title/description/photo changed (a specifics/condition/category-only
+  // edit), so "Save & resubmit" on the web composer reaches a live listing.
+  const resyncFields = body.resync_ebay_fields === true;
 
-  if (!hasTitle && !hasDesc && !hasPrice && !hasQty && !syncPhotos) {
+  if (!hasTitle && !hasDesc && !hasPrice && !hasQty && !syncPhotos && !resyncFields) {
     return c.json(
       {
         error:
-          "Provide at least one of: title, description, listing_price, quantity, photos",
+          "Provide at least one of: title, description, listing_price, quantity, photos, resync_ebay_fields",
       },
       400
     );
@@ -4092,12 +4100,18 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       hasQty && "quantity",
     ].filter((f): f is string => typeof f === "string");
     const { locked } = validateEbayOriginEdit(origin, requested);
-    if (locked.length > 0 || syncPhotos) {
+    // US-1490: category/condition/specifics are eBay-owned too, so a resync of
+    // them on an eBay-originated listing is just as unsafe as a title/price edit.
+    if (locked.length > 0 || syncPhotos || resyncFields) {
+      const extra = [
+        syncPhotos ? "photos" : null,
+        resyncFields ? "specifics" : null,
+      ].filter((f): f is string => f !== null);
       return c.json(
         {
           error:
             "This listing was created on eBay, so eBay owns its title, price, description, and photos. Edit it on eBay — changes here would be overwritten on the next sync.",
-          locked_fields: syncPhotos ? [...locked, "photos"] : locked,
+          locked_fields: [...locked, ...extra],
         },
         409
       );
@@ -4130,10 +4144,16 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     await supabaseAdmin.from("listings").update(localUpdates).eq("id", listingId);
   }
 
-  // Re-PUT the inventory_item when product fields changed (title / desc) OR a
-  // photo sync was requested. We send full state — photos, aspects, brand — so
-  // any drift from the photo manager / category picker also syncs here.
-  if (hasTitle || hasDesc || syncPhotos) {
+  // US-1490: resolved eBay leaf category, lifted so the offer-side PUT below can
+  // re-assert it on the live offer when a resync was requested (the category
+  // lives on the offer, not the inventory item). Set inside the re-PUT branch.
+  let reviseCategoryId: string | null = null;
+
+  // Re-PUT the inventory_item when product fields changed (title / desc), a photo
+  // sync was requested, OR a structured-field resync was requested (US-1490 —
+  // category/condition/specifics). We send full state — photos, aspects, brand —
+  // so any drift from the photo manager / category picker also syncs here.
+  if (hasTitle || hasDesc || syncPhotos || resyncFields) {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
@@ -4177,7 +4197,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       )
       .eq("id", listingId)
       .maybeSingle();
-    const reviseCategoryId =
+    reviseCategoryId =
       (listingRow as { platform_category_id?: string | null } | null)
         ?.platform_category_id ?? item.ebay_category_id ?? null;
     const baseAspects: Record<string, string[]> =
@@ -4328,15 +4348,17 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     }
   }
 
-  // Offer side handles price + listing description + quantity
+  // Offer side handles price + listing description + quantity + category
   // (offer.listingDescription overrides product.description, availableQuantity
-  // controls the listed quantity). Batched into one PUT.
-  if (hasPrice || hasDesc || hasQty) {
+  // controls the listed quantity, categoryId is the eBay leaf category). Batched
+  // into one PUT. US-1490: a resync re-asserts the category on the live offer.
+  if (hasPrice || hasDesc || hasQty || resyncFields) {
     try {
       await updateOfferFields(userId, offerId, {
         price: hasPrice ? (nextPrice as number) : undefined,
         listingDescription: hasDesc ? (nextDesc as string) : undefined,
         availableQuantity: hasQty ? (nextQty as number) : undefined,
+        categoryId: resyncFields && reviseCategoryId ? reviseCategoryId : undefined,
       });
     } catch (err) {
       console.error("[flipdesk-ebay] revise offer failed:", err);
@@ -4387,7 +4409,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     ok: true,
     listing_id: listingId,
     updated: localUpdates,
-    photos_synced: syncPhotos || hasTitle || hasDesc,
+    photos_synced: syncPhotos || hasTitle || hasDesc || resyncFields,
   });
 });
 
