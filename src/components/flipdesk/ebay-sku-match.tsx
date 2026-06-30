@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -846,8 +846,10 @@ function CreateItemFromListingDialog({
   const [sku, setSku] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Re-seed whenever the dialog opens on a different listing.
-  useMemo(() => {
+  // Re-seed whenever the dialog opens on a different listing. (US-1479: this is
+  // a side effect — setState during render via useMemo misbehaves under
+  // StrictMode/concurrent rendering — so it belongs in useEffect.)
+  useEffect(() => {
     if (listing) {
       setTitle(listing.title ?? "");
       setSku(listing.custom_label ?? "");

@@ -30,6 +30,24 @@ export function perGradeIdempotencyKey(
   return `per-grade:${userId}:${submissionId}:${tier}`;
 }
 
+// US-1469: credit packs are *repeatable* purchases, so — unlike per-grade and
+// subscribe — a stable key would wrongly dedupe a legitimate later repurchase
+// within Stripe's 24h replay window. Instead we floor time into a short coarse
+// bucket: a double-click / client retry within the same window collapses to ONE
+// session, while a deliberate repurchase in a later window gets a fresh key. The
+// window is intentionally short so an intentional second buy only has to wait it
+// out, but a sub-second double-submit is reliably absorbed.
+export const CREDIT_PACK_IDEMPOTENCY_WINDOW_MS = 60_000;
+
+export function creditPackIdempotencyKey(
+  userId: string,
+  packSize: string | number,
+  nowMs: number = Date.now(),
+): string {
+  const bucket = Math.floor(nowMs / CREDIT_PACK_IDEMPOTENCY_WINDOW_MS);
+  return `credit-pack:${userId}:${packSize}:${bucket}`;
+}
+
 // ── Catalog (mirrors src/lib/constants.ts US-202 / scripts/setup-stripe-pricing.mjs US-203) ──
 //
 // US-587: FlipDesk subscription price IDs are now data-driven — loaded per-request
@@ -529,14 +547,17 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
 
     // US-391: bind to the single Stripe customer (created/validated lazily)
     // instead of letting Checkout mint a fresh one. ensureStripeCustomer also
-    // self-heals a stale test-mode id after the live cutover. No session
-    // idempotency key: credit packs are intentionally repeatable, so a stable
-    // key would wrongly dedupe a legitimate second purchase within Stripe's 24h
-    // window.
+    // self-heals a stale test-mode id after the live cutover.
     sessionParams.customer = await ensureStripeCustomer(stripe, user);
     sessionParams.customer_update = { name: "auto", address: "auto" };
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    // US-1469: short-window idempotency key (user, packSize, coarse time bucket)
+    // so a double-submit or client retry reuses ONE Checkout Session instead of
+    // creating multiple distinct payable sessions, while a deliberate later
+    // repurchase still gets its own session. See creditPackIdempotencyKey above.
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: creditPackIdempotencyKey(userId, packSize),
+    });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
     console.error("Credit pack checkout failed:", err);
