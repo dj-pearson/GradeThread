@@ -14,6 +14,14 @@ final class MoneyMathTests: XCTestCase {
         XCTAssertEqual(Money.decimal(1099.95), Decimal(string: "1099.95"))
     }
 
+    // US-1412: a non-finite input must not produce a NaN/garbage Decimal that
+    // would poison every sum / export it flows into.
+    func test_decimal_nonFinite_returnsZero() {
+        XCTAssertEqual(Money.decimal(.nan), Decimal.zero)
+        XCTAssertEqual(Money.decimal(.infinity), Decimal.zero)
+        XCTAssertEqual(Money.decimal(-.infinity), Decimal.zero)
+    }
+
     func test_classicFloatFamily_isExact() {
         // 0.1 + 0.2 == 0.3 exactly in Decimal (it does NOT in Double). The
         // Decimal == is the exactness proof; the Double check uses a sub-cent

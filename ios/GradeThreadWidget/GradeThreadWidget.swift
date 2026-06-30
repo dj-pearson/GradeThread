@@ -47,9 +47,13 @@ struct SnapshotProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SnapshotEntry) -> Void) {
-        let snapshot = context.isPreview
+        // US-1410: only the gallery PREVIEW shows the sample `.placeholder` (with
+        // its dummy "$312 payout"). A real, non-preview snapshot for a signed-out
+        // user (or before the first publish) must fall back to `.signedOut()` —
+        // matching `getTimeline` — not the fake financials.
+        let snapshot: WidgetSnapshot = context.isPreview
             ? .placeholder
-            : (WidgetSnapshotStore.read() ?? .placeholder)
+            : (WidgetSnapshotStore.read() ?? .signedOut())
         completion(SnapshotEntry(date: .now, snapshot: snapshot))
     }
 

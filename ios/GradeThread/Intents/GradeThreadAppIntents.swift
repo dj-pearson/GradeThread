@@ -31,7 +31,11 @@ struct SnapToValueIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
+        // Post for the warm path; persist for the cold-launch path (US-1410) —
+        // on a cold launch `post` fires before ContentView subscribes, so the
+        // app drains the persisted route on startup and replays it.
         DeepLinkRouter.post(.captureItem)
+        DeepLinkRouter.persistPending(.captureItem)
         return .result()
     }
 }
@@ -48,6 +52,7 @@ struct AddItemIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         DeepLinkRouter.post(.addItem)
+        DeepLinkRouter.persistPending(.addItem)  // cold-launch replay (US-1410)
         return .result()
     }
 }

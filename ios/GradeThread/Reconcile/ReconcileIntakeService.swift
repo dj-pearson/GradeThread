@@ -72,11 +72,13 @@ struct ReconcileIntakeService: ReconcileIntakeProviding {
         case noSessionId
         case notSignedIn
         case uploadFailed(status: Int)
+        case invalidURL
         var errorDescription: String? {
             switch self {
             case .noSessionId: return "Couldn't start a reconcile session."
             case .notSignedIn: return "Sign in again to sync photos."
             case .uploadFailed(let status): return "Photo upload failed (\(status))."
+            case .invalidURL: return "Couldn't build the upload request."
             }
         }
     }
@@ -112,7 +114,11 @@ struct ReconcileIntakeService: ReconcileIntakeProviding {
         }
         var components = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
         components.path = "/storage/v1/object/\(Self.bucket)/\(path)"
-        var request = URLRequest(url: components.url!)
+        // US-1412: `components.url` is nil if any interpolated id contains a
+        // URL-illegal character; guard instead of force-unwrapping (the lone
+        // `components.url!` in the app that bucked the StorageURL nil-safe pattern).
+        guard let url = components.url else { throw ServiceError.invalidURL }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")

@@ -127,6 +127,10 @@ struct RepricingRulesView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { editing = .edit(rule) }
+                        // US-1411: the row is tappable via a gesture, which
+                        // VoiceOver won't surface as an action on its own.
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Opens the rule editor")
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 pendingDelete = rule
@@ -184,7 +188,9 @@ private struct RuleRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            Toggle("", isOn: Binding(get: { rule.enabled }, set: { _ in onToggle() }))
+            // US-1411: give the switch an accessibility name (it's visually
+            // label-less, but VoiceOver still needs to announce what it toggles).
+            Toggle("Enable \(rule.name)", isOn: Binding(get: { rule.enabled }, set: { _ in onToggle() }))
                 .labelsHidden()
                 .tint(Color.brandNavy)
         }

@@ -217,6 +217,23 @@ struct AutoListerView: View {
             )
             .contextMenu { photoMenu(photo, in: group) }
             .accessibilityLabel(isCover ? "Cover photo" : "Photo")
+            // US-1411: VoiceOver and Switch Control can't open a `.contextMenu`,
+            // so the photo-management actions would be unreachable. Mirror them as
+            // accessibility actions (the rotor "Actions" item).
+            .accessibilityActions {
+                if photo.id != group.coverId {
+                    Button("Make cover") { model.setCover(photo.id, in: group.id) }
+                }
+                Button("Rotate right") { Task { await model.rotate(photo.id, clockwise: true) } }
+                Button("Rotate left") { Task { await model.rotate(photo.id, clockwise: false) } }
+                Button("Split to new group") { model.movePhoto(photo.id, from: group.id, to: nil) }
+                ForEach(model.groups.filter { $0.id != group.id }) { other in
+                    Button("Move to item \(model.displayIndex(of: other))") {
+                        model.movePhoto(photo.id, from: group.id, to: other.id)
+                    }
+                }
+                Button("Remove photo") { model.removePhoto(photo.id) }
+            }
     }
 
     @ViewBuilder
