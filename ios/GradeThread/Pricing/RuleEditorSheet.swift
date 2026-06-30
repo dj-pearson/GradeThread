@@ -101,11 +101,16 @@ struct RuleEditorSheet: View {
             HStack {
                 Text("Floor price")
                 Spacer()
-                Text(CurrencyFormatter().symbol).foregroundStyle(.secondary)
+                // US-1411: the bare currency glyph reads as a stray VoiceOver
+                // element — hide it; the field itself carries the label.
+                Text(CurrencyFormatter().symbol)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 TextField("none", text: $draft.floorPrice)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: 90)
+                    .accessibilityLabel("Floor price")  // US-1411
             }
         } header: {
             Text("Markdown")

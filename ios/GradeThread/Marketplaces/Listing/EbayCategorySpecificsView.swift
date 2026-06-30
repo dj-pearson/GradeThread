@@ -291,7 +291,9 @@ struct EbayCategorySpecificsView: View {
             Text(spec.name)
             if let prov = model.provenance(for: spec.name) {
                 Text(prov.badgeLabel)
-                    .font(.system(size: 9, weight: .medium))
+                    // US-1411: a Dynamic-Type style (scales) rather than a fixed
+                    // 9pt that's below the legible floor and never grows.
+                    .font(.caption2.weight(.medium))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(badgeColor(prov).opacity(0.15), in: Capsule())

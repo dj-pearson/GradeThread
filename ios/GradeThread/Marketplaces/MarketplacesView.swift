@@ -191,7 +191,7 @@ struct MarketplacesView: View {
             ForEach(Self.phasedChannels) { channel in
                 HStack(spacing: 12) {
                     Image(systemName: channel.systemImage)
-                        .font(.system(size: 18))
+                        .scaledIconFont(size: 18, maxSize: 28)  // US-1411
                         .foregroundStyle(.secondary)
                         .frame(width: 36, height: 36)
                         .background(Color.secondary.opacity(0.12))
@@ -397,7 +397,7 @@ struct MarketplacesView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 20))
+                    .scaledIconFont(size: 20, maxSize: 30)  // US-1411
                     .foregroundStyle(Color.brandAmber)
                     .frame(width: 40, height: 40)
                     .background(Color.brandAmber.opacity(0.12))
@@ -429,7 +429,7 @@ struct MarketplacesView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
-                    .font(.system(size: 20))
+                    .scaledIconFont(size: 20, maxSize: 30)  // US-1411
                     .foregroundStyle(Color.brandAmber)
                     .frame(width: 40, height: 40)
                     .background(Color.brandAmber.opacity(0.12))
@@ -479,7 +479,7 @@ struct MarketplacesView: View {
     private var headerCard: some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "antenna.radiowaves.left.and.right")
-                .font(.system(size: 24))
+                .scaledIconFont(size: 24, maxSize: 36)  // US-1411
                 .foregroundStyle(Color.brandNavy)
                 .frame(width: 48, height: 48)
                 .background(Color.brandNavy.opacity(0.1))
