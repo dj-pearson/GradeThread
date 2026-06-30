@@ -8192,8 +8192,8 @@
         "If kept, surface grade via the existing ScoreBandIcon/getScoreColor pattern."
       ],
       "priority": 2091,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: src/pages/inventory.tsx:453,463,493-501."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: src/pages/inventory.tsx:453,463,493-501. IMPLEMENTED 2026-06-30: removed the two permanently-blank, misleading columns (Grade + Listed Price, hardcoded to em-dash for every row) from the desktop inventory table in src/pages/inventory.tsx — their data is not fetched by the inventory query (grade lives in grade_reports). The mobile card view already omitted them, so removal makes desktop and mobile consistent (AC2). Chose AC1 removal (until wired) over populate to avoid adding a dependent grade_reports fetch + mobile parity work for a pre-launch hygiene fix."
     },
     {
       "id": "US-1440",
@@ -8482,8 +8482,8 @@
         "Guard the handlers against re-entry."
       ],
       "priority": 1998,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: login.tsx:151-186; signup.tsx:346-369."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: login.tsx:151-186; signup.tsx:346-369. IMPLEMENTED 2026-06-30: login.tsx + signup.tsx track an oauthPending provider state. handleGoogleSignIn/handleAppleSignIn guard re-entry (return if a redirect is already pending) and set oauthPending before the redirect, resetting only on failure (success navigates away). While pending, all auth controls — both provider buttons AND the submit button — are disabled, and the active provider button shows a spinner + Redirecting… label (AC1/AC2/AC3)."
     },
     {
       "id": "US-1463",

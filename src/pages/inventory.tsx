@@ -450,7 +450,6 @@ export function InventoryPage() {
                           <ArrowUpDown className="h-3.5 w-3.5" />
                         </button>
                       </TableHead>
-                      <TableHead>Grade</TableHead>
                       <TableHead>
                         <button
                           className="inline-flex items-center gap-1 hover:text-foreground"
@@ -460,7 +459,6 @@ export function InventoryPage() {
                           <ArrowUpDown className="h-3.5 w-3.5" />
                         </button>
                       </TableHead>
-                      <TableHead>Listed Price</TableHead>
                       <TableHead>
                         <button
                           className="inline-flex items-center gap-1 hover:text-foreground"
@@ -490,14 +488,8 @@ export function InventoryPage() {
                         <TableCell>
                           <StatusBadge status={item.status} />
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          —
-                        </TableCell>
                         <TableCell>
                           {formatCurrency(item.acquired_price)}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          —
                         </TableCell>
                         <TableCell className={getDaysListedClasses(
                           calcDaysListed(item.id, item.status, listingsByItem, saleByItem)
