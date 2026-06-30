@@ -37,7 +37,7 @@ import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
 // supabase/migrations/. (00323_submission_images_heic.sql)
-export const EXPECTED_SCHEMA_VERSION = "00323";
+export const EXPECTED_SCHEMA_VERSION = "00324";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

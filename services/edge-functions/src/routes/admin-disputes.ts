@@ -105,6 +105,37 @@ async function loadDisputeContext(disputeId: string) {
   return { dispute: d, report: r };
 }
 
+// GET /:id/evidence — signed URLs for the evidence photos the filer attached
+// (US-1416). submission-images is a private, per-user-folder bucket, so the
+// admin UI can't sign these client-side (the admin's uid != the owner's folder,
+// and there's no admin storage policy) — they must come from the service-role
+// client here. The /api/admin/* group already proved the caller is an admin.
+adminDisputesRoutes.get("/:id/evidence", async (c) => {
+  const disputeId = c.req.param("id");
+  const { data: dispute, error } = await supabaseAdmin
+    .from("disputes")
+    .select("id, evidence_paths")
+    .eq("id", disputeId)
+    .maybeSingle();
+  if (error || !dispute) return c.json({ error: "Dispute not found" }, 404);
+
+  const paths = ((dispute as { evidence_paths?: string[] }).evidence_paths ?? [])
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+
+  const urls = (
+    await Promise.all(
+      paths.map(async (path) => {
+        const { data: signed } = await supabaseAdmin.storage
+          .from("submission-images")
+          .createSignedUrl(path, 15 * 60);
+        return signed?.signedUrl ?? null;
+      }),
+    )
+  ).filter((u): u is string => u !== null);
+
+  return c.json({ urls });
+});
+
 // POST /:id/under-review — triage flip (open → under_review).
 adminDisputesRoutes.post("/:id/under-review", async (c) => {
   const stepUp = requireStepUp(c);

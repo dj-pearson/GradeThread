@@ -831,6 +831,9 @@ export interface DisputeRow {
   reason: string;
   status: DisputeStatus;
   resolution_notes: string | null;
+  // US-1416: storage paths (submission-images bucket) of the evidence photos the
+  // filer attached. Reviewers sign these via the admin evidence endpoint.
+  evidence_paths: string[];
   created_at: string;
   updated_at: string;
 }

@@ -202,6 +202,11 @@ export function AdminDisputesPage() {
   const [selectedDispute, setSelectedDispute] = useState<EnrichedDispute | null>(null);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loadingPhotos, setLoadingPhotos] = useState(false);
+  // US-1416: signed URLs for the filer's attached evidence photos. These live
+  // in another user's storage folder, so they must be signed server-side via
+  // the admin edge endpoint (admins have no client-side storage read policy).
+  const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
+  const [loadingEvidence, setLoadingEvidence] = useState(false);
 
   // Action state
   const [actionLoading, setActionLoading] = useState(false);
@@ -381,6 +386,32 @@ export function AdminDisputesPage() {
     }
 
     loadUrls();
+    return () => { cancelled = true; };
+  }, [selectedDispute]);
+
+  // US-1416: load the filer's evidence photos (signed server-side) when the
+  // detail dialog opens.
+  useEffect(() => {
+    const paths = selectedDispute?.dispute.evidence_paths ?? [];
+    setEvidenceUrls([]);
+    if (!selectedDispute || paths.length === 0) return;
+    let cancelled = false;
+    setLoadingEvidence(true);
+
+    (async () => {
+      try {
+        const res = await edgeFetch(
+          `/api/admin/disputes/${selectedDispute.dispute.id}/evidence`,
+        );
+        const json = (await res.json().catch(() => ({}))) as { urls?: string[] };
+        if (!cancelled && res.ok) setEvidenceUrls(json.urls ?? []);
+      } catch {
+        /* best-effort — the reason text still shows */
+      } finally {
+        if (!cancelled) setLoadingEvidence(false);
+      }
+    })();
+
     return () => { cancelled = true; };
   }, [selectedDispute]);
 
@@ -908,6 +939,39 @@ export function AdminDisputesPage() {
                   </div>
                 )}
               </div>
+
+              {/* US-1416: Evidence the filer attached when opening the dispute. */}
+              {(selectedDispute.dispute.evidence_paths?.length ?? 0) > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium mb-3">
+                    Evidence Submitted by Filer
+                  </h4>
+                  {loadingEvidence ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      {selectedDispute.dispute.evidence_paths.map((p) => (
+                        <Skeleton key={p} className="aspect-square rounded-lg" />
+                      ))}
+                    </div>
+                  ) : evidenceUrls.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Evidence photos could not be loaded.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3">
+                      {evidenceUrls.map((url, i) => (
+                        <img
+                          key={url}
+                          src={url}
+                          alt={`Evidence ${i + 1}`}
+                          loading="lazy"
+                          decoding="async"
+                          className="aspect-square rounded-lg border object-cover"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Resolution Section — only for open/under_review disputes */}
               {(selectedDispute.dispute.status === "open" || selectedDispute.dispute.status === "under_review") && (

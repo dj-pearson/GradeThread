@@ -440,16 +440,32 @@ export function SubmissionDetailPage() {
     setSubmittingDispute(true);
 
     try {
-      // Upload dispute evidence photos if any. Use the workspace owner's
-      // folder so workspace members can read it later.
+      // US-1416: upload dispute evidence photos and KEEP their storage paths so
+      // they're persisted on the dispute (previously the uploads were orphaned —
+      // no row referenced them, so reviewers never saw them). A failed upload is
+      // surfaced (toast) instead of being swallowed, and we still file the
+      // dispute with whatever evidence did upload.
       const folderUserId = workspaceOwnerId ?? user.id;
+      const evidencePaths: string[] = [];
       if (disputePhotos.length > 0 && submission) {
-        for (const photo of disputePhotos) {
+        let failures = 0;
+        for (let i = 0; i < disputePhotos.length; i++) {
+          const photo = disputePhotos[i];
           const ext = photo.name.split(".").pop() ?? "jpg";
-          const path = `${folderUserId}/${submission.id}/dispute_${Date.now()}.${ext}`;
-          await supabase.storage
+          const path = `${folderUserId}/${submission.id}/dispute_${Date.now()}_${i}.${ext}`;
+          const { error: uploadError } = await supabase.storage
             .from("submission-images")
             .upload(path, photo);
+          if (uploadError) {
+            failures++;
+          } else {
+            evidencePaths.push(path);
+          }
+        }
+        if (failures > 0) {
+          toast.error(
+            `${failures} of ${disputePhotos.length} evidence photo(s) couldn't be uploaded — filing your dispute without them.`,
+          );
         }
       }
 
@@ -459,6 +475,7 @@ export function SubmissionDetailPage() {
           grade_report_id: gradeReport.id,
           user_id: workspaceOwnerId ?? user.id,
           reason: composedReason,
+          evidence_paths: evidencePaths,
         } as never)
         .select()
         .single();

@@ -7896,8 +7896,8 @@
         "Check the upload result and toast on failure instead of swallowing it."
       ],
       "priority": 2199,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · grading · grading audit] Evidence: src/pages/submission-detail.tsx:446-464; migration 00001:83-92 (disputes columns)."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · grading · grading audit] Evidence: src/pages/submission-detail.tsx:446-464; migration 00001:83-92 (disputes columns). | DONE 2026-06-30: migration 00324 adds disputes.evidence_paths text[] (self-recorded, schema-version bumped to 00324); filer now stores uploaded paths + toasts on upload failure; new admin GET /api/admin/disputes/:id/evidence signs them service-role; admin disputes UI shows an Evidence Submitted by Filer gallery. tsc+eslint+deno check/lint + schema-version test (12) green."
     },
     {
       "id": "US-1417",
