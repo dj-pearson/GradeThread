@@ -33,6 +33,7 @@ const GRID_IMAGES: ReadonlyArray<readonly [string, string]> = [
   // and falls back to photo_url (the fallback is asserted on the helper below).
   ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
   ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
+  ["src/pages/flipdesk/listings.tsx", "itemPhotoThumb(cover)"],
   ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl"],
   // Storefront cards — the edge serves thumbnail_url in this field (content-public.ts).
   ["src/pages/verified-seller.tsx", "listing.photo_url"],
@@ -65,6 +66,7 @@ describe("item_photos grids prefer the stored thumbnail (US-413)", () => {
   const USES_THUMB_HELPER: ReadonlyArray<readonly [string, string]> = [
     ["src/components/flipdesk/photo-manager.tsx", "itemPhotoThumb(photo)"],
     ["src/components/flipdesk/photo-uploader.tsx", "itemPhotoThumb(first)"],
+    ["src/pages/flipdesk/listings.tsx", "itemPhotoThumb(cover)"],
     ["src/pages/flipdesk/autolister.tsx", "p.thumbnailUrl"],
   ];
   for (const [file, expr] of USES_THUMB_HELPER) {

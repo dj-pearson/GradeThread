@@ -123,6 +123,7 @@ import {
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { itemPhotoThumb } from "@/lib/images";
 import type {
   ItemFullRow,
   ItemStatus,
@@ -644,6 +645,45 @@ export function FlipdeskListingsPage() {
       }>) {
         if (row.inventory_item_id && row.publish_error) {
           map.set(row.inventory_item_id, row.publish_error);
+        }
+      }
+      return map;
+    },
+  });
+
+  // Cover photo per item for the row thumbnail (parity with iOS, which shows the
+  // main photo in the inventory grid). The cover = the LOWEST sort_order photo
+  // per item (same rule as iOS SyncEngine.primaryPhotos); the URL prefers the
+  // generated thumbnail via itemPhotoThumb(). RLS on item_photos is owner-scoped
+  // through inventory_items, so one unfiltered read returns only this user's
+  // photos — no giant id-list needed. Ordered ascending, first row per item wins.
+  const { data: coverByItem } = useQuery({
+    queryKey: ["items_full", "listings", "covers", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<
+      Map<string, { thumbnail_url: string | null; photo_url: string | null }>
+    > => {
+      const { data, error } = await supabase
+        .from("item_photos")
+        .select("inventory_item_id, thumbnail_url, photo_url, sort_order")
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      const map = new Map<
+        string,
+        { thumbnail_url: string | null; photo_url: string | null }
+      >();
+      for (const row of (data ?? []) as Array<{
+        inventory_item_id: string | null;
+        thumbnail_url: string | null;
+        photo_url: string | null;
+      }>) {
+        // First (lowest sort_order) row per item is the cover.
+        if (row.inventory_item_id && !map.has(row.inventory_item_id)) {
+          map.set(row.inventory_item_id, {
+            thumbnail_url: row.thumbnail_url,
+            photo_url: row.photo_url,
+          });
         }
       }
       return map;
@@ -1905,6 +1945,7 @@ export function FlipdeskListingsPage() {
                         </TableHead>
                       )}
                       <TableHead className="w-10" />
+                      <TableHead className="w-12 px-1" />
                       <TableHead className="min-w-[220px]">Title</TableHead>
                       <TableHead className="w-24">
                         <button
@@ -2104,6 +2145,23 @@ export function FlipdeskListingsPage() {
                             >
                               <Pencil className="h-3 w-3" />
                             </Button>
+                          </TableCell>
+                          <TableCell className="px-1">
+                            {(() => {
+                              const cover = coverByItem?.get(it.id);
+                              return cover && itemPhotoThumb(cover) ? (
+                                <img
+                                  src={itemPhotoThumb(cover)}
+                                  alt=""
+                                  loading="lazy"
+                                  className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-border"
+                                />
+                              ) : (
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+                                  <FileText className="h-4 w-4" />
+                                </div>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell className="max-w-[280px] font-medium">
                             <div className="flex items-center gap-1.5">
