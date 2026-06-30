@@ -51,7 +51,14 @@ final class ReferralsStore {
 
     // MARK: - Actions
 
+    /// US-1407: re-entrancy guard so an overlapping `.task` + `.refreshable`
+    /// (or a reload triggered by `redeem`) can't run two loads at once.
+    private var isLoading = false
+
     func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
         phase = .loading
         do {
             me = try await service.me()

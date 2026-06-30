@@ -27,9 +27,18 @@ struct EbayCategorySpecificsView: View {
                 case .loadingAspects:
                     Section { HStack { ProgressView(); Text("Loading item specifics…") } }
                 case .failed(let message):
+                    // US-1407: a failed aspect-spec load is RECOVERABLE — give an
+                    // in-place retry instead of a dead-end label the user can only
+                    // escape by backing out and reopening the sheet.
                     Section {
                         Label(message, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(Color.brandRed)
+                        Button {
+                            Task { await model.reload() }
+                        } label: {
+                            Label("Try again", systemImage: "arrow.clockwise")
+                        }
+                        .accessibilityHint("Reloads the eBay item specifics for this category")
                     }
                 default:
                     aspectsContent(model)

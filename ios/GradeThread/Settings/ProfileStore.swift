@@ -48,7 +48,14 @@ final class ProfileStore {
         return nil
     }
 
+    /// US-1407: re-entrancy guard so an overlapping `.task` + `.refreshable`
+    /// (or a refresh racing `updateName`) can't run two loads at once.
+    private var isRefreshing = false
+
     func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         phase = .loading
         do {
             let rows: [Profile] = try await SupabaseShared.client

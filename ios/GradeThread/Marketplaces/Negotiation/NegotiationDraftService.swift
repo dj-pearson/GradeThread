@@ -43,7 +43,8 @@ final class NegotiationDraftService: NegotiationDrafting {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1407: AI inference (`/ai/negotiate`) — generous AI session.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
         self.baseURL = baseURL
         self.session = session
     }

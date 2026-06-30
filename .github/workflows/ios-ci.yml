@@ -44,6 +44,9 @@ jobs:
       - name: Lint — no ungated print() in app sources (US-698)
         run: python3 ios/Scripts/no-ungated-print.py
 
+      - name: Lint — no default URLSession=.shared in services (US-1407)
+        run: python3 ios/Scripts/no-default-shared-session.py
+
       - name: Install XcodeGen + xcbeautify
         run: brew install xcodegen xcbeautify
 

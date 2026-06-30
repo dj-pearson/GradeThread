@@ -20,10 +20,21 @@ protocol AspectsProviding {
 struct EbayAspectsService: AspectsProviding {
     private let baseURL: URL
     private let session: URLSession
+    /// US-1407: the AI extract (`/ai/extract-aspects`) does 20-60s of idle model
+    /// work, so it needs the generous AI session — using the bounded `session`
+    /// would kill a successful extract mid-flight. The fast category/aspects GETs
+    /// stay on the bounded `session` so a stall fails fast (was `URLSession.shared`
+    /// = 60s, which hung `EbayCategorySpecificsView` behind "Loading item specifics…").
+    private let aiSession: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    init(
+        baseURL: URL = AppConfig.edgeAPIURL,
+        session: URLSession = EdgeNetwork.shared,
+        aiSession: URLSession = EdgeNetwork.aiSession
+    ) {
         self.baseURL = baseURL
         self.session = session
+        self.aiSession = aiSession
     }
 
     func suggestCategories(_ query: String) async throws -> [CategorySuggestion] {
@@ -56,7 +67,8 @@ struct EbayAspectsService: AspectsProviding {
                 category_id: categoryId,
                 category_path: categoryPath,
                 known_aspects: known.isEmpty ? nil : known
-            )
+            ),
+            session: aiSession  // US-1407: slow AI inference — use the AI session.
         )
     }
 
@@ -88,7 +100,9 @@ struct EbayAspectsService: AspectsProviding {
         return try await send(request)
     }
 
-    private func post<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
+    private func post<B: Encodable, T: Decodable>(
+        _ path: String, body: B, session: URLSession? = nil
+    ) async throws -> T {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         components.path = path
         guard let url = components.url else {
@@ -103,10 +117,10 @@ struct EbayAspectsService: AspectsProviding {
         } catch {
             throw EdgeAPIError.decoding("Encoding request failed: \(error.localizedDescription)")
         }
-        return try await send(request)
+        return try await send(request, session: session)
     }
 
-    private func send<T: Decodable>(_ base: URLRequest) async throws -> T {
+    private func send<T: Decodable>(_ base: URLRequest, session: URLSession? = nil) async throws -> T {
         var request = base
         if let token = await SupabaseShared.currentAccessToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -114,7 +128,7 @@ struct EbayAspectsService: AspectsProviding {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await (session ?? self.session).data(for: request)
         } catch {
             throw EdgeAPIError.network(error.localizedDescription)
         }

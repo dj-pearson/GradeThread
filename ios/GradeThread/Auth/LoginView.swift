@@ -263,11 +263,13 @@ struct LoginView: View {
 
     // MARK: - Unconfirmed-email guidance (US-810)
 
-    /// True when the current failure is GoTrue's "email not confirmed" rejection
-    /// on a sign-in attempt — the trigger for the dedicated confirm-your-email
-    /// card (with resend) instead of the generic error line.
+    /// True when the current failure is an unconfirmed-email rejection — the
+    /// trigger for the dedicated confirm-your-email card (with resend) instead of
+    /// the generic error line. US-1406: no longer gated on `.signIn` mode, so a
+    /// user who hits the rejection during the sign-up → auto-sign-in transition
+    /// still gets the resend action rather than a bare error with no recovery.
     private var isUnconfirmedSignIn: Bool {
-        guard mode == .signIn, let error = authStore.lastError else { return false }
+        guard let error = authStore.lastError else { return false }
         return FriendlyErrorCopy.isEmailNotConfirmed(error)
     }
 

@@ -14,7 +14,10 @@ final class GradingService {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1407: bounded session (was `URLSession.shared` = 60s) for the grading
+    // validate/submit/get calls. The submit returns a submission id quickly (the
+    // model work is polled separately), so the bounded idle timeout is correct.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
     }

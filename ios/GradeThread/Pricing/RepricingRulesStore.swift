@@ -30,7 +30,14 @@ final class RepricingRulesStore {
     var isEmpty: Bool { rules.isEmpty }
     var enabledCount: Int { rules.filter(\.enabled).count }
 
+    /// US-1407: re-entrancy guard so an overlapping `.task` + `.refreshable`
+    /// (or a reload triggered by `delete`) can't run two loads at once.
+    private var isLoading = false
+
     func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
         phase = .loading
         do {
             rules = try await service.list()

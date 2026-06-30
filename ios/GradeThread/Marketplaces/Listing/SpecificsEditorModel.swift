@@ -105,6 +105,22 @@ final class SpecificsEditorModel {
         await refillDerived(categoryId: cat)
     }
 
+    /// US-1407: retry the aspect-spec load after a `.failed` phase. The view's
+    /// `.task` fires `start()` only once, so a transient failure previously left
+    /// the editor on a dead-end error with no recovery (the user had to back out
+    /// and reopen). Re-runs the load for the already-selected category, or the
+    /// full `start()` if none has been resolved yet.
+    func reload() async {
+        if let cat = selectedCategoryId, !cat.isEmpty {
+            await loadAspects(categoryId: cat)
+            // Only refill once the spec actually loaded — don't paper over a
+            // still-failed load.
+            if phase == .ready { await refillDerived(categoryId: cat) }
+        } else {
+            await start()
+        }
+    }
+
     func search() async {
         let q = categoryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard q.count >= 2 else { suggestions = []; return }

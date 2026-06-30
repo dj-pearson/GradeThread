@@ -288,6 +288,21 @@ final class PaywallStore {
         case .success:
             purchaseSucceeded = true
             await refreshBilling()
+            // US-1405: the edge `/appstore/verify` may not have committed the plan
+            // switch by the time `refreshBilling()` reads the `users` row (it
+            // self-heals via App Store Server Notifications). For a subscription,
+            // optimistically reflect the just-purchased tier so the paywall shows
+            // it as "Current" immediately instead of still offering its buy button
+            // (inviting a confused re-purchase). The next refresh reconciles to
+            // server truth. Consumables don't change the plan — credit balance is
+            // already refreshed above.
+            if case let .subscription(plan, _) = entry.kind {
+                currentPlan = plan
+                billingSource = "appstore"
+                if !Self.entitlingStatuses.contains(subscriptionStatus ?? "") {
+                    subscriptionStatus = "active"
+                }
+            }
             return true
         case .pending:
             // Ask to Buy / SCA: no entitlement yet — the listener grants it on

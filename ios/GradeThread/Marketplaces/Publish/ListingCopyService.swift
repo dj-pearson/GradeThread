@@ -46,7 +46,9 @@ final class ListingCopyService: ListingCopyGenerating {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1407: AI inference (`/ai/listing-copy`) — generous AI session, not the
+    // 60s `URLSession.shared` default that could hang the publish dialog.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
         self.baseURL = baseURL
         self.session = session
     }
