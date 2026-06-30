@@ -35,7 +35,7 @@ enum FriendlyErrorCopy {
     /// surfaces — so the user is told exactly how to recover instead of hitting a
     /// generic "couldn't save / session expired" dead-end. Mirrors
     /// ``EdgeAPIError/emailUnverified``'s description.
-    nonisolated static let confirmEmailMessage =
+    static let confirmEmailMessage =
         "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
 
     /// True when the failure is a network-reachability problem (offline, DNS,
@@ -120,11 +120,12 @@ enum FriendlyErrorCopy {
     /// "Resend confirmation email" action. Delegates to ``kind(for:)`` so the
     /// version-robust string matching lives in one place.
     nonisolated static func isEmailNotConfirmed(_ error: Error) -> Bool {
-        let kind = kind(for: error)
         // US-1406: the edge's authenticated-action 403 (`.emailUnverified`) also
         // means "confirm your email," so the resend-confirmation card should
         // surface for it too — not just the GoTrue sign-in rejection.
-        return kind == .emailNotConfirmed || kind == .emailUnverified
+        // (Qualify as `Self.kind` so the call doesn't bind to the local below.)
+        let classified = Self.kind(for: error)
+        return classified == .emailNotConfirmed || classified == .emailUnverified
     }
 
     /// Friendly copy for the auth surfaces (login / signup / reset).
