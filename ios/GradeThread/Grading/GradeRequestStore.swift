@@ -28,6 +28,12 @@ final class GradeRequestStore {
         /// Grading is taking longer than the poll window. Not an error: the
         /// grade will still arrive via the next inventory sync.
         case stillProcessing
+        /// The AI withheld a grade because a core photo is unusable (blurry /
+        /// dark / cut off / illegible label). Terminal for this poll — the
+        /// seller needs to retake photos; no grade or charge resulted. The
+        /// associated string is the human-readable reason. Distinct from
+        /// `.failed` so the UI can show actionable guidance, not a hard error.
+        case needsPhotos(String)
         /// Hard failure with a user-facing message.
         case failed(String)
     }
@@ -221,6 +227,18 @@ final class GradeRequestStore {
                     applyPendingReview(report: status.gradeReport)
                     return
                 }
+                // Checked BEFORE isFailed: the abstention path also sets `error`
+                // (the reason), but it's a "retake photos" outcome, not a hard
+                // failure. Without this branch the poll would spin to the window
+                // end because the bridge row never reaches completed/failed.
+                if status.isNeedsPhotos {
+                    applyNeedsPhotos(
+                        message: status.error?.isEmpty == false
+                            ? status.error!
+                            : "We couldn't grade this item from the current photos. Retake the flagged shots — especially the tag — in brighter, sharper focus and try again."
+                    )
+                    return
+                }
                 if status.isFailed {
                     phase = .failed(status.error ?? "Grading failed. You weren't charged — please retake the photos and try again.")
                     return
@@ -270,6 +288,17 @@ final class GradeRequestStore {
         phase = .pendingReview
         Telemetry.event("grade.pending_review", props: ["tier": tier.rawValue])
         HapticFeedback.light()
+    }
+
+    /// Quality abstention: the AI declined to grade because the photos aren't
+    /// usable. We DON'T resolve a certificate or stamp the item — the seller
+    /// retakes the flagged photos and resubmits. No charge was taken.
+    private func applyNeedsPhotos(message: String) {
+        self.report = nil
+        self.certificateURL = nil
+        phase = .needsPhotos(message)
+        Telemetry.event("grade.needs_photos", props: ["tier": tier.rawValue])
+        HapticFeedback.warning()
     }
 
     private func message(from error: Error) -> String {

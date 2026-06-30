@@ -92,9 +92,16 @@ struct GradingStatusResponse: Decodable {
     /// state surfaced as "submitted for human review". `gradeReport` carries the
     /// provisional score (the edge resolves the preliminary report by submission).
     var isPendingReview: Bool { status == "pending_review" }
-    /// Terminal-failed when the bridge recorded an error. (The pipeline's
-    /// "needs better photos" path leaves the bridge row pending, so the
-    /// poller also times out gracefully — see GradeRequestStore.)
+    /// Quality abstention: the AI withheld a grade because a core photo is
+    /// unusable (blurry / dark / cut off / illegible label). Terminal for this
+    /// poll — the seller needs to retake photos; no grade or charge resulted.
+    /// `error` carries the human-readable reason. Distinct from `isFailed` so
+    /// the UI can show actionable "needs clearer photos" guidance instead of a
+    /// hard error.
+    var isNeedsPhotos: Bool { status == "needs_photos" }
+    /// Terminal-failed when the bridge recorded an error. (Checked AFTER
+    /// `isNeedsPhotos` in the poller, since the abstention path also sets
+    /// `error` but is not a hard failure — see GradeRequestStore.)
     var isFailed: Bool { (error?.isEmpty == false) || status == "failed" }
 }
 

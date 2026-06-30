@@ -1166,6 +1166,35 @@ export async function processSubmission(submissionId: string) {
           },
         })
         .eq("id", submissionId);
+      // Mirror the abstention onto the FlipDesk bridge row so the in-app /
+      // web status poll reaches a TERMINAL state instead of hanging at
+      // "processing" forever (the bug behind "certified grade just keeps
+      // spinning"). Unlike the completed / pending_review / failed paths, the
+      // needs_photos path previously left the bridge row at 'processing', so a
+      // FlipDesk-originated grade that abstained never resolved on the client.
+      // We carry the human-readable summary in `error` so even clients that
+      // don't model needs_photos surface a clear "needs clearer photos" message.
+      try {
+        const { data: fdLink } = await supabaseAdmin
+          .from("flipdesk_grading_submissions")
+          .select("id")
+          .eq("submission_id", submissionId)
+          .maybeSingle();
+        if (fdLink) {
+          await supabaseAdmin
+            .from("flipdesk_grading_submissions")
+            .update({
+              status: "needs_photos",
+              error: qualityGate.summary.slice(0, 500),
+            })
+            .eq("id", (fdLink as { id: string }).id);
+        }
+      } catch (fdErr) {
+        console.error(
+          `[Pipeline] FlipDesk abstention bridge sync error for submission ${submissionId}:`,
+          fdErr instanceof Error ? fdErr.message : String(fdErr),
+        );
+      }
       // AC #4: abstention must not consume a paid grade. Reverse the charge
       // taken at submit (included grade returned / credits re-granted; a
       // Stripe per-grade payment is flagged for manual refund).
