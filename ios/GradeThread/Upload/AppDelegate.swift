@@ -30,6 +30,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     /// the strong reference and the delegate vanishes mid-launch.
     let pushNotificationDelegate = NotificationDelegate()
 
+    /// US-1405: StoreKit transaction listener (renewals, refunds, deferred /
+    /// Ask-to-Buy approvals, interrupted purchases the App Store completes on a
+    /// later launch). Held so the detached task isn't cancelled, and started in
+    /// `didFinishLaunchingWithOptions` — BEFORE any awaited warm-up — so a
+    /// transaction resolved during launch is never delivered to
+    /// `Transaction.updates` before a listener is attached (which would leave the
+    /// user charged-but-not-entitled).
+    private var storeKitListener: Task<Void, Never>?
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -39,6 +48,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // completion events before any view code has created the session,
         // and we'd lose them.
         _ = photoUploadService
+
+        // US-1405: attach the StoreKit transaction listener immediately on
+        // launch, before any awaited warm-up, per Apple's guidance. Same
+        // motivation as the upload session above — a transaction the system
+        // resolves during launch must not be delivered to `Transaction.updates`
+        // before we're listening, or the user is charged without entitlement.
+        storeKitListener = StoreKitService.startTransactionListener()
 
         // Register the BG refresh task at launch — iOS rejects late
         // registration with a console warning. The handler runs through

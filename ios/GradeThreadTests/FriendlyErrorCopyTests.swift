@@ -138,6 +138,45 @@ final class FriendlyErrorCopyTests: XCTestCase {
         ))
     }
 
+    // MARK: - Email-unverified (edge 403) — US-1406
+
+    /// The typed `EdgeAPIError.emailUnverified` must classify as its own kind via
+    /// a DIRECT typed match — not via string-matching its localizedDescription to
+    /// `.emailNotConfirmed` (which would route it to the generic fallback).
+    func test_emailUnverified_classifiesByTypedCase() {
+        XCTAssertEqual(FriendlyErrorCopy.kind(for: EdgeAPIError.emailUnverified), .emailUnverified)
+    }
+
+    /// The critical regression: on an ACTION surface (save/intake), an
+    /// unconfirmed-email rejection must surface actionable "confirm your email"
+    /// copy — NOT the generic fallback dead-end that re-introduced the 2.1 reject.
+    func test_emailUnverified_actionMessage_isActionable_notFallback() {
+        let copy = FriendlyErrorCopy.actionMessage(
+            for: EdgeAPIError.emailUnverified, fallback: "Couldn't save your item. Please try again.")
+        XCTAssertNotEqual(copy, "Couldn't save your item. Please try again.")
+        XCTAssertTrue(copy.lowercased().contains("confirm your email"))
+    }
+
+    /// On auth surfaces it's actionable too.
+    func test_emailUnverified_authMessage_isActionable() {
+        let copy = FriendlyErrorCopy.authMessage(for: EdgeAPIError.emailUnverified)
+        XCTAssertTrue(copy.lowercased().contains("confirm your email"))
+    }
+
+    /// The resend-confirmation card should also surface for the edge 403, so a
+    /// blocked user can re-trigger the verification email.
+    func test_emailUnverified_isTreatedAsEmailNotConfirmed() {
+        XCTAssertTrue(FriendlyErrorCopy.isEmailNotConfirmed(EdgeAPIError.emailUnverified))
+    }
+
+    /// A GoTrue "email not confirmed" rejection on an action surface is also
+    /// actionable now (no longer the generic fallback).
+    func test_emailNotConfirmed_actionMessage_isActionable() {
+        let copy = FriendlyErrorCopy.actionMessage(
+            for: goTrueError("Email not confirmed"), fallback: "Couldn't save your item.")
+        XCTAssertTrue(copy.lowercased().contains("confirm your email"))
+    }
+
     // MARK: - Generic fallback
 
     func test_unknownError_isGeneric_andNeverLeaksRawString() {

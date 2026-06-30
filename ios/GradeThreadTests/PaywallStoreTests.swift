@@ -180,6 +180,30 @@ final class PaywallStoreTests: XCTestCase {
         XCTAssertNil(s.purchasingId)                // cleared
     }
 
+    // US-1405: the edge verify can lag the purchase, so the server `users` row
+    // may still report "free" right after a successful subscription buy. The
+    // paywall must optimistically reflect the purchased tier so it shows
+    // "Current" immediately instead of re-offering the buy button.
+    func test_buy_success_optimisticallyReflectsPurchasedPlan_whenServerLags() async {
+        let fake = FakeStoreKit(); fake.outcome = .success
+        // Server snapshot still lags on the old plan.
+        let s = store(service: fake, billing: .init(plan: "free", status: nil, source: nil, credits: 0))
+        let ok = await s.buy(sub("com.gradethread.sub.pro.monthly"))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(s.currentPlan, "pro")          // optimistic, not the lagging "free"
+        XCTAssertEqual(s.billingSource, "appstore")
+        XCTAssertEqual(s.subscriptionStatus, "active")
+        XCTAssertTrue(s.isCurrentPlan("pro"))         // row now renders as "Current"
+    }
+
+    // A consumable credit-pack purchase must NOT mutate the subscription plan.
+    func test_buy_success_consumable_doesNotChangePlan() async {
+        let fake = FakeStoreKit(); fake.outcome = .success
+        let s = store(service: fake, billing: .init(plan: "free", status: nil, source: nil, credits: 0))
+        _ = await s.buy(pack(IAPCatalog.all.first { !$0.isSubscription }!.productId))
+        XCTAssertEqual(s.currentPlan, "free")         // unchanged by a credit pack
+    }
+
     func test_buy_stripeConflict_routesToWebInsteadOfBareError() async {
         let fake = FakeStoreKit(); fake.outcome = .stripeConflict
         let s = store(service: fake)

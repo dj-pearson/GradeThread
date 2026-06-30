@@ -7742,7 +7742,7 @@
       ],
       "priority": 1405,
       "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 deep iOS bug audit (paywall/IAP sweep). CRITICAL: launch-timing listener miss = charged-but-not-entitled. HIGH: unbounded product fetch = infinite paywall spinner (the 2.1(b) reject pattern). Restore/terms/manage-sub links + verification/empty-products handling already correct."
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 deep iOS bug audit (paywall/IAP sweep). CRITICAL: launch-timing listener miss = charged-but-not-entitled. HIGH: unbounded product fetch = infinite paywall spinner (the 2.1(b) reject pattern). Restore/terms/manage-sub links + verification/empty-products handling already correct. IMPLEMENTED 2026-06-30 on branch claude/ios-app-bug-audit-9in0xv (listener→AppDelegate launch, productsWithTimeout, consumable reportWithRetry-before-finish, optimistic plan + tests) — pending one iOS CI run to confirm green; .storekit team-id is operator-supplied."
     },
     {
       "id": "US-1406",
@@ -7756,7 +7756,7 @@
       ],
       "priority": 1406,
       "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (auth/session sweep). CRITICAL — re-introduces the exact 2.1 reject on the SAVE path: emailUnverified is string-matched to .emailNotConfirmed which returns the bare fallback. AI/grade paths already surface it correctly via errorDescription; this makes it uniform."
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (auth/session sweep). CRITICAL — re-introduces the exact 2.1 reject on the SAVE path: emailUnverified is string-matched to .emailNotConfirmed which returns the bare fallback. AI/grade paths already surface it correctly via errorDescription; this makes it uniform. IMPLEMENTED 2026-06-30 (FriendlyErrorCopy typed .emailUnverified match + actionable actionMessage, EbayPublishService 403 body-discriminator decode, LoginView resend regardless of mode, deleteAccount AppleCredentialMonitor.clear, tests) — pending iOS CI. AppleCredentialMonitor .notFound retry-gate still open."
     },
     {
       "id": "US-1407",
@@ -7771,7 +7771,7 @@
       ],
       "priority": 1407,
       "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (network-hang sweep). The dominant reject pattern (spinner ~60s / no recovery). Root cause: prior fix patched `URLSession.shared` call-sites but missed the `session: URLSession = .shared` DEFAULT-ARG form in ~11 services. EbayCategorySpecificsView .failed has no retry = stranded."
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (network-hang sweep). The dominant reject pattern (spinner ~60s / no recovery). Root cause: prior fix patched `URLSession.shared` call-sites but missed the `session: URLSession = .shared` DEFAULT-ARG form in ~11 services. EbayCategorySpecificsView .failed has no retry = stranded. IMPLEMENTED 2026-06-30 (10 services off default URLSession=.shared → EdgeNetwork.shared/aiSession, EbayCategorySpecificsView retry + model.reload(), ReconcileIntakeStore guard, 5 store re-entrancy guards, CI lint no-default-shared-session.py) — pending iOS CI."
     },
     {
       "id": "US-1408",

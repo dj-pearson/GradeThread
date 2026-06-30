@@ -253,6 +253,11 @@ public final class AuthStore {
         // invalid token fails to refresh.
         try? await SupabaseShared.client.auth.signOut()
         try? KeychainLocalStorage().removeAll()
+        // US-1406: mirror `signOut()` — forget the tracked Apple credential id so
+        // a later non-Apple sign-in doesn't inherit a stale revocation check that
+        // would spuriously sign the new user out once Apple reports the orphaned
+        // id as notFound/revoked.
+        AppleCredentialMonitor.clear()
     }
 
     // MARK: - Internals

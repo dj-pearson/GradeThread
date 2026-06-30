@@ -18,9 +18,25 @@ enum FriendlyErrorCopy {
         case offline
         case invalidCredentials
         case emailNotConfirmed
+        /// US-1406: the edge rejected an AUTHENTICATED action because the
+        /// account's email isn't confirmed (``EdgeAPIError/emailUnverified``, a
+        /// 403). Same recovery as ``emailNotConfirmed`` (the GoTrue sign-in
+        /// rejection) — it differs only in origin — but kept a separate case so
+        /// the typed edge error is matched directly instead of by string, and so
+        /// it gets the actionable "confirm your email" copy on action surfaces
+        /// rather than the generic fallback (the relocated Guideline 2.1 reject).
+        case emailUnverified
         case rateLimited
         case generic
     }
+
+    /// US-1406: actionable copy shown whenever a feature is blocked because the
+    /// account's email isn't confirmed — on auth AND action (save/intake)
+    /// surfaces — so the user is told exactly how to recover instead of hitting a
+    /// generic "couldn't save / session expired" dead-end. Mirrors
+    /// ``EdgeAPIError/emailUnverified``'s description.
+    nonisolated static let confirmEmailMessage =
+        "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
 
     /// True when the failure is a network-reachability problem (offline, DNS,
     /// TLS, timeout) rather than an application-level rejection. Shared by the
@@ -67,6 +83,15 @@ enum FriendlyErrorCopy {
         if isOffline(error) {
             return .offline
         }
+        // US-1406: match the TYPED edge case directly (like `isOffline` matches
+        // `.network`) BEFORE any string-matching. Without this, the
+        // `emailUnverified` localizedDescription ("…confirm your email…") was
+        // string-matched to `.emailNotConfirmed`, which `actionMessage` then
+        // returned as the generic fallback — re-introducing the Guideline 2.1
+        // dead-end on the save/intake path.
+        if let edge = error as? EdgeAPIError, case .emailUnverified = edge {
+            return .emailUnverified
+        }
         let lower = rawDetail(for: error).lowercased()
         if lower.contains("invalid login credentials")
             || lower.contains("invalid_credentials")
@@ -95,7 +120,11 @@ enum FriendlyErrorCopy {
     /// "Resend confirmation email" action. Delegates to ``kind(for:)`` so the
     /// version-robust string matching lives in one place.
     nonisolated static func isEmailNotConfirmed(_ error: Error) -> Bool {
-        kind(for: error) == .emailNotConfirmed
+        let kind = kind(for: error)
+        // US-1406: the edge's authenticated-action 403 (`.emailUnverified`) also
+        // means "confirm your email," so the resend-confirmation card should
+        // surface for it too — not just the GoTrue sign-in rejection.
+        return kind == .emailNotConfirmed || kind == .emailUnverified
     }
 
     /// Friendly copy for the auth surfaces (login / signup / reset).
@@ -107,6 +136,8 @@ enum FriendlyErrorCopy {
             return "The email or password you entered is incorrect."
         case .emailNotConfirmed:
             return "Please confirm your email first — we sent a link to your inbox."
+        case .emailUnverified:
+            return Self.confirmEmailMessage
         case .rateLimited:
             return "Too many attempts. Please wait a moment and try again."
         case .generic:
@@ -123,7 +154,13 @@ enum FriendlyErrorCopy {
             return "You're offline. We'll keep your work and retry when you reconnect."
         case .rateLimited:
             return "Too many attempts. Please wait a moment and try again."
-        case .invalidCredentials, .emailNotConfirmed, .generic:
+        case .emailUnverified, .emailNotConfirmed:
+            // US-1406: a feature blocked for an unconfirmed email must tell the
+            // user how to recover (confirm their email) — NOT fall through to the
+            // generic "Couldn't save your item. Please try again." dead-end, which
+            // was the relocated Guideline 2.1 rejection on the save/intake path.
+            return Self.confirmEmailMessage
+        case .invalidCredentials, .generic:
             return fallback
         }
     }

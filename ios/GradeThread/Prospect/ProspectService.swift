@@ -20,7 +20,9 @@ final class ProspectService: Prospecting {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1407: bounded session (was `URLSession.shared` = 60s) so a prospect run
+    // fails fast instead of hanging.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
     }

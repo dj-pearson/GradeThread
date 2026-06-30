@@ -49,7 +49,15 @@ final class CommunityInsightsStore {
         return formatter.string(from: start)
     }
 
+    /// US-1407: re-entrancy guard so an overlapping `.task` + `.refreshable`
+    /// can't run two loads at once (which would flicker `.loading` and race the
+    /// final `phase` assignment).
+    private var isRefreshing = false
+
     func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         phase = .loading
         struct Params: Encodable { let p_period_start: String? }
         do {

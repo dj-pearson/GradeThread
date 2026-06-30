@@ -56,7 +56,14 @@ final class PlanStore {
 
     private(set) var phase: Phase = .loading
 
+    /// US-1407: re-entrancy guard so an overlapping `.task` + `.refreshable`
+    /// can't run two loads at once and race the final `phase`.
+    private var isLoading = false
+
     func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
         phase = .loading
         do {
             let rows: [PlanInfo] = try await SupabaseShared.client

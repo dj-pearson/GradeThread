@@ -34,7 +34,9 @@ final class CompsService: CompsProviding {
         categoryCache[key] = value
     }
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1407: bounded session (was `URLSession.shared` = 60s) so a comps lookup
+    // fails fast instead of hanging ~60s.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
     }

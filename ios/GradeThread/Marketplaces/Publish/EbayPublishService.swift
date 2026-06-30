@@ -11,7 +11,9 @@ public final class EbayPublishService {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1407: bounded session (was `URLSession.shared` = 60s) so a hung publish
+    // / revise / price request fails fast instead of spinning behind the action.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
     }
@@ -178,6 +180,23 @@ public final class EbayPublishService {
     /// ``PublishOutcome``). Map the shared HTTP statuses here — still firing the
     /// 402 upgrade prompt and giving 401/403 re-auth guidance — folding
     /// plan-limit / validation failures into `.failed`.
+    /// US-1406: a 403 from the edge is not always an expired session. Reuse
+    /// ``EdgeAPIError``'s body-discriminator decoding so an unconfirmed-email
+    /// (`email_unverified`) or revoked-workspace (`workspace_access_revoked`) 403
+    /// gets the right, recoverable guidance — telling a user with an unverified
+    /// email to "sign in again" is a dead-end loop, since a fresh token is still
+    /// unverified. Genuine 401/403s keep the re-auth guidance.
+    private func authFailureMessage(_ error: PublishHTTPError) -> String {
+        switch EdgeAPIError.from(statusCode: error.statusCode, body: error.body) {
+        case .emailUnverified:
+            return FriendlyErrorCopy.confirmEmailMessage
+        case .workspaceAccessRevoked:
+            return "You no longer have access to that workspace. Switch back to your own account, then retry publishing."
+        default:
+            return "Your session expired. Sign in again, then retry publishing."
+        }
+    }
+
     private func reviseOutcome(from error: PublishHTTPError) -> ReviseOutcome {
         switch error.statusCode {
         case 402:
@@ -188,7 +207,7 @@ public final class EbayPublishService {
         case 409:
             return .noOfferId
         case 401, 403:
-            return .failed(message: "Your session expired. Sign in again, then retry publishing.")
+            return .failed(message: authFailureMessage(error))
         default:
             let parsed = try? JSONDecoder().decode(EdgeErrorBody.self, from: error.body)
             return .failed(message: parsed?.message ?? "Unexpected error (HTTP \(error.statusCode)).")
@@ -220,8 +239,10 @@ public final class EbayPublishService {
             return .noOfferId
         case 401, 403:
             // US-1163: an expired/!authorized session shouldn't read as a raw
-            // "Unexpected error (HTTP 401)". Guide the user to re-auth.
-            return .failed(message: "Your session expired. Sign in again, then retry publishing.")
+            // "Unexpected error (HTTP 401)". US-1406: a 403 may instead be an
+            // unconfirmed-email / revoked-workspace rejection — route to the
+            // recoverable message rather than a re-auth loop.
+            return .failed(message: authFailureMessage(error))
         default:
             let parsed = try? JSONDecoder().decode(EdgeErrorBody.self, from: error.body)
             return .failed(message: parsed?.message ?? "Unexpected error (HTTP \(error.statusCode)).")

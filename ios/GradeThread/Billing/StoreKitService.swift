@@ -76,6 +76,15 @@ struct AppStoreVerifyResponse: Decodable {
     let creditsBalance: Int
 }
 
+/// Thrown when a StoreKit product fetch exceeds ``StoreKitService/productFetchTimeout``
+/// (US-1405). Conforms to `LocalizedError` so the purchase path surfaces an
+/// actionable message instead of the generic "operation couldn't be completed."
+struct StoreKitTimeoutError: LocalizedError {
+    var errorDescription: String? {
+        "The App Store is taking too long to respond. Please try again."
+    }
+}
+
 struct StoreKitService: StoreKitProviding {
     private let api: EdgeAPI
 
@@ -83,9 +92,35 @@ struct StoreKitService: StoreKitProviding {
         self.api = api
     }
 
+    /// US-1405: `Product.products(for:)` has NO built-in timeout. A wedged
+    /// StoreKit daemon, an unreachable App Store, or a stuck sandbox sign-in can
+    /// hang it indefinitely — leaving the paywall on an infinite spinner (the
+    /// exact Guideline 2.1(b) reject pattern, since `PaywallStore.load()` awaits
+    /// it before rendering). Bound it so a stall surfaces as a thrown error the
+    /// paywall renders as a retryable `.failed` instead of spinning forever.
+    static let productFetchTimeout: TimeInterval = 15
+
+    /// `Product.products(for:)` raced against a hard timeout. Throws
+    /// ``StoreKitTimeoutError`` if the fetch doesn't return within
+    /// ``productFetchTimeout``.
+    static func productsWithTimeout(for ids: [String]) async throws -> [Product] {
+        try await withThrowingTaskGroup(of: [Product].self) { group in
+            group.addTask { try await Product.products(for: ids) }
+            group.addTask {
+                try await Task.sleep(
+                    nanoseconds: UInt64(productFetchTimeout * 1_000_000_000))
+                throw StoreKitTimeoutError()
+            }
+            defer { group.cancelAll() }
+            // Whichever finishes first wins; the loser is cancelled by `defer`.
+            guard let result = try await group.next() else { throw StoreKitTimeoutError() }
+            return result
+        }
+    }
+
     func loadPrices(ids: [String]) async -> PriceLoadResult {
         do {
-            let products = try await Product.products(for: ids)
+            let products = try await Self.productsWithTimeout(for: ids)
             var map: [String: String] = [:]
             for product in products { map[product.id] = product.displayPrice }
             // A successful call with an empty map is a CONFIG error (products not
@@ -103,7 +138,7 @@ struct StoreKitService: StoreKitProviding {
 
     func purchase(productId: String, appAccountToken: UUID) async -> PurchaseOutcome {
         do {
-            let products = try await Product.products(for: [productId])
+            let products = try await Self.productsWithTimeout(for: [productId])
             guard let product = products.first else {
                 return .failed("This item is unavailable right now.")
             }
@@ -112,8 +147,22 @@ struct StoreKitService: StoreKitProviding {
             case .success(let verification):
                 switch verification {
                 case .verified(let transaction):
-                    let report = await reportToServer(jws: verification.jwsRepresentation)
-                    await transaction.finish()
+                    // US-1405: report with bounded retry and only finish once the
+                    // server has the transaction. A consumable (credit pack) is
+                    // NEVER redelivered by `Transaction.updates` after `finish()`,
+                    // so finishing an unreported consumable means the user paid but
+                    // never got credits. On a transient report failure leave it
+                    // unfinished — the launch transaction listener retries it (and
+                    // App Store Server Notifications back-stop it).
+                    let report = await reportWithRetry(jws: verification.jwsRepresentation)
+                    if report != .failed {
+                        await transaction.finish()
+                    } else {
+                        Telemetry.backgroundBreadcrumb(
+                            "IAP foreground purchase: server report failed; leaving "
+                                + "transaction unfinished for listener retry (product \(productId))",
+                            category: "iap")
+                    }
                     return report == .stripeConflict ? .stripeConflict : .success
                 case .unverified:
                     Telemetry.backgroundBreadcrumb(

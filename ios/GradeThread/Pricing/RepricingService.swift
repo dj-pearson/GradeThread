@@ -39,7 +39,9 @@ final class RepricingService: RepricingProviding {
     private let session: URLSession
     private let decoder: JSONDecoder
 
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    // US-1407: bounded session (was `URLSession.shared` = 60s) so repricing
+    // load/scan fails fast instead of hanging.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
         self.baseURL = baseURL
         self.session = session
         let d = JSONDecoder()

@@ -33,6 +33,10 @@ final class ReconcileIntakeStore {
     @discardableResult
     func sync(_ captures: [PhotoCapture]) async -> String? {
         guard !captures.isEmpty else { return nil }
+        // US-1407: a double-tap or retry-during-upload must not interleave two
+        // upload loops — both would write `phase = .syncing(...)`, stranding the
+        // progress counter and creating a duplicate reconcile session.
+        guard !isSyncing else { return nil }
         phase = .syncing(done: 0, total: captures.count)
         do {
             let sessionId = try await service.createSession(ownerId: ownerId)

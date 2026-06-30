@@ -61,9 +61,12 @@ struct GradeThreadApp: App {
                     // Warm the photo-profile cache so retag/capture have the
                     // category-specific slots ready (falls back to bundled).
                     await photoProfileStore.loadIfNeeded()
-                    // Drain StoreKit transaction updates (renewals/refunds/
-                    // deferred buys): report + finish each. Detached, lives on.
-                    _ = StoreKitService.startTransactionListener()
+                    // US-1405: the StoreKit transaction listener is started at
+                    // process launch in `AppDelegate.didFinishLaunchingWithOptions`
+                    // (NOT here) so a transaction the system resolves during launch
+                    // — an Ask-to-Buy approval, an interrupted/renewed purchase
+                    // completed on cold start — isn't delivered to
+                    // `Transaction.updates` before anything is listening.
                     // US-987: if the on-disk cache was corrupt and we recovered,
                     // record it for diagnostics + surface a one-time notice so
                     // the user understands why their local data looks empty until
