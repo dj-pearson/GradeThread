@@ -2,6 +2,33 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 7 (US-1480, US-1481) — Google connection hardening
+
+- US-1480 Persist rotated Google refresh tokens on token refresh — NOW COMPLETE
+  (passes:true). getGoogleAccessToken (flipdesk-google.ts) read only
+  access_token/expires_in from the refresh response and never persisted a
+  rotated refresh_token; if Google rotated it, the stale token was kept and a
+  later refresh would fail, forcing an avoidable reconnect. Now reads
+  refresh_token from the response and, when present, re-encrypts (encryptToken,
+  aad=userId) and persists it alongside the access token; when the response omits
+  it (the common case) the stored refresh_token_enc is left untouched (AC1/AC2).
+
+- US-1481 Surface Google connection load errors instead of masking them as
+  'no sheet' — NOW COMPLETE (passes:true). Two fixes in flipdesk-google-sync.ts:
+  (1) syncUserSheet discarded the google_connections select error, so a transient
+  DB read failure degraded to skipped:'no_sheet' → 409 'Connect Google…'. Now the
+  select error is captured and pushed to summary.errors (returned as a real run
+  error), not masked as no_sheet (AC1). (2) /sync/now returned ok:true even when
+  summary.errors was non-empty (the UI then showed a 'Synced' success toast); it
+  now returns ok:false + the first error at HTTP 502 when summary.errors.length,
+  so useSyncNow's !res.ok branch toasts the actual error (AC2).
+
+VERIFICATION (this container): edge-only batch — no web changes. Deno not
+installable in this container (proxy 403 on the install script) so the edge lane
+runs in GitHub Actions; changes reviewed against deno strict config (encryptToken
+→ Promise<string>, typed update object, connErr.message valid). Open prd.json
+stories now 145.
+
 ## 2026-06-30 — Pre-launch audit batch 6 (US-1469, US-1479) — loop resumed
 
 - US-1469 Add an idempotency key (or in-flight guard) to credit-pack Checkout

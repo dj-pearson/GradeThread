@@ -8699,7 +8699,7 @@
         "Leave the stored token unchanged when the response omits it."
       ],
       "priority": 1980,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: flipdesk-google.ts:323-334."
     },
     {
@@ -8711,7 +8711,7 @@
         "Make /sync/now reflect summary.errors.length > 0 in its status/shape."
       ],
       "priority": 1979,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: flipdesk-google-sync.ts:270-278,779-785."
     },
     {

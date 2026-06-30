@@ -320,16 +320,32 @@ export async function getGoogleAccessToken(userId: string): Promise<string> {
     }
     throw new Error(`Google token refresh failed (${res.status}): ${detail}`);
   }
-  const token = (await res.json()) as { access_token?: string; expires_in?: number };
+  const token = (await res.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    refresh_token?: string;
+  };
   if (!token.access_token) throw new Error("Google refresh returned no access_token.");
 
   const accessEnc = await encryptToken(token.access_token, { aad: userId });
+  const update: {
+    access_token_enc: string;
+    token_expires_at: string;
+    refresh_token_enc?: string;
+  } = {
+    access_token_enc: accessEnc,
+    token_expires_at: new Date(Date.now() + (token.expires_in ?? 3600) * 1000).toISOString(),
+  };
+  // US-1480: Google may rotate the refresh token on a refresh. Persist the new
+  // one (re-encrypted) when present so a later refresh doesn't fail on a stale
+  // token and force an avoidable reconnect. When the response omits it (the
+  // common case), leave the stored refresh_token_enc untouched.
+  if (token.refresh_token) {
+    update.refresh_token_enc = await encryptToken(token.refresh_token, { aad: userId });
+  }
   await supabaseAdmin
     .from("google_connections")
-    .update({
-      access_token_enc: accessEnc,
-      token_expires_at: new Date(Date.now() + (token.expires_in ?? 3600) * 1000).toISOString(),
-    })
+    .update(update)
     .eq("user_id", userId);
   return token.access_token;
 }
