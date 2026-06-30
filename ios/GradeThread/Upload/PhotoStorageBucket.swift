@@ -39,6 +39,22 @@ enum PhotoStorageBucket {
         isSensitive(serverType: serverType) ? privateBucket : publicBucket
     }
 
+    /// The bucket to READ a persisted photo from — trusting where the bytes
+    /// ACTUALLY are, not just the type. A populated public `photoURL` means the
+    /// object lives in the PUBLIC bucket even for a nominally-sensitive type:
+    /// legacy uploads (pre-US-979, when every slot went to `item-photos`) and
+    /// slots reclassified to tag/tag_2/certificate AFTER capture leave a
+    /// sensitive-typed row pointing at a public object. Routing those through
+    /// the private signed-URL path mints a token for an object that isn't in the
+    /// private bucket, so the photo silently fails to load (and rotate fails) —
+    /// while reclassifying it to a non-sensitive type makes it appear instantly.
+    /// True private photos are stored with an EMPTY `photoURL`, so they still
+    /// route to the private bucket here. (`bucket(forServerType:)` remains the
+    /// WRITE-time router, keyed only on the slot's sensitivity.)
+    static func readBucket(forServerType serverType: String, photoURL: String) -> String {
+        photoURL.isEmpty ? bucket(forServerType: serverType) : publicBucket
+    }
+
     /// Maximum signed-URL lifetime, in seconds. Per CLAUDE.md the private
     /// bucket is read only via signed URLs with TTL ≤ 900s (15 minutes); we
     /// default to 10 minutes — long enough for the edge (Claude Vision) to

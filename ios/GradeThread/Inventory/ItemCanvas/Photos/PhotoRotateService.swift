@@ -61,8 +61,12 @@ struct PhotoRotateService {
         guard let storagePath = photo.storagePath else { throw RotateError.noStoragePath }
 
         // US-979: sensitive photos live in the PRIVATE bucket and have no public
-        // URL — resolve a short-TTL signed URL to read the current bytes.
-        let bucket = PhotoStorageBucket.bucket(forServerType: photo.photoType)
+        // URL — resolve a short-TTL signed URL to read the current bytes. Use the
+        // READ-time bucket (populated public photoURL ⇒ public bucket) so a
+        // sensitive-typed-but-public legacy/reclassified row is downloaded AND
+        // re-uploaded to the bucket its bytes actually occupy, instead of signing
+        // / writing the private bucket where the object isn't (the HTTP 400).
+        let bucket = PhotoStorageBucket.readBucket(forServerType: photo.photoType, photoURL: photo.photoURL)
         let sourceURL: URL?
         if bucket == PhotoStorageBucket.publicBucket {
             sourceURL = URL(string: photo.photoURL)

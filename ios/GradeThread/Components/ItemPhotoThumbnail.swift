@@ -29,7 +29,12 @@ struct ItemPhotoThumbnail<Placeholder: View>: View {
     }
 
     private func resolve() async {
-        let bucket = PhotoStorageBucket.bucket(forServerType: photo.photoType)
+        // Read from where the bytes ACTUALLY are: a populated public photoURL
+        // means the object is in the public bucket even for a sensitive type
+        // (legacy / reclassified rows), so we don't mint a doomed private signed
+        // URL for an object that isn't there — the cause of tag/tag_2 photos
+        // showing blank until they're reclassified to a non-sensitive type.
+        let bucket = PhotoStorageBucket.readBucket(forServerType: photo.photoType, photoURL: photo.photoURL)
         if bucket == PhotoStorageBucket.publicBucket {
             resolvedURL = URL(string: photo.thumbnailURL ?? photo.photoURL)
             return
