@@ -8089,8 +8089,8 @@
         "Surface GoTrue rate-limit (429) errors distinctly instead of the generic failure toast."
       ],
       "priority": 2099,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/components/auth/verify-email-gate.tsx:23-35,57-63."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/components/auth/verify-email-gate.tsx:23-35,57-63. IMPLEMENTED 2026-06-30: VerifyEmailGate replaces the permanent sent lock with a 45s ticking cooldown (useEffect decrements per second) — the button re-enables afterward so a user whose email never arrived can retry without reloading; the label shows \"Resend in Ns\" while disabled (AC1/AC2). AC3: a GoTrue 429 is classified via classifyAuthFailure and surfaced with the distinct AUTH_RATE_LIMIT_MESSAGE (and also starts the cooldown so the user stops hammering the rate limit). Component test (verify-email-gate.test.tsx) covers the cooldown countdown/re-enable and the 429 path."
     },
     {
       "id": "US-1432",
@@ -8469,8 +8469,8 @@
         "Announce step changes (aria-live) so screen-reader users track tour progress."
       ],
       "priority": 1999,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: onboarding-flow.tsx:154-175,204-233; contrast signup.tsx:285-302."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: onboarding-flow.tsx:154-175,204-233; contrast signup.tsx:285-302. IMPLEMENTED 2026-06-30: onboarding-flow.tsx passes showCloseButton={!!useCase} to DialogContent so the corner X is hidden while the use case is required (it was a visible-but-dead control until then) and appears once chosen (AC1); adds aria-pressed={selected} to the modal use-case buttons matching the signup form (AC2); and adds a polite sr-only role=status live region announcing \"Step N of 6: <title>\" on each step change (AC3)."
     },
     {
       "id": "US-1462",
