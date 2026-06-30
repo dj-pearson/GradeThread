@@ -150,6 +150,16 @@ export function OnboardingFlow() {
   const tourIndex = step - 2;
   const isTour = step >= 2;
 
+  // US-1461 (AC3): a polite live-region announcement so screen-reader users
+  // track tour progress as the step changes.
+  const stepTitle =
+    step === 0
+      ? "Welcome to GradeThread"
+      : step === 1
+        ? "What brings you here?"
+        : (TOUR_STEPS[tourIndex]?.title ?? "");
+  const stepAnnouncement = `Step ${step + 1} of ${LAST_STEP + 1}: ${stepTitle}`;
+
   return (
     <Dialog
       open
@@ -164,6 +174,12 @@ export function OnboardingFlow() {
     >
       <DialogContent
         className="sm:max-w-lg"
+        // US-1461 (AC1): the up-front use-case gate makes the corner close a dead
+        // control (onOpenChange no-ops until a use case is picked), so hide it
+        // until then rather than show a visible button that does nothing. Once a
+        // use case is chosen the close button appears and dismisses the
+        // still-skippable tour.
+        showCloseButton={!!useCase}
         // Reinforce the up-front gate: no Escape / outside-click close until a
         // use case is picked.
         onEscapeKeyDown={(e) => {
@@ -173,6 +189,11 @@ export function OnboardingFlow() {
           if (!useCase) e.preventDefault();
         }}
       >
+        {/* US-1461 (AC3): announce step changes to assistive tech. */}
+        <div role="status" aria-live="polite" className="sr-only">
+          {stepAnnouncement}
+        </div>
+
         {/* Step 0 — Welcome */}
         {step === 0 && (
           <>
@@ -207,6 +228,9 @@ export function OnboardingFlow() {
                   <button
                     key={option.value}
                     type="button"
+                    // US-1461 (AC2): expose the selected state to assistive tech,
+                    // matching the signup form's use-case buttons.
+                    aria-pressed={selected}
                     onClick={() => setUseCase(option.value)}
                     className={cn(
                       "flex flex-col items-start gap-1 rounded-lg border-2 p-3 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",

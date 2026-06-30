@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MailCheck } from "lucide-react";
 import { resendConfirmationEmail, signOut } from "@/lib/auth";
+import { AUTH_RATE_LIMIT_MESSAGE, classifyAuthFailure } from "@/lib/auth-error";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,23 +17,52 @@ import { toast } from "sonner";
 // rejects every authenticated request from such a session (403 email_unverified),
 // so the app would be unusable anyway — this gives a clear "confirm your email"
 // state with a resend path instead of a stream of failed requests.
+// US-1431: how long the resend button stays disabled after a send. Long enough
+// to discourage hammering GoTrue's own rate limit, short enough that a user who
+// truly didn't get the email can retry without reloading the page.
+const RESEND_COOLDOWN_SECONDS = 45;
+
 export function VerifyEmailGate({ email }: { email: string | null }) {
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  // US-1431: a ticking cooldown replaces the old permanent "sent" lock, which
+  // disabled the button forever and stranded a user whose email never arrived.
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   async function handleResend() {
-    if (!email) return;
+    if (!email || sending || cooldown > 0) return;
     setSending(true);
     try {
       await resendConfirmationEmail(email);
-      setSent(true);
+      setCooldown(RESEND_COOLDOWN_SECONDS);
       toast.success("Confirmation email sent. Check your inbox.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to resend email");
+      // US-1431 AC3: a GoTrue 429 ("too many sends") is not a generic failure —
+      // say so distinctly and start the cooldown so the user stops hammering the
+      // rate limit instead of retrying into more 429s.
+      if (classifyAuthFailure(err) === "rate_limit") {
+        setCooldown(RESEND_COOLDOWN_SECONDS);
+        toast.error(AUTH_RATE_LIMIT_MESSAGE);
+      } else {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to resend email",
+        );
+      }
     } finally {
       setSending(false);
     }
   }
+
+  const resendLabel = sending
+    ? "Sending..."
+    : cooldown > 0
+      ? `Resend in ${cooldown}s`
+      : "Resend confirmation email";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-brand-gray p-4 dark:bg-brand-night">
@@ -57,9 +87,9 @@ export function VerifyEmailGate({ email }: { email: string | null }) {
           <Button
             className="w-full"
             onClick={handleResend}
-            disabled={sending || sent || !email}
+            disabled={sending || cooldown > 0 || !email}
           >
-            {sending ? "Sending..." : sent ? "Email sent" : "Resend confirmation email"}
+            {resendLabel}
           </Button>
         </CardContent>
         <CardFooter className="justify-center">

@@ -6585,3 +6585,34 @@ API calls (offer category re-assert, inventory re-PUT) are exercised against the
 sandbox by CI/manual QA, not in this container.
 
 prd.json: added US-1490 (passes:true), nextId bumped 1490→1491.
+
+## 2026-06-30 — Pre-launch audit batch 4 (US-1431, US-1461)
+
+Two more audit stories (auth/onboarding), both frontend + fully locally verified.
+
+- US-1431 Allow re-sending the confirmation email more than once — NOW COMPLETE
+  (passes:true). VerifyEmailGate replaced the permanent `sent` lock (which left
+  the button disabled reading "Email sent" forever) with a 45s ticking cooldown:
+  a per-second useEffect decrements it, the label shows "Resend in Ns", and the
+  button re-enables afterward so a user whose email never arrived can retry
+  without reloading (AC1/AC2). AC3: a GoTrue 429 is classified via the
+  classifyAuthFailure helper (shipped in US-1432) and surfaced with the distinct
+  AUTH_RATE_LIMIT_MESSAGE, and it starts the cooldown so the user stops hammering
+  the rate limit. New component test (createRoot+act + fake timers) covers the
+  countdown/re-enable and the 429 path.
+
+- US-1461 Fix the non-functional close button + missing ARIA on the onboarding
+  modal — NOW COMPLETE (passes:true). onboarding-flow.tsx now passes
+  showCloseButton={!!useCase} (the shadcn DialogContent already supports it), so
+  the corner X — a dead control while the use case is required — is hidden until
+  a use case is chosen, then appears and dismisses the skippable tour (AC1). The
+  modal use-case buttons get aria-pressed={selected} matching the signup form
+  (AC2), and a polite sr-only role=status region announces "Step N of 6: <title>"
+  on each step change (AC3).
+
+VERIFICATION (this container): frontend gate fully green — eslint (0 errors), tsc
+-b clean, vitest 1010 pass with coverage above all floors (stmts 75.55/72,
+branches 65.76/65, funcs 74.39/68, lines 77.44/72), build + bundle-budget OK. No
+edge changes this batch.
+
+Open prd.json stories now 151.
