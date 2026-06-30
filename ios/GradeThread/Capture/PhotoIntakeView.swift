@@ -14,6 +14,8 @@ struct PhotoIntakeView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    // US-1408: drives camera-session restart on return to foreground.
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var store: PhotoIntakeStore
     @State private var camera = CameraSession()
@@ -100,6 +102,16 @@ struct PhotoIntakeView: View {
             overlay
         }
         .navigationBarBackButtonHidden(true)
+        // US-1408: iOS stops the capture session when the app backgrounds (or
+        // during a call / Control Center / FaceTime PiP) and does NOT auto-resume
+        // it; this view survives in a fullScreenCover so its one-shot `.task`
+        // won't re-fire. Restart on return to foreground so the preview can't
+        // freeze on a black frame with a live-but-dead shutter. (CameraSession
+        // also self-heals from interruption notifications; this is belt-and-
+        // suspenders and idempotent.)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { camera.restartIfNeeded() }
+        }
         .task {
             await bootstrap()
             // US-651: move VoiceOver focus to the shutter once the camera's up.

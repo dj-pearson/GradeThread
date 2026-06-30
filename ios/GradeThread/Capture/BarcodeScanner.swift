@@ -38,6 +38,11 @@ public final class BarcodeScanner: NSObject {
     public let session = AVCaptureSession()
     public private(set) var isRunning: Bool = false
 
+    /// US-1408: caller's intent to be running, so an interrupted session (call /
+    /// Control Center / app background — iOS stops it and never auto-resumes) can
+    /// be restarted instead of leaving a frozen scanner preview.
+    private var shouldBeRunning = false
+
     private let sessionQueue = DispatchQueue(label: "com.gradethread.barcode-scanner")
     private let videoOutput = AVCaptureVideoDataOutput()
     private let videoQueue = DispatchQueue(label: "com.gradethread.barcode-video")
@@ -63,6 +68,22 @@ public final class BarcodeScanner: NSObject {
     /// Only ever touched on the serial `videoQueue`, so `nonisolated(unsafe)`
     /// is race-free here.
     nonisolated(unsafe) private var barcodeRequest: VNDetectBarcodesRequest?
+
+    public override init() {
+        super.init()
+        // US-1408: self-heal from interruptions / runtime errors on this session.
+        let center = NotificationCenter.default
+        center.addObserver(
+            self, selector: #selector(handleInterruptionEnded(_:)),
+            name: AVCaptureSession.interruptionEndedNotification, object: session)
+        center.addObserver(
+            self, selector: #selector(handleRuntimeError(_:)),
+            name: AVCaptureSession.runtimeErrorNotification, object: session)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     // MARK: - Permission
 
@@ -97,10 +118,12 @@ public final class BarcodeScanner: NSObject {
                 cont.resume()
             }
         }
+        shouldBeRunning = true
         isRunning = true
     }
 
     public func stop() {
+        shouldBeRunning = false
         let session = self.session
         sessionQueue.async {
             if session.isRunning { session.stopRunning() }
@@ -108,6 +131,24 @@ public final class BarcodeScanner: NSObject {
         isRunning = false
         detectionContinuation?.finish()
         detectionContinuation = nil
+    }
+
+    /// US-1408: restart after an interruption ends / runtime error, only if the
+    /// caller still wants the scanner running. Idempotent.
+    public func restartIfNeeded() {
+        guard shouldBeRunning else { return }
+        sessionQueue.async { [session] in
+            if !session.isRunning { session.startRunning() }
+        }
+        isRunning = true
+    }
+
+    @objc private nonisolated func handleInterruptionEnded(_ note: Notification) {
+        Task { @MainActor in self.restartIfNeeded() }
+    }
+
+    @objc private nonisolated func handleRuntimeError(_ note: Notification) {
+        Task { @MainActor in self.restartIfNeeded() }
     }
 
     /// Stream of recognised barcode strings. Each `for await` iteration

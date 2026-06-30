@@ -154,15 +154,22 @@ final class LocalInventoryItem {
     /// with/missing-photo filter facet.
     var hasPhotos: Bool { !photos.isEmpty }
 
-    /// US-1209: a grade has landed (`gradeValue` set) but it's a low-confidence
-    /// result still awaiting human review, so it must NOT be presented as
-    /// certified or shareable yet. We derive this from the absence of a
-    /// `certificateURL`: the server only stamps a certificate once a grade
-    /// certifies (high confidence) or a reviewer clears it, and the on-device
-    /// optimistic stamp holds the certificate back below
-    /// ``GradeScale/gradeReviewConfidenceThreshold`` too — so "graded but no
-    /// certificate" is exactly the provisional / pending-review state.
+    /// US-1209/US-1409: a grade has landed (`gradeValue` set) but is still
+    /// awaiting human review, so it must NOT be presented as certified/shareable.
+    ///
+    /// US-1409 fix: "graded but no certificate" is NOT sufficient on its own — a
+    /// FINALIZED grade legitimately has a null `certificateURL` when the cert was
+    /// withheld for moderation (US-484) or nulled on a re-grade supersede. Those
+    /// would otherwise show "Pending review" forever and be excluded from counts.
+    /// So we also require the absence of a `gradeReportId`: the server links a
+    /// `grade_report_id` only once the grade is finalized (auto-approved or
+    /// reviewer-cleared) — it's the same synced signal disputes key off — so a
+    /// grade that has a report id has been finalized, cert-withheld or not.
+    /// (A dedicated server `grade_review_status` column would be more precise;
+    /// it isn't in the sync schema today — see SyncEngine item columns.)
     var isGradePendingReview: Bool {
-        gradeValue != nil && (certificateURL?.isEmpty ?? true)
+        gradeValue != nil
+            && (certificateURL?.isEmpty ?? true)
+            && (gradeReportId?.isEmpty ?? true)
     }
 }

@@ -38,8 +38,30 @@ public final class CameraSession: NSObject {
     private var didConfigure = false
     private var pendingCompletion: ((Result<UIImage, Error>) -> Void)?
 
+    /// US-1408: the caller's INTENT to be running. iOS auto-stops a running
+    /// `AVCaptureSession` on a phone call, Control Center / FaceTime PiP, or when
+    /// the app backgrounds — and does NOT auto-resume it, leaving a frozen black
+    /// preview with a live-but-dead shutter. We track intent so the interruption/
+    /// runtime-error observers below can restart the session once the
+    /// interruption ends, instead of relying on the view's one-shot `.task`.
+    private var shouldBeRunning = false
+
     public override init() {
         super.init()
+        // Observe interruption + runtime-error notifications for THIS session so
+        // we can self-heal. Delivered on an arbitrary queue, so the handlers are
+        // `nonisolated` and hop back to the main actor (US-1408).
+        let center = NotificationCenter.default
+        center.addObserver(
+            self, selector: #selector(handleInterruptionEnded(_:)),
+            name: AVCaptureSession.interruptionEndedNotification, object: session)
+        center.addObserver(
+            self, selector: #selector(handleRuntimeError(_:)),
+            name: AVCaptureSession.runtimeErrorNotification, object: session)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Permission
@@ -78,15 +100,39 @@ public final class CameraSession: NSObject {
                 cont.resume()
             }
         }
+        shouldBeRunning = true
         isRunning = true
     }
 
     public func stop() {
+        shouldBeRunning = false
         let session = self.session
         sessionQueue.async {
             if session.isRunning { session.stopRunning() }
         }
         isRunning = false
+    }
+
+    /// US-1408: restart the session after an interruption ends or a runtime
+    /// error, but only if the caller still wants it running (didn't `stop()`).
+    /// Idempotent — `startRunning()` is a no-op if already running, so this is
+    /// safe to call alongside the view's `scenePhase` restart.
+    public func restartIfNeeded() {
+        guard shouldBeRunning else { return }
+        sessionQueue.async { [session] in
+            if !session.isRunning { session.startRunning() }
+        }
+        isRunning = true
+    }
+
+    @objc private nonisolated func handleInterruptionEnded(_ note: Notification) {
+        Task { @MainActor in self.restartIfNeeded() }
+    }
+
+    @objc private nonisolated func handleRuntimeError(_ note: Notification) {
+        // A runtime error stops the session; AVFoundation recommends restarting
+        // it. Only do so if the caller still intends to be running.
+        Task { @MainActor in self.restartIfNeeded() }
     }
 
     // MARK: - Capture
