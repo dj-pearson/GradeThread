@@ -333,41 +333,63 @@ export function CertificatePage() {
       // consistent so crawler markup doesn't drift.
       setMetaTag("og:type", "product");
 
-      // Fetch submission for garment info
-      const { data: subData } = await supabase
-        .from("submissions")
-        .select("*")
-        .eq("id", report.submission_id)
-        .single();
-
-      if (subData) {
-        setSubmission(subData);
-      }
-
-      // Fetch images
-      const { data: imagesRaw } = await supabase
-        .from("submission_images")
-        .select("*")
-        .eq("submission_id", report.submission_id);
-
-      const imagesData = (imagesRaw ?? []) as SubmissionImageRow[];
-      if (imagesData.length > 0) {
-        const sorted = [...imagesData].sort(
-          (a, b) => a.display_order - b.display_order
+      // US-1413: garment facts + the photo gallery come from the public
+      // service-role endpoint, NOT direct anon reads of submissions /
+      // submission-images (both are owner-only via RLS, so a logged-out buyer —
+      // the certificate's primary audience — would otherwise get no photos,
+      // title, or "About this item" after the SSR HTML hydrates). The cert SSR
+      // Pages Function already uses this same endpoint.
+      try {
+        const certRes = await fetch(
+          `${edgeApiUrl()}/api/content/public/certificates/${encodeURIComponent(id!)}`,
         );
-        setImages(sorted);
+        if (certRes.ok) {
+          const { certificate } = (await certRes.json()) as {
+            certificate?: {
+              title: string | null;
+              brand: string | null;
+              garment_type: string | null;
+              garment_category: string | null;
+              description: string | null;
+              images?: Array<{
+                id: string;
+                image_type: string;
+                display_order: number;
+                url: string;
+              }>;
+            };
+          };
+          if (certificate) {
+            setSubmission({
+              title: certificate.title,
+              brand: certificate.brand,
+              garment_type: certificate.garment_type,
+              garment_category: certificate.garment_category,
+              description: certificate.description,
+            } as SubmissionRow);
 
-        const urls: Record<string, string> = {};
-        for (const img of sorted) {
-          const { data: urlData } = await supabase.storage
-            .from("submission-images")
-            // submission-images is private — short-lived signed URL (US-276).
-            .createSignedUrl(img.storage_path, 900);
-          if (urlData?.signedUrl) {
-            urls[img.id] = urlData.signedUrl;
+            const gallery = [...(certificate.images ?? [])].sort(
+              (a, b) => a.display_order - b.display_order,
+            );
+            setImages(
+              gallery.map(
+                (img) =>
+                  ({
+                    id: img.id,
+                    submission_id: report.submission_id,
+                    image_type: img.image_type,
+                    display_order: img.display_order,
+                    storage_path: "",
+                  }) as SubmissionImageRow,
+              ),
+            );
+            setImageUrls(
+              Object.fromEntries(gallery.map((img) => [img.id, img.url])),
+            );
           }
         }
-        setImageUrls(urls);
+      } catch {
+        /* network/edge down — the grade + scores still render from the view */
       }
 
       setLoading(false);

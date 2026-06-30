@@ -4,6 +4,11 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
+import {
+  buildCertGallery,
+  selectHeroUrl,
+  type SubmissionImageRow as CertSubmissionImageRow,
+} from "../lib/certificate-gallery.ts";
 import { normalizeCertNumber } from "../lib/cert-number.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 import { rankReferrers } from "../lib/referral-rewards.ts";
@@ -594,22 +599,26 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  // A representative image (front, else lowest display_order) → signed URL so
-  // the SSR/OG card can show it without exposing the private bucket wholesale.
-  let heroImageUrl: string | null = null;
-  const { data: images } = await supabaseAdmin
+  // US-1413: the full ordered gallery → signed URLs. The SPA cert route renders
+  // the photo gallery + PSA-style defect callouts for ANONYMOUS buyers (the
+  // cert's primary audience); it previously read submissions/submission-images
+  // directly with the anon client, which RLS locks to the owner, so logged-out
+  // viewers saw no photos at all. Serving signed URLs here (service-role) is the
+  // same pattern the SSR/OG hero already uses — without exposing the private
+  // bucket wholesale. The SSR hero is just the front/first entry of this list.
+  const { data: imageRows } = await supabaseAdmin
     .from("submission_images")
-    .select("storage_path, image_type, display_order")
+    .select("id, storage_path, image_type, display_order")
     .eq("submission_id", rep.submission_id)
     .order("display_order", { ascending: true });
-  const hero =
-    (images ?? []).find((i) => i.image_type === "front") ?? (images ?? [])[0];
-  if (hero?.storage_path) {
+  const galleryRows = (imageRows ?? []) as CertSubmissionImageRow[];
+  const galleryImages = await buildCertGallery(galleryRows, async (path) => {
     const { data: signed } = await supabaseAdmin.storage
       .from("submission-images")
-      .createSignedUrl(hero.storage_path as string, CERT_IMAGE_TTL);
-    heroImageUrl = signed?.signedUrl ?? null;
-  }
+      .createSignedUrl(path, CERT_IMAGE_TTL);
+    return signed?.signedUrl ?? null;
+  });
+  const heroImageUrl = selectHeroUrl(galleryRows, galleryImages);
 
   // Strip the internal submission_id from the public payload, and reduce the
   // Verified Capture result (US-340) + the original-photos signal (US-861) to
@@ -642,6 +651,9 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       garment_category: submission?.garment_category ?? null,
       description: submission?.description ?? null,
       hero_image_url: heroImageUrl,
+      // US-1413: full ordered gallery (signed URLs) for the SPA photo grid +
+      // defect callouts. The SSR path ignores this and uses hero_image_url only.
+      images: galleryImages,
     },
   });
 });

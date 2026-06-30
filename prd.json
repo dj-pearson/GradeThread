@@ -7857,8 +7857,8 @@
         "Add a regression test that loads a certificate with no auth session and asserts photos + title are present."
       ],
       "priority": 2300,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · BLOCKER · grading · grading audit] Evidence: src/pages/certificate.tsx:337-371 (anon reads + createSignedUrl); migration 00001:185-205 & 260-289 (own-data RLS, private bucket); contrast functions/cert/[id].ts:89-113 (service-role + hero_image_url)."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · BLOCKER · grading · grading audit] Evidence: src/pages/certificate.tsx:337-371 (anon reads + createSignedUrl); migration 00001:185-205 & 260-289 (own-data RLS, private bucket); contrast functions/cert/[id].ts:89-113 (service-role + hero_image_url). | DONE 2026-06-30: public cert endpoint (/api/content/public/certificates/:id) now returns full signed gallery via buildCertGallery(); SPA certificate.tsx fetches it instead of anon submissions/submission_images/storage reads. New lib certificate-gallery.ts + 6 passing tests. Edge check+lint+test, frontend tsc+eslint all green."
     },
     {
       "id": "US-1414",
