@@ -7785,7 +7785,7 @@
       ],
       "priority": 1408,
       "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (camera/permissions sweep). HIGH — iOS auto-stops AVCaptureSession on background and does not auto-resume; no scenePhase/interruption handling exists today (only ContentView uses scenePhase, for sync). Permission deny/fallback/EXIF/rotate already handled correctly. Mac/simulator-gated verification."
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (camera/permissions sweep). HIGH — iOS auto-stops AVCaptureSession on background and does not auto-resume; no scenePhase/interruption handling exists today (only ContentView uses scenePhase, for sync). Permission deny/fallback/EXIF/rotate already handled correctly. Mac/simulator-gated verification. IMPLEMENTED 2026-06-30 on branch claude/ios-app-bug-audit-9in0xv (CameraSession+BarcodeScanner self-heal via interruption/runtime observers + shouldBeRunning + restartIfNeeded; PhotoIntakeView/BarcodeScanView scenePhase restart; GradedPhotoView Open Settings; TagPhotoQuality 1600px comment) — pending iOS CI; interruption recovery needs device/simulator verification."
     },
     {
       "id": "US-1409",
@@ -7800,7 +7800,7 @@
       ],
       "priority": 1409,
       "passes": false,
-      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (grading-journey sweep). Root class: client re-derives review state from confidence/missing-cert-URL. Live request flow (terminal states, cancel-on-dismiss, decode tolerance) already sound; iOS displays server overall_score (no client rounding)."
+      "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (grading-journey sweep). Root class: client re-derives review state from confidence/missing-cert-URL. Live request flow (terminal states, cancel-on-dismiss, decode tolerance) already sound; iOS displays server overall_score (no client rounding). IMPLEMENTED 2026-06-30 (GradeReportView gates pendingReview on certificateURL presence so human-approved sub-0.75 certified grades stay shareable; LocalInventoryItem.isGradePendingReview also requires gradeReportId==nil so finalized-but-cert-withheld/superseded grades arent stuck pending; GradeRequestStore maxPolls 40->22 ~2min; tests) — pending iOS CI. A dedicated server grade_review_status column (not in sync schema today) would be more precise than the grade_report_id finalization signal."
     },
     {
       "id": "US-1410",

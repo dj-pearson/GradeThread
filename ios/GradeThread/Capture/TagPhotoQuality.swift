@@ -22,8 +22,9 @@ enum TagPhotoQuality {
     }
 
     /// Long-edge pixel floor below which a tag is too small to read reliably.
-    /// Captures are encoded at up to 2048px (PhotoCompressor) but never upscaled,
-    /// so a far-away / heavily-cropped tag can land well under this.
+    /// Captures are encoded at up to 1600px (PhotoCompressor.defaultMaxLongEdge)
+    /// but never upscaled, so a far-away / heavily-cropped tag can land well
+    /// under this.
     static let minLongEdgePixels: CGFloat = 700
 
     /// Minimum total recognized characters for the tag to count as "readable".

@@ -362,6 +362,32 @@ final class GradingTests: XCTestCase {
         XCTAssertFalse(item.isGradePendingReview)
     }
 
+    /// US-1409: a FINALIZED grade whose certificate was withheld (moderation,
+    /// US-484) or nulled on a re-grade supersede has a null `certificateURL` but
+    /// a linked `gradeReportId`. It must NOT read as "Pending review" forever —
+    /// the report id is the server's finalization signal.
+    @MainActor
+    func test_isGradePendingReview_false_whenFinalizedButCertificateWithheld() throws {
+        let context = ModelContext(try makeGradeContainer())
+        let item = makeGradeItem(id: "withheld", status: "graded", context: context)
+        item.gradeValue = 8.6
+        item.certificateURL = nil          // cert withheld / superseded
+        item.gradeReportId = "report-123"  // but the grade IS finalized
+        XCTAssertFalse(item.isGradePendingReview)
+    }
+
+    /// Contrast: graded, no certificate, and NO report id yet = genuinely awaiting
+    /// review → still pending.
+    @MainActor
+    func test_isGradePendingReview_true_whenNoCertAndNoReportId() throws {
+        let context = ModelContext(try makeGradeContainer())
+        let item = makeGradeItem(id: "awaiting", status: "photographed", context: context)
+        item.gradeValue = 5.5
+        item.certificateURL = nil
+        item.gradeReportId = nil
+        XCTAssertTrue(item.isGradePendingReview)
+    }
+
     func test_gradeScaleColorThresholds() {
         // Tiers follow the refreshed media kit (design.md §3B):
         // Pristine/NWT (>=9.5) Emerald, Excellent/NWOT (7.0-9.0) Steel Navy,

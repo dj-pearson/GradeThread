@@ -16,6 +16,8 @@ struct BarcodeScanView: View {
     @State private var scanner = BarcodeScanner()
     @State private var permissionState: PermissionState = .unknown
     @State private var startupError: String?
+    // US-1408: drives scanner restart on return to foreground.
+    @Environment(\.scenePhase) private var scenePhase
 
     private enum PermissionState: Equatable {
         case unknown
@@ -29,6 +31,13 @@ struct BarcodeScanView: View {
             overlay
         }
         .ignoresSafeArea()
+        // US-1408: restart the scanner session on return to foreground — iOS
+        // stops it on background / call and won't auto-resume, and this view's
+        // one-shot `.task` won't re-fire. Idempotent with the session's own
+        // interruption self-heal.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { scanner.restartIfNeeded() }
+        }
         .task { await bootstrap() }
         .onDisappear { scanner.stop() }
     }

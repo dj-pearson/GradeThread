@@ -65,10 +65,13 @@ final class GradeRequestStore {
 
     // Polling cadence: ~2 minutes total. Standard SLA is hours, but the AI
     // pipeline usually finishes in seconds — we poll for the common fast path
-    // and fall back to `.stillProcessing` (sync delivers the rest).
-    // US-638: poll cadence is now exponential backoff (see Backoff) rather than
-    // a constant interval.
-    private let maxPolls = 40
+    // and fall back to `.stillProcessing` (sync + the grade-complete
+    // notification deliver the rest).
+    // US-638: poll cadence is exponential backoff (see Backoff) rather than a
+    // constant interval. US-1409: with base:1/cap:8 the per-poll delays run
+    // 1,2,4,8,8,… so 22 polls ≈ 1+2+4+8 + 8·18 ≈ 2 min — matching the documented
+    // window (40 was ~5 min, holding the live spinner far longer than intended).
+    private let maxPolls = 22
 
     // `service` defaults to nil (not `GradingService()`): a default argument is
     // evaluated in a nonisolated context, but GradingService is @MainActor.

@@ -17,10 +17,19 @@ struct GradeReportView: View {
 
     private var defects: [GradeDefect] { report.defectsFound ?? [] }
 
-    /// US-1209: true when this grade's confidence is below the certify floor,
-    /// so it's awaiting human review and isn't shareable as a certificate yet.
+    /// US-1209/US-1409: true when this grade is awaiting human review, so it
+    /// isn't shareable as a certificate yet.
+    ///
+    /// US-1409 fix: a certificate is only ever attached to a FINALIZED grade —
+    /// a reviewer approved a low-confidence one, or it auto-approved. So a
+    /// present `certificateURL` is the authoritative "certified" signal; we must
+    /// not re-derive "pending" from raw confidence and then suppress Share for a
+    /// grade that already HAS a certificate (a human-approved sub-0.75 grade).
+    /// Only treat as pending when there is no certificate AND confidence is below
+    /// the certify floor.
     private var pendingReview: Bool {
-        GradeScale.requiresReview(confidence: report.confidenceScore)
+        certificateURL == nil
+            && GradeScale.requiresReview(confidence: report.confidenceScore)
     }
 
     /// US-655: glow/border intensity respects Reduce Transparency.

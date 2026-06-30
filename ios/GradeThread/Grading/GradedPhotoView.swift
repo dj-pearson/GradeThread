@@ -1,5 +1,6 @@
 import Photos
 import SwiftUI
+import UIKit  // UIApplication.openSettingsURLString (US-1408)
 
 /// US-768: the iOS "graded photo" surface — preview the certified Digital Slab
 /// (US-763), pick a marketplace format (US-764), then save it to Photos or hand
@@ -17,6 +18,10 @@ struct GradedPhotoView: View {
     @State private var format: SlabFormat = .square
     @State private var phase: LoadPhase = .loading
     @State private var saveState: SaveState = .idle
+    // US-1408: when the save failed specifically because Photos access is off,
+    // offer a one-tap deep link to Settings (matching the rest of the app's
+    // permission surfaces) instead of just telling the user to go there.
+    @State private var photosAccessDenied = false
     // US-1294: certificate-integrity verdict, resolved against the public
     // /verify endpoint before the slab is presented. A tampered/unavailable
     // certificate stays a visible non-pass state (never a silent pass).
@@ -145,9 +150,15 @@ struct GradedPhotoView: View {
             shareButton
 
             if case let .failed(message) = saveState {
-                Text(message)
-                    .font(.brandCaption)
-                    .foregroundStyle(Color.brandRed)
+                VStack(spacing: 6) {
+                    Text(message)
+                        .font(.brandCaption)
+                        .foregroundStyle(Color.brandRed)
+                    if photosAccessDenied, let url = URL(string: UIApplication.openSettingsURLString) {
+                        Link("Open Settings", destination: url)
+                            .font(.brandCaption)
+                    }
+                }
             }
         }
     }
@@ -214,10 +225,12 @@ struct GradedPhotoView: View {
     private func saveToPhotos() {
         guard let image = loadedImage else { return }
         saveState = .saving
+        photosAccessDenied = false
         // Add-only authorization — we never read the user's library here.
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 Task { @MainActor in
+                    photosAccessDenied = true
                     saveState = .failed("Photos access is off. Enable it in Settings to save.")
                     HapticFeedback.error()
                 }
