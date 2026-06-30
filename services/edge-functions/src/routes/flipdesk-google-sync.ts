@@ -267,11 +267,18 @@ export async function syncUserSheet(
     return { ...summary, skipped: lock.reason ?? "locked" };
   }
   try {
-    const { data: connRow } = await supabaseAdmin
+    const { data: connRow, error: connErr } = await supabaseAdmin
       .from("google_connections")
       .select("sheet_id, is_active")
       .eq("user_id", userId)
       .maybeSingle();
+    // US-1481: a transient DB read failure must NOT be masked as no_sheet (which
+    // surfaces to the user as "Connect Google…"). Surface it as a real error so
+    // the run is reported as failed and retried, not silently skipped.
+    if (connErr) {
+      summary.errors.push(`Failed to load Google connection: ${connErr.message}`);
+      return summary;
+    }
     const conn = connRow as { sheet_id: string | null; is_active: boolean } | null;
     if (!conn?.is_active || !conn.sheet_id) {
       return { ...summary, skipped: "no_sheet" };
@@ -781,6 +788,13 @@ flipdeskGoogleSyncRoutes.post("/sync/now", async (c) => {
     }
     if (summary.skipped) {
       return c.json({ ok: true, skipped: true, reason: summary.skipped });
+    }
+    // US-1481: the run can finish with per-row/connection errors collected in
+    // summary.errors. Don't report that as a clean success — surface a non-2xx
+    // with the error so the UI shows it instead of a "Synced" toast.
+    if (summary.errors.length) {
+      const error = summary.errors[0] ?? "Sync completed with errors.";
+      return c.json({ ok: false, error, ...summary }, 502);
     }
     return c.json({ ok: true, ...summary });
   } catch (err) {
