@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1413,
+  "nextId": 1490,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -7846,6 +7846,969 @@
       "priority": 1412,
       "passes": false,
       "notes": "[P2][iOS] From 2026-06-30 audit (crash sweep + misc). Codebase is defensively clean (Tolerant enum decode, StorageURL nil-safe, bounds checks, FP div->nan). Highest-value item is the release-config gate: the most likely real source of any reviewer 'crashes on launch' report is a misconfigured Release build. IMPLEMENTED 2026-06-30 (ios-release.yml Require-core-backend-config gate rejects empty/placeholder SUPABASE_ANON_KEY before archive — closes the AppConfig fatalError 100%-launch-crash gap; ReconcileIntakeService components.url! -> guard let + ServiceError.invalidURL; BackgroundRefreshService budgetSeconds watchdog cancels overrun sync; MoneyMath.decimal isFinite guard + test) — pending iOS CI. TagPhotoQuality comment already fixed in US-1408."
+    },
+    {
+      "id": "US-1413",
+      "title": "Render certificate photos & item details for logged-out buyers (anon RLS reads return nothing)",
+      "description": "The SPA certificate page reads the submissions base table and creates submission-images signed URLs with the browser anon client, but both are RLS-locked to the owner. For an anonymous buyer (the primary audience of a shared certificate) submission resolves to null and imageUrls stays empty, so after SSR hydration the SPA re-renders with NO garment photos, no 'About this item', no defect callouts, and no title/brand.",
+      "acceptanceCriteria": [
+        "Serve certificate garment photos + PII-free item facts to anonymous viewers via a public service-role edge endpoint/view (signed URLs), as the cert SSR already does — not direct anon base-table/storage reads.",
+        "Photo gallery, defect callouts, hero image, and 'About this item' render identically for logged-out users and crawlers.",
+        "Add a regression test that loads a certificate with no auth session and asserts photos + title are present."
+      ],
+      "priority": 2300,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · BLOCKER · grading · grading audit] Evidence: src/pages/certificate.tsx:337-371 (anon reads + createSignedUrl); migration 00001:185-205 & 260-289 (own-data RLS, private bucket); contrast functions/cert/[id].ts:89-113 (service-role + hero_image_url)."
+    },
+    {
+      "id": "US-1414",
+      "title": "Resolve refund metadata via PaymentIntent — charge.metadata is empty on Checkout payments",
+      "description": "charge.refunded keys all clawback logic off charge.metadata, but Checkout only sets metadata on payment_intent_data/session and Stripe does NOT copy PI metadata onto the Charge. Dashboard-initiated refunds hit the no-op branch: credit-pack refunds never debit the wallet (value leak) and per-grade refunds never withhold the public certificate (trust/fraud hole). Admin refund-pack breaks the same way.",
+      "acceptanceCriteria": [
+        "In handleChargeRefunded (and admin refund-pack), when charge.metadata.user_id is absent, retrieve the PaymentIntent (charge.payment_intent) and read its metadata as source of truth.",
+        "Regression test: a charge.refunded event with metadata ONLY on the PaymentIntent asserts revoke_grade_credits + certificate withhold both fire.",
+        "Verify admin /refund-pack ownership + product/credits checks pass when metadata lives on the PI."
+      ],
+      "priority": 2299,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · BLOCKER · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:1048-1070; admin-billing.ts:590-612; metadata set only on PI/session at payments.ts:515-521,635-641."
+    },
+    {
+      "id": "US-1415",
+      "title": "Add resend-verification to the post-signup 'Check your email' screen",
+      "description": "After email signup the confirmation screen offers only 'Back to sign in' with no resend. The only resend path (VerifyEmailGate) needs a live session with unconfirmed email, but with email confirmation enabled GoTrue issues no session on signup and blocks sign-in for unconfirmed accounts — so a user who never gets the email is stuck.",
+      "acceptanceCriteria": [
+        "Render a 'Resend confirmation email' button on the signup confirmation screen using the existing resendConfirmationEmail(email).",
+        "Add a 30-60s cooldown and success/error toast feedback.",
+        "Keep neutral copy so it doesn't leak whether the address was newly registered."
+      ],
+      "priority": 2200,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · auth · auth audit] Evidence: src/pages/signup.tsx:179-195; src/lib/auth.ts:120-127; src/components/auth/verify-email-gate.tsx:19-35; protected-route.tsx:25-27."
+    },
+    {
+      "id": "US-1416",
+      "title": "Persist dispute evidence photos so reviewers can see them",
+      "description": "The dispute dialog uploads 'additional evidence' photos to storage but the disputes insert only stores reason; disputes has no evidence column, so uploads are orphaned and never surfaced to reviewers. The upload result is unchecked, so failures are silent.",
+      "acceptanceCriteria": [
+        "Add an evidence_urls/evidence_paths column to disputes and store uploaded photo paths on the dispute row.",
+        "Surface evidence photos in the admin dispute review UI.",
+        "Check the upload result and toast on failure instead of swallowing it."
+      ],
+      "priority": 2199,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · grading · grading audit] Evidence: src/pages/submission-detail.tsx:446-464; migration 00001:83-92 (disputes columns)."
+    },
+    {
+      "id": "US-1417",
+      "title": "Carry entered item data into grading from 'Save & Submit for Grading'",
+      "description": "On Add Inventory Item, 'Save & Submit for Grading' navigates to new-submission WITHOUT the ?item= param, forcing the user to re-type title, brand, garment type, category, and description they just entered. The prefill plumbing already exists and is simply unused from this entry point.",
+      "acceptanceCriteria": [
+        "Navigate to /dashboard/submissions/new?item=${item.id} after the save-and-grade.",
+        "Verify the garment-info step renders prefilled type/category/brand/title/description from the linked item.",
+        "Regression test asserts the link includes the new item id."
+      ],
+      "priority": 2198,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/inventory-add.tsx:117-118; new-submission.tsx:182-184,272-282."
+    },
+    {
+      "id": "US-1418",
+      "title": "Add error handling and a failure state to the Price Suggestions page",
+      "description": "Price Suggestions uses a legacy useEffect/useState fetch that ignores the error field of all four Supabase calls and has no isError path — a failed load silently renders an empty 'no suggestions' result with no toast/retry, disguising an outage as no-data.",
+      "acceptanceCriteria": [
+        "Migrate to useQuery + QueryBoundary (isLoading/isError/isEmpty) with onRetry={refetch}, matching inventory.tsx.",
+        "Throw on any { error } so failures route to ErrorState instead of an empty table.",
+        "Keep the existing empty-state copy for the genuinely-empty case."
+      ],
+      "priority": 2197,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/price-suggestions.tsx:64-89."
+    },
+    {
+      "id": "US-1419",
+      "title": "Flag disputed submissions using the PaymentIntent — dispute.payment_intent is an unexpanded id",
+      "description": "handleChargeDisputeCreated reads dispute.payment_intent.metadata, but in a raw charge.dispute.created webhook payment_intent is a string id (not expanded), so meta is always {} and user_id/product/submission_id are undefined. The submission is never flagged for review and disputed per-grade items stay live.",
+      "acceptanceCriteria": [
+        "Retrieve the PaymentIntent by id (or expand it) to read user_id/product/submission_id before flagging.",
+        "Test using a webhook-shaped dispute (string payment_intent) asserting the submission is flagged with flag_reason='payment_disputed'."
+      ],
+      "priority": 2196,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:1195-1223."
+    },
+    {
+      "id": "US-1420",
+      "title": "Add rate limiting to the public passport chain read (GET /api/passport/:slug)",
+      "description": "The public unauthenticated passport timeline read fires ~6 uncached DB queries per request with NO rate-limit middleware, while its abusable siblings (/claim, /tag/*, /garments/*) ARE limited. A flood against /:slug drives unbounded DB load.",
+      "acceptanceCriteria": [
+        "Add a per-IP fail-closed limiter on GET /api/passport/:slug consistent with the tag/claim budgets.",
+        "Add a short in-memory/CDN cache (chain is PII-free, slow-moving) to bound DB cost.",
+        "Ensure the new limiter does not double-limit /claim, /tag/*, /garments/*."
+      ],
+      "priority": 2195,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · edge · edge audit] Evidence: services/edge-functions/src/routes/passport.ts:87-251; main.ts:598-603,809."
+    },
+    {
+      "id": "US-1421",
+      "title": "Obtain eBay restricted scopes so Send-Offers-to-Interested-Buyers works in production",
+      "description": "The Negotiation API (find_eligible_items + send_offer_to_interested_buyers) is fully coded but the sell.negotiation scope is omitted from the prod consent request because our prod keyset isn't granted it — so every call 403s. 'Send offer to watchers' is a top sell-through lever that silently does nothing for real sellers.",
+      "acceptanceCriteria": [
+        "Apply to eBay for the restricted sell.negotiation (and commerce.identity.readonly) scopes on the prod keyset.",
+        "Once granted, re-add the scope lines and force a re-consent flow at /oauth/start; surface 'reconnect required' to connected sellers.",
+        "Verify findEligibleItems + sendOfferToInterestedBuyers against a prod token; add a connection flag mirroring analytics_access_denied when the scope is absent."
+      ],
+      "priority": 2194,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ebay · ebay coverage audit] Evidence: services/edge-functions/src/lib/ebay-client.ts:202-204,3258,3330; https://developer.ebay.com/api-docs/sell/negotiation/overview.html"
+    },
+    {
+      "id": "US-1422",
+      "title": "Implement Sell Compliance API listing-violation monitoring (Listing Health)",
+      "description": "We have no monitoring of eBay listing violations. A reseller running hundreds of AI-generated listings accumulates policy/aspect violations eBay can hide/remove; without getListingViolations we can't surface or auto-correct them, risking silent demotion or account defects.",
+      "acceptanceCriteria": [
+        "Integrate getListingViolationsSummary (badge/count) and getListingViolations (per compliance type, e.g. ASPECTS_ADOPTION).",
+        "Persist violations per listing and show a 'Listing Health' indicator in the pipeline.",
+        "Use returned correctiveRecommendations.aspectRecommendations to offer one-click revise via updateOffer/inventory_item."
+      ],
+      "priority": 2193,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ebay · ebay coverage audit] Evidence: No compliance calls in edge src (grep clean); https://developer.ebay.com/api-docs/sell/compliance/resources/listing_violation/methods/getListingViolations"
+    },
+    {
+      "id": "US-1423",
+      "title": "Auto-fill garment_type/garment_category at catalog so grading doesn't re-ask",
+      "description": "The grading bridge requires garment_type AND garment_category, but intake, Snap & Catalog, and the AI extractor only capture item_category — so every clothing item must be manually re-classified in ItemCanvas before it can be graded.",
+      "acceptanceCriteria": [
+        "Derive garment_type/garment_category from item_category (or have the AI extractor return them) and persist at catalog/AI-fill.",
+        "Pre-seed the ItemCanvas selects from item_category instead of forcing a blank re-pick.",
+        "Add a one-tap inline picker on GradeThisItemCard when only these two fields block grading."
+      ],
+      "priority": 2192,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: flipdesk-grading.ts:209-211; intake.tsx:69-78,341-361; snap-catalog.tsx:48-57; item-canvas.tsx:1206-1268."
+    },
+    {
+      "id": "US-1424",
+      "title": "End the live listing when a sale is recorded manually",
+      "description": "RecordSaleDialog inserts a sale and flips the item to sold but never updates the listings row or ends the eBay listing, leaving the item is_active=true/active on eBay after being marked sold — overselling risk and a stale 'active' chip.",
+      "acceptanceCriteria": [
+        "On manual sale, set the matching listings row to sold/ended (is_active=false).",
+        "When eBay is connected and platform_offer_id/platform_listing_id exist, offer to end it on eBay (best-effort), surfacing failures.",
+        "Guard quantity>1 listings (only end/decrement when remaining quantity hits 0)."
+      ],
+      "priority": 2191,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/components/flipdesk/record-sale-dialog.tsx:126-136; contrast listings.tsx:1140-1176."
+    },
+    {
+      "id": "US-1425",
+      "title": "Push tracking to eBay from bulk 'Prepare shipment'",
+      "description": "PrepareShipmentDialog writes carrier/tracking/shipped_at to sales and flips items to shipped purely locally — it never calls the eBay ship route even for eBay orders. The buyer never sees tracking and eBay still considers the order unshipped (late-shipment/INR-defect risk).",
+      "acceptanceCriteria": [
+        "In the bulk loop, for sales with a platform_order_id, call the eBay ship route instead of a local-only update.",
+        "Report per-item pushed-to-eBay vs recorded-locally; surface eBay rejections per row rather than failing the batch."
+      ],
+      "priority": 2190,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/components/flipdesk/prepare-shipment-dialog.tsx:22-24,64-97; working path ship-order-dialog.tsx:74-82 -> flipdesk-ebay.ts:4400."
+    },
+    {
+      "id": "US-1426",
+      "title": "Retry or surface eBay account-deletion deactivation failures instead of acking 204",
+      "description": "The eBay marketplace-account-deletion handler deactivates marketplace_connections (nulling OAuth tokens), but if those UPDATEs error it only console.errors and still returns 204. The connection and long-lived refresh token persist while eBay treats the deletion as acknowledged — a compliance + lingering-credential risk.",
+      "acceptanceCriteria": [
+        "On a deactivation UPDATE error, capture via captureException (not just console).",
+        "Do not ack/record-processed when the destructive mutation failed; park for retry like the unmatched-seller path.",
+        "Regression test asserting a DB error triggers retry/capture rather than a clean 204."
+      ],
+      "priority": 2189,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: services/edge-functions/src/routes/flipdesk-webhooks.ts:1155-1168,1174-1188,1211."
+    },
+    {
+      "id": "US-1427",
+      "title": "Stop advancing the Shopify sync watermark when order fetch/ingest fails",
+      "description": "In Shopify /listings/pull, last_synced_at is stamped to now() unconditionally even when listPaidOrders/ingest throws. A transient failure advances the cursor past never-ingested orders, permanently skipping paid orders in that window on the next pull.",
+      "acceptanceCriteria": [
+        "Update last_synced_at only when fetch + ingest completed without a fatal error.",
+        "On failure, leave the prior watermark; return ok:false / surface errors.",
+        "Test: listPaidOrders throws => last_synced_at unchanged."
+      ],
+      "priority": 2188,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: services/edge-functions/src/routes/flipdesk-shopify.ts:326-345."
+    },
+    {
+      "id": "US-1428",
+      "title": "Surface 'acquired' (and archived/keeping/wearing) items in the Kanban pipeline",
+      "description": "FLIPDESK_PIPELINE has no column for acquired/archived/keeping/wearing, yet ITEM_STATUSES and the intake dropdown offer acquired. Any item in those statuses is silently dropped from the Kanban — an item set 'Acquired' appears to vanish.",
+      "acceptanceCriteria": [
+        "Add an 'Acquired' column (between Sourced and Cataloged) or auto-map acquired onto the sourced column.",
+        "Add an off-pipeline lane/affordance for archived/keeping/wearing, or exclude them from intake's dropdown.",
+        "Ensure batchMoveNext produces a sensible next stage for any status a user can set."
+      ],
+      "priority": 2187,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/lib/constants.ts:650-668; pipeline.tsx:240-262,113-117; intake.tsx:694-699."
+    },
+    {
+      "id": "US-1429",
+      "title": "Make Overview/Kanban stage links actually filter the Inventory table",
+      "description": "The Overview pipeline grid, stat cards, and Kanban '+N more' navigate with ?status=<stage>, but the Inventory table only reads ?tab/q/sort/filter/view. Nothing consumes status, so every such link lands on the default tab regardless of stage clicked.",
+      "acceptanceCriteria": [
+        "Have the Inventory table read ?status= and map it to the matching tab/filter on mount.",
+        "Update Overview/Kanban links to emit params the table understands; drop the no-op ?view=all.",
+        "Add a test asserting each link resolves to the intended filtered view."
+      ],
+      "priority": 2186,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/pages/flipdesk/overview.tsx:297-322,348-355; pipeline.tsx:677; listings.tsx:398-401."
+    },
+    {
+      "id": "US-1430",
+      "title": "Preserve the attempted URL through the login redirect (return-to)",
+      "description": "ProtectedRoute redirects unauthenticated users to /login without capturing the attempted location, and LoginPage always navigates to /dashboard (only invite is special-cased). Deep links into the app are lost after sign-in.",
+      "acceptanceCriteria": [
+        "On redirect, pass the current location (state={{from}} or ?next=).",
+        "After successful sign-in (and OAuth callback), navigate to the saved location, falling back to /dashboard.",
+        "Validate the target is an internal path before redirecting."
+      ],
+      "priority": 2100,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/components/auth/protected-route.tsx:18-20; src/pages/login.tsx:48-49."
+    },
+    {
+      "id": "US-1431",
+      "title": "Allow re-sending the confirmation email more than once in VerifyEmailGate",
+      "description": "Once resend is clicked, sent is set permanently true, leaving the button disabled reading 'Email sent' forever. A user who still doesn't receive the email cannot resend without reloading.",
+      "acceptanceCriteria": [
+        "Replace the permanent sent lock with a 30-60s cooldown countdown after which resend is enabled again.",
+        "Show the remaining cooldown in the button label.",
+        "Surface GoTrue rate-limit (429) errors distinctly instead of the generic failure toast."
+      ],
+      "priority": 2099,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/components/auth/verify-email-gate.tsx:23-35,57-63."
+    },
+    {
+      "id": "US-1432",
+      "title": "Distinguish rate-limit and network errors from credential failures on auth forms",
+      "description": "Login funnels every failure (including GoTrue 429 and network errors) into the single generic SIGN_IN_FAILED_MESSAGE, misleading users who are actually rate-limited or offline. Signup similarly collapses non-'already registered' errors.",
+      "acceptanceCriteria": [
+        "Detect 429/over_request_rate_limit/over_email_send_rate_limit and show a 'too many attempts' message (enumeration-safe).",
+        "Detect network/timeout failures and show a connectivity message distinct from credential failure.",
+        "Keep the generic credential message only for genuine 400/401 auth failures."
+      ],
+      "priority": 2098,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/login.tsx:50-58; signup.tsx:129-142; auth-identity.ts:23-25."
+    },
+    {
+      "id": "US-1433",
+      "title": "Send the welcome email for OAuth (Google/Apple) signups, not just email signups",
+      "description": "The welcome-email fire-and-forget call lives only in the email signup handler. Users who create an account via Google or Apple never trigger it, so a whole signup channel gets no welcome email.",
+      "acceptanceCriteria": [
+        "Trigger the welcome notification on first authenticated session for OAuth users (auth callback or server-side first-login flag), idempotently.",
+        "Ensure it fires once per account regardless of signup method.",
+        "Keep it non-blocking with Sentry capture on failure."
+      ],
+      "priority": 2097,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/signup.tsx:111-128,148-177; login.tsx:68-82; auth-callback.tsx:27-37."
+    },
+    {
+      "id": "US-1434",
+      "title": "Verify Apple web OAuth (Services ID) is configured or hide the button before launch",
+      "description": "'Continue with Apple' is live on login and signup and calls the redirect OAuth flow, which requires Apple configured with a Services ID client and client-secret JWT for web. If that prod config isn't in place, the button errors for every user.",
+      "acceptanceCriteria": [
+        "Confirm the prod GoTrue Apple provider is configured with a Services ID + client secret and {origin}/auth/callback redirect.",
+        "If not ready, gate the Apple button behind an env flag (mirroring the Turnstile captchaRequired pattern).",
+        "Smoke-test the full Apple web flow against prod before enabling."
+      ],
+      "priority": 2096,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/lib/auth.ts:64-80; login.tsx:76-82,177-186; signup.tsx:164-177,360-369."
+    },
+    {
+      "id": "US-1435",
+      "title": "Consolidate the overlapping post-signup activation checklists for sellers",
+      "description": "A seller finishing OnboardingFlow lands on /dashboard/flipdesk and sees FlipdeskOnboarding (source->intake->grade), while the dashboard home shows ActivationChecklist (grade->inventory->eBay->notifications). The two overlap heavily and run simultaneously, which is confusing.",
+      "acceptanceCriteria": [
+        "Pick a single source of truth for seller activation (one checklist), or make them mutually exclusive by surface/persona.",
+        "Ensure a step completed in one updates/satisfies the equivalent step in the other (shared 'first grade'/'inventory exists' detection).",
+        "Verify only one card renders for a seller at any time."
+      ],
+      "priority": 2095,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: onboarding-flow.tsx:61-73; dashboard-layout.tsx:46; dashboard.tsx:427; activation-checklist.tsx:99-111 vs flipdesk-onboarding.tsx:81-106."
+    },
+    {
+      "id": "US-1436",
+      "title": "Read error params and fail fast on an expired/invalid password-reset link",
+      "description": "UpdatePasswordForm only waits for getSession/PASSWORD_RECOVERY; it never inspects error/error_description in the URL. An expired/errored recovery link shows a spinner for the full 10s timeout before declaring the link invalid, instead of failing immediately as the OAuth callback does.",
+      "acceptanceCriteria": [
+        "Parse error/error_description from query and hash on mount; if present, go straight to the 'expired/invalid' state.",
+        "Keep the timeout only as a fallback for the no-session/no-error case.",
+        "Reuse the existing readAuthError helper for consistency."
+      ],
+      "priority": 2094,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/reset-password.tsx:145-166; contrast auth-callback.tsx:13-54."
+    },
+    {
+      "id": "US-1437",
+      "title": "Route dispute evidence uploads through server-side image validation (US-276)",
+      "description": "Dispute evidence photos upload directly browser->bucket without validateImageUpload() magic-byte sniff or stripImageMetadata() EXIF/GPS removal. The upload path/user_id is keyed to workspaceOwnerId, which for a non-owner member fails the auth.uid()=user_id storage/disputes RLS — a member can't file a dispute and the upload silently fails.",
+      "acceptanceCriteria": [
+        "Send dispute evidence through an edge endpoint that runs validateImageUpload + stripImageMetadata before storing (same as grade.ts).",
+        "Store evidence under the filer's own uid folder so RLS passes for members, or perform the insert/upload server-side with verified ownership.",
+        "Verify a workspace member can file a dispute end-to-end."
+      ],
+      "priority": 2093,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · grading · grading audit] Evidence: src/pages/submission-detail.tsx:444-464; migration 00001:239-241,270-289."
+    },
+    {
+      "id": "US-1438",
+      "title": "Give failed grades a recovery action instead of a dead end",
+      "description": "When a submission ends in failed, the detail page shows 'Something went wrong... Please try again' but renders no button. needs_photos and expired both offer Retake/Start-new; failed offers nothing, stranding the seller (whose charge was auto-refunded) with no way to reuse photos or resubmit.",
+      "acceptanceCriteria": [
+        "Add Retake (reuse photos/garment details) and 'Start a new submission' buttons to the failed state, mirroring needs_photos.",
+        "Confirm/messaging that no charge was applied (or was refunded) on failure."
+      ],
+      "priority": 2092,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · grading · grading audit] Evidence: src/pages/submission-detail.tsx:1191-1199 vs 1200-1259."
+    },
+    {
+      "id": "US-1439",
+      "title": "Remove or populate the always-empty 'Grade' and 'Listed Price' inventory columns",
+      "description": "The desktop inventory table renders 'Grade' and 'Listed Price' headers whose cells are hardcoded to '—' for every row, so two columns are permanently blank and misleading. The mobile card view omits them, creating inconsistency.",
+      "acceptanceCriteria": [
+        "Either join grade_reports / active listing price into the inventory query and render real values, or remove the two dead columns until wired.",
+        "Keep mobile and desktop views showing the same fields.",
+        "If kept, surface grade via the existing ScoreBandIcon/getScoreColor pattern."
+      ],
+      "priority": 2091,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: src/pages/inventory.tsx:453,463,493-501."
+    },
+    {
+      "id": "US-1440",
+      "title": "Standardize page headers on the shared PageHeader component",
+      "description": "A shared PageHeader exists and is used by dashboard/settings, but inventory, finances, inventory-add, and price-suggestions hand-roll the same div/h1 block, and team.tsx uses text-3xl — so heading size and rhythm are inconsistent across primary pages.",
+      "acceptanceCriteria": [
+        "Replace hand-rolled header blocks with <PageHeader title subtitle actions />.",
+        "Normalize team.tsx to the shared text-2xl heading.",
+        "Optionally add a lint/test guard discouraging bare text-2xl/3xl font-bold h1s in pages."
+      ],
+      "priority": 2090,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: page-header.tsx:24-56; inventory.tsx:258-269; finances.tsx:110-115; inventory-add.tsx:142-148; team.tsx:229-233,250-254."
+    },
+    {
+      "id": "US-1441",
+      "title": "Resolve nested tab strips and redundant headers in the Account hub",
+      "description": "The Account hub renders SettingsPage as a tab, but SettingsPage has its own 8-tab strip AND a 'Settings' PageHeader, producing two stacked tab strips plus a duplicate heading. Sibling tabs (Team text-3xl, Billing, API keys, Referrals) each render their own page heading inside the tab.",
+      "acceptanceCriteria": [
+        "Suppress child-page PageHeaders/h1s when rendered inside the Account hub (an embedded prop or shared layout context).",
+        "Flatten or visually distinguish the Settings sub-tabs so two identical tab strips don't stack.",
+        "Make all hub child headings consistent (or remove them since the tab label names the section)."
+      ],
+      "priority": 2089,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: src/pages/account.tsx:43-72; settings.tsx:506-523; team.tsx:250."
+    },
+    {
+      "id": "US-1442",
+      "title": "Add business / ship-from profile fields to reduce repeated marketplace entry",
+      "description": "The profile in Settings only stores full name + avatar (email read-only); there is no business name, phone, or ship-from/return address in user-editable settings. Resellers who list/ship have nowhere to store this once, so it must be re-supplied per marketplace/shipping flow.",
+      "acceptanceCriteria": [
+        "Add a Business/Shipping section to the Settings Profile tab (business name, phone, ship-from address) persisted on the user/workspace.",
+        "Autofill these into record-sale/shipping/marketplace flows so they are entered once.",
+        "Confirm fields are tenant-scoped and included in the account data export."
+      ],
+      "priority": 2088,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: src/pages/settings.tsx:525-595; ship_from/business_name only in white-label-panel.tsx & edge api-keys.ts."
+    },
+    {
+      "id": "US-1443",
+      "title": "Handle charge.dispute.closed to complete the dispute lifecycle",
+      "description": "dispatchStripeEvent handles only charge.dispute.created. A LOST dispute never claws back granted credits or withholds the per-grade certificate; a WON dispute leaves the submission permanently flagged/payment_disputed with no automatic clearing.",
+      "acceptanceCriteria": [
+        "Add a charge.dispute.closed case: on status=lost claw back credits / withhold cert (reuse the refund clawback path); on status=won clear the dispute flag.",
+        "Make it idempotent on the dispute id and cover both outcomes with tests."
+      ],
+      "priority": 2087,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:226-262,1184-1188."
+    },
+    {
+      "id": "US-1444",
+      "title": "Rate-limit remaining unauthenticated public reads (changelog, maintenance, grading-public)",
+      "description": "Public unauthenticated GET surfaces mounted with no rate-limit middleware: /api/changelog and /api/maintenance/active run uncached DB reads per request; /api/grading/public/* is unauthenticated with no limiter (partly mitigated by TTL caches, but sub-paths and cold-cache windows still hit the DB).",
+      "acceptanceCriteria": [
+        "Add per-IP fail-closed rateLimiter for /api/changelog/*, /api/maintenance/*, /api/grading/public/* (~60/min/IP like content-public).",
+        "Keep the Pages-origin bypass where these are proxied by SSR workers.",
+        "Leave in-module caches in place as defense-in-depth."
+      ],
+      "priority": 2086,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · edge · edge audit] Evidence: main.ts:790,1038,1161; changelog.ts:45; maintenance.ts:12; public-grading.ts:30-133."
+    },
+    {
+      "id": "US-1445",
+      "title": "Stop returning raw DB error.message to clients; use the http-errors failSafe convention",
+      "description": "~90+ handlers return c.json({ error: error.message }, 500) (raw Supabase/PostgREST text) instead of the mandated failSafe()/jsonError() helpers, leaking internals (table/column/constraint names, SQL hints). Concentrated in admin routes but ALSO reaches normal authenticated users on FlipDesk surfaces.",
+      "acceptanceCriteria": [
+        "Replace c.json({ error: error.message }, status) with failSafe(c, status, '<generic>', error, '<logTag>') so raw text is logged, not returned.",
+        "Prioritize non-admin/user-reachable files (flipdesk-*, announcements, drip) first; admin second.",
+        "Add a grep-based CI guard test to fail the build on new error: <err>.message bodies."
+      ],
+      "priority": 2085,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · edge · edge audit] Evidence: http-errors.ts:1-12,34-44; flipdesk-consignment.ts:77-279; announcements.ts:33,109; admin-grading.ts (40+ sites)."
+    },
+    {
+      "id": "US-1446",
+      "title": "Add payout-level reconciliation via Finances getPayouts (not just transactions)",
+      "description": "Reconciliation reads /sell/finances/v1/transaction only, so we can compute per-sale fees but cannot match an actual bank deposit (a payout) to the set of transactions it settled. Resellers reconcile against the lump-sum payout that hits their bank.",
+      "acceptanceCriteria": [
+        "Add getPayouts (status/date filtered) + getPayout and store payout records keyed by payoutId.",
+        "Link transactions to their payoutId so the reconciliation screen shows payout -> constituent transactions -> net.",
+        "Reconcile against existing payout_imports/CSV path as the API source-of-truth replacement."
+      ],
+      "priority": 2084,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-client.ts:2695; no /sell/finances/v1/payout usage; https://developer.ebay.com/api-docs/sell/finances/resources/payout/methods/getPayouts"
+    },
+    {
+      "id": "US-1447",
+      "title": "Support Promoted Listings Advanced (CPC / Priority) and Smart Targeting campaigns",
+      "description": "Our Marketing integration only creates Cost-Per-Sale campaigns. eBay now offers Priority/CPC campaigns (keyword bids, ad groups) and Smart Targeting (campaignTargetType=SMART, maxCpc), which give serious sellers materially more visibility control.",
+      "acceptanceCriteria": [
+        "Add createCampaign with fundingModel=COST_PER_CLICK + ad groups; add CPC createAdsByInventoryReference/createAds.",
+        "Integrate suggestMaxCpc and Smart Targeting (campaignTargetType=SMART, maxCpc).",
+        "Let sellers choose CPS vs CPC (Priority) vs Smart per listing in the publish/promote UI."
+      ],
+      "priority": 2083,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-marketing.ts:1-60; https://developer.ebay.com/api-docs/sell/static/marketing/pl-overview.html"
+    },
+    {
+      "id": "US-1448",
+      "title": "Add Promotions Manager item promotions (coupons / order discounts)",
+      "description": "We support markdown promotions but not the broader Promotions Manager item_promotion (order-size discounts, volume pricing, coupons, sale events) — standard reseller merchandising tools to move aged inventory and lift average order value.",
+      "acceptanceCriteria": [
+        "Integrate createItemPromotion/getItemPromotions/updateItemPromotion (ORDER_DISCOUNT, VOLUME_DISCOUNT, CODED_COUPON).",
+        "Tie promotions to aging rules in the pipeline (e.g. auto-coupon items >90 days)."
+      ],
+      "priority": 2082,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-marketing.ts:673-721 (markdown only); https://developer.ebay.com/api-docs/sell/marketing/resources/methods"
+    },
+    {
+      "id": "US-1449",
+      "title": "Flow the in-composer comped/recommended price into the listing price field",
+      "description": "Clicking 'Use as target price' on comps writes inventory_items.target_price but does not update the composer's price input (onTargetPriceUpdated isn't passed; the price seed is one-shot behind an initialised guard), so the seller must retype the comped price.",
+      "acceptanceCriteria": [
+        "Pass an onTargetPriceUpdated handler that calls setPrice(...) (and clears the estimated flag) when a comp is applied.",
+        "Ensure the applied comped price wins at save over the stale price-input value."
+      ],
+      "priority": 2081,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: composer.tsx:1047-1059,383-432,597-605; ebay-comps-panel.tsx:37-38,107-126."
+    },
+    {
+      "id": "US-1450",
+      "title": "Fold captured measurements into eBay item specifics in the manual composer path",
+      "description": "Measurements auto-populate eBay measurement aspects only in the AutoLister AI path; the manual prep->draft->composer path omits measurements from the aspect prefill source, so hand-composed listings drop them from eBay item specifics (they survive only in the description).",
+      "acceptanceCriteria": [
+        "Include the item's measurements in the composer's itemAspectSource (or run resolveMeasurementAspects against the resolved category).",
+        "Keep it fill-only — never clobber a value the seller already set."
+      ],
+      "priority": 2080,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: ai-listing.ts:1051-1064; composer.tsx:355-372; measurement-form.tsx."
+    },
+    {
+      "id": "US-1451",
+      "title": "Restore inventory/listing state when a return is refunded or cancellation approved",
+      "description": "After refund/cancel approval, applyOutcomeToSale only flips the sales row to refunded/cancelled; inventory_items.status stays sold/shipped and the listings row is untouched. The item is stranded outside the relist loop and still counts in Sold-tab aggregates.",
+      "acceptanceCriteria": [
+        "On refund/cancel, move the item to a returned/back-to-inventory status so it can be relisted.",
+        "Optionally reactivate/recreate the listing draft for one-click relisting.",
+        "Exclude refunded/cancelled sales from Sold P&L aggregates."
+      ],
+      "priority": 2079,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-ebay.ts:2758-2777; ebay-postorder.ts:270-282; listings.tsx:818-839."
+    },
+    {
+      "id": "US-1452",
+      "title": "Surface the 100-row cap on the reconciliation review queue",
+      "description": "The edge /queue caps unreconciled payouts at 100 and returns total/has_more/limit, but ReviewQueueCard ignores these and renders only the loaded array, so >100 unreconciled payouts are silently hidden and unmatchable.",
+      "acceptanceCriteria": [
+        "Read has_more/total and render a 'showing first 100 of N' notice.",
+        "Provide a way to drain beyond the cap (auto-match sweep + re-fetch, or pagination)."
+      ],
+      "priority": 2078,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-reconciliation.ts:50,201-306; reconciliation.tsx:1053-1089,247-252."
+    },
+    {
+      "id": "US-1453",
+      "title": "Don't drop exact payout-id reconciliation matches that fall outside the date window",
+      "description": "Both /queue and /run restrict candidate sales to the payout date window +-14 days; the guaranteed-correct Tier-1 payout-id exact match (score 1.0) runs only on sales already inside that window, so for funds held >14 days an exact-id match is excluded and the payout appears unmatchable.",
+      "acceptanceCriteria": [
+        "Always include sales whose payout_reference equals the payout's payoutid regardless of date window (separate query/union).",
+        "Keep the date window only for the fuzzy amount/date scoring path."
+      ],
+      "priority": 2077,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-reconciliation.ts:236-256,118-126,342-364."
+    },
+    {
+      "id": "US-1454",
+      "title": "Fix end-listing automation reporting success when local DB writes fail",
+      "description": "In automations applyMatch, the end_listing branch ignores the error from both the listings->ended and inventory_items->drafted updates (unlike price_drop/set_promo_rate), then records the action and returns true. If eBay withdrawOffer succeeds but the local write fails, the listing stays active locally while ended on eBay — a silent desync logged as applied.",
+      "acceptanceCriteria": [
+        "Check the error from both updates and return false on failure.",
+        "Don't record a successful automation-action row when the local write failed.",
+        "Test the eBay-withdraw-succeeds / local-update-fails path."
+      ],
+      "priority": 2076,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-automations.ts:311-319 (vs 285,293)."
+    },
+    {
+      "id": "US-1455",
+      "title": "Capture and retry async webhook processing failures instead of console-only logging",
+      "description": "eBay/Shopify/Depop receivers return 2xx then process async; the outer .catch handlers and order-ingest res.errors arrays only console.error. A thrown sync/ingest error is not sent to Sentry and never retried — a failed sale/refund/sold-flip is silently lost after the 200/204.",
+      "acceptanceCriteria": [
+        "Route .catch failures and non-empty res.errors through captureException.",
+        "Provide a retry/durability path comparable to the eBay parked-event drain (or document that manual sync reliably reconciles).",
+        "Emit a webhook.process_failed metric."
+      ],
+      "priority": 2075,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-webhooks.ts:116-121,179-186,300-304,371-376,471-473."
+    },
+    {
+      "id": "US-1456",
+      "title": "Make Google Sheets sync lock TTL exceed scheduler cadence to prevent concurrent double-merge",
+      "description": "The per-user merge lock leases for 240s but the scheduler runs every 5 min and /sync/now bypasses the global job lock, so a merge running >240s can have a second run start concurrently — re-reading edits, double-appending Conflicts rows, racing snapshot/cell writes.",
+      "acceptanceCriteria": [
+        "Raise the per-user lease beyond worst-case merge duration, or renew mid-run.",
+        "Coordinate /sync/now with the scheduled path so they can't run concurrently per user.",
+        "Make Conflicts/observation writes idempotent."
+      ],
+      "priority": 2074,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-google-sync.ts:265,718,768-790."
+    },
+    {
+      "id": "US-1457",
+      "title": "Stop Accept-Sheet conflict resolution from clobbering newer FlipDesk edits",
+      "description": "'Accept Sheet' writes the sheet value frozen at conflict-creation time straight into inventory_items with no re-check against current DB/base, so any FlipDesk edit made after the conflict was logged is silently overwritten — the 3-way snapshot protection is bypassed.",
+      "acceptanceCriteria": [
+        "Before applying, compare the field's current DB value against the snapshot/base; if changed since the conflict was logged, re-flag rather than overwrite.",
+        "Record accepted-value provenance."
+      ],
+      "priority": 2073,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-google-sync.ts:376-395,240-245."
+    },
+    {
+      "id": "US-1458",
+      "title": "Fix Kanban bulk 'Move to next status' dead-end at Photographed",
+      "description": "Kanban's only bulk status action advances each item one stage. For Photographed items the next stage is grading, which validateStatusChange always rejects, so bulk-advancing that column always fails — and grading can only be triggered one-at-a-time from each item's detail panel.",
+      "acceptanceCriteria": [
+        "Add a bulk 'Submit selected for grading' action (table To-List tab and/or Kanban) that creates submissions/charges for all selected items.",
+        "In batchMoveNext, skip the grading hop (or route Photographed items into the bulk-grade flow) so the button never produces an all-failures result."
+      ],
+      "priority": 2072,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: pipeline.tsx:337-382; pipeline-rules.ts:38-40."
+    },
+    {
+      "id": "US-1459",
+      "title": "Add bulk archive / bulk set-status for terminal items",
+      "description": "No bulk way to archive or set an arbitrary status. The table bulk bar offers only stage-specific actions; Kanban's only bulk status op is forward-only and can't reach archived. Cleaning up dozens of completed/sold/dead items is one row at a time.",
+      "acceptanceCriteria": [
+        "Add a 'Set status...' (incl. Archive) bulk action to the table's selection bar, working on any tab.",
+        "Allow backward and off-pipeline transitions, with a confirm for destructive ones."
+      ],
+      "priority": 2071,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: listings.tsx:2593-2709; pipeline.tsx:337-382."
+    },
+    {
+      "id": "US-1460",
+      "title": "Provide a 'stay signed in' / shared-device control on login",
+      "description": "The Supabase client always persists the session to localStorage with no user choice; the only protection on a shared browser is the 12h idle auto-logout. There is no 'remember me'/'shared device' option on the login form.",
+      "acceptanceCriteria": [
+        "Add a 'Keep me signed in' (or inverse 'shared device') checkbox on login.",
+        "When unchecked, shorten persistence/idle window for that session (or use session-scoped storage).",
+        "Default to the current behavior to avoid regressions."
+      ],
+      "priority": 2000,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: src/lib/supabase.ts:11-18; idle-logout.ts:16; login.tsx."
+    },
+    {
+      "id": "US-1461",
+      "title": "Fix the non-functional close button and missing ARIA on the onboarding modal",
+      "description": "The first-run OnboardingFlow Dialog is gated until a use case is chosen, so the shadcn corner close (X) and Escape do nothing until then — a visible but dead control. The use-case buttons also lack aria-pressed/role (unlike the signup form's equivalents).",
+      "acceptanceCriteria": [
+        "Hide or disable the Dialog's default close button while the use case is required (or make the requirement non-blocking).",
+        "Add aria-pressed/role to the modal use-case buttons.",
+        "Announce step changes (aria-live) so screen-reader users track tour progress."
+      ],
+      "priority": 1999,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: onboarding-flow.tsx:154-175,204-233; contrast signup.tsx:285-302."
+    },
+    {
+      "id": "US-1462",
+      "title": "Add loading/disabled state to the OAuth provider buttons",
+      "description": "The Google and Apple buttons trigger a redirect with no disabled/spinner state, so a double-click or slow redirect gives no feedback and can fire the OAuth call twice.",
+      "acceptanceCriteria": [
+        "Track a pending state and disable both provider buttons (and submit) once one is clicked.",
+        "Show a brief spinner/label while redirecting.",
+        "Guard the handlers against re-entry."
+      ],
+      "priority": 1998,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: login.tsx:151-186; signup.tsx:346-369."
+    },
+    {
+      "id": "US-1463",
+      "title": "Avoid re-prompting onboarding for the use-case already captured at signup",
+      "description": "Use case can be picked on the signup form (stamped via handle_new_user), but the post-signup OnboardingFlow still walks the user through the use-case step every time (pre-selected but still presented), adding a redundant step.",
+      "acceptanceCriteria": [
+        "When profile.use_case is already set, skip directly to the welcome/tour (or collapse the step).",
+        "Keep the step available via the Settings replay path.",
+        "Ensure onboarded_at is still recorded so the first-run gate clears."
+      ],
+      "priority": 1997,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: signup.tsx:38-39,275-304; onboarding-flow.tsx:96-99,194-235."
+    },
+    {
+      "id": "US-1464",
+      "title": "Format the overall score in the certificate SEO/OG title",
+      "description": "The <SEO> title and description on the certificate page interpolate the raw gradeReport.overall_score instead of .toFixed(1), so a stored float can surface an unformatted value in the page title, social card text, and structured data.",
+      "acceptanceCriteria": [
+        "Use overall_score.toFixed(1) in the SEO title/description and any JSON-LD rating value.",
+        "Spot-check the rendered <title> and OG description."
+      ],
+      "priority": 1996,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · grading · grading audit] Evidence: src/pages/certificate.tsx:478-479; contrast 594,327-329."
+    },
+    {
+      "id": "US-1465",
+      "title": "Clarify and de-emphasize the certificate integrity-check panel on transient failures",
+      "description": "The certificate's tamper-evident integrity check degrades a transport/network failure to a scary 'Integrity check couldn't reach the verification service' panel. This fetch fires unconditionally on every public view; if the verify endpoint is down or rate-limited at scale, every certificate shows an integrity-error panel to buyers even though the grade is valid.",
+      "acceptanceCriteria": [
+        "Confirm the verify endpoint is anonymous + edge-cached and load-tested for cert view volume.",
+        "De-emphasize the panel while in the transient 'error' phase (it currently sits among trust signals)."
+      ],
+      "priority": 1995,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · grading · grading audit] Evidence: src/pages/certificate.tsx:245-262."
+    },
+    {
+      "id": "US-1466",
+      "title": "Surface a clearer 'grading still in progress' vs stuck distinction on long grades",
+      "description": "While processing/pending, the detail page polls every 5s plus realtime, showing only 'This usually takes a few moments.' There is no elapsed-time or escalation messaging, so a submission that legitimately takes minutes looks indistinguishable from one that is stuck.",
+      "acceptanceCriteria": [
+        "Show elapsed time and a 'taking longer than expected' message past a threshold, with a support/refund-policy link.",
+        "Optionally distinguish pending (awaiting payment) from processing (AI running) in the copy."
+      ],
+      "priority": 1994,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · grading · grading audit] Evidence: src/pages/submission-detail.tsx:257-268,1177-1190; grading-pipeline.ts:372-375."
+    },
+    {
+      "id": "US-1467",
+      "title": "Give Finances a zero-data empty state for new users",
+      "description": "With no sales yet, the Finances page renders all metric cards as $0/0 and empty charts with no guidance, so a new reseller sees a 'broken-looking' dashboard instead of a 'record your first sale' prompt.",
+      "acceptanceCriteria": [
+        "When the period has zero sales/inventory, show an EmptyState with a CTA (e.g. 'Add inventory' / 'Record a sale') instead of all-zero tiles.",
+        "Keep the populated dashboard once any data exists."
+      ],
+      "priority": 1993,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ux · ux audit] Evidence: src/pages/finances.tsx:136-220."
+    },
+    {
+      "id": "US-1468",
+      "title": "Use the shared ErrorState (with retry) for the dashboard Total Submissions card",
+      "description": "When the dashboard submissions query fails, the 'Total Submissions' stat card shows a bare red 'Failed to load' with no retry, while the same page's Recent Submissions card correctly uses ErrorState with a retry button — an inconsistent failure experience on one screen.",
+      "acceptanceCriteria": [
+        "Replace the inline failure text with a compact retry affordance (or hide the card on error) consistent with ErrorState.",
+        "Ensure the retry uses the existing refetch/isFetching already wired in the component."
+      ],
+      "priority": 1992,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ux · ux audit] Evidence: src/pages/dashboard.tsx:576-577 vs 627-633."
+    },
+    {
+      "id": "US-1469",
+      "title": "Add an idempotency key (or in-flight guard) to credit-pack Checkout creation",
+      "description": "/gradethread/credit-pack deliberately omits a Stripe idempotency key, unlike /subscribe and /per-grade. A double-submit or client retry creates multiple distinct payable Checkout Sessions; there is no server-side guard against two completed pack purchases from one user action.",
+      "acceptanceCriteria": [
+        "Add a short-window idempotency key scoped to (user, packSize, coarse time bucket) so rapid duplicate POSTs reuse one session, while still allowing a deliberate later repurchase.",
+        "Disable the 'Buy credits' button while the create-session request is in flight on the client."
+      ],
+      "priority": 1991,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · payments · payments audit] Evidence: payments.ts:530-539; compare per-grade key at 663-665, subscribe at 441-443."
+    },
+    {
+      "id": "US-1470",
+      "title": "Show 'plus tax' on the public pricing page",
+      "description": "The marketing /pricing page lists per-grade, credit-pack, and FlipDesk subscription prices with no indication that sales tax/VAT is added at checkout (automatic_tax is enabled). The tax disclaimer exists only on the authenticated in-app billing page.",
+      "acceptanceCriteria": [
+        "Add a short 'Prices shown exclude tax; sales tax/VAT is calculated at checkout based on your billing location' note near the pricing tables on /pricing.",
+        "Confirm currency is communicated as USD on the public page."
+      ],
+      "priority": 1990,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · payments · payments audit] Evidence: src/pages/marketing/pricing.tsx:60-147; disclaimer only at billing.tsx:593-610."
+    },
+    {
+      "id": "US-1471",
+      "title": "Refresh stale 'Phase A/B 501' comments in content-blog.ts and content-topics.ts",
+      "description": "Header comments claim AI endpoints return 501 / are stubbed, but they are fully wired (generate/regenerate-section call generateBlogArticle/streamAnthropicText; /research calls researchTopics). Misleading comments only.",
+      "acceptanceCriteria": [
+        "Rewrite/delete the stale comments to reflect that AI generation is live.",
+        "No handler change needed."
+      ],
+      "priority": 1989,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · edge · edge audit] Evidence: content-blog.ts:38-42 vs 405,491,548,742,779; content-topics.ts:12 vs 252,300."
+    },
+    {
+      "id": "US-1472",
+      "title": "Document the Shopify adapter syncListings/syncOrders 501 as deliberate (webhook path)",
+      "description": "The Shopify adapter implements publish/delist live but returns typed 501 for syncListings/syncOrders. Orders are ingested out-of-band via webhooks, so this is deliberate — but unlike the poshmark/mercari/depop stubs there is no inline comment classifying it as intentional.",
+      "acceptanceCriteria": [
+        "Add a one-line comment stating order/listing sync is handled via the Shopify webhook path (flipdesk-shopify.ts + shopify-orders.ts).",
+        "If reconciliation needs adapter-level pull, wire syncOrders; otherwise leave the 501 as documented-deliberate."
+      ],
+      "priority": 1988,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · edge · edge audit] Evidence: services/edge-functions/src/lib/marketplace-adapters/shopify.ts:272-273."
+    },
+    {
+      "id": "US-1473",
+      "title": "Surface seller-performance via Analytics seller-standards & customer-service metrics",
+      "description": "We pull per-listing traffic but not account-level health signals: getSellerStandardsProfile (Top Rated / Above/Below Standard) and getCustomerServiceMetric. Below Standard means fee surcharges and search demotion.",
+      "acceptanceCriteria": [
+        "Add getSellerStandardsProfile (current + projected) and getCustomerServiceMetric.",
+        "Show an account-health card; alert when projected status drops to Below Standard."
+      ],
+      "priority": 1987,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-client.ts:487 (traffic only); https://developer.ebay.com/api-docs/sell/analytics/resources/seller_standards_profile/methods/getSellerStandardsProfile"
+    },
+    {
+      "id": "US-1474",
+      "title": "Adopt Sell Feed API for bulk active-inventory and order reports at scale",
+      "description": "Large catalogs are most efficiently synced via the Feed API (LMS active-inventory report, order reports) rather than paging getInventoryItems/getOrders. We page REST today, which is fine at launch volume but rate-limit-fragile for high-volume sellers.",
+      "acceptanceCriteria": [
+        "Add createInventoryTask/getActiveInventoryReport (and order report task) for sellers above a catalog-size threshold.",
+        "Fall back to existing paged sync below the threshold."
+      ],
+      "priority": 1986,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-client.ts:2298,2567; https://developer.ebay.com/api-docs/sell/feed/overview.html"
+    },
+    {
+      "id": "US-1475",
+      "title": "Add Commerce Catalog (EPID product adoption) to improve item-specifics autofill",
+      "description": "We resolve aspects via Taxonomy but never adopt eBay catalog products by EPID. Listing against a catalog product auto-populates required item specifics and reduces aspect-compliance violations — directly improving AutoLister accuracy.",
+      "acceptanceCriteria": [
+        "Integrate search/getProduct (Catalog API); when a confident EPID match exists, set product.epid on the inventory item.",
+        "Prefer catalog-provided aspects over AI-generated ones for compliance-critical fields."
+      ],
+      "priority": 1985,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-client.ts:753-958 (Taxonomy only); https://developer.ebay.com/api-docs/commerce/catalog/overview.html"
+    },
+    {
+      "id": "US-1476",
+      "title": "Monitor legacy Trading API deprecation timeline and migrate at-risk calls",
+      "description": "We rely on several legacy Trading XML calls. eBay is actively decommissioning legacy APIs. Our specific calls aren't on the announced sunset list yet, but this is ongoing risk that needs a watch.",
+      "acceptanceCriteria": [
+        "Add a recurring check of the deprecation-status page; track our calls.",
+        "Where REST equivalents exist (orders -> Fulfillment getOrders, which we already have), prefer REST and keep Trading only for genuinely REST-less ops (best offers, member messages, feedback)."
+      ],
+      "priority": 1984,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-trading.ts; https://developer.ebay.com/develop/get-started/api-deprecation-status"
+    },
+    {
+      "id": "US-1477",
+      "title": "Connect the prep manual comp editor to the live comp/pricing pipeline",
+      "description": "The prep stage asks the seller to hand-enter a comp set + target price via CompEditor; the composer separately fetches live eBay comps + a recommendation writing the same target_price. The prep-entered comp_set is persisted but never consumed downstream — redundant dead-end data.",
+      "acceptanceCriteria": [
+        "Surface live eBay comps in the prep stage instead of blank manual entry, prefilling the comp set.",
+        "Either consume comp_set downstream (show it in the composer) or drop the manual entry."
+      ],
+      "priority": 1983,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: prep.tsx:97-119,300-323; comp-editor.tsx:19,33,158-162; ebay-comps-panel.tsx:107-126; composer.tsx:399-403."
+    },
+    {
+      "id": "US-1478",
+      "title": "Apply sold-comp recommendation (not active-ask median) as target price",
+      "description": "The active-comp band's 'Use as target price' sets target_price to the median of active ASKING prices, while the panel's own disclaimer warns asks run higher than sales — systematically over-pricing items and bypassing the better SoldCompRecommendation.",
+      "acceptanceCriteria": [
+        "Prefer the sold-backed grade-banded recommendation when available; fall back to active-ask median only when no sold data exists.",
+        "If applying the active-ask figure, discount toward realized-sale levels."
+      ],
+      "priority": 1982,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: ebay-comps-panel.tsx:97,123-126,223-236."
+    },
+    {
+      "id": "US-1479",
+      "title": "Seed CreateItemFromListing dialog form via useEffect, not useMemo",
+      "description": "CreateItemFromListingDialog calls setState (setTitle/setSku) inside a useMemo to re-seed the form — a React anti-pattern that can misbehave under StrictMode/concurrent rendering.",
+      "acceptanceCriteria": [
+        "Replace the useMemo with a useEffect keyed on listing.",
+        "Verify pre-fill still works when opened on successive listings."
+      ],
+      "priority": 1981,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: src/components/flipdesk/ebay-sku-match.tsx:850-855."
+    },
+    {
+      "id": "US-1480",
+      "title": "Persist rotated Google refresh tokens on token refresh",
+      "description": "getGoogleAccessToken reads only access_token/expires_in and never persists a rotated refresh_token; if Google rotates it, the old one is kept and a later refresh fails, forcing an avoidable reconnect.",
+      "acceptanceCriteria": [
+        "Read refresh_token from the refresh response and re-encrypt/persist when present.",
+        "Leave the stored token unchanged when the response omits it."
+      ],
+      "priority": 1980,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: flipdesk-google.ts:323-334."
+    },
+    {
+      "id": "US-1481",
+      "title": "Surface Google connection load errors instead of masking them as 'no sheet'",
+      "description": "syncUserSheet discards the google_connections select error, so a transient DB read failure becomes skipped:'no_sheet' -> 409 'Connect Google...'. Separately /sync/now returns ok:true even when summary.errors is non-empty.",
+      "acceptanceCriteria": [
+        "Propagate the select error as a real error, not no_sheet.",
+        "Make /sync/now reflect summary.errors.length > 0 in its status/shape."
+      ],
+      "priority": 1979,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: flipdesk-google-sync.ts:270-278,779-785."
+    },
+    {
+      "id": "US-1482",
+      "title": "Add a Kanban empty state for accounts with no inventory",
+      "description": "With zero items the Kanban renders ~13 columns each showing only a dashed 'Drop here' box — no headline or CTA, unlike the table/grid views which use EmptyState with 'Add an item'.",
+      "acceptanceCriteria": [
+        "When items.length === 0 (not loading/error), render an EmptyState with Add/Import CTAs.",
+        "Keep per-column 'Drop here' only when the account has items but a column is empty."
+      ],
+      "priority": 1978,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: pipeline.tsx:636-697,660-663; contrast listings.tsx:1753-1820, grid.tsx:467-485."
+    },
+    {
+      "id": "US-1483",
+      "title": "Give off-pipeline statuses a dedicated table tab or filter",
+      "description": "Items in archived/keeping/wearing appear only inside the catch-all 'All' tab — no tab or quick filter to view or hide them — so archived/personal items are permanently mixed into active inventory.",
+      "acceptanceCriteria": [
+        "Add an 'Archived' tab (and optionally a 'Personal' filter), or a toggle to include/exclude them from 'All'.",
+        "Default All/To-List to exclude archived items."
+      ],
+      "priority": 1977,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: listings.tsx:186-243; constants.ts:511,504-506."
+    },
+    {
+      "id": "US-1484",
+      "title": "Restrict the intake status dropdown to hand-settable stages",
+      "description": "The New Item status select lists every ITEM_STATUSES value, including system/terminal states (grading, sold, shipped, completed, returned). Notably grading is owned by the submission flow and blocked on the board, but intake writes it directly to the DB, bypassing that rule.",
+      "acceptanceCriteria": [
+        "Limit intake options to realistic early-pipeline choices (sourced, cataloged, measured, photographed) plus archived/keeping/wearing.",
+        "Exclude grading/sold/shipped/completed/returned so they're only reachable via their proper flows."
+      ],
+      "priority": 1976,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: intake.tsx:694-699; pipeline-rules.ts:38-40."
+    },
+    {
+      "id": "US-1485",
+      "title": "Correct stale 'listings has no user_id' comment in repricing apply",
+      "description": "The repricing /apply comment asserts listings has no user_id and justifies a parent-item join, but migration 00146 added a trigger-maintained user_id. Code is safe but the misleading comment risks propagating inefficient double-joins.",
+      "acceptanceCriteria": [
+        "Update the comment, or simplify to a direct .eq('user_id', ownerId)."
+      ],
+      "priority": 1975,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: flipdesk-pricing.ts:433-436; migration 00146:19-20,72."
+    },
+    {
+      "id": "US-1486",
+      "title": "Replace window.alert/window.prompt in the rich-text editor with toast/dialog UX",
+      "description": "The blog/content TipTap toolbar surfaces image-upload errors via window.alert and asks for an image URL via window.prompt, inconsistent with the rest of the app (sonner toasts + shadcn dialogs). Native dialogs look unbranded and block the thread.",
+      "acceptanceCriteria": [
+        "Replace window.alert with toast.error(...) for the upload-failure path.",
+        "Replace window.prompt('Image URL') with a small controlled dialog/input.",
+        "Confirm no other production path uses native alert/prompt."
+      ],
+      "priority": 1974,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: src/components/content/tiptap-toolbar.tsx:92,99."
+    },
+    {
+      "id": "US-1487",
+      "title": "DEV-gate the remaining ungated console.warn calls in the FlipDesk photo uploader",
+      "description": "Most console statements are wrapped in if (import.meta.env.DEV) per US-784, but the photo-uploader's compress/thumbnail fallback warnings log unconditionally in production, adding noise for an expected best-effort fallback.",
+      "acceptanceCriteria": [
+        "Wrap these console.warn calls in if (import.meta.env.DEV) (or route through the Sentry capture helper).",
+        "Grep once more to confirm photo-uploader is the only remaining ungated case in production code."
+      ],
+      "priority": 1973,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: src/components/flipdesk/photo-uploader.tsx:140,143,177."
+    },
+    {
+      "id": "US-1488",
+      "title": "Drive the cross-listing composer picker from live (built) marketplaces only",
+      "description": "The cross-listing composer lists Poshmark and Mercari in CROSS_LISTING_PLATFORMS, but pushing to them only creates a local row and shows a 'saved locally — publishing there ships soon' toast (501 stub adapters). Only eBay/Shopify/Depop publish for real, so a launch user can select a channel that does nothing externally.",
+      "acceptanceCriteria": [
+        "Drive the picker from LIVE_CROSS_LISTING_PLATFORMS (+ extension channels) and move the rest to a clearly disabled 'coming soon' state like the Marketplaces page.",
+        "If keeping them, show the 'ships soon' copy in the picker before the push, not only after."
+      ],
+      "priority": 1972,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: src/lib/constants.ts:944,954; composer.tsx:767-779."
+    },
+    {
+      "id": "US-1489",
+      "title": "Spot-review the ~30 react-hooks/exhaustive-deps suppressions for stale-closure risk",
+      "description": "~30 eslint-disable react-hooks/exhaustive-deps suppressions cluster in high-traffic flows (billing, certificate, new-submission, listings, pipeline, autolister-drafts). Blanket exhaustive-deps suppression is the classic source of stale-closure / missed-refetch bugs.",
+      "acceptanceCriteria": [
+        "Spot-check the highest-traffic suppressions (billing, new-submission, listings) to confirm omitted deps genuinely can't go stale.",
+        "Where a dep was omitted only to avoid a re-run, prefer a ref or a documented one-line reason on each suppression."
+      ],
+      "priority": 1971,
+      "passes": false,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: billing.tsx:129,146; certificate.tsx:288; new-submission.tsx:324; flipdesk/listings.tsx:494,506,543; pipeline.tsx:187,198; autolister-drafts.tsx:197,413; +~18 more."
     }
   ]
 }
