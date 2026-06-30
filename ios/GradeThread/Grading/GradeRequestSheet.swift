@@ -95,6 +95,8 @@ struct GradeRequestSheet: View {
             completedContent(store)
         case .pendingReview:
             pendingReviewContent(store)
+        case let .needsPhotos(message):
+            needsPhotosContent(store, message)
         case let .failed(message):
             failedContent(store, message)
         }
@@ -102,7 +104,7 @@ struct GradeRequestSheet: View {
 
     private var closeButtonTitle: String {
         switch store?.phase {
-        case .completed?, .pendingReview?, .stillProcessing?: return "Done"
+        case .completed?, .pendingReview?, .stillProcessing?, .needsPhotos?: return "Done"
         // US-1176: dismissing while polling doesn't abort the grade (it lands via
         // sync), so make that explicit rather than the ambiguous "Cancel".
         case .processing?: return "Continue in background"
@@ -448,6 +450,25 @@ struct GradeRequestSheet: View {
             }
         } else {
             centeredProgress("Loading report…")
+        }
+    }
+
+    // MARK: - Needs clearer photos (quality abstention)
+
+    /// The AI declined to grade because a core photo is unusable (commonly an
+    /// illegible tag). NOT a failure — no grade or charge resulted; the seller
+    /// retakes the flagged photos and resubmits. Distinct, non-alarming styling
+    /// (a camera prompt, not a red error octagon) so it reads as actionable
+    /// guidance rather than a hard failure.
+    private func needsPhotosContent(_ store: GradeRequestStore, _ message: String) -> some View {
+        ContentUnavailableView {
+            Label("Clearer photos needed", systemImage: "camera.fill")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Done") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.brandNavy)
         }
     }
 

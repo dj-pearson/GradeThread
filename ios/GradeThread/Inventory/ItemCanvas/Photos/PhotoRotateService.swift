@@ -148,9 +148,22 @@ struct PhotoRotateService {
         request.setValue("true", forHTTPHeaderField: "x-upsert")
         request.httpBody = data
 
-        let (_, response) = try await session.data(for: request)
+        let (body, response) = try await session.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-        guard (200..<300).contains(code) else { throw RotateError.uploadFailed(code) }
+        guard (200..<300).contains(code) else {
+            // Surface the storage error body (previously discarded). A bare
+            // "Upload failed (HTTP 400)" is undiagnosable — Supabase Storage
+            // returns the real reason in the body (e.g. "mime type ... is not
+            // supported", "Invalid key", an RLS message), and tag/cert photos
+            // hit the stricter PRIVATE bucket where these surface first.
+            let detail = String(data: body, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            Telemetry.breadcrumb(
+                "photo rotate upload failed: HTTP \(code) bucket=\(bucket) body=\(detail.prefix(300))",
+                category: "photos"
+            )
+            throw RotateError.uploadFailed(code)
+        }
     }
 
     private static func publicURL(for path: String) -> String {
