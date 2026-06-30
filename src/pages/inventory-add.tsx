@@ -115,7 +115,11 @@ export function InventoryAddPage() {
       toast.success("Item added to inventory!");
 
       if (submitForGrading) {
-        navigate("/dashboard/submissions/new");
+        // US-1417: pass the new item id so the grading flow prefills title,
+        // brand, garment type/category, and description from the item the user
+        // just entered (new-submission reads ?item= and builds garmentDefaults
+        // from the linked inventory row) instead of re-asking for all of it.
+        navigate(`/dashboard/submissions/new?item=${item.id}`);
       } else {
         navigate(`/dashboard/inventory/${item.id}`);
       }

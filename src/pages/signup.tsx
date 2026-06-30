@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Rocket, Check } from "lucide-react";
 import * as Sentry from "@sentry/react";
-import { signUpWithEmail, signInWithGoogle, signInWithApple } from "@/lib/auth";
+import {
+  signUpWithEmail,
+  signInWithGoogle,
+  signInWithApple,
+  resendConfirmationEmail,
+} from "@/lib/auth";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { track } from "@/lib/analytics";
@@ -54,6 +59,12 @@ export function SignupPage() {
   // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
+  // US-1415: resend-confirmation on the "Check your email" screen. With email
+  // confirmation on, GoTrue issues no session on signup and blocks sign-in for
+  // unconfirmed accounts, so a user who never receives the email is otherwise
+  // stuck. Cooldown so a slow inbox doesn't let them hammer GoTrue's rate limit.
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -176,6 +187,35 @@ export function SignupPage() {
     }
   }
 
+  // US-1415: tick the resend cooldown down to 0.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
+
+  async function handleResend() {
+    if (resendBusy || resendCooldown > 0 || !email) return;
+    setResendBusy(true);
+    try {
+      await resendConfirmationEmail(email);
+      // Neutral, enumeration-safe copy: never reveals whether the address is
+      // registered/unverified.
+      toast.success("If that account needs confirming, we've sent a new link.");
+      setResendCooldown(45);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      if (msg.includes("rate") || msg.includes("429") || msg.includes("too many")) {
+        toast.error("Too many requests — please wait a moment and try again.");
+        setResendCooldown(45);
+      } else {
+        toast.error("We couldn't resend the email. Please try again shortly.");
+      }
+    } finally {
+      setResendBusy(false);
+    }
+  }
+
   if (isConfirmation) {
     return (
       <Card>
@@ -186,6 +226,24 @@ export function SignupPage() {
             link to verify your account.
           </CardDescription>
         </CardHeader>
+        <CardContent className="text-center">
+          <p className="text-sm text-muted-foreground">
+            Didn't get it? Check your spam folder, or resend the link.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-3"
+            disabled={resendBusy || resendCooldown > 0 || !email}
+            onClick={handleResend}
+          >
+            {resendBusy
+              ? "Sending…"
+              : resendCooldown > 0
+                ? `Resend in ${resendCooldown}s`
+                : "Resend confirmation email"}
+          </Button>
+        </CardContent>
         <CardFooter className="justify-center">
           <Link to="/login" className="text-sm text-brand-red-text hover:underline">
             Back to sign in

@@ -7883,8 +7883,8 @@
         "Keep neutral copy so it doesn't leak whether the address was newly registered."
       ],
       "priority": 2200,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · auth · auth audit] Evidence: src/pages/signup.tsx:179-195; src/lib/auth.ts:120-127; src/components/auth/verify-email-gate.tsx:19-35; protected-route.tsx:25-27."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · auth · auth audit] Evidence: src/pages/signup.tsx:179-195; src/lib/auth.ts:120-127; src/components/auth/verify-email-gate.tsx:19-35; protected-route.tsx:25-27. | DONE 2026-06-30: signup confirmation screen now has a Resend confirmation email button with 45s cooldown, neutral enumeration-safe success copy, and distinct rate-limit toast. tsc+eslint green."
     },
     {
       "id": "US-1416",
@@ -7909,8 +7909,8 @@
         "Regression test asserts the link includes the new item id."
       ],
       "priority": 2198,
-      "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/inventory-add.tsx:117-118; new-submission.tsx:182-184,272-282."
+      "passes": true,
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ux · ux audit] Evidence: src/pages/inventory-add.tsx:117-118; new-submission.tsx:182-184,272-282. | DONE 2026-06-30: inventory-add Save & Submit for Grading now navigates to /dashboard/submissions/new?item=<id> so the grading flow prefills title/brand/type/category/description from the just-entered item (new-submission reads ?item= -> garmentDefaults). tsc+eslint green."
     },
     {
       "id": "US-1418",
