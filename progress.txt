@@ -2,6 +2,29 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1411: close iOS accessibility (verify-only) — iOS App-Review batch DONE
+
+Backlog reconciliation, no code — shipped on main (78d1a5fa batch) but left
+passes:false. Verified all 5 ACs against main:
+- AC1: AutoListerView photo actions mirrored via .accessibilityActions (VoiceOver/
+  Switch Control can't open a .contextMenu).
+- AC2: fixed glyphs route through scaledIconFont (EbaySyncModal, MarketplacesView);
+  the EbayCategorySpecificsView provenance badge uses a scalable .caption2 style.
+- AC3: EbaySyncModal phase swaps add .accessibilityAddTraits(.isModal) + A11yAnnounce.
+- AC4: 44pt min tap targets / brand buttons in MarketplacesView, EbaySyncModal,
+  MoneyView.
+- AC5: RepricingRulesView rows are Buttons w/ labeled toggles; RuleEditorSheet
+  floor-price accessibilityLabel + currency symbol hidden; RepricingView chips
+  combine icon+count.
+
+This closes the iOS App-Review-criticals batch: US-1406/1407/1408/1409/1410/1411/1412
+all done. US-1405 remains DEFERRED (AC5 needs the real Apple Team ID + a StoreKit
+failure-testing scheme — external input + macOS tooling).
+
+NEXT: US-1445 (edge: stop leaking raw DB error.message) — 185 occurrences across
+~40 files. Being done in careful CI-validated chunks (can't type-check Deno
+locally), user-reachable files first.
+
 ## 2026-07-01 — US-1409 + US-1410: close iOS grading-review-state + cold-launch routing (verify-only)
 
 Backlog reconciliation, no code changes — both shipped on main (78d1a5fa batch)
