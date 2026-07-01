@@ -7755,7 +7755,7 @@
         "A unit test asserts EdgeAPIError.emailUnverified produces the verify-email copy through both FriendlyErrorCopy paths"
       ],
       "priority": 1406,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (auth/session sweep). CRITICAL — re-introduces the exact 2.1 reject on the SAVE path: emailUnverified is string-matched to .emailNotConfirmed which returns the bare fallback. AI/grade paths already surface it correctly via errorDescription; this makes it uniform. IMPLEMENTED 2026-06-30 (FriendlyErrorCopy typed .emailUnverified match + actionable actionMessage, EbayPublishService 403 body-discriminator decode, LoginView resend regardless of mode, deleteAccount AppleCredentialMonitor.clear, tests) — pending iOS CI. AppleCredentialMonitor .notFound retry-gate still open."
     },
     {
@@ -7770,7 +7770,7 @@
         "Re-entrancy guards (inFlight + guard/defer) added to CommunityInsightsStore.refresh:52, ProfileStore.refresh:51, PlanStore.load:59, ReferralsStore.load:54, RepricingRulesStore.load:33"
       ],
       "priority": 1407,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (network-hang sweep). The dominant reject pattern (spinner ~60s / no recovery). Root cause: prior fix patched `URLSession.shared` call-sites but missed the `session: URLSession = .shared` DEFAULT-ARG form in ~11 services. EbayCategorySpecificsView .failed has no retry = stranded. IMPLEMENTED 2026-06-30 (10 services off default URLSession=.shared → EdgeNetwork.shared/aiSession, EbayCategorySpecificsView retry + model.reload(), ReconcileIntakeStore guard, 5 store re-entrancy guards, CI lint no-default-shared-session.py) — pending iOS CI."
     },
     {

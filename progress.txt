@@ -2,6 +2,38 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1406 + US-1407: verify + close already-shipped iOS App-Review fixes
+
+Backlog reconciliation (no new code): both stories were implemented and
+CI-validated on main in a prior session's "App Review criticals" batch
+(78d1a5fa + follow-up eb2420fe) but their prd.json flags were never flipped.
+Verified each AC against the code on main before marking passes:true.
+
+US-1406 (email-unverified message on ALL surfaces):
+- FriendlyErrorCopy.swift: `.emailUnverified` Kind matches the typed
+  EdgeAPIError case directly (kind(): lines 92-94); authMessage + actionMessage
+  return the actionable confirm-email copy (not the generic dead-end);
+  isEmailNotConfirmed() returns true for it too.
+- EbayPublishService.authFailureMessage decodes email_unverified /
+  workspace_access_revoked from the 403 body instead of "session expired".
+- LoginView resend card driven off isEmailNotConfirmed regardless of
+  .signIn/.signUp mode (LoginView.swift:268-273).
+- FriendlyErrorCopyTests: 4 assertions covering both authMessage + actionMessage
+  paths for EdgeAPIError.emailUnverified.
+
+US-1407 (60s network-hang class):
+- Zero `URLSession = .shared` default-args remain in app sources; all 10 named
+  services (EbayAspects/Comps/Scout/Prospect/Repricing/EbayPublish/Grading/
+  ListingCopy/Negotiation/AnalyticsNarrative) take an injected session.
+- CI lint ios/Scripts/no-default-shared-session.py is wired into
+  .github/workflows/ios-ci.yml:48 so the class can't regress.
+- Re-entrancy guards present in CommunityInsightsStore/ProfileStore/PlanStore/
+  ReferralsStore/RepricingRulesStore; ReconcileIntakeStore guards on isSyncing.
+
+Remaining sibling iOS stories (US-1405 StoreKit, US-1408-1412) look similarly
+shipped-but-unmarked — will verify each with the same rigor over next iterations.
+Verify: iOS lane is the gate (macOS-only); these landed green on main already.
+
 ## 2026-07-01 — US-1433: welcome email on first session for ALL signup methods
 
 The welcome-email trigger lived only in the email-signup handler, so Google/Apple
