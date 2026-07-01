@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
-import { ingestShopifyOrder } from "../lib/shopify-orders.ts";
+import { ingestPaidOrdersSince } from "../lib/shopify-orders.ts";
 import {
   buildConsentUrl,
   exchangeCodeForToken,
@@ -11,7 +11,6 @@ import {
   getShopifyWebhookUrl,
   getShopInfo,
   isShopifyConfigured,
-  listPaidOrders,
   normalizeShopDomain,
   upsertShopifyConnection,
   verifyOAuthHmac,
@@ -323,29 +322,34 @@ flipdeskShopifyRoutes.post("/listings/pull", async (c) => {
   const sinceIso = lastSynced ??
     new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
 
-  try {
-    const orders = await listPaidOrders(conn.shop, conn.token, sinceIso);
-    // US-711: the per-order sale-capture logic lives in the shared
-    // ingestShopifyOrder so this pull and the live orders webhook can't drift.
-    for (const order of orders) {
-      const r = await ingestShopifyOrder(userId, order);
-      salesNew += r.salesNew;
-      payoutsNew += r.payoutsNew;
-      errors.push(...r.errors);
-    }
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
+  // US-711: the per-order sale-capture logic lives in the shared ingest so this
+  // pull and the live orders webhook can't drift. US-1427: `ingest.ok` is false
+  // only on a FATAL fetch/ingest failure — used below to gate the watermark.
+  const ingest = await ingestPaidOrdersSince(
+    userId,
+    conn.shop,
+    conn.token,
+    sinceIso,
+  );
+  salesNew += ingest.salesNew;
+  payoutsNew += ingest.payoutsNew;
+  errors.push(...ingest.errors);
+
+  // US-1427: stamp the sync time so the next pull only fetches new orders —
+  // but ONLY when the order fetch+ingest completed without a fatal error.
+  // Advancing last_synced_at past orders we never ingested (e.g. a transient
+  // Shopify outage) would permanently skip every paid order in this window on
+  // the next pull, so on failure we leave the prior watermark in place.
+  if (ingest.ok) {
+    await supabaseAdmin
+      .from("marketplace_connections")
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("marketplace", "shopify");
   }
 
-  // Stamp the sync time so the next pull only fetches new orders.
-  await supabaseAdmin
-    .from("marketplace_connections")
-    .update({ last_synced_at: new Date().toISOString() })
-    .eq("user_id", userId)
-    .eq("marketplace", "shopify");
-
   return c.json({
-    ok: true,
+    ok: ingest.ok,
     listings_synced: listingsSynced,
     ended,
     sales_new: salesNew,

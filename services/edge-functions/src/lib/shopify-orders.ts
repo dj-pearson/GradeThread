@@ -15,7 +15,11 @@
 // equals the resolved owner — never by an id taken from the order payload.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { estimateShopifyNet, type ShopifyOrder } from "./shopify-client.ts";
+import {
+  estimateShopifyNet,
+  listPaidOrders,
+  type ShopifyOrder,
+} from "./shopify-client.ts";
 import { autoEndCrossListings } from "./cross-listings.ts";
 
 export interface ShopifyOrderIngestResult {
@@ -38,6 +42,58 @@ function emptyResult(): ShopifyOrderIngestResult {
     statusUpdated: 0,
     errors: [],
   };
+}
+
+export interface PaidOrderSyncResult {
+  /**
+   * false ONLY on a FATAL fetch/ingest error (listPaidOrders threw, or an
+   * ingest call threw). The caller MUST NOT advance the sync watermark when
+   * this is false. Per-order failures are surfaced in `errors` but do not,
+   * by themselves, flip `ok` — those individual orders re-appear in the next
+   * window (the watermark hasn't moved past them yet).
+   */
+  ok: boolean;
+  salesNew: number;
+  payoutsNew: number;
+  errors: string[];
+}
+
+// US-1427: fetch + ingest the paid-order reconciliation window since `sinceIso`.
+// Extracted from the /listings/pull handler so the watermark-advance decision is
+// unit-testable and can't regress: `ok` is the gate the caller uses to decide
+// whether to stamp last_synced_at. If listPaidOrders throws (a transient Shopify
+// outage), advancing the watermark to now() would permanently skip every paid
+// order in this window on the next pull — so on a throw we return ok:false and
+// the caller leaves the prior watermark in place. Deps are injectable for tests.
+export async function ingestPaidOrdersSince(
+  userId: string,
+  shop: string,
+  token: string,
+  sinceIso: string | null,
+  deps: {
+    listPaidOrders: typeof listPaidOrders;
+    ingestShopifyOrder: (
+      userId: string,
+      order: ShopifyOrder,
+    ) => Promise<ShopifyOrderIngestResult>;
+  } = { listPaidOrders, ingestShopifyOrder },
+): Promise<PaidOrderSyncResult> {
+  const errors: string[] = [];
+  let salesNew = 0;
+  let payoutsNew = 0;
+  try {
+    const orders = await deps.listPaidOrders(shop, token, sinceIso);
+    for (const order of orders) {
+      const r = await deps.ingestShopifyOrder(userId, order);
+      salesNew += r.salesNew;
+      payoutsNew += r.payoutsNew;
+      errors.push(...r.errors);
+    }
+    return { ok: true, salesNew, payoutsNew, errors };
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+    return { ok: false, salesNew, payoutsNew, errors };
+  }
 }
 
 interface MatchedListing {

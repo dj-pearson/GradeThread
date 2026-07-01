@@ -1,4 +1,6 @@
+import { useCallback, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
+import { toast } from "sonner";
 import {
   Bold,
   Italic,
@@ -28,7 +30,31 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { RegenMode } from "@/hooks/use-content-ai-stream";
+
+// US-1486: a promise-based text prompt built on the branded, focus-managed Radix
+// <Dialog>, replacing native window.prompt (which looks unbranded and blocks the
+// thread). `await askText({...})` resolves to the entered string, or null when
+// the user cancels (Cancel button / Escape / overlay) — mirroring window.prompt's
+// null-on-cancel contract so the call sites branch the same way.
+interface TextPromptOptions {
+  title: string;
+  description?: string;
+  label: string;
+  placeholder?: string;
+  defaultValue?: string;
+  submitLabel?: string;
+}
 
 interface TiptapToolbarProps {
   editor: Editor | null;
@@ -45,10 +71,40 @@ interface TiptapToolbarProps {
 // Compact formatting toolbar used above the Tiptap editor. The AI submenu
 // (US-252) appears only when an `ai` handler is wired in.
 export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps) {
+  const [promptOptions, setPromptOptions] = useState<TextPromptOptions | null>(
+    null,
+  );
+  const [promptValue, setPromptValue] = useState("");
+  // Holds the in-flight askText() resolver so submit/cancel/dismiss settle it.
+  const resolverRef = useRef<((value: string | null) => void) | null>(null);
+
+  const settlePrompt = useCallback((value: string | null) => {
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
+    setPromptOptions(null);
+    resolve?.(value);
+  }, []);
+
+  const askText = useCallback(
+    (options: TextPromptOptions): Promise<string | null> => {
+      setPromptOptions(options);
+      setPromptValue(options.defaultValue ?? "");
+      return new Promise<string | null>((resolve) => {
+        resolverRef.current = resolve;
+      });
+    },
+    [],
+  );
+
   if (!editor) return null;
 
-  const rewriteForKeyword = () => {
-    const keyword = window.prompt("Target keyword for this passage:");
+  const rewriteForKeyword = async () => {
+    const keyword = await askText({
+      title: "Rewrite for keyword",
+      description: "The selected passage will be rewritten to target this keyword.",
+      label: "Target keyword",
+      placeholder: "e.g. vintage denim jacket",
+    });
     if (!keyword?.trim()) return;
     ai?.regenerate("rewrite-for-keyword", keyword.trim());
   };
@@ -58,9 +114,16 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
       ? "h-8 w-8 bg-accent text-accent-foreground"
       : "h-8 w-8";
 
-  const addLink = () => {
+  const addLink = async () => {
     const previousUrl = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("URL", previousUrl ?? "https://");
+    const url = await askText({
+      title: "Add link",
+      description: "Enter a URL, or leave it empty to remove the link.",
+      label: "URL",
+      placeholder: "https://example.com",
+      defaultValue: previousUrl ?? "https://",
+      submitLabel: "Apply",
+    });
     if (url === null) return;
     if (url === "") {
       editor.chain().focus().extendMarkRange("link").unsetLink().run();
@@ -73,8 +136,17 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
   // description for image SEO + screen readers. The publish-time SSR render
   // (rewriteContentImages) backfills a sensible fallback if this is left blank,
   // but capturing it here is the authored, descriptive source of truth.
-  const promptAlt = () =>
-    window.prompt("Describe this image (alt text for SEO & screen readers)")?.trim() || "";
+  const promptAlt = async () =>
+    (
+      await askText({
+        title: "Image description",
+        description:
+          "Describe the image for SEO and screen readers. Optional — a fallback is generated if left blank.",
+        label: "Alt text",
+        placeholder: "e.g. Folded navy wool sweater on a white background",
+        submitLabel: "Insert image",
+      })
+    )?.trim() || "";
 
   const addImage = async () => {
     if (onImageUpload) {
@@ -86,19 +158,25 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         if (!file) return;
         try {
           const url = await onImageUpload(file);
-          const alt = promptAlt();
+          const alt = await promptAlt();
           editor.chain().focus().setImage({ src: url, alt }).run();
         } catch (e) {
-          window.alert(
+          toast.error(
             `Image upload failed: ${e instanceof Error ? e.message : String(e)}`,
           );
         }
       };
       input.click();
     } else {
-      const url = window.prompt("Image URL");
+      const url = await askText({
+        title: "Insert image by URL",
+        description: "Paste the image URL to insert.",
+        label: "Image URL",
+        placeholder: "https://example.com/image.jpg",
+        submitLabel: "Next",
+      });
       if (!url) return;
-      const alt = promptAlt();
+      const alt = await promptAlt();
       editor.chain().focus().setImage({ src: url, alt }).run();
     }
   };
@@ -112,6 +190,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
   };
 
   return (
+    <>
     <div className="flex flex-wrap items-center gap-1 rounded-md border border-input bg-muted/40 p-1">
       <Button
         type="button"
@@ -323,5 +402,49 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         </>
       )}
     </div>
+    <Dialog
+      open={promptOptions !== null}
+      onOpenChange={(next) => {
+        // Closing via Escape / overlay / Cancel resolves as a cancel (null).
+        if (!next) settlePrompt(null);
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            settlePrompt(promptValue);
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{promptOptions?.title}</DialogTitle>
+            {promptOptions?.description ? (
+              <DialogDescription>{promptOptions.description}</DialogDescription>
+            ) : null}
+          </DialogHeader>
+          <div className="grid gap-2 py-4">
+            <Label htmlFor="tiptap-text-prompt">{promptOptions?.label}</Label>
+            <Input
+              id="tiptap-text-prompt"
+              autoFocus
+              value={promptValue}
+              placeholder={promptOptions?.placeholder}
+              onChange={(e) => setPromptValue(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => settlePrompt(null)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit">{promptOptions?.submitLabel ?? "OK"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

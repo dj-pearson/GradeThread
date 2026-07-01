@@ -1,6 +1,50 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-30
+# Last updated: 2026-07-01
+
+## 2026-07-01 — Production hotfix: drop `temperature` for Sonnet 5 (deprecated → 400)
+
+- Prod /api/flipdesk/ai/extract was 502ing with `[flipdesk-ai] extraction failed:
+  400 ... temperature is deprecated for this model`. The default AI model moved to
+  Sonnet 5, which (like Opus 4.6+/Fable) REMOVED the sampling params and rejects
+  `temperature`/`top_p`/`top_k` with a 400, steering depth via output_config.effort.
+- ai-config.ts: added claude-sonnet-5 (and claude-opus-4-6) to modelUsesEffort() so
+  grading/effort-aware call sites route Sonnet 5 to output_config.effort; made
+  getAiTemperature() always return undefined (every non-grading call site's
+  conditional temperature spread becomes a no-op; legacy AI_TEMPERATURE ignored).
+- content-safety.ts: replaced hardcoded `temperature: 0` with model-aware sampling.
+- ai-authenticity.ts: use gradingSamplingParams(model) instead of an unconditional
+  getGradingTemperature(). Verified no top_p/top_k were ever sent in the edge svc.
+- Shipped in PR #169 (merged) alongside batch 23.
+
+## 2026-07-01 — Pre-launch audit batch 24 (US-1427, US-1486) — Shopify sync watermark guard + branded editor prompts
+
+- US-1427 Stop advancing the Shopify sync watermark when order fetch/ingest fails —
+  NOW COMPLETE (passes:true). flipdesk-shopify.ts /listings/pull stamped
+  last_synced_at=now() UNCONDITIONALLY even when listPaidOrders/ingest threw, so a
+  transient Shopify outage advanced the cursor past never-ingested orders —
+  permanently skipping every paid order in that window on the next pull (data loss).
+  Extracted the fetch+ingest into a dependency-injected helper
+  ingestPaidOrdersSince() (shopify-orders.ts) that returns `ok:false` ONLY on a fatal
+  fetch/ingest error (AC1). The handler now stamps the watermark ONLY when ingest.ok,
+  leaves the prior watermark + returns ok:false on failure (AC2). Added two
+  deno tests (shopify-orders_test.ts): a throwing listPaidOrders => ok:false and
+  ingest never called; a clean fetch => ok:true with summed totals (AC3).
+
+- US-1486 Replace window.alert/window.prompt in the rich-text editor with toast/
+  dialog UX — NOW COMPLETE (passes:true). tiptap-toolbar.tsx used window.alert for
+  the image-upload-failure path and window.prompt for image URL, link URL, alt text,
+  and the rewrite-keyword. Replaced the alert with toast.error (AC1) and ALL four
+  prompts with a promise-based, branded, focus-managed Radix <Dialog> (askText(),
+  mirroring window.prompt's null-on-cancel contract) — a single controlled input
+  (AC2). AC3: grepped src — the only remaining native alert/prompt are test XSS
+  fixtures, no production path. Hooks moved above the `if (!editor) return null`
+  early-return to satisfy the rules of hooks.
+
+VERIFICATION (this container): frontend gate fully green — tsc -b clean, eslint 0
+errors, vitest 1015 pass, npm run build (incl. prerender, 45 routes) succeeded. The
+edge changes (temperature hotfix + Shopify watermark guard + its deno tests) are
+validated by the CI edge lane (deno can't run in this environment). Open backlog 111.
 
 ## 2026-06-30 — Pre-launch audit batch 23 (US-1464, US-1456) — cert OG score format + Sheets sync lock TTL
 
