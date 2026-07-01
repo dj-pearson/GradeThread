@@ -57,7 +57,6 @@ import {
 import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
 import { edgeApiUrl } from "@/lib/edge-api";
-import { Button } from "@/components/ui/button";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import type {
   PublicGradeReportRow,
@@ -128,15 +127,20 @@ function IntegrityPanel({
   }
 
   if (state.phase === "error") {
+    // US-1465: a transient network/transport failure is NOT a trust signal — keep
+    // it quiet and unobtrusive (a small inline line + subtle retry link) rather
+    // than a prominent bordered panel that alarms buyers about a valid grade.
     return (
-      <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground sm:flex-row sm:justify-between sm:text-left">
-        <span className="flex items-center gap-2">
-          <Shield className="h-4 w-4" />
-          Integrity check couldn’t reach the verification service.
-        </span>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Try again
-        </Button>
+      <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-center text-xs text-muted-foreground">
+        <Shield className="h-3.5 w-3.5 opacity-60" />
+        <span>Couldn’t reach the integrity checker.</span>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="font-medium underline underline-offset-2 hover:text-foreground"
+        >
+          Retry
+        </button>
       </div>
     );
   }

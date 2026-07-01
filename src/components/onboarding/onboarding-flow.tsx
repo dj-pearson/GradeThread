@@ -105,6 +105,13 @@ export function OnboardingFlow() {
   const firstRun = !!profile && !profile.onboarded_at && !dismissed;
   const shouldShow = reopened || firstRun;
 
+  // US-1463: the use case is often already captured on the signup form (stamped
+  // via handle_new_user), so on first-run we skip the redundant use-case step
+  // (step 1) and go straight to the tour. The Settings replay path (reopened)
+  // still shows it so the choice remains editable there. finish() records
+  // onboarded_at either way, so the first-run gate still clears.
+  const skipUseCase = !reopened && !!profile?.use_case;
+
   // When reopened from Settings, restart at the welcome step and reflect the
   // saved use case.
   useEffect(() => {
@@ -311,7 +318,10 @@ export function OnboardingFlow() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setStep((s) => s - 1)}
+                // US-1463: hop over the skipped use-case step on the way back too.
+                onClick={() =>
+                  setStep((s) => (s === 2 && skipUseCase ? 0 : s - 1))
+                }
                 disabled={saving}
               >
                 Back
@@ -320,7 +330,11 @@ export function OnboardingFlow() {
             {step < LAST_STEP ? (
               <Button
                 size="sm"
-                onClick={() => setStep((s) => s + 1)}
+                // US-1463: from welcome, skip the use-case step when it's already
+                // been captured (first-run only).
+                onClick={() =>
+                  setStep((s) => (s === 0 && skipUseCase ? 2 : s + 1))
+                }
                 disabled={step === 1 && !useCase}
               >
                 {step === 1 && !useCase ? "Pick one to continue" : "Next"}
