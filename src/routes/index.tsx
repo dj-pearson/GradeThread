@@ -53,6 +53,7 @@ const LandingPage = lazy(() => import("@/pages/landing").then(m => ({ default: m
 const LoginPage = lazy(() => import("@/pages/login").then(m => ({ default: m.LoginPage })));
 const SignupPage = lazy(() => import("@/pages/signup").then(m => ({ default: m.SignupPage })));
 const AuthCallbackPage = lazy(() => import("@/pages/auth-callback").then(m => ({ default: m.AuthCallbackPage })));
+const AuthConfirmPage = lazy(() => import("@/pages/auth-confirm").then(m => ({ default: m.AuthConfirmPage })));
 const ResetPasswordPage = lazy(() => import("@/pages/reset-password").then(m => ({ default: m.ResetPasswordPage })));
 const DashboardPage = lazy(() => import("@/pages/dashboard").then(m => ({ default: m.DashboardPage })));
 const SupportTicketsPage = lazy(() => import("@/pages/support-tickets").then(m => ({ default: m.SupportTicketsPage })));
@@ -388,6 +389,11 @@ export const router = createBrowserRouter([
 
       // Auth callback (public, handles redirect)
       { path: "/auth/callback", element: <SuspenseWrapper><AuthCallbackPage /></SuspenseWrapper> },
+
+      // Email confirmation via OTP / token_hash (public — the account has no
+      // session until it verifies here). Reached from the branded auth email's
+      // link or by typing the 6-digit code.
+      { path: "/auth/confirm", element: <SuspenseWrapper><AuthConfirmPage /></SuspenseWrapper> },
 
       // Workspace invitation acceptance — works for both signed-in and
       // signed-out users. The page redirects to /signup or /login as

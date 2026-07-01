@@ -235,6 +235,36 @@ official self-hosting auth reference before applying.
 MFA enforcement for admin/super_admin accounts is tracked separately in
 **US-270** (`GOTRUE_MFA_*` + server-side AAL2 checks).
 
+### Branded auth emails — GoTrue "Send Email" hook
+
+By default GoTrue sends the signup-confirmation / password-reset / magic-link /
+email-change emails itself over `GOTRUE_SMTP_*`, using its **built-in default
+templates**. To send them **branded** (GradeThread logo, matching the grade
+emails) and over the same transactional pipeline — and to carry a **6-digit OTP
++ a confirm link that lands on the frontend, never `api.gradethread.com`** —
+enable the Send Email hook so GoTrue POSTs to the edge instead:
+
+| Setting | Env var (self-hosted `auth` container) | Value |
+|---|---|---|
+| Enable send-email hook | `GOTRUE_HOOK_SEND_EMAIL_ENABLED` | `true` |
+| Hook endpoint | `GOTRUE_HOOK_SEND_EMAIL_URI` | `https://functions.gradethread.com/api/auth/hooks/send-email` |
+| Hook signing secret(s) | `GOTRUE_HOOK_SEND_EMAIL_SECRETS` | `v1,whsec_<base64>` (pipe-separate two during rotation) |
+
+Then set the SAME secret as `AUTH_EMAIL_HOOK_SECRET` on the **edge** container
+(the route rejects with 500 if it's unset). Generate one with
+`openssl rand -base64 32` and wrap it as `v1,whsec_<that>`.
+
+- When the hook is ON, GoTrue **stops** using its own SMTP for these emails —
+  they flow entirely through `services/edge-functions` → SES. **Delivery still
+  depends on SES being out of sandbox + `SMTP_*`/SES API configured** (the same
+  setup the grade emails use); the hook changes the *rendering + routing*, not
+  whether SES can deliver.
+- The hook is verified with the Standard Webhooks signature; the route is public
+  (no JWT) but signature-authed (`services/edge-functions/src/routes/auth-hooks.ts`).
+- Keep `email_sent` rate limits sane — repeated signup/resend testing can exhaust
+  `GOTRUE_RATE_LIMIT_EMAIL_SENT` (mirrored as `[auth.rate_limit] email_sent` in
+  `config.toml`) and silently stop sending.
+
 **Checklist after applying:** sign-up requires confirmation · a known-breached
 password is rejected · old refresh token is rejected after rotation · an OAuth
 redirect to an unlisted URL is refused · **captcha is enforced** —

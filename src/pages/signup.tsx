@@ -229,13 +229,18 @@ export function SignupPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Check your email</CardTitle>
           <CardDescription>
-            We sent a confirmation link to <strong>{email}</strong>. Click the
-            link to verify your account.
+            We sent a confirmation email to <strong>{email}</strong>. Click the
+            link, or enter the 6-digit code, to verify your account.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-center">
-          <p className="text-sm text-muted-foreground">
-            Didn't get it? Check your spam folder, or resend the link.
+          <Button asChild className="w-full">
+            <Link to={`/auth/confirm?email=${encodeURIComponent(email)}`}>
+              Enter confirmation code
+            </Link>
+          </Button>
+          <p className="mt-4 text-sm text-muted-foreground">
+            Didn't get it? Check your spam folder, or resend it.
           </p>
           <Button
             type="button"

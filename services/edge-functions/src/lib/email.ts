@@ -896,6 +896,154 @@ export async function sendNewsletterConfirmationEmail(
   });
 }
 
+// ─── Auth action emails (send-email hook) ───────────────────────────
+
+// The GoTrue "Send Email" auth hook (GOTRUE_HOOK_SEND_EMAIL_*) delegates EVERY
+// auth email to us instead of GoTrue's own SMTP, so signup-confirm, password
+// reset, magic-link, and email-change all render through the branded
+// emailLayout above and ship over the SAME transactional pipeline as the grade
+// emails. Each email carries BOTH a one-click confirm link that lands on OUR
+// frontend (never api.gradethread.com) AND the 6-digit OTP so the user can
+// finish verification by typing the code if the link ever dead-ends.
+export type AuthEmailActionType =
+  | "signup"
+  | "magiclink"
+  | "recovery"
+  | "invite"
+  | "email_change"
+  | "reauthentication";
+
+interface AuthActionEmailData {
+  actionType: AuthEmailActionType;
+  /** The 6-digit OTP the recipient can type on the confirm screen. */
+  otp: string;
+  /** Link to our own frontend carrying token_hash; null = code-only email. */
+  confirmUrl: string | null;
+  /** OTP TTL in minutes (GoTrue otp_expiry / 60), for the "expires in N min" line. */
+  expiresInMinutes?: number;
+}
+
+const AUTH_EMAIL_COPY: Record<
+  AuthEmailActionType,
+  { subject: string; heading: string; intro: string; cta: string }
+> = {
+  signup: {
+    subject: "Confirm your GradeThread email",
+    heading: "Confirm your email",
+    intro:
+      "Thanks for signing up for GradeThread. Confirm your email address to activate your account and start grading clothing with AI precision.",
+    cta: "Confirm email address",
+  },
+  magiclink: {
+    subject: "Your GradeThread sign-in link",
+    heading: "Sign in to GradeThread",
+    intro:
+      "Use the button below to sign in to GradeThread. This link can be used once and expires shortly.",
+    cta: "Sign in to GradeThread",
+  },
+  recovery: {
+    subject: "Reset your GradeThread password",
+    heading: "Reset your password",
+    intro:
+      "We received a request to reset your GradeThread password. Use the button below to choose a new one. If you didn't ask for this, you can safely ignore this email.",
+    cta: "Reset password",
+  },
+  invite: {
+    subject: "You're invited to GradeThread",
+    heading: "You're invited to GradeThread",
+    intro:
+      "You've been invited to GradeThread. Confirm your email address to set up your account.",
+    cta: "Accept invite",
+  },
+  email_change: {
+    subject: "Confirm your new GradeThread email",
+    heading: "Confirm your new email",
+    intro:
+      "Confirm this email address to finish updating the email on your GradeThread account.",
+    cta: "Confirm email change",
+  },
+  reauthentication: {
+    subject: "Confirm it's you — GradeThread",
+    heading: "Confirm it's you",
+    intro:
+      "Enter this code to confirm a sensitive change on your GradeThread account.",
+    cta: "",
+  },
+};
+
+// Render the big, copy-pasteable OTP block.
+function otpCodeBlock(otp: string): string {
+  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 8px 0 4px;">
+    <tr>
+      <td style="background-color: ${BRAND_GRAY}; border: 1px solid #e5e5e5; border-radius: 12px; padding: 20px; text-align: center;">
+        <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 34px; font-weight: 700; letter-spacing: 8px; color: ${BRAND_NAVY};">
+          ${escapeHtml(otp)}
+        </div>
+      </td>
+    </tr>
+  </table>`;
+}
+
+/**
+ * Branded auth email for the GoTrue send-email hook. Best-effort live send with
+ * durable retry on transient failure (category) — the OTP/link stay valid for
+ * GoTrue's otp_expiry window, so a retry a minute later still delivers a usable
+ * code. Never uses the marketing identity (auth_* are transactional categories).
+ */
+export async function sendAuthActionEmail(
+  to: string,
+  data: AuthActionEmailData,
+): Promise<boolean> {
+  const copy = AUTH_EMAIL_COPY[data.actionType];
+  const ttl = data.expiresInMinutes && data.expiresInMinutes > 0
+    ? data.expiresInMinutes
+    : 60;
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${copy.heading}
+    </h2>
+    <p style="margin: 0 0 20px; color: #666; font-size: 15px; line-height: 1.5;">
+      ${copy.intro}
+    </p>
+
+    ${data.confirmUrl && copy.cta ? ctaButton(copy.cta, data.confirmUrl) : ""}
+
+    <p style="margin: 24px 0 0; color: #666; font-size: 14px; line-height: 1.5; text-align: center;">
+      ${
+    data.confirmUrl
+      ? "Or enter this verification code on the confirmation screen:"
+      : "Enter this verification code to continue:"
+  }
+    </p>
+    ${otpCodeBlock(data.otp)}
+    <p style="margin: 4px 0 0; color: #999; font-size: 13px; text-align: center;">
+      This code expires in ${ttl} minutes.
+    </p>
+
+    ${
+    data.confirmUrl
+      ? `<p style="margin: 20px 0 0; color: #999; font-size: 13px; line-height: 1.5;">
+      If the button doesn't work, copy and paste this link into your browser:<br>
+      <a href="${data.confirmUrl}" style="color: ${BRAND_NAVY}; word-break: break-all;">${escapeHtml(data.confirmUrl)}</a>
+    </p>`
+      : ""
+  }
+    <p style="margin: 16px 0 0; color: #999; font-size: 13px; line-height: 1.5;">
+      If you didn't request this, you can safely ignore this email.
+    </p>
+  `;
+
+  return await sendEmail({
+    to,
+    subject: copy.subject,
+    html: emailLayout(content),
+    // Transactional (see email-transport TRANSACTIONAL_CATEGORIES). Durable
+    // retry on transient SMTP failure — the code stays valid for its TTL.
+    category: `auth_${data.actionType}`,
+  });
+}
+
 // ─── Waitlist invite (US-585) ───────────────────────────────────────
 
 /**

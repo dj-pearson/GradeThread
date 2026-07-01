@@ -68,6 +68,14 @@ export const TRANSACTIONAL_CATEGORIES: ReadonlySet<string> = new Set([
   "feedback",
   "account_deleted",
   "admin_message",
+  // Auth emails via the GoTrue send-email hook — always transactional, never
+  // the marketing identity (signup-confirm, reset, magic-link, email-change).
+  "auth_signup",
+  "auth_magiclink",
+  "auth_recovery",
+  "auth_invite",
+  "auth_email_change",
+  "auth_reauthentication",
 ]);
 
 export function isTransactionalCategory(category?: string | null): boolean {

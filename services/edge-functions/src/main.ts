@@ -5,6 +5,7 @@ import { accessLogger } from "./middleware/access-log.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
+import { authHookRoutes } from "./routes/auth-hooks.ts";
 import { emailSnsRoutes } from "./routes/email-sns.ts";
 import { emailEngagementRoutes } from "./routes/email-engagement.ts";
 import { paymentRoutes } from "./routes/payments.ts";
@@ -764,6 +765,11 @@ app.use("/api/admin/ads/generate", featureGate("content_ai"));
 // (never unlimited), and a header-stripped flood is bucketed, not waved through.
 app.use("/api/webhooks/*", rateLimiter(600, 60_000, "webhook-stripe", undefined, { failClosed: true }));
 app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay", undefined, { failClosed: true }));
+// GoTrue send-email auth hook — signature-authed, called server-to-server per
+// auth email. GoTrue already caps email volume upstream (GOTRUE_RATE_LIMIT_EMAIL_SENT),
+// so a generous ceiling here is just an anti-flood backstop; fail-open so a
+// counter-store blip never blocks a legit confirmation email.
+app.use("/api/auth/hooks/*", rateLimiter(600, 60_000, "auth-hook", undefined, { failClosed: false }));
 
 // Public API v1 — API key auth, then per-key, plan-tiered, fail-closed rate
 // limits (US-800). Reads (GET) and the expensive writes (POST submit / PATCH
@@ -821,6 +827,8 @@ app.route("/api/payments", paymentRoutes);
 app.route("/api/payments/appstore", appstoreVerifyRoutes);
 app.route("/api/payments/google", googlePlayVerifyRoutes);
 app.route("/api/webhooks", webhookRoutes);
+// GoTrue send-email auth hook (signature-authed; not behind authMiddleware).
+app.route("/api/auth/hooks", authHookRoutes);
 // US-914: SES bounce/complaint feedback via SNS (public, signature-verified).
 app.route("/api/email", emailSnsRoutes);
 // US-913: signed open pixel + click redirect (public, token-verified). Shares the

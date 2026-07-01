@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { resetPassword, updatePassword } from "@/lib/auth";
+import { resetPassword, updatePassword, verifyEmailTokenHash } from "@/lib/auth";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { supabase } from "@/lib/supabase";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
@@ -20,7 +20,11 @@ const RECOVERY_SESSION_TIMEOUT_MS = 10_000;
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
-  const hasToken = searchParams.has("token") || searchParams.has("code");
+  // `token_hash` is the branded-email recovery link (verified via verifyOtp on
+  // our own frontend); `token`/`code` is the legacy GoTrue redirect flow.
+  const hasToken = searchParams.has("token") ||
+    searchParams.has("code") ||
+    searchParams.has("token_hash");
 
   if (hasToken) {
     return <UpdatePasswordForm />;
@@ -132,6 +136,7 @@ function RequestResetForm() {
 
 function UpdatePasswordForm() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -154,6 +159,25 @@ function UpdatePasswordForm() {
     }
 
     let active = true;
+
+    // Branded recovery email: the link carries ?token_hash=…&type=recovery and
+    // lands on our own frontend (never the Supabase host). The SDK does NOT
+    // auto-detect token_hash, so verify it explicitly to establish the recovery
+    // session, then show the form.
+    const tokenHash = searchParams.get("token_hash");
+    if (tokenHash) {
+      void verifyEmailTokenHash(tokenHash, searchParams.get("type") ?? "recovery")
+        .then(() => {
+          if (active) setPhase("ready");
+        })
+        .catch(() => {
+          if (active) setPhase("expired");
+        });
+      return () => {
+        active = false;
+      };
+    }
+
     void supabase.auth.getSession().then(({ data }) => {
       if (active && data.session) setPhase("ready");
     });
@@ -173,7 +197,7 @@ function UpdatePasswordForm() {
       sub.subscription.unsubscribe();
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

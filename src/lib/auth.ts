@@ -126,6 +126,61 @@ export async function updatePassword(newPassword: string) {
   return data;
 }
 
+// The auth-email actions our branded confirm flow understands. These mirror the
+// GoTrue `email_action_type` values the send-email hook maps to (auth-hooks.ts)
+// and are the `type` carried on the confirm link + typed by verifyOtp.
+export type ConfirmEmailType =
+  | "signup"
+  | "magiclink"
+  | "recovery"
+  | "invite"
+  | "email_change";
+
+// Normalize a `type` query param off the confirm link to a verifyOtp EmailOtpType,
+// defaulting to "email" (GoTrue accepts it for a signup token_hash).
+function toEmailOtpType(type: string | null): ConfirmEmailType | "email" {
+  switch (type) {
+    case "signup":
+    case "magiclink":
+    case "recovery":
+    case "invite":
+    case "email_change":
+      return type;
+    default:
+      return "email";
+  }
+}
+
+// Verify a hashed token from a confirm LINK (the user clicked through). Lands on
+// our own frontend, so this never depends on the link resolving on the Supabase
+// host. On success a session is established (SIGNED_IN fires).
+export async function verifyEmailTokenHash(tokenHash: string, type: string | null) {
+  const { data, error } = await supabase.auth.verifyOtp({
+    token_hash: tokenHash,
+    type: toEmailOtpType(type),
+  });
+  if (error) throw error;
+  return data;
+}
+
+// Verify a 6-digit OTP the user TYPED (the link fallback). Needs the email the
+// code was issued to.
+export async function verifyEmailCode(
+  email: string,
+  token: string,
+  type: string | null,
+) {
+  const mapped = toEmailOtpType(type);
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    // verifyOtp with (email, token) doesn't accept "email"; default to "signup".
+    type: mapped === "email" ? "signup" : mapped,
+  });
+  if (error) throw error;
+  return data;
+}
+
 // US-366: re-send the signup confirmation email for an unverified account.
 export async function resendConfirmationEmail(email: string) {
   const { error } = await supabase.auth.resend({
