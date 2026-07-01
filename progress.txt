@@ -2,6 +2,42 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1473 (eBay account-health) + US-1399 DEFERRED (SEO edge-SSR)
+
+US-1473 — surface eBay seller-performance / account health:
+- ebay-client.ts: getSellerStandardsProfile(userId, CURRENT|PROJECTED) +
+  getCustomerServiceMetric(userId, type, cycle). Both use the SAME
+  sell.analytics.readonly grant as getTrafficReport (no new OAuth scope), reuse
+  fetchAuthed (which already sends X-EBAY-C-MARKETPLACE-ID) + isAnalyticsAccessDenied.
+  Program is marketplace-derived (PROGRAM_US/UK/DE/GLOBAL). CS-metric response is
+  parsed defensively (SELLER basis only) so a shape mismatch degrades to "—".
+- flipdesk-ebay.ts: GET /api/flipdesk/ebay/analytics/account-health — tenant-scoped
+  (ownerId = workspaceOwnerId ?? userId), returns { access, standards:{current,
+  projected}, customer_service[], projected_below_standard }; a no-Analytics 403
+  returns { access:false } (reconnect affordance) rather than an error.
+- use-ebay.ts: useEbayAccountHealth (gated on connection).
+- New EbayAccountHealthCard (rendered atop the Analytics page): current +
+  projected Seller Standing badges (Top Rated/Above/Below), an alert when the
+  PROJECTED standing is Below Standard (fee surcharges + search demotion), and the
+  two customer-service defect rates. Self-gates on an active eBay connection.
+- Verify: tsc -b, eslint, vitest 1028, build 45 ✓ (frontend). Edge (client methods +
+  route) validated by the CI Deno lane; live eBay response shapes modeled from the
+  Sell Analytics docs (read-only, degrades gracefully — no live-API test on this host).
+
+US-1399 (SEO AI-crawler SSR hardening) — DEFERRED (stays passes:false):
+- Audit done. /grading-standard, /condition-grading, /resale-value-by-condition,
+  and /condition-index (already a Pages Function) are SSR-safe. The gaps are
+  /transparency + /resale-condition-report, which fetch their headline numbers
+  client-side (useQuery → aggregate edge endpoint), so no-JS crawlers see "…".
+- Correct fix = edge-SSR the live aggregate facts (the functions/condition-index
+  Pages Function pattern): a Pages Function per route that fetches the aggregate
+  endpoint server-side and injects the numbers into the SPA-shell body marker
+  (createRoot mounts over, so no hydration mismatch). BLOCKER: AC3 requires
+  "verify via curl/no-JS fetch of the key routes" — that needs a Cloudflare Pages
+  deploy/preview I can't run or verify on this host, and shipping blind SSR/routing
+  changes to live public marketing pages is too risky for the autonomous loop.
+  Needs a wrangler/preview deploy (or human curl check) to land safely.
+
 ## 2026-07-01 — US-1445: stop leaking raw DB error.message to clients (edge, 9 chunks)
 
 ~90+ edge handlers returned `c.json({ error: error.message }, status)` — raw

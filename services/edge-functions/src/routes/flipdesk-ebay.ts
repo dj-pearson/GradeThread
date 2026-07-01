@@ -29,7 +29,9 @@ import {
   getCategoryAspects,
   getCategoryName,
   getItemConditionPolicies,
+  getCustomerServiceMetric,
   getMarketplaceId,
+  getSellerStandardsProfile,
   getTrafficReport,
   getUserAccessToken,
   isAnalyticsAccessDenied,
@@ -761,6 +763,44 @@ async function loadMerchantLocationKey(userId: string): Promise<string | null> {
   return (data as { merchant_location_key: string | null } | null)
     ?.merchant_location_key ?? null;
 }
+
+// US-1473: account-level eBay health — Seller Standards (current + projected)
+// + the customer-service defect metrics. Read-only; a seller who hasn't granted
+// Sell Analytics (or whose account lacks it) gets a graceful { access: false }
+// rather than an error, mirroring the traffic-sync's analytics-access handling.
+flipdeskEbayRoutes.get("/analytics/account-health", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const [current, projected, inad, inr] = await Promise.all([
+      getSellerStandardsProfile(ownerId, "CURRENT"),
+      getSellerStandardsProfile(ownerId, "PROJECTED"),
+      getCustomerServiceMetric(ownerId, "ITEM_NOT_AS_DESCRIBED", "CURRENT"),
+      getCustomerServiceMetric(ownerId, "ITEM_NOT_RECEIVED", "CURRENT"),
+    ]);
+    // US-1473: surface the actionable alert the AC asks for — a projected drop
+    // to Below Standard means fee surcharges + search demotion.
+    const projectedBelowStandard =
+      projected.standardsLevel === "BELOW_STANDARD";
+    return c.json({
+      access: true,
+      standards: { current, projected },
+      customer_service: [inad, inr],
+      projected_below_standard: projectedBelowStandard,
+    });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) {
+      // Not an error: the seller simply hasn't granted Sell Analytics. The UI
+      // shows a "reconnect to see account health" affordance.
+      return c.json({ access: false });
+    }
+    console.error("[flipdesk-ebay] /analytics/account-health failed:", err);
+    return c.json({ error: "Could not load eBay account health." }, 502);
+  }
+});
 
 flipdeskEbayRoutes.get("/policies", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");

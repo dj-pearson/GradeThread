@@ -8615,7 +8615,7 @@
         "Show an account-health card; alert when projected status drops to Below Standard."
       ],
       "priority": 1987,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-client.ts:487 (traffic only); https://developer.ebay.com/api-docs/sell/analytics/resources/seller_standards_profile/methods/getSellerStandardsProfile"
     },
     {

@@ -50,6 +50,7 @@ import {
   fetchGradingRoiSummary,
 } from "@/lib/flipdesk-analytics-server";
 import { ShareOutcomesToggle } from "@/components/flipdesk/share-outcomes-toggle";
+import { EbayAccountHealthCard } from "@/components/flipdesk/ebay-account-health-card";
 import {
   fetchReturnReduction,
   gradedReturnAdvantage,
@@ -195,6 +196,10 @@ function SellThroughReport() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* US-1473: account-level eBay health (Seller Standards + service metrics).
+          Self-gates: renders only when eBay is connected. */}
+      <EbayAccountHealthCard />
 
       {rows.length === 0 ? (
         <Card>

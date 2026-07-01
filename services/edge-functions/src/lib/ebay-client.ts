@@ -519,6 +519,130 @@ export async function getTrafficReport(
   return out;
 }
 
+// ── US-1473: Sell Analytics account-health signals ───────────────────
+//
+// Account-LEVEL health, distinct from per-listing traffic above: the Seller
+// Standards profile (Top Rated / Above / Below Standard, current + projected)
+// and the customer-service defect metrics. Same `sell.analytics.readonly` grant
+// as getTrafficReport, so `isAnalyticsAccessDenied` classifies a no-access 403
+// here too, and the sync treats it as "not granted" rather than an error.
+
+export type SellerStandardsLevel =
+  | "TOP_RATED"
+  | "ABOVE_STANDARD"
+  | "BELOW_STANDARD"
+  | string;
+
+export interface SellerStandardsProfile {
+  cycle: "CURRENT" | "PROJECTED";
+  program: string;
+  standardsLevel: SellerStandardsLevel | null;
+  evaluationDate: string | null;
+  evaluationReason: string | null;
+}
+
+interface SellerStandardsResponse {
+  standardsLevel?: string;
+  program?: string;
+  cycle?: string;
+  evaluationDate?: string;
+  evaluationReason?: string;
+}
+
+// The Seller Standards "program" the account is evaluated under is
+// marketplace-specific. Most markets roll up to PROGRAM_GLOBAL; the US, UK, and
+// Germany-cluster run their own program.
+function standardsProgramFor(marketplaceId: string): string {
+  switch (marketplaceId) {
+    case "EBAY_US":
+      return "PROGRAM_US";
+    case "EBAY_GB":
+      return "PROGRAM_UK";
+    case "EBAY_DE":
+    case "EBAY_AT":
+    case "EBAY_CH":
+      return "PROGRAM_DE";
+    default:
+      return "PROGRAM_GLOBAL";
+  }
+}
+
+/**
+ * The seller's standards profile for one evaluation `cycle` (CURRENT =
+ * last completed evaluation; PROJECTED = where the account is trending). Throws
+ * on a real API error — callers classify with `isAnalyticsAccessDenied` for the
+ * no-access case.
+ */
+export async function getSellerStandardsProfile(
+  userId: string,
+  cycle: "CURRENT" | "PROJECTED" = "CURRENT",
+): Promise<SellerStandardsProfile> {
+  const program = standardsProgramFor(getMarketplaceId());
+  const data = await fetchAuthed<SellerStandardsResponse>(
+    userId,
+    `/sell/analytics/v1/seller_standards_profile/${program}/${cycle}`,
+  );
+  return {
+    cycle,
+    program: data.program ?? program,
+    standardsLevel: data.standardsLevel ?? null,
+    evaluationDate: data.evaluationDate ?? null,
+    evaluationReason: data.evaluationReason ?? null,
+  };
+}
+
+export type CustomerServiceMetricType =
+  | "ITEM_NOT_AS_DESCRIBED"
+  | "ITEM_NOT_RECEIVED";
+
+export interface CustomerServiceMetricResult {
+  metricType: CustomerServiceMetricType;
+  cycle: "CURRENT" | "PROJECTED";
+  /** The seller's own defect rate for the metric (fraction 0–1), or null. */
+  rate: number | null;
+  /** The seller's own defect count for the metric, or null. */
+  count: number | null;
+}
+
+interface CustomerServiceMetricResponse {
+  customerServiceMetricStatistics?: Array<{
+    metricValues?: Array<{ basis?: string; value?: string | number | null }>;
+  }>;
+}
+
+/**
+ * A single customer-service defect metric for the account. eBay's response
+ * nests statistics by peer-benchmark basis; we extract only the seller's own
+ * value (`basis: "SELLER"`) defensively and return nulls when the shape doesn't
+ * carry it, so a card degrades to "—" rather than throwing.
+ */
+export async function getCustomerServiceMetric(
+  userId: string,
+  metricType: CustomerServiceMetricType,
+  cycle: "CURRENT" | "PROJECTED" = "CURRENT",
+): Promise<CustomerServiceMetricResult> {
+  const data = await fetchAuthed<CustomerServiceMetricResponse>(
+    userId,
+    `/sell/analytics/v1/customer_service_metric/${metricType}/${cycle}`,
+  );
+  let rate: number | null = null;
+  let count: number | null = null;
+  for (const stat of data.customerServiceMetricStatistics ?? []) {
+    for (const mv of stat.metricValues ?? []) {
+      const n = Number(mv.value);
+      if (!Number.isFinite(n)) continue;
+      // eBay reports the seller's own figure under the SELLER basis; peer
+      // benchmarks use other bases we deliberately ignore here.
+      if (mv.basis === "SELLER") {
+        // A rate arrives as a percentage (e.g. 1.2 = 1.2%); a count is an int.
+        if (n <= 100 && !Number.isInteger(n)) rate = n / 100;
+        else count = Math.round(n);
+      }
+    }
+  }
+  return { metricType, cycle, rate, count };
+}
+
 export async function refreshUserToken(
   refreshToken: string
 ): Promise<EbayUserRefreshResponse> {

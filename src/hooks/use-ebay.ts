@@ -115,6 +115,48 @@ export function useEbayPolicies(enabled = true) {
   });
 }
 
+// US-1473: account-level eBay health (Seller Standards + customer-service
+// defect metrics). `access:false` means Sell Analytics isn't granted — the card
+// shows a reconnect affordance rather than an error.
+export interface EbaySellerStandards {
+  cycle: "CURRENT" | "PROJECTED";
+  program: string;
+  standardsLevel: string | null;
+  evaluationDate: string | null;
+  evaluationReason: string | null;
+}
+export interface EbayCustomerServiceMetric {
+  metricType: "ITEM_NOT_AS_DESCRIBED" | "ITEM_NOT_RECEIVED";
+  cycle: "CURRENT" | "PROJECTED";
+  rate: number | null;
+  count: number | null;
+}
+export interface EbayAccountHealth {
+  access: boolean;
+  standards?: { current: EbaySellerStandards; projected: EbaySellerStandards };
+  customer_service?: EbayCustomerServiceMetric[];
+  projected_below_standard?: boolean;
+}
+
+export function useEbayAccountHealth(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_account_health"],
+    enabled,
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EbayAccountHealth> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/analytics/account-health`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load eBay account health.");
+      }
+      return json as EbayAccountHealth;
+    },
+  });
+}
+
 // Forces a fresh pull of the seller's business policies from eBay (the UI
 // "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
 // publish fails with "invalid shipping policy" because the cached default no
