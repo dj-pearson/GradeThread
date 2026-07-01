@@ -1162,6 +1162,16 @@ export function FlipdeskComposerPage() {
             size={item.size ?? null}
             q={item.item_title ?? ""}
             grade={item.grade_value ?? null}
+            onTargetPriceUpdated={(value) => {
+              // US-1449: flow an applied comp/recommended price straight into the
+              // price input so the seller doesn't retype it — and so it wins at
+              // save over the stale seeded value (resolveListingFields reads this
+              // `price` state first). Clear the estimated/comp-source markers: the
+              // seller has now explicitly adopted this price.
+              setPrice(String(value));
+              setPriceEstimated(false);
+              setPriceCompSource(null);
+            }}
           />
 
           {/* Condition & price */}

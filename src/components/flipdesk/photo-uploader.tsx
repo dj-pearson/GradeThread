@@ -137,13 +137,19 @@ export function PhotoUploader({
             thumbType = thumb.blob.type || "image/webp";
           }
         } catch (thumbErr) {
-          console.warn("[photo-uploader] thumbnail gen failed:", thumbErr);
+          // US-1487: expected best-effort fallback — don't log unconditionally
+          // in production (US-784).
+          if (import.meta.env.DEV) {
+            console.warn("[photo-uploader] thumbnail gen failed:", thumbErr);
+          }
         }
       } catch (compressErr) {
-        console.warn(
-          "[photo-uploader] compress failed, uploading original:",
-          compressErr,
-        );
+        if (import.meta.env.DEV) {
+          console.warn(
+            "[photo-uploader] compress failed, uploading original:",
+            compressErr,
+          );
+        }
       }
 
       const ts = Date.now();
@@ -174,10 +180,12 @@ export function PhotoUploader({
             contentType: thumbType,
           });
         if (thumbUpErr) {
-          console.warn(
-            "[photo-uploader] thumbnail upload failed:",
-            thumbUpErr.message,
-          );
+          if (import.meta.env.DEV) {
+            console.warn(
+              "[photo-uploader] thumbnail upload failed:",
+              thumbUpErr.message,
+            );
+          }
           thumbnailPath = null;
         } else {
           thumbnailUrl = supabase.storage

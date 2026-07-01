@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 11 (US-1449, US-1487) — composer comp price + log hygiene
+
+- US-1449 Flow the in-composer comped/recommended price into the listing price
+  field — NOW COMPLETE (passes:true). EbayCompsPanel already exposed
+  onTargetPriceUpdated (and calls it after writing inventory_items.target_price),
+  but composer.tsx never passed it — so clicking "Use as target price" updated the
+  DB while the composer's price input stayed on its one-shot seeded value (behind
+  the `initialised` guard), forcing the seller to retype. Passed an
+  onTargetPriceUpdated handler that setPrice(String(value)) + clears the
+  estimated/comp-source markers (AC1). Because resolveListingFields() reads the
+  `price` state FIRST (first-positive wins), the applied comp now also wins at
+  save over the stale seeded value (AC2).
+
+- US-1487 DEV-gate the remaining ungated console.warn calls in the FlipDesk photo
+  uploader — NOW COMPLETE (passes:true). photo-uploader.tsx logged its
+  compress/thumbnail best-effort fallback warnings (3 sites) unconditionally in
+  production. Wrapped each in `if (import.meta.env.DEV)` per US-784 (AC1).
+  Re-grepped src/ for ungated console.* in production code (AC2): the only other
+  hits are error-boundary.tsx (already DEV-gated; Sentry is the prod record) and a
+  console.log inside the developers-page SDK_EXAMPLE code-sample string (not a
+  real call) — so the photo uploader was indeed the last ungated case.
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors on both files, vitest 1012 pass, npm run build (incl.
+prerender, 45 routes) succeeded. Open prd.json stories now 137.
+
 ## 2026-06-30 — Pre-launch audit batch 10 (US-1467, US-1468) — dashboard/finances failure & empty UX
 
 - US-1467 Give Finances a zero-data empty state for new users — NOW COMPLETE
