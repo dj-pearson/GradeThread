@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { runPassportIntegrityScan } from "./jobs-passport-integrity-scan.ts";
@@ -171,7 +172,7 @@ adminPassportIntegrityRoutes.get("/signals", async (c: Context<AdminEnv>) => {
   const { data, count, error } = await q
     .order("last_seen_at", { ascending: false })
     .range(from, to);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load integrity signals.", error, "admin.passport.signals.list");
 
   const rows = (data ?? []) as SignalRow[];
   const garmentIds = [
@@ -223,7 +224,7 @@ adminPassportIntegrityRoutes.get("/signals/:id", async (c: Context<AdminEnv>) =>
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the signal.", error, "admin.passport.signals.get");
   if (!data) return c.json({ error: "Signal not found" }, 404);
   const row = data as SignalRow;
   const ids = [row.garment_id, counterpartGarmentId(row)].filter((x): x is string => !!x);
@@ -268,7 +269,7 @@ adminPassportIntegrityRoutes.patch("/signals/:id", async (c: Context<AdminEnv>) 
     .select("id, status, resolution_reason")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the signal.", loadErr, "admin.passport.signals.load");
   if (!existing) return c.json({ error: "Signal not found" }, 404);
   const prev = existing as { status: IntegrityStatus; resolution_reason: string | null };
 
@@ -286,7 +287,7 @@ adminPassportIntegrityRoutes.patch("/signals/:id", async (c: Context<AdminEnv>) 
     .from("passport_integrity_signals")
     .update(patch)
     .eq("id", id);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't update the signal.", updErr, "admin.passport.signals.update");
 
   await writeAuditLog(c, {
     action: "admin.passport_integrity_status",
@@ -321,7 +322,7 @@ adminPassportIntegrityRoutes.post("/signals/:id/notes", async (c: Context<AdminE
     .select("id, notes")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the signal.", loadErr, "admin.passport.notes.load");
   if (!existing) return c.json({ error: "Signal not found" }, 404);
 
   const prev = (existing as { notes: unknown }).notes;
@@ -333,7 +334,7 @@ adminPassportIntegrityRoutes.post("/signals/:id/notes", async (c: Context<AdminE
     .from("passport_integrity_signals")
     .update({ notes: next })
     .eq("id", id);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't save the note.", updErr, "admin.passport.notes.save");
 
   await writeAuditLog(c, {
     action: "admin.passport_integrity_note",
@@ -376,7 +377,7 @@ adminPassportIntegrityRoutes.post("/signals/:id/sever", async (c: Context<AdminE
     .select("id, garment_id")
     .eq("id", id)
     .maybeSingle();
-  if (sigErr) return c.json({ error: sigErr.message }, 500);
+  if (sigErr) return failSafe(c, 500, "Couldn't load the signal.", sigErr, "admin.passport.sever.load");
   if (!signal) return c.json({ error: "Signal not found" }, 404);
   const garmentId = (signal as { garment_id: string }).garment_id;
 
@@ -389,7 +390,7 @@ adminPassportIntegrityRoutes.post("/signals/:id/sever", async (c: Context<AdminE
     .eq("garment_id", garmentId)
     .in("event_type", ["ownership_transfer", "listed"])
     .maybeSingle();
-  if (evErr) return c.json({ error: evErr.message }, 500);
+  if (evErr) return failSafe(c, 500, "Couldn't load the passport event.", evErr, "admin.passport.sever.event");
   if (!event) {
     return c.json({ error: "Link not found on this signal's garment." }, 404);
   }
@@ -406,7 +407,7 @@ adminPassportIntegrityRoutes.post("/signals/:id/sever", async (c: Context<AdminE
     .eq("id", eventId)
     .eq("garment_id", garmentId)
     .is("severed_at", null);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't sever the link.", updErr, "admin.passport.sever.update");
 
   await writeAuditLog(c, {
     action: "admin.passport_integrity_sever_link",

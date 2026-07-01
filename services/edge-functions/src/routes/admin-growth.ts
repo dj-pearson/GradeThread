@@ -14,6 +14,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
@@ -99,7 +100,7 @@ adminGrowthRoutes.get("/segments", async (c) => {
     .from("audience_segments")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load segments.", error, "admin.growth.segments.list");
   return c.json({ segments: data ?? [] });
 });
 
@@ -130,7 +131,7 @@ adminGrowthRoutes.post("/segments", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the segment.", error, "admin.growth.segments.create");
 
   await writeAuditLog(c, {
     action: "growth.segment.create",
@@ -171,7 +172,7 @@ adminGrowthRoutes.patch("/segments/:id", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the segment.", error, "admin.growth.segments.update");
 
   await writeAuditLog(c, {
     action: "growth.segment.update",
@@ -185,7 +186,7 @@ adminGrowthRoutes.patch("/segments/:id", async (c) => {
 adminGrowthRoutes.delete("/segments/:id", async (c) => {
   const id = c.req.param("id");
   const { error } = await supabaseAdmin.from("audience_segments").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the segment.", error, "admin.growth.segments.delete");
   await writeAuditLog(c, {
     action: "growth.segment.delete",
     targetType: "audience_segment",
@@ -210,7 +211,7 @@ adminGrowthRoutes.get("/campaigns", async (c) => {
     .from("growth_campaigns")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load campaigns.", error, "admin.growth.campaigns.list");
   return c.json({ campaigns: data ?? [] });
 });
 
@@ -290,7 +291,7 @@ adminGrowthRoutes.post("/campaigns", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the campaign.", error, "admin.growth.campaigns.create");
 
   await writeAuditLog(c, {
     action: "growth.campaign.create",
@@ -352,7 +353,7 @@ adminGrowthRoutes.patch("/campaigns/:id", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the campaign.", error, "admin.growth.campaigns.update");
 
   await writeAuditLog(c, {
     action: "growth.campaign.update",
@@ -375,7 +376,7 @@ adminGrowthRoutes.delete("/campaigns/:id", async (c) => {
     return c.json({ error: "Cannot delete a campaign while it is sending" }, 409);
   }
   const { error } = await supabaseAdmin.from("growth_campaigns").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the campaign.", error, "admin.growth.campaigns.delete");
   await writeAuditLog(c, {
     action: "growth.campaign.delete",
     targetType: "growth_campaign",
@@ -841,7 +842,7 @@ adminGrowthRoutes.get("/announcements", async (c) => {
     .select("*")
     .order("priority", { ascending: false })
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load announcements.", error, "admin.growth.announcements.list");
   return c.json({ announcements: data ?? [] });
 });
 
@@ -881,7 +882,7 @@ adminGrowthRoutes.post("/announcements", async (c) => {
     .insert(insert)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the announcement.", error, "admin.growth.announcements.create");
 
   await writeAuditLog(c, {
     action: "growth.announcement.create",
@@ -924,7 +925,7 @@ adminGrowthRoutes.patch("/announcements/:id", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the announcement.", error, "admin.growth.announcements.update");
 
   await writeAuditLog(c, {
     action: "growth.announcement.update",
@@ -938,7 +939,7 @@ adminGrowthRoutes.patch("/announcements/:id", async (c) => {
 adminGrowthRoutes.delete("/announcements/:id", async (c) => {
   const id = c.req.param("id");
   const { error } = await supabaseAdmin.from("announcements").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the announcement.", error, "admin.growth.announcements.delete");
   await writeAuditLog(c, {
     action: "growth.announcement.delete",
     targetType: "announcement",
@@ -1237,7 +1238,7 @@ adminGrowthRoutes.get("/campaign-codes", async (c) => {
     .from("referral_campaign_codes")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load campaign codes.", error, "admin.growth.codes.list");
   return c.json({ codes: data ?? [] });
 });
 
@@ -1292,7 +1293,7 @@ adminGrowthRoutes.post("/campaign-codes", async (c) => {
     if ((error as { code?: string }).code === "23505") {
       return c.json({ error: "That code already exists" }, 409);
     }
-    return c.json({ error: error.message }, 500);
+    return failSafe(c, 500, "Couldn't create the campaign code.", error, "admin.growth.codes.create");
   }
 
   await writeAuditLog(c, {
@@ -1347,7 +1348,7 @@ adminGrowthRoutes.patch("/campaign-codes/:id", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the campaign code.", error, "admin.growth.codes.update");
 
   await writeAuditLog(c, {
     action: "growth.campaign_code.update",
@@ -1361,7 +1362,7 @@ adminGrowthRoutes.patch("/campaign-codes/:id", async (c) => {
 adminGrowthRoutes.delete("/campaign-codes/:id", async (c) => {
   const id = c.req.param("id");
   const { error } = await supabaseAdmin.from("referral_campaign_codes").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the campaign code.", error, "admin.growth.codes.delete");
   await writeAuditLog(c, {
     action: "growth.campaign_code.delete",
     targetType: "referral_campaign_code",
