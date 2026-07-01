@@ -108,3 +108,8 @@ listings_rows.csv
 export/
 scripts/seed-demo-account.sql
 supabase/.temp/cli-latest
+
+# Remotion product-guide project (video build artifacts + deps)
+remotion/node_modules/
+remotion/out/
+remotion/qa/

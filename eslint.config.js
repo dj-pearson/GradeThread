@@ -11,7 +11,7 @@ export default tseslint.config(
   // deno-lint-ignore directives, so it's excluded.
   // The published SDK (sdk/) is a standalone zero-dep package with its own
   // build/lint toolchain; the browser app config here would mis-lint it.
-  { ignores: ["dist", "services/edge-functions/**", "sdk/**"] },
+  { ignores: ["dist", "services/edge-functions/**", "sdk/**", "remotion/**"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
