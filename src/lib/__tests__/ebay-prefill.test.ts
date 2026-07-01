@@ -6,6 +6,7 @@ import {
   deriveAspectsFromItem,
   inferDepartment,
   mapEbayCondition,
+  projectColumnAspects,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 import type { EbayAspect } from "@/hooks/use-ebay";
@@ -127,6 +128,70 @@ describe("deriveAspectsFromItem (US-822 web registry)", () => {
     expect(
       deriveAspectsFromItem({ ...base, size: "M" }, [free("US Shoe Size")], {}),
     ).toEqual({});
+  });
+});
+
+describe("projectColumnAspects (main-page columns own their aspects)", () => {
+  const cols = (o: Partial<ItemAspectSource>) => ({
+    brand: null,
+    size: null,
+    color: null,
+    material: null,
+    style: null,
+    ...o,
+  });
+
+  it("overwrites the column-backed aspects and stamps inventory_derived", () => {
+    const { aspects, sources } = projectColumnAspects(
+      cols({ brand: "Nike", size: "M", color: "Blue", material: "Cotton", style: "Hoodie" }),
+      { Brand: ["Adidas"] },
+      { Brand: "manual" },
+    );
+    expect(aspects).toEqual({
+      Brand: ["Nike"],
+      Size: ["M"],
+      Color: ["Blue"],
+      Material: ["Cotton"],
+      Style: ["Hoodie"],
+    });
+    // A manually-typed Brand loses to the column — the main page is authoritative.
+    expect(sources.Brand).toBe("inventory_derived");
+  });
+
+  it("clears an aspect + its source when the backing column is blanked", () => {
+    // Brand column blanked → Brand aspect dropped; Size column still holds "M"
+    // → Size overwritten from the column (and its source becomes the derived
+    // provenance, since the column now owns it).
+    const { aspects, sources } = projectColumnAspects(
+      cols({ brand: "  ", size: "M" }),
+      { Brand: ["Nike"], Size: ["L"] },
+      { Brand: "inventory_derived", Size: "manual" },
+    );
+    expect(aspects).toEqual({ Size: ["M"] });
+    expect(sources).toEqual({ Size: "inventory_derived" });
+  });
+
+  it("leaves non-column aspects (AI / attribute / manual) untouched", () => {
+    const { aspects, sources } = projectColumnAspects(
+      cols({ brand: "Nike" }),
+      { "Sleeve Length": ["Long Sleeve"], Department: ["Men"] },
+      { "Sleeve Length": "ai_extracted", Department: "manual" },
+    );
+    expect(aspects).toEqual({
+      "Sleeve Length": ["Long Sleeve"],
+      Department: ["Men"],
+      Brand: ["Nike"],
+    });
+    expect(sources["Sleeve Length"]).toBe("ai_extracted");
+    expect(sources.Department).toBe("manual");
+  });
+
+  it("does not mutate the inputs", () => {
+    const existing = { Brand: ["Adidas"] };
+    const existingSources = { Brand: "manual" as const };
+    projectColumnAspects(cols({ brand: "Nike" }), existing, existingSources);
+    expect(existing).toEqual({ Brand: ["Adidas"] });
+    expect(existingSources).toEqual({ Brand: "manual" });
   });
 });
 

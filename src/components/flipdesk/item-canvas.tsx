@@ -84,6 +84,8 @@ import {
   rankOf,
   type NextActionKind,
 } from "@/lib/workflow";
+import { projectColumnAspects } from "@/lib/ebay-prefill";
+import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { deriveListingOrigin } from "@/lib/listing-origin";
 import { cn } from "@/lib/utils";
@@ -671,11 +673,68 @@ export function ItemCanvas({
       update.ai_enriched_at = new Date().toISOString();
     }
 
+    // The structured columns own their eBay item specifics: project the current
+    // Brand/Size/Color/Material/Style onto the stored aspect map on EVERY save so
+    // the eBay specifics editor never needs a second, duplicate entry. Mirrors the
+    // edge forceColumnAspects (publish/revise) so drafts and not-yet-published
+    // items stay in sync too — not just live GradeThread listings. Written into
+    // the SAME inventory_items update (no extra round-trip beyond the read).
+    const columnFields = {
+      brand: s.brand,
+      size: s.size,
+      color: s.color,
+      material: s.material,
+      style: s.style,
+    };
+    const { data: aspRaw } = await supabase
+      .from("inventory_items")
+      .select("ebay_aspects, ebay_aspect_sources")
+      .eq("id", item.id)
+      .maybeSingle();
+    const aspRow = aspRaw as {
+      ebay_aspects: Record<string, string[]> | null;
+      ebay_aspect_sources: AspectSourceMap | null;
+    } | null;
+    const projected = projectColumnAspects(
+      columnFields,
+      aspRow?.ebay_aspects ?? {},
+      aspRow?.ebay_aspect_sources ?? {},
+    );
+    update.ebay_aspects = projected.aspects;
+    update.ebay_aspect_sources = projected.sources;
+
     const { error } = await supabase
       .from("inventory_items")
       .update(update as never)
       .eq("id", item.id);
     if (error) throw error;
+
+    // Keep the per-listing canonical copy (listings.item_specifics_override, which
+    // publish reads FIRST) in lockstep with the inventory mirror — otherwise a
+    // drafted listing would keep serving the stale override at publish time.
+    if (item.listing_id) {
+      const { data: lstRaw } = await supabase
+        .from("listings")
+        .select("item_specifics_override, item_specifics_sources")
+        .eq("id", item.listing_id)
+        .maybeSingle();
+      const lstRow = lstRaw as {
+        item_specifics_override: Record<string, string[]> | null;
+        item_specifics_sources: AspectSourceMap | null;
+      } | null;
+      const lp = projectColumnAspects(
+        columnFields,
+        lstRow?.item_specifics_override ?? {},
+        lstRow?.item_specifics_sources ?? {},
+      );
+      await supabase
+        .from("listings")
+        .update({
+          item_specifics_override: lp.aspects,
+          item_specifics_sources: lp.sources,
+        } as never)
+        .eq("id", item.listing_id);
+    }
 
     await qc.invalidateQueries({ queryKey: ["items_full"] });
     if (!opts?.silent) toast.success(successMessage);
