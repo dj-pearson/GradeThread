@@ -46,6 +46,13 @@ export function PricingPage() {
             that never expire, or subscribe to FlipDesk to manage your whole
             reseller workflow. No setup fees, and you can change plans anytime.
           </p>
+          {/* US-1470: automatic_tax is enabled at checkout, so surface the
+              tax/currency disclaimer here (it previously existed only on the
+              authenticated in-app billing page). */}
+          <p className="mx-auto mt-4 max-w-2xl text-sm text-muted-foreground">
+            All prices are shown in USD and exclude tax — sales tax/VAT is
+            calculated at checkout based on your billing location.
+          </p>
         </div>
       </section>
 

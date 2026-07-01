@@ -8579,7 +8579,7 @@
         "Confirm currency is communicated as USD on the public page."
       ],
       "priority": 1990,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · payments · payments audit] Evidence: src/pages/marketing/pricing.tsx:60-147; disclaimer only at billing.tsx:593-610."
     },
     {
@@ -8723,7 +8723,7 @@
         "Keep per-column 'Drop here' only when the account has items but a column is empty."
       ],
       "priority": 1978,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: pipeline.tsx:636-697,660-663; contrast listings.tsx:1753-1820, grid.tsx:467-485."
     },
     {

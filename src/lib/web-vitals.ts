@@ -81,6 +81,11 @@ export async function startWebVitals(
   started = true;
 
   const { onLCP, onINP, onCLS, onTTFB } = await import("web-vitals");
+  // Re-check the environment AFTER the async import: web-vitals' onLCP/onINP/etc.
+  // touch `document` synchronously, and the environment can disappear between the
+  // await and here (jsdom teardown in unit tests → an unhandled `document is not
+  // defined` rejection; also SSR safety). No effect in a real browser.
+  if (typeof document === "undefined") return;
   const handler = (metric: Metric) => report(buildVitalEvent(metric));
   onLCP(handler);
   onINP(handler);

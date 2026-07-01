@@ -74,6 +74,7 @@ import { csvBlob, downloadBlob } from "@/lib/download";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
@@ -633,6 +634,18 @@ export function FlipdeskPipelinePage() {
             ))}
           </div>
         </LoadingRegion>
+      ) : items.length === 0 ? (
+        // US-1482: with zero items the board is ~13 dashed "Drop here" columns
+        // and no guidance — show the same EmptyState + Add/Import CTAs the
+        // table/grid views use. Per-column "Drop here" stays for the has-items
+        // case (a column that's simply empty).
+        <EmptyState
+          icon={LayoutGrid}
+          title="No inventory yet"
+          description="Add your first item and it'll flow through the pipeline from Sourced to Sold. You can also import inventory in bulk."
+          action={{ label: "Add an item", to: "/dashboard/flipdesk/intake", icon: Plus }}
+          secondaryAction={{ label: "Import", to: "/dashboard/flipdesk/import", icon: Upload }}
+        />
       ) : (
         <DndContext
           sensors={sensors}
