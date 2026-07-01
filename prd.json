@@ -8218,7 +8218,7 @@
         "Make all hub child headings consistent (or remove them since the tab label names the section)."
       ],
       "priority": 2089,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: src/pages/account.tsx:43-72; settings.tsx:506-523; team.tsx:250."
     },
     {
@@ -8431,7 +8431,7 @@
         "In batchMoveNext, skip the grading hop (or route Photographed items into the bulk-grade flow) so the button never produces an all-failures result."
       ],
       "priority": 2072,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: pipeline.tsx:337-382; pipeline-rules.ts:38-40."
     },
     {

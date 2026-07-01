@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAccountHub } from "@/hooks/use-account-hub";
 
 export interface PageHeaderProps {
   /** Page title — rendered as the page's single <h1>. */
@@ -28,6 +29,20 @@ export function PageHeader({
   actions,
   className,
 }: PageHeaderProps) {
+  // US-1441: inside the Account hub, the tab label already names the section —
+  // drop the redundant title/subtitle/icon so two headings don't stack. Actions
+  // (e.g. Team's "Invite member") are still needed, so keep them right-aligned.
+  const { embedded } = useAccountHub();
+
+  if (embedded) {
+    if (!actions) return null;
+    return (
+      <div className={cn("flex flex-wrap items-center justify-end gap-2", className)}>
+        {actions}
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
