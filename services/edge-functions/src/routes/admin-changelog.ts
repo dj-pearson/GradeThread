@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import {
   type ChangelogAudience,
@@ -52,7 +53,7 @@ adminChangelogRoutes.get("/", async (c) => {
   if (status && isChangelogStatus(status)) q = q.eq("status", status);
   if (audience && isChangelogAudience(audience)) q = q.eq("audience", audience);
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load changelog entries.", error, "admin.changelog.list");
   return c.json({ entries: data ?? [] });
 });
 
@@ -63,7 +64,7 @@ adminChangelogRoutes.get("/:id", async (c) => {
     .select(CHANGELOG_COLS)
     .eq("id", c.req.param("id"))
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the changelog entry.", error, "admin.changelog.get");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ entry: data });
 });
@@ -99,7 +100,7 @@ adminChangelogRoutes.post("/", async (c) => {
     })
     .select(CHANGELOG_COLS)
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the changelog entry.", error, "admin.changelog.create");
   const entry = data as unknown as ChangelogRow;
 
   await writeAuditLog(c, {
@@ -160,7 +161,7 @@ adminChangelogRoutes.patch("/:id", async (c) => {
     .eq("id", id)
     .select(CHANGELOG_COLS)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the changelog entry.", error, "admin.changelog.update");
   if (!data) return c.json({ error: "Not found" }, 404);
   const entry = data as unknown as ChangelogRow;
 
@@ -182,7 +183,7 @@ adminChangelogRoutes.delete("/:id", async (c) => {
     .eq("id", id)
     .maybeSingle();
   const { error } = await supabaseAdmin.from("changelog_entries").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the changelog entry.", error, "admin.changelog.delete");
   await writeAuditLog(c, {
     action: "changelog.delete",
     targetType: "changelog_entry",

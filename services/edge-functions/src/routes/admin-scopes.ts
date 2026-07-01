@@ -13,6 +13,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { clearScopeCache, requireScope } from "../lib/scope-guard.ts";
@@ -110,13 +111,13 @@ adminScopesRoutes.put("/roles/:role", requireScope("users:role"), async (c: Cont
     .from("role_scopes")
     .delete()
     .eq("role", role);
-  if (delErr) return c.json({ error: delErr.message }, 500);
+  if (delErr) return failSafe(c, 500, "Couldn't update role scopes.", delErr, "admin.scopes.role.clear");
 
   if (parsed.scopes.length > 0) {
     const { error: insErr } = await supabaseAdmin
       .from("role_scopes")
       .insert(parsed.scopes.map((scope_key) => ({ role, scope_key })));
-    if (insErr) return c.json({ error: insErr.message }, 500);
+    if (insErr) return failSafe(c, 500, "Couldn't update role scopes.", insErr, "admin.scopes.role.set");
   }
 
   clearScopeCache();
@@ -138,7 +139,7 @@ adminScopesRoutes.get("/users/:id", async (c) => {
     .select("id, email, role")
     .eq("id", targetId)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load user scopes.", error, "admin.scopes.user.get");
   if (!user) return c.json({ error: "User not found" }, 404);
 
   const role = (user as { role: string }).role as UserRole;
@@ -184,7 +185,7 @@ adminScopesRoutes.put("/users/:id", requireScope("users:role"), async (c: Contex
     .select("id")
     .eq("id", targetId)
     .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  if (lookupErr) return failSafe(c, 500, "Couldn't look up the user.", lookupErr, "admin.scopes.user.lookup");
   if (!user) return c.json({ error: "User not found" }, 404);
 
   const { data: beforeRows } = await supabaseAdmin
@@ -200,7 +201,7 @@ adminScopesRoutes.put("/users/:id", requireScope("users:role"), async (c: Contex
     .from("admin_scope_grants")
     .delete()
     .eq("admin_user_id", targetId);
-  if (delErr) return c.json({ error: delErr.message }, 500);
+  if (delErr) return failSafe(c, 500, "Couldn't update user scopes.", delErr, "admin.scopes.user.clear");
 
   if (parsed.scopes.length > 0) {
     const { error: insErr } = await supabaseAdmin
@@ -210,7 +211,7 @@ adminScopesRoutes.put("/users/:id", requireScope("users:role"), async (c: Contex
         scope_key,
         granted_by: c.get("userId"),
       })));
-    if (insErr) return c.json({ error: insErr.message }, 500);
+    if (insErr) return failSafe(c, 500, "Couldn't update user scopes.", insErr, "admin.scopes.user.set");
   }
 
   await writeAuditLog(c, {

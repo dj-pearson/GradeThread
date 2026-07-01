@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import {
   type AdPayload,
   type AdPlatform,
@@ -50,7 +51,7 @@ adminAdsRoutes.get("/themes", async (c) => {
     .order("created_at", { ascending: false });
   if (!includeArchived) q = q.eq("is_active", true);
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load ad themes.", error, "admin.ads.themes.list");
   return c.json({ themes: (data ?? []) as KeywordLibraryRow[] });
 });
 
@@ -84,7 +85,7 @@ adminAdsRoutes.post("/themes", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't save the ad theme.", error, "admin.ads.themes.create");
   return c.json({ theme: data as KeywordLibraryRow });
 });
 
@@ -96,7 +97,7 @@ adminAdsRoutes.post("/themes/:id/archive", async (c) => {
     .eq("id", c.req.param("id"))
     .select("*")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't archive the ad theme.", error, "admin.ads.themes.archive");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ theme: data as KeywordLibraryRow });
 });
@@ -155,7 +156,7 @@ adminAdsRoutes.get("/keywords", async (c) => {
   if (q) query = query.ilike("keyword", `%${q}%`);
 
   const { data, error } = await query;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load keywords.", error, "admin.ads.keywords.list");
   const rows = (data ?? []) as KeywordTermRow[];
 
   // Theme counts for the grouping UI (over the returned slice).
@@ -175,7 +176,7 @@ adminAdsRoutes.get("/keywords/runs", async (c) => {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(20);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load keyword runs.", error, "admin.ads.keywords.runs");
   return c.json({ runs: data ?? [] });
 });
 
@@ -280,7 +281,7 @@ adminAdsRoutes.post("/creatives", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't save the creative.", error, "admin.ads.creatives.create");
   return c.json({ creative: data as AdCreativeRow });
 });
 
@@ -295,7 +296,7 @@ adminAdsRoutes.get("/creatives", async (c) => {
     .limit(limit);
   if (isPlatform(platform)) q = q.eq("platform", platform);
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load creatives.", error, "admin.ads.creatives.list");
   return c.json({ creatives: (data ?? []) as AdCreativeRow[] });
 });
 
@@ -308,7 +309,7 @@ adminAdsRoutes.get("/creatives/:id/export", async (c) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't export the creative.", error, "admin.ads.creatives.export");
   if (!data) return c.json({ error: "Not found" }, 404);
   const row = data as AdCreativeRow;
 
