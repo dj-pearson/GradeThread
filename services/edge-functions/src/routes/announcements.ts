@@ -10,6 +10,7 @@
 
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { userMatchesSegment } from "../lib/segments.ts";
 import type { SegmentRules } from "../lib/segments.ts";
 
@@ -30,7 +31,7 @@ announcementRoutes.get("/active", async (c) => {
     .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
     .order("priority", { ascending: false })
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load announcements.", error, "announcements.active");
 
   const announcements = (rows ?? []) as Array<{
     id: string;
@@ -106,6 +107,6 @@ announcementRoutes.post("/:id/dismiss", async (c) => {
       { announcement_id: id, user_id: userId },
       { onConflict: "announcement_id,user_id", ignoreDuplicates: true },
     );
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't dismiss the announcement.", error, "announcements.dismiss");
   return c.json({ ok: true });
 });
