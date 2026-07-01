@@ -3183,6 +3183,121 @@ export async function getPayout(
   }
 }
 
+// ── US-1475: Commerce Catalog — EPID product adoption ───────────────
+//
+// Listing against an eBay catalog product (by EPID) auto-populates the required
+// item specifics + reduces aspect-compliance violations (see US-1422). Read via
+// the app token (client_credentials, base api_scope) exactly like Taxonomy/Browse
+// — NO new user-consent scope. A 204/404 (no match / catalog gap) returns
+// empty, so callers degrade to AI-only aspects.
+
+export interface CatalogProductMatch {
+  epid: string;
+  title: string;
+  brand: string | null;
+  gtins: string[];
+  imageUrl: string | null;
+}
+
+interface ProductSummarySearchResponse {
+  productSummaries?: Array<{
+    epid?: string;
+    title?: string;
+    brand?: string;
+    gtins?: string[];
+    image?: { imageUrl?: string };
+  }>;
+}
+
+/** Search eBay's catalog for candidate products (by GTIN and/or brand+mpn+
+ *  keywords). Newest/most-relevant first, capped at `limit`. */
+export async function searchCatalogProducts(query: {
+  gtin?: string | null;
+  brand?: string | null;
+  mpn?: string | null;
+  keywords?: string | null;
+  limit?: number;
+}): Promise<CatalogProductMatch[]> {
+  const params = new URLSearchParams();
+  if (query.gtin && query.gtin.trim()) params.set("gtin", query.gtin.trim());
+  const q = [query.brand, query.mpn, query.keywords]
+    .filter((s) => s && s.trim())
+    .join(" ")
+    .trim();
+  if (q) params.set("q", q);
+  // Nothing to search on → no candidates (don't fire a bare query).
+  if (![...params.keys()].length) return [];
+  params.set("limit", String(query.limit ?? 5));
+
+  const token = await getAppAccessToken();
+  const url =
+    `${apiHost()}/commerce/catalog/v1_beta/product_summary/search?${params.toString()}`;
+  const res = await ebayFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      "Accept-Language": "en-US",
+    },
+  });
+  if (res.status === 204 || res.status === 404) return [];
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`eBay catalog search failed (${res.status}): ${t.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as ProductSummarySearchResponse;
+  return (data.productSummaries ?? [])
+    .filter((p) => p.epid)
+    .map((p) => ({
+      epid: p.epid as string,
+      title: p.title ?? "",
+      brand: p.brand ?? null,
+      gtins: p.gtins ?? [],
+      imageUrl: p.image?.imageUrl ?? null,
+    }));
+}
+
+export interface CatalogProduct {
+  epid: string;
+  title: string;
+  brand: string | null;
+  /** Catalog aspects (name → values) — the authoritative specifics to prefer. */
+  aspects: Record<string, string[]>;
+}
+
+/** Full catalog product by EPID, incl. its authoritative aspects. Null on 404. */
+export async function getCatalogProduct(epid: string): Promise<CatalogProduct | null> {
+  const token = await getAppAccessToken();
+  const url = `${apiHost()}/commerce/catalog/v1_beta/product/${encodeURIComponent(epid)}`;
+  const res = await ebayFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      "Accept-Language": "en-US",
+    },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`eBay catalog getProduct failed (${res.status}): ${t.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as {
+    epid?: string;
+    title?: string;
+    brand?: string;
+    aspects?: Array<{ localizedName?: string; localizedValues?: string[] }>;
+  };
+  const aspects: Record<string, string[]> = {};
+  for (const a of data.aspects ?? []) {
+    if (a.localizedName) aspects[a.localizedName] = a.localizedValues ?? [];
+  }
+  return {
+    epid: data.epid ?? epid,
+    title: data.title ?? "",
+    brand: data.brand ?? null,
+    aspects,
+  };
+}
+
 // ── Browse API: active comps ────────────────────────────────────────
 
 export interface BrowseComp {

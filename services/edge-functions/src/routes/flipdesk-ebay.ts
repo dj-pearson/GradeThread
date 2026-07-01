@@ -29,10 +29,12 @@ import {
   getCategoryAspects,
   getCategoryName,
   getItemConditionPolicies,
+  getCatalogProduct,
   getCustomerServiceMetric,
   getListingViolations,
   getListingViolationsSummary,
   getPayouts,
+  searchCatalogProducts,
   getMarketplaceId,
   getSellerStandardsProfile,
   getTrafficReport,
@@ -1050,6 +1052,50 @@ flipdeskEbayRoutes.get("/finances/payouts/:payoutId/sales", async (c) => {
   } catch (err) {
     console.error("[flipdesk-ebay] /finances/payouts/:id/sales failed:", err);
     return c.json({ error: "Could not load payout details." }, 502);
+  }
+});
+
+// US-1475 chunk 1: find eBay catalog product (EPID) candidates for an inventory
+// item (by GTIN in the SKU / brand+style/keywords). Read-only, tenant-scoped;
+// returns candidates + the top product's authoritative aspects for preview.
+flipdeskEbayRoutes.get("/catalog/match", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const itemId = c.req.query("item_id");
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+  try {
+    const { data: item, error } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, title, brand, style, sku")
+      .eq("id", itemId)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (error) throw error;
+    const it = item as
+      | { title?: string; brand?: string | null; style?: string | null; sku?: string | null }
+      | null;
+    if (!it) return c.json({ error: "Item not found." }, 404);
+    // A SKU that's all digits (8–14) is very likely a scanned UPC/EAN (US-598).
+    const gtin =
+      it.sku && /^\d{8,14}$/.test(it.sku.trim()) ? it.sku.trim() : null;
+    const candidates = await searchCatalogProducts({
+      gtin,
+      brand: it.brand ?? null,
+      mpn: it.style ?? null,
+      keywords: it.title ?? null,
+    });
+    // Enrich the top candidate with its catalog aspects so the UI can preview /
+    // adopt them (US-1475 chunk 2).
+    const top = candidates[0]
+      ? await getCatalogProduct(candidates[0].epid)
+      : null;
+    return c.json({ candidates, top });
+  } catch (err) {
+    console.error("[flipdesk-ebay] /catalog/match failed:", err);
+    return c.json({ error: "Could not search the eBay catalog." }, 502);
   }
 });
 
