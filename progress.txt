@@ -2,6 +2,44 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1409 + US-1410: close iOS grading-review-state + cold-launch routing (verify-only)
+
+Backlog reconciliation, no code changes — both shipped on main (78d1a5fa batch)
+but left passes:false. iOS CI + iOS Release confirmed green on the prior commit
+(b13b1c04). Verified each AC against the code on main.
+
+US-1409 (grading pending-review + certificate gating from server state):
+- GradeReportView.pendingReview = `certificateURL == nil && requiresReview(conf)`
+  — a human-approved sub-0.75 grade WITH a certificate now shows Certified and
+  keeps its Share button (AC1).
+- LocalInventoryItem.isGradePendingReview = gradeValue set && no certificateURL
+  && no gradeReportId — uses the synced gradeReportId (server links it only on
+  finalization) so cert-withheld (US-484) / supersede-nulled grades aren't shown
+  "pending" forever (AC2). A dedicated grade_review_status column would be more
+  precise but isn't in the sync schema; gradeReportId is the equivalent synced
+  finalization signal (AC4 intent).
+- GradeRequestStore: maxPolls reconciled 40→22 (~2 min, matching the comment)
+  (AC5); .pendingReview is terminal, finalization arrives via sync (AC3).
+- GradingTests: test_applyGrade_lowConfidence_doesNotCertify,
+  _highConfidence_certifies, _isGradePendingReview_false_whenFinalizedButCertificateWithheld,
+  _true_whenNoCertAndNoReportId (AC4).
+
+US-1410 (cold-launch deep-link / App Intent / onboarding / cover collisions):
+- DeepLinkRouter.persistPending/drainPending via UserDefaults; App Intents persist
+  .addItem on cold launch; ContentView startup drains + replays after auth, drops
+  it if the warm path handled it (AC1).
+- handleDeepLink cancels the onboarding first-action nudge so an explicit deep
+  link wins over onboarding instead of being clobbered; mid-auth taps queued +
+  replayed (AC2).
+- sharedIntakeBatch + planStep: rather than one enum cover, the shared-photo drain
+  is GATED on planStep == nil and resumed on planStep dismiss — sequences the two
+  so a fresh sign-in triggering both never strands one (AC3 intent; functionally
+  equivalent to the single-enum refactor).
+- Widget getSnapshot: `context.isPreview ? .placeholder : (read() ?? .signedOut())`
+  — real signed-out users no longer see the fake $312 sample (AC4).
+- @SceneStorage shell.section + shell.focusedItemId restore the item onto the
+  owning section's stack (AC5).
+
 ## 2026-07-01 — US-1408 + US-1412: close iOS camera-recovery + hardening (verify + 1 gap-fix)
 
 Continuing the iOS App-Review backlog reconciliation (US-1405-1412 were shipped

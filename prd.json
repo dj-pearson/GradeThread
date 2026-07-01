@@ -7799,7 +7799,7 @@
         "GradeRequestStore poll window comment/maxPolls reconciled (GradeRequestStore.swift:71,261 — comment says ~2min, maxPolls=40 is ~5min): either lower maxPolls to ~22 or correct the comment"
       ],
       "priority": 1409,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (grading-journey sweep). Root class: client re-derives review state from confidence/missing-cert-URL. Live request flow (terminal states, cancel-on-dismiss, decode tolerance) already sound; iOS displays server overall_score (no client rounding). IMPLEMENTED 2026-06-30 (GradeReportView gates pendingReview on certificateURL presence so human-approved sub-0.75 certified grades stay shareable; LocalInventoryItem.isGradePendingReview also requires gradeReportId==nil so finalized-but-cert-withheld/superseded grades arent stuck pending; GradeRequestStore maxPolls 40->22 ~2min; tests) — pending iOS CI. A dedicated server grade_review_status column (not in sync schema today) would be more precise than the grade_report_id finalization signal."
     },
     {
@@ -7814,7 +7814,7 @@
         "@SceneStorage('shell.focusedItemId') (ContentView.swift:869-880,889-967) is keyed by section (or stores the owning section) so multi-tab scene restoration re-pushes the item onto the correct stack"
       ],
       "priority": 1410,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/AppReview] From 2026-06-30 audit (iPad/scene/deeplink sweep). Two HIGH cold-launch dead-ends + cover collision + widget fake-data. Warm-path deep links, AASA, orientation, share-extension edge cases already correct. Scene-restoration verification is Mac/Stage-Manager-gated. IMPLEMENTED 2026-06-30 on branch claude/ios-app-bug-audit-9in0xv (DeepLinkRouter persist/drain/clear + App Intents persist + ContentView startup drain & clear-on-live-handle for cold-launch route replay; handleDeepLink cancels onboarding pendingFirstAction so deep link isnt clobbered; planStep/sharedIntakeBatch fullScreenCover serialized; widget getSnapshot -> signedOut not fake placeholder) — pending iOS CI. DEFERRED: @SceneStorage focusedItemId keyed-by-section (intricate scene restoration, device-gated) and the iPad blank-detail latent guard."
     },
     {
