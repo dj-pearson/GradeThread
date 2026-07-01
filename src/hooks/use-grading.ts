@@ -150,6 +150,75 @@ export function useSubmitForGrading() {
   });
 }
 
+// ── Bulk variants ──────────────────────────────────────────────────────
+// The validate/submit endpoints already accept an `items` array, so bulk
+// grading (e.g. the Kanban "Submit selected for grading" action, US-1458) is
+// a single round-trip rather than N calls. All items share one tier.
+
+export function useValidateGradingBulk() {
+  return useMutation<
+    ValidationResult,
+    Error,
+    { inventoryItemIds: string[]; tier: GradingTier }
+  >({
+    mutationFn: async ({ inventoryItemIds, tier }) => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/grading/validate`, {
+        method: "POST",
+        headers: await edgeAuthHeaders(),
+        body: JSON.stringify({
+          items: inventoryItemIds.map((id) => ({
+            inventory_item_id: id,
+            tier,
+          })),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Validation failed.");
+      }
+      return json as ValidationResult;
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+export function useSubmitGradingBulk() {
+  const qc = useQueryClient();
+  return useMutation<
+    SubmitResult,
+    Error & { status?: number; validation?: ValidationResult },
+    { inventoryItemIds: string[]; tier: GradingTier }
+  >({
+    mutationFn: async ({ inventoryItemIds, tier }) => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/grading/submit`, {
+        method: "POST",
+        headers: await edgeAuthHeaders(),
+        body: JSON.stringify({
+          items: inventoryItemIds.map((id) => ({
+            inventory_item_id: id,
+            tier,
+          })),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & {
+          status?: number;
+          validation?: ValidationResult;
+        } = new Error(json.error || "Submission failed.");
+        err.status = res.status;
+        if (json.validation) err.validation = json.validation;
+        throw err;
+      }
+      return json as SubmitResult;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["flipdesk_grading_submissions"] });
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+    },
+  });
+}
+
 // List of grading submissions for a given inventory item. The most-recent
 // row drives the UI (status badge + ETA). Older completed rows are kept
 // for history if the user re-submitted after a return.

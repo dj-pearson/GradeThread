@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
+import { useAccountHub } from "@/hooks/use-account-hub";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,6 +87,7 @@ const DEFAULT_SETTINGS_TAB: SettingsTab = "profile";
 export function SettingsPage() {
   const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
+  const { embedded } = useAccountHub();
   const [searchParams, setSearchParams] = useSearchParams();
   const openFlipdeskTour = useFlipdeskTourStore((s) => s.open);
   const openWelcomeTour = useOnboardingTourStore((s) => s.open);
@@ -513,9 +516,26 @@ export function SettingsPage() {
         onValueChange={handleTabChange}
         className="space-y-6"
       >
-        <TabsList className="h-auto w-full flex-wrap justify-start">
+        {/* US-1441: inside the Account hub, the hub's tab strip sits directly
+            above these. Rendering both as identical pill strips reads as two
+            stacked tab bars, so switch these to an underline sub-nav that's
+            clearly secondary to (not a sibling of) the hub tabs. */}
+        <TabsList
+          className={cn(
+            "h-auto w-full flex-wrap justify-start",
+            embedded &&
+              "gap-1 rounded-none border-b bg-transparent p-0",
+          )}
+        >
           {SETTINGS_TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
+            <TabsTrigger
+              key={t.value}
+              value={t.value}
+              className={cn(
+                embedded &&
+                  "rounded-none border-b-2 border-transparent bg-transparent px-3 pb-2 shadow-none data-[state=active]:border-brand-navy data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+              )}
+            >
               <t.icon className="h-4 w-4" />
               {t.label}
             </TabsTrigger>

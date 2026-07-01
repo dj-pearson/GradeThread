@@ -30,6 +30,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ListChecks,
+  Award,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -72,6 +73,14 @@ import {
 import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
 import { validateStatusChange } from "@/lib/pipeline-rules";
+import {
+  useValidateGradingBulk,
+  useSubmitGradingBulk,
+  GRADING_TIER_COSTS,
+  GRADING_TIER_LABELS,
+  type GradingTier,
+  type ValidationResult,
+} from "@/hooks/use-grading";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -167,6 +176,10 @@ export function FlipdeskPipelinePage() {
   const setSelectedIds = useInventorySelection((s) => s.setSelected);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
+  // US-1458: photographed items whose "next stage" is grading are routed into
+  // the bulk-grade flow instead of a doomed status update. This holds the items
+  // the grade dialog operates on (either from batchMoveNext or the toolbar).
+  const [gradeItems, setGradeItems] = useState<ItemFullRow[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Advanced filter (US-1051) — parity with the listings table. Composes on
@@ -361,10 +374,26 @@ export function FlipdeskPipelinePage() {
   async function batchMoveNext() {
     const selected = items.filter((i) => selectedIds.has(i.id));
     if (selected.length === 0) return;
+
+    // US-1458: the stage after Photographed is grading, which is owned by the
+    // grade-submission flow (validateStatusChange always rejects a plain move
+    // into it). Peel those items off and route them into the bulk-grade dialog
+    // rather than reporting a guaranteed failure for every one.
+    const gradingBound = selected.filter(
+      (it) => nextPipelineStatus(it.status) === "grading" && it.grade_value == null,
+    );
+    const toMove = selected.filter((it) => !gradingBound.includes(it));
+
+    if (toMove.length === 0 && gradingBound.length > 0) {
+      // Nothing to advance by status — go straight to grading.
+      setGradeItems(gradingBound);
+      return;
+    }
+
     setBatchRunning(true);
     const results: BatchResult[] = [];
     try {
-      for (const it of selected) {
+      for (const it of toMove) {
         const next = nextPipelineStatus(it.status);
         if (!next) {
           results.push({
@@ -398,8 +427,14 @@ export function FlipdeskPipelinePage() {
         }
       }
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      setSelectedIds(new Set());
       setBatchResults(results);
+      // Hand the grading-bound items to the bulk-grade dialog; leave those
+      // selected (the dialog clears selection on submit). Others are done.
+      if (gradingBound.length > 0) {
+        setGradeItems(gradingBound);
+      } else {
+        setSelectedIds(new Set());
+      }
     } finally {
       setBatchRunning(false);
     }
@@ -770,6 +805,26 @@ export function FlipdeskPipelinePage() {
             )}
             Move to next status
           </Button>
+          {/* US-1458: bulk-grade the ungraded selection in one submission,
+              rather than one-at-a-time from each item's detail panel. */}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={batchRunning}
+            onClick={() => {
+              const eligible = items.filter(
+                (i) => selectedIds.has(i.id) && i.grade_value == null,
+              );
+              if (eligible.length === 0) {
+                toast.info("Selected items are already graded.");
+                return;
+              }
+              setGradeItems(eligible);
+            }}
+          >
+            <Award className="mr-1.5 h-3.5 w-3.5" />
+            Submit for grading
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -804,6 +859,15 @@ export function FlipdeskPipelinePage() {
       <BatchResultsDialog
         results={batchResults}
         onClose={() => setBatchResults(null)}
+      />
+      <BulkGradeDialog
+        items={gradeItems}
+        onClose={() => setGradeItems(null)}
+        onSubmitted={(results) => {
+          setGradeItems(null);
+          setSelectedIds(new Set());
+          setBatchResults(results);
+        }}
       />
     </div>
   );
@@ -1102,6 +1166,180 @@ function BatchResultsDialog({
         </ul>
         <DialogFooter>
           <Button onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// US-1458: submit a batch of ungraded items for grading in a single round-trip.
+// Validates the selection at the chosen tier (per-item ready/blocked + total
+// cost) before letting the user confirm the spend, then reports per-item
+// outcomes through the shared BatchResultsDialog.
+const GRADE_TIER_OPTIONS: GradingTier[] = ["standard", "premium", "express"];
+
+function BulkGradeDialog({
+  items,
+  onClose,
+  onSubmitted,
+}: {
+  items: ItemFullRow[] | null;
+  onClose: () => void;
+  onSubmitted: (results: BatchResult[]) => void;
+}) {
+  const [tier, setTier] = useState<GradingTier>("standard");
+  const validate = useValidateGradingBulk();
+  const submit = useSubmitGradingBulk();
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+
+  const itemIds = useMemo(() => (items ?? []).map((i) => i.id), [items]);
+  const titleById = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const i of items ?? []) m.set(i.id, i.item_title);
+    return m;
+  }, [items]);
+
+  // Re-validate whenever the dialog opens or the tier changes.
+  useEffect(() => {
+    if (itemIds.length === 0) {
+      setValidation(null);
+      return;
+    }
+    let cancelled = false;
+    validate
+      .mutateAsync({ inventoryItemIds: itemIds, tier })
+      .then((res) => {
+        if (!cancelled) setValidation(res);
+      })
+      .catch(() => {
+        if (!cancelled) setValidation(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // itemIds is derived from `items`; re-run on tier or item-set change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemIds, tier]);
+
+  const readyCount = validation?.items.filter((i) => i.ready).length ?? 0;
+  const blockedCount = (validation?.items.length ?? 0) - readyCount;
+  const totalCost = validation?.total_cost ?? null;
+  const limitExceeded = validation?.limit_exceeded ?? false;
+
+  async function doSubmit() {
+    try {
+      const res = await submit.mutateAsync({
+        inventoryItemIds: itemIds,
+        tier,
+      });
+      const results: BatchResult[] = res.results.map((r) =>
+        r.ok
+          ? {
+              title: titleById.get(r.inventory_item_id) ?? "Item",
+              ok: true,
+              detail: `Submitted — ${tier} tier`,
+            }
+          : {
+              title: titleById.get(r.inventory_item_id) ?? "Item",
+              ok: false,
+              detail: r.error,
+            },
+      );
+      if (res.submitted > 0) {
+        toast.success(
+          `Submitted ${res.submitted} item${res.submitted === 1 ? "" : "s"} for grading.`,
+        );
+      }
+      if (res.failed > 0 && res.submitted === 0) {
+        toast.error("No items could be submitted — see details.");
+      }
+      onSubmitted(results);
+    } catch (err) {
+      const e = err as Error;
+      toast.error(e.message);
+    }
+  }
+
+  return (
+    <Dialog
+      open={items != null}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Submit for grading</DialogTitle>
+          <DialogDescription>
+            {itemIds.length} item{itemIds.length === 1 ? "" : "s"} selected.
+            Choose a grading tier and confirm.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Select value={tier} onValueChange={(v) => setTier(v as GradingTier)}>
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GRADE_TIER_OPTIONS.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {GRADING_TIER_LABELS[t]} — ${GRADING_TIER_COSTS[t].toFixed(2)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {validate.isPending ? (
+            <p className="text-sm text-muted-foreground">Checking readiness…</p>
+          ) : validation ? (
+            <div className="space-y-1 rounded-md border p-3 text-sm">
+              <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4" />
+                {readyCount} ready to grade
+              </div>
+              {blockedCount > 0 && (
+                <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="h-4 w-4" />
+                  {blockedCount} not ready (will be skipped)
+                </div>
+              )}
+              {totalCost != null && (
+                <div className="pt-1 text-muted-foreground">
+                  Estimated cost:{" "}
+                  <span className="font-medium text-foreground">
+                    ${totalCost.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {limitExceeded && (
+                <div className="pt-1 text-destructive">
+                  This exceeds your monthly grading limit.
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={submit.isPending}>
+            Cancel
+          </Button>
+          <Button
+            onClick={doSubmit}
+            disabled={
+              submit.isPending ||
+              validate.isPending ||
+              readyCount === 0 ||
+              limitExceeded
+            }
+            className="bg-brand-navy"
+          >
+            {submit.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Award className="mr-2 h-4 w-4" />
+            )}
+            Submit {readyCount > 0 ? `${readyCount} ` : ""}for grading
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

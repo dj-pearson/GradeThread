@@ -2,6 +2,39 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1458 + US-1441: bulk grading from Kanban + Account-hub header dedup
+
+US-1458 — Fix Kanban bulk "Move to next status" dead-end at Photographed:
+- The board's only bulk status action advanced each item one stage, but the stage
+  after Photographed is `grading`, which validateStatusChange always rejects — so
+  bulk-advancing a Photographed selection produced an all-failures result, and
+  grading could only be triggered one item at a time from each detail panel.
+- use-grading.ts: added useValidateGradingBulk / useSubmitGradingBulk (the
+  /validate + /submit edge endpoints already accept an `items[]` array, so bulk
+  grading is one round-trip; all items share one tier).
+- pipeline.tsx: added a "Submit for grading" batch-bar action + BulkGradeDialog
+  (tier picker, pre-flight ready/blocked + estimated-cost summary, per-item
+  results via the shared BatchResultsDialog). batchMoveNext now peels off
+  grading-bound items (next === "grading", ungraded) and routes them into the
+  bulk-grade dialog instead of reporting a guaranteed failure for each.
+
+US-1441 — Resolve nested tab strips + redundant headers in the Account hub:
+- The hub renders SettingsPage as a tab, but SettingsPage had its own 8-tab strip
+  AND a "Settings" PageHeader → two stacked tab strips + a duplicate heading.
+  Sibling tabs (Billing/Team/API keys/Referrals) each rendered their own h1.
+- New shared context src/hooks/use-account-hub.ts ({ embedded }); AccountPage wraps
+  its children in AccountHubContext.Provider embedded=true. Standalone routes
+  (/dashboard/settings, /billing, …) still render with embedded=false → unchanged.
+- PageHeader: when embedded, drops the title/subtitle/icon (the tab label names
+  the section) but keeps `actions` (e.g. Team's Invite / API keys' Create Key).
+- Converted billing/api-keys/referrals raw <h1> headers to PageHeader so the
+  suppression is uniform and all hub child headings are consistent (AC bullet 3).
+- settings.tsx: when embedded, the 8-tab sub-strip renders as an underline sub-nav
+  (distinct from the hub's pill tabs) so two identical strips no longer stack.
+
+Verify: npx tsc -b ✓ · npx eslint (changed files) ✓ · npx vitest run → 1019 pass ✓
+· npm run build → 45 prerendered routes ✓. (Frontend-only; no edge changes.)
+
 ## 2026-07-01 — Production hotfix: drop `temperature` for Sonnet 5 (deprecated → 400)
 
 - Prod /api/flipdesk/ai/extract was 502ing with `[flipdesk-ai] extraction failed:

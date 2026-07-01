@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
@@ -152,10 +153,10 @@ export function BillingPage() {
   if (isLoading || !summary) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Billing</h1>
-          <p className="text-muted-foreground">Manage your subscription and credits.</p>
-        </div>
+        <PageHeader
+          title="Billing"
+          subtitle="Manage your subscription and credits."
+        />
         <div className="grid gap-4 lg:grid-cols-2">
           <Skeleton className="h-72 w-full" />
           <Skeleton className="h-72 w-full" />
@@ -201,32 +202,30 @@ export function BillingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Billing</h1>
-          <p className="text-muted-foreground">
-            Manage your FlipDesk subscription and GradeThread credits.
-          </p>
-        </div>
-        {subscription.stripe_customer_id && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => portal.mutate()}
-                disabled={portal.isPending}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Open Stripe Portal
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+      <PageHeader
+        title="Billing"
+        subtitle="Manage your FlipDesk subscription and GradeThread credits."
+        actions={
+          subscription.stripe_customer_id ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => portal.mutate()}
+                  disabled={portal.isPending}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Open Stripe Portal
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : undefined
+        }
+      />
 
       {/* Status banners */}
       {appstoreManaged && (

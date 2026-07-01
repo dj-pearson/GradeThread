@@ -1,6 +1,7 @@
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { AccountHubContext } from "@/hooks/use-account-hub";
 import type { WorkspaceCapability } from "@/lib/workspace-permissions";
 import { SettingsPage } from "@/pages/settings";
 import { BillingPage } from "@/pages/billing";
@@ -10,8 +11,10 @@ import { ReferralsPage } from "@/pages/referrals";
 
 // Unified Account hub (US-741). One destination with tabs, composed from the
 // existing standalone pages rather than rewriting them — radix Tabs unmounts
-// inactive content, so only the open tab's page mounts/fetches. The active
-// page's own heading doubles as the section title (no redundant hub header).
+// inactive content, so only the open tab's page mounts/fetches. Children render
+// with AccountHubContext.embedded = true so each page suppresses its own
+// PageHeader (US-1441) — the tab label names the section, so a per-page heading
+// would just duplicate it and stack a second title under this tab strip.
 const TABS: { value: string; label: string; requires?: WorkspaceCapability }[] =
   [
     { value: "settings", label: "Settings" },
@@ -41,33 +44,35 @@ export function AccountPage() {
   }
 
   return (
-    <Tabs value={tab} onValueChange={onTab} className="space-y-6">
-      <TabsList className="flex-wrap">
-        {visible.map((t) => (
-          <TabsTrigger key={t.value} value={t.value}>
-            {t.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      <TabsContent value="settings">
-        <SettingsPage />
-      </TabsContent>
-      {allowed.has("billing") && (
-        <TabsContent value="billing">
-          <BillingPage />
+    <AccountHubContext.Provider value={{ embedded: true }}>
+      <Tabs value={tab} onValueChange={onTab} className="space-y-6">
+        <TabsList className="flex-wrap">
+          {visible.map((t) => (
+            <TabsTrigger key={t.value} value={t.value}>
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value="settings">
+          <SettingsPage />
         </TabsContent>
-      )}
-      <TabsContent value="team">
-        <TeamPage />
-      </TabsContent>
-      {allowed.has("api-keys") && (
-        <TabsContent value="api-keys">
-          <ApiKeysPage />
+        {allowed.has("billing") && (
+          <TabsContent value="billing">
+            <BillingPage />
+          </TabsContent>
+        )}
+        <TabsContent value="team">
+          <TeamPage />
         </TabsContent>
-      )}
-      <TabsContent value="referrals">
-        <ReferralsPage />
-      </TabsContent>
-    </Tabs>
+        {allowed.has("api-keys") && (
+          <TabsContent value="api-keys">
+            <ApiKeysPage />
+          </TabsContent>
+        )}
+        <TabsContent value="referrals">
+          <ReferralsPage />
+        </TabsContent>
+      </Tabs>
+    </AccountHubContext.Provider>
   );
 }

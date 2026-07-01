@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -294,15 +295,11 @@ export function ReferralsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Gift className="h-6 w-6 text-brand-red-text" /> Refer a friend
-        </h1>
-        <p className="text-muted-foreground">
-          Share your link. When a friend joins and qualifies, you both earn grade
-          credits — added to your balance automatically, and we'll let you know.
-        </p>
-      </div>
+      <PageHeader
+        icon={Gift}
+        title="Refer a friend"
+        subtitle="Share your link. When a friend joins and qualifies, you both earn grade credits — added to your balance automatically, and we'll let you know."
+      />
 
       {isError ? (
         <ErrorState

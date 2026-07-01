@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -196,10 +197,10 @@ export function ApiKeysPage() {
   if (!hasApiAccess) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">API Keys</h1>
-          <p className="text-muted-foreground">Manage your API keys for programmatic access.</p>
-        </div>
+        <PageHeader
+          title="API Keys"
+          subtitle="Manage your API keys for programmatic access."
+        />
 
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
@@ -230,13 +231,11 @@ export function ApiKeysPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">API Keys</h1>
-          <p className="text-muted-foreground">Manage your API keys for programmatic access.</p>
-        </div>
-
-        <Dialog open={createOpen} onOpenChange={handleCreateDialogClose}>
+      <PageHeader
+        title="API Keys"
+        subtitle="Manage your API keys for programmatic access."
+        actions={
+          <Dialog open={createOpen} onOpenChange={handleCreateDialogClose}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
@@ -332,8 +331,9 @@ export function ApiKeysPage() {
               </>
             )}
           </DialogContent>
-        </Dialog>
-      </div>
+          </Dialog>
+        }
+      />
 
       <Card>
         <CardHeader>
