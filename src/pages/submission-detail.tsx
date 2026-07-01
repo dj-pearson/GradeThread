@@ -70,7 +70,6 @@ import { GarmentPassportPanel } from "@/components/passport/garment-passport-pan
 import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { useAuth } from "@/hooks/use-auth";
-import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
 import type {
   SubmissionRow,
@@ -103,6 +102,17 @@ function formatLabel(value: string): string {
 
 // US-1466: minutes past which an in-flight grade is flagged as "taking longer
 // than expected" (with a support link). Normal grades finish well under this.
+// US-1437: read a File as a base64 data URI so dispute evidence can be POSTed to
+// the server-side validation endpoint (which sniffs + strips it before storage).
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("Couldn't read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
 const LONG_GRADE_THRESHOLD_MS = 3 * 60 * 1000;
 
 // Human-readable elapsed time for the in-progress grading card.
@@ -143,7 +153,6 @@ export function SubmissionDetailPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const { workspaceOwnerId } = useWorkspace();
   const visible = useDocumentVisible();
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
   const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
@@ -465,75 +474,65 @@ export function SubmissionDetailPage() {
     setSubmittingDispute(true);
 
     try {
-      // US-1416: upload dispute evidence photos and KEEP their storage paths so
-      // they're persisted on the dispute (previously the uploads were orphaned —
-      // no row referenced them, so reviewers never saw them). A failed upload is
-      // surfaced (toast) instead of being swallowed, and we still file the
-      // dispute with whatever evidence did upload.
-      const folderUserId = workspaceOwnerId ?? user.id;
-      const evidencePaths: string[] = [];
-      if (disputePhotos.length > 0 && submission) {
-        let failures = 0;
-        for (let i = 0; i < disputePhotos.length; i++) {
-          const photo = disputePhotos[i];
-          if (!photo) continue;
-          const ext = photo.name.split(".").pop() ?? "jpg";
-          const path = `${folderUserId}/${submission.id}/dispute_${Date.now()}_${i}.${ext}`;
-          const { error: uploadError } = await supabase.storage
-            .from("submission-images")
-            .upload(path, photo);
-          if (uploadError) {
-            failures++;
-          } else {
-            evidencePaths.push(path);
-          }
-        }
-        if (failures > 0) {
-          toast.error(
-            `${failures} of ${disputePhotos.length} evidence photo(s) couldn't be uploaded — filing your dispute without them.`,
-          );
-        }
+      // US-1437: file the dispute server-side (POST /api/grade/dispute). This
+      // fixes two things the old client path got wrong: evidence photos now go
+      // through magic-byte validation + EXIF/GPS stripping before storage
+      // (US-276), and a WORKSPACE MEMBER can file at all — the old client-side
+      // disputes.insert + storage.upload were keyed to the workspace owner's id
+      // and so failed the auth.uid()=user_id RLS for a non-owner member.
+      const images: string[] = [];
+      for (const photo of disputePhotos) {
+        if (photo) images.push(await fileToDataUrl(photo));
       }
 
-      const { data: newDispute, error: disputeError } = await supabase
-        .from("disputes")
-        .insert({
-          grade_report_id: gradeReport.id,
-          user_id: workspaceOwnerId ?? user.id,
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Your session expired — please sign in again.");
+
+      const res = await fetch(`${edgeApiUrl()}/api/grade/dispute`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          gradeReportId: gradeReport.id,
           reason: composedReason,
-          evidence_paths: evidencePaths,
-        } as never)
-        .select()
-        .single();
-
-      if (disputeError) throw disputeError;
-
-      // Update submission status to disputed
-      await supabase
-        .from("submissions")
-        .update({ status: "disputed" } as never)
-        .eq("id", submission!.id);
+          images,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        dispute?: DisputeRow;
+        evidence_failures?: number;
+        error?: string;
+      };
+      if (!res.ok || !json.dispute) {
+        throw new Error(json.error || "Failed to submit dispute");
+      }
+      const newDispute = json.dispute;
+      if ((json.evidence_failures ?? 0) > 0) {
+        toast.error(
+          `${json.evidence_failures} of ${images.length} evidence photo(s) couldn't be uploaded — filed your dispute without them.`,
+        );
+      }
 
       // Alert the platform admin to review (best-effort — never blocks filing).
       void (async () => {
         try {
-          const { data: sess } = await supabase.auth.getSession();
-          const token = sess.session?.access_token;
-          if (!token) return;
           await fetch(`${edgeApiUrl()}/api/notifications/dispute-filed`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ disputeId: (newDispute as DisputeRow).id }),
+            body: JSON.stringify({ disputeId: newDispute.id }),
           });
         } catch {
           /* best-effort */
         }
       })();
 
-      setDispute(newDispute as DisputeRow);
+      setDispute(newDispute);
       setSubmission((prev) =>
         prev ? { ...prev, status: "disputed" as const } : prev
       );

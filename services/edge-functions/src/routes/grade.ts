@@ -1007,3 +1007,120 @@ gradeRoutes.post("/snap", async (c) => {
       "This is an AI condition + value ESTIMATE from one photo — not a certified GradeThread grade or a guaranteed sale price. Get a full certified grade to list with confidence.",
   });
 });
+
+// US-1437: file a grade dispute server-side. This MUST be server-side for two
+// reasons the previous browser→bucket path got wrong:
+//   (1) Security (US-276): evidence photos reached storage with NO magic-byte
+//       validation or EXIF/GPS stripping. Every image is now sniffed + stripped
+//       here (same as the grading uploads) before it is stored.
+//   (2) Tenant correctness: the disputes + storage RLS is auth.uid() = user_id,
+//       but a dispute (and its evidence) belongs to the WORKSPACE OWNER's account.
+//       A non-owner MEMBER's client-side insert/upload therefore failed RLS — they
+//       could not file a dispute at all. workspaceMiddleware has already verified
+//       this caller is a member of workspaceOwnerId's workspace, so we file as the
+//       owner via the service-role client AFTER confirming the owner actually owns
+//       the grade report (US-268).
+const MAX_DISPUTE_EVIDENCE = 8;
+
+gradeRoutes.post("/dispute", async (c) => {
+  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+
+  let body: { gradeReportId?: unknown; reason?: unknown; images?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const gradeReportId =
+    typeof body.gradeReportId === "string" ? body.gradeReportId.trim() : "";
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (!gradeReportId) return c.json({ error: "gradeReportId is required" }, 400);
+  if (!reason) return c.json({ error: "reason is required" }, 400);
+  const images = Array.isArray(body.images)
+    ? body.images.filter(
+        (x): x is string => typeof x === "string" && x.length > 0,
+      )
+    : [];
+  if (images.length > MAX_DISPUTE_EVIDENCE) {
+    return c.json(
+      { error: `At most ${MAX_DISPUTE_EVIDENCE} evidence photos are allowed` },
+      400,
+    );
+  }
+
+  // Ownership (US-268): grade_reports has no user_id, so verify the report's
+  // submission belongs to this workspace owner. A miss is reported as not-found
+  // so an id probe can't distinguish "doesn't exist" from "not yours".
+  const { data: gr } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, submission_id")
+    .eq("id", gradeReportId)
+    .maybeSingle();
+  const submissionId =
+    (gr as { submission_id: string } | null)?.submission_id ?? null;
+  if (!submissionId) return c.json({ error: "Grade report not found" }, 404);
+  const { data: sub } = await supabaseAdmin
+    .from("submissions")
+    .select("id")
+    .eq("id", submissionId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!sub) return c.json({ error: "Grade report not found" }, 404);
+
+  // Validate + strip + store each evidence image (US-276). Stored under the
+  // owner's folder, matching the submission's own images. The service-role write
+  // bypasses storage RLS; a bad image is dropped (counted) rather than failing
+  // the whole filing.
+  const evidencePaths: string[] = [];
+  let failures = 0;
+  for (let i = 0; i < images.length; i++) {
+    const rawBytes = decodeBase64Image(images[i]!);
+    if (!rawBytes) {
+      failures++;
+      continue;
+    }
+    const verdict = validateImageUpload(rawBytes, {
+      allow: ["jpeg", "png", "webp"],
+    });
+    if (!verdict.ok) {
+      failures++;
+      continue;
+    }
+    const { bytes: clean } = stripImageMetadata(rawBytes, verdict.format);
+    const ext = verdict.format === "jpeg" ? "jpg" : verdict.format;
+    const path = `${ownerId}/${submissionId}/dispute_${Date.now()}_${i}.${ext}`;
+    const { error: upErr } = await supabaseAdmin.storage
+      .from("submission-images")
+      .upload(path, clean, { contentType: verdict.contentType });
+    if (upErr) {
+      failures++;
+      continue;
+    }
+    evidencePaths.push(path);
+  }
+
+  // File the dispute as the owner (verified above) + flip the submission to
+  // disputed. Both writes are service-role and tenant-scoped to ownerId.
+  const { data: dispute, error: dErr } = await supabaseAdmin
+    .from("disputes")
+    .insert({
+      grade_report_id: gradeReportId,
+      user_id: ownerId,
+      reason,
+      evidence_paths: evidencePaths,
+    })
+    .select()
+    .single();
+  if (dErr || !dispute) {
+    captureException(dErr, { route: "grade.dispute", userId });
+    return c.json({ error: "Couldn't file the dispute" }, 500);
+  }
+  await supabaseAdmin
+    .from("submissions")
+    .update({ status: "disputed" })
+    .eq("id", submissionId)
+    .eq("user_id", ownerId);
+
+  return c.json({ dispute, evidence_failures: failures });
+});
