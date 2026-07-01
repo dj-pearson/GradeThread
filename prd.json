@@ -8243,7 +8243,7 @@
         "Make it idempotent on the dispute id and cover both outcomes with tests."
       ],
       "priority": 2087,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · payments · payments audit] Evidence: services/edge-functions/src/routes/webhooks.ts:226-262,1184-1188."
     },
     {
@@ -8256,7 +8256,7 @@
         "Leave in-module caches in place as defense-in-depth."
       ],
       "priority": 2086,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · edge · edge audit] Evidence: main.ts:790,1038,1161; changelog.ts:45; maintenance.ts:12; public-grading.ts:30-133."
     },
     {

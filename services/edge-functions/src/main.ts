@@ -585,6 +585,21 @@ app.use(
     bypass: pagesOriginBypass,
   }),
 );
+// US-1444: the remaining PUBLIC, unauthenticated GET surfaces — changelog,
+// maintenance status, and the public-grading transparency/stats reads — run
+// uncached (or cold-cache) DB reads per request with no limiter. Cap per-IP and
+// fail-closed like content-public, with the Pages-origin bypass so the SSR
+// workers that proxy them for all visitors through one Cloudflare IP aren't
+// starved. The in-module TTL caches stay in place as defense-in-depth.
+const publicReadLimiter = (name: string) =>
+  rateLimiter(60, 60_000, name, undefined, { failClosed: true, bypass: pagesOriginBypass });
+// changelog is served at the mount root (GET /api/changelog), so `/*` alone
+// would miss it — register both the base and any future sub-paths.
+const changelogLimiter = publicReadLimiter("changelog-public");
+app.use("/api/changelog", changelogLimiter);
+app.use("/api/changelog/*", changelogLimiter);
+app.use("/api/maintenance/*", publicReadLimiter("maintenance-public"));
+app.use("/api/grading/public/*", publicReadLimiter("grading-public"));
 // US-585: public waitlist capture is unauthenticated — cap per-IP and
 // fail-closed so a fresh-account spam flood can't fill the table.
 app.use("/api/waitlist", rateLimiter(10, 60_000, "waitlist", undefined, { failClosed: true, methods: ["POST"] }));
