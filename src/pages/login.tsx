@@ -12,6 +12,8 @@ import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { setKeepSignedIn } from "@/lib/supabase";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { FieldError } from "@/components/ui/form-feedback";
@@ -39,6 +41,10 @@ export function LoginPage() {
   // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
+  // US-1460: default true = prior behavior (persist to localStorage). Unchecking
+  // it scopes this session to sessionStorage so it's dropped when the browser
+  // closes — for shared/public devices.
+  const [keepSignedIn, setKeepSignedInState] = useState(true);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,6 +65,8 @@ export function LoginPage() {
     }
     setIsLoading(true);
     try {
+      // US-1460: apply the persistence choice before the session is written.
+      setKeepSignedIn(keepSignedIn);
       await signInWithEmail(email, password, captchaToken ?? undefined);
       navigate(
         inviteToken
@@ -105,6 +113,7 @@ export function LoginPage() {
     if (oauthPending || isLoading) return;
     setOauthPending("google");
     try {
+      setKeepSignedIn(keepSignedIn); // US-1460
       rememberReturnTo();
       await signInWithGoogle();
       // On success the browser navigates to the provider — leave the spinner up.
@@ -118,6 +127,7 @@ export function LoginPage() {
     if (oauthPending || isLoading) return;
     setOauthPending("apple");
     try {
+      setKeepSignedIn(keepSignedIn); // US-1460
       rememberReturnTo();
       await signInWithApple();
     } catch (err) {
@@ -176,6 +186,22 @@ export function LoginPage() {
               aria-describedby={errors.password ? "password-error" : undefined}
             />
             <FieldError id="password-error">{errors.password}</FieldError>
+          </div>
+          {/* US-1460: opt out of persistent sign-in on a shared/public device. */}
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="keep-signed-in"
+              checked={keepSignedIn}
+              onCheckedChange={(v) => setKeepSignedInState(v === true)}
+              disabled={isLoading || oauthPending !== null}
+            />
+            <Label
+              htmlFor="keep-signed-in"
+              className="text-sm font-normal text-muted-foreground"
+            >
+              Keep me signed in{" "}
+              <span className="text-xs">(uncheck on a shared device)</span>
+            </Label>
           </div>
           <TurnstileWidget
             onVerify={setCaptchaToken}

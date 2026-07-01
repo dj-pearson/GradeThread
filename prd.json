@@ -8456,7 +8456,7 @@
         "Default to the current behavior to avoid regressions."
       ],
       "priority": 2000,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: src/lib/supabase.ts:11-18; idle-logout.ts:16; login.tsx."
     },
     {
@@ -8591,7 +8591,7 @@
         "No handler change needed."
       ],
       "priority": 1989,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · edge · edge audit] Evidence: content-blog.ts:38-42 vs 405,491,548,742,779; content-topics.ts:12 vs 252,300."
     },
     {

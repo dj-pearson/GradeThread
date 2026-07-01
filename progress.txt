@@ -2,6 +2,35 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 17 (US-1460, US-1471) — shared-device login control + stale-comment refresh
+
+- US-1460 Provide a 'stay signed in' / shared-device control on login — NOW
+  COMPLETE (passes:true). The Supabase client always persisted the session to
+  localStorage with no user choice. Added a hybrid storage adapter in supabase.ts:
+  a tiny localStorage flag (gt.keep_signed_in) routes session reads/writes to
+  localStorage (default — prior behavior) or sessionStorage (dropped on browser
+  close) — all access try/caught so it's a no-op under SSR/prerender (verified by
+  a clean production build). Exposed setKeepSignedIn(keep) and added a "Keep me
+  signed in (uncheck on a shared device)" checkbox to login.tsx (default checked =
+  no regression, AC3); the choice is applied before every sign-in path
+  (email + Google + Apple) so the tokens land in the right store (AC1/AC2). Chose
+  session-scoped storage over a shorter idle window (the stronger of the two
+  options the AC offered), so idle-logout.ts is untouched.
+
+- US-1471 Refresh stale 'Phase A/B 501' comments in content-blog.ts and
+  content-topics.ts — NOW COMPLETE (passes:true). Header comments claimed the AI
+  endpoints return 501 / are stubbed, but they're fully wired: verified
+  /generate + /regenerate-section call generateBlogArticle/streamAnthropicText,
+  publish wires ensureHeroImage + dispatchContentWebhook, and /research calls
+  researchTopics. Rewrote the three stale comment blocks to say generation is LIVE
+  (also fixed the stale "Hero generation + webhook dispatch land in Phase B/E"
+  line). Comment-only — no handler change (AC1/AC2).
+
+VERIFICATION (this container): web gate fully green — tsc -b clean, eslint 0
+errors, vitest 1012 pass, npm run build (incl. prerender/SSR, which exercises the
+new supabase storage adapter — SSR-safe) succeeded. The comment-only edge changes
+are validated by the GitHub Actions edge lane. Open prd.json stories now 125.
+
 ## 2026-06-30 — Pre-launch audit batch 16 (US-1465, US-1463) — cert integrity panel + onboarding step skip
 
 - US-1465 Clarify and de-emphasize the certificate integrity-check panel on

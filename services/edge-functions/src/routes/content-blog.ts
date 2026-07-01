@@ -35,11 +35,10 @@ function pingIndexNow(slugs: string[]): void {
 
 // Blog posts CRUD + lifecycle endpoints.
 //
-// AI-driven endpoints (/generate, /regenerate-section) return 501 here;
-// they'll be wired up in Phase B when the generator lib lands. Publish
-// also no-ops on hero generation + webhook dispatch until Phase B/E,
-// but already handles the status transition + history-index append so
-// the rest of the system can plug in without changing this file.
+// AI generation is LIVE (not a 501 stub): /generate and /regenerate-section call
+// the generator lib (generateBlogArticle / streamAnthropicText). Publish handles
+// the status transition + history-index append AND wires hero generation
+// (ensureHeroImage) + the Make webhook (dispatchContentWebhook).
 
 type Env = { Variables: { userId: string } };
 export const contentBlogRoutes = new Hono<Env>();
@@ -278,8 +277,8 @@ contentBlogRoutes.delete("/:id", async (c) => {
 // ──────────────────────────────────────────────────────────
 // PUBLISH
 // ──────────────────────────────────────────────────────────
-// Sets status='published', stamps published_at, appends to the
-// history index. Hero generation + webhook dispatch land in Phase B/E.
+// Sets status='published', stamps published_at, appends to the history index,
+// generates the hero, and dispatches the Make webhook (all live).
 // Shared blog publish — the single transition that takes a draft live: sanitize
 // the body, ensure a hero image (so the OG/webhook carry it), stamp
 // status=published + published_at, mark the originating topic used, append to
