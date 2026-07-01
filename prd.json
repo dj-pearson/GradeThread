@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1491,
+  "nextId": 1524,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -8823,6 +8823,475 @@
       "priority": 2200,
       "passes": true,
       "notes": "[FEATURE 2026-06-30 · user-requested] IMPLEMENTED: edge — ebay-client.ts updateOfferFields() gains categoryId (re-asserts the leaf category on the live offer); flipdesk-ebay.ts /listings/:id/revise gains a resync_ebay_fields flag that widens the inventory re-PUT gate (pushing rebuilt aspects + auto-corrected condition) and the offer-update gate (pushing categoryId via the lifted reviseCategoryId), included in the at-least-one validation and the eBay-origin lock. Frontend — useEbayReviseListing ReviseListingPatch gains resync_ebay_fields; composer.tsx detects isLiveListing and renders a live banner + Save & resubmit to eBay, backed by a new saveLiveListing() (updates the active row in place, mirrors category/aspects to the item without regressing status) + handleResubmitClick() (save then revise with photos + resync_ebay_fields); resolveListingFields() shared by the draft and live save paths to avoid drift; item-canvas adds an Edit eBay listing overflow action for GradeThread-originated listed items. VERIFY: frontend eslint/tsc/vitest(1008)/build/bundle all green; deno lint clean on the two edge files (deno check/test blocked by egress here — edge CI is the net)."
+    },
+    {
+      "id": "US-1491",
+      "title": "iOS: locale-safe numeric parsing — Save & Sync can push a 100× price to a live eBay listing in comma-decimal locales",
+      "description": "The item-canvas save path parses the same price text two different ways: the DB payload uses locale-aware CurrencyFormatter.parse, but the eBay revise plan uses Double(text.replacingOccurrences(of: \",\", with: \"\")) (ItemCanvasView.swift:1747-1752). In de/fr/es locales '24,99' saves 24.99 locally but pushes 2499.0 to the live eBay offer. 'Use median' seeds the field locale-formatted, making this near-guaranteed. Same class: NegotiationInboxView.swift:378 seeds the counter-offer field with String(format: \"%.2f\") but parses locale-aware at :299 (AI-suggested counter inflates 100×), and measurement bindings at ItemCanvasView.swift:1281-1288 parse with Double() so comma-decimal input silently drops the fraction.",
+      "acceptanceCriteria": [
+        "ItemCanvasView ebayPlan computes newPrice/oldPrice via the same currencyFormatter.parse used by parsedPrices() — no raw Double() parse of user-entered price text remains in the revise path.",
+        "NegotiationInboxView seeds the counter price field with CurrencyFormatter().formatRaw(suggested) so seed format matches the parser.",
+        "Measurement row bindings parse via CurrencyFormatter/NumberFormatter (accepting the locale decimal separator) instead of Double(cleaned).",
+        "A grep for Double( over user-entered numeric TextField bindings in ios/GradeThread finds no remaining locale-unsafe parse on a money or measurement field.",
+        "Unit tests cover a comma-decimal locale (de_DE): price '24,99' produces a 24.99 revise plan and measurement '18,5' stores 18.5."
+      ],
+      "priority": 2400,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] CRITICAL. The one bug most likely to cost users real money. Fix is small; the formatter and parsedPrices() already exist."
+    },
+    {
+      "id": "US-1492",
+      "title": "iOS: password-reset round trip dead-ends signed-in with the old password; auth-callback failures are completely silent",
+      "description": "AuthStore.handleAuthCallback (AuthStore.swift:178-189) exchanges the recovery URL for a session but the .passwordRecovery event is ignored (AuthStore.swift:297-300 — the comment describes behavior that doesn't exist); nothing ever presents ChangePasswordSheet, so 'Forgot password?' → email link → silently signed in with the OLD password still set. Separately, the callback exchange is `_ = try? await` (AuthStore.swift:188): an expired/used confirmation or reset link, or a PKCE verifier mismatch (guaranteed cross-device or after reinstall), produces no UI at all — the app foregrounds and nothing happens.",
+      "acceptanceCriteria": [
+        "On the .passwordRecovery auth event, the shell auto-presents ChangePasswordSheet (which already works against the live session) so the user is prompted to set a new password before continuing.",
+        "handleAuthCallback catches session(from:) errors and surfaces them (authStore.lastError rendered by LoginView, or an alert) with actionable copy like 'This link expired — request a new one', including a resend path for confirmation links.",
+        "Cross-device/expired link and happy-path recovery are covered by unit tests on the AuthStore event handling.",
+        "The stale comment at AuthStore.swift:297-300 is corrected to match real behavior."
+      ],
+      "priority": 2399,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Both are minutes-to-hit reviewer flows with one test account and an email inbox (the exact 2.1-class runtime bug Apple keeps finding)."
+    },
+    {
+      "id": "US-1493",
+      "title": "iOS: stale workspace scope survives sign-out, and workspace-switch/sign-out race in-flight sync pulls (cross-tenant data + poisoned watermarks)",
+      "description": "(1) WorkspaceContext persists activeOwnerId in UserDefaults but neither the sign-out teardown (ContentView.swift:105-141) nor AuthStore.signOut()/deleteAccount() calls WorkspaceScope.clear() — the next account on the device inherits the previous user's X-Workspace-Owner (EdgeAPI.swift:598-600) and sees an empty app or the wrong tenant. (2) A workspace switch mid-pull races: pull() resolves ownerId once (SyncEngine.swift:608-609) and sync() no-ops on isPulling, so an in-flight workspace-A pull merges A rows into the freshly-wiped store presented as B AND advances the just-reset watermarks with A cursors — B looks permanently missing data (ContentView.swift:146-177, SyncEngine.swift:159-162,189-194). (3) Sign-out wipe runs synchronously while syncEngine.stop() is a detached Task that doesn't cancel in-flight merges — the old account's rows can be re-saved after the wipe (tenant leak on shared devices).",
+      "acceptanceCriteria": [
+        "WorkspaceScope.clear() is called in the .signedOut phase-change branch and in deleteAccount(); a fresh sign-in never inherits the prior user's workspace scope.",
+        "SyncEngine gains a scope epoch/generation captured at pull start; merge application and watermark advancement are discarded if the epoch changed (workspace switch, access-revoked recovery, sign-out).",
+        "pull() requested while one is in flight queues a follow-up pass for the new scope instead of silently no-oping.",
+        "Sign-out awaits engine stop (or the epoch guard makes late merges no-ops) before/despite wiping, so no previous-account rows can land post-wipe.",
+        "Unit tests simulate a scope change mid-pull and assert no cross-tenant rows are merged and watermarks are not advanced with stale cursors."
+      ],
+      "priority": 2398,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Tenant-isolation class. The epoch guard fixes H5, H6 and the access-revoked race in one mechanism."
+    },
+    {
+      "id": "US-1494",
+      "title": "iOS: expense data integrity — every synced expense's date clobbered to 'now', offline-created expenses duplicate, month bucketing timezone drift",
+      "description": "(1) SyncMergeActor.swift:315 sets local.spentOn = SyncEngine.parseDate(remote.spent_on), but parseDate only handles ISO date-time and falls back to .now for the date-only 'yyyy-MM-dd' — every expense that flows through a delta pull lands on 'today', corrupting Money month totals/rollups (the correct helper remote.spentOnDate exists and is used one line earlier in the insert path). (2) ExpenseStore.swift:123-125 enqueues the offline create WITHOUT id:, so OfflineMutationQueue.enqueueCreate overwrites the payload's minted lowercase id with a fresh UPPERCASE UUID — server row id differs from the local mirror → duplicate expense until delete-reconciliation. (3) spent_on serializes at UTC midnight but thisMonthTotal buckets with Calendar.current (ExpenseStore.swift:34-40) — boundary-day expenses land in the wrong month for non-UTC users.",
+      "acceptanceCriteria": [
+        "SyncMergeActor uses remote.spentOnDate on the update path; a pulled expense keeps its real spent_on date.",
+        "ExpenseStore passes id: to enqueueCreate; OfflineMutationQueue.enqueueCreate's default id is lowercased and it never overwrites an id already present in the payload.",
+        "Month bucketing for spent_on uses a UTC-consistent calendar (or the date is parsed/bucketed in the same zone) so boundary-day expenses land in the correct month.",
+        "Unit tests: date-only spent_on round-trips through merge unchanged; offline create replays under the same id as the local mirror (no duplicate)."
+      ],
+      "priority": 2397,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Two of these are one-line fixes with account-wide data impact. The uppercase-id path is the last residue of the 379e01c1 uuid-case bug class."
+    },
+    {
+      "id": "US-1495",
+      "title": "iOS: hasLocalChanges is never cleared after an offline edit flushes (items frozen against server updates forever) + server-deleted items never reconciled",
+      "description": "(1) The canvas sets hasLocalChanges=true on offline save (ItemCanvasView.swift:636,1869) but only the ONLINE save path clears it (:2143); SyncEngine.apply() dequeues the flushed mutation without clearing the flag. One offline edit permanently freezes the row: applyServerWins (SyncMergeActor.swift:613-643) keeps local values for every user-owned field forever (web/member/AI edits never appear on the device) and the row is exempt from full-backfill prune (an immortal ghost if deleted server-side). (2) reconcileDeletesIfDue (SyncEngine.swift:239-269) covers sales/expenses/listings/photos but NOT inventory_items — items deleted on web linger on iOS indefinitely; later iOS edits UPDATE 0 rows, report success, and dequeue ('my edit disappeared').",
+      "acceptanceCriteria": [
+        "When the last pending mutation targeting an item is dequeued (flush success), that row's hasLocalChanges is cleared (or dirtiness becomes computed from the pending queue instead of a sticky flag).",
+        "inventory_items are included in delete id-reconciliation, protecting pending-create targets and rows with genuinely-pending local changes.",
+        "A server edit made after an offline edit has flushed is visible on the device on the next pull.",
+        "Unit tests cover: offline edit → flush → server edit → pull applies it; server-side item delete → reconcile removes the local row."
+      ],
+      "priority": 2396,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Kills the 'frozen/ghost item' class — the root of several 'stale data' complaints."
+    },
+    {
+      "id": "US-1496",
+      "title": "iOS: offline mutation-queue ordering — transient failure resurrects an older edit over a newer one; Retry bypasses create-deferral; photo replay drops sort_order",
+      "description": "(1) SyncEngine.swift:1029-1044 — two queued full-row updateInventoryItem snapshots A(old), B(new) for the same item: if A fails transiently and B succeeds, the next pass replays A and reverts every field to the older edit. (2) retryMutation (SyncEngine.swift:1310-1315, wired from PendingChangesView:82) applies one snapshot directly, skipping shouldDeferDependent and FIFO — Retry on an update queued behind a stuck create UPDATEs 0 rows, 'succeeds', and is dequeued: silent permanent edit loss (the exact class US-1208 prevents). (3) replayUploadPhoto (SyncEngine.swift:1209-1216) hardcodes sort_order 0 — replayed batches get nondeterministic strip order/cover, and a lost-response replay upsert can clobber a correct order back to 0. (4) createListing replays via insert not upsert (:1100-1101) — force-quit between server insert and dequeue → PK 409 poison entry (dormant, but a trap).",
+      "acceptanceCriteria": [
+        "Same-target ordering is preserved: on a transient failure the targetId is blocked for the rest of the pass (or same-target updates are coalesced at enqueue so only the newest snapshot exists).",
+        "retryMutation routes through flushPending() (clearing the retry budget) instead of applying a single mutation out of order; the create-deferral guard cannot be bypassed from the UI.",
+        "The queued uploadPhoto payload carries sortOrder and replay writes it.",
+        "createListing replay uses upsert keyed by client id.",
+        "Unit tests cover the A-fails/B-succeeds reorder scenario and the Retry-behind-stuck-create scenario."
+      ],
+      "priority": 2395,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Ordering bugs are the 'my edit disappeared/reverted' reports that are impossible to reproduce in support."
+    },
+    {
+      "id": "US-1497",
+      "title": "iOS: in-flight guards on money/marketplace mutations — double-tap can duplicate-publish, double-submit a grade batch, double-decide a return, duplicate an item",
+      "description": "Mutation buttons that enqueue a bare Task with no synchronous busy state: (1) PublishDialog 'Push to eBay' (PublishDialog.swift:644-666, runPush :319-336 has no phase guard at entry) — two fast taps push twice; in relist mode each push ends+recreates the live listing (duplicate live listing/watchers reset). (2) Bulk grade submit (BulkGradeSheet.swift:304-308 + BulkGradeStore.swift:56-58,130-133 — canSubmit never reflects phase) — double batch submission double-consumes included grades. (3) Returns 'Approve' is unconfirmed fire-and-forget while Decline/Refund confirm (PostSaleView.swift:263; PostSaleStore.decide :77-88 has no re-entry guard). (4) 'Duplicate item' has no isDuplicating flag (ItemCanvasView.swift:282-286 → :1644-1678) — slow connection re-taps create several copies. (5) Snap free evaluation can double-fire (SnapView.swift:37-51 + SnapStore.swift:37-45).",
+      "acceptanceCriteria": [
+        "runPush guards phase != .pushing at entry AND the composer button folds a synchronous isPushing into pushDisabled (the CounterOfferSheet isSubmitting pattern).",
+        "BulkGradeStore.canSubmit includes phase != .submitting (or submit() guards at the top); a double-tap cannot submit the batch twice.",
+        "Returns Approve routes through the same pendingAction confirmation dialog as Decline/Refund, and PostSaleStore.decide has a re-entry guard.",
+        "Duplicate-item and Snap evaluate carry synchronous in-flight guards with disabled controls.",
+        "A defensive entry guard is added to DraftsLibraryStore.publishSelected/applyBulk and DraftsBulkEditStore.publishSelected/save (currently protected only by UI disabling)."
+      ],
+      "priority": 2394,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] H1/H2 are marketplace/money-integrity; the rest are the same 10-line pattern already used in CounterOfferSheet."
+    },
+    {
+      "id": "US-1498",
+      "title": "iOS: dead 'Help & FAQ' URL (guaranteed reviewer 404) + silently-failing settings toggles, expense delete, team refresh, and dead search rows",
+      "description": "(1) Settings Help & FAQ opens https://gradethread.com/help (ContentView.swift:1480,1621-1625) — verified: NO /help route exists in the web router, public-routes registry, or Pages Functions; the in-app Safari sheet lands on the 404. PublishDialog already uses /faq which IS real. (2) AI Assistant toggle and Monthly-cap field persist with try? and an optimistic override — a failed write shows saved then snaps back on next visit with no explanation (AIAssistantSection.swift:54-75,147-152,189-204). (3) Expense delete via context menu discards the WriteResult — server rejection = tap Delete, nothing happens, no message (MoneyView.swift:455; ExpenseStore.delete :135-154 returns .failed without removing the row). (4) TeamStore post-mutation reloads use try? — a revoked invite/removed member can silently stay listed (TeamStore.swift:182-193). (5) Global-search 'Sources' rows render identically to linked rows but have no NavigationLink/action (GlobalSearchView.swift:128-134).",
+      "acceptanceCriteria": [
+        "helpURL points at an existing route (/faq) or a real /help page ships; a link-target test or constant keeps the two in sync.",
+        "AI Assistant toggle and cap-field failures surface an error and revert the optimistic override (the ProfileStore.updateName pattern).",
+        "The expense-delete context-menu path surfaces .failed(message) exactly like ExpenseFormSheet does.",
+        "TeamStore surfaces post-mutation refresh failures (banner/retry) instead of silently keeping stale rows.",
+        "Global-search Source rows navigate (sources manager or InventoryListView(initialSourceId:)) — no tappable-looking dead rows."
+      ],
+      "priority": 2393,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The /help 404 is the single most certain thing a reviewer will tap from Settings."
+    },
+    {
+      "id": "US-1499",
+      "title": "iOS: sign-out robustness — local-first sign-out, no permanent spinner, errors surfaced, cross-account cache purge",
+      "description": "AuthStore.signOut() (AuthStore.swift:227-237) removes keychain/local state only AFTER auth.signOut() returns; supabase-swift propagates transport errors, so offline sign-out fails, run() stashes the error where nothing signed-in renders it, phase stays .signedIn — and ContentView.swift:1521-1538 sets signingOut=true and never resets it: permanently disabled Sign out row with an eternal ProgressView and zero feedback. Also: the ThumbnailLoader disk URLCache (Components/CachedThumbnail.swift:114-120) is never purged on sign-out/account deletion — photo bytes persist at rest across accounts on a shared device.",
+      "acceptanceCriteria": [
+        "Sign-out is local-first: local session/keychain/state are cleared regardless of network; the server revoke is best-effort. Airplane-mode sign-out fully signs out.",
+        "signingOut resets when the phase does not change, and a sign-out failure surfaces an alert (Settings observes authStore.lastError or a thrown error).",
+        "Sign-out and account deletion purge the thumbnail URLCache (removeAllCachedResponses or a scoped cache wipe).",
+        "deleteAccount gets the same local-first + error-surfacing treatment."
+      ],
+      "priority": 2392,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Auth H4 + buttons M3 + auth L4 combined — one flow, one session."
+    },
+    {
+      "id": "US-1500",
+      "title": "iOS: eBay category changed in the specifics editor never reaches eBay (adopt the web's US-1490 resync path)",
+      "description": "SpecificsEditorModel.save (SpecificsEditorModel.swift:268-347) writes only inventory_items.ebay_category_id + aspects and calls revise(syncPhotos: true) — it never updates listings.platform_category_id and never sends resync_ebay_fields (zero hits in ios/). The server prefers listings.platform_category_id at both publish (flipdesk-ebay.ts:7227) and revise (:4709-4711), and the offer-side category PUT only runs with resync_ebay_fields:true (:4864-4871). Net: re-categorizing a live-listed (or drafted) item on iOS says 'saved' but the live listing — and even a later relist — stays in the OLD category, and the aspect re-PUT validates against the old category spec. iOS EbayPublishService.revise (EbayPublishService.swift:98-136) has no resync parameter at all.",
+      "acceptanceCriteria": [
+        "When the category changed, SpecificsEditorModel also updates listings.platform_category_id for the item's GT-origin listing row (draft or active).",
+        "EbayPublishService.revise gains a resyncEbayFields flag wired to the existing edge resync_ebay_fields; the specifics editor's live-listing push sends it when category (or condition-relevant fields) changed.",
+        "After an iOS category change on a live listing, the live eBay offer carries the new category and the aspect re-PUT validates against the NEW category spec.",
+        "A relist after an iOS category change publishes in the new category (stale platform_category_id no longer shadows ebay_category_id)."
+      ],
+      "priority": 2391,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Cross-form carry-over class the user explicitly asked about. The edge endpoint already exists (US-1490, web-only today)."
+    },
+    {
+      "id": "US-1501",
+      "title": "iOS: canvas description/condition-note/style edits silently never reach the live eBay listing (publish-time snapshot shadows item edits)",
+      "description": "(1) itemDescription is not in the canvas revise trigger (ItemCanvasView.swift:1736-1746) and the revise call always sends description:nil (:1810); the server prefers the publish-time snapshot listing_description over item.description at revise (flipdesk-ebay.ts:4811-4817) and publish (:7527), and the composer always persists it (ListingDraftService.swift:96/109) — a canvas description edit on a live-listed item toasts 'Saved.' and never reaches eBay, ever (even relist re-seeds the OLD text). (2) conditionNotes IS in structuralChanged (:1746) so a revise fires and the toast claims 'Saved and updated on eBay.' — but the server sends listing.ebay_condition_description ?? item.condition_notes (:4766-4772), so a composer-set note silently shadows the canvas edit while the UI reports success. (3) aspectsNeedSync omits style (ItemCanvasView.swift:1770-1776) though style feeds Style/Type aspects — stale ebay_aspects for unlisted items. (4) Clearing the composer condition note never clears it server-side (ListingDraftService.swift:80-119 omits nil).",
+      "acceptanceCriteria": [
+        "itemDescription changes are included in the canvas ebayPlan and passed as description to revise (server writes it back to listing_description), so a description edit reaches the live listing.",
+        "A conditionNotes-triggered revise first mirrors the new value onto listings.ebay_condition_description (or the server prefers the item column for item-save-originated revises); the 'updated on eBay' toast is truthful.",
+        "d.style != o.style is added to aspectsNeedSync.",
+        "Clearing the condition note in the composer persists the clear (explicit null encoding) instead of republishing the stale note.",
+        "Manual/regression check: edit description + condition note on a live-listed item → both visible on the eBay listing after the save."
+      ],
+      "priority": 2390,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The 'edited here, not there' class Apple reviewers keep hitting — highest-traffic fields after price."
+    },
+    {
+      "id": "US-1502",
+      "title": "Grade earned or corrected after publish never reaches the live eBay listing (Condition Grade specific + cert line)",
+      "description": "applyGradeListingPromotion (grade item specific + Cert # description line) runs only in the publish path (flipdesk-ebay.ts:5306, def :7050); the revise handler never calls it, flipdesk-grading.ts performs no listing update, and iOS has no revise trigger on grade change. List-first-then-grade (the promoted workflow, US-1284) leaves the live listing without the Condition Grade item specific or cert number; a DOWNGRADED human re-review leaves an overstated grade live — a trust/accuracy problem for the product's core authority claim.",
+      "acceptanceCriteria": [
+        "The edge revise path (behind resync_ebay_fields or a dedicated flag) re-runs applyGradeListingPromotion, including re-injecting/updating the cert description line.",
+        "When a grade lands (or is corrected by human review) on an item with an active GT-origin listing, a revise is triggered automatically (server-side hook in the grading finalize path, or client trigger) to push the promotion.",
+        "A downgrade correction updates the live listing's Condition Grade specific (never leaves an overstated grade).",
+        "Covered by an edge test: finalize grade on a listed item → offer/inventory payload carries the grade specific + cert line."
+      ],
+      "priority": 2389,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Edge-heavy story (verifiable on this host). iOS needs no UI — the hook belongs server-side in grading finalize/human-review approve."
+    },
+    {
+      "id": "US-1503",
+      "title": "Measurements edited after listing never propagate to the live eBay listing (description block + measurement aspects)",
+      "description": "Measurements enter a listing only during AutoLister AI generation (ai-listing.ts:1051-1057 aspects, :1188 description block). The derive-aspects endpoint doesn't even select the measurements column (flipdesk-ebay.ts:1452-1456); the canvas revise trigger excludes measurements (ItemCanvasView.swift:1741-1746,1770-1776) and the revise description falls back to the published snapshot. A seller correcting a wrong pit-to-pit after listing leaves the wrong number live — buyer relies on it, SNAD return follows.",
+      "acceptanceCriteria": [
+        "Measurement deltas are included in the canvas revise trigger for live-listed items.",
+        "derive-aspects (or the revise-path aspect rebuild) selects measurements and derives measurement aspects, reusing the measurements.ts mapping from ai-listing.",
+        "The revised description's measurement block reflects the current item measurements (regenerated or patched), not the publish-time snapshot.",
+        "Edge test: item with a listing + updated measurements → revise payload carries the corrected measurement aspect/description values."
+      ],
+      "priority": 2388,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Split from the description story because the aspect-derivation work is edge-side and independently sizable."
+    },
+    {
+      "id": "US-1504",
+      "title": "Price coherence across canvas / draft / live listing — draft price locks out the canvas price; reprices invert the 'Not on eBay' badge",
+      "description": "(1) Publish resolves listing.listing_price > 0 before item.target_price (flipdesk-ebay.ts:7454-7460); canvas save never updates a draft's price (only live listings via ebayPlan), and the composer makes the price READ-ONLY when the summary has one (PublishDialog.swift:871-889, with a comment claiming 'the canvas is the price's home' — false once an AutoLister draft carries an AI estimate). Seller sets target $40, publishes → goes live at the stale $25 estimate with no way to fix in the dialog. (2) POST /listings/:id/price and bulk pricing update listing_price only, never target_price (flipdesk-ebay.ts:3930-3942); the canvas badge listingPriceUnsynced asserts 'Price not yet pushed to eBay' (ItemCanvasView.swift:109-119,664-671) — after a reprice, eBay HAS the new price but the badge claims the opposite, and re-saving the stale target price would REVERT the live price.",
+      "acceptanceCriteria": [
+        "Canvas save updates the existing draft listing's price (ListingDraftService.updateDraftPrice) when a GT-origin draft exists, OR the composer prefers item.target_price when the draft price is estimated (price_is_estimated) — no silent $25-estimate publish after a $40 target was set.",
+        "Successful listing-side reprices (single, bulk, negotiation-driven) mirror onto inventory_items.target_price (edge-side), OR the badge is re-derived from a real pending-push signal — the badge never asserts the inverse of reality.",
+        "The misleading composer comment/read-only behavior is corrected to match the final rule.",
+        "Manual check: AutoLister draft at estimate → set target price → publish uses the target; bulk reprice → canvas shows the new price with no false badge."
+      ],
+      "priority": 2387,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] One coherent 'which price wins' rule, applied at both ends. Edge + iOS."
+    },
+    {
+      "id": "US-1505",
+      "title": "eBay publish dead-end: template item-specifics are written string-valued but the publish/revise paths require string[] (TypeError → misleading category blocker)",
+      "description": "iOS ListingDraftService.saveDraft (ListingDraftService.swift:91-117) and the server template overlay (lib/listing-template.ts:109-128) persist item_specifics_override as {String: String}; edge consumers type it Record<string,string[]> and never coerce. reconcilePublishAspects hits (rawValues ?? []).filter on a string → TypeError, caught and surfaced as the unrelated blocker 'Could not load eBay specifics for this category. Try again.' (flipdesk-ebay.ts:7267-7281,7423-7426) — a retry-forever dead end whenever a template carries any specific not overwritten by column projection (e.g. Fit: Slim). The revise path spreads string values into the inventory re-PUT (flipdesk-ebay.ts:4712-4734, ebay-client.ts:1944-1955) → eBay 400s with raw detail.",
+      "acceptanceCriteria": [
+        "A single normalizer (Array.isArray(v) ? v : [String(v)]) is applied at the edge read sites (assemblePublishContext + revise re-PUT) so existing string-valued rows publish correctly.",
+        "Write sites (iOS saveDraft, buildTemplateListingPatch/listing-template.ts) are normalized to string[] going forward; the listing-template test asserting string values is updated.",
+        "Edge test: a template with {Fit:'Slim'} publishes and revises without the specifics-load blocker.",
+        "The publish catch no longer masks a TypeError as 'Could not load eBay specifics' (log/classify internal errors distinctly)."
+      ],
+      "priority": 2386,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Verifiable on this host (edge tests). One of the few guaranteed publish dead-ends left."
+    },
+    {
+      "id": "US-1506",
+      "title": "eBay End-listing truthfulness — no-connection matched as 'already ended', ended_on_ebay/note discarded, wrong-row selection, stale local status",
+      "description": "(1) getUserAccessToken throws 'No active eBay connection…' (ebay-client.ts:888-890) and isOfferAlreadyEndedError's fallback regex includes /no active/ (:2400) → the DELETE handler reconciles to ended/drafted while the listing STAYS LIVE on eBay (flipdesk-ebay.ts:5119-5156); same hazard in the relist withdraw (:5351-5364). (2) The server returns {ended_on_ebay, note} but iOS EndListingResponse decodes only ok+listing_id (EbayPublishTypes.swift:134-143) — 'ended in FlipDesk only' reads as full success, compounding (1). (3) BulkActionExecutor.fetchActiveListings claims most-recent-per-item but has no ORDER BY (BulkActionExecutor.swift:346-363) — bulk End/price-drop can target an arbitrary row when an item has two active rows. (4) Bulk End flips only item.status, not the LocalListing row (:259-266) — the canvas still shows an active listing until the next pull.",
+      "acceptanceCriteria": [
+        "The end handler distinguishes 'no active connection' (fail with actionable reconnect copy, no local reconcile) from a genuine already-ended offer; /no active/ is removed from (or preempted before) isOfferAlreadyEndedError. Regression test covers the disconnected-account end.",
+        "iOS decodes ended_on_ebay/note and surfaces the note when the eBay withdraw didn't happen (toast/bulk result line).",
+        "fetchActiveListings orders deterministically (most recent) per item.",
+        "Bulk End optimistically updates the LocalListing row so the canvas reflects reality immediately."
+      ],
+      "priority": 2385,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] A listing the user believes is ended but is still sellable on eBay = oversell risk. Edge portion testable here."
+    },
+    {
+      "id": "US-1507",
+      "title": "eBay multi-account correctness: thread the connection per listing instead of always using the primary; iOS Disconnect must revoke via the edge",
+      "description": "(1) Every publish/revise/end/price/negotiation call resolves the CURRENT PRIMARY connection (getUserAccessToken, ebay-client.ts:868-883); listings carry no connection id. Publish under store A, switch primary to B → End/Revise on the A-listing runs as B: revise fails confusingly, and End's 4xx matches isOfferAlreadyEndedError → local row flips ended while A's listing stays live. Only bulk pricing has the US-1216 mitigation banner. (2) iOS EbayConnectionService.disconnect does a direct DB update with nil token fields — synthesized Encodable OMITS nils, so only is_active=false is written and encrypted tokens remain; the edge POST /disconnect (which revokes at eBay and nulls tokens) is never called (EbayConnectionService.swift:130-148 vs flipdesk-ebay.ts:439-499).",
+      "acceptanceCriteria": [
+        "listings gains marketplace_connection_id (migration, idempotent + schema-version bump + self-record footer), persisted at publish/adopt/link; token resolution for revise/end/price/negotiation prefers the listing's connection and falls back with a clear error when it's inactive.",
+        "The tenant-isolation and existing eBay tests still pass; a new edge test covers acting on a listing owned by a non-primary connection.",
+        "iOS Disconnect calls the edge /disconnect (revoke + token scrub); the direct-DB path is removed.",
+        "Until/unless per-listing threading fully lands, mismatch surfaces (US-1216-style banner) appear on publish/end, not just bulk pricing."
+      ],
+      "priority": 2384,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The structural multi-account item. Edge-first — iOS/web both inherit the fix."
+    },
+    {
+      "id": "US-1508",
+      "title": "iOS: offline 'Save & Sync' silently drops the eBay revise — queue a re-push for reconnect",
+      "description": "ItemCanvasView.save(): on a queueable network failure the inventory edit goes to the OfflineMutationQueue and returns (ItemCanvasView.swift:1864-1877), but the ebayPlan revise exists only in the online success path (:1806-1826) and is never replayed. The toast 'Saved offline — will sync when you reconnect' implies eBay will update; only price drift later shows a hint — title/specifics/description drift is invisible.",
+      "acceptanceCriteria": [
+        "A revise mutation kind (or a needs-ebay-repush flag on the item/listing) is queued when a Save & Sync's revise cannot run offline, and the reconnect flush replays it after the inventory update lands.",
+        "Replay respects ordering (runs after the queued item update for the same target) and surfaces failure like the online revise does (ebaySyncError).",
+        "If a queued re-push is intentionally not implemented for some field class, the offline toast says explicitly that the live eBay listing was NOT updated.",
+        "Unit test: offline save of a live-listed item → reconnect → server receives the revise."
+      ],
+      "priority": 2383,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Completes the offline story for the highest-traffic edit path."
+    },
+    {
+      "id": "US-1509",
+      "title": "iOS: gate 'Relist as new listing' for eBay-originated listings and block duplicate active rows on orphan-link",
+      "description": "(1) The Relist button shows for ANY activeEbayListing regardless of origin (ItemCanvasView.swift:729-738) and the composer promises 'Relisting ends the current listing' (PublishDialog.swift:782-798) — but the server withdraw needs platform_offer_id (null on imported listings, flipdesk-ebay.ts:5339-5366), so the old live listing never ends AND the new publish upserts onto the item's most recent listings row (:7190-7200,5575-5586), repurposing the mirror of the still-live eBay-native listing: duplicate live listings + a corrupted mirror. (2) ReconciliationService.link (ReconciliationService.swift:124-135) can attach a second active eBay row to an item that already has one and leaves item.status untouched.",
+      "acceptanceCriteria": [
+        "Relist is hidden/disabled for eBay-originated listings on iOS (isEbayOriginated is already computed at :690-691) with explanatory copy, AND the server refuses relist for origin==='ebay' rows with a pointed message (defense in depth).",
+        "Relist/publish never repurposes a listings row that mirrors a live eBay-origin listing.",
+        "Orphan-link warns or blocks when the target item already has an active listing, and advances/link-updates item.status consistently with createItem.",
+        "Edge test covers relist-on-imported-listing rejection."
+      ],
+      "priority": 2382,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Prevents the duplicate-live-listing class that then feeds the wrong-row bulk-action bug."
+    },
+    {
+      "id": "US-1510",
+      "title": "iOS: send-offer shows an unavailable state instead of a guaranteed failure; stale offers fail with raw errors",
+      "description": "sell.negotiation scope is deliberately not requested in production (ebay-client.ts:190-204) so /negotiation/eligible and /send-offer 403→502 (flipdesk-ebay.ts:6557-6560,6590-6593) — but iOS shows the 'Send offer' toolbar button unconditionally (NegotiationInboxView.swift:97-105) and on eligible-count failure says 'you can still send' with Send ENABLED (:520-529,545) → confirm → guaranteed 'eBay rejected the offer.' Also: an offer accepted/expired elsewhere still renders actionable (load-on-appear + pull-to-refresh only); acting on it yields a raw 502-style alert instead of 'this offer is no longer open.'",
+      "acceptanceCriteria": [
+        "The edge returns a distinct machine-readable code (e.g. 501 feature_unavailable) when the negotiation scope is absent; iOS gates the send-offer surface behind it with 'Not available yet' copy (feature reactivates automatically when US-1421's scopes land).",
+        "The eligible-count failure path no longer claims 'you can still send' when the failure is feature_unavailable.",
+        "Acting on a no-longer-open offer maps to friendly 'this offer is no longer available — refreshing' copy and triggers a refresh of the inbox.",
+        "Incoming Best Offers (Trading API) remain unaffected."
+      ],
+      "priority": 2381,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] A reviewer poking Negotiation hits the broken Send today. Small edge change + small iOS gate."
+    },
+    {
+      "id": "US-1511",
+      "title": "iOS: eBay error/response fidelity — raw eBay errors off the publish path, dropped sync_pending/aspectDiagnostics/publish_error",
+      "description": "(1) Publish maps errors via mapEbayError (US-567) but revise/price/end/negotiation return detail: err.message.slice(0,500) / String(err) (flipdesk-ebay.ts:4849-4856,3918-3928,6469,6592) and both iOS error surfaces prefer detail (EbayPublishTypes.swift:192-200, EdgeAPIError.swift:76-99) → users see 'eBay POST /sell/... failed (400): {json}'. (2) iOS PushResponse drops sync_pending (US-783 partial-success messaging lost; EbayPublishTypes.swift:83-97). (3) ValidateResponse drops aspectDiagnostics (US-828 'value X was not sent' warnings web shows; EbayPublishTypes.swift:6-10). (4) LocalListing has no publish_error mirror — a scheduled/AutoLister publish failure is invisible on iOS (web-only US-321 badge).",
+      "acceptanceCriteria": [
+        "revise/price/end/negotiation edge handlers route eBay failures through mapEbayError (or equivalent) so detail is always human-readable.",
+        "iOS decodes sync_pending and the success card reflects 'live, syncing shortly' when set.",
+        "iOS decodes aspectDiagnostics and shows the dropped-value warnings in the composer validate step.",
+        "publish_error is mirrored into LocalListing via sync and surfaced in the drafts library (reason badge or row subtitle)."
+      ],
+      "priority": 2380,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Bundles the response-fidelity gaps: mostly decode + display work against fields the server already returns."
+    },
+    {
+      "id": "US-1512",
+      "title": "iOS: disclose the resolved Promoted Listings ad rate in the composer and include it in the profit estimate",
+      "description": "Every iOS publish attaches a promoted-listings ad at resolvePublishAdRate's fallback (category suggestion or EBAY_DEFAULT_AD_RATE≈8%) when the seller never chose/opted out (lib/ebay-marketing.ts:55-77; attach at flipdesk-ebay.ts:5633-5645). The web composer surfaces and adjusts this (US-561); the iOS ComposerForm has no promotion control and ListingProfit models only 13.25% + $0.40 (ListingProfit.swift:20-44) — net proceeds can be overstated by ~8% on promoted-attributed sales. Post-publish controls exist (EbayMarketingControls) but the fee decision already happened.",
+      "acceptanceCriteria": [
+        "The iOS composer shows the resolved ad rate before publish with an opt-out/adjust control (mirroring web US-561), using the same resolution the server will apply.",
+        "ListingProfit includes the promoted ad rate as a labeled line/footnote in the estimate when a promotion will be attached.",
+        "Opting out on iOS persists so the publish path attaches no ad.",
+        "Estimate matches web's for the same inputs."
+      ],
+      "priority": 2379,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Money-transparency; reviewers and users both read the profit estimate as a promise."
+    },
+    {
+      "id": "US-1513",
+      "title": "iOS: dirty-form guards — specifics editor loses all work on back-swipe; publish composer and canvas dismissible with unsaved edits (or mid-push)",
+      "description": "(1) EbayCategorySpecificsView is a pushed view whose edits persist only via the toolbar Save; no dirty tracking, no discard confirm — Back/swipe-back after 'Fill with AI' + reviewing 10 aspects silently loses everything. (2) PublishDialog never sets interactiveDismissDisabled — swipe-down discards typed title/condition-note/description; and dismissal is possible mid-.pushing (Close is disabled but swipe isn't): the push continues but onPublished never runs, so the item looks unpublished until next sync (PublishDialog.swift:46-71). (3) The item canvas's interactiveDismissDisabled(isDirty) is a no-op because the canvas is PUSHED — the edge-swipe pop gesture (and system back chevron) bypasses the custom Back button's discard confirmation (ItemCanvasView.swift:222,242-250; pushed from ContentView.swift:902 etc). (4) Negotiation CounterOfferSheet/MessageReplySheet lack interactiveDismissDisabled while typed/submitting (NegotiationInboxView.swift:284-388).",
+      "acceptanceCriteria": [
+        "The specifics editor tracks dirty state and intercepts back (confirmation dialog) or autosaves — 'Fill with AI' results can no longer be lost by a single Back tap.",
+        "PublishDialog sets interactiveDismissDisabled while phase == .pushing or the composer differs from the summary (EbaySyncModal pattern at EbaySyncModal.swift:18).",
+        "The dirty canvas cannot be popped without confirmation (navigationBarBackButtonHidden + pop-gesture gating while dirty, or an equivalent that covers edge-swipe).",
+        "Negotiation compose sheets get interactiveDismissDisabled while non-empty/submitting (FeedbackSheet.swift:91 pattern)."
+      ],
+      "priority": 2378,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The 'my work vanished' class — reviewers trigger it naturally by swiping."
+    },
+    {
+      "id": "US-1514",
+      "title": "iOS: stale-read gating — specifics editor opens against unsaved canvas edits; 'Relist as new listing' skips the dirty-draft save",
+      "description": "(1) SpecificsEditorModel.start()/refillDerived read the SERVER row (SpecificsEditorModel.swift:80-106,216-227) and the canvas NavigationLink is not gated on isDirty (ItemCanvasView.swift:750-763) — type Brand 'Patagonia', tap 'Category & item specifics' without saving → the Brand aspect shows/derives the OLD brand: the same field with two values on screen, the exact reviewer-visible class. (2) The Relist button sets showingPublishDialog directly (ItemCanvasView.swift:732-737) while the primary publish CTA funnels through saveThenPublish() (:2007-2012) — validate/push read server state, so unsaved canvas edits don't appear in the relist composer.",
+      "acceptanceCriteria": [
+        "Opening the specifics editor from a dirty canvas auto-saves first (the saveThenPublish pattern) or the link is disabled with 'Save your changes first' messaging.",
+        "'Relist as new listing' routes through saveThenPublish().",
+        "Regression check: canvas edit → immediately open specifics editor → the editor reflects the new value."
+      ],
+      "priority": 2377,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Small, surgical; pairs with the dirty-form-guards story."
+    },
+    {
+      "id": "US-1515",
+      "title": "iOS sync: server-side edits to sales, item_photos, and expenses never reach the device; failed merge saves still advance the watermark",
+      "description": "(1) SyncWatermark deltas sales/item_photos/flipdesk_expenses on created_at (SyncWatermark.swift:42-47) — edits never move the cursor; the code comment claims realtime covers it, but RealtimeService subscribes ONLY to inventory_items (RealtimeService.swift:81-86) and full backfills effectively never recur. A sale corrected on web leaves iOS Money wrong indefinitely; photos retagged/reordered on web stay stale on iOS. (2) pull() advances cursors after merges return (SyncEngine.swift:169-194), but merges end in saveOrLog which swallows save failures — a failed SwiftData save (disk pressure/constraint) permanently skips that page. (3) LOW: offset pagination + txn-commit skew can skip rows (keyset + small gte overlap fixes it).",
+      "acceptanceCriteria": [
+        "sales, item_photos, and flipdesk_expenses gain updated_at (+ trigger) via an idempotent migration (schema-version bump + self-record footer) and their sync cursors move to updated_at — server edits reach iOS on the next delta pull. (Alternative if migration is undesirable: realtime coverage or a periodic bounded refresh — pick one and document it.)",
+        "SyncMergeActor merge functions return save success; pull() skips cursor advancement for a table whose merge save failed.",
+        "Keyset pagination on (cursor,id) with gte-overlap + id dedupe replaces bare offset paging (or the risk is explicitly documented if deferred).",
+        "Unit tests: an updated sale row is re-pulled; a failed merge save does not advance the watermark."
+      ],
+      "priority": 2376,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Root of a whole family of 'iOS shows old data' reports. Migration follows MIGRATIONS.md/US-1108 conventions."
+    },
+    {
+      "id": "US-1516",
+      "title": "iOS: items created by a workspace MEMBER while viewing a shared workspace land in their personal tenant and vanish",
+      "description": "PhotoIntakeView (:765-771) and DetailsIntake insert with user_id = self while the pull is scoped to WorkspaceScope.activeOwnerId (SyncEngine.swift:608-619). A member adds an item while in a shared workspace → it's written to their PERSONAL tenant, never returned by the owner-scoped pull, and the local mirror (hasLocalChanges:false) is pruned on the next full item backfill — 'I added an item and it disappeared' (it resurfaces only in their personal workspace). The web/edge path uses workspaceOwnerId for member writes; iOS diverges.",
+      "acceptanceCriteria": [
+        "iOS item creation (photo-first intake, details-first intake, duplicate, CSV/share-extension paths) targets the active workspace owner's tenant like web/edge (respecting member write permissions).",
+        "Direct-to-Supabase inserts from iOS honor RLS for member-writes (or route through the edge where the workspace header applies) — verify against the workspace RLS policies.",
+        "A member-created item is visible to the owner and other members after their next pull.",
+        "Photo uploads/storage paths for member-created items use the correct owner folder (per-user-folder RLS) — confirm the {userId}/ path rule vs workspace writes and document the decision."
+      ],
+      "priority": 2375,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Behavior decision + RLS check required — verify the storage path rule before changing it (US-276 RLS is per-user-folder)."
+    },
+    {
+      "id": "US-1517",
+      "title": "iOS perf: memoize O(n²) view derivations — Sales list, global search, Money rollups, per-row CurrencyFormatter",
+      "description": "(1) SalesView.titlesByItemId/itemsById are COMPUTED properties building full dictionaries over the items table, read PER ROW in the ForEach (SalesView.swift:16-21,89-91) — tens of thousands of hash-inserts per frame with a few hundred sales. (2) GlobalSearchView.itemsById is rebuilt inside filter closures and every matched* computed property evaluates at least twice per body pass (GlobalSearchView.swift:151-188) — visible freeze per keystroke on a real catalog. (3) MoneyView's five rollups (metrics/aging/timeOnMarket/cashFlow/sourceROI) recompute on every body pass, each creating DateFormatters and doing 6 filter passes over all sales (MoneyView.swift:25-47) — the adjacent titlesByItemId was memoized in US-967; these were missed. (4) CurrencyFormatter() (2 NumberFormatters) constructed per row/keystroke at InventoryRow.swift:8, InventoryBoardView.swift:204, ScoutCandidateRow.swift:187, ProspectView.swift:399, SnapView.swift:282, RepricingRuleTypes.swift:54, NegotiationInboxView.swift:299, AnalyticsMetrics.swift:254.",
+      "acceptanceCriteria": [
+        "SalesView maps, GlobalSearch match results, and MoneyView rollups are memoized in @State keyed on a signature (the existing US-967 pattern in MoneyView.swift:67-84), computed once per data change instead of per row/body pass.",
+        "GlobalSearch computes matches once in the debounced .task(id: query) and isEmptyResult/resultsList read the stored results.",
+        "CurrencyFormatter becomes a shared configured-once instance (or is passed down) — no per-row/per-keystroke construction remains at the listed sites.",
+        "No behavior change: outputs identical for the same data (spot-check totals and search results)."
+      ],
+      "priority": 2374,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] All the same ~30-line pattern; biggest scroll/typing jank on real data sizes."
+    },
+    {
+      "id": "US-1518",
+      "title": "Photo thumbnail tier: inventory rows download full 1600px JPEGs — populate thumbnail_url at upload + backfill",
+      "description": "InventoryRow loads thumbnail_url ?? photo_url (InventoryRow.swift:63-68, SyncMergeActor.swift:82) but only the AutoLister path ever WRITES thumbnail_url (flipdesk-autolister.ts:735) — normal iOS/web uploads never populate it, so every 56pt cell downloads the full ~450-500KB 1600px JPEG. With Cloudflare Image Resizing disabled and the self-hosted storage serving ~700KB/s, cold thumbnails take ~1s each and a 300-item scroll can transfer >100MB. Client-side decode IS downsampled (CachedThumbnail is clean) — the waste is pure transfer.",
+      "acceptanceCriteria": [
+        "Uploads generate a real thumbnail (client-side second encode ~200-320px alongside the main JPEG, or an edge job) and write thumbnail_url on item_photos for the iOS and web upload paths.",
+        "An idempotent backfill exists for existing photos (edge script/scheduled task) — document how to run it.",
+        "Signed-URL handling covers the thumbnail objects (private-bucket TTL rules unchanged).",
+        "Inventory rows and board cards load the thumbnail tier; full-res only on the photo viewer.",
+        "Upload validation/metadata-strip rules (US-276) apply to the thumbnail object too."
+      ],
+      "priority": 2373,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Biggest network/perceived-speed win on the most-used screen. Touches iOS + web upload paths + edge; scope the backfill small."
+    },
+    {
+      "id": "US-1519",
+      "title": "iOS perf: capture & foreground hitches — per-shutter main-thread rewrite of all staged JPEGs, full-table detection fetches, 4×/s row invalidation during AI extract",
+      "description": "(1) PhotoDraftStore.save (IntakeDraftStore.swift:162-190, called from PhotoIntakeView.swift:127-128 onChange) clear()s and synchronously REWRITES every staged JPEG on the MainActor per shutter press — ~4MB of sync I/O by photo 8 (restore was already moved off-main for exactly this reason). (2) BackgroundRefreshService.runForegroundDetection fetches ALL LocalSale and ALL LocalInventoryItem on the MainActor after EVERY foreground pull (BackgroundRefreshService.swift:262-268,305-312) — a hitch after every pull-to-refresh on large accounts. (3) AIExtractionManager.phases is one @Observable dictionary rewritten every 250ms by the upload-gate poll (AIExtractionManager.swift:33,296,308) — every visible InventoryRow re-renders 4×/s for up to 180s right after adding an item.",
+      "acceptanceCriteria": [
+        "PhotoDraftStore writes off the MainActor and persists only the changed slot (no wipe-and-rewrite of the whole set per capture).",
+        "Detection fetches run on a background ModelContext with predicates/fetchLimit (gradeValue != nil as a predicate; sales bounded by the baseline) — no full-table MainActor fetch after pulls.",
+        "AIExtractionManager only mutates phases when the value actually changed (compare-before-assign) or splits per-item observables — visible rows stop re-rendering on every poll tick.",
+        "Capture flow feels flat: no growing post-shutter hitch through a 10-photo session (manual check on device or documented as Mac-gated)."
+      ],
+      "priority": 2372,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Three independent hitches bundled — all small, all in the highest-frequency flows."
+    },
+    {
+      "id": "US-1520",
+      "title": "iOS perf: parallelize the sync pull and kill the photos-relationship N+1",
+      "description": "(1) SyncEngine pulls items/photos/sales/expenses/listings/disputes SERIALLY (SyncEngine.swift:602-721), plus 4 sequential id-scans in reconcileDeletesIfDue (:239-269) — total sync latency is the sum of 6-10 RTTs; the tables are independent (only merge order matters). (2) LocalInventoryItem.hasPhotos faults the lazy photos relationship per item (LocalInventoryItem.swift:155), used in the with/missing-photo facet filter over the FULL catalog on the main thread (InventoryFilter.swift:119-120) and per visible row (InventoryRow.swift:121) — a stall applying the facet on a 1,000-item catalog. LOW extras if trivial: RemoteExpenseRow.spentOnDate's per-row DateFormatter → static (SyncEngine.swift:592-599); DiagnosticsSection unfiltered @Query for a count.",
+      "acceptanceCriteria": [
+        "Per-table fetches run concurrently (async let / task group) with merge application kept in a safe order; pull wall-time on a multi-table account drops to ~the slowest table.",
+        "Watermark/cursor semantics unchanged (drop-safe rules preserved) — existing sync unit tests still pass.",
+        "The photo facet uses a single FetchDescriptor<LocalItemPhoto> distinct-item pass or a denormalized photoCount maintained by the merge actor — no per-item relationship faulting in filters.",
+        "spentOnDate's DateFormatter is cached static."
+      ],
+      "priority": 2371,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Cuts pull-to-refresh and first-sync latency roughly in half on cellular."
+    },
+    {
+      "id": "US-1521",
+      "title": "iOS auth/signup polish: Apple name never reaches the profile, duplicate-email dead-wait, keyboard submit chain, stale errors, Turnstile copy, ToS metadata",
+      "description": "(1) Apple sign-in captures the name but writes it only to auth METADATA after sign-in via try? (AuthStore.swift:132-136); handle_new_user already created the profile from a token with no name and there is no update trigger — every Apple-first account has a NULL profile name (workspace pickers show 'Shared workspace'). (2) Duplicate-email signup: GoTrue's obfuscated success shows 'Check your email…' and no mail ever comes; the alternate 'already registered' error maps to generic copy (LoginView.swift:392-394, FriendlyErrorCopy.swift:95-114). (3) No @FocusState/.submitLabel/.onSubmit anywhere in Auth/ — Return does nothing on the app's first screen (LoginView.swift:130-173). (4) Stale lastError/info persists when toggling Sign in↔Sign up (LoginView.swift:17,56-59). (5) Apple sign-in has no in-progress state and the email button stays tappable during the exchange (LoginView.swift:513-516). (6) Turnstile's actionable error text is flattened to 'Something went wrong.' (LoginView.swift:89). (7) iOS signup sends no tos_version/privacy_version metadata (migration 00142 reads it; web sends it). (8) weak_password/policy errors map to generic copy.",
+      "acceptanceCriteria": [
+        "After Apple (and any) sign-up, full_name lands on public.users (client upsert via the ProfileStore path or a name-sync trigger migration) — no more NULL-name Apple accounts.",
+        "Duplicate-email signup shows 'That email already has an account — sign in or reset your password' for the error form, and the success copy is softened to cover the obfuscated case.",
+        "Login/signup fields get a focus chain with .submitLabel(.next/.go) and .onSubmit submit; errors/info clear on mode toggle and field edit.",
+        "Apple sign-in sets isSubmitting (spinner + other controls disabled); Turnstile error copy passes through; weak-password/user-exists GoTrue codes map to friendly copy.",
+        "iOS signup passes tos_version/privacy_version metadata matching web."
+      ],
+      "priority": 2370,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] First-screen polish + two data-correctness fixes; all small, one surface."
+    },
+    {
+      "id": "US-1522",
+      "title": "iOS: small UX dead-end sweep — blank sheets on expired session, nil-share/copy actions, QuickPrice null wipe, double alerts, silent intake no-op",
+      "description": "Bundle of verified LOWs: (1) GradeRequestSheet/BulkGradeSheet render a BLANK sheet when the session expired (if let userId with no else — GradeRequestSheet.swift:64-75, BulkGradeSheet.swift:51-62; the re-sign-in placeholder pattern exists in PhotoIntakeView:279-291). (2) 'View on eBay' presents the Safari sheet unconditionally even when listingURL is nil/invalid (PublishDialog.swift:199-201,65-70). (3) ListingKit 'Copy all'/ShareLink not disabled when spec is empty — copies an empty string while flashing 'Copied all' (ListingKitView.swift:245-257). (4) QuickPriceSheet writes target_price=NULL on unparseable/empty input and dismisses with a SUCCESS haptic (QuickPriceSheet.swift:61-81). (5) Successful single-item swipe action fires BOTH a modal alert and the undo snackbar (InventoryListView.swift:851-872,203-225). (6) PhotoIntake Done silently no-ops when auth died mid-capture (PhotoIntakeView.swift:741-742 guard returns without setting captureError). (7) Canvas Save greys out with no 'Title is required' hint (ItemCanvasView.swift:263). (8) Prospect cost field missing .keyboardDoneToolbar (ProspectView.swift:184-186).",
+      "acceptanceCriteria": [
+        "Grade sheets show a re-sign-in placeholder instead of a blank sheet when userId is nil.",
+        "View-on-eBay is disabled (or alerts) when the URL is nil/invalid; ListingKit copy/share disable on empty content.",
+        "QuickPriceSheet treats unparseable input as an error (no NULL wipe + success haptic); empty input either clears intentionally with distinct messaging or is rejected.",
+        "Single-item swipe success shows only the snackbar (no modal alert); intake Done sets captureError on the nil-user guard; canvas Save shows an inline title-required hint; Prospect cost gets the Done toolbar."
+      ],
+      "priority": 2369,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Eight independently-tiny fixes; batched so one session clears the whole list."
+    },
+    {
+      "id": "US-1523",
+      "title": "iOS auth infrastructure hardening: pin supabase-swift + commit Package.resolved; classify transient refresh failures; plan-step flag scoped per user",
+      "description": "(1) project.yml pins supabase-swift with from: 2.0.0 and NO Package.resolved is committed (verified) — every CI resolve can silently pick a newer SDK whose signOut/session-storage/refresh semantics changed across 2.x minors: two TestFlight builds can differ in auth behavior with zero code change (a plausible source of unreproducible reviewer bugs). (2) SupabaseShared.currentAccessToken returns nil on ANY error including a network blip during near-expiry auto-refresh (SupabaseShared.swift:86-93) → request goes out unauthenticated → 401 → refresh also blips → user told 'Your session expired. Sign in again.' for pure connectivity — mid-task. (3) PlanSelectionState.markPendingEligibility (AuthStore.swift:80, ContentView.swift:711-718) is device-global: an abandoned signup grants the post-signup plan step to whichever user signs in next.",
+      "acceptanceCriteria": [
+        "supabase-swift is pinned to an exact version and Package.resolved is committed; iOS CI fails if the lockfile is missing or drifts.",
+        "currentAccessToken distinguishes 'no session' from 'transient refresh failure' (NSURLErrorDomain and friends) — transient failures surface as a network error/retry, never as 'session expired' and never send the request unauthenticated.",
+        "The plan-step eligibility flag is keyed to the user id that signed up, so it can't leak to a different account on the same device.",
+        "GoTrue password-policy errors (weak_password) map to actionable copy if not already covered by the signup-polish story."
+      ],
+      "priority": 2368,
+      "passes": false,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The lockfile pin is the cheapest insurance against 'works for us, fails for Apple' build drift."
     }
   ]
 }
