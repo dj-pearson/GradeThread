@@ -17,6 +17,40 @@
   getGradingTemperature(). Verified no top_p/top_k were ever sent in the edge svc.
 - Shipped in PR #169 (merged) alongside batch 23.
 
+## 2026-07-01 — Pre-launch audit batch 27 (US-1425, US-1424) — push tracking to eBay from bulk shipment + end listing on manual sale
+
+- US-1425 Push tracking to eBay from bulk 'Prepare shipment' — NOW COMPLETE
+  (passes:true). PrepareShipmentDialog wrote carrier/tracking/shipped_at to sales
+  and flipped items to shipped purely locally — it never called the eBay ship
+  route even for eBay orders, so the buyer never saw tracking and eBay still
+  considered the order unshipped (late-shipment/INR-defect risk). The bulk loop now
+  looks up each item's most-recent sale WITH platform_order_id and, when it's an
+  eBay order AND a tracking number is present, pushes via useEbayShipOrder (the same
+  ship route the single-item ShipOrderDialog uses — records shipped_at + tracking
+  server-side); manual/other-marketplace sales (and eBay orders still lacking
+  tracking) are recorded locally (AC1). Per-item outcome is tallied
+  (pushed-to-eBay vs recorded-locally) and shown in the result toast; a per-row eBay
+  rejection is surfaced with the item label and does NOT fail the rest of the batch,
+  and the rejected item is left un-shipped so it can be retried rather than
+  desyncing (AC2).
+
+- US-1424 End the live listing when a sale is recorded manually — NOW COMPLETE
+  (passes:true). RecordSaleDialog inserted a sale + flipped the item to sold but
+  never updated the listings row or ended the eBay listing, leaving is_active=true /
+  'active' on eBay after being sold (overselling risk + stale 'active' chip). After
+  the sale + status advance, it now fetches the listings row and: AC3 — if quantity
+  > 1, decrements the remaining quantity and keeps it active (only ends when the
+  last unit sells); else AC1 — sets the listings row to listing_status='sold',
+  is_active=false, quantity=0; and AC2 — when eBay is connected and the listing
+  carries a platform_offer_id/platform_listing_id, best-effort ends it on eBay via
+  useEbayEndListing, surfacing a failure as a warning (409 = nothing to end) WITHOUT
+  failing the recorded sale. Deliberately does NOT reuse listings.tsx endListing()
+  (which resets the item to 'drafted' for relist) — the item must stay sold.
+
+VERIFICATION (this container): both stories are frontend; gate fully green — tsc -b
+clean, eslint 0 errors, vitest 1015 pass, npm run build (incl. prerender, 45 routes)
+succeeded. Open backlog 105.
+
 ## 2026-07-01 — Pre-launch audit batch 26 (US-1455, US-1457) — capture webhook failures + stop Accept-Sheet clobbering newer edits
 
 - US-1455 Capture and retry async webhook processing failures instead of
