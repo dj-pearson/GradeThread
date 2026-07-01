@@ -8282,7 +8282,7 @@
         "Reconcile against existing payout_imports/CSV path as the API source-of-truth replacement."
       ],
       "priority": 2084,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-client.ts:2695; no /sell/finances/v1/payout usage; https://developer.ebay.com/api-docs/sell/finances/resources/payout/methods/getPayouts"
     },
     {

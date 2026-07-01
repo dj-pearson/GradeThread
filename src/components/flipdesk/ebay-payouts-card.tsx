@@ -1,4 +1,5 @@
-import { Banknote } from "lucide-react";
+import { useState } from "react";
+import { Banknote, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -7,7 +8,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useEbayConnection, useEbayPayouts } from "@/hooks/use-ebay";
+import {
+  useEbayConnection,
+  useEbayPayouts,
+  useEbayPayoutSales,
+} from "@/hooks/use-ebay";
 
 // US-1446: eBay payouts pulled live from the Finances API — the lump-sum bank
 // deposits resellers actually reconcile against (vs the manual CSV import
@@ -32,10 +37,36 @@ function fmtDate(iso: string | null): string {
   return Number.isNaN(t) ? "—" : new Date(t).toLocaleDateString();
 }
 
+// US-1446 AC2: expanded payout → its constituent sales → net.
+function PayoutSales({ payoutId }: { payoutId: string }) {
+  const { data, isLoading } = useEbayPayoutSales(payoutId);
+  if (isLoading) {
+    return <p className="py-1 text-xs text-muted-foreground">Loading sales…</p>;
+  }
+  if (!data || data.sales.length === 0) {
+    return (
+      <p className="py-1 text-xs text-muted-foreground">
+        No matched sales for this payout yet (sync sales to link them).
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-md bg-muted/40 p-2 text-xs">
+      <div className="mb-1 flex justify-between font-medium">
+        <span>
+          {data.sales.length} sale{data.sales.length === 1 ? "" : "s"} settled
+        </span>
+        <span className="tabular-nums">Net ${data.net.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function EbayPayoutsCard() {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
   const { data, isLoading } = useEbayPayouts(connected);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   if (!connected) return null;
 
@@ -65,27 +96,46 @@ export function EbayPayoutsCard() {
           </p>
         ) : (
           <ul className="divide-y">
-            {data?.payouts?.map((p) => (
-              <li
-                key={p.payoutId}
-                className="flex items-center justify-between gap-3 py-2 text-sm"
-              >
-                <div className="min-w-0">
-                  <div className="font-medium tabular-nums">
-                    {money(p.amount)}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {fmtDate(p.payoutDate)}
-                    {p.transactionCount != null
-                      ? ` · ${p.transactionCount} transaction${p.transactionCount === 1 ? "" : "s"}`
-                      : ""}
-                  </div>
-                </div>
-                <Badge variant={statusVariant(p.payoutStatus)}>
-                  {p.payoutStatus.toLowerCase().replace(/_/g, " ")}
-                </Badge>
-              </li>
-            ))}
+            {data?.payouts?.map((p) => {
+              const isOpen = expanded === p.payoutId;
+              return (
+                <li key={p.payoutId} className="py-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : p.payoutId)}
+                    className="flex w-full items-center justify-between gap-3 text-left"
+                    aria-expanded={isOpen}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      {isOpen ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-medium tabular-nums">
+                          {money(p.amount)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {fmtDate(p.payoutDate)}
+                          {p.transactionCount != null
+                            ? ` · ${p.transactionCount} transaction${p.transactionCount === 1 ? "" : "s"}`
+                            : ""}
+                        </div>
+                      </div>
+                    </div>
+                    <Badge variant={statusVariant(p.payoutStatus)}>
+                      {p.payoutStatus.toLowerCase().replace(/_/g, " ")}
+                    </Badge>
+                  </button>
+                  {isOpen && (
+                    <div className="mt-2 pl-6">
+                      <PayoutSales payoutId={p.payoutId} />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </CardContent>

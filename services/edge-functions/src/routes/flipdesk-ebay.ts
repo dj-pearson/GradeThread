@@ -989,11 +989,67 @@ flipdeskEbayRoutes.get("/finances/payouts", async (c) => {
   try {
     const since = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
     const payouts = await getPayouts(ownerId, since);
+    // US-1446 chunk 2: persist keyed by (user_id, payout_id) so reconciliation
+    // has a stable record and can dedupe against the CSV payout_imports path.
+    if (payouts.length > 0) {
+      const rows = payouts.map((p) => ({
+        user_id: ownerId,
+        payout_id: p.payoutId,
+        amount_cents: p.amount
+          ? Math.round(Number(p.amount.value) * 100)
+          : null,
+        currency: p.amount?.currency ?? null,
+        status: p.payoutStatus || null,
+        payout_date: p.payoutDate,
+        transaction_count: p.transactionCount,
+      }));
+      await supabaseAdmin
+        .from("ebay_payouts")
+        .upsert(rows as never, { onConflict: "user_id,payout_id" });
+    }
     return c.json({ access: true, payouts });
   } catch (err) {
     if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
     console.error("[flipdesk-ebay] /finances/payouts failed:", err);
     return c.json({ error: "Could not load eBay payouts." }, 502);
+  }
+});
+
+// US-1446 AC2: a payout's constituent sales (linked via sales.payout_reference =
+// eBay payoutId) + the net. Tenant-scoped read; the UI expands a payout into
+// this list so payout -> transactions -> net is visible.
+flipdeskEbayRoutes.get("/finances/payouts/:payoutId/sales", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  const payoutId = c.req.param("payoutId");
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("sales")
+      .select(
+        "id, inventory_item_id, sale_price, platform_fees, payout_amount, sold_at",
+      )
+      .eq("user_id", ownerId)
+      .eq("payout_reference", payoutId);
+    if (error) throw error;
+    const sales = (data ?? []) as Array<{
+      id: string;
+      inventory_item_id: string | null;
+      sale_price: number | null;
+      platform_fees: number | null;
+      payout_amount: number | null;
+      sold_at: string | null;
+    }>;
+    // Net = eBay's reported per-sale payout when present, else sale − fees.
+    const net = sales.reduce(
+      (sum, s) =>
+        sum +
+        (s.payout_amount ?? (s.sale_price ?? 0) - (s.platform_fees ?? 0)),
+      0,
+    );
+    return c.json({ sales, net: Math.round(net * 100) / 100 });
+  } catch (err) {
+    console.error("[flipdesk-ebay] /finances/payouts/:id/sales failed:", err);
+    return c.json({ error: "Could not load payout details." }, 502);
   }
 });
 

@@ -2,6 +2,31 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1446: payout-level reconciliation via Finances getPayouts (2 chunks)
+
+Reconciliation read /sell/finances/v1/transaction only (per-sale fees) — couldn't
+match a bank DEPOSIT (payout) to the transactions it settled. Now surfaces the
+lump-sum payout resellers actually reconcile against. Uses the existing
+sell.finances grant (apiz host; no new scope).
+
+- Chunk 1 (df2b7012) AC1-read: ebay-client getPayouts (date-filtered, paginated) +
+  getPayout; tenant-scoped GET /finances/payouts (no-access 403 → { access:false });
+  EbayPayoutsCard on the Reconciliation payouts tab (amount/date/status/txn count).
+- Chunk 2 (this commit) AC1-persist + AC2 + AC3: migration 00327 adds ebay_payouts
+  (id, user_id + RLS mirroring payout_imports, payout_id UNIQUE per user, amount_cents,
+  currency, status, payout_date, transaction_count; schema-version → 00327). The
+  payouts endpoint upserts keyed by (user_id,payout_id). New
+  GET /finances/payouts/:payoutId/sales returns the payout's constituent sales
+  (linked via the already-persisted sales.payout_reference = payoutId) + net; the
+  card's payout rows expand to show "N sales settled · net $X" (payout →
+  transactions → net). The live API payouts sit ABOVE the manual CSV import as the
+  auto-synced source-of-truth (CSV remains the fallback for non-Managed-Payments
+  sellers) — AC3's "API source-of-truth replacement".
+
+Verify: tsc -b, eslint, vitest 1028, build 45 (frontend, each chunk). Migration +
+edge validated by CI (DB Migrations + Deno lanes). Live eBay Finances shapes modeled
+from docs; read-only, degrades gracefully — no live-eBay test on this host.
+
 ## 2026-07-01 — US-1422: eBay Listing Health via Sell Compliance API (3 chunks)
 
 Monitoring + correction of eBay listing violations (missing item specifics, etc.)

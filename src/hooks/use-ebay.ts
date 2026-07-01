@@ -287,6 +287,39 @@ export function useEbayPayouts(enabled = true) {
   });
 }
 
+// US-1446 chunk 2: a payout's constituent sales + net (payout -> transactions
+// -> net). Fetched on demand when a payout row is expanded.
+export interface EbayPayoutSale {
+  id: string;
+  inventory_item_id: string | null;
+  sale_price: number | null;
+  platform_fees: number | null;
+  payout_amount: number | null;
+  sold_at: string | null;
+}
+export interface EbayPayoutSalesResponse {
+  sales: EbayPayoutSale[];
+  net: number;
+}
+export function useEbayPayoutSales(payoutId: string | null) {
+  return useQuery({
+    queryKey: ["ebay_payout_sales", payoutId],
+    enabled: !!payoutId,
+    staleTime: 10 * 60_000,
+    queryFn: async (): Promise<EbayPayoutSalesResponse> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/finances/payouts/${encodeURIComponent(payoutId!)}/sales`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load payout details.");
+      }
+      return json as EbayPayoutSalesResponse;
+    },
+  });
+}
+
 // Forces a fresh pull of the seller's business policies from eBay (the UI
 // "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
 // publish fails with "invalid shipping policy" because the cached default no
