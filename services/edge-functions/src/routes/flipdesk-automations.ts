@@ -250,6 +250,19 @@ export interface AutomationRunResult {
 }
 
 /** Apply one planned action. Returns false when the eBay push failed (skipped). */
+// US-1454: an end-listing automation only counts as "applied" when BOTH local
+// writes succeed — mark the listing ended and return the item to 'drafted'. The
+// eBay withdraw runs FIRST (US-467), so if a local write then fails we must NOT
+// record a successful automation-action; otherwise a listing ended on eBay but
+// still active locally is silently logged as applied. Returning false on either
+// write error aborts the action exactly like the price_drop/set_promo_rate
+// branches do on their write errors.
+export function endListingWritesApplied(
+  ...writeErrors: Array<{ message?: string } | null | undefined>
+): boolean {
+  return writeErrors.every((e) => !e);
+}
+
 async function applyMatch(
   ownerId: string,
   m: { rule: AutomationRuleRow; listing: AutomationListingRow; planned: PlannedAction },
@@ -308,15 +321,25 @@ async function applyMatch(
         return false;
       }
     }
-    await supabaseAdmin
+    const { error: endErr } = await supabaseAdmin
       .from("listings")
       .update({ listing_status: "ended", is_active: false })
       .eq("id", listing.id);
     // Back to drafted so the user can relist — same as the manual end-early.
-    await supabaseAdmin
+    const { error: itemErr } = await supabaseAdmin
       .from("inventory_items")
       .update({ status: "drafted" })
       .eq("id", listing.inventory_item_id);
+    // US-1454: don't record a successful action if the local writes failed — the
+    // eBay offer is already withdrawn, so a false "applied" hides the desync.
+    if (!endListingWritesApplied(endErr, itemErr)) {
+      console.error(
+        "[automations] end_listing local write failed for",
+        listing.id,
+        (endErr ?? itemErr)?.message,
+      );
+      return false;
+    }
     before = { listing_status: "active", price_cents: currentCents };
     after = { listing_status: "ended" };
   }

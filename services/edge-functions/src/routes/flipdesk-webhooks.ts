@@ -4,7 +4,7 @@ import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { notifyPayoutImported } from "../lib/selling-activity-notify.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
-import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
+import { claimWebhookEvent, releaseWebhookEvent } from "../lib/webhook-idempotency.ts";
 import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
@@ -1007,6 +1007,21 @@ const EBAY_DELETION_ENDPOINT_URL =
   Deno.env.get("EBAY_DELETION_ENDPOINT_URL") ??
   "https://functions.gradethread.com/api/flipdesk/webhooks/ebay/account-deletion";
 
+// US-1426: the account-deletion handler deactivates marketplace_connections
+// (nulling OAuth tokens). If a deactivation UPDATE errors we must NOT ack with a
+// clean 204 — the connection + long-lived refresh token would persist while eBay
+// treats the deletion as acknowledged (a compliance + lingering-credential risk).
+// Decide "retry" on ANY update error so the caller releases the idempotency claim
+// and returns a non-2xx (eBay retries non-2xx); "ack" only when both updates were
+// clean.
+export type AccountDeletionOutcome = "ack" | "retry";
+
+export function accountDeletionOutcome(
+  updateErrors: Array<{ message?: string } | null | undefined>,
+): AccountDeletionOutcome {
+  return updateErrors.some((e) => !!e) ? "retry" : "ack";
+}
+
 async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest(
     "SHA-256",
@@ -1151,6 +1166,7 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
     refresh_error: "account_deleted",
   };
   const matchedIds = new Set<string>();
+  const deactivateErrors: Array<{ message?: string } | null> = [];
   if (ebayUserId) {
     const { data: updated, error } = await supabaseAdmin
       .from("marketplace_connections")
@@ -1159,6 +1175,7 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
       .eq("external_account_id", ebayUserId)
       .select("id");
     if (error) {
+      deactivateErrors.push(error);
       console.error(
         "[flipdesk-webhooks] failed to deactivate eBay connection by id on deletion:",
         error,
@@ -1179,6 +1196,7 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
       .is("external_account_id", null)
       .select("id");
     if (error) {
+      deactivateErrors.push(error);
       console.error(
         "[flipdesk-webhooks] failed to deactivate eBay connection by handle on deletion:",
         error,
@@ -1188,6 +1206,34 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
     }
   }
   connectionsDeactivated = matchedIds.size;
+
+  // US-1426: a destructive-mutation failure must NOT be acked as a clean 204.
+  // Capture, release the idempotency claim so eBay's retry re-runs the
+  // deactivation, and return non-2xx (eBay retries non-2xx) — otherwise the
+  // connection + long-lived refresh token linger while eBay considers the
+  // account deleted.
+  if (accountDeletionOutcome(deactivateErrors) === "retry") {
+    recordMetric("webhook.process_failed", 1, {
+      provider: "ebay",
+      topic: "MARKETPLACE_ACCOUNT_DELETION",
+    });
+    captureException(
+      new Error(
+        `eBay account-deletion deactivation failed: ${
+          deactivateErrors.map((e) => e?.message ?? "unknown").join("; ")
+        }`,
+      ),
+      {
+        level: "error",
+        route: "flipdesk-webhooks.account-deletion",
+        tags: { topic: "MARKETPLACE_ACCOUNT_DELETION", decision: "retry" },
+      },
+    );
+    if (notificationId) {
+      await releaseWebhookEvent("ebay", notificationId);
+    }
+    return c.json({ error: "Deactivation failed; will retry" }, 500);
+  }
 
   // Compliance record (US-349): proof we received + acted on the deletion. Its
   // own purpose-built table — NOT account_deletion_log, which is GradeThread
