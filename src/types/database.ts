@@ -913,6 +913,9 @@ export interface InventoryItemRow {
   // eBay taxonomy mapping (migration 00030)
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
+  // US-1475 (migration 00328): adopted eBay Catalog product (EPID); sent in the
+  // inventory-item product block at publish to auto-fill required specifics.
+  ebay_epid: string | null;
   // US-825 (migration 00184): per-aspect provenance parallel to ebay_aspects —
   // { aspectName: "ai_extracted" | "inventory_derived" | "manual" }.
   ebay_aspect_sources: Record<string, string> | null;

@@ -78,6 +78,7 @@ import {
   type MergeValues,
 } from "@/components/flipdesk/merge-sku-dialog";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
+import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
 import {
   resolveStatus,
@@ -1436,6 +1437,10 @@ export function ItemCanvas({
           (item.status === "listed" || item.status === "comped") && (
             <CategoryCheckCard listingId={item.listing_id} />
           )}
+
+        {/* US-1475: match to an eBay catalog product (EPID) to auto-fill
+            required item specifics. On-demand — no API call until clicked. */}
+        <EbayCatalogMatchCard itemId={item.id} />
 
         <div id="canvas-comps" className="space-y-2 scroll-mt-4">
           <Label>Comps</Label>

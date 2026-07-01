@@ -8639,7 +8639,7 @@
         "Prefer catalog-provided aspects over AI-generated ones for compliance-critical fields."
       ],
       "priority": 1985,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-client.ts:753-958 (Taxonomy only); https://developer.ebay.com/api-docs/commerce/catalog/overview.html"
     },
     {

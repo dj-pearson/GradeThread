@@ -320,6 +320,57 @@ export function useEbayPayoutSales(payoutId: string | null) {
   });
 }
 
+// US-1475: eBay Catalog (EPID) product match for an item — candidates + the top
+// product's authoritative aspects.
+export interface CatalogMatchCandidate {
+  epid: string;
+  title: string;
+  brand: string | null;
+  gtins: string[];
+  imageUrl: string | null;
+}
+export interface CatalogMatchResponse {
+  candidates: CatalogMatchCandidate[];
+  top: { epid: string; title: string; brand: string | null; aspects: Record<string, string[]> } | null;
+}
+export function useCatalogMatch(itemId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_catalog_match", itemId],
+    enabled: enabled && !!itemId,
+    staleTime: 10 * 60_000,
+    queryFn: async (): Promise<CatalogMatchResponse> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/catalog/match?item_id=${encodeURIComponent(itemId!)}`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not search the eBay catalog.");
+      return json as CatalogMatchResponse;
+    },
+  });
+}
+
+// US-1475: adopt a catalog product (persist EPID + merge catalog aspects).
+export function useAdoptCatalogProduct() {
+  const qc = useQueryClient();
+  return useMutation<{ epid: string; applied: number }, Error, { itemId: string; epid: string }>({
+    mutationFn: async ({ itemId, epid }) => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/catalog/adopt`, {
+        method: "POST",
+        headers: await ebayHeaders(),
+        body: JSON.stringify({ item_id: itemId, epid }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not adopt the catalog product.");
+      return json as { epid: string; applied: number };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+      qc.invalidateQueries({ queryKey: ["ebay_catalog_match"] });
+    },
+  });
+}
+
 // Forces a fresh pull of the seller's business policies from eBay (the UI
 // "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
 // publish fails with "invalid shipping policy" because the cached default no

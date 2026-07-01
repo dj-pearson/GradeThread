@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1475: eBay Commerce Catalog EPID adoption (2 chunks)
+
+Listing against an eBay catalog product (by EPID) auto-fills required item
+specifics + cuts aspect-compliance violations (US-1422). Catalog API is reachable
+via the EXISTING app token (client_credentials, base api_scope, like Taxonomy/
+Browse) — NO new user scope.
+
+- Chunk 1 (01abb5e5) AC1-read: ebay-client searchCatalogProducts (by GTIN and/or
+  brand+mpn+keywords) + getCatalogProduct(epid) (authoritative aspects); GET
+  /catalog/match?item_id=X (tenant-scoped) returns candidates + the top product's
+  aspects (SKU-as-GTIN when all-digits).
+- Chunk 2 (this commit) AC1-adopt + AC2: migration 00328 adds
+  inventory_items.ebay_epid (schema-version → 00328); POST /catalog/adopt sets the
+  EPID + merges the catalog's aspects into ebay_aspects — catalog PREFERRED over AI
+  (overwrites ai_extracted + fills gaps) but a MANUAL user aspect is never
+  clobbered (via ebay_aspect_sources); the EPID is sent in the eBay inventory-item
+  product block at publish (added epid to InventoryItemPayload.product + the
+  assemblePublishContext select + the main publish site — optional, so eBay
+  ignores an absent epid); new EbayCatalogMatchCard in ItemCanvas (on-demand
+  "Find catalog match" → "Use this match & fill specifics", no auto API calls).
+
+Verify: tsc -b, eslint, vitest 1028, build 45 (frontend, each chunk). Migration +
+edge validated by CI (DB Migrations + Deno lanes). Catalog shapes modeled from the
+commerce/catalog docs; read paths degrade gracefully (204/404 → no match), the
+publish epid is additive — no live-eBay test on this host.
+
 ## 2026-07-01 — US-1476: legacy Trading API deprecation watch (audit/doc)
 
 eBay is decommissioning the legacy Trading XML API; we still use several calls

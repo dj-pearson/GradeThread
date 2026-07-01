@@ -1099,6 +1099,81 @@ flipdeskEbayRoutes.get("/catalog/match", async (c) => {
   }
 });
 
+// US-1475 chunk 2 (AC1-adopt + AC2): adopt an eBay catalog product for an item —
+// persist its EPID + merge the catalog's authoritative aspects into ebay_aspects.
+// Catalog PREFERRED over AI (overwrites ai_extracted values + fills gaps) but a
+// MANUAL (user-set) aspect is never clobbered. Tenant-scoped; OUR-DB write only
+// (the EPID reaches eBay at publish via the inventory-item product block).
+flipdeskEbayRoutes.post("/catalog/adopt", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  let body: { item_id?: string; epid?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = body.item_id;
+  const epid = body.epid;
+  if (!itemId || !epid) {
+    return c.json({ error: "item_id and epid are required" }, 400);
+  }
+  try {
+    const { data: item, error } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, ebay_aspects, ebay_aspect_sources")
+      .eq("id", itemId)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (error) throw error;
+    const it = item as
+      | {
+          ebay_aspects: Record<string, string[]> | null;
+          ebay_aspect_sources: Record<string, string> | null;
+        }
+      | null;
+    if (!it) return c.json({ error: "Item not found." }, 404);
+
+    const product = await getCatalogProduct(epid);
+    if (!product) {
+      return c.json({ error: "That eBay catalog product no longer exists." }, 404);
+    }
+
+    const aspects: Record<string, string[]> = { ...(it.ebay_aspects ?? {}) };
+    const sources: Record<string, string> = { ...(it.ebay_aspect_sources ?? {}) };
+    let applied = 0;
+    for (const [name, values] of Object.entries(product.aspects)) {
+      const vals = (values ?? []).filter((v) => v && v.trim());
+      if (vals.length === 0) continue;
+      // Keep a value the user set by hand; otherwise the catalog wins over AI
+      // and fills gaps.
+      if (sources[name] === "manual") continue;
+      aspects[name] = vals;
+      sources[name] = "catalog";
+      applied += 1;
+    }
+
+    const { error: upErr } = await supabaseAdmin
+      .from("inventory_items")
+      .update({
+        ebay_epid: epid,
+        ebay_aspects: aspects,
+        ebay_aspect_sources: sources,
+      } as never)
+      .eq("id", itemId)
+      .eq("user_id", ownerId);
+    if (upErr) throw upErr;
+
+    return c.json({ epid, applied });
+  } catch (err) {
+    console.error("[flipdesk-ebay] /catalog/adopt failed:", err);
+    return c.json({ error: "Could not adopt the eBay catalog product." }, 502);
+  }
+});
+
 flipdeskEbayRoutes.get("/policies", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {
@@ -5316,6 +5391,12 @@ export async function publishItemForOwner(
             ? item.brand.trim()
             : "Unbranded",
         mpn: "Does Not Apply",
+        // US-1475: adopt the eBay Catalog product if one was matched (optional;
+        // eBay ignores an absent epid, so this is safe when unset).
+        epid:
+          typeof (item as { ebay_epid?: string | null }).ebay_epid === "string"
+            ? ((item as { ebay_epid?: string | null }).ebay_epid as string)
+            : undefined,
       },
       condition: ctx.summary.condition,
       conditionDescription:
@@ -7043,7 +7124,7 @@ export async function assemblePublishContext(
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, ebay_aspect_sources, item_category, color, material, style, attributes, status"
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, ebay_aspect_sources, ebay_epid, item_category, color, material, style, attributes, status"
     )
     .eq("id", itemId)
     .maybeSingle();

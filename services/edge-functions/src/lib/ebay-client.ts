@@ -1930,6 +1930,9 @@ export interface InventoryItemPayload {
     imageUrls?: string[];
     brand?: string;
     mpn?: string;
+    // US-1475: adopt an eBay Catalog product by EPID — eBay auto-fills the
+    // catalog's required item specifics, cutting aspect-compliance violations.
+    epid?: string;
   };
   condition: string;
   conditionDescription?: string;
