@@ -8319,7 +8319,7 @@
         "Ensure the applied comped price wins at save over the stale price-input value."
       ],
       "priority": 2081,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: composer.tsx:1047-1059,383-432,597-605; ebay-comps-panel.tsx:37-38,107-126."
     },
     {
@@ -8783,7 +8783,7 @@
         "Grep once more to confirm photo-uploader is the only remaining ungated case in production code."
       ],
       "priority": 1973,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: src/components/flipdesk/photo-uploader.tsx:140,143,177."
     },
     {
