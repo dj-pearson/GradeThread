@@ -2,6 +2,38 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 16 (US-1465, US-1463) — cert integrity panel + onboarding step skip
+
+- US-1465 Clarify and de-emphasize the certificate integrity-check panel on
+  transient failures — NOW COMPLETE (passes:true). AC1 (confirm anonymous +
+  edge-cached): the /api/content/public/certificates/:id/verify handler is
+  public/no-auth (confirmed) but set NO cache header — so every public cert view
+  hit the DB. Added a short-TTL Cache-Control (public, max-age=30, s-maxage=60,
+  stale-while-revalidate=120) so a CDN absorbs view bursts (e.g. a slab QR
+  scanned by many buyers); the short s-maxage bounds staleness vs the
+  moderation-withhold gate (load-testing itself is an ops follow-up). AC2: the
+  transient 'error' phase rendered a prominent bordered panel among the trust
+  signals; de-emphasized it to a small, quiet inline line ("Couldn't reach the
+  integrity checker." + a subtle Retry link) so a network blip doesn't alarm
+  buyers about a valid grade. Dropped the now-unused Button import.
+
+- US-1463 Avoid re-prompting onboarding for the use-case already captured at
+  signup — NOW COMPLETE (passes:true). Use case is often set on the signup form
+  (stamped via handle_new_user), yet OnboardingFlow still walked first-run users
+  through the use-case step (pre-selected but presented). Added skipUseCase
+  (= !reopened && !!profile.use_case): on first-run the Next button hops welcome
+  (step 0) straight to the tour (step 2) and Back mirrors it, skipping the
+  redundant step (AC1). The Settings replay path (reopened) still shows it so the
+  choice stays editable (AC2). finish() still records onboarded_at + use_case, so
+  the first-run gate clears (AC3); the non-dismissible gate is already satisfied
+  since useCase is seeded from the profile.
+
+VERIFICATION (this container): web gate fully green — tsc -b clean, eslint 0
+errors, vitest 1012 pass, npm run build (incl. prerender, 45 routes) succeeded.
+The one-line edge Cache-Control addition (content-public.ts) is validated by the
+GitHub Actions edge lane (deno not runnable locally). Open prd.json stories now
+127.
+
 ## 2026-06-30 — Pre-launch audit batch 15 (US-1438, US-1466) — grading-status UX (failed recovery + in-progress clarity)
 
 - US-1438 Give failed grades a recovery action instead of a dead end — NOW

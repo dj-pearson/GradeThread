@@ -8495,7 +8495,7 @@
         "Ensure onboarded_at is still recorded so the first-run gate clears."
       ],
       "priority": 1997,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · auth · auth audit] Evidence: signup.tsx:38-39,275-304; onboarding-flow.tsx:96-99,194-235."
     },
     {
@@ -8519,7 +8519,7 @@
         "De-emphasize the panel while in the transient 'error' phase (it currently sits among trust signals)."
       ],
       "priority": 1995,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · grading · grading audit] Evidence: src/pages/certificate.tsx:245-262."
     },
     {

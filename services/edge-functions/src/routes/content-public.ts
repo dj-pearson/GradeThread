@@ -796,6 +796,14 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     r.integrity_version,
   );
 
+  // US-1465: this fires on every public certificate view, so let a CDN absorb
+  // bursts (e.g. a slab QR scanned by many buyers) instead of hitting the DB per
+  // request. Short s-maxage keeps the moderation-withhold gate (a cert flagged
+  // after caching) from serving a stale "verified" verdict for long.
+  c.header(
+    "Cache-Control",
+    "public, max-age=30, s-maxage=60, stale-while-revalidate=120",
+  );
   return c.json({
     certificate_id: r.certificate_id,
     status: result.status,
