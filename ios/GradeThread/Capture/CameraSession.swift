@@ -53,6 +53,9 @@ public final class CameraSession: NSObject {
         // `nonisolated` and hop back to the main actor (US-1408).
         let center = NotificationCenter.default
         center.addObserver(
+            self, selector: #selector(handleWasInterrupted(_:)),
+            name: AVCaptureSession.wasInterruptedNotification, object: session)
+        center.addObserver(
             self, selector: #selector(handleInterruptionEnded(_:)),
             name: AVCaptureSession.interruptionEndedNotification, object: session)
         center.addObserver(
@@ -123,6 +126,14 @@ public final class CameraSession: NSObject {
             if !session.isRunning { session.startRunning() }
         }
         isRunning = true
+    }
+
+    @objc private nonisolated func handleWasInterrupted(_ note: Notification) {
+        // US-1408: an interruption (incoming call, Control Center, FaceTime PiP)
+        // stops a running session. Reflect that in `isRunning` so the UI never
+        // shows a "live" state over a frozen preview; the matching
+        // interruptionEnded / scenePhase .active handlers restart it.
+        Task { @MainActor in self.isRunning = false }
     }
 
     @objc private nonisolated func handleInterruptionEnded(_ note: Notification) {

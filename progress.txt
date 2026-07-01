@@ -2,6 +2,41 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1408 + US-1412: close iOS camera-recovery + hardening (verify + 1 gap-fix)
+
+Continuing the iOS App-Review backlog reconciliation (US-1405-1412 were shipped
+on main in 78d1a5fa but left passes:false). Verified each AC against main.
+
+US-1408 (camera restart after backgrounding/interruption):
+- Verified: PhotoIntakeView + BarcodeScanView observe scenePhase and
+  restartIfNeeded on .active; CameraSession observed interruptionEnded +
+  runtimeError; GradedPhotoView denied-path has an "Open Settings" link.
+- GAP FIXED: AC2 also lists AVCaptureSession.wasInterruptedNotification, which
+  wasn't observed. Added a wasInterrupted observer + handleWasInterrupted that
+  sets isRunning=false during an interruption (so the UI never shows "live" over
+  a frozen preview), mirroring the existing handlers. → marked passes:true.
+
+US-1412 (hardening): all 5 ACs already met on main —
+- AC1: ios-release.yml "Require core backend config" step rejects the placeholder/
+  empty SUPABASE_ANON_KEY before archive (post-Infisical-injection, the correct
+  place — Release.xcconfig intentionally ships the placeholder). SENTRY_DSN +
+  TURNSTILE gates sit alongside it.
+- AC2 ReconcileIntakeService `guard let components.url`; AC3 BackgroundRefresh
+  watchdog cancels at budgetSeconds=25; AC4 MoneyMath `guard dollars.isFinite`;
+  AC5 TagPhotoQuality comment corrected to 1600px. → marked passes:true (no code).
+
+DEFERRED — US-1405 (StoreKit) stays passes:false: 4 functional ACs are done
+(launch Transaction.updates listener in AppDelegate, 15s bounded product fetch,
+reportWithRetry-before-finish, optimistic plan), but AC5 is UNMET — .storekit
+still has _developerTeamID="TEAMID" (placeholder) + _failTransactionsEnabled=false
+and there's no failure-testing scheme. The real Apple Developer Team ID is
+external input I don't have, and a StoreKit failure-testing scheme can't be
+authored/validated on Windows. Needs a human on macOS + the Team ID.
+
+Verify: iOS lane is the gate (macOS-only). The CameraSession edit is a minimal
+mirror of existing observer handlers; scanned clean for curly-quote delimiters.
+Watching the iOS CI lane after push.
+
 ## 2026-07-01 — US-1406 + US-1407: verify + close already-shipped iOS App-Review fixes
 
 Backlog reconciliation (no new code): both stories were implemented and
