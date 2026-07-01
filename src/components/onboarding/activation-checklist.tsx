@@ -140,10 +140,22 @@ export function ActivationChecklist() {
   const steps = useMemo(() => stepsFor(useCase), [useCase]);
   const stepKeys = useMemo(() => new Set(steps.map((s) => s.key)), [steps]);
 
+  // US-1435: resellers (seller/consignment) are activated FIRST by the FlipDesk
+  // onboarding checklist (source → intake → grade) on the FlipDesk surface. Keep
+  // this dashboard-home checklist mutually exclusive with it by sequencing: don't
+  // show it for a reseller until flipdesk_onboarded is set, so the two never run
+  // as competing cards. Non-resellers (developer) have no FlipDesk checklist, so
+  // they see this one immediately.
+  const isReseller = useCase === "seller" || useCase === "consignment";
+
   // Only show once general onboarding is finished (onboarded_at set) so we don't
   // fight the first-run OnboardingFlow modal that captures the use case.
   const active =
-    !!profile && !!profile.onboarded_at && !dismissed && steps.length > 0;
+    !!profile &&
+    !!profile.onboarded_at &&
+    !dismissed &&
+    steps.length > 0 &&
+    (!isReseller || !!profile.flipdesk_onboarded);
 
   const { data: counts } = useQuery({
     queryKey: ["activation-checklist-counts", user?.id],
