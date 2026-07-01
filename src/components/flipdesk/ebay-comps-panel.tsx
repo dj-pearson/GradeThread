@@ -121,8 +121,25 @@ export function EbayCompsPanel({
   }
 
   async function applyAsTargetPrice() {
-    if (recommendedPrice == null) return;
-    await setTargetPrice(recommendedPrice, currency);
+    // US-1478: the active-ask median systematically over-prices — asks list above
+    // realized sales (the panel's own disclaimer warns this). Prefer the
+    // sold-backed grade-banded recommendation when we have one; otherwise fall
+    // back to the lower quartile (p25) of active asks as a data-driven discount
+    // toward realized-sale levels, and only the median if p25 is unavailable.
+    if (
+      recommendation?.soldBacked &&
+      recommendation.sufficient &&
+      recommendation.recommendedCents != null
+    ) {
+      await setTargetPrice(
+        recommendation.recommendedCents / 100,
+        recommendation.currency,
+      );
+      return;
+    }
+    const activeTarget = stats?.p25 ?? recommendedPrice;
+    if (activeTarget == null) return;
+    await setTargetPrice(activeTarget, currency);
   }
 
   if (!categoryId) {
@@ -230,8 +247,9 @@ export function EbayCompsPanel({
               <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
               <span>
                 Asking prices from <strong>active</strong> listings, not sold
-                prices — actual sale prices are often lower. Treat the
-                recommended price as a ceiling.
+                prices — actual sale prices are often lower, so treat this median
+                as a ceiling. “Use as target price” applies a figure discounted
+                toward realized sales (a sold-comp recommendation when available).
               </span>
             </div>
           </div>
