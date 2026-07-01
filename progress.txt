@@ -2,6 +2,34 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 13 (US-1428, US-1484) — surface acquired items + restrict intake statuses
+
+- US-1428 Surface 'acquired' (and archived/keeping/wearing) items in the Kanban
+  pipeline — NOW COMPLETE (passes:true). FLIPDESK_PIPELINE has no 'acquired'
+  column, so the groups builder (map.get(it.status) → undefined → continue)
+  silently dropped any Acquired item from the board. Added pipelineColumnFor(s)
+  (acquired → sourced) used in BOTH the grouping and nextPipelineStatus, so
+  acquired items now appear in the Sourced column and batchMoveNext advances them
+  to Cataloged instead of "No next stage after Acquired" (AC1/AC3). Folded the
+  acquired count into the Sourced column badge (statusCounts is a per-status
+  server RPC). For the genuinely off-pipeline archived/keeping/wearing statuses
+  (intentionally not on the board), added an affordance: a count + "view in
+  inventory" link above the board so they aren't invisibly stranded (AC2).
+
+- US-1484 Restrict the intake status dropdown to hand-settable stages — NOW
+  COMPLETE (passes:true). The New Item status <Select> listed every ITEM_STATUSES
+  value including system/terminal states (grading, graded, comped, drafted,
+  listed, sold, shipped, completed, returned) — notably writing 'grading'
+  directly bypassed the submission+charge flow the board blocks. Added
+  INTAKE_STATUSES (sourced, acquired, cataloged, measured, photographed +
+  archived, keeping, wearing) in constants.ts and drove the dropdown from it;
+  the excluded states are now only reachable via their proper flows (AC1/AC2).
+  Default intake status ('cataloged') remains in the list.
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors, vitest 1012 pass, npm run build (incl. prerender, 45
+routes) succeeded. Open prd.json stories now 133.
+
 ## 2026-06-30 — Pre-launch audit batch 12 (US-1482, US-1470 + CI-flake fix) — Kanban empty state, pricing tax note
 
 - US-1482 Add a Kanban empty state for accounts with no inventory — NOW COMPLETE

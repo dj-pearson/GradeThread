@@ -510,6 +510,23 @@ export const ITEM_STATUSES = [
 // These are filtered out of the main Kanban pipeline view (US-101 / US-109).
 export const PERSONAL_STATUSES = ["keeping", "wearing"] as const;
 
+// US-1484: statuses a user may hand-set when creating an item at intake. The
+// system/terminal states — grading (owned by the grade-submission flow), graded,
+// comped, drafted, listed, sold, shipped, completed, returned — are set only by
+// their proper flows and must NOT be writable directly from the New Item form
+// (e.g. writing 'grading' here bypasses the submission + charge). Early-pipeline
+// choices plus the off-pipeline archived/personal statuses remain.
+export const INTAKE_STATUSES = [
+  "sourced",
+  "acquired",
+  "cataloged",
+  "measured",
+  "photographed",
+  "archived",
+  "keeping",
+  "wearing",
+] as const;
+
 export const ITEM_STATUS_LABELS: Record<
   (typeof ITEM_STATUSES)[number],
   string
