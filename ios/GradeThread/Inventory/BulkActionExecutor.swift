@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Supabase
 
 /// Runs one ``BulkAction`` against a set of `LocalInventoryItem` rows.
@@ -249,6 +250,7 @@ public struct BulkActionExecutor {
 
         var succeeded = 0
         var failures: [BulkActionResult.Failure] = []
+        var warnings: [String] = []
 
         for (index, item) in items.enumerated() {
             defer { onProgress?(index + 1, items.count) }
@@ -258,12 +260,25 @@ public struct BulkActionExecutor {
             }
             let outcome = await publish.endListing(listingId: listing.id)
             switch outcome {
-            case .ended:
+            case .ended(let response):
                 succeeded += 1
                 // Optimistic local apply — server moves status back to
                 // drafted; mirror that locally so the list refilters.
                 item.status = "drafted"
                 item.updatedAt = .now
+                // US-1506 (AC4): also end the LocalListing row now, else the
+                // item canvas keeps showing an active listing until the next
+                // sync pull.
+                markLocalListingEnded(id: listing.id, context: item.modelContext)
+                // US-1506 (AC2): eBay didn't actually withdraw the offer (already
+                // inactive / no linked offer). It's ended in FlipDesk — warn so
+                // the seller verifies on eBay rather than trusting a silent
+                // "success".
+                if !response.endedOnEbay {
+                    warnings.append(
+                        response.note ?? "Ended in FlipDesk; verify on eBay that it's no longer live."
+                    )
+                }
             case .noOfferId:
                 failures.append(.init(itemId: item.id, message: "Listing isn't linked to an eBay offer."))
             case .failed(let message):
@@ -272,7 +287,23 @@ public struct BulkActionExecutor {
                 failures.append(.init(itemId: item.id, message: "Unexpected response from server."))
             }
         }
-        return BulkActionResult(action: action, succeeded: succeeded, failures: failures)
+        return BulkActionResult(action: action, succeeded: succeeded, failures: failures, warnings: warnings)
+    }
+
+    /// US-1506: optimistically mark the local `listings` mirror ended so the
+    /// canvas reflects reality immediately (bulk End previously flipped only the
+    /// item's status). `hasLocalChanges` guards the value against a racing pull
+    /// that hasn't yet seen the server-side end.
+    private func markLocalListingEnded(id: String, context: ModelContext?) {
+        guard let context else { return }
+        let descriptor = FetchDescriptor<LocalListing>(
+            predicate: #Predicate { $0.id == id }
+        )
+        guard let row = try? context.fetch(descriptor).first else { return }
+        row.listingStatus = "ended"
+        row.endedAt = .now
+        row.updatedAt = .now
+        row.hasLocalChanges = true
     }
 
     /// Drops each item's active listing price by `percent`. Hard floor
@@ -351,10 +382,15 @@ public struct BulkActionExecutor {
             .in("inventory_item_id", values: itemIds)
             .eq("platform", value: "ebay")
             .eq("listing_status", value: "active")
+            // US-1506: order most-recent-first so the per-item dedup below keeps a
+            // DETERMINISTIC row. Without this, a bulk End/price-drop on an item
+            // with two active rows targeted whichever row PostgREST happened to
+            // return first.
+            .order("created_at", ascending: false)
             .execute()
             .value
         // Deduplicate to the most recent per item — there could be multiple
-        // historical listings; we only act on the active one.
+        // historical listings; we only act on the active one (first == newest).
         var map: [String: ActiveListing] = [:]
         for row in rows where map[row.inventory_item_id] == nil {
             map[row.inventory_item_id] = row

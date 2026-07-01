@@ -9051,7 +9051,7 @@
         "Bulk End optimistically updates the LocalListing row so the canvas reflects reality immediately."
       ],
       "priority": 2385,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] A listing the user believes is ended but is still sellable on eBay = oversell risk. Edge portion testable here."
     },
     {

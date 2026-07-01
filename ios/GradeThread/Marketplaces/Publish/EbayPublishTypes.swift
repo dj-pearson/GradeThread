@@ -135,10 +135,30 @@ struct ReviseResponse: Decodable, Equatable {
 struct EndListingResponse: Decodable, Equatable {
     let ok: Bool
     let listingId: String
+    /// US-1506: true only when eBay actually withdrew the live offer. When false,
+    /// the listing was ended in FlipDesk ONLY (no linked offer, or eBay showed it
+    /// already inactive) — surfacing `note` prevents "ended" reading as a full
+    /// success when the eBay side may not have changed.
+    let endedOnEbay: Bool
+    /// Human-readable reason when the eBay withdraw didn't happen (nil on a clean
+    /// eBay-side end).
+    let note: String?
 
     private enum CodingKeys: String, CodingKey {
         case ok
         case listingId = "listing_id"
+        case endedOnEbay = "ended_on_ebay"
+        case note
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try c.decode(Bool.self, forKey: .ok)
+        listingId = try c.decode(String.self, forKey: .listingId)
+        // Older/edge-partial responses may omit these — default to a safe "eBay
+        // side unconfirmed" rather than asserting a successful withdraw.
+        endedOnEbay = try c.decodeIfPresent(Bool.self, forKey: .endedOnEbay) ?? false
+        note = try c.decodeIfPresent(String.self, forKey: .note)
     }
 }
 

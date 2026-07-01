@@ -2397,9 +2397,24 @@ export function isOfferAlreadyEndedError(err: unknown): boolean {
   if (status >= 400 && status < 500) return true;
   // Non-HTTP error (no numeric status) — fall back to a message match.
   const msg = (e.message ?? "").toLowerCase();
-  return /not published|not found|no active|already ended|cannot be withdrawn|does not exist|not\s+live/.test(
+  // US-1506: DO NOT match "no active …connection". getUserAccessToken throws
+  // "No active eBay connection for this user." when the account is disconnected —
+  // that is NOT an already-ended offer. Matching it here reconciled a STILL-LIVE
+  // listing to ended (oversell risk). isNoEbayConnectionError classifies it and
+  // the end handler preempts this check with it.
+  return /not published|not found|already ended|cannot be withdrawn|does not exist|not\s+live/.test(
     msg,
   );
+}
+
+// US-1506: a disconnected/absent eBay account. getUserAccessToken throws this
+// before any offer withdraw is attempted, so the live listing's state is UNKNOWN
+// (still sellable on eBay). Callers MUST surface an actionable reconnect error
+// and must NOT reconcile the local row to ended.
+export function isNoEbayConnectionError(err: unknown): boolean {
+  const e = err as { message?: string } | null;
+  if (!e) return false;
+  return /no active eBay connection/i.test(e.message ?? "");
 }
 
 // US-568: multi-variant (size/color) listings. eBay models them as an

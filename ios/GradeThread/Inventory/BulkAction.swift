@@ -120,6 +120,11 @@ public struct BulkActionResult: Equatable {
     public let action: BulkAction
     public let succeeded: Int
     public let failures: [Failure]
+    /// US-1506: non-fatal notices — e.g. a listing that ended in FlipDesk but
+    /// whose eBay withdraw didn't actually happen (already inactive / no linked
+    /// offer). These items still count toward `succeeded`; the warning tells the
+    /// seller the eBay side may be unchanged so they can verify.
+    public var warnings: [String] = []
 
     public struct Failure: Equatable {
         public let itemId: String
@@ -130,12 +135,17 @@ public struct BulkActionResult: Equatable {
 
     public var summary: String {
         let suffix = total == 1 ? "item" : "items"
+        let base: String
         if failures.isEmpty {
-            return "Updated \(succeeded) \(suffix)."
+            base = "Updated \(succeeded) \(suffix)."
+        } else if succeeded == 0 {
+            base = "All \(failures.count) \(suffix) failed."
+        } else {
+            base = "Updated \(succeeded) of \(total) \(suffix); \(failures.count) failed."
         }
-        if succeeded == 0 {
-            return "All \(failures.count) \(suffix) failed."
-        }
-        return "Updated \(succeeded) of \(total) \(suffix); \(failures.count) failed."
+        if warnings.isEmpty { return base }
+        // Surface a single representative notice inline; the caller can render
+        // the full `warnings` list if it wants more detail.
+        return "\(base) \(warnings.count == 1 ? warnings[0] : "\(warnings.count) listings ended in FlipDesk only — verify on eBay.")"
     }
 }

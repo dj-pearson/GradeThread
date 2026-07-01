@@ -7842,3 +7842,24 @@ packaged in PENDING_MIGRATIONS.md so they can apply DB→edge→frontend at chec
 VERIFICATION (this host): deno test aspect-reconcile + listing-template = 30 passed
 / 0 failed; deno check src/main.ts clean; deno lint clean on all 3 changed edge
 files; iOS Swift edit curly-quote-scanned clean (iOS CI on macOS is the build gate).
+
+- US-1506 eBay End-listing truthfulness — NOW COMPLETE (passes:true). Four
+  sub-bugs: (1 oversell) isOfferAlreadyEndedError's /no active/ regex matched
+  getUserAccessToken's "No active eBay connection for this user." → a DISCONNECTED
+  account's End reconciled a STILL-LIVE listing to ended. Fix: removed /no active/
+  from the regex + new isNoEbayConnectionError() in ebay-client.ts; the DELETE
+  end handler preempts with it → 409 + actionable reconnect copy, NO local
+  reconcile (AC1). (2) iOS EndListingResponse decoded only ok+listing_id →
+  "ended in FlipDesk only" read as full success; now decodes ended_on_ebay/note
+  (decodeIfPresent, safe defaults) and the bulk flow surfaces the note via a new
+  non-fatal BulkActionResult.warnings channel (AC2). (3) BulkActionExecutor
+  .fetchActiveListings had no ORDER BY behind its "most recent per item" dedup →
+  added .order(created_at, desc) (AC3). (4) Bulk End flipped only item.status;
+  now also ends the LocalListing row optimistically (markLocalListingEnded, sets
+  status/endedAt + hasLocalChanges) so the canvas reflects reality pre-pull (AC4).
+  NO MIGRATION.
+
+VERIFICATION (this host): deno test offer-already-ended = 9 passed / 0 failed
+(incl. 2 new no-connection cases); deno check src/main.ts clean; deno lint clean;
+touched Swift files (EbayPublishTypes, BulkActionExecutor, BulkAction) curly-quote
+scanned clean. iOS AC2/AC3/AC4 are code-complete — macOS iOS CI is the build gate.

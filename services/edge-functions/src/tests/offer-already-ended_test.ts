@@ -9,7 +9,9 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { isOfferAlreadyEndedError } = await import("../lib/ebay-client.ts");
+const { isOfferAlreadyEndedError, isNoEbayConnectionError } = await import(
+  "../lib/ebay-client.ts"
+);
 
 // The end-listing / relist withdraw must treat an ALREADY-not-live offer as
 // success (so a policy-removed or seller-ended listing reconciles locally
@@ -58,4 +60,28 @@ Deno.test("non-HTTP unknown error → NOT already ended", () => {
   assertEquals(isOfferAlreadyEndedError(new Error("network blip")), false);
   assertEquals(isOfferAlreadyEndedError(null), false);
   assertEquals(isOfferAlreadyEndedError(undefined), false);
+});
+
+// US-1506: a disconnected eBay account throws "No active eBay connection…"
+// BEFORE any withdraw runs, so the listing is still LIVE. It must NOT be
+// classified as already-ended (that reconciled a live listing to ended =
+// oversell risk); it's a dedicated connection error the end handler preempts.
+
+Deno.test("no-connection error is NOT already-ended (was matched by /no active/)", () => {
+  const e = new Error("No active eBay connection for this user.");
+  assertEquals(isOfferAlreadyEndedError(e), false);
+});
+
+Deno.test("isNoEbayConnectionError classifies the disconnected-account error", () => {
+  assertEquals(
+    isNoEbayConnectionError(new Error("No active eBay connection for this user.")),
+    true,
+  );
+  // case-insensitive, and does NOT fire on a genuinely-ended offer
+  assertEquals(
+    isNoEbayConnectionError(new Error("no active EBAY connection")),
+    true,
+  );
+  assertEquals(isNoEbayConnectionError(new Error("offer not found")), false);
+  assertEquals(isNoEbayConnectionError(null), false);
 });

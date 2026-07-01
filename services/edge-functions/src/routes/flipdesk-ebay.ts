@@ -64,6 +64,7 @@ import {
   upsertConnection,
   withdrawOffer,
   isOfferAlreadyEndedError,
+  isNoEbayConnectionError,
   findEligibleNegotiationItems,
   getBrowseItemByLegacyId,
   sendOfferToInterestedBuyers,
@@ -5128,6 +5129,24 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
       await withdrawOffer(userId, row.listing.platform_offer_id);
       endedOnEbay = true;
     } catch (err) {
+      // US-1506: a disconnected eBay account throws BEFORE the withdraw runs, so
+      // the listing is still LIVE on eBay. Never reconcile it to ended — that
+      // would tell the seller it's gone while buyers can still purchase it
+      // (oversell). Fail with actionable reconnect copy instead.
+      if (isNoEbayConnectionError(err)) {
+        console.warn(
+          "[flipdesk-ebay] end: no eBay connection — listing left active:",
+          err instanceof Error ? err.message : String(err),
+        );
+        return c.json(
+          {
+            error:
+              "Your eBay account isn't connected, so we couldn't end this live " +
+              "listing on eBay. Reconnect eBay in Marketplaces, then end it again.",
+          },
+          409
+        );
+      }
       if (!isOfferAlreadyEndedError(err)) {
         console.error("[flipdesk-ebay] withdrawOffer failed (transient):", err);
         return c.json(
