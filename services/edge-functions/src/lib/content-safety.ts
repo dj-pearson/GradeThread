@@ -1,6 +1,7 @@
 import {
   getAnthropicClient,
   getLightweightModel,
+  modelUsesEffort,
 } from "./ai-config.ts";
 
 // US-486: pre-publish safety/claims review for AI-generated content.
@@ -124,7 +125,13 @@ export async function reviewContentSafety(
     const response = await client.messages.create({
       model,
       max_tokens: 512,
-      temperature: 0,
+      // Model-family-aware sampling (US-1033): effort-based models (Sonnet 5,
+      // Opus 4.6+, Fable) reject `temperature` with a 400, so they get
+      // output_config.effort; older Sonnet 4.x/Haiku keep temperature: 0 for a
+      // reproducible pass/hold verdict.
+      ...(modelUsesEffort(model)
+        ? { output_config: { effort: "low" as const } }
+        : { temperature: 0 }),
       system: REVIEWER_SYSTEM_PROMPT,
       messages: [
         {

@@ -102,16 +102,18 @@ export function getAiMaxRetries(): number {
   return readNumber("AI_MAX_RETRIES", DEFAULTS.maxRetries);
 }
 
-// Returns undefined when the var is unset so the SDK applies its own default
-// (currently 1.0). Returning a number clamps to [0, 1]. Used by the
-// non-grading AI flows (extraction, content, reconcile) where some sampling
-// variety is acceptable.
+// Non-grading AI flows (extraction, content, reconcile) call this to pick up an
+// optional sampling temperature. As of the move to Sonnet 5 (the current default
+// model) it ALWAYS returns undefined: Sonnet 5 / Opus 4.6+ / Fable REMOVED the
+// sampling parameters and reject `temperature` with a 400 ("temperature is
+// deprecated for this model"). Every call site spreads this conditionally
+// (`...(temperature !== undefined ? { temperature } : {})`), so returning
+// undefined here makes those spreads no-ops and the models use their own default
+// decoding. Kept as a function (rather than ripping out ~25 call sites) so the
+// knob can be reinstated model-aware if a temperature-accepting model is ever
+// routed here again. The legacy AI_TEMPERATURE env var is intentionally ignored.
 export function getAiTemperature(): number | undefined {
-  const raw = Deno.env.get("AI_TEMPERATURE");
-  if (!raw) return undefined;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return undefined;
-  return Math.max(0, Math.min(1, parsed));
+  return undefined;
 }
 
 // US-481: Grading must be REPRODUCIBLE — the same garment must not score
@@ -138,15 +140,19 @@ export function getGradingTemperature(): number {
   return Math.max(0, Math.min(GRADING_MAX_TEMPERATURE, parsed));
 }
 
-// US-1033: newer models (Opus 4.7/4.8, Fable/Mythos) REMOVED the sampling
-// parameters — sending `temperature`/`top_p`/`top_k` returns a 400. They steer
-// reasoning depth with output_config.effort instead. So the grading call must be
-// model-family-aware: effort-based models get { output_config: { effort } } and
-// NO temperature; Sonnet/Haiku keep the existing low-temperature path. Without
-// this, routing grading to a stronger vision model (US-1034) 400s every call.
+// US-1033: newer models (Sonnet 5, Opus 4.6/4.7/4.8, Fable/Mythos) REMOVED the
+// sampling parameters — sending `temperature`/`top_p`/`top_k` returns a 400.
+// They steer reasoning depth with output_config.effort instead. So every AI call
+// must be model-family-aware: effort-based models get { output_config: { effort } }
+// and NO temperature; older Sonnet 4.x/Haiku keep the low-temperature path.
+// Without this, routing to Sonnet 5 (the current default) 400s every call —
+// this is what surfaced as `[flipdesk-ai] extraction failed: 400 ... temperature
+// is deprecated for this model`.
 export function modelUsesEffort(model: string): boolean {
   const m = model.trim().toLowerCase();
   return (
+    m.startsWith("claude-sonnet-5") ||
+    m.startsWith("claude-opus-4-6") ||
     m.startsWith("claude-opus-4-7") ||
     m.startsWith("claude-opus-4-8") ||
     m.startsWith("claude-fable") ||

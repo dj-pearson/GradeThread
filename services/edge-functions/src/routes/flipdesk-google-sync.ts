@@ -261,8 +261,19 @@ export async function syncUserSheet(
   };
 
   // Per-user lease so the 5-min scheduler and a manual "Sync now" can't merge
-  // the same sheet concurrently and double-apply pulls.
-  const lock = await acquireJobLock(`gsheet-sync:${userId}`, 240);
+  // the same sheet concurrently and double-apply pulls. Both the scheduled path
+  // (handleSyncJob) and /sync/now call syncUserSheet, so this single per-user
+  // lock already serializes them (US-1456 AC2).
+  //
+  // US-1456: the lease MUST exceed the worst-case merge duration AND the 5-min
+  // scheduler cadence — a 240s lease could expire mid-run on a large sheet, letting
+  // the next scheduler tick (or a /sync/now) start a concurrent merge that
+  // re-reads edits, double-appends Conflicts rows, and races snapshot writes. 900s
+  // (15 min) comfortably clears both. On normal completion the finally-block
+  // releases the lock immediately; the TTL only bounds a crashed/hung run. (The
+  // snapshot + cross-source-observation writes are already idempotent upserts, so
+  // with concurrency prevented the double-append window is closed.)
+  const lock = await acquireJobLock(`gsheet-sync:${userId}`, 900);
   if (!lock.acquired) {
     return { ...summary, skipped: lock.reason ?? "locked" };
   }

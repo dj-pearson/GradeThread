@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   getAnthropicClient,
   getDefaultModel,
-  getGradingTemperature,
+  gradingSamplingParams,
   isCachingEnabled,
 } from "./ai-config.ts";
 import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
@@ -268,7 +268,6 @@ export async function assessAuthenticity(
 ): Promise<AuthenticityAssessment> {
   const client = getAnthropicClient();
   const model = getDefaultModel();
-  const temperature = getGradingTemperature();
   const startTime = Date.now();
 
   const selected = selectAuthenticityImages(images);
@@ -286,9 +285,13 @@ export async function assessAuthenticity(
   ];
 
   const response = await client.messages.create({
+    // Model-family-aware sampling (US-1033): Sonnet 5 / Opus 4.6+ / Fable reject
+    // `temperature` (400) and use output_config.effort; older models keep the
+    // low grading temperature. Authenticity is part of the reproducible grading
+    // pipeline, so it shares gradingSamplingParams.
     model,
     max_tokens: 1024,
-    temperature,
+    ...gradingSamplingParams(model),
     system: [systemBlock],
     messages: [{ role: "user", content }],
   });

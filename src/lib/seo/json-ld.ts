@@ -499,7 +499,9 @@ export function certificateLd(cert: {
       name: `Condition grade: ${cert.gradeTier} (${cert.overallScore.toFixed(1)}/10)`,
       reviewRating: {
         "@type": "Rating",
-        ratingValue: cert.overallScore,
+        // US-1464: normalize to one decimal so float noise never leaks into the
+        // rating value (kept byte-identical with the SSR certificateProductLd).
+        ratingValue: Number(cert.overallScore.toFixed(1)),
         bestRating: 10,
         worstRating: 1,
         alternateName: cert.gradeTier,
