@@ -4663,6 +4663,11 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   // re-assert it on the live offer when a resync was requested (the category
   // lives on the offer, not the inventory item). Set inside the re-PUT branch.
   let reviseCategoryId: string | null = null;
+  // US-1502: when a resync (re)asserts the grade, the promoted description (with
+  // the "Cert #…" line) is lifted here so the offer-side PUT pushes it as the
+  // live listingDescription too — otherwise a stored offer description would
+  // shadow the product.description we just updated.
+  let reviseGradeDesc: string | null = null;
 
   // Re-PUT the inventory_item when product fields changed (title / desc), a photo
   // sync was requested, OR a structured-field resync was requested (US-1490 —
@@ -4672,7 +4677,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
-        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, ebay_aspects, ebay_category_id"
+        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_category_id"
       )
       .eq("id", itemId)
       .maybeSingle();
@@ -4695,6 +4700,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       condition_notes: string | null;
       grade_value: number | null;
       grade_label: string | null;
+      certificate_url: string | null;
       ebay_aspects: Record<string, string[]> | null;
       ebay_category_id: string | null;
     };
@@ -4824,11 +4830,23 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
           finalTitle
         ).trim() || finalTitle;
 
+    // US-1502: on a structured-field resync, (re)assert the grade promotion — the
+    // "Condition Grade" item specific + the "Cert #…" description line — so a
+    // grade earned after list-first, or a DOWNGRADED human re-review, reaches the
+    // live listing. force overwrites any stale/overstated grade specific.
+    let reviseDesc = finalDesc;
+    if (resyncFields && item.grade_value != null) {
+      reviseDesc = await applyGradeListingPromotion(item, aspects, finalDesc, {
+        force: true,
+      });
+      reviseGradeDesc = reviseDesc;
+    }
+
     try {
       await createOrReplaceInventoryItem(userId, sku, {
         product: {
           title: finalTitle,
-          description: finalDesc,
+          description: reviseDesc,
           aspects: Object.keys(aspects).length > 0 ? aspects : undefined,
           imageUrls,
           // Mirror the publish path (US: error 25002 <BrandMPN>): eBay requires a
@@ -4873,7 +4891,12 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     try {
       await updateOfferFields(userId, offerId, {
         price: hasPrice ? (nextPrice as number) : undefined,
-        listingDescription: hasDesc ? (nextDesc as string) : undefined,
+        // US-1502: push the grade-promoted description (Cert # line) to the live
+        // offer on a resync even when the seller didn't edit the description —
+        // else a stored offer listingDescription shadows the product.description.
+        listingDescription: hasDesc
+          ? (nextDesc as string)
+          : (reviseGradeDesc ?? undefined),
         availableQuantity: hasQty ? (nextQty as number) : undefined,
         categoryId: resyncFields && reviseCategoryId ? reviseCategoryId : undefined,
       });
@@ -7073,10 +7096,14 @@ const COLUMN_ASPECT_FALLBACK: RegistryAspect[] = [
 // way every other adapter does. eBay is the one platform that must NOT carry the
 // off-site machine-readable marker (it bans off-eBay links), so the grade rides
 // the structured "Condition Grade" aspect + the cert NUMBER instead.
-async function applyGradeListingPromotion(
-  item: PublishItem,
+export async function applyGradeListingPromotion(
+  // Narrow structural type — the publish path passes a full PublishItem, the
+  // revise + grade-resync paths pass their own row; all this reads is the grade
+  // + cert url.
+  item: Pick<PublishItem, "grade_value" | "certificate_url">,
   aspects: Record<string, string[]>,
   description: string,
+  opts: { force?: boolean } = {},
 ): Promise<string> {
   let out = stripCertLinks(description);
   if (item.grade_value == null) return out;
@@ -7084,9 +7111,14 @@ async function applyGradeListingPromotion(
   const grade = formatGtGrade(item.grade_value);
 
   // Item specific, e.g. "Condition Grade = GradeThread 9.5". Structured + shows
-  // in the eBay spec table. Never overwrite a value the seller already set.
-  if (!aspects[GT_GRADE_ITEM_SPECIFIC]?.length) {
-    aspects[GT_GRADE_ITEM_SPECIFIC] = [`${GT_GRADE_FIELD_NAME.replace(" Grade", "")} ${grade}`];
+  // in the eBay spec table. On the publish path we never overwrite a value the
+  // seller already set. US-1502: a grade RESYNC (opts.force) must overwrite it —
+  // a grade earned after list-first, or a DOWNGRADED human re-review, has to
+  // replace whatever (possibly overstated) value is live so we never leave an
+  // inflated Condition Grade on eBay.
+  const gradeSpecific = `${GT_GRADE_FIELD_NAME.replace(" Grade", "")} ${grade}`;
+  if (opts.force || !aspects[GT_GRADE_ITEM_SPECIFIC]?.length) {
+    aspects[GT_GRADE_ITEM_SPECIFIC] = [gradeSpecific];
   }
 
   // PSA-style certificate NUMBER as plain text — never a URL (eBay bans off-eBay
@@ -7098,6 +7130,196 @@ async function applyGradeListingPromotion(
     if (number && !out.includes(number)) out = appendCertNumber(out, grade, number);
   }
   return out;
+}
+
+// US-1502: push the current grade onto an item's LIVE GradeThread-origin eBay
+// listing — the "Condition Grade" item specific + the "Cert #…" description line.
+// Fired best-effort from the grading finalize path (grading-pipeline.ts
+// applyTerminalCompletion) whenever a grade LANDS or is CORRECTED (incl. a human
+// DOWNGRADE), so a list-first-then-grade item — or a re-review — never leaves an
+// absent/overstated grade live. No-op unless the item has an active GT-origin
+// listing (a real platform_offer_id, not an eBay-imported mirror) and a grade.
+// MUST stay best-effort at the call site — a resync failure must never break
+// grade completion.
+export async function resyncGradeToLiveListing(
+  userId: string,
+  itemId: string,
+): Promise<{ resynced: boolean; reason?: string }> {
+  // 1) Guard: item exists, owned, graded.
+  const { data: itemRow } = await supabaseAdmin
+    .from("inventory_items")
+    .select(
+      "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_category_id",
+    )
+    .eq("id", itemId)
+    .maybeSingle();
+  const item = itemRow as
+    | (Record<string, unknown> & { user_id: string; grade_value: number | null })
+    | null;
+  if (!item || item.user_id !== userId) {
+    return { resynced: false, reason: "item_not_found" };
+  }
+  if (item.grade_value == null) return { resynced: false, reason: "no_grade" };
+
+  // 2) Guard: an ACTIVE GradeThread-origin listing with a real offer id. eBay-
+  //    imported listings (no offer id / listing_origin "ebay") are read-only
+  //    mirrors — never push to them.
+  const { data: listingRow } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, listing_title, platform_offer_id, platform_category_id, item_specifics_override, ebay_condition, ebay_condition_description, listing_description, listing_status, listing_origin",
+    )
+    .eq("inventory_item_id", itemId)
+    .eq("platform", "ebay")
+    .not("platform_offer_id", "is", null)
+    .in("listing_status", ["active", "relisted"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const listing = listingRow as
+    | {
+        id: string;
+        listing_title: string | null;
+        platform_offer_id: string | null;
+        platform_category_id: string | null;
+        item_specifics_override: Record<string, unknown> | null;
+        ebay_condition: string | null;
+        ebay_condition_description: string | null;
+        listing_description: string | null;
+        listing_status: string | null;
+        listing_origin: string | null;
+      }
+    | null;
+  if (!listing?.platform_offer_id) {
+    return { resynced: false, reason: "no_live_listing" };
+  }
+  if (listing.listing_origin === "ebay") {
+    return { resynced: false, reason: "ebay_origin" };
+  }
+
+  const offerId = listing.platform_offer_id;
+  const categoryId = listing.platform_category_id ??
+    (item.ebay_category_id as string | null) ?? null;
+
+  // 3) Rebuild the aspect map from the columns (US-1088), then FORCE-assert the
+  //    grade specific over whatever is live (US-1502 overwrite).
+  const baseAspects = normalizeAspectMap(
+    listing.item_specifics_override ??
+      (item.ebay_aspects as Record<string, unknown> | null),
+  );
+  let aspectList: AspectSpecRaw[] | null = null;
+  if (categoryId) {
+    try {
+      const resp = await getCategoryAspects(categoryId);
+      const raw = (resp.aspects as Record<string, unknown>).aspects;
+      if (Array.isArray(raw)) aspectList = raw as AspectSpecRaw[];
+    } catch (err) {
+      console.warn(
+        "[flipdesk-ebay] grade-resync aspect spec fetch (non-blocking):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  const aspects = forceColumnAspects(
+    item as unknown as RegistryItem,
+    aspectList,
+    baseAspects,
+  );
+
+  // 4) Promote the CURRENT live/mirror description with the cert line.
+  const baseDesc = (
+    listing.listing_description ??
+    (item.description as string | null) ??
+    (item.title as string | null) ??
+    ""
+  ).trim();
+  const promotedDesc = await applyGradeListingPromotion(
+    {
+      grade_value: item.grade_value,
+      certificate_url: item.certificate_url as string | null,
+    },
+    aspects,
+    baseDesc,
+    { force: true },
+  );
+
+  // 5) Condition (same rule as publish/revise) + photos for the full re-PUT
+  //    (createOrReplaceInventoryItem REPLACES the item, so we send full state).
+  let condition = listing.ebay_condition?.trim() ||
+    mapEbayCondition(item.grade_value, item.grade_label as string | null);
+  if (categoryId) {
+    try {
+      const { conditionIds } = await getItemConditionPolicies(categoryId);
+      const remapped = remapConditionForCategory(condition, conditionIds);
+      if (remapped && remapped !== condition) condition = remapped;
+    } catch { /* best-effort — leave the resolved condition */ }
+  }
+  const conditionDescription =
+    (listing.ebay_condition_description ??
+      (item.condition_notes as string | null) ??
+      "").trim() || undefined;
+
+  const { data: photoRows } = await supabaseAdmin
+    .from("item_photos")
+    .select("storage_path, photo_url, photo_type, sort_order")
+    .eq("inventory_item_id", itemId)
+    .order("sort_order", { ascending: true });
+  const imageUrls = toEbayImageUrls(
+    (
+      (photoRows ?? []) as Array<{
+        storage_path: string | null;
+        photo_url: string | null;
+        photo_type: string | null;
+      }>
+    ).map(ebayPublicPhotoUrl),
+  );
+
+  const sku = (item.sku as string | null)?.trim() || `FD-${itemId.slice(0, 8)}`;
+  const finalTitle = (
+    listing.listing_title ?? (item.title as string | null) ?? ""
+  ).trim();
+
+  // 6) Push to eBay. On failure, persist it on the listing (US-1079 retry banner)
+  //    and report back — the caller keeps grade completion succeeding regardless.
+  try {
+    await createOrReplaceInventoryItem(userId, sku, {
+      product: {
+        title: finalTitle,
+        description: promotedDesc,
+        aspects: Object.keys(aspects).length > 0 ? aspects : undefined,
+        imageUrls,
+        brand:
+          typeof item.brand === "string" && (item.brand as string).trim()
+            ? (item.brand as string).trim()
+            : "Unbranded",
+        mpn: "Does Not Apply",
+      },
+      condition,
+      conditionDescription,
+      availability: { shipToLocationAvailability: { quantity: 1 } },
+    });
+    await updateOfferFields(userId, offerId, {
+      listingDescription: promotedDesc,
+      categoryId: categoryId ?? undefined,
+    });
+  } catch (err) {
+    console.error("[flipdesk-ebay] grade-resync eBay push failed:", err);
+    await persistReviseFailure(listing.id, err);
+    return { resynced: false, reason: "ebay_error" };
+  }
+
+  // 7) Persist the rebuilt aspects + promoted description so the composer and the
+  //    next publish/revise stay in sync.
+  await supabaseAdmin
+    .from("listings")
+    .update({ item_specifics_override: aspects, listing_description: promotedDesc })
+    .eq("id", listing.id);
+  await supabaseAdmin
+    .from("inventory_items")
+    .update({ ebay_aspects: aspects })
+    .eq("id", itemId);
+
+  return { resynced: true };
 }
 
 // Extract the certificate_id (UUID) from a "<site>/cert/<id>" URL.

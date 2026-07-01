@@ -7903,3 +7903,31 @@ CAUTION: this fires eBay writes on every grade completion — strong guards + be
 effort try/catch are mandatory. Consider whether to gate behind an existing flag.
 After US-1502: US-1503 (measurements→listing), US-1504 (price coherence), then the
 iOS audit backlog (US-1491..1500, macOS-CI-verified only).
+
+## 2026-07-01 (cont.) — US-1502 grade → live eBay listing — NOW COMPLETE (passes:true)
+The grade specific + cert line reached the live listing ONLY on the publish path;
+a grade earned after list-first (US-1284) or a DOWNGRADED human re-review never
+propagated — a trust/accuracy hole on the core authority claim. Fixed edge-side:
+ - applyGradeListingPromotion (flipdesk-ebay.ts) exported + gained opts.force —
+   force OVERWRITES the "Condition Grade" specific (AC3 downgrade) instead of the
+   publish-path "never overwrite"; narrowed its param to Pick<PublishItem,
+   grade_value|certificate_url> so revise/resync rows satisfy it.
+ - AC1: the revise re-PUT branch, when resync_ebay_fields && grade present, calls
+   applyGradeListingPromotion(force) → threads the promoted description into BOTH
+   the inventory_item PUT and the offer listingDescription (reviseGradeDesc lifted
+   to outer scope). Added certificate_url to the revise item select.
+ - AC2: new exported resyncGradeToLiveListing(userId,itemId) — guarded (active
+   GT-origin listing w/ real platform_offer_id, not eBay-origin; grade present),
+   rebuilds column aspects + force-promotes + full re-PUT + offer desc + persists.
+   Wired into grading-pipeline.ts applyTerminalCompletion (the SINGLE funnel for
+   BOTH normal completion AND human-review finalize) via a LAZY dynamic import
+   (dodges the routes→lib static cycle), best-effort try/catch so a resync failure
+   NEVER breaks grade completion. eBay-push failures persist via persistReviseFailure
+   (US-1079 retry banner).
+ - AC4: new ebay-grade-promotion_test.ts (4 cases: inject / non-force preserve /
+   force overwrite-downgrade / null-grade no-op).
+NO MIGRATION. iOS: none needed (hook is server-side).
+
+VERIFICATION (this host): deno check src/main.ts clean; deno lint clean (both
+changed files); 47 passed / 0 failed across ebay-publish-finalize + aspect-reconcile
++ listing-template + offer-already-ended + ebay-grade-promotion suites.

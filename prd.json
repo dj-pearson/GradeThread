@@ -8995,7 +8995,7 @@
         "Covered by an edge test: finalize grade on a listed item → offer/inventory payload carries the grade specific + cert line."
       ],
       "priority": 2389,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Edge-heavy story (verifiable on this host). iOS needs no UI — the hook belongs server-side in grading finalize/human-review approve."
     },
     {

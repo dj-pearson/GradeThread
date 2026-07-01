@@ -577,7 +577,7 @@ async function applyTerminalCompletion(
   try {
     const { data: linkedItem } = await supabaseAdmin
       .from("inventory_items")
-      .select("id, status")
+      .select("id, status, user_id")
       .eq("submission_id", submissionId)
       .maybeSingle();
     if (linkedItem) {
@@ -595,6 +595,33 @@ async function applyTerminalCompletion(
         .from("inventory_items")
         .update(itemUpdate)
         .eq("id", linkedItemId);
+
+      // US-1502: a grade just LANDED (or was CORRECTED by human review — both
+      // finalize paths funnel here). If this item already has a LIVE GT-origin
+      // eBay listing (list-first-then-grade, or a re-review of a listed item),
+      // push the new grade onto it — the Condition Grade item specific + cert
+      // line — so the live listing never lacks or overstates the grade. Best-
+      // effort + lazily imported to avoid a routes→lib static cycle; a failure
+      // here must NEVER break grade completion.
+      const ownerId = (linkedItem as { user_id?: string }).user_id;
+      if (ownerId) {
+        try {
+          const { resyncGradeToLiveListing } = await import(
+            "../routes/flipdesk-ebay.ts"
+          );
+          const r = await resyncGradeToLiveListing(ownerId, linkedItemId);
+          if (r.resynced) {
+            console.log(
+              `[Pipeline] grade resynced to live eBay listing for item ${linkedItemId}`,
+            );
+          }
+        } catch (resyncErr) {
+          console.error(
+            `[Pipeline] grade→listing resync error for item ${linkedItemId} (non-fatal):`,
+            resyncErr instanceof Error ? resyncErr.message : String(resyncErr),
+          );
+        }
+      }
     }
   } catch (itemErr) {
     console.error(
