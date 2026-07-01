@@ -9,7 +9,7 @@ import {
 import { researchTopics } from "../lib/content-ai-research.ts";
 
 // Topic bank: queued titles partitioned by (surface, product_focus).
-// The bank is filled by /research (AI-driven, stub here in Phase A) or
+// The bank is filled by /research (AI-driven — LIVE, calls researchTopics) or
 // /bulk (manual). The scheduler tick pulls oldest 'queued' and marks
 // it 'assigned' → eventually 'used' once a post is published.
 
