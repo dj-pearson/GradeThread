@@ -100,7 +100,13 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 > **COOLIFY.md drift (fix at launch):** its table predates four jobs —
 > `growth-dispatch`, `reprice-rules`, `sync-reaper`, `google-sheet-sync` are
 > registered in `main.ts` but missing from that table. This checklist is the
-> authoritative set (19 tasks).
+> authoritative set (20 tasks).
+
+> **`curl` must be in the edge image.** Every task below is a `curl` POST, and the
+> `denoland/deno:debian` base ships without curl — the Dockerfile installs it on
+> purpose. If it's missing, EVERY task silently no-ops (`curl: not found` before
+> the request, so the app logs show nothing and `cron_runs` stays empty for every
+> job). Confirm once per deploy: `which curl` in the edge container terminal.
 
 | Task | Schedule | Endpoint (POST) | Run Now ✓ | By / Date |
 |---|---|---|---|---|
@@ -111,6 +117,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | ebay-leave-feedback | `0 10 * * *` | `/api/flipdesk/ebay/jobs/leave-feedback` | ☐ | no-op unless system setting `feedback.auto_leave`=true (US-1047) |
 | gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | ☐ | |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | ☐ | |
+| drip-tick | `0 * * * *` | `/api/drip/tick` | ☐ | **uses `DRIP_INTERNAL_JOB_SECRET`** (NOT the FlipDesk one — empty/mismatched fails closed with 401). Autonomous trial-conversion drip (US-943): enrolls trialists, sends the next due step, exits on conversion. Campaign is `status='active'` + `trial_conversion_drip` fails-open, so the first tick enrolls all current trialists — enable in a quiet window. Records to `cron_runs` as `drip-tick` (verify with the ledger). |
 | appstore-expiry-sweep | `30 */6 * * *` | `/api/jobs/appstore-expiry-sweep` | ☐ | backstop: lapses appstore-billed users to free when Apple's expiry notification was lost (stale period_end past a 72h grace; tune `APPSTORE_SWEEP_GRACE_HOURS`) (US-811) |
 | autolister-reclaim | `*/5 * * * *` | `/api/jobs/autolister-reclaim` | ☐ | |
 | publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | ☐ | |

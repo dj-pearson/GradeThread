@@ -201,6 +201,7 @@ the handler returns 401.
 | gsc-sync                | `30 6 * * *` (06:30)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/gsc-sync`                              |
 | trial-check             | `0 14 * * *` (14:00)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/notifications/trial-check`                  |
 | trial-expiry            | `15 0 * * *` (00:15)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/trial-expiry`                          |
+| drip-tick               | `0 * * * *` (hourly)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $DRIP_INTERNAL_JOB_SECRET" http://localhost:8787/api/drip/tick`                                      |
 | autolister-reclaim      | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/autolister-reclaim`                    |
 | publish-batch-reclaim   | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/publish-batch-reclaim`                 |
 | reprice-scan            | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reprice-scan`                          |
@@ -290,10 +291,29 @@ the handler returns 401.
 >   warning is captured so the operator can fall back to a CSV payout import.
 >   Metrics: `webhook.dropped_no_handle` (parked), `webhook.pending_linked`,
 >   `webhook.pending_dead_lettered`. Overlap-locked.
+> - `drip-tick` (US-943) is the autonomous **trial-conversion drip** orchestrator:
+>   hourly it enrolls active trialists, sends the next due step of the
+>   `trial_conversion` campaign (welcome → in-trial nurture → urgency → post-trial
+>   win-back), and exits an enrollment the moment the user converts. It self-gates
+>   on `next_evaluation_at` + a job lock, so an hourly cadence is safe. Two
+>   gotchas: (1) it uses its **own** secret **`DRIP_INTERNAL_JOB_SECRET`** (NOT the
+>   FlipDesk one — an empty/mismatched value fails closed with 401); (2) the
+>   campaign is seeded `status='active'` and the `trial_conversion_drip` flag
+>   fails-open, so the FIRST tick after this task goes live will enroll every
+>   current trialist and may send catch-up steps — enable during a quiet window
+>   and watch the first run's counts. Records to `cron_runs` as `drip-tick`.
 
 Use `http://localhost:8787` from inside the container (not the public FQDN)
 so scheduled jobs don't take the round-trip through Traefik + WAF and
 don't count against rate limits.
+
+**`curl` prerequisite:** every command above is a `curl` call, and `curl` is
+installed in the edge image on purpose (see the Dockerfile `apt-get install …
+curl` line). If a rebuild ever drops it, EVERY scheduled task silently no-ops —
+the command dies with `curl: not found` before the request is made, so the app
+logs show nothing (no `http.request` line for the endpoint). Symptom check: the
+task appears to "fail" for any container name you try, and `cron_runs` has no
+rows for it. Confirm with `which curl` in the container terminal.
 
 ### Verification
 

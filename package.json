@@ -37,6 +37,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@imgly/background-removal": "^1.7.0",
+    "@sentry/cli": "^3.6.0",
     "@sentry/react": "^10.56.0",
     "@stripe/stripe-js": "^8.7.0",
     "@supabase/supabase-js": "^2.95.3",

@@ -20,10 +20,19 @@ LABEL org.opencontainers.image.source="https://github.com/dj-pearson/GradeThread
 # in libssl shipped by denoland/deno:debian-2.8.0. A targeted --only-upgrade keeps
 # the image small and avoids a full dist-upgrade. Re-run this when Trivy flags a
 # new fixed OS CVE, or bump the base image once denoland ships a patched tag.
+#
+# `curl` is installed here because EVERY Coolify Scheduled Task (COOLIFY.md) is a
+# `curl -fsS -X POST …` into a localhost job endpoint. The denoland/deno:debian
+# base ships without curl, so without this line every cron silently no-ops (the
+# command dies with "curl: not found" before the request is ever made — the app
+# logs show nothing). The container healthcheck deliberately uses `deno eval`
+# instead, which masked the gap. Keep curl here or the entire background-job
+# fleet (drip, eBay sync, email-retry, trial-expiry, …) stops running.
 USER root
 RUN apt-get update \
     && apt-get install --only-upgrade -y \
         libssl3t64 openssl-provider-legacy openssl \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
