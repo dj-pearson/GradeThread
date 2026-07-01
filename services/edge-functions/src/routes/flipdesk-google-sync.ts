@@ -219,6 +219,11 @@ interface ConflictAcceptance {
   flipdeskId: string;
   col: ColumnDef;
   value: string | number | null;
+  // US-1457: the "FlipDesk Value" (column 5) frozen into the conflict row when
+  // it was logged — the base we re-check the current DB value against before
+  // accepting the (possibly stale) sheet value, so a newer FlipDesk edit isn't
+  // silently clobbered. Normalized so it compares apples-to-apples with the DB.
+  flipdeskBase: string;
 }
 
 function parseConflictAcceptances(
@@ -242,7 +247,15 @@ function parseConflictAcceptances(
       errors.push(`Conflicts row ${i + 2}: ${parsed.error}`);
       return;
     }
-    out.push({ rowNumber: i + 2, flipdeskId, col, value: parsed.value });
+    // Column 5 = "FlipDesk Value" recorded when the conflict was logged (US-1457).
+    const flipdeskBase = normalizeCell(cells[5], col.kind);
+    out.push({
+      rowNumber: i + 2,
+      flipdeskId,
+      col,
+      value: parsed.value,
+      flipdeskBase,
+    });
   });
   return out;
 }
@@ -391,7 +404,50 @@ async function runMerge(
   const conflictRows = (valuesByRange.get(conflictsRange) ?? []).slice(1);
   const acceptances = parseConflictAcceptances(conflictRows, summary.errors);
   const acceptedByRow = new Map<string, Record<string, string>>();
+  const statusCol = columnLetter(CONFLICTS_HEADERS.length - 1);
+  const flipdeskValueCol = columnLetter(CONFLICTS_HEADERS.indexOf("FlipDesk Value"));
   for (const acc of acceptances) {
+    // US-1457: re-check the CURRENT DB value against the FlipDesk value frozen
+    // into the conflict row when it was logged. If FlipDesk changed the field
+    // since then, the sheet value in this row is stale — blindly writing it would
+    // silently clobber the newer FlipDesk edit (the 3-way protection bypass this
+    // story fixes). In that case DON'T overwrite: refresh the row's FlipDesk Value
+    // to the current DB value and leave it Open so the user re-decides against
+    // fresh data (re-flag, AC1).
+    const { data: currentRow, error: readErr } = await supabaseAdmin
+      .from("inventory_items")
+      .select(acc.col.field)
+      .eq("id", acc.flipdeskId)
+      .eq("user_id", userId) // tenant scope (US-268)
+      .maybeSingle();
+    if (readErr) {
+      summary.errors.push(`Accept Sheet failed for ${acc.col.header}: ${readErr.message}`);
+      continue;
+    }
+    if (!currentRow) {
+      summary.errors.push(
+        `Accept Sheet skipped for ${acc.col.header}: item ${acc.flipdeskId} not found`,
+      );
+      continue;
+    }
+    const currentDb = normalizeCell(
+      (currentRow as unknown as Record<string, unknown>)[acc.col.field] ?? null,
+      acc.col.kind,
+    );
+    if (currentDb !== acc.flipdeskBase) {
+      summary.errors.push(
+        `Accept Sheet re-flagged for ${acc.col.header} on ${acc.flipdeskId}: ` +
+          `FlipDesk changed this field since the conflict was logged ` +
+          `("${acc.flipdeskBase}" → "${currentDb}") — not overwriting; review again`,
+      );
+      // Refresh the base shown to the user and keep the row Open (re-flag).
+      cellUpdates.push({
+        range: `'${CONFLICTS_TAB}'!${flipdeskValueCol}${acc.rowNumber}`,
+        values: [[currentDb]],
+      });
+      continue;
+    }
+
     const { error } = await supabaseAdmin
       .from("inventory_items")
       .update({ [acc.col.field]: acc.value })
@@ -402,7 +458,23 @@ async function runMerge(
       continue;
     }
     summary.pulled++;
-    const statusCol = columnLetter(CONFLICTS_HEADERS.length - 1);
+    // US-1457 (AC2): record accepted-value provenance — a structured, greppable
+    // audit line that this field's new value came from the Google Sheet (the
+    // "Accept Sheet" action), superseding the FlipDesk base, with the trigger and
+    // actor context. Persisted alongside the snapshot the merge writes next.
+    console.log(
+      "[flipdesk-google-sync] accept-sheet provenance " +
+        JSON.stringify({
+          source: "google_sheet",
+          action: CONFLICT_ACTION_ACCEPT_SHEET,
+          user_id: userId,
+          flipdesk_id: acc.flipdeskId,
+          field: acc.col.field,
+          from: acc.flipdeskBase,
+          to: normalizeCell(acc.value, acc.col.kind),
+          trigger,
+        }),
+    );
     cellUpdates.push({
       range: `'${CONFLICTS_TAB}'!${statusCol}${acc.rowNumber}`,
       values: [[CONFLICT_STATUS_APPLIED]],

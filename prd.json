@@ -8394,7 +8394,7 @@
         "Emit a webhook.process_failed metric."
       ],
       "priority": 2075,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-webhooks.ts:116-121,179-186,300-304,371-376,471-473."
     },
     {
@@ -8419,7 +8419,7 @@
         "Record accepted-value provenance."
       ],
       "priority": 2073,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-google-sync.ts:376-395,240-245."
     },
     {

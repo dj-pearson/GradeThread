@@ -31,6 +31,37 @@ import { handleDepopOrderEvent } from "../lib/depop-orders.ts";
 
 export const flipdeskWebhookRoutes = new Hono();
 
+// US-1455: every receiver returns 2xx immediately, then processes the event
+// asynchronously. If that async work throws (the outer `.catch`) or an ingest
+// surfaces per-order errors (`res.errors`), the 2xx is already sent — so a bare
+// console.error silently loses a failed sale/refund/sold-flip with no alert and
+// no retry. Route every such failure through captureException (→ Sentry when
+// configured) PLUS a `webhook.process_failed` metric so it's visible + alertable.
+//
+// Durability (AC2): rather than a per-provider parking lot, we lean on the manual
+// sync pull — Shopify `/listings/pull` and the eBay orders sync both re-ingest
+// the recent order window IDEMPOTENTLY (US-711/US-1427), so a dropped event
+// reliably reconciles on the next sync. The metric gives us the signal to trigger
+// one if failures spike.
+function reportWebhookFailure(
+  provider: "ebay" | "shopify" | "depop",
+  err: unknown,
+  context: { topic?: string; userId?: string } = {},
+): void {
+  const tags: Record<string, string> = { provider };
+  if (context.topic) tags.topic = context.topic;
+  console.error(
+    `[flipdesk-webhooks] ${provider} event processing failed:`,
+    err instanceof Error ? err.message : String(err),
+  );
+  captureException(err, {
+    route: `flipdesk-webhooks/${provider}`,
+    userId: context.userId,
+    tags,
+  });
+  recordMetric("webhook.process_failed", 1, tags);
+}
+
 // eBay Notification API receiver: order created, paid, shipped, payout,
 // return, etc. Verification: eBay signs every Notification-API message with
 // ITS OWN key (X.509/ECDSA), presented in the `x-ebay-signature` header — NOT
@@ -114,10 +145,7 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
     return c.json({ error: "Invalid JSON" }, 400);
   }
   processEbayWebhookEvent(parsed).catch((err) => {
-    console.error(
-      "[flipdesk-webhooks] eBay event processing failed:",
-      err instanceof Error ? err.message : String(err),
-    );
+    reportWebhookFailure("ebay", err);
   });
 
   return c.body(null, 204);
@@ -178,10 +206,7 @@ flipdeskWebhookRoutes.post("/shopify", async (c) => {
   // Dispatch async — Shopify penalizes slow handlers.
   processShopifyWebhookEvent({ topic, shopDomain, webhookId, payload }).catch(
     (err) => {
-      console.error(
-        "[flipdesk-webhooks] Shopify event processing failed:",
-        err instanceof Error ? err.message : String(err),
-      );
+      reportWebhookFailure("shopify", err, { topic });
     },
   );
 
@@ -298,8 +323,10 @@ async function processShopifyWebhookEvent(args: {
         kind: res.kind,
       });
       if (res.errors.length > 0) {
-        console.error(
-          `[flipdesk-webhooks] Shopify ${topic} ingest errors: ${res.errors.join(" | ")}`,
+        reportWebhookFailure(
+          "shopify",
+          new Error(`${topic} ingest errors: ${res.errors.join(" | ")}`),
+          { topic, userId },
         );
       }
       console.log(
@@ -369,10 +396,7 @@ flipdeskWebhookRoutes.post("/depop", async (c) => {
   }
 
   processDepopWebhookEvent({ topic, webhookId, payload }).catch((err) => {
-    console.error(
-      "[flipdesk-webhooks] Depop event processing failed:",
-      err instanceof Error ? err.message : String(err),
-    );
+    reportWebhookFailure("depop", err, { topic });
   });
   return c.body(null, 200);
 });
@@ -469,7 +493,11 @@ async function processDepopWebhookEvent(args: {
   const res = await handleDepopOrderEvent(userId, order);
   recordMetric("webhook.order_processed", 1, { provider: "depop", topic, kind: res.kind });
   if (res.errors.length > 0) {
-    console.error(`[flipdesk-webhooks] Depop ${topic} ingest errors: ${res.errors.join(" | ")}`);
+    reportWebhookFailure(
+      "depop",
+      new Error(`${topic} ingest errors: ${res.errors.join(" | ")}`),
+      { topic, userId },
+    );
   }
   console.log(
     `[flipdesk-webhooks] Depop ${topic} → ${res.kind} (sales_new=${res.salesNew} sold=${res.soldFlipped} status_updated=${res.statusUpdated}) user=${userId}`,
