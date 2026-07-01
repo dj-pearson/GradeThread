@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { requireScope } from "../lib/scope-guard.ts";
@@ -207,7 +208,7 @@ adminUsersRoutes.get("/:id/timeline", async (c: Context<AdminEnv>) => {
     .select("id, created_at")
     .eq("id", targetId)
     .maybeSingle();
-  if (userErr) return c.json({ error: userErr.message }, 500);
+  if (userErr) return failSafe(c, 500, "Couldn't load the user.", userErr, "admin.users.timeline.user");
   if (!target) return c.json({ error: "User not found" }, 404);
   const signupAt = (target as { created_at: string }).created_at;
 
@@ -502,14 +503,14 @@ adminUsersRoutes.post("/:id/role", requireScope("users:role"), async (c: Context
     .select("id, role")
     .eq("id", targetId)
     .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  if (lookupErr) return failSafe(c, 500, "Couldn't look up the user.", lookupErr, "admin.users.role.lookup");
   if (!target) return c.json({ error: "User not found" }, 404);
 
   const { error: updateErr } = await supabaseAdmin
     .from("users")
     .update({ role })
     .eq("id", targetId);
-  if (updateErr) return c.json({ error: updateErr.message }, 500);
+  if (updateErr) return failSafe(c, 500, "Couldn't update the role.", updateErr, "admin.users.role.update");
 
   await writeAuditLog(c, {
     action: "admin.change_role",
@@ -549,7 +550,7 @@ adminUsersRoutes.post("/:id/suspend", async (c: Context<AdminEnv>) => {
     .select("id, suspended")
     .eq("id", targetId)
     .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  if (lookupErr) return failSafe(c, 500, "Couldn't look up the user.", lookupErr, "admin.users.suspend.lookup");
   if (!target) return c.json({ error: "User not found" }, 404);
 
   const previous = (target as { suspended: boolean | null }).suspended ?? false;
@@ -558,7 +559,7 @@ adminUsersRoutes.post("/:id/suspend", async (c: Context<AdminEnv>) => {
     .from("users")
     .update({ suspended })
     .eq("id", targetId);
-  if (updateErr) return c.json({ error: updateErr.message }, 500);
+  if (updateErr) return failSafe(c, 500, "Couldn't update the suspension.", updateErr, "admin.users.suspend.update");
 
   await writeAuditLog(c, {
     action: suspended ? "admin.suspend_user" : "admin.unsuspend_user",

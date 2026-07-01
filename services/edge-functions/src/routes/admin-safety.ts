@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { getSetting } from "../lib/system-settings.ts";
@@ -177,7 +178,7 @@ adminSafetyRoutes.get("/signals", async (c: Context<AdminEnv>) => {
   const { data, count, error } = await q
     .order("last_seen_at", { ascending: false })
     .range(from, to);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load safety signals.", error, "admin.safety.signals.list");
 
   const rows = (data ?? []) as SignalRow[];
   const userIds = [
@@ -204,7 +205,7 @@ adminSafetyRoutes.get("/signals/:id", async (c: Context<AdminEnv>) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the signal.", error, "admin.safety.signals.get");
   if (!data) return c.json({ error: "Signal not found" }, 404);
   const row = data as SignalRow;
   const ids = [row.subject_user_id, counterpartId(row)].filter((x): x is string => !!x);
@@ -251,7 +252,7 @@ adminSafetyRoutes.patch("/signals/:id", async (c: Context<AdminEnv>) => {
     .select("id, status, resolution_reason")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the signal.", loadErr, "admin.safety.signals.load");
   if (!existing) return c.json({ error: "Signal not found" }, 404);
   const prev = existing as { status: AbuseSignalStatus; resolution_reason: string | null };
 
@@ -269,7 +270,7 @@ adminSafetyRoutes.patch("/signals/:id", async (c: Context<AdminEnv>) => {
     .from("abuse_signals")
     .update(patch)
     .eq("id", id);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't update the signal.", updErr, "admin.safety.signals.update");
 
   await writeAuditLog(c, {
     action: "admin.abuse_signal_status",
@@ -376,7 +377,7 @@ adminSafetyRoutes.get("/rate-limits", async (c: Context<AdminEnv>) => {
     .gte("window_start", sinceIso)
     .order("count", { ascending: false })
     .limit(NOISY_SCAN_ROWS);
-  if (counterErr) return c.json({ error: counterErr.message }, 500);
+  if (counterErr) return failSafe(c, 500, "Couldn't load rate-limit counters.", counterErr, "admin.safety.ratelimits.counters");
 
   // Aggregate per subject across scopes in the window: total requests + the
   // single hottest scope.
@@ -418,7 +419,7 @@ adminSafetyRoutes.get("/rate-limits", async (c: Context<AdminEnv>) => {
     )
     .gt("expires_at", new Date().toISOString())
     .order("expires_at", { ascending: true });
-  if (ovErr) return c.json({ error: ovErr.message }, 500);
+  if (ovErr) return failSafe(c, 500, "Couldn't load rate-limit overrides.", ovErr, "admin.safety.ratelimits.overrides");
   const overrides = ((ovData ?? []) as OverrideRowDb[]).map(rowToOverride);
 
   // Decorate every user subject (noisy callers + override subjects) with a label.
@@ -474,7 +475,7 @@ adminSafetyRoutes.get("/rate-limits/:userId", async (c: Context<AdminEnv>) => {
     loadUsers([userId]),
     loadBounds(),
   ]);
-  if (counterRes.error) return c.json({ error: counterRes.error.message }, 500);
+  if (counterRes.error) return failSafe(c, 500, "Couldn't load the user's rate-limit counters.", counterRes.error, "admin.safety.ratelimits.user");
 
   const counters = ((counterRes.data ?? []) as CounterRow[]).map((row) => ({
     scope: parseBucket(row.bucket_key).scope,
@@ -524,7 +525,7 @@ adminSafetyRoutes.post("/rate-limits/:userId/override", async (c: Context<AdminE
     .select("id")
     .eq("id", userId)
     .maybeSingle();
-  if (userErr) return c.json({ error: userErr.message }, 500);
+  if (userErr) return failSafe(c, 500, "Couldn't look up the user.", userErr, "admin.safety.ratelimits.override.user");
   if (!subjectUser) return c.json({ error: "User not found" }, 404);
 
   const before = await loadActiveOverride(userId);
@@ -544,7 +545,7 @@ adminSafetyRoutes.post("/rate-limits/:userId/override", async (c: Context<AdminE
       },
       { onConflict: "subject_user_id" },
     );
-  if (upErr) return c.json({ error: upErr.message }, 500);
+  if (upErr) return failSafe(c, 500, "Couldn't save the override.", upErr, "admin.safety.ratelimits.override.save");
 
   // Land the override on the very next request (this replica) and bound cross-
   // replica propagation to the cache TTL.
@@ -584,7 +585,7 @@ adminSafetyRoutes.delete("/rate-limits/:userId/override", async (c: Context<Admi
     .from("rate_limit_overrides")
     .delete()
     .eq("subject_user_id", userId);
-  if (delErr) return c.json({ error: delErr.message }, 500);
+  if (delErr) return failSafe(c, 500, "Couldn't remove the override.", delErr, "admin.safety.ratelimits.override.delete");
 
   bustOverrideCache();
   await refreshOverrideCache();

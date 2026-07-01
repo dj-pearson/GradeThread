@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { requireScope } from "../lib/scope-guard.ts";
@@ -89,7 +90,7 @@ adminModerationRoutes.post("/:id/approve", async (c: Context<AdminEnv>) => {
     .from("submissions")
     .update({ flagged: false, moderation_status: "approved" })
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't approve the item.", error, "admin.moderation.approve");
 
   await writeAuditLog(c, {
     action: "admin.moderation_approve",
@@ -112,7 +113,7 @@ adminModerationRoutes.post("/:id/reject", async (c: Context<AdminEnv>) => {
     .from("submissions")
     .update({ flagged: false, moderation_status: "rejected", status: "failed" })
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't reject the item.", error, "admin.moderation.reject");
 
   let refundedTo: number | null = null;
   try {
@@ -160,14 +161,14 @@ adminModerationRoutes.post("/:id/ban", async (c: Context<AdminEnv>) => {
     .from("users")
     .update({ suspended: true })
     .eq("id", sub.user_id);
-  if (banErr) return c.json({ error: banErr.message }, 500);
+  if (banErr) return failSafe(c, 500, "Couldn't ban the user.", banErr, "admin.moderation.ban");
 
   // Banning over a submission also rejects that submission.
   const { error: subErr } = await supabaseAdmin
     .from("submissions")
     .update({ flagged: false, moderation_status: "rejected", status: "failed" })
     .eq("id", id);
-  if (subErr) return c.json({ error: subErr.message }, 500);
+  if (subErr) return failSafe(c, 500, "Couldn't update the submission.", subErr, "admin.moderation.ban.sub");
 
   await writeAuditLog(c, {
     action: "admin.moderation_ban",
@@ -308,7 +309,7 @@ adminModerationRoutes.get("/listings", async (c: Context<AdminEnv>) => {
       .range(from, from + pageSize - 1);
   }
   const { data: listingsRaw, count: listingCount, error } = await listingQuery;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load listings.", error, "admin.moderation.listings.list");
   const listings = (listingsRaw ?? []) as Array<{
     id: string;
     user_id: string;
@@ -417,7 +418,7 @@ adminModerationRoutes.get("/photos", async (c: Context<AdminEnv>) => {
       .range(from, from + pageSize - 1);
   }
   const { data: photosRaw, count: photoCount, error } = await photoQuery;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load photos.", error, "admin.moderation.photos.list");
   // The embedded relation is typed as an array by the generated types.
   const photos = (photosRaw ?? []) as unknown as Array<{
     id: string;
@@ -493,7 +494,7 @@ adminModerationRoutes.post("/listings/:id/takedown", async (c: Context<AdminEnv>
     .from("listings")
     .update(patch)
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't take down the listing.", error, "admin.moderation.listings.takedown");
 
   const actorId = c.get("userId");
   await closeFlagForContent("listing", id, actorId, "takedown");
@@ -525,7 +526,7 @@ adminModerationRoutes.post("/listings/:id/restore", async (c: Context<AdminEnv>)
     .from("listings")
     .update(patch)
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't restore the listing.", error, "admin.moderation.listings.restore");
 
   await writeAuditLog(c, {
     action: "admin.moderation_listing_restore",
@@ -552,7 +553,7 @@ adminModerationRoutes.post("/photos/:id/hide", async (c: Context<AdminEnv>) => {
     .from("item_photos")
     .update(patch)
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't hide the photo.", error, "admin.moderation.photos.hide");
 
   const actorId = c.get("userId");
   await closeFlagForContent("photo", id, actorId, "takedown");
@@ -578,7 +579,7 @@ adminModerationRoutes.post("/photos/:id/unhide", async (c: Context<AdminEnv>) =>
     .from("item_photos")
     .update(patch)
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't unhide the photo.", error, "admin.moderation.photos.unhide");
 
   await writeAuditLog(c, {
     action: "admin.moderation_photo_unhide",
