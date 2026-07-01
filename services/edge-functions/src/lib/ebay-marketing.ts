@@ -922,6 +922,60 @@ export async function endMarkdownSale(
   );
 }
 
+// ── US-1448: Promotions Manager item promotions ─────────────────────
+//
+// Beyond markdown sales, eBay's item_promotion covers ORDER_DISCOUNT (spend $X
+// get Y off the order), VOLUME_DISCOUNT (buy N get a discount) and CODED_COUPON.
+// Chunk 1 is the READ side — list the seller's existing item promotions so
+// FlipDesk surfaces them. The create/update bodies for each type are intricate
+// and are added (with a live-eBay smoke test) in a follow-up; a wrong write body
+// would just eBay-4xx, so we don't ship a guessed one here.
+
+export interface EbayItemPromotion {
+  promotionId: string;
+  name: string | null;
+  promotionType: string | null; // ORDER_DISCOUNT | VOLUME_DISCOUNT | CODED_COUPON | MARKDOWN_SALE
+  promotionStatus: string | null; // RUNNING | SCHEDULED | ENDED | PAUSED
+  startDate: string | null;
+  endDate: string | null;
+}
+
+interface ItemPromotionListResponse {
+  promotions?: Array<{
+    promotionId?: string;
+    name?: string;
+    promotionType?: string;
+    promotionStatus?: string;
+    startDate?: string;
+    endDate?: string;
+  }>;
+}
+
+/** List the seller's item promotions (Promotions Manager) for this marketplace. */
+export async function getItemPromotions(
+  userId: string,
+  limit = 100,
+): Promise<EbayItemPromotion[]> {
+  const qs = new URLSearchParams({
+    marketplace_id: getMarketplaceId(),
+    limit: String(limit),
+  });
+  const { body } = await marketingFetch<ItemPromotionListResponse>(
+    userId,
+    `/sell/marketing/v1/item_promotion?${qs.toString()}`,
+  );
+  return (body.promotions ?? [])
+    .filter((p) => p.promotionId)
+    .map((p) => ({
+      promotionId: p.promotionId as string,
+      name: p.name ?? null,
+      promotionType: p.promotionType ?? null,
+      promotionStatus: p.promotionStatus ?? null,
+      startDate: p.startDate ?? null,
+      endDate: p.endDate ?? null,
+    }));
+}
+
 // Read a markdown Sale's current status (for reconciliation).
 export async function getMarkdownSale(
   userId: string,

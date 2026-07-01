@@ -39,6 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { EbayPromotionsCard } from "@/components/flipdesk/ebay-promotions-card";
 import {
   Table,
   TableBody,
@@ -1203,6 +1204,8 @@ export function FlipdeskMarketplacesPage() {
           />
           <ShopifySetup />
           {connection && <PromotedListingsSection />}
+          {/* US-1448: surface the seller's eBay Promotions Manager offers. */}
+          {connection && <EbayPromotionsCard />}
         </div>
       </section>
 

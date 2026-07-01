@@ -220,6 +220,7 @@ import {
   endMarkdownSale,
   ensureAdCampaign,
   getAdForListing,
+  getItemPromotions,
   type PromotedListingRow,
   removeAdForListing,
   resolvePublishAdRate,
@@ -1171,6 +1172,25 @@ flipdeskEbayRoutes.post("/catalog/adopt", async (c) => {
   } catch (err) {
     console.error("[flipdesk-ebay] /catalog/adopt failed:", err);
     return c.json({ error: "Could not adopt the eBay catalog product." }, 502);
+  }
+});
+
+// US-1448 chunk 1: list the seller's eBay Promotions Manager item promotions
+// (order discounts, volume discounts, coupons, sale events) so FlipDesk surfaces
+// them. Read-only, tenant-scoped; no-access 403 → { access:false }.
+flipdeskEbayRoutes.get("/promotions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const promotions = await getItemPromotions(ownerId);
+    return c.json({ access: true, promotions });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
+    console.error("[flipdesk-ebay] /promotions failed:", err);
+    return c.json({ error: "Could not load eBay promotions." }, 502);
   }
 });
 

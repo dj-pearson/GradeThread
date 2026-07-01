@@ -2,6 +2,24 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1448 (Promotions Manager item promotions) — chunk 1, PARTIAL (passes:false)
+
+Read slice of eBay Promotions Manager (order/volume discounts, coupons, sale
+events) — the create side is intricate + high-uncertainty to model blind, so per
+the conservative directive chunk 1 ships only the confident read path.
+- ebay-marketing.ts: getItemPromotions (list the seller's item_promotion offers
+  for the marketplace), mirroring the markdown-sale marketingFetch pattern.
+- flipdesk-ebay.ts: GET /promotions (tenant-scoped; no-access 403 → { access:false }).
+- use-ebay.ts: useEbayPromotions; new EbayPromotionsCard on the Marketplaces page
+  (under the eBay setup section) lists existing promotions with type + status.
+
+REMAINING (why passes:false) — AC1 create/updateItemPromotion (ORDER_DISCOUNT /
+VOLUME_DISCOUNT / CODED_COUPON) + AC2 (tie promotions to aging rules, e.g.
+auto-coupon items >90 days): the three create bodies are intricate and would be
+guessed blind (a wrong body just eBay-4xx's, no value), and AC2 needs the
+automations engine. Deferred until a live-eBay smoke test can confirm the bodies.
+Verify: tsc -b, eslint, vitest 1028, build 45; edge via CI.
+
 ## 2026-07-01 — US-1447 (Promoted Listings CPC/Priority) — chunks 1-2, PARTIAL (still passes:false)
 
 Adds Cost-Per-Click / Priority campaigns beyond today's Cost-Per-Sale. Uses the

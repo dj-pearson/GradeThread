@@ -371,6 +371,37 @@ export function useAdoptCatalogProduct() {
   });
 }
 
+// US-1448: the seller's eBay Promotions Manager item promotions (order/volume
+// discounts, coupons, sale events). `access:false` = stale grant.
+export interface EbayItemPromotion {
+  promotionId: string;
+  name: string | null;
+  promotionType: string | null;
+  promotionStatus: string | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+export interface EbayPromotionsResponse {
+  access: boolean;
+  promotions?: EbayItemPromotion[];
+}
+export function useEbayPromotions(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_promotions"],
+    enabled,
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EbayPromotionsResponse> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/promotions`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not load eBay promotions.");
+      return json as EbayPromotionsResponse;
+    },
+  });
+}
+
 // Forces a fresh pull of the seller's business policies from eBay (the UI
 // "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
 // publish fails with "invalid shipping policy" because the cached default no
