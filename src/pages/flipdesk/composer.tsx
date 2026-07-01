@@ -206,6 +206,9 @@ export function FlipdeskComposerPage() {
   const [promoteEnabled, setPromoteEnabled] = useState(true);
   const [promoRate, setPromoRate] = useState("");
   const [promoSuggested, setPromoSuggested] = useState<number | null>(null);
+  // US-1447: Promoted Listings mode — 'cps' (Cost-Per-Sale %, default) or 'cpc'
+  // (Cost-Per-Click / Priority; bid is eBay's ad-group max-CPC, no % applies).
+  const [promoMode, setPromoMode] = useState<"cps" | "cpc">("cps");
   // US-568: listing format (fixed/auction), auction terms, and variation matrix.
   const [listingFormat, setListingFormat] = useState<ListingFormatValue>(
     DEFAULT_LISTING_FORMAT_VALUE,
@@ -417,6 +420,7 @@ export function FlipdeskComposerPage() {
     // the rate from the seller's saved value; the suggestion effect fills it in
     // once the resolved category is known (when no saved rate exists yet).
     setPromoteEnabled(!(listing?.promo_opt_out ?? false));
+    setPromoMode(listing?.promo_mode === "cpc" ? "cpc" : "cps");
     setPromoRate(
       listing?.promo_rate_pct != null ? String(listing.promo_rate_pct) : "",
     );
@@ -680,12 +684,16 @@ export function FlipdeskComposerPage() {
         // is off; otherwise store the accepted/adjusted rate (a blank box falls
         // back to the category suggestion at publish, so persist null then).
         promo_opt_out: !promoteEnabled,
-        promo_rate_pct: promoteEnabled
-          ? (() => {
-              const r = Number.parseFloat(promoRate);
-              return Number.isFinite(r) && r > 0 ? r : null;
-            })()
-          : null,
+        // US-1447: persist the chosen mode; CPC ignores the % (bid is the
+        // ad-group max-CPC), so only store a rate in CPS mode.
+        promo_mode: promoMode,
+        promo_rate_pct:
+          promoteEnabled && promoMode === "cps"
+            ? (() => {
+                const r = Number.parseFloat(promoRate);
+                return Number.isFinite(r) && r > 0 ? r : null;
+              })()
+            : null,
         // US-568: persist format + auction terms + variation matrix. Auction
         // prices convert dollars → cents; null when blank or non-auction.
         ...buildFormatPayload(listingFormat),
@@ -1460,6 +1468,36 @@ export function FlipdeskComposerPage() {
             </CardHeader>
             {promoteEnabled && (
               <CardContent className="space-y-2">
+                {/* US-1447: campaign type — Cost-Per-Sale vs Cost-Per-Click. */}
+                <Label>Campaign type</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={promoMode === "cps" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setPromoMode("cps")}
+                    className={promoMode === "cps" ? "bg-brand-navy" : undefined}
+                  >
+                    Cost-Per-Sale
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={promoMode === "cpc" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setPromoMode("cpc")}
+                    className={promoMode === "cpc" ? "bg-brand-navy" : undefined}
+                  >
+                    Cost-Per-Click (Priority)
+                  </Button>
+                </div>
+                {promoMode === "cpc" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Priority ads bid per click (charged when a shopper clicks,
+                    not only on sale). The bid uses your eBay Priority ad group&apos;s
+                    max cost-per-click. You can fine-tune bids in eBay Seller Hub.
+                  </p>
+                ) : (
+                  <>
                 <Label htmlFor="promo-rate">Ad rate (%)</Label>
                 <div className="flex items-center gap-2">
                   <Input
@@ -1489,6 +1527,8 @@ export function FlipdeskComposerPage() {
                     ? `Suggested ${promoSuggested}% for this category. Adjust between 2% and 20%, or turn off to opt out.`
                     : "Adjust between 2% and 20%, or turn off to opt out."}
                 </p>
+                  </>
+                )}
                 {listing?.promo_status === "failed" && (
                   <p className="text-xs text-destructive">
                     The last publish couldn’t attach the ad on eBay. It’ll retry

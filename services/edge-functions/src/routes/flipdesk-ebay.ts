@@ -5616,6 +5616,11 @@ export async function publishItemForOwner(
         listingRowId: listing?.id ?? null,
         ebayListingId: listingId,
         ratePct: ctx.summary.promotedAdRate,
+        // US-1447: honour the listing's chosen promotion mode (CPS vs CPC).
+        mode:
+          (listing as { promo_mode?: string } | null)?.promo_mode === "cpc"
+            ? "cpc"
+            : "cps",
       });
     }
 
@@ -5915,6 +5920,11 @@ async function publishVariationListing(args: {
       listingRowId: listing?.id ?? null,
       ebayListingId: listingId,
       ratePct: ctx.summary.promotedAdRate,
+      // US-1447: honour the listing's chosen promotion mode (CPS vs CPC).
+      mode:
+        (listing as { promo_mode?: string } | null)?.promo_mode === "cpc"
+          ? "cpc"
+          : "cps",
     });
   }
 
@@ -7160,7 +7170,7 @@ export async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")

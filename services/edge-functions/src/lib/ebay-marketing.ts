@@ -572,9 +572,41 @@ export async function attachPromotionAtPublish(args: {
   listingRowId: string | null;
   ebayListingId: string;
   ratePct: number;
+  // US-1447: 'cps' (default, Cost-Per-Sale bid %) or 'cpc' (Cost-Per-Click /
+  // Priority — bid is the CPC ad group's max-CPC, ratePct is ignored).
+  mode?: "cps" | "cpc";
 }): Promise<AttachPromotionResult | null> {
   const { userId, listingRowId, ebayListingId, ratePct } = args;
+  const mode = args.mode ?? "cps";
   try {
+    if (mode === "cpc") {
+      const { campaignId, adGroupId } = await ensureCpcCampaign(userId);
+      const ad = await createCpcAdForListing(
+        userId,
+        campaignId,
+        adGroupId,
+        ebayListingId,
+      );
+      if (!ad) {
+        await markPromoStatus(listingRowId, "failed", { campaignId });
+        return null;
+      }
+      if (listingRowId) {
+        await supabaseAdmin
+          .from("listings")
+          .update({
+            promo_campaign_id: campaignId,
+            promo_ad_id: ad.adId,
+            // CPC bid is the ad group's max-CPC, not a percentage → clear the %.
+            promo_rate_pct: null,
+            promo_status: "active",
+            promo_synced_at: new Date().toISOString(),
+          })
+          .eq("id", listingRowId);
+      }
+      return { campaignId, adId: ad.adId, ratePct: 0, status: "active" };
+    }
+
     const campaignId = await ensureAdCampaign(userId);
     const ad = await createAdForListing(
       userId,

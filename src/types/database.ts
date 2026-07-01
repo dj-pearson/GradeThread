@@ -1083,6 +1083,9 @@ export interface ListingRow {
   // created at publish; lifecycle status ('active'|'failed'|eBay's adStatus);
   // accrued ad spend (cents, charged only on sale); last performance sync.
   promo_opt_out: boolean;
+  // US-1447 (migration 00330): 'cps' (Cost-Per-Sale, default) or 'cpc'
+  // (Cost-Per-Click / Priority) Promoted Listings mode for this listing.
+  promo_mode: string;
   promo_campaign_id: string | null;
   promo_ad_id: string | null;
   promo_status: string | null;
@@ -2170,6 +2173,8 @@ export interface ListingInsert {
   // ad rate; promo_opt_out turns promotion off for this listing.
   promo_rate_pct?: number | null;
   promo_opt_out?: boolean;
+  // US-1447: 'cps' | 'cpc' Promoted Listings mode (migration 00330).
+  promo_mode?: string;
   // US-568: format + auction terms + variation matrix.
   listing_format?: ListingFormat;
   auction_start_price_cents?: number | null;

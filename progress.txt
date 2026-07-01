@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1447 (Promoted Listings CPC/Priority) — chunks 1-2, PARTIAL (still passes:false)
+
+Adds Cost-Per-Click / Priority campaigns beyond today's Cost-Per-Sale. Uses the
+granted sell.marketing scope (no new scope). CONSERVATIVE + CI-only per the user's
+call; needs a live-eBay smoke test before rollout.
+
+- Chunk 1 (6bef6ef6): migration 00329 (marketplace_connections.ebay_cpc_campaign_id
+  + ebay_cpc_ad_group_id); ensureCpcCampaign (find-or-create a COST_PER_CLICK
+  campaign + default ad group holding the max-CPC defaultBid, cached) +
+  createCpcAdForListing, mirroring the proven CPS ensureAdCampaign/createAdForListing.
+- Chunk 2 (this commit): migration 00330 (listings.promo_mode 'cps'|'cpc',
+  default 'cps'; schema-version → 00330); attachPromotionAtPublish gained a
+  mode:'cps'|'cpc' branch (CPC ignores the % — bid is the ad-group max-CPC); both
+  publish call sites pass the listing's promo_mode; composer.tsx got a
+  CPS-vs-CPC(Priority) campaign-type selector (persists promo_mode; hides the %
+  input in CPC mode). AC1 (CPC campaign+ad group+ads) ✓; AC3 per-listing choice ✓
+  (CPS + CPC).
+
+REMAINING (why still passes:false) — AC2 (suggestMaxCpc + explicit Smart Targeting):
+NOT shipped. The exact eBay suggestMaxCpc endpoint + campaignTargetType=SMART field
+placement are uncertain to model blind, and a guessed endpoint would just 404 (no
+value). Deferred until a live-eBay smoke test can confirm them — the CPC ad group
+carries an adjustable default max-CPC in the meantime (tunable in Seller Hub), and
+Priority CPC uses eBay's auto (smart) targeting by default when no manual keywords
+are set. Verify: tsc -b, eslint, vitest 1028, build 45; migrations + edge via CI.
+
 ## 2026-07-01 — US-1475: eBay Commerce Catalog EPID adoption (2 chunks)
 
 Listing against an eBay catalog product (by EPID) auto-fills required item
