@@ -7992,3 +7992,31 @@ VERIFICATION (this host): deno check src/main.ts clean; deno lint clean; 72 pass
 / 0 failed across ebay-grade-promotion + measurements + aspect-reconcile +
 aspect-registry + offer-already-ended. iOS AC1 curly-quote scanned clean (the 2
 hits are pre-existing string CONTENT, not delimiters) — macOS iOS CI is the gate.
+
+### Loop checkpoint 3 (2026-07-01) — 4 stories verified & committed locally (NOT pushed)
+6 commits ahead of origin (US-1505, US-1506, US-1502, US-1503 + checkpoints). ALL
+code-only — PENDING_MIGRATIONS.md still empty, EXPECTED_SCHEMA_VERSION stays 00331.
+US-1504 migration question RESOLVED: `price_is_estimated` ALREADY EXISTS (migrations
+00052/00153, referenced in edge ai-listing/grade-band-pricing + iOS DraftListing) →
+US-1504 is code-only, NO migration. Do NOT push until user OKs.
+
+### NEXT UP — US-1504 (price coherence) — no migration
+Two sub-bugs, one "which price wins" rule at both ends:
+ (1) Publish resolves listing.listing_price > 0 BEFORE item.target_price
+     (flipdesk-ebay.ts:7471-7475,7794); canvas save updates a DRAFT's price only
+     via ebayPlan (live listings), never the draft row; PublishDialog.swift:871-889
+     makes price READ-ONLY when the summary has one (comment "canvas is the price's
+     home" — false once an AutoLister draft carries an AI estimate). Seller sets $40,
+     publishes at stale $25 estimate. FIX (AC1): canvas save updates an existing
+     GT-origin DRAFT's price (ListingDraftService.updateDraftPrice EXISTS — wire it),
+     OR composer prefers item.target_price when the draft price is price_is_estimated.
+ (2) POST /listings/:id/price + bulk pricing update listing_price only, never
+     target_price (flipdesk-ebay.ts:3911/3930-3942); canvas badge listingPriceUnsynced
+     (ItemCanvasView.swift:109-119,664-671) then asserts "not pushed to eBay" AFTER a
+     reprice — inverse of reality; re-saving stale target reverts the live price.
+     FIX (AC2): successful listing-side reprices mirror onto inventory_items
+     .target_price (edge), OR re-derive the badge from a real pending-push signal.
+ AC3: fix the misleading composer comment/read-only. AC4: manual check.
+ Heavy iOS (PublishDialog) + edge. After US-1504: iOS audit backlog US-1491..1500
+ (macOS-CI-only) + US-1518 photo-thumbnail (thumbnail_url column already exists;
+ it's a POPULATE + backfill story, likely still no migration).
