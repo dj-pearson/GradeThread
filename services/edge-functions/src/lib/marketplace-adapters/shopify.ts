@@ -268,7 +268,10 @@ export const shopifyAdapter: MarketplaceAdapter = {
   updateListing: (input) => publishShopify(input.ownerId, input.listingRowId, input.price),
   delist: (input) => endShopify(input.ownerId, input.listingRowId, input.platformListingId),
 
-  // Shopify changes flow back via webhooks (flipdesk-webhooks), not a batch pull.
+  // US-1472: syncListings/syncOrders are INTENTIONALLY 501 (not unbuilt like the
+  // poshmark/mercari/depop stubs). Shopify order/listing changes are ingested
+  // out-of-band via the webhook path — flipdesk-shopify.ts (receiver) →
+  // shopify-orders.ts (ingest) — so there's no adapter-level batch pull.
   syncListings: () => Promise.resolve(notImplemented("shopify")),
   syncOrders: () => Promise.resolve(notImplemented("shopify")),
 

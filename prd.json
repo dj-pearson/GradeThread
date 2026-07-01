@@ -8141,7 +8141,7 @@
         "Verify only one card renders for a seller at any time."
       ],
       "priority": 2095,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: onboarding-flow.tsx:61-73; dashboard-layout.tsx:46; dashboard.tsx:427; activation-checklist.tsx:99-111 vs flipdesk-onboarding.tsx:81-106."
     },
     {
@@ -8603,7 +8603,7 @@
         "If reconciliation needs adapter-level pull, wire syncOrders; otherwise leave the 501 as documented-deliberate."
       ],
       "priority": 1988,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · edge · edge audit] Evidence: services/edge-functions/src/lib/marketplace-adapters/shopify.ts:272-273."
     },
     {

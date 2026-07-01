@@ -2,6 +2,34 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 21 (US-1435, US-1472) — consolidate activation checklists + Shopify 501 doc
+
+- US-1435 Consolidate the overlapping post-signup activation checklists for
+  sellers — NOW COMPLETE (passes:true). A reseller saw FlipdeskOnboarding
+  (source→intake→grade, FlipDesk surface) and the dashboard-home
+  ActivationChecklist (grade→inventory→ebay→notifications) both active at once.
+  Rather than drop the seller checklist (losing its distinct eBay/notification
+  nudges), SEQUENCED them: ActivationChecklist now gates on flipdesk_onboarded for
+  reseller personas (isReseller = seller|consignment) — so FlipDesk onboarding
+  runs first and, only once complete, the dashboard-home checklist appears. Non-
+  resellers (developer) still see it immediately; buyers already got []. Net: a
+  seller sees exactly one activation card at any time (AC1/AC3), the two no longer
+  overlap so no cross-checklist step-sync is needed (AC2), and no nudge is lost.
+
+- US-1472 Document the Shopify adapter syncListings/syncOrders 501 as deliberate
+  — NOW COMPLETE (passes:true). The Shopify adapter publishes/delists live but
+  returns typed 501 for syncListings/syncOrders (orders arrive via webhooks).
+  Replaced the thin existing comment with an explicit note that these are
+  INTENTIONALLY 501 (not unbuilt like the poshmark/mercari/depop stubs) and that
+  order/listing changes ingest via the webhook path — flipdesk-shopify.ts
+  (receiver) → shopify-orders.ts (ingest). Confirmed both files exist. Comment-
+  only; the 501 stays documented-deliberate (AC1/AC2).
+
+VERIFICATION (this container): web gate fully green — tsc -b clean, eslint 0
+errors, vitest 1015 pass, npm run build (incl. prerender, 45 routes) succeeded.
+The comment-only edge change is validated by the GitHub Actions edge lane. Open
+prd.json stories now 117.
+
 ## 2026-06-30 — Pre-launch audit batch 20 (US-1440, US-1485) — standardize PageHeader + stale-comment fix
 
 - US-1440 Standardize page headers on the shared PageHeader component — NOW
