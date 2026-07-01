@@ -7813,3 +7813,32 @@ Shipped in verified PRs off main, each marked in prd.json + logged here:
 - PR #149: US-1490 (user-requested feature — edit & resubmit a published eBay listing from the web)
 - PR #150: US-1431, US-1461
 - PR (this round): US-1439, US-1462
+
+## 2026-07-01 — Web+iOS pre-launch loop (migrations packaged separately, NOT pushed)
+
+Working directly on main per the pre-prod override, but per user request this loop
+does NOT push to origin until they OK it, and every migration + schema bump is
+packaged in PENDING_MIGRATIONS.md so they can apply DB→edge→frontend at check-in.
+
+- US-1505 eBay publish dead-end: template item-specifics written string-valued but
+  publish/revise require string[] (TypeError → misleading category blocker) — NOW
+  COMPLETE (passes:true). Root cause: item_specifics_override / ebay_aspects have
+  been persisted BOTH string-valued ({Fit:"Slim"} — iOS saveDraft + the server
+  template overlay) and array-valued; every edge consumer types them string[] and
+  calls array methods. A string value reaching reconcilePublishAspects'
+  (rawValues ?? []).filter threw a TypeError the publish path masked as "Could not
+  load eBay specifics for this category. Try again." — a retry-forever dead end.
+  Fix: (1) new exported normalizeAspectMap() in aspect-reconcile.ts coerces any
+  persisted map to string[] (drops blanks/dupes); applied at ALL edge read sites —
+  assemblePublishContext aspectMap, revise baseAspects, the ASPECTS_ADOPTION merge
+  (AC1). (2) reconcilePublishAspects made defensive at the throw site too. (3)
+  Write sites normalized going forward: buildTemplateListingPatch (listing-template
+  .ts) + iOS ListingDraftService.saveDraft now write [String:[String]] (AC2). (4)
+  Publish catch classifies TypeError (internal) distinctly from a genuine category
+  FETCH failure — no longer masks a code bug as "Could not load eBay specifics"
+  (AC4). Tests: 5 new aspect-reconcile cases (string coercion + no-throw + reconcile
+  round-trip) + updated listing-template assertion (AC3). NO MIGRATION.
+
+VERIFICATION (this host): deno test aspect-reconcile + listing-template = 30 passed
+/ 0 failed; deno check src/main.ts clean; deno lint clean on all 3 changed edge
+files; iOS Swift edit curly-quote-scanned clean (iOS CI on macOS is the build gate).

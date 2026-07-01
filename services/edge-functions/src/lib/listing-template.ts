@@ -3,6 +3,8 @@
 // an AutoLister-generated listing draft. No DB/network here, so both are
 // unit-tested directly (src/tests/listing-template_test.ts).
 
+import { normalizeAspectMap } from "./aspect-reconcile.ts";
+
 export const TEMPLATE_NAME_MAX = 80;
 
 /** DB-column shape the route inserts/updates (snake_case mirrors the table). */
@@ -125,7 +127,10 @@ export function buildTemplateListingPatch(
     template.item_specifics &&
     Object.keys(template.item_specifics).length > 0
   ) {
-    patch.item_specifics_override = template.item_specifics;
+    // US-1505: persist item_specifics_override as string[] values (the shape
+    // every edge publish/revise consumer expects), not the template's raw
+    // {String:String}. normalizeAspectMap drops blank values too.
+    patch.item_specifics_override = normalizeAspectMap(template.item_specifics);
   }
   // The listing's category lives in `platform_category_id` — that's what
   // assemblePublishContext reads (listing.platform_category_id ?? item.ebay_category_id).

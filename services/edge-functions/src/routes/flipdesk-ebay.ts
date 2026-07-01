@@ -13,6 +13,7 @@ import {
   sourcesFor,
 } from "../lib/aspect-provenance.ts";
 import {
+  normalizeAspectMap,
   type PublishAspectDiagnostic,
   reconcilePublishAspects,
   type ReconcileSpec,
@@ -949,7 +950,11 @@ flipdeskEbayRoutes.post("/compliance/apply-recommendations/:id", async (c) => {
     );
     const recs = match?.aspectRecommendations ?? [];
 
-    const aspects: Record<string, string[]> = { ...(row.item_specifics_override ?? {}) };
+    // US-1505: coerce any legacy string-valued row to string[] so the merged
+    // map we re-persist (and later re-PUT to eBay) is uniformly typed.
+    const aspects: Record<string, string[]> = normalizeAspectMap(
+      row.item_specifics_override as Record<string, unknown> | null,
+    );
     const added: string[] = [];
     for (const rec of recs) {
       const name = rec.name.trim();
@@ -4709,12 +4714,14 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     reviseCategoryId =
       (listingRow as { platform_category_id?: string | null } | null)
         ?.platform_category_id ?? item.ebay_category_id ?? null;
-    const baseAspects: Record<string, string[]> =
+    // US-1505: legacy rows may be string-valued; coerce to string[] before
+    // forceColumnAspects / the eBay re-PUT (a bare string would 400 eBay).
+    const baseAspects: Record<string, string[]> = normalizeAspectMap(
       (listingRow as
-        | { item_specifics_override?: Record<string, string[]> | null }
+        | { item_specifics_override?: Record<string, unknown> | null }
         | null)?.item_specifics_override ??
-      item.ebay_aspects ??
-      {};
+        (item.ebay_aspects as Record<string, unknown> | null),
+    );
     // Pull the category's real aspect spec (cached) so synonyms / SELECTION_ONLY
     // validation match; degrade gracefully to the default column names on error.
     let reviseAspectList: AspectSpecRaw[] | null = null;
@@ -7264,10 +7271,12 @@ export async function assemblePublishContext(
   if (!categoryId) blockers.push("Pick an eBay category.");
   // Aspect map: prefer item_specifics_override (the AutoLister-edited copy);
   // fall back to the inventory mirror. The inventory mirror feeds legacy flows.
-  const aspectMap: Record<string, string[]> =
-    listing?.item_specifics_override ??
-    (item.ebay_aspects as Record<string, string[]> | null) ??
-    {};
+  // US-1505: coerce string-valued legacy rows ({Fit:"Slim"}) to string[] before
+  // any array consumer (forceColumnAspects / reconcilePublishAspects) touches it.
+  const aspectMap: Record<string, string[]> = normalizeAspectMap(
+    (listing?.item_specifics_override as Record<string, unknown> | null) ??
+      (item.ebay_aspects as Record<string, unknown> | null),
+  );
   let requiredMissing: string[] = [];
   // US-828: aspects the publish path declined to send for VALUE-validation
   // reasons (a SELECTION_ONLY value not in eBay's allowed set, even after the
@@ -7421,8 +7430,24 @@ export async function assemblePublishContext(
         );
       }
     } catch (err) {
-      console.error("[flipdesk-ebay] aspect fetch for validate:", err);
-      blockers.push("Could not load eBay specifics for this category. Try again.");
+      // US-1505: distinguish an internal bug (e.g. a TypeError from a malformed
+      // aspect map) from a genuine category-spec FETCH failure. The old code
+      // surfaced BOTH as "Could not load eBay specifics… Try again." — a
+      // retry-forever dead end when the real fault was code, not eBay.
+      if (err instanceof TypeError) {
+        console.error(
+          "[flipdesk-ebay] INTERNAL aspect-reconcile error (not an eBay fetch):",
+          err,
+        );
+        blockers.push(
+          "Internal error preparing eBay specifics. Please contact support if this persists.",
+        );
+      } else {
+        console.error("[flipdesk-ebay] aspect fetch for validate:", err);
+        blockers.push(
+          "Could not load eBay specifics for this category. Try again.",
+        );
+      }
     }
   }
 

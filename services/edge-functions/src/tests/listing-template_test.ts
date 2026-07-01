@@ -102,7 +102,9 @@ Deno.test("overlay sets condition/category/specifics/policies only when present"
   );
   assertEquals(patch.ebay_condition, "USED_GOOD");
   assertEquals(patch.ebay_condition_description, "minor wear");
-  assertEquals(patch.item_specifics_override, { Brand: "Levi's" });
+  // US-1505: overlay now persists string[] values (the shape every edge
+  // publish/revise consumer expects), not the template's raw {String:String}.
+  assertEquals(patch.item_specifics_override, { Brand: ["Levi's"] });
   // The listing's category column is platform_category_id (publish reads that).
   assertEquals(patch.platform_category_id, "57988");
   assertEquals(patch.ebay_category_id, undefined);

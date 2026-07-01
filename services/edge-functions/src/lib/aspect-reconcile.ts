@@ -171,6 +171,38 @@ export interface PublishReconcileResult {
 }
 
 /**
+ * US-1505: `item_specifics_override` / `ebay_aspects` have historically been
+ * persisted BOTH string-valued (`{Fit:"Slim"}` — iOS `saveDraft` + the
+ * server template overlay) AND array-valued (`{Fit:["Slim"]}` — the AutoLister
+ * / column-projection paths). Every edge consumer types them
+ * `Record<string, string[]>` and calls array methods (`.filter`, spreads). A
+ * string value reaching `reconcilePublishAspects`' `(rawValues ?? []).filter`
+ * threw a `TypeError` the publish path masked as "Could not load eBay specifics
+ * for this category" — a retry-forever dead end. Coerce any persisted map to
+ * `string[]` values at the read boundary so legacy string-valued rows publish
+ * and revise correctly. Drops empty/blank values so it never introduces an
+ * aspect eBay would reject.
+ */
+export function normalizeAspectMap(
+  map: Record<string, unknown> | null | undefined,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (!map || typeof map !== "object") return out;
+  for (const [name, raw] of Object.entries(map)) {
+    if (raw == null) continue;
+    const arr = Array.isArray(raw) ? raw : [raw];
+    const values: string[] = [];
+    for (const v of arr) {
+      if (v == null) continue;
+      const s = String(v).trim();
+      if (s.length > 0 && !values.includes(s)) values.push(s);
+    }
+    if (values.length > 0) out[name] = values;
+  }
+  return out;
+}
+
+/**
  * PUBLISH-time reconciliation. Unlike the generation path, an invalid
  * SELECTION_ONLY value is OMITTED here — eBay would reject it — but near-misses
  * are first normalized through US-823, so a value the seller never fixed still
@@ -190,7 +222,16 @@ export function reconcilePublishAspects(
   const omitted: PublishAspectDiagnostic[] = [];
 
   for (const [name, rawValues] of Object.entries(aspectMap)) {
-    const values = (rawValues ?? []).filter((v) => v && v.trim().length > 0);
+    // Defensive: DB rows may carry a bare string (US-1505) rather than string[].
+    // Coerce before filtering so a legacy `{Fit:"Slim"}` never throws here.
+    const rawArr = Array.isArray(rawValues)
+      ? rawValues
+      : rawValues == null
+        ? []
+        : [rawValues as string];
+    const values = rawArr
+      .map((v) => (v == null ? "" : String(v)))
+      .filter((v) => v.trim().length > 0);
     if (values.length === 0) continue;
 
     const spec = idx.get(looseName(name));

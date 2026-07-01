@@ -88,7 +88,19 @@ struct ListingDraftService {
         // when no template was applied, and supabase-swift omits a nil optional
         // from an `.update`, so an unset field never clobbers an existing draft
         // value — matching AutoLister's overlay, which only writes provided keys.
-        let itemSpecificsOrNil = edits.itemSpecifics.isEmpty ? nil : edits.itemSpecifics
+        // US-1505: persist item_specifics_override as [String: [String]] — the
+        // shape every edge publish/revise consumer (and SpecificsEditorModel)
+        // expects. Writing bare {String:String} threw a TypeError in the edge
+        // aspect-reconcile path that surfaced as a bogus "Could not load eBay
+        // specifics" publish blocker. Drop blank values so we never write an
+        // aspect eBay would reject.
+        let itemSpecificsArrayed: [String: [String]] = edits.itemSpecifics.reduce(
+            into: [:]
+        ) { acc, pair in
+            let v = pair.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !v.isEmpty { acc[pair.key] = [v] }
+        }
+        let itemSpecificsOrNil = itemSpecificsArrayed.isEmpty ? nil : itemSpecificsArrayed
 
         if let row = existing.first {
             struct Update: Encodable {
@@ -96,7 +108,7 @@ struct ListingDraftService {
                 let listing_description: String
                 let ebay_condition: String
                 let ebay_condition_description: String?
-                let item_specifics_override: [String: String]?
+                let item_specifics_override: [String: [String]]?
                 let platform_category_id: String?
                 let return_policy_id: String?
                 let shipping_policy_id: String?
@@ -127,7 +139,7 @@ struct ListingDraftService {
                 let listing_description: String
                 let ebay_condition: String
                 let ebay_condition_description: String?
-                let item_specifics_override: [String: String]?
+                let item_specifics_override: [String: [String]]?
                 let platform_category_id: String?
                 let return_policy_id: String?
                 let shipping_policy_id: String?

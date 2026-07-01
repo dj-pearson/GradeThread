@@ -9037,7 +9037,7 @@
         "The publish catch no longer masks a TypeError as 'Could not load eBay specifics' (log/classify internal errors distinctly)."
       ],
       "priority": 2386,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Verifiable on this host (edge tests). One of the few guaranteed publish dead-ends left."
     },
     {

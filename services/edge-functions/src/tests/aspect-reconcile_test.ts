@@ -6,6 +6,7 @@
 //   deno test src/tests/aspect-reconcile_test.ts
 import { assertEquals } from "@std/assert";
 import {
+  normalizeAspectMap,
   reconcileGeneratedAspects,
   reconcilePublishAspects,
   type ReconcileSpec,
@@ -140,5 +141,51 @@ Deno.test("publish: SELECTION_ONLY with no allowed values is treated as free tex
     { name: "Pattern", mode: "SELECTION_ONLY", allowedValues: [] },
   ]);
   assertEquals(r.aspects.Pattern, ["Paisley"]);
+  assertEquals(r.omitted, []);
+});
+
+// ── US-1505: string-valued legacy maps must not throw / dead-end publish ──
+
+Deno.test("normalizeAspectMap: coerces string values to string[]", () => {
+  assertEquals(normalizeAspectMap({ Fit: "Slim", Brand: "Nike" }), {
+    Fit: ["Slim"],
+    Brand: ["Nike"],
+  });
+});
+
+Deno.test("normalizeAspectMap: passes arrays through, dedupes + drops blanks", () => {
+  assertEquals(
+    normalizeAspectMap({ Size: ["M", "M", " "], Color: [], Nope: null }),
+    { Size: ["M"] },
+  );
+});
+
+Deno.test("normalizeAspectMap: coerces non-string scalars and null map", () => {
+  assertEquals(normalizeAspectMap({ Year: 2024, Vintage: true }), {
+    Year: ["2024"],
+    Vintage: ["true"],
+  });
+  assertEquals(normalizeAspectMap(null), {});
+  assertEquals(normalizeAspectMap(undefined), {});
+});
+
+Deno.test("publish: string-valued map does NOT throw (US-1505 dead-end)", () => {
+  // A template row persisted as {Fit:"Slim"} used to hit (rawValues ?? []).filter
+  // on a string → TypeError → bogus "Could not load eBay specifics" blocker.
+  const r = reconcilePublishAspects(
+    { Fit: "Slim" } as unknown as Record<string, string[]>,
+    [free("Fit")],
+  );
+  assertEquals(r.aspects.Fit, ["Slim"]);
+  assertEquals(r.omitted, []);
+});
+
+Deno.test("publish: normalized then reconciled string map validates SELECTION_ONLY", () => {
+  const r = reconcilePublishAspects(
+    normalizeAspectMap({ Size: "m", Brand: "Levi's" }),
+    SPECS,
+  );
+  assertEquals(r.aspects.Size, ["M"]); // near-miss casing repaired
+  assertEquals(r.aspects.Brand, ["Levi's"]);
   assertEquals(r.omitted, []);
 });
