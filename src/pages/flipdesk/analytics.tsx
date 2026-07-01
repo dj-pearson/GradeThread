@@ -51,6 +51,7 @@ import {
 } from "@/lib/flipdesk-analytics-server";
 import { ShareOutcomesToggle } from "@/components/flipdesk/share-outcomes-toggle";
 import { EbayAccountHealthCard } from "@/components/flipdesk/ebay-account-health-card";
+import { EbayListingHealthCard } from "@/components/flipdesk/ebay-listing-health-card";
 import {
   fetchReturnReduction,
   gradedReturnAdvantage,
@@ -197,9 +198,11 @@ function SellThroughReport() {
         </Select>
       </div>
 
-      {/* US-1473: account-level eBay health (Seller Standards + service metrics).
-          Self-gates: renders only when eBay is connected. */}
-      <EbayAccountHealthCard />
+      {/* US-1473/US-1422: eBay account + listing health. Self-gate on connection. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <EbayAccountHealthCard />
+        <EbayListingHealthCard />
+      </div>
 
       {rows.length === 0 ? (
         <Card>

@@ -30,6 +30,8 @@ import {
   getCategoryName,
   getItemConditionPolicies,
   getCustomerServiceMetric,
+  getListingViolations,
+  getListingViolationsSummary,
   getMarketplaceId,
   getSellerStandardsProfile,
   getTrafficReport,
@@ -799,6 +801,44 @@ flipdeskEbayRoutes.get("/analytics/account-health", async (c) => {
     }
     console.error("[flipdesk-ebay] /analytics/account-health failed:", err);
     return c.json({ error: "Could not load eBay account health." }, 502);
+  }
+});
+
+// US-1422: Listing Health — the Sell Compliance violation summary (+ optional
+// per-type detail with corrective aspect recommendations for a future one-click
+// revise). Read-only; tenant-scoped; a no-access 403 returns { access:false }.
+flipdeskEbayRoutes.get("/compliance/summary", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const summaries = await getListingViolationsSummary(ownerId);
+    const total = summaries.reduce((n, s) => n + s.listingCount, 0);
+    return c.json({ access: true, summaries, total });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
+    console.error("[flipdesk-ebay] /compliance/summary failed:", err);
+    return c.json({ error: "Could not load eBay listing health." }, 502);
+  }
+});
+
+flipdeskEbayRoutes.get("/compliance/violations", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  // ASPECTS_ADOPTION is the most common/actionable type; callers may pass others.
+  const complianceType = c.req.query("type") ?? "ASPECTS_ADOPTION";
+  try {
+    const violations = await getListingViolations(ownerId, complianceType);
+    return c.json({ access: true, complianceType, violations });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
+    console.error("[flipdesk-ebay] /compliance/violations failed:", err);
+    return c.json({ error: "Could not load eBay listing violations." }, 502);
   }
 });
 

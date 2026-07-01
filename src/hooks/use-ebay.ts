@@ -157,6 +157,37 @@ export function useEbayAccountHealth(enabled = true) {
   });
 }
 
+// US-1422: Listing Health — the Sell Compliance violation summary. `access:false`
+// means the sell.inventory grant is stale (reconnect needed).
+export interface EbayListingViolationSummary {
+  complianceType: string;
+  listingCount: number;
+}
+export interface EbayListingHealth {
+  access: boolean;
+  summaries?: EbayListingViolationSummary[];
+  total?: number;
+}
+
+export function useEbayListingHealth(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_listing_health"],
+    enabled,
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EbayListingHealth> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/compliance/summary`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not load eBay listing health.");
+      }
+      return json as EbayListingHealth;
+    },
+  });
+}
+
 // Forces a fresh pull of the seller's business policies from eBay (the UI
 // "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
 // publish fails with "invalid shipping policy" because the cached default no

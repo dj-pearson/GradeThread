@@ -643,6 +643,117 @@ export async function getCustomerServiceMetric(
   return { metricType, cycle, rate, count };
 }
 
+// ── US-1422: Sell Compliance — Listing Health ───────────────────────
+//
+// eBay's Compliance API flags listings that violate policy or are missing
+// required item specifics (ASPECTS_ADOPTION etc.). A reseller running hundreds
+// of AI-generated listings accumulates these silently → search demotion / hidden
+// listings. Uses the sell.inventory grant (already requested), so a token issued
+// before that scope 403s — isAnalyticsAccessDenied classifies that no-access
+// case here too (same 403/1100 shape), and callers degrade gracefully.
+
+export interface ListingViolationSummary {
+  /** e.g. ASPECTS_ADOPTION, PRODUCT_ADOPTION, HTTPS, OUTSIDE_EBAY_BUYING. */
+  complianceType: string;
+  listingCount: number;
+}
+
+interface ViolationSummaryResponse {
+  violationSummaries?: Array<{
+    complianceType?: string;
+    listingCount?: number;
+  }>;
+}
+
+/**
+ * Per-compliance-type counts of the seller's non-compliant listings. Throws on a
+ * real API error; a no-access 403 (isAnalyticsAccessDenied) is handled by the
+ * caller as "not available".
+ */
+export async function getListingViolationsSummary(
+  userId: string,
+): Promise<ListingViolationSummary[]> {
+  const data = await fetchAuthed<ViolationSummaryResponse>(
+    userId,
+    `/sell/compliance/v1/listing_violation_summary`,
+  );
+  const out: ListingViolationSummary[] = [];
+  for (const s of data.violationSummaries ?? []) {
+    if (!s.complianceType) continue;
+    out.push({
+      complianceType: s.complianceType,
+      listingCount: Number(s.listingCount ?? 0) || 0,
+    });
+  }
+  return out;
+}
+
+export interface AspectRecommendation {
+  name: string;
+  values: string[];
+}
+
+export interface ListingViolationDetail {
+  listingId: string | null;
+  sku: string | null;
+  offerId: string | null;
+  complianceType: string;
+  /** Human-readable reasons eBay returned for this listing. */
+  reasons: string[];
+  /** correctiveRecommendations.aspectRecommendations, for one-click revise (AC3). */
+  aspectRecommendations: AspectRecommendation[];
+}
+
+interface ViolationDetailResponse {
+  listingViolations?: Array<{
+    listingId?: string;
+    sku?: string;
+    offerId?: string;
+    complianceType?: string;
+    violations?: Array<{ message?: string; reason?: string }>;
+    correctiveRecommendations?: {
+      aspectRecommendations?: Array<{ name?: string; values?: string[] }>;
+    };
+  }>;
+  total?: number;
+}
+
+/**
+ * Per-listing violation detail for one compliance type (e.g. ASPECTS_ADOPTION),
+ * including eBay's corrective aspect recommendations so a future one-click revise
+ * (US-1422 AC3) can apply them via updateOffer / inventory_item.
+ */
+export async function getListingViolations(
+  userId: string,
+  complianceType: string,
+  limit = 50,
+): Promise<ListingViolationDetail[]> {
+  const qs = new URLSearchParams({
+    compliance_type: complianceType,
+    limit: String(limit),
+  });
+  const data = await fetchAuthed<ViolationDetailResponse>(
+    userId,
+    `/sell/compliance/v1/listing_violation?${qs.toString()}`,
+  );
+  const out: ListingViolationDetail[] = [];
+  for (const v of data.listingViolations ?? []) {
+    out.push({
+      listingId: v.listingId ?? null,
+      sku: v.sku ?? null,
+      offerId: v.offerId ?? null,
+      complianceType: v.complianceType ?? complianceType,
+      reasons: (v.violations ?? [])
+        .map((r) => r.message ?? r.reason ?? "")
+        .filter((s) => s.length > 0),
+      aspectRecommendations: (v.correctiveRecommendations?.aspectRecommendations ?? [])
+        .filter((a) => a.name)
+        .map((a) => ({ name: a.name as string, values: a.values ?? [] })),
+    });
+  }
+  return out;
+}
+
 export async function refreshUserToken(
   refreshToken: string
 ): Promise<EbayUserRefreshResponse> {
