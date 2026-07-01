@@ -7999,7 +7999,7 @@
         "Guard quantity>1 listings (only end/decrement when remaining quantity hits 0)."
       ],
       "priority": 2191,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/components/flipdesk/record-sale-dialog.tsx:126-136; contrast listings.tsx:1140-1176."
     },
     {
@@ -8011,7 +8011,7 @@
         "Report per-item pushed-to-eBay vs recorded-locally; surface eBay rejections per row rather than failing the batch."
       ],
       "priority": 2190,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/components/flipdesk/prepare-shipment-dialog.tsx:22-24,64-97; working path ship-order-dialog.tsx:74-82 -> flipdesk-ebay.ts:4400."
     },
     {

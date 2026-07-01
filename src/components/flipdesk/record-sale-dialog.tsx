@@ -17,6 +17,7 @@ import { FieldError } from "@/components/ui/form-feedback";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { useEbayConnection, useEbayEndListing } from "@/hooks/use-ebay";
 import type { ItemFullRow, SaleInsert } from "@/types/database";
 
 interface SaleForm {
@@ -46,6 +47,8 @@ export function RecordSaleDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const { data: ebayConnection } = useEbayConnection();
+  const endListingApi = useEbayEndListing();
   const [form, setForm] = useState<SaleForm>({
     sale_price: "",
     shipping_collected: "",
@@ -129,6 +132,78 @@ export function RecordSaleDialog({
       if (error) throw error;
 
       await advanceItemStatus(item.id, item.status, "sold");
+
+      // US-1424: a manual sale must also close out the listing, or the item
+      // stays is_active=true / 'active' on eBay after being marked sold
+      // (overselling risk + a stale 'active' chip). This is best-effort — the
+      // sale is already recorded, so a listing-close hiccup warns rather than
+      // failing the whole action.
+      if (item.listing_id) {
+        try {
+          const { data: lst, error: lErr } = await supabase
+            .from("listings")
+            .select("id, quantity, platform_offer_id, platform_listing_id")
+            .eq("id", item.listing_id)
+            .maybeSingle();
+          if (lErr) throw lErr;
+          const listing = lst as {
+            id: string;
+            quantity: number | null;
+            platform_offer_id: string | null;
+            platform_listing_id: string | null;
+          } | null;
+          if (listing) {
+            // AC3: a multi-quantity listing only ends when the last unit sells —
+            // otherwise decrement the remaining quantity and keep it active.
+            const remaining = Math.max(0, (listing.quantity ?? 1) - 1);
+            if (remaining > 0) {
+              const { error } = await supabase
+                .from("listings")
+                .update({ quantity: remaining } as never)
+                .eq("id", listing.id);
+              if (error) throw error;
+            } else {
+              // AC1: end the listing locally (sold + inactive).
+              const { error } = await supabase
+                .from("listings")
+                .update({
+                  listing_status: "sold",
+                  is_active: false,
+                  quantity: 0,
+                } as never)
+                .eq("id", listing.id);
+              if (error) throw error;
+              // AC2: best-effort end on eBay when connected and the listing
+              // carries an eBay offer/listing id. A failure must NOT fail the
+              // recorded sale — surface it so the user can end it manually.
+              if (
+                ebayConnection &&
+                (listing.platform_offer_id || listing.platform_listing_id)
+              ) {
+                try {
+                  await endListingApi.mutateAsync({ listingId: listing.id });
+                } catch (err) {
+                  const e = err as Error & { status?: number };
+                  // 409 = no platform_offer_id server-side → nothing to end.
+                  if (e.status !== 409) {
+                    toast.warning(
+                      `Sale recorded, but ending the eBay listing failed: ${e.message}. End it on eBay manually.`,
+                      { duration: 10_000 },
+                    );
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          toast.warning(
+            `Sale recorded, but updating the listing failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            { duration: 10_000 },
+          );
+        }
+      }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sale_for_item", item.id] });
