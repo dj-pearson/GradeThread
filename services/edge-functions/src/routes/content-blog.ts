@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { reviewContentSafety } from "../lib/content-safety.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { applyInterlinks } from "../lib/content-interlink.ts";
@@ -143,7 +144,7 @@ contentBlogRoutes.get("/", async (c) => {
   if (productFocus) q = q.eq("product_focus", productFocus);
 
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load blog posts.", error, "content.blog.list");
   return c.json({ posts: data ?? [] });
 });
 
@@ -157,7 +158,7 @@ contentBlogRoutes.get("/:id", async (c) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the blog post.", error, "content.blog.get");
   if (!data) return c.json({ error: "Not found" }, 404);
   const tags = await fetchTags(id);
   return c.json({ post: { ...data, tags } });
@@ -193,7 +194,7 @@ contentBlogRoutes.post("/", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the blog post.", error, "content.blog.create");
   return c.json({ post: data });
 });
 
@@ -228,7 +229,7 @@ contentBlogRoutes.patch("/:id", async (c) => {
     .eq("id", id)
     .select("*")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the blog post.", error, "content.blog.update");
   if (!data) return c.json({ error: "Not found" }, 404);
 
   if (Array.isArray(tags)) await replaceTags(id, tags);
@@ -264,7 +265,7 @@ contentBlogRoutes.delete("/:id", async (c) => {
     .eq("id", id)
     .maybeSingle();
   const { error } = await supabaseAdmin.from("blog_posts").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the blog post.", error, "content.blog.delete");
   await writeAuditLog(c, {
     action: "content.blog_delete",
     targetType: "blog_post",
@@ -394,7 +395,7 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the blog post.", loadErr, "content.blog.publish.load");
   if (!post) return c.json({ error: "Not found" }, 404);
   if (!post.title || !post.body_html) {
     return c.json({ error: "title and body required to publish" }, 400);
@@ -439,7 +440,7 @@ contentBlogRoutes.post("/:id/schedule", async (c) => {
     .eq("id", id)
     .select("*")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't schedule the blog post.", error, "content.blog.schedule");
   if (!data) return c.json({ error: "Not found" }, 404);
   await writeAuditLog(c, {
     action: "content.blog_schedule",
@@ -461,7 +462,7 @@ contentBlogRoutes.post("/:id/archive", async (c) => {
     .eq("id", id)
     .select("*")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't archive the blog post.", error, "content.blog.archive");
   if (!data) return c.json({ error: "Not found" }, 404);
 
   await writeAuditLog(c, {
@@ -506,7 +507,7 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the blog post.", loadErr, "content.blog.generate.load");
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // Build the topic input. Priority: explicit override → linked topic → post fields.
@@ -585,7 +586,7 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
       .eq("id", id)
       .select("*")
       .single();
-    if (upErr) return c.json({ error: upErr.message }, 500);
+    if (upErr) return failSafe(c, 500, "Couldn't save the generated content.", upErr, "content.blog.generate.save");
 
     if (Array.isArray(article.tags) && article.tags.length > 0) {
       await replaceTags(id, article.tags);
@@ -808,7 +809,7 @@ contentBlogRoutes.post("/:id/preview-link", async (c) => {
     .select("id")
     .eq("id", id)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the preview link.", error, "content.blog.preview-link");
   if (!post) return c.json({ error: "Not found" }, 404);
 
   try {

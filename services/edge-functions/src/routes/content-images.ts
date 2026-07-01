@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { ensureHeroImage } from "../lib/openai-images.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
@@ -98,7 +99,7 @@ contentImagesRoutes.post("/social-card", async (c) => {
     .select("id, short_body, long_body, product_focus")
     .eq("id", body.post_id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the post.", loadErr, "content.images.social-card.load");
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // ── OVERRIDE: a custom upload ──────────────────────────────
@@ -123,7 +124,7 @@ contentImagesRoutes.post("/social-card", async (c) => {
         upsert: false,
         cacheControl: "31536000",
       });
-    if (upErr) return c.json({ error: upErr.message }, 500);
+    if (upErr) return failSafe(c, 500, "Couldn't upload the image.", upErr, "content.images.social-card.upload");
 
     const { data: pub } = supabaseAdmin.storage
       .from("content-images")
@@ -133,7 +134,7 @@ contentImagesRoutes.post("/social-card", async (c) => {
       .from("social_posts")
       .update({ asset_image_url: pub.publicUrl, asset_image_path: path })
       .eq("id", post.id);
-    if (updErr) return c.json({ error: updErr.message }, 500);
+    if (updErr) return failSafe(c, 500, "Couldn't save the image.", updErr, "content.images.social-card.update");
 
     return c.json({ url: pub.publicUrl, path, source: "upload" });
   }
@@ -155,7 +156,7 @@ contentImagesRoutes.post("/social-card", async (c) => {
     .from("social_posts")
     .update({ asset_image_url: url, asset_image_path: null })
     .eq("id", post.id);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't save the image.", updErr, "content.images.social-card.finalize");
 
   return c.json({ url, path: null, source: "card" });
 });
@@ -193,7 +194,7 @@ contentImagesRoutes.post("/inline", async (c) => {
   const { data, error } = await supabaseAdmin.storage
     .from("content-images")
     .createSignedUploadUrl(path);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't add the inline image.", error, "content.images.inline");
 
   const { data: pub } = supabaseAdmin.storage
     .from("content-images")

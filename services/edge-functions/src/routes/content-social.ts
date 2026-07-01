@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { generateSocialPost } from "../lib/content-ai-social.ts";
 import {
@@ -55,7 +56,7 @@ contentSocialRoutes.get("/", async (c) => {
   if (productFocus) q = q.eq("product_focus", productFocus);
 
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load social posts.", error, "content.social.list");
   return c.json({ posts: data ?? [] });
 });
 
@@ -66,7 +67,7 @@ contentSocialRoutes.get("/:id", async (c) => {
     .select("*")
     .eq("id", c.req.param("id"))
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the social post.", error, "content.social.get");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ post: data });
 });
@@ -89,7 +90,7 @@ contentSocialRoutes.post("/", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the social post.", error, "content.social.create");
   return c.json({ post: data });
 });
 
@@ -103,7 +104,7 @@ contentSocialRoutes.patch("/:id", async (c) => {
     .eq("id", id)
     .select("*")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the social post.", error, "content.social.update");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ post: data });
 });
@@ -114,7 +115,7 @@ contentSocialRoutes.delete("/:id", async (c) => {
     .from("social_posts")
     .delete()
     .eq("id", c.req.param("id"));
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the social post.", error, "content.social.delete");
   return c.json({ ok: true });
 });
 
@@ -126,7 +127,7 @@ contentSocialRoutes.post("/:id/publish", async (c) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the social post.", loadErr, "content.social.publish.load");
   if (!post) return c.json({ error: "Not found" }, 404);
   if (!post.long_body?.trim() && !post.short_body?.trim()) {
     return c.json({ error: "long_body or short_body must be set" }, 400);
@@ -139,7 +140,7 @@ contentSocialRoutes.post("/:id/publish", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (upErr) return c.json({ error: upErr.message }, 500);
+  if (upErr) return failSafe(c, 500, "Couldn't publish the social post.", upErr, "content.social.publish");
 
   if (updated.topic_id) {
     await supabaseAdmin
@@ -192,7 +193,7 @@ contentSocialRoutes.post("/:id/schedule", async (c) => {
     .eq("id", id)
     .select("*")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't schedule the social post.", error, "content.social.schedule");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ post: data });
 });
@@ -293,7 +294,7 @@ contentSocialRoutes.post("/:id/generate", async (c) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the social post.", loadErr, "content.social.generate.load");
   if (!post) return c.json({ error: "Not found" }, 404);
 
   // Resolve the topic. Priority: explicit override → linked content_topic
@@ -353,7 +354,7 @@ contentSocialRoutes.post("/:id/generate", async (c) => {
       .eq("id", id)
       .select("*")
       .single();
-    if (upErr) return c.json({ error: upErr.message }, 500);
+    if (upErr) return failSafe(c, 500, "Couldn't save the generated content.", upErr, "content.social.generate.save");
 
     // US-870: (re)write the per-platform variant rows from this generation.
     await persistSocialVariants(id, result.post.variants);
@@ -423,7 +424,7 @@ contentSocialRoutes.patch("/:id/variants/:platform", async (c) => {
     .eq("platform", platform)
     .select("platform, body, hashtags, image_field, char_limit")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the variant.", error, "content.social.variant.update");
   if (!data) return c.json({ error: "Variant not found" }, 404);
   return c.json({ variant: data });
 });
