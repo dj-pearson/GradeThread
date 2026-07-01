@@ -1729,7 +1729,7 @@ struct ItemCanvasView: View {
         // BEFORE the draft is accepted as the new original. Only a
         // GradeThread-published listing (with a Sell offer) is revisable in
         // place; if only internal fields changed there's no eBay round-trip.
-        let ebayPlan: (listingId: String, title: String?, price: Double?)? = {
+        let ebayPlan: (listingId: String, title: String?, price: Double?, resync: Bool)? = {
             guard let live = gtLiveListing else { return nil }
             let o = state.original
             let d = state.draft
@@ -1737,13 +1737,20 @@ struct ItemCanvasView: View {
             // Any column that feeds an eBay item specific (rebuilt on the revise
             // re-PUT via forceColumnAspects) must trigger the round-trip — not
             // just brand/size. Color/material/style edits otherwise saved locally
-            // only and left the live listing's specifics stale.
+            // only and left the live listing's specifics stale. US-1503:
+            // measurements feed measurement item specifics + the description
+            // block, so a measurement edit after listing must round-trip too
+            // (compare only meaningful >0 values so an empty new row doesn't fire).
+            let measChanged =
+                d.measurements.filter { $0.value > 0 }
+                    != o.measurements.filter { $0.value > 0 }
             let structuralChanged =
                 d.brand != o.brand || d.size != o.size
                     || d.color != o.color || d.material != o.material
                     || d.style != o.style
                     || d.category != o.category
                     || d.conditionNotes != o.conditionNotes
+                    || measChanged
             let newPrice = Double(
                 d.targetPriceText.replacingOccurrences(of: ",", with: ""))
             let oldPrice = Double(
@@ -1758,7 +1765,11 @@ struct ItemCanvasView: View {
                 title: titleChanged
                     ? d.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     : nil,
-                price: priceChanged ? newPrice : nil
+                price: priceChanged ? newPrice : nil,
+                // Force the structured re-PUT when a specific/measurement-feeding
+                // field changed (US-1503) so the live listing's specifics +
+                // measurement block + description regenerate server-side.
+                resync: structuralChanged
             )
         }()
 
@@ -1809,7 +1820,8 @@ struct ItemCanvasView: View {
                     title: plan.title,
                     description: nil,
                     price: plan.price,
-                    syncPhotos: true
+                    syncPhotos: true,
+                    resyncFields: plan.resync
                 )
                 switch outcome {
                 case .revised:

@@ -7959,3 +7959,36 @@ EXPECTED_SCHEMA_VERSION stays 00331. Do NOT push until user OKs.
   (may need a migration — FIRST candidate for the migration package).
 - Then the iOS-only audit backlog US-1491..1500 (macOS-CI-verified only) and
   US-1518 photo-thumbnail (a real migration story — thumbnail tier).
+
+## 2026-07-01 (cont.) — US-1503 measurements → live eBay listing — NOW COMPLETE (passes:true)
+Measurements entered a listing ONLY during AutoLister AI generation; a post-listing
+measurement fix never reached the live listing (wrong pit-to-pit stays live → SNAD).
+Fixed:
+ - New allowedAspectsFromSpec() helper (flipdesk-ebay.ts) — raw eBay category spec
+   → name→allowedValues map (mirrors ai-listing extractAllowedAspects, which isn't
+   exported). Reused by both paths below with resolveMeasurementAspects (US-827
+   measurements.ts registry mapping).
+ - AC2a derive-aspects endpoint (POST /category/:id/derive-aspects): now SELECTs
+   measurements and folds measurement aspects onto the category's free-text
+   measurement aspects (never clobbering known/derived).
+ - AC2b + AC3 revise re-PUT: SELECTs measurements; on resync_ebay_fields folds
+   measurement aspects into `aspects` AND regenerates the description's measurement
+   block (applyMeasurementsBlock, idempotent) BEFORE the persist + PUT, so the live
+   listing + persisted override + composer all agree. Restructured US-1502's grade
+   fold to run in the SAME pre-persist block (reviseGradeDesc) so the persisted
+   item_specifics_override + listing_description now include grade + measurement
+   specifics (previously grade specific was PUT but not persisted). Offer PUT +
+   listings.listing_description persist the regenerated description.
+ - AC1 iOS: ItemCanvasView revise trigger — `structuralChanged` now includes a
+   measurements delta (filtered to >0 so an empty new row doesn't fire); the
+   ebayPlan tuple gained `resync` and the revise() call sends resync_ebay_fields
+   (new EbayPublishService.revise resyncFields param) so a measurement/column edit
+   forces the structured re-PUT (web Save & resubmit parity).
+ - AC4: 3 new tests in ebay-grade-promotion_test.ts (allowedAspectsFromSpec shape;
+   measurements map onto free-text aspects only, not dropdowns; never clobber set).
+NO MIGRATION.
+
+VERIFICATION (this host): deno check src/main.ts clean; deno lint clean; 72 passed
+/ 0 failed across ebay-grade-promotion + measurements + aspect-reconcile +
+aspect-registry + offer-already-ended. iOS AC1 curly-quote scanned clean (the 2
+hits are pre-existing string CONTENT, not delimiters) — macOS iOS CI is the gate.

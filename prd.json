@@ -9009,7 +9009,7 @@
         "Edge test: item with a listing + updated measurements → revise payload carries the corrected measurement aspect/description values."
       ],
       "priority": 2388,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Split from the description story because the aspect-derivation work is edge-side and independently sizable."
     },
     {

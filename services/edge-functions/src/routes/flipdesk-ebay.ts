@@ -7,6 +7,11 @@ import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { applyColumnAspects, resolveItemAspects } from "../lib/aspect-registry.ts";
 import type { RegistryAspect, RegistryItem } from "../lib/aspect-registry.ts";
 import {
+  applyMeasurementsBlock,
+  type Measurements,
+  resolveMeasurementAspects,
+} from "../lib/measurements.ts";
+import {
   type AspectSourceMap,
   mergeSources,
   requiredMissingAspects,
@@ -1458,7 +1463,7 @@ flipdeskEbayRoutes.post("/category/:id/derive-aspects", async (c) => {
   const { data: item, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, size, description, condition_notes, item_category, color, material, style, attributes",
+      "id, user_id, title, brand, size, description, condition_notes, item_category, color, material, style, attributes, measurements",
     )
     .eq("id", itemId)
     .eq("user_id", userId)
@@ -1478,6 +1483,20 @@ flipdeskEbayRoutes.post("/category/:id/derive-aspects", async (c) => {
       list,
       known,
     );
+    // US-1503: fold captured measurements onto the category's free-text
+    // measurement aspects (Inseam, Chest Size, …) — the SAME registry mapping
+    // AutoLister uses (measurements.ts) — so a measurement edit reaches the
+    // composer/publish/revise, not just the initial AI generation. Never
+    // overwrites a known/derived value.
+    const meas = (item as { measurements?: Measurements }).measurements;
+    if (meas && Object.keys(meas).length > 0) {
+      const measAspects = resolveMeasurementAspects(
+        meas,
+        allowedAspectsFromSpec(list),
+        { ...known, ...derived },
+      );
+      for (const [k, v] of Object.entries(measAspects)) derived[k] = v;
+    }
     // US-825: tell the client these gap-fills are inventory_derived so its
     // provenance badges and the source map it persists stay accurate.
     const sources = sourcesFor(Object.keys(derived), "inventory_derived");
@@ -4677,7 +4696,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
-        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_category_id"
+        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_category_id, measurements"
       )
       .eq("id", itemId)
       .maybeSingle();
@@ -4703,6 +4722,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       certificate_url: string | null;
       ebay_aspects: Record<string, string[]> | null;
       ebay_category_id: string | null;
+      measurements: Measurements;
     };
 
     // US-1088+: the structured columns (Brand/Size/Color/Material/Style) are the
@@ -4747,6 +4767,40 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       baseAspects,
     );
 
+    // US-1502/US-1503: on a structured resync, fold the CURRENT measurements +
+    // grade into the aspect map + description BEFORE we persist/PUT so the live
+    // listing, the persisted override, and the composer all agree. Idempotent:
+    // resolveMeasurementAspects only fills free-text measurement aspects the
+    // category exposes (never clobbering set values); applyMeasurementsBlock
+    // replaces its own block; applyGradeListingPromotion force-overwrites the
+    // grade specific + de-dupes the cert line. Result (with the "Cert #…" line)
+    // is lifted to reviseGradeDesc so the inventory PUT + offer both push it.
+    if (resyncFields) {
+      const meas = item.measurements;
+      let desc = (
+        (hasDesc ? (nextDesc as string) : null) ??
+        row.listing.listing_description ??
+        item.description ??
+        item.title ??
+        ""
+      ).trim();
+      if (meas && Object.keys(meas).length > 0) {
+        const measAspects = resolveMeasurementAspects(
+          meas,
+          allowedAspectsFromSpec(reviseAspectList ?? []),
+          aspects,
+        );
+        for (const [k, v] of Object.entries(measAspects)) aspects[k] = v;
+        desc = applyMeasurementsBlock(desc, meas);
+      }
+      if (item.grade_value != null) {
+        desc = await applyGradeListingPromotion(item, aspects, desc, {
+          force: true,
+        });
+      }
+      reviseGradeDesc = desc;
+    }
+
     // Resolve + auto-correct the condition the same way the publish path does:
     // the seller's stored ebay_condition wins over the grade-derived default,
     // then it's reconciled against the category's allow-list so a revise re-PUT
@@ -4786,10 +4840,17 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       ).trim() || undefined;
     // Persist the rebuilt map so the in-app eBay specifics editor and the next
     // publish reflect the current columns (canonical = listing override; mirror
-    // onto the item too for legacy/no-listing reads).
+    // onto the item too for legacy/no-listing reads). US-1503: also persist the
+    // resync-regenerated description (measurements block + grade line) so the
+    // composer + next revise's fallback don't re-serve the publish-time snapshot.
     await supabaseAdmin
       .from("listings")
-      .update({ item_specifics_override: aspects })
+      .update({
+        item_specifics_override: aspects,
+        ...(reviseGradeDesc != null
+          ? { listing_description: reviseGradeDesc }
+          : {}),
+      })
       .eq("id", listingId);
     await supabaseAdmin
       .from("inventory_items")
@@ -4830,17 +4891,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
           finalTitle
         ).trim() || finalTitle;
 
-    // US-1502: on a structured-field resync, (re)assert the grade promotion — the
-    // "Condition Grade" item specific + the "Cert #…" description line — so a
-    // grade earned after list-first, or a DOWNGRADED human re-review, reaches the
-    // live listing. force overwrites any stale/overstated grade specific.
-    let reviseDesc = finalDesc;
-    if (resyncFields && item.grade_value != null) {
-      reviseDesc = await applyGradeListingPromotion(item, aspects, finalDesc, {
-        force: true,
-      });
-      reviseGradeDesc = reviseDesc;
-    }
+    // US-1502/US-1503: reviseGradeDesc was computed above (measurements block +
+    // grade promotion) when a resync ran; otherwise use the plain finalDesc.
+    const reviseDesc = reviseGradeDesc ?? finalDesc;
 
     try {
       await createOrReplaceInventoryItem(userId, sku, {
@@ -7019,6 +7072,23 @@ interface AspectSpecRaw {
     itemToAspectCardinality?: string; // "SINGLE" | "MULTI"
   };
   aspectValues?: Array<{ localizedValue?: string }>;
+}
+
+// US-1503: name -> allowedValues[] map ([] = free-text) from the raw category
+// spec, the shape resolveMeasurementAspects (measurements.ts) expects. Mirrors
+// ai-listing.ts extractAllowedAspects, which isn't exported.
+export function allowedAspectsFromSpec(
+  aspectList: AspectSpecRaw[],
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const a of aspectList) {
+    const name = (a.localizedAspectName ?? "").trim();
+    if (!name) continue;
+    out[name] = (a.aspectValues ?? [])
+      .map((v) => v.localizedValue ?? "")
+      .filter((v) => v.length > 0);
+  }
+  return out;
 }
 
 // Normalize eBay's raw aspect spec into the registry's RegistryAspect shape.

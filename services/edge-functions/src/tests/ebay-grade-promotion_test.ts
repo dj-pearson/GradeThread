@@ -10,7 +10,10 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { applyGradeListingPromotion } = await import("../routes/flipdesk-ebay.ts");
+const { applyGradeListingPromotion, allowedAspectsFromSpec } = await import(
+  "../routes/flipdesk-ebay.ts"
+);
+const { resolveMeasurementAspects } = await import("../lib/measurements.ts");
 
 // US-1502: the grade item specific value is "GradeThread <n.n>" under the
 // "Condition Grade" key. certificate_url:null keeps the test DB-free (the cert
@@ -58,4 +61,52 @@ Deno.test("promotion: no grade value is a no-op on the aspect map", async () => 
   );
   assertEquals(aspects[GRADE_KEY], undefined);
   assertEquals(desc, "keep me");
+});
+
+// ── US-1503: measurement aspects flow through the derive/revise paths ──
+// allowedAspectsFromSpec converts eBay's raw category spec into the
+// name->allowedValues map resolveMeasurementAspects consumes; together they map
+// stored measurements onto the category's FREE-TEXT measurement aspects (never a
+// SELECTION_ONLY style dropdown, never clobbering a set value).
+
+const rawSpec = (
+  name: string,
+  values: string[] = [],
+) => ({
+  localizedAspectName: name,
+  aspectValues: values.map((localizedValue) => ({ localizedValue })),
+});
+
+Deno.test("allowedAspectsFromSpec: raw spec → name→allowedValues map", () => {
+  const map = allowedAspectsFromSpec([
+    rawSpec("Sleeve Length"), // free-text (no values)
+    rawSpec("Style", ["Bomber", "Parka"]), // dropdown
+  ]);
+  assertEquals(map, { "Sleeve Length": [], Style: ["Bomber", "Parka"] });
+});
+
+Deno.test("US-1503: measurements map onto free-text category aspects only", () => {
+  const allowed = allowedAspectsFromSpec([
+    rawSpec("Sleeve Length"), // free-text → gets the value
+    rawSpec("Chest Size"), // free-text → gets the value
+    rawSpec("Inseam", ["30", "32", "34"]), // SELECTION_ONLY → skipped
+  ]);
+  const out = resolveMeasurementAspects(
+    { sleeve: 25, chest: 21, inseam: 32 },
+    allowed,
+    {},
+  );
+  assertEquals(out["Sleeve Length"], ["25 in"]);
+  assertEquals(out["Chest Size"], ["21 in"]);
+  assertEquals(out["Inseam"], undefined); // dropdown not force-filled
+});
+
+Deno.test("US-1503: measurement fold never clobbers an already-set aspect", () => {
+  const allowed = allowedAspectsFromSpec([rawSpec("Chest Size")]);
+  const out = resolveMeasurementAspects(
+    { chest: 21 },
+    allowed,
+    { "Chest Size": ["Seller value"] }, // existing wins
+  );
+  assertEquals(out["Chest Size"], undefined);
 });

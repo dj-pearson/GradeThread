@@ -100,16 +100,21 @@ public final class EbayPublishService {
         title: String? = nil,
         description: String? = nil,
         price: Double? = nil,
-        syncPhotos: Bool = false
+        syncPhotos: Bool = false,
+        resyncFields: Bool = false
     ) async -> ReviseOutcome {
         // Synthesized Encodable uses encodeIfPresent for optionals, so nil
         // fields are omitted from the body (the server treats missing as
         // "no change"). `photos` is sent only when a sync is requested.
+        // US-1503: `resync_ebay_fields` forces the structured re-PUT (category/
+        // condition/specifics/measurements/grade) so a measurement or column edit
+        // reaches the live listing — web "Save & resubmit" parity (US-1490).
         struct Body: Encodable {
             let title: String?
             let description: String?
             let listing_price: Double?
             let photos: Bool?
+            let resync_ebay_fields: Bool?
         }
         let path = "/api/flipdesk/ebay/listings/\(listingId)/revise"
         do {
@@ -119,7 +124,8 @@ public final class EbayPublishService {
                     title: title,
                     description: description,
                     listing_price: price,
-                    photos: syncPhotos ? true : nil
+                    photos: syncPhotos ? true : nil,
+                    resync_ebay_fields: resyncFields ? true : nil
                 )
             )
             return .revised(response)
