@@ -8543,7 +8543,7 @@
         "Keep the populated dashboard once any data exists."
       ],
       "priority": 1993,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ux · ux audit] Evidence: src/pages/finances.tsx:136-220."
     },
     {
@@ -8555,7 +8555,7 @@
         "Ensure the retry uses the existing refetch/isFetching already wired in the component."
       ],
       "priority": 1992,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ux · ux audit] Evidence: src/pages/dashboard.tsx:576-577 vs 627-633."
     },
     {

@@ -35,6 +35,7 @@ import {
   Handshake,
   Code,
   ArrowRight,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -574,7 +575,23 @@ export function DashboardPage() {
             {isLoading ? (
               <Skeleton className="h-8 w-16" />
             ) : isError ? (
-              <p className="text-sm text-destructive">Failed to load</p>
+              // US-1468: compact retry consistent with ErrorState (used by the
+              // Recent Submissions card on this same page), reusing the wired
+              // refetch/isFetching — not a dead "Failed to load" string.
+              <div className="space-y-2" role="alert">
+                <p className="text-sm text-destructive">Couldn't load</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetch()}
+                  disabled={isFetching}
+                >
+                  <RefreshCw
+                    className={cn("mr-1.5 h-3.5 w-3.5", isFetching && "animate-spin")}
+                  />
+                  {isFetching ? "Retrying…" : "Try again"}
+                </Button>
+              </div>
             ) : (
               <>
                 <div className="text-2xl font-bold">{totalCount}</div>

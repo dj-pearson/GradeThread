@@ -2,6 +2,31 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 10 (US-1467, US-1468) — dashboard/finances failure & empty UX
+
+- US-1467 Give Finances a zero-data empty state for new users — NOW COMPLETE
+  (passes:true). finances.tsx rendered all-$0 metric cards + empty charts for a
+  brand-new reseller, looking broken instead of prompting a first sale. Added a
+  hasNoData guard (after a successful load: items_sold===0 AND
+  inventory_aging.total_count===0) that renders an EmptyState (DollarSign icon,
+  "Add inventory" CTA → /dashboard/flipdesk/intake, secondary "View inventory")
+  in place of the zero tiles; any sale or inventory item flips back to the
+  populated dashboard (AC1/AC2). Slotted as the middle branch of the existing
+  isError ? … : … render so the error state still wins.
+
+- US-1468 Use the shared ErrorState (with retry) for the dashboard Total
+  Submissions card — NOW COMPLETE (passes:true). dashboard.tsx showed a bare red
+  "Failed to load" on the Total Submissions stat card while the same page's Recent
+  Submissions card used ErrorState with a retry button. The full ErrorState panel
+  is too large for a stat card, so replaced the dead string with a compact,
+  consistent retry affordance (role=alert + destructive "Couldn't load" + an
+  outline RefreshCw button) reusing the ALREADY-wired refetch/isFetching (spinner
+  + "Retrying…" while fetching) (AC1/AC2).
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors on both files, vitest 1012 pass, and npm run build
+(incl. prerender, 45 routes) succeeded. Open prd.json stories now 139.
+
 ## 2026-06-30 — Pre-launch audit batch 9 (US-1443, US-1444) — dispute lifecycle + public rate-limits
 
 - US-1443 Handle charge.dispute.closed to complete the dispute lifecycle — NOW
