@@ -431,7 +431,7 @@ async function runMerge(
       continue;
     }
     const currentDb = normalizeCell(
-      (currentRow as Record<string, unknown>)[acc.col.field] ?? null,
+      (currentRow as unknown as Record<string, unknown>)[acc.col.field] ?? null,
       acc.col.kind,
     );
     if (currentDb !== acc.flipdeskBase) {
