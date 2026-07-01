@@ -39,9 +39,9 @@ export function ssrSecurityHeaders(nonce: string): Record<string, string> {
     // The page emits one inline <style> block; allow inline styles (style-based
     // injection is far lower risk and there is no nonce on style-src).
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src 'self' data: blob: https://gradethread.com https://*.gradethread.com https://*.googleusercontent.com https://*.ebayimg.com https://*.ebaystatic.com https://www.googletagmanager.com https://*.google-analytics.com https://*.g.doubleclick.net",
+    "img-src 'self' data: blob: https://gradethread.com https://*.gradethread.com https://*.googleusercontent.com https://*.ebayimg.com https://*.ebaystatic.com https://www.googletagmanager.com https://*.google-analytics.com https://*.g.doubleclick.net https://pagead2.googlesyndication.com https://www.google.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://*.g.doubleclick.net",
+    "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://*.g.doubleclick.net https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://www.google.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
