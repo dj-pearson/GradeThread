@@ -2,6 +2,44 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 9 (US-1443, US-1444) — dispute lifecycle + public rate-limits
+
+- US-1443 Handle charge.dispute.closed to complete the dispute lifecycle — NOW
+  COMPLETE (passes:true). dispatchStripeEvent (webhooks.ts) handled only
+  charge.dispute.created (which just FLAGS the submission for review, since a
+  dispute can still be won). A LOST dispute never clawed back granted credits or
+  withheld the per-grade certificate; a WON dispute left the submission
+  permanently flagged/payment_disputed. Added a charge.dispute.closed case +
+  handleChargeDisputeClosed: new exported pure classifier disputeClosedAction(
+  status) routes lost→clawback, won→clear_flag, else→none. On lost it REUSES the
+  refund clawback path — extracted clawbackCreditPack() (shared by the refund and
+  dispute-lost paths, idempotent on p_idempotency_key: 'pack-refund:<charge>' vs
+  'dispute-lost:<dispute>') and refactored refundPerGrade() to take a chargeId so
+  the per-grade cert-withhold is reused. On won it clears ONLY the
+  flag_reason='payment_disputed' review flag (won't clobber an unrelated flag).
+  Idempotent (RPC dedupes, withhold/flag-clear are no-ops on replay, dispatcher
+  already claims the event id). Regression test dispute-closed_test.ts pins the
+  lost/won/non-terminal routing (AC1/AC2). NOTE: the Stripe webhook endpoint must
+  be subscribed to charge.dispute.closed for this to fire (dashboard config).
+
+- US-1444 Rate-limit remaining unauthenticated public reads — NOW COMPLETE
+  (passes:true). /api/changelog, /api/maintenance/active, and /api/grading/public/*
+  were mounted with NO limiter (uncached / cold-cache DB reads per request). Added
+  per-IP fail-closed rateLimiter (60/min/IP, like content-public) with the
+  pagesOriginBypass so the SSR workers proxying them aren't starved; in-module TTL
+  caches stay as defense-in-depth (AC1/AC2/AC3). changelog is served at the mount
+  root (GET /api/changelog), so registered BOTH '/api/changelog' and
+  '/api/changelog/*' since '/*' alone wouldn't match the base path.
+
+VERIFICATION (this container): edge-only batch — no web changes. Deno not
+installable here (proxy 403 on the install script) so the edge lane runs in
+GitHub Actions; the new pure classifier + its test import from routes/webhooks.ts
+using the dummy-env-before-dynamic-import pattern (mirrors
+stripe-webhook-handler_test). Reviewed all touched signatures (clawbackCreditPack
+/ refundPerGrade / paymentIntentIdOf / rateLimiter opts) against their defs. The
+clawback + withhold mechanics remain pinned by credit-refund_test /
+per-grade-idempotency_test. Open prd.json stories now 141.
+
 ## 2026-06-30 — Pre-launch audit batch 8 (US-1426, US-1454) — don't ack false success on write failure
 
 - US-1426 Retry or surface eBay account-deletion deactivation failures instead

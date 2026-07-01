@@ -32,6 +32,7 @@ import { applySesFeedback } from "../lib/email-suppression.ts";
 import { type SnsMessage, verifySnsSignature } from "../lib/sns-verify.ts";
 import { recordDripConversion } from "../lib/drip-conversion.ts";
 import {
+  paymentIntentIdOf,
   resolveChargeMetadata,
   resolveDisputeMetadata,
   type PaymentIntentMetadataFetcher,
@@ -259,6 +260,10 @@ export async function dispatchStripeEvent(event: Stripe.Event): Promise<void> {
 
     case "charge.dispute.created":
       await handleChargeDisputeCreated(event);
+      break;
+
+    case "charge.dispute.closed":
+      await handleChargeDisputeClosed(event);
       break;
 
     default:
@@ -1093,7 +1098,7 @@ async function handleChargeRefunded(event: Stripe.Event) {
 
   // US-385: a refunded per-grade purchase must withhold the grade it paid for.
   if (userId && product === "per_grade") {
-    await refundPerGrade(event, charge, userId, meta);
+    await refundPerGrade(event, charge.id, userId, meta);
     return;
   }
 
@@ -1110,36 +1115,59 @@ async function handleChargeRefunded(event: Stripe.Event) {
     return;
   }
 
+  const paymentIntentId = typeof charge.payment_intent === "string"
+    ? charge.payment_intent
+    : charge.payment_intent?.id ?? null;
+
+  // US-892: share the per-charge idempotency key with the admin-initiated
+  // pack-refund flow so the wallet is clawed back EXACTLY ONCE no matter which
+  // path runs first (the other no-ops).
+  await clawbackCreditPack(
+    event,
+    userId,
+    credits,
+    charge.id,
+    paymentIntentId,
+    `pack-refund:${charge.id}`,
+    `Refund reversal for charge ${charge.id}`,
+  );
+}
+
+// US-384 / US-1443: DEBIT clawed-back credits from the wallet (not just append a
+// ledger row). The row-locked RPC subtracts from grade_credit_balance, clamps at
+// zero, writes a balance-consistent ledger row, and reports any shortfall
+// (credits already spent) for reconciliation. Idempotent on p_idempotency_key,
+// so the refund path and the lost-dispute path can BOTH run for one charge and
+// the wallet is debited exactly once. Shared so the dispute lifecycle reuses the
+// exact refund clawback rather than duplicating it.
+async function clawbackCreditPack(
+  event: Stripe.Event,
+  userId: string,
+  credits: number,
+  chargeId: string,
+  paymentIntentId: string | null,
+  idempotencyKey: string,
+  notes: string,
+): Promise<void> {
   await recordEvent(
     userId,
     event.type,
     event.id,
     null,
     null,
-    { product: "credit_pack", credits, charge_id: charge.id },
+    { product: "credit_pack", credits, charge_id: chargeId },
   );
-
-  // US-384: clawing back the credits must actually DEBIT the wallet, not just
-  // append a ledger row. The row-locked RPC subtracts from grade_credit_balance,
-  // clamps at zero, writes a balance-consistent ledger row, and reports any
-  // shortfall (credits already spent before the refund) for reconciliation.
-  const paymentIntentId = typeof charge.payment_intent === "string"
-    ? charge.payment_intent
-    : charge.payment_intent?.id ?? null;
 
   const { data, error } = await supabaseAdmin.rpc("revoke_grade_credits", {
     p_user_id: userId,
     p_credits: credits,
     p_stripe_payment_intent: paymentIntentId,
-    p_notes: `Refund reversal for charge ${charge.id}`,
-    // US-892: share the per-charge idempotency key with the admin-initiated
-    // pack-refund flow so the wallet is clawed back EXACTLY ONCE no matter
-    // which path runs first (the other no-ops).
-    p_idempotency_key: `pack-refund:${charge.id}`,
+    p_notes: notes,
+    p_idempotency_key: idempotencyKey,
   });
 
-  // US-397: a dropped refund reversal leaves clawed-back credits in the wallet —
-  // retry on a transient failure (revoke is row-locked + clamped, US-384/398).
+  // US-397: a dropped clawback leaves the credits in the wallet — retry on a
+  // transient failure (revoke is row-locked + clamped, US-384/398).
   failIfDbError(error, `revoke_grade_credits for user ${userId}`);
 
   const result = (data ?? {}) as {
@@ -1149,14 +1177,14 @@ async function handleChargeRefunded(event: Stripe.Event) {
   };
   if ((result.shortfall ?? 0) > 0) {
     // Credits were already spent — the wallet can't go negative, so flag for
-    // ops to reconcile (e.g. comp/write-off) rather than failing the refund.
+    // ops to reconcile (e.g. comp/write-off) rather than failing the clawback.
     console.warn(
-      `[Webhook] Refund reversal for user ${userId}: revoked ${result.revoked ?? 0}/${credits} ` +
+      `[Webhook] Credit clawback for user ${userId}: revoked ${result.revoked ?? 0}/${credits} ` +
         `credits, ${result.shortfall} already spent (balance_after=${result.balance_after ?? 0}) — needs reconciliation`,
     );
   } else {
     console.log(
-      `[Webhook] Refund reversal for user ${userId}: -${result.revoked ?? credits} credits ` +
+      `[Webhook] Credit clawback for user ${userId}: -${result.revoked ?? credits} credits ` +
         `(balance_after=${result.balance_after ?? 0})`,
     );
   }
@@ -1168,7 +1196,7 @@ async function handleChargeRefunded(event: Stripe.Event) {
 // retained so a human can reconcile; we don't hard-delete a paid artifact.
 async function refundPerGrade(
   event: Stripe.Event,
-  charge: Stripe.Charge,
+  chargeId: string,
   userId: string,
   meta: Record<string, string>,
 ) {
@@ -1176,7 +1204,7 @@ async function refundPerGrade(
   // not charge.metadata, which is empty for Checkout payments.
   const submissionId = meta.submission_id;
   if (!submissionId) {
-    console.error(`[Webhook] per_grade refund missing submission_id (charge=${charge.id})`);
+    console.error(`[Webhook] per_grade refund missing submission_id (charge=${chargeId})`);
     return;
   }
 
@@ -1186,7 +1214,7 @@ async function refundPerGrade(
     event.id,
     null,
     null,
-    { product: "per_grade", submission_id: submissionId, charge_id: charge.id },
+    { product: "per_grade", submission_id: submissionId, charge_id: chargeId },
   );
 
   // Tenant-scoped by user_id (US-268). maybeSingle + select confirms the
@@ -1228,8 +1256,8 @@ async function refundPerGrade(
 // US-385: chargeback/dispute opened. A dispute can still be WON, so we don't
 // auto-revoke here — we record it, flag the submission for review, and surface
 // a clear alert for manual handling (evidence submission / decide whether to
-// withhold). charge.dispute.closed reconciliation is handled out-of-band by
-// ops per the billing runbook.
+// withhold). The terminal charge.dispute.closed reconciliation (claw back on
+// lost / clear the flag on won) is handled by handleChargeDisputeClosed (US-1443).
 async function handleChargeDisputeCreated(event: Stripe.Event) {
   const dispute = event.data.object as Stripe.Dispute;
   const charge = dispute.charge;
@@ -1271,6 +1299,91 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
     dispute_id: dispute.id,
     reason: dispute.reason,
   });
+}
+
+// US-1443: what a closed dispute means for our records.
+//   • lost → the money is gone → claw back (reuse the refund clawback path).
+//   • won  → we kept the money → clear the review flag set on dispute.created.
+//   • none → non-terminal close (e.g. warning_closed) → no financial action.
+export type DisputeClosedAction = "clawback" | "clear_flag" | "none";
+
+export function disputeClosedAction(status: string): DisputeClosedAction {
+  if (status === "lost") return "clawback";
+  if (status === "won") return "clear_flag";
+  return "none";
+}
+
+// US-1443: complete the dispute lifecycle. dispute.created only FLAGS for review
+// (a dispute can still be won); on CLOSE we reconcile automatically. Idempotent:
+// the credit clawback dedupes on p_idempotency_key, the per-grade cert-withhold
+// and the flag-clear are no-ops on replay, and the dispatcher already claims the
+// event id — so a Stripe re-delivery can't double-apply.
+async function handleChargeDisputeClosed(event: Stripe.Event) {
+  const dispute = event.data.object as Stripe.Dispute;
+  const chargeId = typeof dispute.charge === "string"
+    ? dispute.charge
+    : dispute.charge?.id ?? null;
+  const action = disputeClosedAction(dispute.status);
+
+  const meta = await resolveDisputeMetadata(dispute, fetchPaymentIntentMetadata);
+  const userId = meta.user_id;
+  const product = meta.product;
+  const submissionId = meta.submission_id;
+
+  console.warn(
+    `[Webhook] charge.dispute.closed status=${dispute.status} action=${action} ` +
+      `product=${product ?? "?"} user=${userId ?? "?"} charge=${chargeId ?? "?"}`,
+  );
+
+  void captureServer(userId ?? "unknown", "billing.dispute_closed", {
+    product: product ?? null,
+    dispute_id: dispute.id,
+    status: dispute.status,
+  });
+
+  if (action === "none") return;
+
+  if (action === "clawback") {
+    if (userId && product === "per_grade" && submissionId) {
+      // A lost per-grade chargeback withholds the certificate, exactly like a
+      // refund — reuse that path (charge id unavailable → fall back to the
+      // dispute id for the log/event trail).
+      await refundPerGrade(event, chargeId ?? dispute.id, userId, meta);
+    } else if (userId && product === "credit_pack") {
+      const credits = Number.parseInt(meta.credits ?? "", 10);
+      if (!Number.isFinite(credits) || credits <= 0) {
+        console.error(`[Webhook] dispute.closed lost credit_pack invalid credits metadata`);
+        return;
+      }
+      // Distinct idempotency key from the refund path so a lost dispute AFTER a
+      // partial refund still reconciles; the row-locked RPC clamps at zero.
+      await clawbackCreditPack(
+        event,
+        userId,
+        credits,
+        chargeId ?? dispute.id,
+        paymentIntentIdOf(dispute.payment_intent ?? null),
+        `dispute-lost:${dispute.id}`,
+        `Chargeback lost for dispute ${dispute.id}`,
+      );
+    } else {
+      console.log(`[Webhook] dispute.closed lost — no clawback for product=${product ?? "?"}`);
+    }
+    return;
+  }
+
+  // action === "clear_flag" (won): clear ONLY the dispute review flag we set on
+  // created, so we don't clobber an unrelated flag_reason.
+  if (userId && product === "per_grade" && submissionId) {
+    const { error } = await supabaseAdmin
+      .from("submissions")
+      .update({ flagged: false, flag_reason: null })
+      .eq("id", submissionId)
+      .eq("user_id", userId)
+      .eq("flag_reason", "payment_disputed");
+    // US-397: a dropped flag-clear leaves a won grade needlessly flagged — retry.
+    failIfDbError(error, `dispute won flag clear (${submissionId})`);
+  }
 }
 
 // ── Mappers ──────────────────────────────────────────────────────
