@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
   TableBody,
@@ -204,14 +205,10 @@ export function PriceSuggestionsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Price Suggestions</h1>
-        <p className="text-sm text-muted-foreground">
-          Pricing recommendations based on grade, brand, category, and time on
-          market.
-        </p>
-      </div>
+      <PageHeader
+        title="Price Suggestions"
+        subtitle="Pricing recommendations based on grade, brand, category, and time on market."
+      />
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-3">

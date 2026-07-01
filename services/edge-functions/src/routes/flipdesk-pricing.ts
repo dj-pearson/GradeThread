@@ -430,10 +430,13 @@ flipdeskPricingRoutes.post("/suggestions/:id/apply", async (c) => {
   const dollars = (suggestion as { suggested_price_cents: number }).suggested_price_cents / 100;
   const listingId = (suggestion as { listing_id: string }).listing_id;
 
-  // Tenant isolation (US-268): `listings` has no user_id column, so don't trust
-  // listing_id by itself — re-verify ownership through the parent inventory_item
-  // (inner join + user_id filter) so the subsequent update-by-id is provably
-  // scoped to this tenant, not just relying on the suggestion-creation invariant.
+  // Tenant isolation (US-268): don't trust listing_id from the request —
+  // re-verify ownership through the parent inventory_item (inner join + user_id
+  // filter) so the subsequent update-by-id is provably scoped to this tenant,
+  // not just relying on the suggestion-creation invariant. (US-1485: migration
+  // 00146 added a trigger-maintained `listings.user_id`, so a direct
+  // `.eq("user_id", ownerId)` is also valid for trigger-covered rows; the parent
+  // join is kept here since it also holds for any row predating the backfill.)
   const { data: listing } = await supabaseAdmin
     .from("listings")
     .select("id, platform_offer_id, inventory_items!inner(user_id)")

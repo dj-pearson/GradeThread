@@ -16,6 +16,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -225,12 +226,10 @@ export function TeamPage() {
   if (!isPersonal && !canManage) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Team</h1>
-          <p className="text-muted-foreground">
-            You're a {WORKSPACE_ROLE_LABEL[role ?? "viewer"]} in this workspace.
-          </p>
-        </div>
+        <PageHeader
+          title="Team"
+          subtitle={`You're a ${WORKSPACE_ROLE_LABEL[role ?? "viewer"]} in this workspace.`}
+        />
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
             Only the workspace owner and admins can manage team members.
@@ -245,20 +244,18 @@ export function TeamPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Team</h1>
-          <p className="text-muted-foreground">
-            Invite teammates and manage their access to your workspace.
-          </p>
-        </div>
-        {canManage && (
-          <Button onClick={() => setInviteOpen(true)}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Invite member
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Team"
+        subtitle="Invite teammates and manage their access to your workspace."
+        actions={
+          canManage && (
+            <Button onClick={() => setInviteOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Invite member
+            </Button>
+          )
+        }
+      />
 
       {lastInvite && (
         <Card className="border-primary/40 bg-primary/5">
