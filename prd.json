@@ -8179,7 +8179,7 @@
         "Confirm/messaging that no charge was applied (or was refunded) on failure."
       ],
       "priority": 2092,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · grading · grading audit] Evidence: src/pages/submission-detail.tsx:1191-1199 vs 1200-1259."
     },
     {
@@ -8531,7 +8531,7 @@
         "Optionally distinguish pending (awaiting payment) from processing (AI running) in the copy."
       ],
       "priority": 1994,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · grading · grading audit] Evidence: src/pages/submission-detail.tsx:257-268,1177-1190; grading-pipeline.ts:372-375."
     },
     {

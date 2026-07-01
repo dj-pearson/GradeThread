@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 15 (US-1438, US-1466) — grading-status UX (failed recovery + in-progress clarity)
+
+- US-1438 Give failed grades a recovery action instead of a dead end — NOW
+  COMPLETE (passes:true). The submission-detail 'failed' state showed "Something
+  went wrong… Please try again" with NO button, while needs_photos/expired both
+  offer Retake + Start-new — stranding the seller (whose charge was auto-refunded)
+  with no way to reuse photos. Added the same Retake (handleRetake — reuses ALL
+  photos + garment details since a failure has no per-photo flags) + "Start a new
+  submission" buttons to the failed branch, and updated the copy to confirm no
+  charge / auto-refund (AC1/AC2).
+
+- US-1466 Surface a clearer 'in progress' vs stuck distinction on long grades —
+  NOW COMPLETE (passes:true). While processing/pending the page polled every 5s
+  showing only "This usually takes a few moments" — a legitimately-slow grade
+  looked identical to a stuck one. Added a ticking nowMs clock (15s interval while
+  in-flight) + formatElapsed helper; the processing card now shows "Elapsed: …"
+  and, past a 3-minute threshold, a "taking longer than usual" note with a
+  support link ("you're only charged for a completed grade") (AC1). Also split a
+  dedicated 'pending' branch (awaiting-payment copy: "Finishing checkout…") from
+  'processing' (AI running) so a not-yet-cleared checkout doesn't read as a
+  stalled grade (AC2).
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors, vitest 1012 pass, npm run build (incl. prerender, 45
+routes) succeeded. Open prd.json stories now 129.
+
 ## 2026-06-30 — Pre-launch audit batch 14 (US-1483, US-1459) — archived tab + bulk set-status
 
 - US-1483 Give off-pipeline statuses a dedicated table tab or filter — NOW

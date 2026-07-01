@@ -101,6 +101,19 @@ function formatLabel(value: string): string {
     .join(" ");
 }
 
+// US-1466: minutes past which an in-flight grade is flagged as "taking longer
+// than expected" (with a support link). Normal grades finish well under this.
+const LONG_GRADE_THRESHOLD_MS = 3 * 60 * 1000;
+
+// Human-readable elapsed time for the in-progress grading card.
+function formatElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  if (totalSec < 60) return "under a minute";
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+}
+
 function LoadingSkeleton() {
   return (
     <div className="space-y-6">
@@ -266,6 +279,18 @@ export function SubmissionDetailPage() {
       return () => clearInterval(interval);
     }
   }, [visible, submissionStatus, refetchData]);
+
+  // US-1466: tick a clock while a grade is in flight so we can show elapsed time
+  // and escalate to a "taking longer than expected" message — a long-but-normal
+  // grade should look different from a stuck one.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (submissionStatus === "processing" || submissionStatus === "pending") {
+      setNowMs(Date.now());
+      const t = setInterval(() => setNowMs(Date.now()), 15_000);
+      return () => clearInterval(t);
+    }
+  }, [submissionStatus]);
 
   useEffect(() => {
     if (!id) return;
@@ -566,6 +591,11 @@ export function SubmissionDetailPage() {
       </div>
     );
   }
+
+  // US-1466: elapsed since submission + whether an in-flight grade has crossed
+  // the "taking longer than expected" threshold (drives the escalation copy).
+  const elapsedMs = nowMs - new Date(submission.created_at).getTime();
+  const gradeTakingLong = elapsedMs >= LONG_GRADE_THRESHOLD_MS;
 
   const factorScores = gradeReport
     ? [
@@ -1205,15 +1235,81 @@ export function SubmissionDetailPage() {
                   Your garment is being analyzed. This usually takes a few
                   moments.
                 </p>
+                {/* US-1466: elapsed + escalation so a long-but-normal grade is
+                    distinguishable from a stuck one. */}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Elapsed: {formatElapsed(elapsedMs)}
+                </p>
+                {gradeTakingLong && (
+                  <p className="mt-2 max-w-md text-xs text-amber-700 dark:text-amber-300">
+                    This is taking longer than usual — grades normally finish
+                    within a couple of minutes. If it doesn&apos;t complete
+                    shortly,{" "}
+                    <a
+                      href="mailto:support@gradethread.com"
+                      className="font-medium underline underline-offset-2"
+                    >
+                      contact support
+                    </a>
+                    . You&apos;re only charged for a completed grade.
+                  </p>
+                )}
+              </>
+            ) : submission.status === "pending" ? (
+              // US-1466: distinguish pending (awaiting payment) from processing
+              // (AI running) — different copy so a checkout that hasn't cleared
+              // doesn't read as a stalled grade.
+              <>
+                <div
+                  className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
+                  aria-hidden="true"
+                />
+                <h3 className="mt-4 text-lg font-medium">Finishing checkout</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  We&apos;re confirming your payment. Grading starts
+                  automatically as soon as it clears.
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Elapsed: {formatElapsed(elapsedMs)}
+                </p>
+                {gradeTakingLong && (
+                  <p className="mt-2 max-w-md text-xs text-amber-700 dark:text-amber-300">
+                    Still waiting on payment confirmation. If you completed
+                    checkout a while ago,{" "}
+                    <a
+                      href="mailto:support@gradethread.com"
+                      className="font-medium underline underline-offset-2"
+                    >
+                      contact support
+                    </a>
+                    . You&apos;re only charged for a completed grade.
+                  </p>
+                )}
               </>
             ) : submission.status === "failed" ? (
               <>
                 <AlertTriangle className="h-12 w-12 text-red-500/50" />
                 <h3 className="mt-4 text-lg font-medium">Grading Failed</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Something went wrong while grading this submission. Please try
-                  again.
+                  Something went wrong while grading this submission — you
+                  weren&apos;t charged (any payment was automatically refunded).
+                  Retake to reuse these photos and details, or start a new
+                  submission.
                 </p>
+                {/* US-1438: don't strand a failed grade — offer the same
+                    recovery actions as needs_photos / expired. A failure has no
+                    per-photo flags, so handleRetake reuses all photos. */}
+                <div className="mt-6 flex flex-col items-center gap-2 sm:flex-row">
+                  <Button onClick={handleRetake}>
+                    <Camera className="mr-1.5 h-4 w-4" />
+                    Retake photos
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/dashboard/submissions/new">
+                      Start a new submission
+                    </Link>
+                  </Button>
+                </div>
               </>
             ) : submission.status === "needs_photos" ? (
               <>
