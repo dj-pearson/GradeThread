@@ -2,6 +2,33 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 14 (US-1483, US-1459) — archived tab + bulk set-status
+
+- US-1483 Give off-pipeline statuses a dedicated table tab or filter — NOW
+  COMPLETE (passes:true). Archived items previously appeared only inside the
+  catch-all 'All' tab, permanently mixed into active inventory. Added an
+  'Archived' tab (matches status==='archived') to listings.tsx TABS; changed the
+  'All' tab matcher to exclude archived; added 'archived' to the TabId union
+  (inventory-tabs.ts) and routed statusParamToTab('archived') → 'archived' (was
+  'all'); folded archived out of the All count and added an archived count in
+  tabCounts. Updated the status-param-to-tab unit test. To-List already excluded
+  archived via TO_LIST_STATUSES (AC1/AC2). Personal keeping/wearing stay in All
+  (the optional Personal filter was not required).
+
+- US-1459 Add bulk archive / bulk set-status for terminal items — NOW COMPLETE
+  (passes:true). The table's selection bar only offered stage-specific actions
+  (create drafts / publish / reprice / prepare shipment) — no way to archive or
+  set an arbitrary status in bulk. Added a universal 'Set status…' button to the
+  bulk bar (shown on EVERY tab, alongside Clear) opening an AlertDialog with a
+  status Select (all ITEM_STATUSES except 'grading', which is owned by the
+  submission+charge flow); Apply runs bulkSetStatus() over the selection. Backward
+  and off-pipeline (archive/personal) moves are allowed; the dialog's Apply is the
+  confirm, with an extra caution note when Archive is chosen (AC1/AC2).
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors, vitest 1012 pass, npm run build (incl. prerender, 45
+routes) succeeded. Open prd.json stories now 131.
+
 ## 2026-06-30 — Pre-launch audit batch 13 (US-1428, US-1484) — surface acquired items + restrict intake statuses
 
 - US-1428 Surface 'acquired' (and archived/keeping/wearing) items in the Kanban
