@@ -224,7 +224,13 @@ const TABS: TabDef[] = [
   {
     id: "sold",
     label: "Sold",
-    matches: (it) => it.status === "sold",
+    // US-1451: a refunded/cancelled sale is no longer revenue — exclude it from
+    // the Sold view + its aggregates even if the item's status restore lagged
+    // (the edge return/cancel flow moves the item to 'returned' too).
+    matches: (it) =>
+      it.status === "sold" &&
+      it.sale_status !== "refunded" &&
+      it.sale_status !== "cancelled",
     sortKey: "sale_date",
     sortDir: "desc",
     emptyCta: { label: "View active listings", to: "?tab=active" },
@@ -515,6 +521,8 @@ export function FlipdeskListingsPage() {
       next.delete("view");
       setSearchParams(next, { replace: true });
     }
+    // US-1489: only the state setters are omitted (stable); the effect re-runs
+    // on its real inputs (savedViews, searchParams). No stale closure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedViews, searchParams]);
 
@@ -527,6 +535,9 @@ export function FlipdeskListingsPage() {
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
+    // US-1489: intentionally keyed on filterQuery ONLY — this effect WRITES
+    // searchParams, so including it would loop. The write is guarded by the
+    // toString() compare, so a stale searchParams snapshot can't cause churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterQuery]);
 
@@ -564,6 +575,8 @@ export function FlipdeskListingsPage() {
     setPage(1);
     if (tabMountedRef.current) setSelected(new Set());
     else tabMountedRef.current = true;
+    // US-1489: keyed on `tab` only — the effect writes searchParams (a
+    // searchParams dep would loop) and the rest are stable setters/refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 

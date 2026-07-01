@@ -2807,13 +2807,49 @@ async function applyOutcomeToSale(
 ): Promise<void> {
   const status = outcomeToSaleStatus(outcome);
   if (!status || typeof orderId !== "string" || !orderId) return;
-  const { error } = await supabaseAdmin
+  const { data: updatedSales, error } = await supabaseAdmin
     .from("sales")
     .update({ status, cancelled_at: new Date().toISOString() })
     .eq("user_id", ownerId)
-    .eq("platform_order_id", orderId);
+    .eq("platform_order_id", orderId)
+    .select("inventory_item_id, listing_id");
   if (error) {
     console.error("[ebay.postorder] local sale update failed:", error.message);
+    return;
+  }
+
+  // US-1451: a refunded return / approved cancellation means the item came back —
+  // only flipping the sale to refunded/cancelled strands the item as sold/shipped
+  // (outside the relist loop) and still counts it in Sold aggregates. Restore the
+  // item to 'returned' (the relist-loop entry) and end its listing so it's no
+  // longer shown live. Only refunded/cancelled reach here (declines/rejections
+  // returned above), so both outcomes restore. Ids come from the tenant-scoped
+  // sale rows we just updated, so the item/listing writes are provably owned.
+  const rows = (updatedSales ?? []) as Array<{
+    inventory_item_id: string | null;
+    listing_id: string | null;
+  }>;
+  const itemIds = [...new Set(rows.map((r) => r.inventory_item_id).filter(Boolean))] as string[];
+  const listingIds = [...new Set(rows.map((r) => r.listing_id).filter(Boolean))] as string[];
+
+  if (itemIds.length > 0) {
+    const { error: iErr } = await supabaseAdmin
+      .from("inventory_items")
+      .update({ status: "returned" })
+      .eq("user_id", ownerId)
+      .in("id", itemIds);
+    if (iErr) {
+      console.error("[ebay.postorder] item restore failed:", iErr.message);
+    }
+  }
+  if (listingIds.length > 0) {
+    const { error: lErr } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_status: "ended", is_active: false })
+      .in("id", listingIds);
+    if (lErr) {
+      console.error("[ebay.postorder] listing restore failed:", lErr.message);
+    }
   }
 }
 

@@ -8344,7 +8344,7 @@
         "Exclude refunded/cancelled sales from Sold P&L aggregates."
       ],
       "priority": 2079,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-ebay.ts:2758-2777; ebay-postorder.ts:270-282; listings.tsx:818-839."
     },
     {
@@ -8807,7 +8807,7 @@
         "Where a dep was omitted only to avoid a re-run, prefer a ref or a documented one-line reason on each suppression."
       ],
       "priority": 1971,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: billing.tsx:129,146; certificate.tsx:288; new-submission.tsx:324; flipdesk/listings.tsx:494,506,543; pipeline.tsx:187,198; autolister-drafts.tsx:197,413; +~18 more."
     },
     {

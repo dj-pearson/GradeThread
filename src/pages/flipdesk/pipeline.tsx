@@ -192,6 +192,8 @@ export function FlipdeskPipelinePage() {
       next.delete("view");
       setSearchParams(next, { replace: true });
     }
+    // US-1489: only the state setters are omitted (stable); re-runs on its real
+    // inputs (savedViews, searchParams). No stale closure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedViews, searchParams]);
 
@@ -203,6 +205,8 @@ export function FlipdeskPipelinePage() {
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
+    // US-1489: keyed on filterQuery ONLY — this effect writes searchParams, so a
+    // searchParams dep would loop; the toString() guard prevents stale churn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterQuery]);
 
