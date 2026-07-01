@@ -12,8 +12,10 @@ import {
   ShoppingCart,
   Clock,
   Warehouse,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialExport } from "@/components/finances/financial-export";
 import { ChartSkeleton } from "@/components/ui/skeletons";
@@ -105,6 +107,18 @@ export function FinancesPage() {
 
   const summary = data?.summary;
 
+  // US-1467: a brand-new reseller (no sales AND no inventory in the period) sees
+  // an all-$0 dashboard that looks broken. Once the data has loaded successfully,
+  // detect the genuinely-empty case and show a "get started" EmptyState with a
+  // CTA instead of zero tiles. Any sale or inventory item flips back to the
+  // populated dashboard.
+  const hasNoData =
+    !isLoading &&
+    !isError &&
+    data != null &&
+    (summary?.items_sold ?? 0) === 0 &&
+    (data.inventory_aging?.total_count ?? 0) === 0;
+
   return (
     <div className="space-y-6">
       <div>
@@ -139,6 +153,14 @@ export function FinancesPage() {
           description="Something went wrong while loading your finances. This is usually temporary."
           onRetry={() => refetch()}
           retrying={isFetching}
+        />
+      ) : hasNoData ? (
+        <EmptyState
+          icon={DollarSign}
+          title="No financial data yet"
+          description="Add inventory and record your first sale — your revenue, profit, ROI, and cash-flow reports will appear here."
+          action={{ label: "Add inventory", to: "/dashboard/flipdesk/intake", icon: Plus }}
+          secondaryAction={{ label: "View inventory", to: "/dashboard/flipdesk/inventory" }}
         />
       ) : (
         <>
