@@ -17,6 +17,41 @@
   getGradingTemperature(). Verified no top_p/top_k were ever sent in the edge svc.
 - Shipped in PR #169 (merged) alongside batch 23.
 
+## 2026-07-01 — Pre-launch audit batch 26 (US-1455, US-1457) — capture webhook failures + stop Accept-Sheet clobbering newer edits
+
+- US-1455 Capture and retry async webhook processing failures instead of
+  console-only logging — NOW COMPLETE (passes:true). The eBay/Shopify/Depop
+  receivers return 2xx then process async; the outer .catch handlers and the
+  order-ingest res.errors arrays only console.error, so a thrown sync/ingest error
+  was never sent to Sentry and never surfaced — a failed sale/refund/sold-flip
+  silently lost after the 200/204. Added a shared reportWebhookFailure(provider,
+  err, {topic,userId}) helper that console.errors (unchanged) PLUS routes the
+  failure through captureException (→ Sentry when configured) and emits a
+  webhook.process_failed metric (AC1, AC3). Applied at all 5 sites: the eBay,
+  Shopify, Depop async .catch handlers and the Shopify + Depop res.errors blocks.
+  Durability (AC2): rather than a per-provider parking lot, documented that the
+  manual sync pull (Shopify /listings/pull, eBay orders sync) re-ingests the recent
+  order window IDEMPOTENTLY (US-711/US-1427), so a dropped event reliably
+  reconciles on the next sync; the new metric gives the signal to trigger one.
+
+- US-1457 Stop Accept-Sheet conflict resolution from clobbering newer FlipDesk
+  edits — NOW COMPLETE (passes:true). "Accept Sheet" wrote the sheet value frozen
+  at conflict-creation time straight into inventory_items with NO re-check against
+  the current DB value, so any FlipDesk edit made after the conflict was logged was
+  silently overwritten (the 3-way snapshot protection bypassed). parseConflictAcceptances
+  now also captures the conflict row's "FlipDesk Value" (column 5 = the DB value at
+  conflict time) as flipdeskBase. Before applying, the loop SELECTs the current DB
+  value and compares it to flipdeskBase (both normalized); if they differ, FlipDesk
+  changed the field since the conflict was logged → it refreshes the row's FlipDesk
+  Value to the current value and leaves it Open (re-flag) instead of overwriting
+  (AC1). AC2: records accepted-value provenance as a structured, greppable audit
+  line (source=google_sheet, action, field, from→to, trigger, user) on each applied
+  acceptance. Still tenant-scoped via .eq("user_id") (US-268).
+
+VERIFICATION (this container): both stories are edge-only; deno can't run here
+(proxy-blocked), so they are validated by the CI edge lane (deno lint + type-check +
+tenant-isolation suite). Frontend gate unaffected. Open backlog 107.
+
 ## 2026-07-01 — Pre-launch audit batch 25 (US-1434, US-1453) — gate Apple OAuth button + window-independent exact payout matches
 
 - US-1434 Verify Apple web OAuth is configured or hide the button before launch —
