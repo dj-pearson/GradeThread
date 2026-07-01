@@ -372,6 +372,9 @@ export function FlipdeskComposerPage() {
             condition_notes: item.notes,
             item_category: item.category,
             attributes: ebayMapping?.attributes ?? null,
+            // US-1450: carry measurements so the picker folds them into the
+            // category's free-text measurement aspects (fill-only).
+            measurements: item.measurements,
           }
         : null,
     [item, ebayMapping],

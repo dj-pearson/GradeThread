@@ -87,6 +87,43 @@ describe("remapAspectsForCategory (US-824)", () => {
     expect(out.kept).toEqual({});
     expect(out.dropped).toEqual({});
   });
+
+  it("US-1450: folds captured measurements into free-text measurement aspects", () => {
+    const item: ItemAspectSource = {
+      ...baseItem,
+      measurements: { chest: 21 },
+    };
+    const out = remapAspectsForCategory({}, [freeAspect("Chest Size")], item);
+    // Stored inches → formatted onto the free-text "Chest Size" aspect.
+    expect(out.derived["Chest Size"]).toEqual(["21 in"]);
+  });
+
+  it("US-1450: measurement fold is fill-only (never clobbers a set value)", () => {
+    const item: ItemAspectSource = {
+      ...baseItem,
+      measurements: { chest: 21 },
+    };
+    const out = remapAspectsForCategory(
+      { "Chest Size": ["20 in"] },
+      [freeAspect("Chest Size")],
+      item,
+    );
+    expect(out.kept).toEqual({ "Chest Size": ["20 in"] });
+    expect(out.derived["Chest Size"]).toBeUndefined();
+  });
+
+  it("US-1450: never fills a SELECTION_ONLY aspect from measurements", () => {
+    const item: ItemAspectSource = {
+      ...baseItem,
+      measurements: { sleeve: 25 },
+    };
+    const out = remapAspectsForCategory(
+      {},
+      [selAspect("Sleeve Length", ["Short Sleeve", "Long Sleeve"])],
+      item,
+    );
+    expect(out.derived["Sleeve Length"]).toBeUndefined();
+  });
 });
 
 describe("category change makes no AI/network call (US-824 AC3)", () => {

@@ -12,6 +12,7 @@
 import type { EbayAspect } from "@/hooks/use-ebay";
 import registry from "@/lib/ebay-aspect-registry.json";
 import { normalizeAspectValue } from "@/lib/aspect-normalize";
+import { type Measurements, resolveMeasurementAspects } from "@/lib/measurements";
 
 /** A value the composer rewrote to match eBay's allowed list ("M" → "Medium"). */
 export interface AspectRewrite {
@@ -48,6 +49,10 @@ export interface ItemAspectSource {
   item_category: string | null;
   // US-821 canonical attributes (inventory_items.attributes jsonb).
   attributes?: Record<string, string | string[]> | null;
+  // US-1450: captured garment measurements (stored in inches), folded into the
+  // category's free-text measurement aspects fill-only — parity with the
+  // AutoLister AI path (US-827) so hand-composed listings don't drop them.
+  measurements?: Measurements | null;
 }
 
 // Department (Men/Women/Boys/…) inferred from free-text fields — mirrors the
@@ -251,6 +256,35 @@ export function remapAspectsForCategory(
   const derived = item
     ? deriveAspectsFromItem(item, aspectList, kept, rewrites)
     : {};
+
+  // US-1450: fold captured measurements into the category's free-text
+  // measurement aspects (Inseam, Chest Size, Sleeve Length, …) — fill-only, never
+  // clobbering a kept or already-derived value. Mirrors the AutoLister AI path
+  // (US-827): stored values are inches, and resolveMeasurementAspects only fills
+  // aspects the category exposes as free-text and that aren't already set.
+  if (item?.measurements) {
+    const categoryAspects: Record<string, string[]> = {};
+    for (const a of aspectList) {
+      const name = (a.localizedAspectName ?? "").trim();
+      if (!name) continue;
+      categoryAspects[name] =
+        a.aspectConstraint?.aspectMode === "SELECTION_ONLY"
+          ? (a.aspectValues ?? [])
+              .map((v) => v.localizedValue ?? "")
+              .filter((v) => v.length > 0)
+          : [];
+    }
+    const existing = { ...kept, ...derived };
+    const measured = resolveMeasurementAspects(
+      item.measurements,
+      categoryAspects,
+      existing,
+    );
+    for (const [name, values] of Object.entries(measured)) {
+      derived[name] = values;
+    }
+  }
+
   return { kept, derived, dropped, rewrites };
 }
 

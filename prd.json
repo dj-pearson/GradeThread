@@ -8331,7 +8331,7 @@
         "Keep it fill-only — never clobber a value the seller already set."
       ],
       "priority": 2080,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: ai-listing.ts:1051-1064; composer.tsx:355-372; measurement-form.tsx."
     },
     {
@@ -8675,7 +8675,7 @@
         "If applying the active-ask figure, discount toward realized-sale levels."
       ],
       "priority": 1982,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: ebay-comps-panel.tsx:97,123-126,223-236."
     },
     {

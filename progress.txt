@@ -2,6 +2,34 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 18 (US-1478, US-1450) — sold-comp target price + measurements → eBay specifics
+
+- US-1478 Apply sold-comp recommendation (not active-ask median) as target price —
+  NOW COMPLETE (passes:true). The active-comp band's "Use as target price"
+  (ebay-comps-panel.tsx) set target_price to the median of active ASKING prices,
+  which the panel's own disclaimer warns runs high — systematically over-pricing.
+  applyAsTargetPrice now prefers the sold-backed grade-banded recommendation when
+  available (recommendation.soldBacked && sufficient && recommendedCents), and
+  otherwise falls back to the lower quartile (p25) of active asks as a
+  data-driven discount toward realized-sale levels (median only if p25 is null)
+  (AC1/AC2). Clarified the disclaimer that the button applies a
+  discounted/sold-comp figure, not the shown median.
+
+- US-1450 Fold captured measurements into eBay item specifics in the manual
+  composer path — NOW COMPLETE (passes:true). Measurements auto-populated eBay
+  measurement aspects only in the AutoLister AI path; the manual
+  prep→draft→composer path dropped them (they survived only in the description).
+  Added measurements to ItemAspectSource, populated it in the composer's
+  itemAspectSource memo (item.measurements, stored inches), and folded them into
+  remapAspectsForCategory via resolveMeasurementAspects — fill-only, only onto
+  the category's FREE_TEXT measurement aspects, never clobbering a kept/derived
+  value (parity with the edge AutoLister US-827 path). Added 3 aspect-remap tests
+  (fold, fill-only, never-SELECTION_ONLY).
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors, vitest 1015 pass (3 new), npm run build (incl.
+prerender, 45 routes) succeeded. Open prd.json stories now 123.
+
 ## 2026-06-30 — Pre-launch audit batch 17 (US-1460, US-1471) — shared-device login control + stale-comment refresh
 
 - US-1460 Provide a 'stay signed in' / shared-device control on login — NOW
