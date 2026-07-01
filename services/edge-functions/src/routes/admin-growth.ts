@@ -89,7 +89,7 @@ adminGrowthRoutes.post("/segments/preview", async (c) => {
     const result = await previewSegment(rules);
     return c.json(result);
   } catch (err) {
-    if (err instanceof SegmentRuleError) return c.json({ error: err.message }, 400);
+    if (err instanceof SegmentRuleError) return c.json({ error: err.message }, 400); // safe-raw-error: typed validation message, not raw DB text (US-1445)
     console.error("[admin-growth] segment preview failed:", err);
     return c.json({ error: "Preview failed" }, 500);
   }

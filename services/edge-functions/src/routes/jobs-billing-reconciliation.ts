@@ -60,7 +60,7 @@ export async function handleBillingReconciliationCron(c: Context): Promise<Respo
     });
     if (error) {
       console.error("[billing-reconciliation] candidate scan failed:", error.message);
-      return c.json({ error: error.message }, 500);
+      return c.json({ error: "Reconciliation scan failed." }, 500);
     }
 
     const candidates = (data ?? []) as CandidateRow[];

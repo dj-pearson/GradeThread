@@ -8269,7 +8269,7 @@
         "Add a grep-based CI guard test to fail the build on new error: <err>.message bodies."
       ],
       "priority": 2085,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · edge · edge audit] Evidence: http-errors.ts:1-12,34-44; flipdesk-consignment.ts:77-279; announcements.ts:33,109; admin-grading.ts (40+ sites)."
     },
     {

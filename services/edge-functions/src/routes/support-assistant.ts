@@ -567,7 +567,7 @@ supportAssistantRoutes.post("/message", async (c) => {
   // GATE — before anything that costs a token.
   const gate = await loadGateAndDecide(userId, ownerId);
   if (!gate.allowed) {
-    return c.json({ error: gate.message, code: gate.code }, gate.status);
+    return c.json({ error: gate.message, code: gate.code }, gate.status); // safe-raw-error: curated plan-gate message, not raw DB text (US-1445)
   }
 
   const body = (await c.req.json().catch(() => ({}))) as {
@@ -617,7 +617,7 @@ supportAssistantRoutes.post("/message", async (c) => {
         conversation_id: conversationIdArg,
       });
     }
-    return c.json({ error: abuse.message, code: abuse.code }, abuse.status);
+    return c.json({ error: abuse.message, code: abuse.code }, abuse.status); // safe-raw-error: curated abuse-guard message, not raw DB text (US-1445)
   }
 
   // Load (must be the caller's own) or create the conversation.

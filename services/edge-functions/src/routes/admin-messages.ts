@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
 
@@ -119,7 +120,7 @@ adminMessagesRoutes.post("/:userId", async (c: Context<AdminEnv>) => {
     .select("id, email, full_name")
     .eq("id", targetId)
     .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  if (lookupErr) return failSafe(c, 500, "Couldn't look up the user.", lookupErr, "admin.messages.lookup");
   const recipient = target as { id: string; email: string; full_name: string | null } | null;
   if (!recipient) return c.json({ error: "User not found" }, 404);
 

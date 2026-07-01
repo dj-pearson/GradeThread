@@ -2,6 +2,39 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1445: stop leaking raw DB error.message to clients (edge, 9 chunks)
+
+~90+ edge handlers returned `c.json({ error: error.message }, status)` — raw
+Supabase/PostgREST text that can disclose schema, table/column/constraint names,
+SQL hints, internal hostnames, or PII. Swept every in-scope response body to
+failSafe()/jsonError() from lib/http-errors.ts (logs the redacted cause under a
+stable tag server-side, returns a generic client-safe message).
+
+Scope: ~170 response-body sites across ~35 route files, done in CI-validated
+chunks (commits 6d1002c8 → this one) — user-reachable first (announcements,
+flipdesk consignment/disclosure/google-sync), then content-* authoring, then all
+admin-* (ads/changelog/scopes/grading/moderation/safety/users/growth/passport-
+integrity/audit/billing/messages), then the jobs-* crons. Most sites were the
+uniform `if (err) return c.json({ error: err.message }, N)` shape and were rewritten
+by exact line via a verified python script (checks each site still matches the
+shape before replacing, inserts the failSafe import after the supabaseAdmin
+import). Variant shapes handled manually: bare `return c.json` (admin-audit,
+jobs-*), per-item results.push arrays (admin-bulk → generic per-item string,
+cause logged server-side), a nested `counterRes.error.message` (admin-safety).
+
+Deliberately KEPT (annotated `// safe-raw-error:`): admin-growth SegmentRuleError
+(typed validation message) + support-assistant plan-gate/abuse messages (curated,
+carry a code + status) — these are NOT raw DB text. Left untouched (out of scope,
+not response bodies): telemetry `detail:` objects (drip), internal {ok,error}
+helper returns (flipdesk-ebay, admin-growth send helper), a truncated
+ledger_error audit field (admin-billing).
+
+Regression guard: services/edge-functions/src/tests/no-raw-db-error_test.ts scans
+every route file and fails the build if the `c.json({ error: <x>.message }` shape
+appears without a `// safe-raw-error:` annotation. Verified locally: 0 unannotated
+leak-shape lines remain, 3 annotated safe lines. Edge Deno lane is the gate
+(can't run deno on this host).
+
 ## 2026-07-01 — US-1411: close iOS accessibility (verify-only) — iOS App-Review batch DONE
 
 Backlog reconciliation, no code — shipped on main (78d1a5fa batch) but left

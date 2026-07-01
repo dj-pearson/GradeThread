@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { requireScope } from "../lib/scope-guard.ts";
@@ -1509,7 +1510,7 @@ adminBillingRoutes.post("/billing/reconciliation/users/:id/resync", async (c) =>
     )
     .eq("id", targetUserId)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the user.", loadErr, "admin.billing.reconciliation.resync.load");
   const user = userRaw as ResyncUserRow | null;
   if (!user) return c.json({ error: "User not found" }, 404);
 
@@ -1643,7 +1644,7 @@ adminBillingRoutes.post("/billing/reconciliation/users/:id/dunning-email", async
     .select("id, email, full_name, flipdesk_plan, subscription_status")
     .eq("id", targetUserId)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the user.", loadErr, "admin.billing.reconciliation.dunning.load");
   const user = userRaw as
     | { id: string; email: string; full_name: string | null; flipdesk_plan: string | null; subscription_status: string | null }
     | null;

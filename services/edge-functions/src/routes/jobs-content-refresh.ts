@@ -176,7 +176,7 @@ export async function handleContentRefreshCron(c: Context): Promise<Response> {
       .limit(MAX_CANDIDATES);
     if (postsErr) {
       await recordRun("error", null, `posts query failed: ${postsErr.message}`);
-      return c.json({ error: postsErr.message }, 500);
+      return c.json({ error: "Posts query failed." }, 500);
     }
     const posts = (postsRaw ?? []) as unknown as PostRow[];
     if (posts.length === 0) {
@@ -285,7 +285,7 @@ export async function handleContentRefreshCron(c: Context): Promise<Response> {
       .eq("id", post.id);
     if (updErr) {
       await recordRun("error", post.id, `update failed: ${updErr.message}`);
-      return c.json({ ok: false, post_id: post.id, error: updErr.message }, 500);
+      return c.json({ ok: false, post_id: post.id, error: "Update failed." }, 500);
     }
 
     // System-actor audit row (US-269): the freshness job — not a human —

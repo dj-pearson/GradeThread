@@ -205,7 +205,9 @@ adminBulkRoutes.post("/credits", async (c) => {
       p_stripe_payment_intent: null,
       p_notes: `Bulk admin comp by ${adminId} (op ${key}): ${reason}`,
     });
-    results.push(error ? { id: userId, ok: false, error: error.message } : { id: userId, ok: true });
+    // US-1445: don't return the raw DB error to the client; the per-item id
+    // identifies the failure and the cause is available server-side.
+    results.push(error ? { id: userId, ok: false, error: "Operation failed" } : { id: userId, ok: true });
   }
 
   await completeRun(claim.runId, results);
@@ -268,7 +270,9 @@ adminBulkRoutes.post("/suspend", async (c) => {
       .eq("id", userId)
       .select("id")
       .maybeSingle();
-    results.push(error ? { id: userId, ok: false, error: error.message } : { id: userId, ok: true });
+    // US-1445: don't return the raw DB error to the client; the per-item id
+    // identifies the failure and the cause is available server-side.
+    results.push(error ? { id: userId, ok: false, error: "Operation failed" } : { id: userId, ok: true });
   }
 
   await completeRun(claim.runId, results);

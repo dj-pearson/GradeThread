@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 
 // US-905: audit-log export + anomaly triage.
@@ -150,7 +151,7 @@ adminAuditRoutes.get("/export", async (c: Context<AdminEnv>) => {
     p_offset: 0,
   });
   if (error) {
-    return c.json({ error: error.message }, 500);
+    return failSafe(c, 500, "Couldn't export the audit log.", error, "admin.audit.export");
   }
   // Drop the window total_count column from the exported rows.
   const rows: AuditExportRow[] = (data ?? []).map(({ total_count: _t, ...rest }) => rest);
@@ -206,7 +207,7 @@ adminAuditRoutes.get("/anomalies", async (c: Context<AdminEnv>) => {
   }
 
   const { data, error } = await query;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load anomalies.", error, "admin.audit.anomalies.list");
   const rows = (data ?? []) as Array<{ actor_user_id: string | null }>;
 
   // Resolve acting-admin labels in one round trip.
@@ -254,7 +255,7 @@ adminAuditRoutes.post("/anomalies/:id/acknowledge", async (c: Context<AdminEnv>)
       acknowledged_at: new Date().toISOString(),
     })
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't acknowledge the anomaly.", error, "admin.audit.anomalies.ack");
 
   await writeAuditLog(c, {
     action: "audit_anomaly.acknowledge",
