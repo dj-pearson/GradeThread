@@ -226,6 +226,187 @@ export async function ensureAdCampaign(userId: string): Promise<string> {
   return campaignId;
 }
 
+// ── US-1447: Promoted Listings ADVANCED (Cost-Per-Click) ────────────
+//
+// CPC / Priority campaigns give keyword-bid + ad-group control beyond the flat
+// COST_PER_SALE model above. A CPC campaign REQUIRES an ad group (which carries
+// the default max-CPC bid); ads are created under it. We cache both ids on the
+// connection so we don't re-resolve them per promote. Modeled from the Sell
+// Marketing docs and mirrors ensureAdCampaign — NOT live-eBay tested on this
+// host; a bad payload fails as an eBay 4xx (surfaced), never silent corruption.
+
+const CPC_CAMPAIGN_NAME = "FlipDesk Priority (CPC)";
+const CPC_AD_GROUP_NAME = "FlipDesk CPC Ad Group";
+// Conservative default max-CPC bid (marketplace currency). eBay's per-listing
+// suggestMaxCpc is a separate call the promote UI can layer on later; this is a
+// safe floor so a CPC ad can be created without a suggestion round-trip.
+const DEFAULT_MAX_CPC = "0.10";
+
+function marketplaceCurrency(): string {
+  // EBAY_US → USD; extend as more marketplaces are enabled. Kept local so a new
+  // marketplace can't silently mis-currency a bid.
+  const mp = getMarketplaceId();
+  if (mp === "EBAY_GB") return "GBP";
+  if (mp === "EBAY_DE" || mp === "EBAY_AT" || mp === "EBAY_FR" || mp === "EBAY_IT" || mp === "EBAY_ES") return "EUR";
+  if (mp === "EBAY_CA") return "CAD";
+  if (mp === "EBAY_AU") return "AUD";
+  return "USD";
+}
+
+/**
+ * Find-or-create the seller's single Cost-Per-Click (Priority) campaign + its
+ * default ad group, returning both ids (cached on the connection). Mirrors
+ * ensureAdCampaign; tenant-safe (keyed on the workspace owner `userId`).
+ */
+export async function ensureCpcCampaign(
+  userId: string,
+): Promise<{ campaignId: string; adGroupId: string }> {
+  const { data: conn } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("ebay_cpc_campaign_id, ebay_cpc_ad_group_id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const cachedCampaign = (conn as { ebay_cpc_campaign_id: string | null } | null)
+    ?.ebay_cpc_campaign_id;
+  const cachedAdGroup = (conn as { ebay_cpc_ad_group_id: string | null } | null)
+    ?.ebay_cpc_ad_group_id;
+  if (cachedCampaign && cachedAdGroup) {
+    return { campaignId: cachedCampaign, adGroupId: cachedAdGroup };
+  }
+
+  let campaignId: string | null = cachedCampaign ?? null;
+  if (!campaignId) {
+    // Reuse an existing CPC campaign by name if present.
+    try {
+      const { body } = await marketingFetch<{ campaigns?: CampaignSummary[] }>(
+        userId,
+        `/sell/marketing/v1/ad_campaign?campaign_name=${encodeURIComponent(CPC_CAMPAIGN_NAME)}`,
+      );
+      const match = (body.campaigns ?? []).find(
+        (cmp) =>
+          cmp.campaignName === CPC_CAMPAIGN_NAME &&
+          cmp.campaignStatus !== "ENDED" &&
+          !!cmp.campaignId,
+      );
+      if (match?.campaignId) campaignId = match.campaignId;
+    } catch (err) {
+      console.warn(
+        "[ebay-marketing] CPC campaign lookup failed (will try create):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  if (!campaignId) {
+    const { body, location } = await marketingFetch<{ campaignId?: string }>(
+      userId,
+      `/sell/marketing/v1/ad_campaign`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          campaignName: CPC_CAMPAIGN_NAME,
+          marketplaceId: getMarketplaceId(),
+          // Minimal, well-documented CPC payload. Smart-targeting specifics
+          // (campaignTargetType / auto keyword targeting) are layered in chunk 2
+          // once verifiable — don't ship a guessed field that could 4xx the create.
+          fundingStrategy: { fundingModel: "COST_PER_CLICK" },
+          startDate: new Date().toISOString(),
+        }),
+      },
+    );
+    campaignId =
+      body.campaignId ??
+      (location ? location.split("/").filter(Boolean).pop() ?? null : null);
+    if (!campaignId) {
+      throw new Error("eBay CPC ad_campaign create returned no campaignId.");
+    }
+  }
+
+  // Ad group (holds the default max-CPC bid). Find-or-create.
+  let adGroupId: string | null = cachedAdGroup ?? null;
+  if (!adGroupId) {
+    try {
+      const { body } = await marketingFetch<{
+        adGroups?: Array<{ adGroupId?: string; name?: string; adGroupStatus?: string }>;
+      }>(userId, `/sell/marketing/v1/ad_campaign/${encodeURIComponent(campaignId)}/ad_group`);
+      const match = (body.adGroups ?? []).find(
+        (g) => g.adGroupStatus !== "ENDED" && !!g.adGroupId,
+      );
+      if (match?.adGroupId) adGroupId = match.adGroupId;
+    } catch {
+      // fall through to create
+    }
+  }
+  if (!adGroupId) {
+    const { body, location } = await marketingFetch<{ adGroupId?: string }>(
+      userId,
+      `/sell/marketing/v1/ad_campaign/${encodeURIComponent(campaignId)}/ad_group`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: CPC_AD_GROUP_NAME,
+          defaultBid: { currency: marketplaceCurrency(), value: DEFAULT_MAX_CPC },
+          adGroupStatus: "RUNNING",
+        }),
+      },
+    );
+    adGroupId =
+      body.adGroupId ??
+      (location ? location.split("/").filter(Boolean).pop() ?? null : null);
+    if (!adGroupId) {
+      throw new Error("eBay CPC ad_group create returned no adGroupId.");
+    }
+  }
+
+  await supabaseAdmin
+    .from("marketplace_connections")
+    .update({
+      ebay_cpc_campaign_id: campaignId,
+      ebay_cpc_ad_group_id: adGroupId,
+    })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true);
+
+  return { campaignId, adGroupId };
+}
+
+/**
+ * Create a CPC ad for a live listing under the seller's CPC ad group. The bid is
+ * the ad group's defaultBid (max CPC). Returns the adId, or null on ineligible /
+ * failure (non-fatal — the listing is already live).
+ */
+export async function createCpcAdForListing(
+  userId: string,
+  campaignId: string,
+  adGroupId: string,
+  listingId: string,
+): Promise<{ adId: string } | null> {
+  try {
+    const { body } = await marketingFetch<CreateAdsResponse>(
+      userId,
+      `/sell/marketing/v1/ad_campaign/${encodeURIComponent(campaignId)}/create_ads_by_listing_id`,
+      {
+        method: "POST",
+        body: JSON.stringify({ listingIds: [listingId], adGroupId }),
+      },
+    );
+    const first = body.responses?.[0];
+    if (first?.adId) return { adId: first.adId };
+    return null;
+  } catch (err) {
+    console.warn(
+      "[ebay-marketing] createCpcAdForListing failed (non-fatal):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
 // ── Ad creation ─────────────────────────────────────────────────────
 
 interface CreateAdsResponse {
