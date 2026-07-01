@@ -8115,7 +8115,7 @@
         "Keep it non-blocking with Sentry capture on failure."
       ],
       "priority": 2097,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/pages/signup.tsx:111-128,148-177; login.tsx:68-82; auth-callback.tsx:27-37."
     },
     {

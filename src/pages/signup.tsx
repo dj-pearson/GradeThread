@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Rocket, Check } from "lucide-react";
-import * as Sentry from "@sentry/react";
 import {
   appleOAuthEnabled,
   signUpWithEmail,
@@ -33,10 +32,6 @@ import { toast } from "sonner";
 // auto-hides on/after launch so we don't have to remember to strip it.
 const LAUNCH_DATE = new Date("2026-07-01T00:00:00Z");
 const PRE_LAUNCH = Date.now() < LAUNCH_DATE.getTime();
-
-const EDGE_URL = import.meta.env.VITE_SUPABASE_URL
-  ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}`
-  : "";
 
 export function SignupPage() {
   const [params] = useSearchParams();
@@ -112,7 +107,7 @@ export function SignupPage() {
     }
     setIsLoading(true);
     try {
-      const data = await signUpWithEmail(
+      await signUpWithEmail(
         email,
         password,
         fullName,
@@ -127,27 +122,10 @@ export function SignupPage() {
       // until the visitor opts in).
       track("trial.started", { plan: "pro", trial_days: 14 });
 
-      // Send welcome email (fire-and-forget, non-blocking). US-785: a failure is
-      // no longer SILENT — capture it to Sentry so a broken welcome pipeline is
-      // visible, without ever blocking signup.
-      if (data?.user?.id && EDGE_URL) {
-        fetch(`${EDGE_URL}/api/notifications/welcome`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: data.user.id }),
-        })
-          .then((res) => {
-            if (!res.ok) {
-              Sentry.captureMessage("signup welcome email request failed", {
-                level: "warning",
-                extra: { status: res.status },
-              });
-            }
-          })
-          .catch((e) => {
-            Sentry.captureException(e, { tags: { area: "signup.welcome_email" } });
-          });
-      }
+      // US-1433: the welcome email is no longer fired here. It's now sent from
+      // useAuth on the first authenticated session (any signup method, incl.
+      // OAuth) via sendWelcomeEmailOnce — which also fixes the wrong-host bug
+      // this call had (it POSTed to VITE_SUPABASE_URL, where /api/* 404s).
     } catch (err) {
       // US-369: never reveal whether an email is already registered. GoTrue
       // usually obfuscates this, but if an "already registered" error does

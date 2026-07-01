@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
+import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
 import { initIdleLogout } from "@/lib/idle-logout";
 import type {
   UserRow,
@@ -169,6 +170,16 @@ function initAuth() {
       // stored ref is a no-op.
       if (event === "SIGNED_IN") {
         void redeemStoredAffiliateRef();
+        // US-1433: welcome email on the first authenticated session for ANY
+        // signup method (email or OAuth). Gated on a user_metadata flag so a
+        // returning user doesn't re-hit the endpoint; the server is also
+        // idempotent, so a stale-metadata race can't double-send.
+        const meta = newSession.user.user_metadata as
+          | { welcome_email_sent?: boolean }
+          | undefined;
+        if (!meta?.welcome_email_sent) {
+          sendWelcomeEmailOnce(newSession.user.id);
+        }
       }
     } else {
       s.reset();

@@ -2,6 +2,33 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1433: welcome email on first session for ALL signup methods
+
+The welcome-email trigger lived only in the email-signup handler, so Google/Apple
+OAuth signups never got one. That handler also POSTed to VITE_SUPABASE_URL — but
+`/api/*` Hono routes live on functions.* (api.* is Supabase Kong), so the call
+404'd; the email-signup welcome likely never reached the edge either.
+
+- New src/lib/welcome-email.ts: sendWelcomeEmailOnce(userId) — fire-and-forget to
+  the CORRECT edge base via edgeApiUrl() (functions.*), Sentry-captures failures,
+  never blocks the UI.
+- use-auth.ts: fire it on SIGNED_IN (the single point every session lands, any
+  method), right next to the existing redeemStoredAffiliateRef. Gated on a
+  user_metadata.welcome_email_sent flag so returning users don't re-hit it.
+- signup.tsx: removed the bespoke wrong-host welcome fetch (+ now-unused EDGE_URL
+  / Sentry import); the centralized SIGNED_IN trigger covers email signup too.
+- notifications.ts POST /welcome: idempotency guard — skip if
+  user_metadata.welcome_email_sent; on a successful send, set the flag (+ _at,
+  preserving existing metadata). Sends exactly once per account even under a
+  stale-client-metadata race. Flag set only on success so a transient failure
+  retries next session.
+- Solo batch: cross-cutting (core auth hook + edge + a real prod delivery bug);
+  the viable pairings were all large edge/iOS stories, so quality won over count.
+
+Verify: npx tsc -b ✓ · npx eslint (changed files) ✓ · npx vitest run → 1028 pass ✓
+(one flaky retry, unrelated) · npm run build → 45 routes ✓. Edge idempotency
+validated by the CI Deno lane.
+
 ## 2026-07-01 — US-1442: business / ship-from profile fields (enter once, reuse)
 
 The Settings profile only stored full name + avatar; resellers had nowhere to

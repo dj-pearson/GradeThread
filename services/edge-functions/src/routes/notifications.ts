@@ -758,11 +758,44 @@ notificationRoutes.post("/welcome", async (c) => {
       return c.json({ error: "User has no email" }, 400);
     }
 
-    const fullName = authUser.user.user_metadata?.full_name || "there";
+    // US-1433: idempotency guard. The welcome email is now triggered on the
+    // first authenticated session for ANY signup method (email OR OAuth), so
+    // this endpoint can be called on every sign-in — a user_metadata flag
+    // ensures it sends exactly once per account.
+    const meta = (authUser.user.user_metadata ?? {}) as Record<string, unknown>;
+    if (meta.welcome_email_sent) {
+      return c.json({ sent: false, alreadySent: true });
+    }
+
+    const fullName = (meta.full_name as string | undefined) || "there";
 
     const sent = await sendWelcomeEmail(email, {
       userName: fullName,
     });
+
+    // Only set the flag once the send actually succeeded, so a transient email
+    // failure retries on the next session rather than silently swallowing the
+    // welcome. Preserve existing metadata (e.g. full_name).
+    if (sent) {
+      const { error: metaError } = await supabaseAdmin.auth.admin.updateUserById(
+        userId,
+        {
+          user_metadata: {
+            ...meta,
+            welcome_email_sent: true,
+            welcome_email_sent_at: new Date().toISOString(),
+          },
+        },
+      );
+      if (metaError) {
+        // Non-fatal: the email went out. Log so a persistent failure (which
+        // could cause a re-send next session) is visible.
+        console.error(
+          "[Notifications] welcome flag update failed:",
+          metaError.message,
+        );
+      }
+    }
 
     return c.json({ sent });
   } catch (error) {
