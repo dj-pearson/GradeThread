@@ -2,6 +2,33 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1422: eBay Listing Health via Sell Compliance API (3 chunks)
+
+Monitoring + correction of eBay listing violations (missing item specifics, etc.)
+so a reseller running many AI-generated listings isn't silently demoted/hidden.
+Uses the sell.inventory grant (no new OAuth scope). Chunks (all CI-green):
+
+- Chunk 1 (a47e12a4) AC1 — read: ebay-client getListingViolationsSummary +
+  getListingViolations (incl. correctiveRecommendations.aspectRecommendations);
+  tenant-scoped GET /compliance/summary + /compliance/violations (no-access 403 →
+  { access:false }); EbayListingHealthCard on Analytics (total + per-type counts).
+- Chunk 2 (5fb5ff4d) AC2 — persist + indicator: migration 00326 adds
+  listings.compliance_violation_count / compliance_types / compliance_checked_at
+  (schema-version → 00326); POST /compliance/sync populates them (reset-then-flag
+  by platform_listing_id, OUR-DB writes only, tenant-scoped); a "Re-check" button;
+  and a Kanban pipeline banner ("N listed items have eBay compliance issues").
+- Chunk 3 (this commit) AC3 — one-click revise: POST /compliance/apply-recommendations/:id
+  merges eBay's recommended aspects into item_specifics_override ADD-ONLY (never
+  overwrite/fabricate, tenant-scoped), then the card's "Apply eBay's
+  recommendations" button pushes each flagged listing live through the EXISTING
+  revise path (resync_ebay_fields) — reusing proven eBay-write code, not new blind
+  mutation — and re-checks health.
+
+Verify: tsc -b, eslint, vitest 1028, build 45 (frontend, each chunk). Migration +
+edge validated by CI (DB Migrations + Deno lanes). Live eBay response shapes
+modeled from the Sell Compliance docs; read paths degrade gracefully, the write
+reuses the shipped revise machinery — no live-eBay test on this host.
+
 ## 2026-07-01 — US-1473 (eBay account-health) + US-1399 DEFERRED (SEO edge-SSR)
 
 US-1473 — surface eBay seller-performance / account health:

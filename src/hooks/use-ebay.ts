@@ -214,6 +214,7 @@ export function useSyncListingHealth() {
 // US-1422 chunk 2: the persisted per-listing compliance flags (RLS-scoped to the
 // user), keyed by inventory_item_id, for the pipeline Listing-Health indicator.
 export interface ListingComplianceFlag {
+  id: string;
   inventory_item_id: string;
   compliance_violation_count: number;
   compliance_types: string[] | null;
@@ -228,11 +229,30 @@ export function useListingComplianceFlags() {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "inventory_item_id, compliance_violation_count, compliance_types",
+          "id, inventory_item_id, compliance_violation_count, compliance_types",
         )
         .gt("compliance_violation_count", 0);
       if (error) throw error;
       return (data ?? []) as unknown as ListingComplianceFlag[];
+    },
+  });
+}
+
+// US-1422 chunk 3 (AC3): merge eBay's corrective aspect recommendations into a
+// listing's item_specifics_override (add-only, server-side). The caller then
+// pushes them live via the existing revise mutation (resync_ebay_fields).
+export function useApplyComplianceRecommendations() {
+  return useMutation<{ applied: number; aspects?: string[] }, Error, string>({
+    mutationFn: async (listingId: string) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/compliance/apply-recommendations/${listingId}`,
+        { method: "POST", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not apply eBay recommendations.");
+      }
+      return json as { applied: number; aspects?: string[] };
     },
   });
 }

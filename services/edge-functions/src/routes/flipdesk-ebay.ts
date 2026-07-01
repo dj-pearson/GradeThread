@@ -905,6 +905,77 @@ flipdeskEbayRoutes.post("/compliance/sync", async (c) => {
   }
 });
 
+// US-1422 chunk 3 (AC3): apply eBay's corrective aspect recommendations for a
+// listing's ASPECTS_ADOPTION violations into its item_specifics_override
+// (ADD-ONLY — never overwrite an existing aspect or fabricate a value). This
+// writes only to OUR DB; the client then calls the EXISTING revise endpoint with
+// resync_ebay_fields:true to push the merged specifics to the live eBay offer,
+// so the risky eBay mutation reuses the proven path rather than new code.
+flipdeskEbayRoutes.post("/compliance/apply-recommendations/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const listingId = c.req.param("id");
+  try {
+    // Ownership-scoped load (US-268).
+    const { data: listingRow, error: loadErr } = await supabaseAdmin
+      .from("listings")
+      .select("id, platform_listing_id, item_specifics_override")
+      .eq("id", listingId)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (loadErr) throw loadErr;
+    const row = listingRow as
+      | {
+          id: string;
+          platform_listing_id: string | null;
+          item_specifics_override: Record<string, string[]> | null;
+        }
+      | null;
+    if (!row) return c.json({ error: "Listing not found." }, 404);
+    if (!row.platform_listing_id) {
+      return c.json({ error: "Listing isn't published to eBay yet." }, 409);
+    }
+
+    const violations = await getListingViolations(ownerId, "ASPECTS_ADOPTION");
+    const match = violations.find(
+      (v) => v.listingId === row.platform_listing_id,
+    );
+    const recs = match?.aspectRecommendations ?? [];
+
+    const aspects: Record<string, string[]> = { ...(row.item_specifics_override ?? {}) };
+    const added: string[] = [];
+    for (const rec of recs) {
+      const name = rec.name.trim();
+      const values = rec.values.map((v) => v.trim()).filter((v) => v.length > 0);
+      // Add-only: never overwrite a value the seller already set, never invent
+      // a name with no recommended values.
+      if (!name || values.length === 0) continue;
+      if (aspects[name] && aspects[name].length > 0) continue;
+      aspects[name] = values;
+      added.push(name);
+    }
+
+    if (added.length > 0) {
+      const { error: upErr } = await supabaseAdmin
+        .from("listings")
+        .update({ item_specifics_override: aspects } as never)
+        .eq("id", row.id)
+        .eq("user_id", ownerId);
+      if (upErr) throw upErr;
+    }
+
+    // The client pushes to eBay via POST /listings/:id/revise { resync_ebay_fields }.
+    return c.json({ applied: added.length, aspects: added });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
+    console.error("[flipdesk-ebay] /compliance/apply-recommendations failed:", err);
+    return c.json({ error: "Could not apply eBay recommendations." }, 502);
+  }
+});
+
 flipdeskEbayRoutes.get("/policies", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {

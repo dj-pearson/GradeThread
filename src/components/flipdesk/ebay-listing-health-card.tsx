@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Loader2, RefreshCw, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -13,7 +13,11 @@ import {
   useEbayConnection,
   useEbayListingHealth,
   useSyncListingHealth,
+  useListingComplianceFlags,
+  useApplyComplianceRecommendations,
+  useEbayReviseListing,
 } from "@/hooks/use-ebay";
+import { useState } from "react";
 
 // US-1422: Listing Health — surfaces the eBay Sell Compliance violation summary
 // (missing item specifics, catalog-adoption gaps, etc.) so a reseller running
@@ -36,17 +40,61 @@ export function EbayListingHealthCard() {
   const connected = !!connection;
   const { data, isLoading } = useEbayListingHealth(connected);
   const sync = useSyncListingHealth();
+  // US-1422 chunk 3: persisted per-listing flags drive the one-click fix.
+  const { data: flags = [], refetch: refetchFlags } =
+    useListingComplianceFlags();
+  const applyRecs = useApplyComplianceRecommendations();
+  const revise = useEbayReviseListing();
+  const [fixing, setFixing] = useState(false);
 
   function recheck() {
     sync.mutate(undefined, {
-      onSuccess: (r) =>
+      onSuccess: (r) => {
+        void refetchFlags();
         toast.success(
           r.access === false
             ? "Reconnect eBay to check listing health."
             : `Re-checked — ${r.flagged ?? 0} listing${r.flagged === 1 ? "" : "s"} flagged.`,
-        ),
+        );
+      },
       onError: (e) => toast.error(e instanceof Error ? e.message : "Re-check failed."),
     });
+  }
+
+  // AC3: one-click revise — apply eBay's recommended item specifics to every
+  // flagged listing (server merges them add-only) then push each live via the
+  // existing revise path (resync_ebay_fields). Re-checks health afterward.
+  async function applyRecommendations() {
+    setFixing(true);
+    let applied = 0;
+    let revised = 0;
+    try {
+      for (const flag of flags) {
+        try {
+          const r = await applyRecs.mutateAsync(flag.id);
+          if (r.applied > 0) {
+            applied += r.applied;
+            await revise.mutateAsync({
+              listingId: flag.id,
+              patch: { resync_ebay_fields: true },
+            });
+            revised += 1;
+          }
+        } catch {
+          // Per-listing failure shouldn't abort the batch; surfaced in the total.
+        }
+      }
+      if (revised > 0) {
+        toast.success(
+          `Applied eBay recommendations to ${revised} listing${revised === 1 ? "" : "s"} (${applied} specifics).`,
+        );
+        sync.mutate(undefined, { onSuccess: () => void refetchFlags() });
+      } else {
+        toast.info("No eBay aspect recommendations were available to apply.");
+      }
+    } finally {
+      setFixing(false);
+    }
   }
 
   if (!connected) return null;
@@ -113,12 +161,12 @@ export function EbayListingHealthCard() {
             </ul>
           </>
         )}
-        <div className="pt-1">
+        <div className="flex flex-wrap gap-2 pt-1">
           <Button
             variant="outline"
             size="sm"
             onClick={recheck}
-            disabled={sync.isPending}
+            disabled={sync.isPending || fixing}
           >
             {sync.isPending ? (
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
@@ -127,6 +175,21 @@ export function EbayListingHealthCard() {
             )}
             Re-check listings
           </Button>
+          {flags.length > 0 && (
+            <Button
+              size="sm"
+              onClick={applyRecommendations}
+              disabled={fixing || sync.isPending}
+              className="bg-brand-navy"
+            >
+              {fixing ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="mr-2 h-3.5 w-3.5" />
+              )}
+              Apply eBay&apos;s recommendations ({flags.length})
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

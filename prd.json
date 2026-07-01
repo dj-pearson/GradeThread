@@ -7973,7 +7973,7 @@
         "Use returned correctiveRecommendations.aspectRecommendations to offer one-click revise via updateOffer/inventory_item."
       ],
       "priority": 2193,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · ebay · ebay coverage audit] Evidence: No compliance calls in edge src (grep clean); https://developer.ebay.com/api-docs/sell/compliance/resources/listing_violation/methods/getListingViolations"
     },
     {
