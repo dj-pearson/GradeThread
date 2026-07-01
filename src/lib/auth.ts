@@ -79,6 +79,16 @@ export async function signInWithApple() {
   return data;
 }
 
+// US-1434: the web "Sign in with Apple" redirect flow only works once GoTrue's
+// Apple provider is configured with a Services ID client + client-secret JWT (see
+// the note on signInWithApple above). If that prod config isn't in place the
+// button errors for every user, so it's gated behind an explicit opt-in env flag
+// — mirroring the Turnstile `captchaRequired` pattern (Boolean of an env var).
+// Default (unset / anything but "true") → the button is hidden. Flip
+// VITE_APPLE_OAUTH_ENABLED=true only after smoke-testing the flow against prod.
+export const appleOAuthEnabled =
+  String(import.meta.env.VITE_APPLE_OAUTH_ENABLED).toLowerCase() === "true";
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;

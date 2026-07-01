@@ -106,6 +106,78 @@ interface QueueEntry {
   candidates: Candidate[];
 }
 
+// The eBay enrichment path writes the eBay payoutId into raw_payload.payoutid;
+// when present it's ground truth for a Tier-1 exact match against a sale's
+// payout_reference. Shared by the scorer, the auto-match sweep, and the
+// candidate loader so the three can't drift.
+function extractPayoutId(payout: PayoutRow): string | null {
+  return typeof payout.raw_payload?.payoutid === "string"
+    ? (payout.raw_payload.payoutid as string)
+    : null;
+}
+
+type SaleCandidate = SaleCandidateRow & {
+  inventory_items: { user_id: string; title: string | null };
+};
+
+// US-1453: the candidate sales for reconciliation are the date-windowed set
+// (padded by DATE_WIDE_DAYS, used by the fuzzy amount/date scoring path) UNIONED
+// with any sale whose payout_reference EXACTLY equals a queued payout's payoutid,
+// regardless of the date window. A Tier-1 exact-id match is ground truth (score
+// 1.0); restricting it to the window meant funds held >14 days (outside the
+// window) had their guaranteed match excluded and the payout looked unmatchable.
+// Deduped by sale id. Throws on a DB error so the caller decides the response.
+async function loadCandidateSales(
+  userId: string,
+  payouts: PayoutRow[],
+): Promise<SaleCandidate[]> {
+  let minDate: number | null = null;
+  let maxDate: number | null = null;
+  for (const p of payouts) {
+    if (!p.payout_date) continue;
+    const t = new Date(p.payout_date).getTime();
+    if (Number.isNaN(t)) continue;
+    if (minDate == null || t < minDate) minDate = t;
+    if (maxDate == null || t > maxDate) maxDate = t;
+  }
+  const padMs = DATE_WIDE_DAYS * 24 * 60 * 60 * 1000;
+  const lowerIso =
+    minDate != null ? new Date(minDate - padMs).toISOString().slice(0, 10) : null;
+  const upperIso =
+    maxDate != null ? new Date(maxDate + padMs).toISOString().slice(0, 10) : null;
+
+  const select = SALE_CANDIDATE_COLUMNS + ", inventory_items!inner(user_id, title)";
+
+  // Date-windowed set for fuzzy scoring. Tenant-scoped via inventory_items.user_id.
+  let windowQuery = supabaseAdmin
+    .from("sales")
+    .select(select)
+    .eq("inventory_items.user_id", userId);
+  if (lowerIso) windowQuery = windowQuery.gte("sale_date", lowerIso);
+  if (upperIso) windowQuery = windowQuery.lte("sale_date", upperIso);
+  const { data: windowRaw, error: windowErr } = await windowQuery;
+  if (windowErr) throw windowErr;
+
+  const byId = new Map<string, SaleCandidate>();
+  for (const s of (windowRaw ?? []) as unknown as SaleCandidate[]) byId.set(s.id, s);
+
+  // US-1453: exact payout-id matches, window-independent.
+  const payoutIds = [
+    ...new Set(payouts.map(extractPayoutId).filter((v): v is string => !!v)),
+  ];
+  if (payoutIds.length > 0) {
+    const { data: exactRaw, error: exactErr } = await supabaseAdmin
+      .from("sales")
+      .select(select)
+      .eq("inventory_items.user_id", userId)
+      .in("payout_reference", payoutIds);
+    if (exactErr) throw exactErr;
+    for (const s of (exactRaw ?? []) as unknown as SaleCandidate[]) byId.set(s.id, s);
+  }
+
+  return [...byId.values()];
+}
+
 // Scoring: payout_reference exact match wins (1.0); otherwise we weigh
 // amount proximity (60%) and date proximity (40%). Anything under 0.3 is
 // noise — kept out of the candidate list so the UI isn't cluttered.
@@ -117,10 +189,7 @@ function scoreCandidate(
 
   // Tier 1: payout_id exact match — the eBay enrichment path writes this
   // directly so when it's set we have ground truth.
-  const payoutId =
-    typeof payout.raw_payload?.payoutid === "string"
-      ? (payout.raw_payload.payoutid as string)
-      : null;
+  const payoutId = extractPayoutId(payout);
   if (payoutId && sale.payout_reference === payoutId) {
     return { score: 1.0, reasons: ["payout id matches"] };
   }
@@ -221,51 +290,20 @@ flipdeskReconciliationRoutes.get("/queue", async (c) => {
     });
   }
 
-  // Find the date span of the queued payouts so the candidate-sale query
-  // doesn't have to scan the whole history. Pad by DATE_WIDE_DAYS on each
-  // side to catch slow-settling sales.
-  let minDate: number | null = null;
-  let maxDate: number | null = null;
-  for (const p of payouts) {
-    if (!p.payout_date) continue;
-    const t = new Date(p.payout_date).getTime();
-    if (Number.isNaN(t)) continue;
-    if (minDate == null || t < minDate) minDate = t;
-    if (maxDate == null || t > maxDate) maxDate = t;
-  }
-  const padMs = DATE_WIDE_DAYS * 24 * 60 * 60 * 1000;
-  const lowerIso =
-    minDate != null
-      ? new Date(minDate - padMs).toISOString().slice(0, 10)
-      : null;
-  const upperIso =
-    maxDate != null
-      ? new Date(maxDate + padMs).toISOString().slice(0, 10)
-      : null;
-
-  // Pull candidate sales: this user's sales in the date window, excluding
-  // sales already linked to a *different* reconciled payout (we keep ones
-  // with NULL payout_reference and ones matching a queued payoutId).
-  let saleQuery = supabaseAdmin
-    .from("sales")
-    .select(
-      SALE_CANDIDATE_COLUMNS + ", inventory_items!inner(user_id, title)",
-    )
-    .eq("inventory_items.user_id", userId);
-  if (lowerIso) saleQuery = saleQuery.gte("sale_date", lowerIso);
-  if (upperIso) saleQuery = saleQuery.lte("sale_date", upperIso);
-
-  const { data: salesRaw, error: salesErr } = await saleQuery;
-  if (salesErr) {
-    return c.json(
-      { error: "Failed to load candidate sales", detail: salesErr.message },
+  // Candidate sales: the date-windowed set for fuzzy scoring UNIONED with any
+  // window-independent exact payout-id matches (US-1453).
+  let sales: SaleCandidate[];
+  try {
+    sales = await loadCandidateSales(userId, payouts);
+  } catch (err) {
+    return failSafe(
+      c,
       500,
+      "Failed to load candidate sales",
+      err,
+      "reconciliation.queue",
     );
   }
-  type SaleRowWithItem = SaleCandidateRow & {
-    inventory_items: { user_id: string; title: string | null };
-  };
-  const sales = (salesRaw ?? []) as unknown as SaleRowWithItem[];
 
   const queue: QueueEntry[] = payouts.map((p) => {
     const scored: Candidate[] = [];
@@ -338,36 +376,19 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
     });
   }
 
-  // Same date-windowed sales fetch as /queue.
-  let minDate: number | null = null;
-  let maxDate: number | null = null;
-  for (const p of payouts) {
-    if (!p.payout_date) continue;
-    const t = new Date(p.payout_date).getTime();
-    if (Number.isNaN(t)) continue;
-    if (minDate == null || t < minDate) minDate = t;
-    if (maxDate == null || t > maxDate) maxDate = t;
+  // Same candidate set as /queue: date-windowed sales UNIONED with
+  // window-independent exact payout-id matches (US-1453). On a DB error we
+  // mirror the prior silent behavior (treat as no candidates) rather than 500
+  // the whole sweep — the queued rows simply stay for manual review.
+  type SaleRowWithItem = SaleCandidate;
+  let sales: SaleRowWithItem[] = [];
+  try {
+    sales = await loadCandidateSales(userId, payouts);
+  } catch (err) {
+    console.error(
+      `[reconciliation/run] loadCandidateSales failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
-  const padMs = DATE_WIDE_DAYS * 24 * 60 * 60 * 1000;
-  const lowerIso =
-    minDate != null ? new Date(minDate - padMs).toISOString().slice(0, 10) : null;
-  const upperIso =
-    maxDate != null ? new Date(maxDate + padMs).toISOString().slice(0, 10) : null;
-
-  let saleQuery = supabaseAdmin
-    .from("sales")
-    .select(
-      SALE_CANDIDATE_COLUMNS + ", inventory_items!inner(user_id)",
-    )
-    .eq("inventory_items.user_id", userId);
-  if (lowerIso) saleQuery = saleQuery.gte("sale_date", lowerIso);
-  if (upperIso) saleQuery = saleQuery.lte("sale_date", upperIso);
-
-  const { data: salesRaw } = await saleQuery;
-  type SaleRowWithItem = SaleCandidateRow & {
-    inventory_items: { user_id: string };
-  };
-  const sales = (salesRaw ?? []) as unknown as SaleRowWithItem[];
 
   // Build a per-payout "claimed sale" set so a single auto-match pass
   // doesn't double-assign one sale to two different payouts.
@@ -406,10 +427,7 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
 
     // Conflict guard mirrors /match — if the sale is already linked to a
     // different payoutId, leave it queued for manual review.
-    const payoutId =
-      typeof p.raw_payload?.payoutid === "string"
-        ? (p.raw_payload.payoutid as string)
-        : null;
+    const payoutId = extractPayoutId(p);
     if (
       top.sale.payout_reference &&
       payoutId &&
