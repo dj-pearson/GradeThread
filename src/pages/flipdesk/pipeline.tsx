@@ -110,9 +110,16 @@ function daysSince(iso: string | null | undefined): number | null {
   return Math.floor((Date.now() - t) / DAY_MS);
 }
 
+// US-1428: 'acquired' is a real early status with no column of its own, so an
+// item set to Acquired would silently vanish from the board. Surface it in the
+// Sourced column and treat it as sourced when advancing.
+function pipelineColumnFor(s: ItemStatus): ItemStatus {
+  return s === "acquired" ? "sourced" : s;
+}
+
 // The pipeline stage immediately after `s`, or null if `s` is last/off-pipeline.
 function nextPipelineStatus(s: ItemStatus): ItemStatus | null {
-  const idx = FLIPDESK_PIPELINE.findIndex((p) => p.status === s);
+  const idx = FLIPDESK_PIPELINE.findIndex((p) => p.status === pipelineColumnFor(s));
   if (idx < 0 || idx >= FLIPDESK_PIPELINE.length - 1) return null;
   return FLIPDESK_PIPELINE[idx + 1]?.status ?? null;
 }
@@ -240,7 +247,8 @@ export function FlipdeskPipelinePage() {
     const map = new Map<ItemStatus, ItemFullRow[]>();
     for (const step of FLIPDESK_PIPELINE) map.set(step.status, []);
     for (const it of items) {
-      const col = map.get(it.status);
+      // US-1428: acquired items fold into the Sourced column.
+      const col = map.get(pipelineColumnFor(it.status));
       if (!col) continue;
       if (
         categoryFilter !== "all" &&
@@ -271,6 +279,17 @@ export function FlipdeskPipelinePage() {
     for (const arr of groups.values()) out.push(...arr);
     return out;
   }, [groups]);
+
+  // US-1428: items in off-pipeline statuses (archived / keeping / wearing) have
+  // no board column — count them so we can surface an affordance instead of
+  // silently stranding them off the Kanban.
+  const offPipelineCount = useMemo(
+    () =>
+      items.filter(
+        (i) => !FLIPDESK_PIPELINE.some((p) => p.status === pipelineColumnFor(i.status)),
+      ).length,
+    [items],
+  );
 
   function selectAllMatching() {
     setSelectedIds(new Set(matchingItems.map((it) => it.id)));
@@ -607,6 +626,23 @@ export function FlipdeskPipelinePage() {
         </div>
       )}
 
+      {/* US-1428: off-pipeline (archived / personal) items aren't on the board —
+          surface a count + link so they're not invisibly stranded. */}
+      {!isLoading && !isError && offPipelineCount > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {offPipelineCount} off-pipeline item{offPipelineCount === 1 ? "" : "s"}{" "}
+          (archived or personal){" "}
+          {offPipelineCount === 1 ? "isn't" : "aren't"} shown on the board —{" "}
+          <Link
+            to="/dashboard/flipdesk/inventory"
+            className="font-medium text-brand-red-text hover:underline"
+          >
+            view in inventory
+          </Link>
+          .
+        </p>
+      )}
+
       {isError ? (
         <Card>
           <CardContent className="p-0">
@@ -667,7 +703,14 @@ export function FlipdeskPipelinePage() {
                     status={step.status}
                     label={step.label}
                     nextAction={step.nextAction}
-                    count={statusCounts?.[step.status] ?? colItems.length}
+                    count={
+                      // US-1428: the Sourced column also holds acquired items,
+                      // so fold the acquired count into its badge.
+                      step.status === "sourced"
+                        ? (statusCounts?.["sourced"] ?? colItems.length) +
+                          (statusCounts?.["acquired"] ?? 0)
+                        : statusCounts?.[step.status] ?? colItems.length
+                    }
                     limit={wipLimits[step.status]}
                   >
                     {colItems.length === 0 ? (

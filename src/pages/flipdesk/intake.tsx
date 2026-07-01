@@ -55,7 +55,7 @@ import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
-  ITEM_STATUSES,
+  INTAKE_STATUSES,
   ITEM_STATUS_LABELS,
 } from "@/lib/constants";
 import type {
@@ -691,7 +691,7 @@ export function FlipdeskIntakePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ITEM_STATUSES.map((s) => (
+                  {INTAKE_STATUSES.map((s) => (
                     <SelectItem key={s} value={s}>
                       {ITEM_STATUS_LABELS[s]}
                     </SelectItem>

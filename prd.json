@@ -8050,7 +8050,7 @@
         "Ensure batchMoveNext produces a sensible next stage for any status a user can set."
       ],
       "priority": 2187,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: src/lib/constants.ts:650-668; pipeline.tsx:240-262,113-117; intake.tsx:694-699."
     },
     {
@@ -8747,7 +8747,7 @@
         "Exclude grading/sold/shipped/completed/returned so they're only reachable via their proper flows."
       ],
       "priority": 1976,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: intake.tsx:694-699; pipeline-rules.ts:38-40."
     },
     {
