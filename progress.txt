@@ -17,6 +17,38 @@
   getGradingTemperature(). Verified no top_p/top_k were ever sent in the edge svc.
 - Shipped in PR #169 (merged) alongside batch 23.
 
+## 2026-07-01 — Pre-launch audit batch 25 (US-1434, US-1453) — gate Apple OAuth button + window-independent exact payout matches
+
+- US-1434 Verify Apple web OAuth is configured or hide the button before launch —
+  NOW COMPLETE (passes:true). "Continue with Apple" was live on login + signup and
+  calls the web redirect OAuth flow, which requires GoTrue's Apple provider set up
+  with a Services ID client + client-secret JWT; if that prod config isn't in place
+  the button errors for EVERY user. Added an explicit opt-in flag
+  appleOAuthEnabled = (VITE_APPLE_OAUTH_ENABLED === "true") in auth.ts (mirroring the
+  Turnstile captchaRequired Boolean-of-env pattern) and gated the Apple <Button> in
+  BOTH login.tsx and signup.tsx behind it — default (unset) hides the button (AC2).
+  Documented the var in .env.example. AC1 (confirm the prod GoTrue Apple config) and
+  AC3 (smoke-test the full web flow against prod) are OPERATIONAL launch-gate steps
+  for the operator — the code deliverable makes "hidden until verified" the safe
+  default so the button can never error pre-config. Google sign-in is NOT gated.
+
+- US-1453 Don't drop exact payout-id reconciliation matches outside the date window —
+  NOW COMPLETE (passes:true). Both /queue and /run fetched candidate sales ONLY within
+  the payout date window ±DATE_WIDE_DAYS (14d), so the guaranteed-correct Tier-1
+  payout-id exact match (score 1.0) could never fire for funds held >14 days — the
+  payout looked unmatchable. Extracted extractPayoutId() (DRY across the scorer, the
+  /run conflict guard, and the new loader) and a loadCandidateSales() helper that
+  UNIONS the date-windowed set (for fuzzy amount/date scoring) with any sale whose
+  payout_reference EXACTLY equals a queued payout's payoutid, regardless of window
+  (separate .in() query, deduped by sale id) — AC1. The date window now bounds only
+  the fuzzy path (AC2). Both routes call the shared helper so they can't drift; still
+  tenant-scoped via inventory_items.user_id (US-268). /queue surfaces a load failure
+  via failSafe; /run mirrors its prior silent-empty behavior.
+
+VERIFICATION (this container): frontend gate fully green — tsc -b clean, eslint 0
+errors, vitest 1015 pass, npm run build (incl. prerender, 45 routes) succeeded. The
+edge change (reconciliation union) is validated by the CI edge lane. Open backlog 109.
+
 ## 2026-07-01 — Pre-launch audit batch 24 (US-1427, US-1486) — Shopify sync watermark guard + branded editor prompts
 
 - US-1427 Stop advancing the Shopify sync watermark when order fetch/ingest fails —

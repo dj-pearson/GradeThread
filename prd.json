@@ -8128,7 +8128,7 @@
         "Smoke-test the full Apple web flow against prod before enabling."
       ],
       "priority": 2096,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · auth · auth audit] Evidence: src/lib/auth.ts:64-80; login.tsx:76-82,177-186; signup.tsx:164-177,360-369."
     },
     {
@@ -8368,7 +8368,7 @@
         "Keep the date window only for the fuzzy amount/date scoring path."
       ],
       "priority": 2077,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-reconciliation.ts:236-256,118-126,342-364."
     },
     {
