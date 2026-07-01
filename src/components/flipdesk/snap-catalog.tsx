@@ -41,6 +41,7 @@ import {
   type AiExtractResponse,
 } from "@/hooks/use-ai-extract";
 import type { AiFieldSource } from "@/types/database";
+import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 
 const DRAFT_TITLE = "Untitled draft";
 
@@ -186,6 +187,23 @@ export function SnapCatalog() {
             accepted: true,
           };
         }
+      }
+
+      // US-1423: derive garment_type/garment_category (which grading requires
+      // but Snap never captured) from the just-applied item_category, preferring
+      // any garment values the AI returned — so a snapped item can be graded
+      // without a manual re-classification in ItemCanvas. Only fill when absent.
+      const itemCategory =
+        typeof update.item_category === "string" ? update.item_category : null;
+      const garment = deriveGarmentDefaults(itemCategory, {
+        garment_type: aiResult?.suggestions?.garment_type?.value ?? null,
+        garment_category: aiResult?.suggestions?.garment_category?.value ?? null,
+      });
+      if (garment.garment_type && update.garment_type == null) {
+        update.garment_type = garment.garment_type;
+      }
+      if (garment.garment_category && update.garment_category == null) {
+        update.garment_category = garment.garment_category;
       }
 
       // Done populating aiSources — persist it now if anything's in there.

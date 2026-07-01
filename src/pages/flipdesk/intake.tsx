@@ -64,6 +64,7 @@ import type {
   ItemCategory,
   AiFieldSource,
 } from "@/types/database";
+import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 
 // Form fields the AI extractor can fill.
 const AI_FILLABLE_FIELDS = [
@@ -338,6 +339,16 @@ export function FlipdeskIntakePage() {
       }
       const hasAiFields = Object.keys(aiFieldSources).length > 0;
 
+      // US-1423: grading requires garment_type + garment_category, which intake
+      // never asked for — so every clothing item had to be re-classified in
+      // ItemCanvas before it could be graded. Derive them here (preferring any
+      // garment values the AI extractor returned) so catalog captures them once.
+      const itemCategory = form.item_category === "" ? null : form.item_category;
+      const garment = deriveGarmentDefaults(itemCategory, {
+        garment_type: aiResult?.suggestions?.garment_type?.value ?? null,
+        garment_category: aiResult?.suggestions?.garment_category?.value ?? null,
+      });
+
       const insert: InventoryItemInsert = {
         user_id: workspaceOwnerId,
         title: form.title.trim(),
@@ -348,7 +359,9 @@ export function FlipdeskIntakePage() {
         size: trimOrNull(form.size),
         color: trimOrNull(form.color),
         material: trimOrNull(form.material),
-        item_category: form.item_category === "" ? null : form.item_category,
+        item_category: itemCategory,
+        garment_type: garment.garment_type,
+        garment_category: garment.garment_category,
         source_id: sourceId,
         sourced_by: trimOrNull(form.sourced_by),
         acquired_date: form.purchase_date || null,

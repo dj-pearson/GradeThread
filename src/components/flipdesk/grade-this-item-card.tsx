@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Award,
@@ -40,6 +40,12 @@ import {
 } from "@/hooks/use-grading";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
+import {
+  deriveGarmentDefaults,
+  type GarmentType,
+  type GarmentCategory,
+} from "@/lib/garment-mapping";
 import type { ItemFullRow } from "@/types/database";
 
 const TIER_OPTIONS: GradingTier[] = ["standard", "premium", "express"];
@@ -81,6 +87,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
   );
   const validate = useValidateGrading();
   const submit = useSubmitForGrading();
+  const qc = useQueryClient();
   const [tier, setTier] = useState<GradingTier>("standard");
   const [validation, setValidation] = useState<ValidationItem | null>(null);
   const [planRemaining, setPlanRemaining] = useState<number | null>(null);
@@ -89,6 +96,13 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
     null,
   );
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  // US-1423: inline garment picker state (only shown when garment_type/
+  // garment_category are the sole thing blocking grading).
+  const [garmentType, setGarmentType] = useState<GarmentType | "">("");
+  const [garmentCategory, setGarmentCategory] = useState<GarmentCategory | "">(
+    "",
+  );
+  const [savingGarment, setSavingGarment] = useState(false);
 
   // US-1119: resolve the Garment Passport slug (if any) for a graded item from
   // the PII-free public view, so the graded card links the full provenance
@@ -180,6 +194,34 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
       } else {
         toast.error(e.message);
       }
+    }
+  }
+
+  // US-1423: persist the inline garment picker, then re-validate so the card
+  // flips straight to "Ready to grade" without a trip to ItemCanvas.
+  async function saveGarment(gt: GarmentType | "", gc: GarmentCategory | "") {
+    if (!gt || !gc) {
+      toast.error("Pick a garment type and category.");
+      return;
+    }
+    setSavingGarment(true);
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ garment_type: gt, garment_category: gc } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      const res = await validate.mutateAsync({
+        inventoryItemId: item.id,
+        tier,
+      });
+      setValidation(res.items[0] ?? null);
+      toast.success("Garment details saved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't save.");
+    } finally {
+      setSavingGarment(false);
     }
   }
 
@@ -312,6 +354,19 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
   const blockers = validation?.blockers ?? [];
   const lastFailed = latest && latest.status === "failed" ? latest : null;
 
+  // US-1423: when the garment fields are the ONLY thing blocking grading, show a
+  // one-tap inline picker instead of the amber "fix it in ItemCanvas" list.
+  // (Edge blocker strings are "Missing garment_type"/"Missing garment_category".)
+  const onlyGarmentBlocks =
+    blockers.length > 0 &&
+    blockers.every((b) => /garment_(type|category)/i.test(b));
+  // Seed the picker from item_category (a default the user can override) without
+  // a hook — this branch runs after conditional early returns.
+  const derivedGarment = deriveGarmentDefaults(item.category);
+  const effGarmentType = garmentType || derivedGarment.garment_type || "";
+  const effGarmentCategory =
+    garmentCategory || derivedGarment.garment_category || "";
+
   // Effective cost, mirroring the server precedence (grade-billing.ts):
   // Standard draws from the monthly included bundle first, then credits, then a
   // one-time charge; Premium/Express skip the included bundle (credits/charge).
@@ -372,18 +427,71 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
           </Select>
         </div>
 
-        {blockers.length > 0 && (
-          <ul className="space-y-1 rounded-md border border-amber-400/40 bg-amber-50 p-2 text-xs dark:bg-amber-950/20">
-            {blockers.map((b, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-1 text-amber-700 dark:text-amber-300"
+        {onlyGarmentBlocks ? (
+          <div className="space-y-2 rounded-md border border-amber-400/40 bg-amber-50 p-3 text-xs dark:bg-amber-950/20">
+            <p className="text-amber-700 dark:text-amber-300">
+              Grading needs a garment type and category. We&apos;ve pre-filled a
+              best guess from the item&apos;s category — confirm or adjust, then
+              save.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={effGarmentType}
+                onValueChange={(v) => setGarmentType(v as GarmentType)}
               >
-                <Clock className="mt-0.5 h-3 w-3 shrink-0" />
-                {b}
-              </li>
-            ))}
-          </ul>
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {GARMENT_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={effGarmentCategory}
+                onValueChange={(v) => setGarmentCategory(v as GarmentCategory)}
+              >
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {GARMENT_CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={savingGarment || !effGarmentType || !effGarmentCategory}
+                onClick={() => saveGarment(effGarmentType, effGarmentCategory)}
+              >
+                {savingGarment && (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                )}
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          blockers.length > 0 && (
+            <ul className="space-y-1 rounded-md border border-amber-400/40 bg-amber-50 p-2 text-xs dark:bg-amber-950/20">
+              {blockers.map((b, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-1 text-amber-700 dark:text-amber-300"
+                >
+                  <Clock className="mt-0.5 h-3 w-3 shrink-0" />
+                  {b}
+                </li>
+              ))}
+            </ul>
+          )
         )}
 
         <div className="flex items-center justify-between gap-3">

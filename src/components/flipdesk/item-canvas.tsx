@@ -64,6 +64,7 @@ import {
   GARMENT_CATEGORIES,
   REQUIRED_PHOTO_TYPES,
 } from "@/lib/constants";
+import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 import { useEbayReviseListing, type ReviseListingPatch } from "@/hooks/use-ebay";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
@@ -455,13 +456,25 @@ export function ItemCanvas({
           color: row.color ?? "",
           material: row.material ?? "",
         };
-        setState((s) => ({
-          ...s,
-          color: row.color ?? "",
-          material: row.material ?? "",
-          garment_type: row.garment_type ?? "",
-          garment_category: row.garment_category ?? "",
-        }));
+        setState((s) => {
+          // US-1423: if grading's garment fields were never captured at catalog,
+          // pre-seed the selects from item_category (a deterministic default the
+          // user can refine) instead of forcing a blank re-pick. Non-destructive
+          // — only fills when the stored value is null; nothing persists until
+          // the user hits Save.
+          const derived =
+            row.garment_type == null || row.garment_category == null
+              ? deriveGarmentDefaults(s.item_category || null)
+              : { garment_type: null, garment_category: null };
+          return {
+            ...s,
+            color: row.color ?? "",
+            material: row.material ?? "",
+            garment_type: row.garment_type ?? derived.garment_type ?? "",
+            garment_category:
+              row.garment_category ?? derived.garment_category ?? "",
+          };
+        });
         setHeavy((h) => ({
           ...h,
           ai_field_sources: row.ai_field_sources ?? null,

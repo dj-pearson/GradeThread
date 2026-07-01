@@ -7986,7 +7986,7 @@
         "Add a one-tap inline picker on GradeThisItemCard when only these two fields block grading."
       ],
       "priority": 2192,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: flipdesk-grading.ts:209-211; intake.tsx:69-78,341-361; snap-catalog.tsx:48-57; item-canvas.tsx:1206-1268."
     },
     {

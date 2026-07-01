@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1423: auto-fill garment_type/garment_category so grading stops re-asking
+
+The grading bridge requires garment_type AND garment_category (submissions.garment_type
+is NOT NULL; flipdesk-grading.ts buildValidation blocks on either), but intake / Snap &
+Catalog only captured item_category — so every clothing item had to be manually
+re-classified in ItemCanvas before it could be graded.
+
+- New src/lib/garment-mapping.ts: deriveGarmentType / deriveGarmentDefaults. Coarse
+  item_category → garment_type default (mirrors the edge ITEM_CATEGORY_FALLBACK in
+  marketplace-category.ts), + a safe per-type garment_category default ("other", or
+  "dress" for dresses). Prefers valid explicit (AI/user) values; returns nulls for
+  non-garment categories (electronics/books/cards) so we never fabricate a type. Unit
+  tested (src/lib/__tests__/garment-mapping.test.ts, 9 cases).
+- intake.tsx + snap-catalog.tsx: derive + persist garment_type/garment_category at
+  catalog (preferring any garment values the AI extractor returned in `suggestions`),
+  so the fields are captured once at creation.
+- item-canvas.tsx: the lazy-load effect pre-seeds the garment selects from item_category
+  when the stored values are null (AC2) — non-destructive, nothing persists until Save
+  (no autosave / no unsaved-changes guard, verified).
+- grade-this-item-card.tsx: when garment_type/garment_category are the SOLE grading
+  blocker, render a one-tap inline picker (pre-seeded from item_category) that saves +
+  re-validates in place (AC3) instead of bouncing the user to ItemCanvas.
+
+Verify: npx tsc -b ✓ · npx eslint (changed files) ✓ · npx vitest run → 1028 pass ✓
+· npm run build → 45 prerendered routes ✓. Frontend-only (edge grading gate unchanged).
+
 ## 2026-07-01 — US-1458 + US-1441: bulk grading from Kanban + Account-hub header dedup
 
 US-1458 — Fix Kanban bulk "Move to next status" dead-end at Photographed:
