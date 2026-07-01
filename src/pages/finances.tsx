@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialExport } from "@/components/finances/financial-export";
 import { ChartSkeleton } from "@/components/ui/skeletons";
@@ -121,12 +122,10 @@ export function FinancesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Finances</h1>
-        <p className="text-muted-foreground">
-          Financial overview and key metrics for your reselling business.
-        </p>
-      </div>
+      <PageHeader
+        title="Finances"
+        subtitle="Financial overview and key metrics for your reselling business."
+      />
 
       {/* Period toggle + Export */}
       <div className="flex flex-wrap items-center justify-between gap-4">

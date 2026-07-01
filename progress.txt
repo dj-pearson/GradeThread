@@ -2,6 +2,32 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 20 (US-1440, US-1485) — standardize PageHeader + stale-comment fix
+
+- US-1440 Standardize page headers on the shared PageHeader component — NOW
+  COMPLETE (passes:true). inventory.tsx, finances.tsx, inventory-add.tsx, and
+  price-suggestions.tsx hand-rolled the same div/h1 block, and team.tsx used
+  text-3xl (inconsistent with the shared text-2xl). Replaced all five with
+  <PageHeader title subtitle actions /> (AC1): inventory keeps its "Add Item"
+  action, team keeps "Invite member" (both via the actions slot), finances +
+  price-suggestions are title/subtitle only, and inventory-add keeps its Back
+  button above a PageHeader. Normalized team.tsx's two text-3xl headings to the
+  shared text-2xl (AC2). Skipped the optional lint guard (AC3) to avoid
+  false-positive churn.
+
+- US-1485 Correct stale 'listings has no user_id' comment in repricing apply —
+  NOW COMPLETE (passes:true). The /apply comment claimed listings has no user_id
+  and justified the parent-item join, but migration 00146 added a
+  trigger-maintained listings.user_id. Corrected the comment (noted a direct
+  .eq('user_id', ownerId) is now valid for trigger-covered rows) while KEEPING
+  the proven parent-join query — a direct filter would risk missing any rows
+  predating the backfill, which can't be verified here (AC1, comment-fix option).
+
+VERIFICATION (this container): web gate fully green — tsc -b clean, eslint 0
+errors, vitest 1015 pass, npm run build (incl. prerender, 45 routes) succeeded.
+The comment-only edge change is validated by the GitHub Actions edge lane. Open
+prd.json stories now 119.
+
 ## 2026-06-30 — Pre-launch audit batch 19 (US-1452, US-1488) — reconciliation cap notice + cross-listing picker audit
 
 - US-1452 Surface the 100-row cap on the reconciliation review queue — NOW

@@ -10,6 +10,7 @@ import {
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { QueryBoundary } from "@/components/ui/query-boundary";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -255,18 +256,16 @@ export function InventoryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Inventory</h1>
-          <p className="text-muted-foreground">
-            Manage your garment inventory and track item lifecycle.
-          </p>
-        </div>
-        <Button onClick={() => navigate("/dashboard/inventory/new")}>
-          <Plus className="mr-1 h-4 w-4" />
-          Add Item
-        </Button>
-      </div>
+      <PageHeader
+        title="Inventory"
+        subtitle="Manage your garment inventory and track item lifecycle."
+        actions={
+          <Button onClick={() => navigate("/dashboard/inventory/new")}>
+            <Plus className="mr-1 h-4 w-4" />
+            Add Item
+          </Button>
+        }
+      />
 
       {/* Filters */}
       <Card>
