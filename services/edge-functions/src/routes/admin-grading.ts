@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import {
   computeAccuracySummary,
@@ -274,7 +275,7 @@ adminGradingRoutes.get("/prompts", async (c) => {
     .from("ai_prompt_versions")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load prompts.", error, "admin.grading.prompts.list");
   return c.json({ prompts: data ?? [] });
 });
 
@@ -317,7 +318,7 @@ adminGradingRoutes.post("/prompts", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't save the prompt.", error, "admin.grading.prompts.create");
 
   await auditLog(c, "create_prompt_version", "ai_prompt_version", data.id, {
     version_name: versionName,
@@ -359,7 +360,7 @@ adminGradingRoutes.get("/sample-submissions", async (c) => {
     .select("submission_id, overall_score, grade_tier, created_at")
     .order("created_at", { ascending: false })
     .limit(limit * 3); // over-fetch: dedupe to one report per submission below
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load sample submissions.", error, "admin.grading.samples.list");
 
   // Keep the newest report per submission (the query is newest-first).
   const seen = new Map<string, { overall_score: number; grade_tier: string }>();
@@ -380,7 +381,7 @@ adminGradingRoutes.get("/sample-submissions", async (c) => {
     .from("submissions")
     .select("id, title, garment_type, garment_category")
     .in("id", ids);
-  if (subErr) return c.json({ error: subErr.message }, 500);
+  if (subErr) return failSafe(c, 500, "Couldn't load the submission.", subErr, "admin.grading.samples.sub");
 
   const byId = new Map(
     ((subs ?? []) as Array<{
@@ -459,7 +460,7 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
     .from("ai_prompt_versions")
     .update({ is_active: false })
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't deactivate the prompt.", error, "admin.grading.prompts.deactivate");
   // US-571: drop the now-removed override from every replica's prompt cache.
   await invalidatePromptCache();
   await auditLog(c, "deactivate_prompt_version", "ai_prompt_version", id, {});
@@ -590,7 +591,7 @@ adminGradingRoutes.get("/prompts/:id/canary", async (c) => {
     )
     .eq("id", id)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load canary status.", error, "admin.grading.canary.get");
   if (!row) return c.json({ error: "Prompt version not found" }, 404);
   // The concatenated SELECT string defeats supabase-js's static row inference, so
   // cast through unknown (the shape is the select by construction).
@@ -672,7 +673,7 @@ adminGradingRoutes.patch("/prompts/:id/canary", async (c) => {
     .select("id, stage, garment_scope, is_active, is_canary, eval_passed")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the prompt.", loadErr, "admin.grading.canary.load");
   if (!row) return c.json({ error: "Prompt version not found" }, 404);
   const v = row as {
     stage: string;
@@ -725,7 +726,7 @@ adminGradingRoutes.patch("/prompts/:id/canary", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't update the canary.", error, "admin.grading.canary.update");
 
   // Propagate the new routing to every replica's prompt cache immediately.
   await invalidatePromptCache();
@@ -778,7 +779,7 @@ adminGradingRoutes.patch("/listing-prompts/:id/trial", async (c) => {
     .select("id, stage, eval_passed, is_active")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the listing prompt.", loadErr, "admin.grading.listing.trial.load");
   if (!row) return c.json({ error: "Prompt version not found" }, 404);
   const v = row as { stage: string; eval_passed: boolean | null; is_active: boolean };
   if (v.stage !== "listing_gen") {
@@ -805,7 +806,7 @@ adminGradingRoutes.patch("/listing-prompts/:id/trial", async (c) => {
     .from("ai_prompt_versions")
     .update({ in_trial: inTrial, trial_started_at: inTrial ? new Date().toISOString() : null })
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't update the trial.", error, "admin.grading.listing.trial.update");
   await auditLog(c, "set_listing_prompt_trial", "ai_prompt_version", id, { in_trial: inTrial });
   return c.json({ ok: true, in_trial: inTrial });
 });
@@ -862,7 +863,7 @@ adminGradingRoutes.patch("/prompts/:id/shadow", async (c) => {
     .select("id, stage")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the prompt.", loadErr, "admin.grading.shadow.load");
   if (!row) return c.json({ error: "Prompt version not found" }, 404);
   if ((row as { stage: string }).stage !== "composite") {
     return c.json({ error: "Only composite-stage prompts can be shadowed" }, 422);
@@ -894,7 +895,7 @@ adminGradingRoutes.patch("/prompts/:id/shadow", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't update shadow mode.", error, "admin.grading.shadow.update");
   await auditLog(c, "set_prompt_shadow", "ai_prompt_version", id, update);
   return c.json({ prompt: data });
 });
@@ -914,7 +915,7 @@ adminGradingRoutes.get("/shadow/comparison", async (c) => {
     .eq("shadow_prompt_version_name", version)
     .gte("created_at", since)
     .limit(10_000);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the shadow comparison.", error, "admin.grading.shadow.comparison");
   const summary = summarizeComparisons((data ?? []) as ShadowRow[]);
   return c.json({ version, days, ...summary });
 });
@@ -935,7 +936,7 @@ adminGradingRoutes.get("/shadow/results", async (c) => {
     .limit(limit);
   if (version) q = q.eq("shadow_prompt_version_name", version);
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load shadow results.", error, "admin.grading.shadow.results");
   return c.json({ results: data ?? [] });
 });
 
@@ -947,7 +948,7 @@ adminGradingRoutes.get("/eval/cases", async (c) => {
     .from("grading_eval_cases")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load eval cases.", error, "admin.grading.eval.cases.list");
   return c.json({ cases: data ?? [] });
 });
 
@@ -996,7 +997,7 @@ adminGradingRoutes.post("/eval/cases", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't save the eval case.", error, "admin.grading.eval.cases.create");
 
   await auditLog(c, "create_eval_case", "grading_eval_case", data.id, { label });
   return c.json({ case: data }, 201);
@@ -1096,7 +1097,7 @@ adminGradingRoutes.patch("/eval/cases/:id", async (c) => {
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't update the eval case.", error, "admin.grading.eval.cases.update");
 
   await auditLog(c, "update_eval_case", "grading_eval_case", id, { fields: Object.keys(update) });
   return c.json({ case: data });
@@ -1106,7 +1107,7 @@ adminGradingRoutes.patch("/eval/cases/:id", async (c) => {
 adminGradingRoutes.delete("/eval/cases/:id", async (c) => {
   const id = c.req.param("id");
   const { error } = await supabaseAdmin.from("grading_eval_cases").delete().eq("id", id);
-  if (error) return c.json({ error: error.message }, 400);
+  if (error) return failSafe(c, 400, "Couldn't delete the eval case.", error, "admin.grading.eval.cases.delete");
   await auditLog(c, "delete_eval_case", "grading_eval_case", id, {});
   return c.json({ ok: true });
 });
@@ -1118,7 +1119,7 @@ adminGradingRoutes.get("/eval/runs", async (c) => {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(50);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load eval runs.", error, "admin.grading.eval.runs");
   return c.json({ runs: data ?? [] });
 });
 
@@ -1138,7 +1139,7 @@ adminGradingRoutes.get("/exemplars", async (c) => {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(100);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load exemplars.", error, "admin.grading.exemplars.list");
   return c.json({ sets: data ?? [] });
 });
 
@@ -1236,7 +1237,7 @@ adminGradingRoutes.get("/monitor/runs", async (c) => {
     .select("*")
     .order("created_at", { ascending: false })
     .limit(50);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load monitor runs.", error, "admin.grading.monitor.runs");
   return c.json({ runs: data ?? [] });
 });
 
@@ -1279,7 +1280,7 @@ adminGradingRoutes.post("/reliability/studies", async (c) => {
     .insert({ name, tolerance, created_by: userId })
     .select()
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the study.", error, "admin.grading.reliability.studies.create");
   await auditLog(c, "create_reliability_study", "reliability_study", data.id, {
     name,
     tolerance,
@@ -1293,7 +1294,7 @@ adminGradingRoutes.get("/reliability/studies", async (c) => {
     .from("reliability_studies")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load studies.", error, "admin.grading.reliability.studies.list");
 
   const ids = (studies ?? []).map((s) => s.id);
   const counts: Record<string, { items: number; ratings: number; reviewers: number }> = {};
@@ -1340,7 +1341,7 @@ adminGradingRoutes.post("/reliability/studies/:id/items", async (c) => {
   const { error } = await supabaseAdmin
     .from("reliability_study_items")
     .upsert(rows, { onConflict: "study_id,submission_id", ignoreDuplicates: true });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't add study items.", error, "admin.grading.reliability.items");
   await auditLog(c, "add_reliability_items", "reliability_study", studyId, {
     count: subIds.length,
   });
@@ -1503,7 +1504,7 @@ adminGradingRoutes.post("/reliability/studies/:id/ratings", async (c) => {
       odor_cleanliness_score: optionalScore(body.odor_cleanliness_score),
       notes: typeof body.notes === "string" ? body.notes : null,
     }, { onConflict: "study_id,submission_id,reviewer_id" });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't save the rating.", error, "admin.grading.reliability.ratings");
   return c.json({ ok: true });
 });
 
@@ -1514,7 +1515,7 @@ adminGradingRoutes.post("/reliability/studies/:id/close", async (c) => {
     .from("reliability_studies")
     .update({ status: "closed" })
     .eq("id", studyId);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't close the study.", error, "admin.grading.reliability.close");
   await auditLog(c, "close_reliability_study", "reliability_study", studyId, {});
   return c.json({ ok: true });
 });
@@ -1533,7 +1534,7 @@ adminGradingRoutes.post("/reliability/studies/:id/publish", async (c) => {
     .select("id, status")
     .eq("id", studyId)
     .maybeSingle();
-  if (studyErr) return c.json({ error: studyErr.message }, 500);
+  if (studyErr) return failSafe(c, 500, "Couldn't load the study.", studyErr, "admin.grading.reliability.publish.load");
   if (!study) return c.json({ error: "Study not found" }, 404);
   if (published && study.status !== "closed") {
     return c.json({ error: "Close the study before publishing it to transparency" }, 400);
@@ -1543,7 +1544,7 @@ adminGradingRoutes.post("/reliability/studies/:id/publish", async (c) => {
     .from("reliability_studies")
     .update({ published_to_transparency: published })
     .eq("id", studyId);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't publish the study.", error, "admin.grading.reliability.publish");
   await auditLog(c, "publish_reliability_study", "reliability_study", studyId, {
     published,
   });
@@ -1560,7 +1561,7 @@ adminGradingRoutes.get("/reliability/studies/:id/report", async (c) => {
     .select("*")
     .eq("id", studyId)
     .maybeSingle();
-  if (studyErr) return c.json({ error: studyErr.message }, 500);
+  if (studyErr) return failSafe(c, 500, "Couldn't load the study report.", studyErr, "admin.grading.reliability.report");
   if (!study) return c.json({ error: "Study not found" }, 404);
 
   const { data: itemRows } = await supabaseAdmin
