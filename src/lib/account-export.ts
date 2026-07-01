@@ -44,6 +44,18 @@ async function selectAllUntyped(table: string): Promise<unknown[]> {
 export async function buildAccountExport(
   onProgress: ExportProgress
 ): Promise<Blob> {
+  onProgress("Fetching profile…", 6);
+  // US-1442: include the user's own profile row (identity + business/ship-from
+  // details) so the new fields are part of the GDPR/CCPA export. RLS scopes
+  // `users` to self. Curated columns — no internal billing/subscription state.
+  const { data: profileRaw } = await supabase
+    .from("users")
+    .select(
+      "id, email, full_name, avatar_url, business_name, business_phone, ship_from_address, use_case, created_at, updated_at",
+    )
+    .maybeSingle();
+  const profile = profileRaw ?? null;
+
   onProgress("Fetching submissions…", 8);
   const { data: submissionsRaw, error: subErr } = await supabase
     .from("submissions")
@@ -162,6 +174,7 @@ export async function buildAccountExport(
     "This archive contains a copy of your personal data held by GradeThread,",
     "provided under GDPR (Art. 15/20) and CCPA. Each .json file is one record set:",
     "",
+    "  profile.json              your account profile (name, business & ship-from details)",
     "  submissions.json          your grading submissions (with image_paths)",
     "  grade_reports.json        the resulting grade reports",
     "  inventory.json            your FlipDesk inventory items",
@@ -189,6 +202,7 @@ export async function buildAccountExport(
 
   const zip = createZip([
     textFile("README.txt", readme),
+    jsonFile("profile.json", profile),
     jsonFile("submissions.json", submissionsWithImages),
     jsonFile("grade_reports.json", gradeReports),
     jsonFile("inventory.json", inventory),

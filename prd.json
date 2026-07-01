@@ -8231,7 +8231,7 @@
         "Confirm fields are tenant-scoped and included in the account data export."
       ],
       "priority": 2088,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ux · ux audit] Evidence: src/pages/settings.tsx:525-595; ship_from/business_name only in white-label-panel.tsx & edge api-keys.ts."
     },
     {

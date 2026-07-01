@@ -2,6 +2,33 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1442: business / ship-from profile fields (enter once, reuse)
+
+The Settings profile only stored full name + avatar; resellers had nowhere to
+store a business name/phone or ship-from address, so it was re-supplied per
+marketplace/shipping flow.
+
+- Migration 00325_user_business_shipping_profile.sql: adds nullable
+  users.business_name / business_phone (text) + ship_from_address (jsonb). On the
+  user's own RLS-scoped row (tenant-isolated, no new policy). Bumped edge
+  EXPECTED_SCHEMA_VERSION → "00325" (schema-version.ts) + self-record footer.
+- types/database.ts: new ShipFromAddress interface; UserRow + UserInsert gain the
+  three fields (UserUpdate is Partial<UserRow> so it's auto-covered).
+- settings.tsx: new "Business & Shipping" card in the Profile tab (business name,
+  phone, ship-from street/apt/city/state/ZIP/country) with its own save handler
+  that writes the jsonb address (partial fills allowed).
+- account-export.ts: the client "Export My Data" ZIP now includes profile.json
+  (curated identity + business/ship-from columns) — it previously omitted the
+  users row entirely; the edge /export already select(*)'d it. README updated.
+- marketplaces.tsx: EbayLocationDialog prefills ZIP/city/state from the saved
+  ship_from_address (seeds empty fields only, while open) — the concrete
+  "reduce repeated marketplace entry" win. (record-sale / post-sale collect no
+  seller address today, so there was nothing to prefill there.)
+
+Verify: npx tsc -b ✓ · npx eslint (changed files) ✓ · npx vitest run → 1028 pass ✓
+· npm run build → 45 prerendered routes ✓. Edge schema-version bump validated by
+the CI Deno lane (can't run deno locally).
+
 ## 2026-07-01 — US-1423: auto-fill garment_type/garment_category so grading stops re-asking
 
 The grading bridge requires garment_type AND garment_category (submissions.garment_type

@@ -185,9 +185,22 @@ function EbayLocationDialog({
   hasLocation: boolean;
 }) {
   const createLocation = useCreateEbayLocation();
+  const profile = useAuthStore((s) => s.profile);
   const [zip, setZip] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
+
+  // US-1442: prefill from the saved ship-from profile so the seller doesn't
+  // re-key their location here. Seeds only empty fields, and only while the
+  // dialog is open, so it never clobbers an in-progress edit.
+  useEffect(() => {
+    if (!open) return;
+    const addr = profile?.ship_from_address;
+    if (!addr) return;
+    if (addr.postal_code) setZip((z) => z || addr.postal_code!.trim());
+    if (addr.city) setCity((c) => c || addr.city!.trim());
+    if (addr.state) setState((s) => s || addr.state!.trim());
+  }, [open, profile]);
 
   const save = async () => {
     if (!/^\d{5}(-\d{4})?$/.test(zip.trim())) {

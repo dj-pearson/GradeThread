@@ -127,6 +127,21 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // US-1442: reseller business + ship-from profile, entered once and reused
+  // across marketplace/shipping flows.
+  const [businessName, setBusinessName] = useState(profile?.business_name ?? "");
+  const [businessPhone, setBusinessPhone] = useState(
+    profile?.business_phone ?? "",
+  );
+  const shipAddr = profile?.ship_from_address ?? null;
+  const [shipLine1, setShipLine1] = useState(shipAddr?.line1 ?? "");
+  const [shipLine2, setShipLine2] = useState(shipAddr?.line2 ?? "");
+  const [shipCity, setShipCity] = useState(shipAddr?.city ?? "");
+  const [shipState, setShipState] = useState(shipAddr?.state ?? "");
+  const [shipPostal, setShipPostal] = useState(shipAddr?.postal_code ?? "");
+  const [shipCountry, setShipCountry] = useState(shipAddr?.country ?? "US");
+  const [savingBusiness, setSavingBusiness] = useState(false);
+
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -253,6 +268,43 @@ export function SettingsPage() {
       toast.error(err instanceof Error ? err.message : "Failed to update profile");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // US-1442: persist the business + ship-from profile onto the user's own row
+  // (RLS-scoped). Stored as a jsonb address so a partial fill (e.g. just ZIP) is
+  // valid and can prefill the marketplace ship-from flows.
+  async function handleSaveBusiness() {
+    if (!user) return;
+    setSavingBusiness(true);
+    try {
+      const addr = {
+        line1: shipLine1.trim() || null,
+        line2: shipLine2.trim() || null,
+        city: shipCity.trim() || null,
+        state: shipState.trim() || null,
+        postal_code: shipPostal.trim() || null,
+        country: shipCountry.trim() || null,
+      };
+      const hasAddr = Object.values(addr).some((v) => v);
+      const updateData: UserUpdate = {
+        business_name: businessName.trim() || null,
+        business_phone: businessPhone.trim() || null,
+        ship_from_address: hasAddr ? addr : null,
+      };
+      const { error } = await supabase
+        .from("users")
+        .update(updateData as never)
+        .eq("id", user.id);
+      if (error) throw error;
+      await refreshProfile();
+      toast.success("Business & shipping details saved");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save business details",
+      );
+    } finally {
+      setSavingBusiness(false);
     }
   }
 
@@ -613,6 +665,116 @@ export function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+          {/* US-1442: Business & Shipping — entered once, reused across
+              marketplace/shipping flows (e.g. the eBay ship-from location). */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Business &amp; Shipping</CardTitle>
+              <CardDescription>
+                Your business details and ship-from address. Saved once and
+                reused when you list or ship, so you don&apos;t re-enter them per
+                marketplace.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="businessName">Business name</Label>
+                  <Input
+                    id="businessName"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    placeholder="Your store or business name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="businessPhone">Phone</Label>
+                  <Input
+                    id="businessPhone"
+                    type="tel"
+                    value={businessPhone}
+                    onChange={(e) => setBusinessPhone(e.target.value)}
+                    placeholder="(555) 555-5555"
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Ship-from address</p>
+                <p className="text-xs text-muted-foreground">
+                  Used as the default location for your listings and shipments.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="shipLine1">Street address</Label>
+                <Input
+                  id="shipLine1"
+                  value={shipLine1}
+                  onChange={(e) => setShipLine1(e.target.value)}
+                  placeholder="123 Main St"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="shipLine2">
+                  Apt / suite / unit (optional)
+                </Label>
+                <Input
+                  id="shipLine2"
+                  value={shipLine2}
+                  onChange={(e) => setShipLine2(e.target.value)}
+                  placeholder="Suite 200"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-2">
+                  <Label htmlFor="shipCity">City</Label>
+                  <Input
+                    id="shipCity"
+                    value={shipCity}
+                    onChange={(e) => setShipCity(e.target.value)}
+                    placeholder="Beverly Hills"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shipState">State / region</Label>
+                  <Input
+                    id="shipState"
+                    value={shipState}
+                    onChange={(e) => setShipState(e.target.value)}
+                    placeholder="CA"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shipPostal">ZIP / postal code</Label>
+                  <Input
+                    id="shipPostal"
+                    value={shipPostal}
+                    onChange={(e) => setShipPostal(e.target.value)}
+                    placeholder="90210"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shipCountry">Country</Label>
+                  <Input
+                    id="shipCountry"
+                    value={shipCountry}
+                    onChange={(e) => setShipCountry(e.target.value)}
+                    placeholder="US"
+                  />
+                </div>
+              </div>
+
+              <Button onClick={handleSaveBusiness} disabled={savingBusiness}>
+                {savingBusiness && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Save Changes
+              </Button>
+            </CardContent>
+          </Card>
 
         </TabsContent>
 

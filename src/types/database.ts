@@ -260,11 +260,27 @@ export interface NotificationPreferences {
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";
 
+// US-1442: reseller ship-from / return address, entered once in Settings and
+// reused across marketplace/shipping flows. All parts optional so a partial
+// address (e.g. just ZIP for the eBay location) is valid.
+export interface ShipFromAddress {
+  line1?: string | null;
+  line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+}
+
 export interface UserRow {
   id: string;
   email: string;
   full_name: string | null;
   avatar_url: string | null;
+  // US-1442: reseller business + ship-from profile (migration 00325).
+  business_name: string | null;
+  business_phone: string | null;
+  ship_from_address: ShipFromAddress | null;
   /** @deprecated legacy single-plan enum; use flipdesk_plan + grade_credit_balance (US-201/US-225). */
   plan: UserPlan;
   role: UserRole;
@@ -1960,6 +1976,10 @@ export interface UserInsert {
   email: string;
   full_name?: string | null;
   avatar_url?: string | null;
+  // US-1442: reseller business + ship-from profile (migration 00325).
+  business_name?: string | null;
+  business_phone?: string | null;
+  ship_from_address?: ShipFromAddress | null;
   /** @deprecated kept for legacy compatibility; new code should not set this. */
   plan?: UserPlan;
   role?: UserRole;
