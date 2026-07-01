@@ -8407,7 +8407,7 @@
         "Make Conflicts/observation writes idempotent."
       ],
       "priority": 2074,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-google-sync.ts:265,718,768-790."
     },
     {
@@ -8507,7 +8507,7 @@
         "Spot-check the rendered <title> and OG description."
       ],
       "priority": 1996,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · grading · grading audit] Evidence: src/pages/certificate.tsx:478-479; contrast 594,327-329."
     },
     {

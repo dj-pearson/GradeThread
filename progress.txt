@@ -2,6 +2,37 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 23 (US-1464, US-1456) — cert OG score format + Sheets sync lock TTL
+
+- US-1464 Format the overall score in the certificate SEO/OG title — NOW COMPLETE
+  (passes:true). certificate.tsx's <SEO> title/description interpolated the raw
+  gradeReport.overall_score (the document.title useEffect already used toFixed(1)).
+  Switched both to overall_score.toFixed(1) (AC1). Also normalized the JSON-LD
+  reviewRating.ratingValue to Number(overallScore.toFixed(1)) in BOTH the SPA
+  builder (src/lib/seo/json-ld.ts certificateLd) AND the SSR mirror
+  (functions/_shared/blog-render.ts certificateProductLd) so they stay
+  byte-identical — the SSR/SPA equivalence test (json-ld.test.ts) still passes
+  (a no-op for the 0.1-rounded scores). (AC2 spot-check via the passing SEO tests.)
+
+- US-1456 Make Google Sheets sync lock TTL exceed scheduler cadence — NOW COMPLETE
+  (passes:true). syncUserSheet leased the per-user lock (gsheet-sync:<user>) for
+  only 240s, but a merge running >240s could have the lease expire mid-run and let
+  the next 5-min scheduler tick (or a /sync/now) start a concurrent double-merge.
+  Raised the lease to 900s (15 min) — comfortably beyond worst-case merge + the
+  5-min cadence; the finally-block still releases immediately on normal completion,
+  so the TTL only bounds a crash/hang (AC1). AC2: BOTH the scheduled path
+  (handleSyncJob) and /sync/now call syncUserSheet, so this single per-user lock
+  already serializes them — verified + documented. AC3: the snapshot
+  (google_sheet_sync_state) + cross-source-observation (flipdesk_sync_conflicts)
+  writes are already idempotent upserts, so with concurrency now prevented the
+  Conflicts-tab double-append window is closed.
+
+VERIFICATION (this container): web gate fully green — tsc -b clean, eslint 0
+errors, vitest 1015 pass (incl. the SPA/SSR JSON-LD equivalence test), npm run
+build (incl. prerender, 45 routes) succeeded. The edge change
+(flipdesk-google-sync.ts lock TTL) is validated by the GitHub Actions edge lane.
+Open prd.json stories now 113.
+
 ## 2026-06-30 — Pre-launch audit batch 22 (US-1451, US-1489) — restore inventory on refund + document deps suppressions
 
 - US-1451 Restore inventory/listing state when a return is refunded or

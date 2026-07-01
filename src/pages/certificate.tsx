@@ -501,8 +501,8 @@ export function CertificatePage() {
   return (
     <div className="min-h-screen bg-background">
       <SEO
-        title={`Grade Certificate - ${gradeReport.grade_tier} (${gradeReport.overall_score}/10)`}
-        description={`Verified GradeThread grade certificate for ${submission?.title ?? "garment"}. Grade: ${gradeReport.grade_tier} (${gradeReport.overall_score}/10).`}
+        title={`Grade Certificate - ${gradeReport.grade_tier} (${gradeReport.overall_score.toFixed(1)}/10)`}
+        description={`Verified GradeThread grade certificate for ${submission?.title ?? "garment"}. Grade: ${gradeReport.grade_tier} (${gradeReport.overall_score.toFixed(1)}/10).`}
         ogType="product"
         canonicalUrl={`https://gradethread.com/cert/${id}`}
         jsonLd={[
