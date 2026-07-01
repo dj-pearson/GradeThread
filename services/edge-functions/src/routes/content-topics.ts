@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import {
   findDuplicateKeywords,
   isKeywordDuplicate,
@@ -43,7 +44,7 @@ contentTopicsRoutes.get("/", async (c) => {
   if (status) q = q.eq("status", status);
 
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load topics.", error, "content.topics.list");
   return c.json({ topics: data ?? [] });
 });
 
@@ -53,7 +54,7 @@ contentTopicsRoutes.get("/counts", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("content_topics")
     .select("surface, product_focus, status");
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load topic counts.", error, "content.topics.counts");
 
   const counts: Record<string, number> = {};
   for (const row of data ?? []) {
@@ -116,7 +117,7 @@ contentTopicsRoutes.post("/bulk", async (c) => {
       })),
     )
     .select("*");
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't save the topics.", error, "content.topics.bulk");
   return c.json({
     inserted: data?.length ?? 0,
     rejected: body.candidates.length - (data?.length ?? 0),
@@ -132,7 +133,7 @@ contentTopicsRoutes.post("/:id/reject", async (c) => {
     .eq("id", c.req.param("id"))
     .select("*")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't reject the topic.", error, "content.topics.reject");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ topic: data });
 });
@@ -147,7 +148,7 @@ contentTopicsRoutes.post("/:id/promote", async (c) => {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the topic.", loadErr, "content.topics.promote.load");
   if (!topic) return c.json({ error: "Not found" }, 404);
   if (topic.status !== "queued") {
     return c.json({ error: `topic status is ${topic.status}, not queued` }, 409);
@@ -189,7 +190,7 @@ contentTopicsRoutes.post("/:id/promote", async (c) => {
       })
       .select("*")
       .single();
-    if (insErr) return c.json({ error: insErr.message }, 500);
+    if (insErr) return failSafe(c, 500, "Couldn't promote the topic.", insErr, "content.topics.promote");
 
     await supabaseAdmin
       .from("content_topics")
@@ -209,7 +210,7 @@ contentTopicsRoutes.post("/:id/promote", async (c) => {
     })
     .select("*")
     .single();
-  if (insErr) return c.json({ error: insErr.message }, 500);
+  if (insErr) return failSafe(c, 500, "Couldn't promote the topic.", insErr, "content.topics.promote");
   await supabaseAdmin
     .from("content_topics")
     .update({ status: "assigned" })
@@ -330,7 +331,7 @@ contentTopicsRoutes.post("/research", async (c) => {
         })),
       )
       .select("*");
-    if (error) return c.json({ error: error.message }, 500);
+    if (error) return failSafe(c, 500, "Couldn't save research topics.", error, "content.topics.research");
 
     return c.json({
       inserted: data?.length ?? 0,

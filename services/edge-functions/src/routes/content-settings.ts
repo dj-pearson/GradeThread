@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import {
   dispatchContentWebhook,
   signContentBody,
@@ -23,7 +24,7 @@ contentSettingsRoutes.get("/", async (c) => {
     .select("*")
     .eq("id", SETTINGS_ID)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load content settings.", error, "content.settings.get");
   if (!data) {
     // Self-heal: if the migration's seed row was deleted, recreate it.
     const { data: created, error: insErr } = await supabaseAdmin
@@ -31,7 +32,7 @@ contentSettingsRoutes.get("/", async (c) => {
       .insert({ id: SETTINGS_ID })
       .select("*")
       .single();
-    if (insErr) return c.json({ error: insErr.message }, 500);
+    if (insErr) return failSafe(c, 500, "Couldn't initialize content settings.", insErr, "content.settings.init");
     return c.json({ settings: created });
   }
   return c.json({ settings: data });
@@ -123,7 +124,7 @@ contentSettingsRoutes.patch("/", async (c) => {
     .upsert({ id: SETTINGS_ID, ...patch }, { onConflict: "id" })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't save content settings.", error, "content.settings.update");
   return c.json({ settings: data });
 });
 
@@ -257,7 +258,7 @@ contentSettingsRoutes.get("/webhooks/log", async (c) => {
     .limit(50);
   if (onlyFailed) q = q.eq("succeeded", false);
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the webhook log.", error, "content.settings.webhooks.log");
   return c.json({ deliveries: data ?? [] });
 });
 
@@ -271,7 +272,7 @@ contentSettingsRoutes.post("/webhooks/:logId/retry", async (c) => {
     .select("event, format, payload")
     .eq("id", logId)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't retry the webhook.", error, "content.settings.webhooks.retry");
   if (!row) return c.json({ error: "Log row not found" }, 404);
 
   try {
@@ -308,7 +309,7 @@ contentSettingsRoutes.post("/webhooks/test", async (c) => {
     .select("*")
     .eq("id", SETTINGS_ID)
     .maybeSingle();
-  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (loadErr) return failSafe(c, 500, "Couldn't load the webhook config.", loadErr, "content.settings.webhooks.test");
   if (!settings) return c.json({ error: "Settings row missing" }, 500);
 
   const url =

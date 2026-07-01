@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 
 // Author-entity CRUD (US-874). Admin-only (mounted behind authMiddleware +
@@ -57,7 +58,7 @@ contentAuthorsRoutes.get("/", async (c) => {
     .from("content_authors")
     .select(AUTHOR_COLUMNS)
     .order("name", { ascending: true });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load authors.", error, "content.authors.list");
   return c.json({ authors: data ?? [] });
 });
 
@@ -69,7 +70,7 @@ contentAuthorsRoutes.get("/:id", async (c) => {
     .select(AUTHOR_COLUMNS)
     .eq("id", id)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the author.", error, "content.authors.get");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ author: data });
 });
@@ -95,7 +96,7 @@ contentAuthorsRoutes.post("/", async (c) => {
     })
     .select(AUTHOR_COLUMNS)
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the author.", error, "content.authors.create");
 
   await writeAuditLog(c, {
     action: "content.author_create",
@@ -132,7 +133,7 @@ contentAuthorsRoutes.patch("/:id", async (c) => {
     .eq("id", id)
     .select(AUTHOR_COLUMNS)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the author.", error, "content.authors.update");
   if (!data) return c.json({ error: "Not found" }, 404);
 
   await writeAuditLog(c, {
@@ -158,7 +159,7 @@ contentAuthorsRoutes.delete("/:id", async (c) => {
     .from("content_authors")
     .delete()
     .eq("id", id);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the author.", error, "content.authors.delete");
   await writeAuditLog(c, {
     action: "content.author_delete",
     targetType: "content_author",

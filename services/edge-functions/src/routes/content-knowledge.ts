@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 
 // Knowledge docs CRUD. These are the CLAUDE.md-style reference docs
 // loaded into every AI prompt to keep voice/style consistent. The
@@ -27,7 +28,7 @@ contentKnowledgeRoutes.get("/", async (c) => {
     .from("content_knowledge")
     .select("id, key, title, token_count_est, updated_at")
     .order("key", { ascending: true });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load knowledge entries.", error, "content.knowledge.list");
   return c.json({ docs: data ?? [] });
 });
 
@@ -38,7 +39,7 @@ contentKnowledgeRoutes.get("/:key", async (c) => {
     .select("*")
     .eq("key", c.req.param("key"))
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load the knowledge entry.", error, "content.knowledge.get");
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ doc: data });
 });
@@ -66,7 +67,7 @@ contentKnowledgeRoutes.put("/:key", async (c) => {
     )
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't save the knowledge entry.", error, "content.knowledge.save");
   return c.json({ doc: data });
 });
 
@@ -76,6 +77,6 @@ contentKnowledgeRoutes.delete("/:key", async (c) => {
     .from("content_knowledge")
     .delete()
     .eq("key", c.req.param("key"));
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't delete the knowledge entry.", error, "content.knowledge.delete");
   return c.json({ ok: true });
 });
