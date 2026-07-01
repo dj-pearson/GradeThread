@@ -2,6 +2,34 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 19 (US-1452, US-1488) — reconciliation cap notice + cross-listing picker audit
+
+- US-1452 Surface the 100-row cap on the reconciliation review queue — NOW
+  COMPLETE (passes:true). The edge /queue caps unreconciled payouts (default 100)
+  and returns total/has_more/limit, but useReconciliationQueue discarded all but
+  the array so >100 were silently hidden/unmatchable. Changed the hook to return
+  { queue, total, hasMore, limit }; the ReviewQueueCard header badge now shows the
+  true total, and when hasMore it renders a "Showing the first N of M unreconciled
+  payouts — run Auto-match…" notice (AC1). AC2 drain: the existing Auto-match
+  (useReconciliationRun) already sweeps ALL unreconciled payouts server-side (not
+  just the loaded page) and invalidates the queue so it re-fetches; the notice
+  points sellers at it as the drain-beyond-cap path.
+
+- US-1488 Drive the cross-listing composer picker from live marketplaces only —
+  NOW COMPLETE (passes:true). VERIFIED already resolved by prior US-717/US-1114
+  work: the composer "Push to" picker is driven from API_CROSS_LISTING_PLATFORMS
+  (real server publish; api_pending like Depop shown DISABLED with honest copy) +
+  EXTENSION_CROSS_LISTING_PLATFORMS (display-only badge "Via browser extension",
+  never a pushable checkbox) — so a seller can't select a channel that does
+  nothing externally (AC1), and the mechanism is shown in the picker BEFORE any
+  push (AC2). Confirmed the raw CROSS_LISTING_PLATFORMS is used only for the
+  type/hook payload, nowhere as a pushable control; added a guard comment on it so
+  a future dev doesn't re-introduce the stub-channel picker.
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors, vitest 1015 pass, npm run build (incl. prerender, 45
+routes) succeeded. Open prd.json stories now 121.
+
 ## 2026-06-30 — Pre-launch audit batch 18 (US-1478, US-1450) — sold-comp target price + measurements → eBay specifics
 
 - US-1478 Apply sold-comp recommendation (not active-ask median) as target price —
