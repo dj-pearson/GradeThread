@@ -2,6 +2,31 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-07-01
 
+## 2026-07-01 — US-1476: legacy Trading API deprecation watch (audit/doc)
+
+eBay is decommissioning the legacy Trading XML API; we still use several calls
+(ebay-trading.ts). Delivered the standing watch this story asks for:
+- New docs/EBAY_TRADING_API_WATCH.md: a registry of every Trading call we make
+  (GetMyeBaySelling, GetItem, GetBestOffers, RespondToBestOffer, GetMemberMessages,
+  AddMemberMessageRTQ, LeaveFeedback, GetOrders) with purpose, REST-equivalent
+  status, and migration stance; plus the review cadence (eBay has NO API for
+  deprecation status, so the "recurring check" is a documented per-release-notes
+  human review against developer.ebay.com/support/api-status).
+- AC2 (prefer REST where equivalents exist): documented + confirmed that the
+  primary order/sale sync already uses REST (ebay-client.listRecentOrders /
+  Fulfillment getOrders); the sole remaining Trading order call
+  (getOrderLegacyLineItems) is retained ONLY for the legacy TransactionID/ItemID
+  the REST order API doesn't expose, which the REST-less Best-Offer / member-
+  message / feedback Trading flows require. Best Offers stays on Trading because
+  sell.negotiation isn't on our prod keyset (cross-ref US-1421); messaging +
+  feedback have no REST equivalent at all.
+- Added a US-1476 pointer comment atop ebay-trading.ts so the registry is
+  discoverable from the code.
+
+Verify: doc + a code comment only (no functional change); edge comment validated
+by the CI Deno lane. The "recurring check" is a documented human cadence — no
+eBay API exists to automate a deprecation-status poll.
+
 ## 2026-07-01 — US-1446: payout-level reconciliation via Finances getPayouts (2 chunks)
 
 Reconciliation read /sell/finances/v1/transaction only (per-sale fees) — couldn't

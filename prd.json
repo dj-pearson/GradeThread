@@ -8651,7 +8651,7 @@
         "Where REST equivalents exist (orders -> Fulfillment getOrders, which we already have), prefer REST and keep Trading only for genuinely REST-less ops (best offers, member messages, feedback)."
       ],
       "priority": 1984,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · ebay · ebay coverage audit] Evidence: ebay-trading.ts; https://developer.ebay.com/develop/get-started/api-deprecation-status"
     },
     {
