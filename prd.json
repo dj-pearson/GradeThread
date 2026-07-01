@@ -8037,7 +8037,7 @@
         "Test: listPaidOrders throws => last_synced_at unchanged."
       ],
       "priority": 2188,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · HIGH · flipdesk · flipdesk audit] Evidence: services/edge-functions/src/routes/flipdesk-shopify.ts:326-345."
     },
     {
@@ -8771,7 +8771,7 @@
         "Confirm no other production path uses native alert/prompt."
       ],
       "priority": 1974,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: src/components/content/tiptap-toolbar.tsx:92,99."
     },
     {

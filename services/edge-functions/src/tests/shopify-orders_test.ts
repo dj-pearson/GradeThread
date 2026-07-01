@@ -13,9 +13,19 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { parseShopifyWebhookOrder, refundStatusForOrder } = await import(
-  "../lib/shopify-orders.ts"
-);
+const { parseShopifyWebhookOrder, refundStatusForOrder, ingestPaidOrdersSince } =
+  await import("../lib/shopify-orders.ts");
+
+import type { ShopifyOrder } from "../lib/shopify-client.ts";
+import type { ShopifyOrderIngestResult } from "../lib/shopify-orders.ts";
+
+const emptyIngest: ShopifyOrderIngestResult = {
+  salesNew: 0,
+  payoutsNew: 0,
+  soldFlipped: 0,
+  statusUpdated: 0,
+  errors: [],
+};
 
 Deno.test("parseShopifyWebhookOrder maps the webhook order resource", () => {
   const order = parseShopifyWebhookOrder({
@@ -47,6 +57,46 @@ Deno.test("parseShopifyWebhookOrder returns null without an order id", () => {
   assertEquals(parseShopifyWebhookOrder(null), null);
   assertEquals(parseShopifyWebhookOrder({}), null);
   assertEquals(parseShopifyWebhookOrder({ name: "#1" }), null);
+});
+
+// US-1427: the /listings/pull watermark (last_synced_at) must advance ONLY when
+// the paid-order fetch+ingest completed without a fatal error. ingestPaidOrdersSince
+// returns `ok`, which the handler uses to gate the stamp — so these lock the gate.
+Deno.test("ingestPaidOrdersSince returns ok:false when listPaidOrders throws (watermark stays put)", async () => {
+  let ingestCalls = 0;
+  const res = await ingestPaidOrdersSince("user-1", "shop", "token", "2026-01-01T00:00:00Z", {
+    listPaidOrders: () => {
+      throw new Error("shopify 503 Service Unavailable");
+    },
+    ingestShopifyOrder: () => {
+      ingestCalls++;
+      return Promise.resolve(emptyIngest);
+    },
+  });
+  assertEquals(res.ok, false);
+  assertEquals(ingestCalls, 0);
+  assert(res.errors.some((e) => e.includes("503")));
+});
+
+Deno.test("ingestPaidOrdersSince returns ok:true and totals on a clean fetch+ingest", async () => {
+  const order: ShopifyOrder = {
+    id: "9001",
+    name: "#9001",
+    financialStatus: "paid",
+    totalPrice: 42,
+    processedAt: "2026-06-14T00:00:00Z",
+    cancelledAt: null,
+    lineItems: [],
+  };
+  const res = await ingestPaidOrdersSince("user-1", "shop", "token", "2026-01-01T00:00:00Z", {
+    listPaidOrders: () => Promise.resolve([order, order]),
+    ingestShopifyOrder: () =>
+      Promise.resolve({ ...emptyIngest, salesNew: 1, payoutsNew: 1 }),
+  });
+  assertEquals(res.ok, true);
+  assertEquals(res.salesNew, 2);
+  assertEquals(res.payoutsNew, 2);
+  assertEquals(res.errors, []);
 });
 
 Deno.test("refundStatusForOrder maps cancel/refund to terminal status (AC5)", () => {
