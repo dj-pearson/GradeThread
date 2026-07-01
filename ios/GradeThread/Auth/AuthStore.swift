@@ -285,10 +285,15 @@ public final class AuthStore {
             } else {
                 phase = .signedOut
                 Telemetry.clearUser()
+                // No live session → forget any stored Apple credential id so a
+                // later email/password sign-in on this device can't inherit a
+                // stale revocation check (re-recorded on the next Apple sign-in).
+                AppleCredentialMonitor.clear()
             }
         case .signedOut:
             phase = .signedOut
             Telemetry.clearUser()
+            AppleCredentialMonitor.clear()
         case .passwordRecovery:
             // Recovery flows pop the user back to LoginView; let the next
             // event drive the actual phase change.

@@ -28,10 +28,22 @@ enum AppleCredentialMonitor {
         UserDefaults.standard.string(forKey: userIdKey)
     }
 
-    /// True when there's a stored Apple credential and Apple now reports it as
-    /// `.revoked` or `.notFound`. `.authorized` (still good) and `.transferred`
-    /// return false; no stored id also returns false. Uses the callback API
-    /// (guaranteed available) bridged to async.
+    /// True ONLY when there's a stored Apple credential and Apple definitively
+    /// reports it as `.revoked`. No stored id returns false.
+    ///
+    /// We deliberately do NOT treat `.notFound` as revoked. `.notFound` is
+    /// returned transiently whenever `getCredentialState` can't confirm the
+    /// credential — offline, Apple ID server unreachable, the user momentarily
+    /// signed out of their Apple ID on the device, or plain timing on a cold
+    /// foreground. Because this check runs on EVERY foreground, treating a
+    /// transient `.notFound` as revocation signed users out roughly daily (the
+    /// symptom `IOS_APP_REVIEW_AUDIT_2026-06-30.md` flagged) — and, since a
+    /// stored id can linger after an Apple session ends, it could even sign out a
+    /// later email/password session on the same device. Only `.revoked` is the
+    /// definitive "user revoked us under Settings → Apple ID" signal; a genuinely
+    /// deleted credential also fails the GoTrue refresh, so the SDK's own
+    /// refresh-failure path (not this heuristic) is the authority for a dead
+    /// session. `.authorized`, `.transferred`, and `.notFound` all return false.
     static func isRevoked() async -> Bool {
         guard let userId = storedUserId else { return false }
         let state: ASAuthorizationAppleIDProvider.CredentialState =
@@ -41,7 +53,7 @@ enum AppleCredentialMonitor {
                 }
             }
         switch state {
-        case .revoked, .notFound:
+        case .revoked:
             return true
         default:
             return false
