@@ -955,9 +955,15 @@ export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], stri
   other: "Other",
 };
 
-// Platforms selectable in the composer's "Push to" control (US-149). eBay and
-// Shopify (US-599) publish live via real APIs; the others create local listings
-// rows via stub adapters until their integrations ship.
+// Cross-listing platform id space (backs the CrossListingPlatform type + the
+// cross-push hook payload).
+//
+// US-1488: do NOT drive the composer's "Push to" picker from this raw list — it
+// mixes real API channels with extension-only ones. The picker is driven by
+// API_CROSS_LISTING_PLATFORMS (real server publish, with api_pending shown
+// disabled) + EXTENSION_CROSS_LISTING_PLATFORMS (listed via the browser
+// extension, shown with an honest mechanism badge — never a pushable checkbox),
+// so a seller can't select a channel that does nothing externally.
 export const CROSS_LISTING_PLATFORMS = [
   "ebay",
   "shopify",

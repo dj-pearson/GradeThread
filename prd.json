@@ -8356,7 +8356,7 @@
         "Provide a way to drain beyond the cap (auto-match sweep + re-fetch, or pagination)."
       ],
       "priority": 2078,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: flipdesk-reconciliation.ts:50,201-306; reconciliation.tsx:1053-1089,247-252."
     },
     {
@@ -8795,7 +8795,7 @@
         "If keeping them, show the 'ships soon' copy in the picker before the push, not only after."
       ],
       "priority": 1972,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · hygiene · hygiene audit] Evidence: src/lib/constants.ts:944,954; composer.tsx:767-779."
     },
     {

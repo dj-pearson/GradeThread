@@ -72,12 +72,23 @@ export interface QueueEntry {
   candidates: QueueCandidate[];
 }
 
+// US-1452: the edge /queue caps the returned rows (default 100) and reports the
+// true unreconciled total + has_more so the UI can flag that rows are hidden and
+// point the seller at the Auto-match sweep (which processes ALL of them
+// server-side, not just the loaded page).
+export interface ReconciliationQueue {
+  queue: QueueEntry[];
+  total: number;
+  hasMore: boolean;
+  limit: number;
+}
+
 export function useReconciliationQueue() {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: ["reconciliation_queue", user?.id],
     enabled: !!user,
-    queryFn: async (): Promise<QueueEntry[]> => {
+    queryFn: async (): Promise<ReconciliationQueue> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/reconciliation/queue`,
         { headers: await edgeAuthHeaders() },
@@ -86,7 +97,13 @@ export function useReconciliationQueue() {
       if (!res.ok) {
         throw new Error(json.error || "Failed to load reconciliation queue.");
       }
-      return (json.queue ?? []) as QueueEntry[];
+      const queue = (json.queue ?? []) as QueueEntry[];
+      return {
+        queue,
+        total: typeof json.total === "number" ? json.total : queue.length,
+        hasMore: json.has_more === true,
+        limit: typeof json.limit === "number" ? json.limit : queue.length,
+      };
     },
   });
 }

@@ -133,7 +133,8 @@ export function ReconciliationPayoutsTab() {
   const importPayouts = useImportPayoutsCsv();
   const { data: payoutImports = [], isLoading: payoutsLoading } =
     usePayoutImports();
-  const { data: queue = [], isLoading: queueLoading } = useReconciliationQueue();
+  const { data: queueData, isLoading: queueLoading } = useReconciliationQueue();
+  const queue = queueData?.queue ?? [];
 
   async function handlePayoutFile(file: File) {
     setImporting(true);
@@ -329,7 +330,13 @@ export function ReconciliationPayoutsTab() {
           )}
 
           {/* Review queue */}
-          <ReviewQueueCard queue={queue} loading={queueLoading} />
+          <ReviewQueueCard
+            queue={queue}
+            loading={queueLoading}
+            total={queueData?.total ?? queue.length}
+            hasMore={queueData?.hasMore ?? false}
+            limit={queueData?.limit ?? queue.length}
+          />
 
           {/* Discrepancies */}
           <Card>
@@ -986,9 +993,15 @@ function SyncHistoryCard() {
 function ReviewQueueCard({
   queue,
   loading,
+  total,
+  hasMore,
+  limit,
 }: {
   queue: QueueEntry[];
   loading: boolean;
+  total: number;
+  hasMore: boolean;
+  limit: number;
 }) {
   const matchMutation = useReconciliationMatch();
   const dismissMutation = useReconciliationDismiss();
@@ -1066,8 +1079,8 @@ function ReviewQueueCard({
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={queue.length > 0 ? "destructive" : "outline"}>
-              {queue.length}
+            <Badge variant={total > 0 ? "destructive" : "outline"}>
+              {total}
             </Badge>
             {queue.length > 0 && (
               <Button
@@ -1088,6 +1101,21 @@ function ReviewQueueCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* US-1452: the queue is capped server-side, so >limit unreconciled
+            payouts would otherwise be silently hidden. Flag it and point at
+            Auto-match, which sweeps ALL of them server-side (not just this
+            page); the list re-fetches after so the next batch surfaces. */}
+        {hasMore && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Showing the first {Math.min(limit, queue.length)} of {total}{" "}
+              unreconciled payouts. Run <strong>Auto-match</strong> to clear the
+              unambiguous ones across all of them — the list refreshes to reveal
+              the rest.
+            </span>
+          </div>
+        )}
         {loading ? (
           <LoadingRegion label="Loading queue">
             <SkeletonRows rows={4} />
