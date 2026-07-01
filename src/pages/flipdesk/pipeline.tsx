@@ -81,6 +81,7 @@ import {
   type GradingTier,
   type ValidationResult,
 } from "@/hooks/use-grading";
+import { useListingComplianceFlags } from "@/hooks/use-ebay";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -170,6 +171,12 @@ export function FlipdeskPipelinePage() {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   const [activeDrag, setActiveDrag] = useState<ItemFullRow | null>(null);
+  // US-1422: persisted eBay Listing-Health flags → a pipeline indicator banner.
+  const { data: complianceFlags = [] } = useListingComplianceFlags();
+  const complianceFlaggedCount = useMemo(
+    () => new Set(complianceFlags.map((f) => f.inventory_item_id)).size,
+    [complianceFlags],
+  );
   // US-958: selection lives in the shared store so it carries over from the
   // table view (and back) without being dropped on unmount.
   const selectedIds = useInventorySelection((s) => s.selected);
@@ -494,6 +501,21 @@ export function FlipdeskPipelinePage() {
 
   return (
     <div className="space-y-4">
+      {/* US-1422: pipeline Listing-Health indicator — flags listings eBay has
+          marked non-compliant (missing item specifics, etc.). */}
+      {complianceFlaggedCount > 0 && (
+        <Link
+          to="/dashboard/flipdesk/analytics"
+          className="flex items-center gap-2 rounded-md border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-800 hover:bg-amber-100 dark:bg-amber-950/20 dark:text-amber-300"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>
+            {complianceFlaggedCount} listed item
+            {complianceFlaggedCount === 1 ? " has" : "s have"} eBay compliance
+            issues — review Listing Health.
+          </span>
+        </Link>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-3">
           <div className="flex items-center gap-3">

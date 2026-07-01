@@ -188,6 +188,55 @@ export function useEbayListingHealth(enabled = true) {
   });
 }
 
+// US-1422 chunk 2: re-check listings against the Sell Compliance API and persist
+// per-listing violation counts (drives the pipeline Listing-Health badge).
+export function useSyncListingHealth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<{ access: boolean; flagged?: number }> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/compliance/sync`,
+        { method: "POST", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not re-check listing health.");
+      }
+      return json as { access: boolean; flagged?: number };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ebay_listing_health"] });
+      qc.invalidateQueries({ queryKey: ["listing_compliance_flags"] });
+    },
+  });
+}
+
+// US-1422 chunk 2: the persisted per-listing compliance flags (RLS-scoped to the
+// user), keyed by inventory_item_id, for the pipeline Listing-Health indicator.
+export interface ListingComplianceFlag {
+  inventory_item_id: string;
+  compliance_violation_count: number;
+  compliance_types: string[] | null;
+}
+export function useListingComplianceFlags() {
+  const user = useAuthStore((s) => s.user);
+  return useQuery({
+    queryKey: ["listing_compliance_flags", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<ListingComplianceFlag[]> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select(
+          "inventory_item_id, compliance_violation_count, compliance_types",
+        )
+        .gt("compliance_violation_count", 0);
+      if (error) throw error;
+      return (data ?? []) as unknown as ListingComplianceFlag[];
+    },
+  });
+}
+
 // Forces a fresh pull of the seller's business policies from eBay (the UI
 // "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
 // publish fails with "invalid shipping policy" because the cached default no

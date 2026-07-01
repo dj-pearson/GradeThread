@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2, ClipboardCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -7,7 +8,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useEbayConnection, useEbayListingHealth } from "@/hooks/use-ebay";
+import { Button } from "@/components/ui/button";
+import {
+  useEbayConnection,
+  useEbayListingHealth,
+  useSyncListingHealth,
+} from "@/hooks/use-ebay";
 
 // US-1422: Listing Health — surfaces the eBay Sell Compliance violation summary
 // (missing item specifics, catalog-adoption gaps, etc.) so a reseller running
@@ -29,6 +35,19 @@ export function EbayListingHealthCard() {
   const { data: connection } = useEbayConnection();
   const connected = !!connection;
   const { data, isLoading } = useEbayListingHealth(connected);
+  const sync = useSyncListingHealth();
+
+  function recheck() {
+    sync.mutate(undefined, {
+      onSuccess: (r) =>
+        toast.success(
+          r.access === false
+            ? "Reconnect eBay to check listing health."
+            : `Re-checked — ${r.flagged ?? 0} listing${r.flagged === 1 ? "" : "s"} flagged.`,
+        ),
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Re-check failed."),
+    });
+  }
 
   if (!connected) return null;
   if (isLoading || !data) return null;
@@ -94,6 +113,21 @@ export function EbayListingHealthCard() {
             </ul>
           </>
         )}
+        <div className="pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={recheck}
+            disabled={sync.isPending}
+          >
+            {sync.isPending ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-3.5 w-3.5" />
+            )}
+            Re-check listings
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

@@ -842,6 +842,69 @@ flipdeskEbayRoutes.get("/compliance/violations", async (c) => {
   }
 });
 
+// US-1422 chunk 2: persist per-listing compliance so the pipeline can flag
+// unhealthy listings without a live API call. Resets previously-flagged listings
+// then re-flags current violations, matched by platform_listing_id. Writes only
+// to OUR DB (no eBay mutation) and is tenant-scoped (US-268).
+flipdeskEbayRoutes.post("/compliance/sync", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const summaries = await getListingViolationsSummary(ownerId);
+    // Aggregate open violations per eBay listing id (across compliance types).
+    const byListing = new Map<string, { count: number; types: Set<string> }>();
+    for (const s of summaries) {
+      if (s.listingCount <= 0) continue;
+      const details = await getListingViolations(ownerId, s.complianceType);
+      for (const v of details) {
+        if (!v.listingId) continue;
+        const e = byListing.get(v.listingId) ?? {
+          count: 0,
+          types: new Set<string>(),
+        };
+        e.count += 1;
+        e.types.add(v.complianceType);
+        byListing.set(v.listingId, e);
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    // Clear previously-flagged listings for this owner; re-flag current ones.
+    await supabaseAdmin
+      .from("listings")
+      .update({
+        compliance_violation_count: 0,
+        compliance_types: null,
+        compliance_checked_at: nowIso,
+      } as never)
+      .eq("user_id", ownerId)
+      .gt("compliance_violation_count", 0);
+
+    let flagged = 0;
+    for (const [plid, e] of byListing) {
+      const { error: upErr } = await supabaseAdmin
+        .from("listings")
+        .update({
+          compliance_violation_count: e.count,
+          compliance_types: [...e.types],
+          compliance_checked_at: nowIso,
+        } as never)
+        .eq("user_id", ownerId)
+        .eq("platform_listing_id", plid);
+      if (!upErr) flagged += 1;
+    }
+
+    return c.json({ access: true, flagged });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
+    console.error("[flipdesk-ebay] /compliance/sync failed:", err);
+    return c.json({ error: "Could not sync eBay listing health." }, 502);
+  }
+});
+
 flipdeskEbayRoutes.get("/policies", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   if (!isEbayConfigured()) {

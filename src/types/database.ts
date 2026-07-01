@@ -1113,6 +1113,11 @@ export interface ListingRow {
   // unpublish sets this true (alongside is_active=false, listing_status='ended');
   // the audited restore endpoint flips it back. Default false.
   moderation_hidden: boolean;
+  // US-1422 (migration 00326): eBay Listing Health — open Sell Compliance
+  // violations for this listing, populated by the /compliance/sync job.
+  compliance_violation_count: number;
+  compliance_types: string[] | null;
+  compliance_checked_at: string | null;
   created_at: string;
   updated_at: string;
 }
