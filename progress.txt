@@ -2,6 +2,40 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 12 (US-1482, US-1470 + CI-flake fix) — Kanban empty state, pricing tax note
+
+- US-1482 Add a Kanban empty state for accounts with no inventory — NOW COMPLETE
+  (passes:true). pipeline.tsx rendered ~13 dashed "Drop here" columns with no
+  headline/CTA for a zero-item account (unlike the table/grid views). Added an
+  items.length === 0 branch (between the loading and DndContext branches) that
+  renders the shared EmptyState (LayoutGrid icon, "Add an item" →
+  /dashboard/flipdesk/intake, secondary "Import" → /dashboard/flipdesk/import).
+  Per-column "Drop here" stays for the has-items case (AC1/AC2).
+
+- US-1470 Show 'plus tax' on the public pricing page — NOW COMPLETE (passes:true).
+  /pricing listed per-grade, credit-pack, and FlipDesk prices with no indication
+  that automatic_tax adds sales tax/VAT at checkout (the disclaimer previously
+  lived only on the authenticated billing page). Added a concise note in the
+  centered intro hero (directly above all three pricing sections): "All prices
+  are shown in USD and exclude tax — sales tax/VAT is calculated at checkout
+  based on your billing location" — covering the tax disclaimer (AC1) and USD
+  (AC2) in one place.
+
+- CI-FLAKE FIX (web-vitals.ts): PR #157's frontend CI failed on an intermittent
+  unhandled rejection — "document is not defined" from web-vitals' onLCP, thrown
+  when startWebVitals' `await import("web-vitals")` resolves AFTER the calling
+  test's jsdom document is torn down (fire-and-forget from analytics.ts on the
+  consent-accept test; all 1009 tests passed, the process only exited 1 on the
+  async rejection). startWebVitals guarded `typeof window` BEFORE the await but
+  not after; added a post-await `if (typeof document === "undefined") return;`
+  (web-vitals listeners touch document synchronously). No behavior change in a
+  real browser; fixes the intermittent CI failure at the source so it can't bite
+  future batches. (#157 itself was merged despite the flake, so this lands here.)
+
+VERIFICATION (this container): FRONTEND-only batch — fully verified locally: tsc
+-b clean, eslint 0 errors, vitest 1012 pass, npm run build (incl. prerender, 45
+routes) succeeded. Open prd.json stories now 135.
+
 ## 2026-06-30 — Pre-launch audit batch 11 (US-1449, US-1487) — composer comp price + log hygiene
 
 - US-1449 Flow the in-composer comped/recommended price into the listing price
