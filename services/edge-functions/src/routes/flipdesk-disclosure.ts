@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import {
   buildDisclosure,
   type DisclosureInput,
@@ -92,7 +93,7 @@ flipdeskDisclosureRoutes.get("/item/:itemId", async (c) => {
     )
     .eq("id", item.grade_report_id)
     .maybeSingle();
-  if (reportErr) return c.json({ error: reportErr.message }, 500);
+  if (reportErr) return failSafe(c, 500, "Couldn't load the disclosure report.", reportErr, "disclosure.report");
   if (!reportRaw) {
     return c.json({ graded: false, item: { id: item.id, title: item.title } });
   }
@@ -214,7 +215,7 @@ flipdeskDisclosureRoutes.post("/item/:itemId/apply-to-listing", async (c) => {
     .from("listings")
     .update(update)
     .eq("id", listingId);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't save the disclosure.", updErr, "disclosure.update");
 
   return c.json({ applied: true, listing_id: listingId });
 });
@@ -318,7 +319,7 @@ flipdeskDisclosureRoutes.post("/item/:itemId/annotation-optin", async (c) => {
     .update({ annotate_defect_photos: body.enabled })
     .eq("id", item.id)
     .eq("user_id", ownerId);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't apply the disclosure to the listing.", updErr, "disclosure.apply");
 
   return c.json({ ok: true, annotate_defect_photos: body.enabled });
 });

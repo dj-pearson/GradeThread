@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { SheetsClient } from "../lib/google-sheets-api.ts";
@@ -817,7 +818,7 @@ async function handleSyncJob(c: Context, trigger: string): Promise<Response> {
       .not("sheet_id", "is", null);
     if (targetUserId) query = query.eq("user_id", targetUserId);
     const { data, error } = await query;
-    if (error) return c.json({ error: error.message }, 500);
+    if (error) return failSafe(c, 500, "Couldn't sync with Google.", error, "google-sync.sync");
 
     let synced = 0;
     let failed = 0;

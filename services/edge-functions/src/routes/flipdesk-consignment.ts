@@ -9,6 +9,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 
 type ConsignmentEnv = {
   Variables: {
@@ -74,7 +75,7 @@ flipdeskConsignmentRoutes.get("/consignors", async (c) => {
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load consignors.", error, "consignment.list");
 
   const { data: pnl } = await supabaseAdmin
     .from("consignor_pnl")
@@ -118,7 +119,7 @@ flipdeskConsignmentRoutes.post("/consignors", async (c) => {
     })
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't create the consignor.", error, "consignment.create");
 
   return c.json({ consignor: data }, 201);
 });
@@ -159,7 +160,7 @@ flipdeskConsignmentRoutes.patch("/consignors/:id", async (c) => {
     .eq("user_id", userId)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't update the consignor.", error, "consignment.update");
 
   return c.json({ consignor: data });
 });
@@ -189,7 +190,7 @@ flipdeskConsignmentRoutes.post("/consignors/:id/intake", async (c) => {
     .eq("user_id", userId)
     .select("*")
     .single();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't save the intake agreement.", error, "consignment.intake");
 
   return c.json({ consignor: data });
 });
@@ -276,7 +277,7 @@ flipdeskConsignmentRoutes.get("/payouts", async (c) => {
   if (consignorId) query = query.eq("consignor_id", consignorId);
 
   const { data, error } = await query;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load payouts.", error, "consignment.payouts.list");
   return c.json({ payouts: data ?? [] });
 });
 
