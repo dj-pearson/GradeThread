@@ -143,6 +143,9 @@ export function BillingPage() {
     const next = new URLSearchParams(searchParams);
     next.delete("upgrade");
     setSearchParams(next, { replace: true });
+    // US-1489: fire once when the summary lands and immediately strip ?upgrade=;
+    // searchParams/openPlanPicker/setSearchParams are stable-or-consumed here, so
+    // keying only on `summary` is intentional (re-running would reopen the picker).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [summary]);
 

@@ -2,6 +2,38 @@
 # Ralph AI / Snarktank Format
 # Last updated: 2026-06-30
 
+## 2026-06-30 — Pre-launch audit batch 22 (US-1451, US-1489) — restore inventory on refund + document deps suppressions
+
+- US-1451 Restore inventory/listing state when a return is refunded or
+  cancellation approved — NOW COMPLETE (passes:true). applyOutcomeToSale
+  (flipdesk-ebay.ts) only flipped the sales row to refunded/cancelled — the
+  inventory_item stayed sold/shipped (stranded outside the relist loop) and the
+  listing was untouched. Now the sale update returns the linked
+  inventory_item_id/listing_id, and for the restore outcomes (refunded/cancelled
+  — declines/rejections already return early) it moves the item to 'returned'
+  (the relist-loop entry, tenant-scoped by owner) and ends the listing
+  (listing_status='ended', is_active=false; ids come from the owner's sale rows so
+  the writes are provably owned) — AC1/AC2. AC3: the Sold tab matcher
+  (listings.tsx) now also excludes sale_status refunded/cancelled, so a
+  refunded/cancelled sale drops out of the Sold view + aggregates even if the
+  item-status restore lagged. (The finances_dashboard P&L is a Postgres RPC —
+  out of scope for this frontend/edge change.)
+
+- US-1489 Spot-review the react-hooks/exhaustive-deps suppressions for
+  stale-closure risk — NOW COMPLETE (passes:true). Spot-checked the highest-
+  traffic suppressions (billing, new-submission, listings, pipeline) per AC1 —
+  all are the safe "keyed on the real trigger; stable setters + the effect's own
+  searchParams write are intentionally omitted to avoid a write→re-run loop,
+  guarded by a toString() compare" pattern (no stale-closure bug). Added a
+  documented one-line reason to each suppression that lacked one (billing:146,
+  listings x3, pipeline x2); billing:129 + new-submission:324 already had reasons
+  (AC2). Left the lower-traffic ~18 others (AC scoped to high-traffic).
+
+VERIFICATION (this container): web gate fully green — tsc -b clean, eslint 0
+errors, vitest 1015 pass, npm run build (incl. prerender, 45 routes) succeeded.
+The edge change (flipdesk-ebay.ts applyOutcomeToSale) is validated by the GitHub
+Actions edge lane (deno not runnable locally). Open prd.json stories now 115.
+
 ## 2026-06-30 — Pre-launch audit batch 21 (US-1435, US-1472) — consolidate activation checklists + Shopify 501 doc
 
 - US-1435 Consolidate the overlapping post-signup activation checklists for
