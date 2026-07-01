@@ -17,6 +17,37 @@
   getGradingTemperature(). Verified no top_p/top_k were ever sent in the edge svc.
 - Shipped in PR #169 (merged) alongside batch 23.
 
+## 2026-07-01 — Pre-launch audit batch 28 (US-1437) — route dispute filing through server-side validation
+
+Single-story batch (quality over quantity): this is a security-sensitive, cross-
+cutting change that moves the whole dispute-filing flow server-side, so it got
+focused attention rather than being crammed alongside another story.
+
+- US-1437 Route dispute evidence uploads through server-side image validation
+  (US-276) — NOW COMPLETE (passes:true). Dispute evidence photos previously went
+  browser→bucket with NO validateImageUpload() magic-byte sniff or
+  stripImageMetadata() EXIF/GPS removal, and the client disputes.insert +
+  storage.upload were keyed to workspaceOwnerId — which fails the auth.uid()=user_id
+  RLS on disputes/storage for a non-owner MEMBER, so a member couldn't file at all.
+  Added a new edge endpoint POST /api/grade/dispute (grade.ts, behind the existing
+  auth+accessGate+workspace middleware) that: verifies the grade report's submission
+  belongs to workspaceOwnerId (US-268 — grade_reports has no user_id, so ownership
+  is checked via submissions.user_id; a miss returns 404 so an id probe can't
+  distinguish not-found from not-yours); validates + EXIF-strips each evidence image
+  (≤8) and stores it via the service-role client under the owner's folder (AC1);
+  inserts the dispute as the owner + flips the submission to 'disputed' (both
+  tenant-scoped); and returns { dispute, evidence_failures } (AC2 — server-side with
+  verified ownership). submission-detail.tsx handleSubmitDispute now reads each File
+  as a base64 data URI and POSTs to the endpoint instead of doing the client
+  upload/insert, so a workspace member can file end-to-end (AC3). Removed the now-
+  unused workspaceOwnerId/useWorkspace from the page.
+
+VERIFICATION (this container): frontend gate fully green — tsc -b clean, eslint 0
+errors, vitest 1015 pass, npm run build (incl. prerender, 45 routes) succeeded. The
+new edge endpoint is validated by the CI edge lane (deno type-check + tenant-isolation
+suite); supabaseAdmin is untyped so the .select()/.insert() casts are safe. Open
+backlog 104.
+
 ## 2026-07-01 — Pre-launch audit batch 27 (US-1425, US-1424) — push tracking to eBay from bulk shipment + end listing on manual sale
 
 - US-1425 Push tracking to eBay from bulk 'Prepare shipment' — NOW COMPLETE

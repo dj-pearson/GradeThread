@@ -8167,7 +8167,7 @@
         "Verify a workspace member can file a dispute end-to-end."
       ],
       "priority": 2093,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · grading · grading audit] Evidence: src/pages/submission-detail.tsx:444-464; migration 00001:239-241,270-289."
     },
     {
