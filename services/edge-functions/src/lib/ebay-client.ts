@@ -3061,6 +3061,128 @@ export async function listRecentTransactions(
   return all;
 }
 
+// ── US-1446: Sell Finances payouts ──────────────────────────────────
+//
+// A payout is the lump sum eBay deposits to the seller's bank; each settles a
+// SET of transactions (which carry payoutId, above). Resellers reconcile against
+// the deposit, not individual transactions — so we surface payouts and, later,
+// their constituent transactions -> net. Same apiz host + sell.finances grant as
+// listRecentTransactions; a 404/204 (no payouts / not on Managed Payments) is
+// benign and returns [].
+
+export interface RemotePayout {
+  payoutId: string;
+  payoutStatus: string; // INITIATED | SUCCEEDED | RETRYABLE_FAILED | ...
+  payoutDate: string | null;
+  amount: { value: string; currency: string } | null;
+  /** # of transactions this payout settled, when eBay reports it. */
+  transactionCount: number | null;
+}
+
+interface PayoutDto {
+  payoutId?: string;
+  payoutStatus?: string;
+  payoutDate?: string;
+  amount?: { value?: string; currency?: string };
+  transactionCount?: number;
+}
+
+function toRemotePayout(p: PayoutDto): RemotePayout | null {
+  if (!p.payoutId) return null;
+  return {
+    payoutId: p.payoutId,
+    payoutStatus: p.payoutStatus ?? "",
+    payoutDate: p.payoutDate ?? null,
+    amount: p.amount?.value
+      ? { value: String(p.amount.value), currency: p.amount.currency ?? "USD" }
+      : null,
+    transactionCount:
+      typeof p.transactionCount === "number" ? p.transactionCount : null,
+  };
+}
+
+/** Recent payouts (newest first), optionally filtered from `sinceISO`. */
+export async function getPayouts(
+  userId: string,
+  sinceISO?: string | null,
+  maxPages = 20,
+): Promise<RemotePayout[]> {
+  const out: RemotePayout[] = [];
+  const limit = 200;
+  let offset = 0;
+  const filter = sinceISO
+    ? `&filter=${encodeURIComponent(`payoutDate:[${new Date(sinceISO).toISOString()}..]`)}`
+    : "";
+  const token = await getUserAccessToken(userId);
+  const locale = localeForMarketplace();
+  const baseHost = apizHost();
+
+  for (let i = 0; i < maxPages; i++) {
+    const url = `${baseHost}/sell/finances/v1/payout?limit=${limit}&offset=${offset}${filter}`;
+    const res = await ebayFetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+        Accept: "application/json",
+        "Accept-Language": locale,
+      },
+    });
+    if (res.status === 404 || res.status === 204) break;
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `eBay GET ${url} failed (${res.status}): ${text.slice(0, 500)}`,
+      );
+    }
+    const rawBody = await res.text();
+    if (!rawBody.trim()) break;
+    let payload: { payouts?: PayoutDto[] };
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      break;
+    }
+    const batch = payload.payouts ?? [];
+    for (const p of batch) {
+      const rp = toRemotePayout(p);
+      if (rp) out.push(rp);
+    }
+    if (batch.length < limit) break;
+    offset += limit;
+  }
+  return out;
+}
+
+/** A single payout by id. Returns null on 404 (unknown/settled-away payout). */
+export async function getPayout(
+  userId: string,
+  payoutId: string,
+): Promise<RemotePayout | null> {
+  const token = await getUserAccessToken(userId);
+  const locale = localeForMarketplace();
+  const url = `${apizHost()}/sell/finances/v1/payout/${encodeURIComponent(payoutId)}`;
+  const res = await ebayFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      Accept: "application/json",
+      "Accept-Language": locale,
+    },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`eBay GET ${url} failed (${res.status}): ${text.slice(0, 500)}`);
+  }
+  const rawBody = await res.text();
+  if (!rawBody.trim()) return null;
+  try {
+    return toRemotePayout(JSON.parse(rawBody) as PayoutDto);
+  } catch {
+    return null;
+  }
+}
+
 // ── Browse API: active comps ────────────────────────────────────────
 
 export interface BrowseComp {

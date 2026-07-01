@@ -32,6 +32,7 @@ import {
   getCustomerServiceMetric,
   getListingViolations,
   getListingViolationsSummary,
+  getPayouts,
   getMarketplaceId,
   getSellerStandardsProfile,
   getTrafficReport,
@@ -973,6 +974,26 @@ flipdeskEbayRoutes.post("/compliance/apply-recommendations/:id", async (c) => {
     if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
     console.error("[flipdesk-ebay] /compliance/apply-recommendations failed:", err);
     return c.json({ error: "Could not apply eBay recommendations." }, 502);
+  }
+});
+
+// US-1446 chunk 1: recent eBay payouts (the bank deposits) — resellers reconcile
+// against the lump-sum payout, not individual transactions. Read-only; tenant-
+// scoped; a no-access 403 (stale sell.finances grant) returns { access:false }.
+flipdeskEbayRoutes.get("/finances/payouts", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!ownerId) return c.json({ error: "Sign-in required" }, 401);
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
+    const payouts = await getPayouts(ownerId, since);
+    return c.json({ access: true, payouts });
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) return c.json({ access: false });
+    console.error("[flipdesk-ebay] /finances/payouts failed:", err);
+    return c.json({ error: "Could not load eBay payouts." }, 502);
   }
 });
 

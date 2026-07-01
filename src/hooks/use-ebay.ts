@@ -257,6 +257,36 @@ export function useApplyComplianceRecommendations() {
   });
 }
 
+// US-1446: recent eBay payouts (bank deposits). `access:false` = the
+// sell.finances grant is stale (reconnect needed).
+export interface EbayPayout {
+  payoutId: string;
+  payoutStatus: string;
+  payoutDate: string | null;
+  amount: { value: string; currency: string } | null;
+  transactionCount: number | null;
+}
+export interface EbayPayoutsResponse {
+  access: boolean;
+  payouts?: EbayPayout[];
+}
+export function useEbayPayouts(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_payouts"],
+    enabled,
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EbayPayoutsResponse> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/finances/payouts`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not load eBay payouts.");
+      return json as EbayPayoutsResponse;
+    },
+  });
+}
+
 // Forces a fresh pull of the seller's business policies from eBay (the UI
 // "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
 // publish fails with "invalid shipping policy" because the cached default no

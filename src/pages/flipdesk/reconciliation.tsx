@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
+import { EbayPayoutsCard } from "@/components/flipdesk/ebay-payouts-card";
 import {
   Table,
   TableBody,
@@ -205,6 +206,10 @@ export function ReconciliationPayoutsTab() {
 
       {/* Tax-ready P&L / COGS export (US-1291) */}
       <TaxPnlExportCard sales={sales} items={items} />
+
+      {/* US-1446: live eBay payouts (Finances API) — the API source-of-truth
+          alongside the manual CSV import below. Self-gates on connection. */}
+      <EbayPayoutsCard />
 
       {/* CSV import */}
           <Card>
