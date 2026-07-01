@@ -32,6 +32,7 @@ import {
   Tag,
   SlidersHorizontal,
   CheckCircle2,
+  Archive,
 } from "lucide-react";
 import {
   Card,
@@ -121,7 +122,11 @@ import {
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
-import { MARKETPLACE_LABELS } from "@/lib/constants";
+import {
+  MARKETPLACE_LABELS,
+  ITEM_STATUSES,
+  ITEM_STATUS_LABELS,
+} from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { itemPhotoThumb } from "@/lib/images";
 import type {
@@ -185,7 +190,9 @@ const TABS: TabDef[] = [
   {
     id: "all",
     label: "All",
-    matches: () => true,
+    // US-1483: exclude archived items so archived inventory isn't permanently
+    // mixed into the active list — they have their own Archived tab.
+    matches: (it) => it.status !== "archived",
     sortKey: "created_at",
     sortDir: "desc",
     emptyCta: { label: "Add an item", to: "/dashboard/flipdesk/intake" },
@@ -237,6 +244,16 @@ const TABS: TabDef[] = [
     sortKey: "updated_at",
     sortDir: "desc",
     emptyCta: { label: "View completed", to: "?tab=all" },
+  },
+  {
+    // US-1483: dedicated home for archived items (previously only visible mixed
+    // into All). Personal keeping/wearing items still live in All.
+    id: "archived",
+    label: "Archived",
+    matches: (it) => it.status === "archived",
+    sortKey: "updated_at",
+    sortDir: "desc",
+    emptyCta: { label: "View all items", to: "?tab=all" },
   },
 ];
 
@@ -477,6 +494,11 @@ export function FlipdeskListingsPage() {
   // US-960: bulk "Prepare shipment" — fill carrier + tracking across the
   // selected sold items and advance them to shipped.
   const [prepareShipOpen, setPrepareShipOpen] = useState(false);
+  // US-1459: bulk "Set status…" — set an arbitrary status (incl. Archive) across
+  // the selected items, on any tab. Allows backward + off-pipeline transitions;
+  // the dialog's Apply is the confirm, with an extra caution for archive.
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [bulkStatusValue, setBulkStatusValue] = useState<ItemStatus | "">("");
 
   // Load a saved view when ?view=<id> resolves — applies the saved filter
   // and strips the param so a reload doesn't re-apply.
@@ -729,13 +751,15 @@ export function FlipdeskListingsPage() {
       sold: 0,
       shipped: 0,
       returned: 0,
+      archived: 0,
     };
     // Prefer the server-side grouped count (decoupled from the loaded rows);
     // fall back to counting the loaded set if the RPC hasn't resolved yet.
     if (statusCounts && Object.keys(statusCounts).length > 0) {
       let all = 0;
       for (const [st, n] of Object.entries(statusCounts)) {
-        all += n;
+        // US-1483: archived items are excluded from the All tab.
+        if ((st as ItemStatus) !== "archived") all += n;
         if (TO_LIST_STATUSES.has(st as ItemStatus)) counts.to_list += n;
       }
       counts.all = all;
@@ -744,6 +768,7 @@ export function FlipdeskListingsPage() {
       counts.sold = statusCounts.sold ?? 0;
       counts.shipped = statusCounts.shipped ?? 0;
       counts.returned = statusCounts.returned ?? 0;
+      counts.archived = statusCounts.archived ?? 0;
       return counts;
     }
     for (const it of items) {
@@ -1406,6 +1431,42 @@ export function FlipdeskListingsPage() {
     } else {
       toast.warning(
         `Ended ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
+        { duration: 12_000 },
+      );
+    }
+  }
+
+  // US-1459: apply an arbitrary status to every selected item. Backward and
+  // off-pipeline (archive / keeping / wearing) transitions are allowed — this is
+  // the deliberate cleanup path. 'grading' is intentionally not offered (it's
+  // owned by the submission+charge flow, same rule the board enforces).
+  async function bulkSetStatus(next: ItemStatus) {
+    if (selected.size === 0) return;
+    setBusy(true);
+    const errors: { message: string }[] = [];
+    let done = 0;
+    for (const id of selected) {
+      const it = items.find((i) => i.id === id);
+      if (!it || it.status === next) continue;
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ status: next } as never)
+        .eq("id", it.id);
+      if (error) errors.push({ message: error.message });
+      else done++;
+    }
+    setBusy(false);
+    setSelected(new Set());
+    setBulkStatusOpen(false);
+    setBulkStatusValue("");
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    if (errors.length === 0) {
+      toast.success(
+        `Set ${done} item${done === 1 ? "" : "s"} to ${ITEM_STATUS_LABELS[next]}.`,
+      );
+    } else {
+      toast.warning(
+        `Updated ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
         { duration: 12_000 },
       );
     }
@@ -2705,6 +2766,19 @@ export function FlipdeskListingsPage() {
               >
                 Clear
               </Button>
+              {/* US-1459: universal bulk status setter — available on every tab
+                  so terminal/dead items can be archived or re-staged in bulk. */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBulkStatusValue("");
+                  setBulkStatusOpen(true);
+                }}
+                disabled={busy}
+              >
+                <Archive className="mr-2 h-4 w-4" />
+                Set status…
+              </Button>
               {isToList ? (
                 <>
                   <Button
@@ -2808,6 +2882,73 @@ export function FlipdeskListingsPage() {
           </div>
         </div>
       )}
+
+      {/* US-1459: bulk "Set status…" picker. The Apply button is the confirm;
+          an extra caution shows when Archive (a destructive/off-pipeline move)
+          is chosen. */}
+      <AlertDialog
+        open={bulkStatusOpen}
+        onOpenChange={(o) => {
+          if (!o) {
+            setBulkStatusOpen(false);
+            setBulkStatusValue("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Set status for {selected.size} item
+              {selected.size === 1 ? "" : "s"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Move the selected items to any status. Backward and off-pipeline
+              (archive / personal) moves are allowed — this bypasses the normal
+              pipeline order, so double-check the choice.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Select
+              value={bulkStatusValue}
+              onValueChange={(v) => setBulkStatusValue(v as ItemStatus)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a status…" />
+              </SelectTrigger>
+              <SelectContent>
+                {ITEM_STATUSES.filter((s) => s !== "grading").map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {ITEM_STATUS_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {bulkStatusValue === "archived" && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Archived items leave the active pipeline and the default views —
+                find them again in the Archived tab.
+              </p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy || !bulkStatusValue}
+              onClick={(e) => {
+                // Keep the dialog open until the writes finish; bulkSetStatus
+                // closes it on completion.
+                e.preventDefault();
+                if (bulkStatusValue) void bulkSetStatus(bulkStatusValue);
+              }}
+            >
+              {busy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Apply
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={!!endTarget}

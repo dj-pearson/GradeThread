@@ -8443,7 +8443,7 @@
         "Allow backward and off-pipeline transitions, with a confirm for destructive ones."
       ],
       "priority": 2071,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · flipdesk · flipdesk audit] Evidence: listings.tsx:2593-2709; pipeline.tsx:337-382."
     },
     {
@@ -8735,7 +8735,7 @@
         "Default All/To-List to exclude archived items."
       ],
       "priority": 1977,
-      "passes": false,
+      "passes": true,
       "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · LOW · flipdesk · flipdesk audit] Evidence: listings.tsx:186-243; constants.ts:511,504-506."
     },
     {

@@ -37,7 +37,8 @@ describe("statusParamToTab (US-1429 stage-link routing)", () => {
     expect(statusParamToTab("listed")).toBe("active");
     expect(statusParamToTab("shipped")).toBe("shipped");
     expect(statusParamToTab("returned")).toBe("returned");
-    expect(statusParamToTab("archived")).toBe("all");
+    // US-1483: archived items now have their own tab.
+    expect(statusParamToTab("archived")).toBe("archived");
   });
 
   it("resolves EVERY Overview/Kanban pipeline-grid link to a real tab", () => {

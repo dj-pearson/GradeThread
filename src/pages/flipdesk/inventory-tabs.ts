@@ -10,7 +10,8 @@ export type TabId =
   | "active"
   | "sold"
   | "shipped"
-  | "returned";
+  | "returned"
+  | "archived";
 
 // The Overview pipeline grid, stat cards, and Kanban "+N more" links navigate to
 // the inventory table with `?status=<stage>` (an item stage or a sale state), but
@@ -45,9 +46,9 @@ export function statusParamToTab(status: string | null | undefined): TabId | nul
     case "graded":
     case "comped":
       return "to_list";
-    // Archived items have no dedicated tab — All is the only view that shows them.
+    // US-1483: archived items have their own tab (and are excluded from All).
     case "archived":
-      return "all";
+      return "archived";
     default:
       return null;
   }
