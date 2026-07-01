@@ -7931,3 +7931,31 @@ NO MIGRATION. iOS: none needed (hook is server-side).
 VERIFICATION (this host): deno check src/main.ts clean; deno lint clean (both
 changed files); 47 passed / 0 failed across ebay-publish-finalize + aspect-reconcile
 + listing-template + offer-already-ended + ebay-grade-promotion suites.
+
+### Loop checkpoint 2 (2026-07-01) — 3 stories verified & committed locally (NOT pushed)
+Local main now 4 commits ahead of origin (US-1505, US-1506, US-1502 + 2 checkpoint
+commits). ALL code-only — PENDING_MIGRATIONS.md still shows nothing to apply,
+EXPECTED_SCHEMA_VERSION stays 00331. Do NOT push until user OKs.
+
+### NEXT UP — coherence cluster remainder + notes
+- US-1503 (2388) Measurements → live eBay listing. Reuse resolveMeasurementAspects
+  (ai-listing.ts:1056, US-827 registry mapping). AC2: derive-aspects endpoint
+  (flipdesk-ebay.ts:1436) + the revise aspect rebuild must SELECT `measurements`
+  and fold measurement aspects in (currently derive-aspects select at :1461 omits
+  measurements). AC3: revise description's measurement block must reflect CURRENT
+  measurements, not the publish snapshot (finalDesc fallback) — regenerate/patch
+  the block (see ai-listing.ts:1188 description block). AC1: iOS canvas revise
+  trigger must include measurement deltas (ItemCanvasView.swift:1741-1746,1770-1776).
+  AC4: edge test. SIZABLE (edge + iOS). No migration expected.
+- US-1504 (2387) Price coherence (canvas/draft/live). "Which price wins" rule at
+  both ends: (1) canvas save updates an existing GT-origin DRAFT's price, or the
+  composer prefers item.target_price when the draft price is estimated
+  (price_is_estimated) — no stale-$25-estimate publish after a $40 target; (2)
+  listing-side reprices (POST /listings/:id/price + bulk, flipdesk-ebay.ts:3930)
+  mirror onto inventory_items.target_price OR re-derive the badge from a real
+  pending-push signal (badge listingPriceUnsynced at ItemCanvasView.swift:109-119
+  currently asserts the INVERSE after a reprice). Heavy iOS (PublishDialog.swift:
+  871-889 read-only price logic) + edge. Check if price_is_estimated column exists
+  (may need a migration — FIRST candidate for the migration package).
+- Then the iOS-only audit backlog US-1491..1500 (macOS-CI-verified only) and
+  US-1518 photo-thumbnail (a real migration story — thumbnail tier).

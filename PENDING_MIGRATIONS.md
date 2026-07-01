@@ -22,6 +22,7 @@ Stories completed so far this loop are **code-only** (no schema changes):
 |-------|-----------|--------------|
 | US-1505 (eBay specifics string[] normalize) | none | none |
 | US-1506 (End-listing truthfulness) | none | none |
+| US-1502 (grade → live eBay listing) | none | none |
 
 `EXPECTED_SCHEMA_VERSION` unchanged at **00331**; latest migration file is
 `00331_fix_users_guard_bogus_moderation_cols.sql`. Next migration, when one is
