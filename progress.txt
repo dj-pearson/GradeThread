@@ -7863,3 +7863,43 @@ VERIFICATION (this host): deno test offer-already-ended = 9 passed / 0 failed
 (incl. 2 new no-connection cases); deno check src/main.ts clean; deno lint clean;
 touched Swift files (EbayPublishTypes, BulkActionExecutor, BulkAction) curly-quote
 scanned clean. iOS AC2/AC3/AC4 are code-complete — macOS iOS CI is the build gate.
+
+### Loop checkpoint (2026-07-01) — 2 stories verified & committed locally (NOT pushed)
+Local main is 2 commits ahead of origin (US-1505, US-1506), both code-only (no
+migrations). PENDING_MIGRATIONS.md created at repo root (status: none pending).
+Do NOT push to origin until user OKs.
+
+### NEXT UP — US-1502 implementation plan (grade → live eBay listing) — FULLY SCOPED
+Traced: BOTH the normal grade-completion path AND the human-review finalize path
+funnel through `applyTerminalCompletion` (services/edge-functions/src/lib/
+grading-pipeline.ts:559; item grade write-back at ~585-597). That's the SINGLE
+server-side hook point for AC2 (covers "grade lands" + "corrected/downgraded by
+human review"). Plan:
+  1. flipdesk-ebay.ts `applyGradeListingPromotion` (def ~7076): add an
+     `opts?: { force?: boolean }` param — when force, OVERWRITE the
+     GT_GRADE_ITEM_SPECIFIC value instead of the current "never overwrite" guard
+     (AC3 downgrade must update the live Condition Grade specific).
+  2. AC1: in the revise re-PUT branch (~4827, before createOrReplaceInventoryItem),
+     when resyncFields && item.grade_value != null, call applyGradeListingPromotion
+     (force) to inject the grade specific into `aspects` and get the promoted
+     description; use that promoted desc for BOTH the inventory PUT and the offer
+     updateOfferFields listingDescription. ADD `certificate_url` to the item select
+     at ~4675 (currently missing — applyGradeListingPromotion needs it).
+  3. AC2: export a NEW `resyncGradeToLiveListing(userId, itemId)` from
+     flipdesk-ebay.ts — guarded (active GT-origin listing w/ platform_offer_id +
+     grade_value present, else no-op), rebuilds aspects (forceColumnAspects) +
+     applyGradeListingPromotion(force) + re-PUTs inventory_item + updateOfferFields
+     desc. Best-effort. In grading-pipeline.ts applyTerminalCompletion, AFTER the
+     item write-back, call it via a LAZY dynamic import to dodge the routes→lib
+     cycle: `try { const { resyncGradeToLiveListing } = await import(
+     "../routes/flipdesk-ebay.ts"); await resyncGradeToLiveListing(userId,
+     linkedItemId); } catch (e) { console.error(...) }`. MUST NOT break grade
+     completion — wrap best-effort.
+  4. AC4 test: export applyGradeListingPromotion; unit-test that force overwrites
+     an existing grade specific and non-force preserves it, and that a null
+     certificate_url skips the cert branch (deterministic, no DB). Add to a new
+     ebay-grade-promotion_test.ts.
+CAUTION: this fires eBay writes on every grade completion — strong guards + best-
+effort try/catch are mandatory. Consider whether to gate behind an existing flag.
+After US-1502: US-1503 (measurements→listing), US-1504 (price coherence), then the
+iOS audit backlog (US-1491..1500, macOS-CI-verified only).
