@@ -4,9 +4,12 @@ import {
   composeConfidenceCap,
   computePeerQuartiles,
   DEFAULT_PEER_NORM_CONFIG,
+  defectCountBucket,
   evaluatePeerNorm,
+  maxSeverityBucket,
   PEER_NORM_CONFIDENCE_CAP,
   type PeerDistribution,
+  peerProfileCell,
 } from "../lib/peer-norm.ts";
 
 Deno.test("computePeerQuartiles: known distribution", () => {
@@ -69,4 +72,38 @@ Deno.test("composeConfidenceCap: lower value wins; null cap is a passthrough", (
   assertEquals(composeConfidenceCap(0.9, PEER_NORM_CONFIDENCE_CAP), 0.7);
   assertEquals(composeConfidenceCap(0.6, PEER_NORM_CONFIDENCE_CAP), 0.6);
   assertEquals(composeConfidenceCap(0.9, null), 0.9);
+});
+
+Deno.test("defectCountBucket: low-cardinality buckets", () => {
+  assertEquals(defectCountBucket(0), "0");
+  assertEquals(defectCountBucket(-1), "0");
+  assertEquals(defectCountBucket(1), "1");
+  assertEquals(defectCountBucket(2), "2-3");
+  assertEquals(defectCountBucket(3), "2-3");
+  assertEquals(defectCountBucket(4), "4+");
+  assertEquals(defectCountBucket(50), "4+");
+});
+
+Deno.test("maxSeverityBucket: highest present, ignores unknowns, none when empty", () => {
+  assertEquals(maxSeverityBucket([]), "none");
+  assertEquals(maxSeverityBucket(["minor", "moderate"]), "moderate");
+  assertEquals(maxSeverityBucket(["minor", "major", "moderate"]), "major");
+  assertEquals(maxSeverityBucket(["minor", "bogus"]), "minor");
+  assertEquals(maxSeverityBucket(["unknown"]), "none");
+});
+
+Deno.test("peerProfileCell: composes category/brand + defect profile", () => {
+  assertEquals(
+    peerProfileCell({
+      garmentCategory: "jacket",
+      brand: "  Nike ",
+      defectSeverities: ["minor", "major"],
+    }),
+    { garmentCategory: "jacket", brand: "Nike", defectCountBucket: "2-3", maxSeverity: "major" },
+  );
+  // blank brand → category-only cell; no defects → clean profile
+  assertEquals(
+    peerProfileCell({ garmentCategory: "tee", brand: "  ", defectSeverities: [] }),
+    { garmentCategory: "tee", brand: null, defectCountBucket: "0", maxSeverity: "none" },
+  );
 });

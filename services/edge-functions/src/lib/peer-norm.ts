@@ -106,3 +106,64 @@ export function composeConfidenceCap(
 ): number {
   return cap == null ? currentConfidence : Math.min(currentConfidence, cap);
 }
+
+// ── Peer-profile cell (defect profile bucketing) ─────────────────────────────
+//
+// The peer distribution is computed per SIMILAR-item cell: same garment_category
+// (+ brand when there are enough brand samples) with a similar defect profile —
+// (defect count bucket × max severity). These pure helpers derive that cell key
+// so the peer-profile SQL query (next chunk) groups on a stable, low-cardinality
+// bucketing rather than exact defect counts.
+
+export type DefectSeverity = "minor" | "moderate" | "major";
+
+const SEVERITY_RANK: Record<DefectSeverity, number> = {
+  minor: 1,
+  moderate: 2,
+  major: 3,
+};
+
+/** Low-cardinality bucket for a defect count: "0" | "1" | "2-3" | "4+". */
+export function defectCountBucket(count: number): string {
+  if (!Number.isFinite(count) || count <= 0) return "0";
+  if (count === 1) return "1";
+  if (count <= 3) return "2-3";
+  return "4+";
+}
+
+/** Highest severity present, or "none" for a clean item. Unknown values ignored. */
+export function maxSeverityBucket(
+  severities: readonly string[],
+): "none" | DefectSeverity {
+  let best: DefectSeverity | null = null;
+  for (const s of severities) {
+    if (s === "minor" || s === "moderate" || s === "major") {
+      if (!best || SEVERITY_RANK[s] > SEVERITY_RANK[best]) best = s;
+    }
+  }
+  return best ?? "none";
+}
+
+export interface PeerProfileCell {
+  garmentCategory: string;
+  /** Brand-refined cell when brand samples are sufficient; null = category-only. */
+  brand: string | null;
+  defectCountBucket: string;
+  maxSeverity: "none" | DefectSeverity;
+}
+
+/** Derive the peer-profile cell for an item from its category/brand + the
+ *  severities of its consolidated defects. Pure. */
+export function peerProfileCell(input: {
+  garmentCategory: string;
+  brand?: string | null;
+  defectSeverities: readonly string[];
+}): PeerProfileCell {
+  const brand = input.brand?.trim() ? input.brand.trim() : null;
+  return {
+    garmentCategory: input.garmentCategory,
+    brand,
+    defectCountBucket: defectCountBucket(input.defectSeverities.length),
+    maxSeverity: maxSeverityBucket(input.defectSeverities),
+  };
+}
