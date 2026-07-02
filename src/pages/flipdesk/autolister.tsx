@@ -22,6 +22,8 @@ import {
   RotateCcw,
   Camera,
   ArrowDownAZ,
+  CalendarClock,
+  Ungroup,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -379,6 +381,13 @@ export function FlipdeskAutolisterPage() {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  // Group ids created by the LAST auto-group run so it can be undone as one
+  // action (those photos return to Ungrouped; manually-made groups survive).
+  // In-memory only: a mis-grouped but persisted session is reset via
+  // "Ungroup all" instead.
+  const [lastAutoGroupIds, setLastAutoGroupIds] = useState<string[] | null>(
+    null,
+  );
   // US-539: per-file pipeline tasks (progress bars + failure retry).
   const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
   const uploading = uploadTasks.filter(
@@ -965,6 +974,22 @@ export function FlipdeskAutolisterPage() {
     );
   }
 
+  // Sort staged photos by EXIF capture time (shooting order), the same signal
+  // auto-group clusters on — eyeballing the grid in this order shows exactly
+  // where the item boundaries are. Photos with no capture time keep their
+  // relative order at the end. Array.prototype.sort is stable, so ties (burst
+  // shots sharing a second) keep their upload order.
+  function sortStagedByTime() {
+    setStaged((prev) =>
+      [...prev].sort((a, b) => {
+        if (a.capturedAtMs == null && b.capturedAtMs == null) return 0;
+        if (a.capturedAtMs == null) return 1;
+        if (b.capturedAtMs == null) return -1;
+        return a.capturedAtMs - b.capturedAtMs;
+      }),
+    );
+  }
+
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -1356,18 +1381,65 @@ export function FlipdeskAutolisterPage() {
     }));
     if (input.length === 0) return;
     const auto = autoGroupPhotos(input);
-    setGroups((prev) => [
-      ...prev,
-      ...auto.map((g, i) => ({
-        id: crypto.randomUUID(),
-        name: `Item ${prev.length + i + 1}`,
-        photoIds: g.photoIds,
-        coverId: g.coverId,
-      })),
-    ]);
+    // Mint the ids up front so this run is undoable as a unit.
+    const created = auto.map((g, i) => ({
+      id: crypto.randomUUID(),
+      name: `Item ${groups.length + i + 1}`,
+      photoIds: g.photoIds,
+      coverId: g.coverId,
+    }));
+    const createdIds = created.map((g) => g.id);
+    setGroups((prev) => [...prev, ...created]);
+    setLastAutoGroupIds(createdIds);
     setSelected(new Set());
+    // Degenerate grouping (photos exported without EXIF capture times collapse
+    // into one giant burst): warn instead of celebrating, and lead with Undo —
+    // sorting by name and grouping manually beats untangling a 500-photo item.
+    // The toast closes over createdIds directly (the state set above isn't
+    // visible to this render's closures).
+    const biggest = Math.max(...auto.map((g) => g.photoIds.length));
+    if (input.length >= 12 && biggest >= input.length * 0.8) {
+      toast.warning(
+        `Auto-group put ${biggest} of ${input.length} photos into one item — the photos may be missing capture times. Undo, then sort by name and group manually.`,
+        {
+          action: { label: "Undo", onClick: () => undoAutoGroup(createdIds) },
+          duration: 12000,
+        },
+      );
+      return;
+    }
     toast.success(
       `Auto-grouped ${input.length} photo${input.length === 1 ? "" : "s"} into ${auto.length} item${auto.length === 1 ? "" : "s"}. Tweak as needed.`,
+      { action: { label: "Undo", onClick: () => undoAutoGroup(createdIds) } },
+    );
+  }
+
+  // Undo the LAST auto-group run: dissolve exactly the groups it created (their
+  // photos return to Ungrouped). Groups made by hand — before or after — stay.
+  // `ids` defaults to the tracked run for the toolbar button; the toast action
+  // passes its run's ids explicitly (its closure predates the state update).
+  function undoAutoGroup(ids: string[] | null = lastAutoGroupIds) {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setGroups((prev) => prev.filter((g) => !idSet.has(g.id)));
+    setSelectedGroups((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setLastAutoGroupIds(null);
+    toast.success("Auto-grouping undone — photos are back in Ungrouped.");
+  }
+
+  // Full reset: dissolve EVERY group (photos return to Ungrouped; nothing is
+  // deleted). This is the escape hatch when a bad grouping was already
+  // persisted to the session (the undo snapshot doesn't survive a reload).
+  function ungroupAll() {
+    setGroups([]);
+    setSelectedGroups(new Set());
+    setLastAutoGroupIds(null);
+    toast.success(
+      "All groups dissolved — photos are back in Ungrouped. Sort by name or time, then regroup.",
     );
   }
 
@@ -2009,6 +2081,27 @@ export function FlipdeskAutolisterPage() {
             </Button>
             <Button
               size="sm"
+              variant="outline"
+              onClick={sortStagedByTime}
+              disabled={ungrouped.length < 2}
+              title="Sort photos by capture time (shooting order) so item boundaries are easy to spot"
+            >
+              <CalendarClock className="mr-1 h-4 w-4" />
+              Sort by time
+            </Button>
+            {lastAutoGroupIds && lastAutoGroupIds.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => undoAutoGroup()}
+                title="Dissolve the groups the last Auto-group run created — those photos return here"
+              >
+                <Undo2 className="mr-1 h-4 w-4" />
+                Undo auto-group
+              </Button>
+            )}
+            <Button
+              size="sm"
               onClick={autoGroup}
               disabled={ungrouped.length === 0}
               title="Group photos into items automatically by capture time + visual similarity"
@@ -2178,6 +2271,16 @@ export function FlipdeskAutolisterPage() {
                   <Tags className="mr-1 h-4 w-4" />
                 )}
                 Auto-tag all
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={ungroupAll}
+                disabled={busy}
+                title="Dissolve every group — all photos return to Ungrouped (nothing is deleted)"
+              >
+                <Ungroup className="mr-1 h-4 w-4" />
+                Ungroup all
               </Button>
             </div>
           </div>
