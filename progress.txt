@@ -8172,3 +8172,11 @@ NO MIGRATION.
 VERIFICATION (this host): curly-quote scan clean on all 8 edited files + the new
 component (ItemCanvasView's 2 hits are pre-existing string CONTENT, not delimiters,
 not mine). Can't compile Swift on Windows — iOS CI (macOS) is the build/UI gate.
+
+### Loop checkpoint 7 (2026-07-01) — 7 stories verified & committed locally (NOT pushed)
+13 commits ahead of origin (US-1505/1506/1502/1503/1504/1518/1522 + checkpoints).
+ALL code-only, PENDING_MIGRATIONS.md empty, schema 00331. NOT pushed.
+Now in the iOS backlog (macOS CI gate). NEXT: US-1521 (2370, iOS auth/signup polish:
+Apple name never reaches the profile + duplicate-account), then US-1520 (2371, perf:
+parallelize sync pull + photos-relationship N+1), US-1517 (2374, memoize O(n²)
+Sales/global-search). US-1523 still deferred (AC1 needs macOS Package.resolved).
