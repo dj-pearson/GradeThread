@@ -113,6 +113,31 @@ struct ListingDraftService {
                 let return_policy_id: String?
                 let shipping_policy_id: String?
                 let payment_policy_id: String?
+
+                enum CodingKeys: String, CodingKey {
+                    case listing_title, listing_description, ebay_condition
+                    case ebay_condition_description, item_specifics_override
+                    case platform_category_id, return_policy_id
+                    case shipping_policy_id, payment_policy_id
+                }
+                // US-1501: `ebay_condition_description` is encoded EXPLICITLY (null
+                // when nil) so CLEARING the composer condition note actually clears
+                // it server-side — the synthesized `encodeIfPresent` omitted a nil,
+                // which left the old note on the draft (and it then republished). The
+                // TEMPLATE fields below keep nil-omission on purpose (US-1264): an
+                // unset field must not clobber an existing draft value.
+                func encode(to encoder: Encoder) throws {
+                    var c = encoder.container(keyedBy: CodingKeys.self)
+                    try c.encode(listing_title, forKey: .listing_title)
+                    try c.encode(listing_description, forKey: .listing_description)
+                    try c.encode(ebay_condition, forKey: .ebay_condition)
+                    try c.encode(ebay_condition_description, forKey: .ebay_condition_description)
+                    try c.encodeIfPresent(item_specifics_override, forKey: .item_specifics_override)
+                    try c.encodeIfPresent(platform_category_id, forKey: .platform_category_id)
+                    try c.encodeIfPresent(return_policy_id, forKey: .return_policy_id)
+                    try c.encodeIfPresent(shipping_policy_id, forKey: .shipping_policy_id)
+                    try c.encodeIfPresent(payment_policy_id, forKey: .payment_policy_id)
+                }
             }
             try await supabase
                 .from("listings")

@@ -1765,11 +1765,28 @@ struct ItemCanvasView: View {
         // BEFORE the draft is accepted as the new original. Only a
         // GradeThread-published listing (with a Sell offer) is revisable in
         // place; if only internal fields changed there's no eBay round-trip.
-        let ebayPlan: (listingId: String, title: String?, price: Double?, resync: Bool)? = {
+        let ebayPlan: (
+            listingId: String, title: String?, description: String?,
+            price: Double?, resync: Bool, conditionNotesChanged: Bool
+        )? = {
             guard let live = gtLiveListing else { return nil }
             let o = state.original
             let d = state.draft
             let titleChanged = d.title != o.title
+            // US-1501: a description edit must round-trip too. Previously
+            // `itemDescription` wasn't in the trigger AND revise always sent
+            // description:nil, so the server kept preferring the publish-time
+            // snapshot `listing_description` — a canvas description edit on a
+            // live-listed item toasted "Saved." and never reached eBay (even a
+            // relist re-seeded the OLD text). Passing it to revise writes it back
+            // to listing_description.
+            let descriptionChanged = d.itemDescription != o.itemDescription
+            // US-1501: track a condition-note change so we can mirror it onto the
+            // listing's ebay_condition_description BEFORE revise — the server reads
+            // `listing.ebay_condition_description ?? item.condition_notes`, so a
+            // composer-set note otherwise silently shadowed the canvas edit while
+            // the UI still claimed "updated on eBay".
+            let conditionNotesChanged = d.conditionNotes != o.conditionNotes
             // Any column that feeds an eBay item specific (rebuilt on the revise
             // re-PUT via forceColumnAspects) must trigger the round-trip — not
             // just brand/size. Color/material/style edits otherwise saved locally
@@ -1795,7 +1812,8 @@ struct ItemCanvasView: View {
             let oldPrice = currencyFormatter.parse(o.targetPriceText)
             let priceChanged = newPrice != nil && newPrice! > 0
                 && newPrice != oldPrice
-            guard titleChanged || structuralChanged || priceChanged else {
+            guard titleChanged || structuralChanged || priceChanged
+                    || descriptionChanged else {
                 return nil
             }
             return (
@@ -1803,11 +1821,17 @@ struct ItemCanvasView: View {
                 title: titleChanged
                     ? d.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     : nil,
+                // US-1501: send the edited description so the server writes it back
+                // to listing_description (nil = "no change", leaving it as published).
+                description: descriptionChanged
+                    ? d.itemDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : nil,
                 price: priceChanged ? newPrice : nil,
                 // Force the structured re-PUT when a specific/measurement-feeding
                 // field changed (US-1503) so the live listing's specifics +
                 // measurement block + description regenerate server-side.
-                resync: structuralChanged
+                resync: structuralChanged,
+                conditionNotesChanged: conditionNotesChanged
             )
         }()
 
@@ -1821,6 +1845,9 @@ struct ItemCanvasView: View {
             let d = state.draft
             return d.brand != o.brand || d.size != o.size
                 || d.color != o.color || d.material != o.material
+                // US-1501: style feeds the Style/Type item specifics, so a style
+                // edit must re-derive them too (was omitted → stale ebay_aspects).
+                || d.style != o.style
                 || d.category != o.category
         }()
 
@@ -1853,10 +1880,24 @@ struct ItemCanvasView: View {
             // blocks the local save — surface the reason and keep the user here.
             var syncFailed = false
             if let plan = ebayPlan {
+                // US-1501: when the condition note changed, mirror it onto the
+                // listing's canonical `ebay_condition_description` BEFORE the revise
+                // — the server reads that column first, so a composer-set note would
+                // otherwise shadow the canvas edit and the revise would silently push
+                // the stale note while the toast claimed success. Clearing the note
+                // writes null (explicit) so it falls back to the (also-cleared) item
+                // column rather than republishing the old note.
+                if plan.conditionNotesChanged,
+                   !(await mirrorConditionNote(
+                        listingId: plan.listingId, note: state.draft.conditionNotes.nonEmpty)) {
+                    ebaySyncError =
+                        "Saved on your device, but couldn't update the eBay condition note."
+                    syncFailed = true
+                }
                 let outcome = await EbayPublishService().revise(
                     listingId: plan.listingId,
                     title: plan.title,
-                    description: nil,
+                    description: plan.description,
                     price: plan.price,
                     syncPhotos: true,
                     resyncFields: plan.resync
@@ -2090,6 +2131,35 @@ struct ItemCanvasView: View {
         // Flat garment measurements (jsonb), keyed by canonical key. Zero/blank
         // entries are dropped so an untouched "Add" row never persists a 0.
         let measurements: [String: Double]
+    }
+
+    /// US-1501: writes the live listing's canonical `ebay_condition_description`
+    /// so a canvas condition-note edit isn't shadowed by the composer's publish-time
+    /// snapshot on the revise (the server reads that column first). Passing nil
+    /// CLEARS it (explicit null, not an omitted key) so clearing the note on the
+    /// canvas falls back to the item column instead of republishing the old note.
+    /// Returns false on failure so the caller surfaces a truthful sync error rather
+    /// than a false "updated on eBay" toast. RLS scopes the update to the owner.
+    private func mirrorConditionNote(listingId: String, note: String?) async -> Bool {
+        struct Patch: Encodable {
+            let ebay_condition_description: String?
+            enum CodingKeys: String, CodingKey { case ebay_condition_description }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                // `encode` (not `encodeIfPresent`) so a nil writes an explicit null.
+                try c.encode(ebay_condition_description, forKey: .ebay_condition_description)
+            }
+        }
+        do {
+            try await SupabaseShared.client
+                .from("listings")
+                .update(Patch(ebay_condition_description: note))
+                .eq("id", value: listingId)
+                .execute()
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func buildUpdatePayload(state: ItemCanvasState) -> ItemCanvasUpdate {

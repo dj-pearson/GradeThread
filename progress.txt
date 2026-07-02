@@ -8655,3 +8655,38 @@ cover only the pure helpers — missingRequired/merge/partition/storedSources). 
 compile + code review; the edge resync path is the web-parity US-1490 endpoint.
 VERIFICATION (this host): comment/string-aware brace balance clean; no-ungated-print +
 no-bare-strings + no-default-shared-session OK. iOS CI is the build gate. No migration.
+
+## 2026-07-02 (cont.) — US-1501 iOS canvas description/condition-note/style edits now reach the live eBay listing — COMPLETE (passes:true) — NO MIGRATION
+Files: Inventory/ItemCanvas/ItemCanvasView.swift, Marketplaces/Publish/ListingDraftService.swift.
+The "edited here, not there" class. (Note: since the 2026-07-01 audit, US-1503 already added
+`d.style`/`d.conditionNotes` to structuralChanged and the `resyncFields` revise param — so the
+remaining gaps were description, the condition-note snapshot shadow, aspectsNeedSync's style, and
+the composer nil-clear.)
+
+(1) itemDescription never round-tripped: it wasn't in the ebayPlan trigger and revise always sent
+description:nil, so the server kept preferring the publish-time snapshot listing_description — a
+canvas description edit toasted "Saved." and never reached eBay (even relist re-seeded old text).
+FIX: ebayPlan now detects `d.itemDescription != o.itemDescription`, carries the new description,
+and passes it to revise (server writes it back to listing_description → also fixes relist).
+
+(2) conditionNotes fired a revise (already in structuralChanged) but the server reads
+`listing.ebay_condition_description ?? item.condition_notes`, so a composer-set note silently
+shadowed the canvas edit while the toast claimed success. FIX: new mirrorConditionNote() writes the
+new note onto listings.ebay_condition_description BEFORE the revise (explicit null to CLEAR so a
+cleared note falls back to the item column instead of republishing the old one); a mirror failure
+now surfaces a truthful sync error instead of a false "updated on eBay".
+
+(3) aspectsNeedSync omitted style though style feeds Style/Type item specifics → added
+`d.style != o.style` so a style edit re-derives the Auto aspects (was leaving stale ebay_aspects).
+
+(4) ListingDraftService.Update omitted a nil ebay_condition_description (synthesized encodeIfPresent),
+so clearing the composer condition note kept the OLD note on the draft (and republished it). FIX:
+custom encode() writes ebay_condition_description EXPLICITLY (null when nil) while the template fields
+(item_specifics_override / platform_category_id / *_policy_id) KEEP nil-omission on purpose (US-1264
+— unset must not clobber an existing draft value).
+
+No unit test added: both sites are coupled to the live Supabase SDK / SwiftUI save flow (no clean
+seam; SpecificsEditorTests-style pure helpers don't apply here). Verified by compile + code review;
+the encode() null-vs-omit distinction is the crux and is asserted by inspection.
+VERIFICATION (this host): comment/string-aware brace balance clean on both files; no-ungated-print +
+no-bare-strings + no-default-shared-session OK. iOS CI is the build gate. No migration.

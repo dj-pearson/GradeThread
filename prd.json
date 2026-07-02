@@ -8981,7 +8981,7 @@
         "Manual/regression check: edit description + condition note on a live-listed item → both visible on the eBay listing after the save."
       ],
       "priority": 2390,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The 'edited here, not there' class Apple reviewers keep hitting — highest-traffic fields after price."
     },
     {
