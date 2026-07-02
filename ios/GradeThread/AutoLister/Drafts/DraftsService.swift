@@ -47,7 +47,7 @@ struct DraftsService: DraftsProviding {
         "id, inventory_item_id, listing_title, listing_price, ebay_condition, " +
         "quantity, best_offer_enabled, platform_category_id, return_policy_id, " +
         "shipping_policy_id, payment_policy_id, batch_id, price_is_estimated, " +
-        "listing_origin, created_at"
+        "listing_origin, publish_error, created_at"
 
     func fetchDrafts() async throws -> [DraftListing] {
         // RLS scopes SELECT to the caller via the parent item. We filter to

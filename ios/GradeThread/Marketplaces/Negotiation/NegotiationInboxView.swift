@@ -95,7 +95,10 @@ struct NegotiationInboxView: View {
         .navigationTitle("Offers & messages")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if tab == .offers {
+            // US-1510: hide the send-offer entry once the server has said the
+            // feature is unavailable on this connection (sticky per store) —
+            // otherwise it stays visible and the sheet explains the state.
+            if tab == .offers && !store.sendOfferUnavailable {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showSendOffer = true } label: {
                         Label("Send offer", systemImage: "paperplane")
@@ -122,7 +125,7 @@ struct NegotiationInboxView: View {
             // US-1238: blasting a discount to every interested buyer is an
             // irreversible money action, so the sheet shows the eligible count up
             // front and gates the send behind a confirmation (mirrors US-1160).
-            SendOfferSheet(loadEligibleCount: { await store.eligibleCount() }) { pct, message in
+            SendOfferSheet(checkEligible: { await store.checkEligible() }) { pct, message in
                 await store.sendOfferToAllEligible(discountPercentage: pct, message: message)
             }
         }
@@ -473,8 +476,10 @@ private struct MessageReplySheet: View {
 
 private struct SendOfferSheet: View {
     /// US-1238: count eligible listings up front so the seller sees how many
-    /// buyers this blast reaches before confirming. Returns nil on failure.
-    let loadEligibleCount: () async -> Int?
+    /// buyers this blast reaches before confirming. US-1510: the probe result
+    /// distinguishes feature-unavailable (send is a guaranteed failure — gate
+    /// it) from a transient count failure (degrade to generic confirmation).
+    let checkEligible: () async -> NegotiationStore.EligibleCheck
     let onSubmit: (String, String?) async -> Bool // US-1168: async + success
     @Environment(\.dismiss) private var dismiss
     @State private var discount: Double = 10
@@ -482,9 +487,17 @@ private struct SendOfferSheet: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     // US-1238: eligible-count load + send confirmation.
-    @State private var eligibleCount: Int?
+    @State private var eligibleCheck: NegotiationStore.EligibleCheck?
     @State private var isLoadingCount = true
     @State private var showConfirm = false
+
+    private var eligibleCount: Int? {
+        if case .count(let n) = eligibleCheck { return n }
+        return nil
+    }
+
+    /// US-1510: the server said send-offer can't work on this connection.
+    private var isUnavailable: Bool { eligibleCheck == .unavailable }
 
     private func listingLabel(_ count: Int) -> String {
         "\(count) listing\(count == 1 ? "" : "s")"
@@ -521,6 +534,16 @@ private struct SendOfferSheet: View {
                             ProgressView()
                             Text("Checking eligible listings…").foregroundStyle(.secondary)
                         }
+                    } else if isUnavailable {
+                        // US-1510: sending is a guaranteed failure here — say so
+                        // calmly instead of the old "you can still send" (which
+                        // walked the user into "eBay rejected the offer.").
+                        Label(
+                            "Sending offers to interested buyers isn't available yet. It switches on automatically once eBay enables it for GradeThread.",
+                            systemImage: "hourglass"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                     } else if let eligibleCount {
                         Text(eligibleCount == 0
                             ? "No listings are currently eligible for an offer."
@@ -545,13 +568,17 @@ private struct SendOfferSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isSubmitting) }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSubmitting { ProgressView() }
-                    // US-1238: require confirmation; disable when nothing is eligible.
-                    else { Button("Send") { showConfirm = true }.disabled(eligibleCount == 0) }
+                    // US-1238: require confirmation; disable when nothing is
+                    // eligible. US-1510: also when the feature is unavailable.
+                    else {
+                        Button("Send") { showConfirm = true }
+                            .disabled(eligibleCount == 0 || isUnavailable)
+                    }
                 }
             }
             .task {
                 isLoadingCount = true
-                eligibleCount = await loadEligibleCount()
+                eligibleCheck = await checkEligible()
                 isLoadingCount = false
             }
             .confirmationDialog(

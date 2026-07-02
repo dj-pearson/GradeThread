@@ -414,6 +414,10 @@ actor SyncMergeActor {
                     hasLocalChanges: local.hasLocalChanges, listingOrigin: origin)
             }
             local.listingOrigin = remote.listing_origin
+            // US-1511: last push failure is server-owned (written by the edge on
+            // a failed publish/revise, cleared on success) — copy verbatim so a
+            // scheduled/AutoLister failure surfaces on iOS.
+            local.publishError = remote.publish_error
             local.updatedAt = remote.updated_at.map(SyncEngine.parseDate) ?? .now
         }
 

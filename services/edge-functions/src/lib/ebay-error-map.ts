@@ -76,3 +76,15 @@ export function mapEbayError(errorIds: number[] | undefined | null): EbayFix | n
   }
   return null;
 }
+
+/**
+ * US-1511: client-safe `detail` for an eBay failure on the NON-publish paths
+ * (revise/price/end/negotiation). Mirrors the publish path's US-567 contract:
+ * the mapped structured-errorId message when one matches, else the caller's
+ * operation-specific generic — NEVER the raw provider blob ("eBay POST
+ * /sell/... failed (400): {json}"), which stays in the server logs only.
+ */
+export function ebayFailureDetail(err: unknown, generic: string): string {
+  const ids = (err as { ebayErrorIds?: number[] } | null)?.ebayErrorIds;
+  return mapEbayError(ids)?.message ?? generic;
+}

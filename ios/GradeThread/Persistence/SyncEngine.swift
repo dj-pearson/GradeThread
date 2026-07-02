@@ -963,7 +963,7 @@ actor SyncEngine {
     // LocalListing rows → the item canvas never shows "Edit live listing"). Only
     // list columns proven to exist on `listings` (00002 + flipdesk migrations).
     private static let listingColumns =
-        "id,inventory_item_id,platform,platform_listing_id,platform_offer_id,listing_url,listing_price,listing_status,listed_at,listing_origin,created_at,updated_at"
+        "id,inventory_item_id,platform,platform_listing_id,platform_offer_id,listing_url,listing_price,listing_status,listed_at,listing_origin,publish_error,created_at,updated_at"
 
     /// US-1244: listing statuses that represent a currently-live listing (vs
     /// draft/ended/sold). Lowercased for case-insensitive comparison.
@@ -1005,6 +1005,9 @@ actor SyncEngine {
         let listing_status: String?
         let listed_at: String?
         let listing_origin: String?
+        // US-1511: last outbound-push failure (00052), mirrored so a scheduled/
+        // AutoLister publish failure is visible on iOS.
+        let publish_error: String?
         let created_at: String?
         let updated_at: String?
     }

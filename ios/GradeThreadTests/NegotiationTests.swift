@@ -95,8 +95,54 @@ final class NegotiationTests: XCTestCase {
             .init(listingId: "l1", title: nil), .init(listingId: "l2", title: nil),
         ])
         let store = NegotiationStore(service: fake)
-        let count = await store.eligibleCount()
-        XCTAssertEqual(count, 2)
+        let check = await store.checkEligible()
+        XCTAssertEqual(check, .count(2))
+        XCTAssertFalse(store.sendOfferUnavailable)
+    }
+
+    // US-1510: a 501 feature_unavailable probe is categorically different from a
+    // transient failure — the sheet gates Send, and the store remembers so the
+    // toolbar entry hides on the next visit.
+    func test_store_eligibleCheck_featureUnavailable_isSticky() async {
+        let fake = FakeNegotiation()
+        fake.eligibleError = EdgeAPIError.featureUnavailable(detail: nil)
+        let store = NegotiationStore(service: fake)
+        let check = await store.checkEligible()
+        XCTAssertEqual(check, .unavailable)
+        XCTAssertTrue(store.sendOfferUnavailable)
+
+        // A later successful probe clears the gate (scope re-added, US-1421).
+        fake.eligibleError = nil
+        fake.eligible = [.init(listingId: "l1", title: nil)]
+        _ = await store.checkEligible()
+        XCTAssertFalse(store.sendOfferUnavailable)
+    }
+
+    // US-1510: a transient eligible failure stays .failed — the sheet keeps its
+    // "you can still send" degradation and the toolbar entry stays visible.
+    func test_store_eligibleCheck_transientFailure_isNotUnavailable() async {
+        let fake = FakeNegotiation()
+        fake.eligibleError = EdgeAPIError.serverError(detail: nil)
+        let store = NegotiationStore(service: fake)
+        let check = await store.checkEligible()
+        XCTAssertEqual(check, .failed)
+        XCTAssertFalse(store.sendOfferUnavailable)
+    }
+
+    // US-1510: acting on an offer that expired / was answered elsewhere is a
+    // stale-view case — friendly banner (not actionError), row dropped, inbox
+    // refreshed, and the sheet dismisses (returns true; a retry can't succeed).
+    func test_store_respond_offerNotOpen_refreshesInsteadOfRawError() async {
+        let fake = FakeNegotiation(offers: [.init(bestOfferId: "bo1", itemId: "i1")])
+        let store = NegotiationStore(service: fake)
+        await store.loadOffers()
+        fake.respondError = EdgeAPIError.offerNotOpen
+        fake.offersList = [] // the server no longer lists it either
+        let ok = await store.accept(store.offers[0])
+        XCTAssertTrue(ok)
+        XCTAssertNil(store.actionError)
+        XCTAssertEqual(store.actionBanner, "This offer is no longer open — refreshing your offers.")
+        XCTAssertTrue(store.offers.isEmpty)
     }
 
     func test_store_replyRequiresItemAndSender() async {
@@ -137,6 +183,9 @@ final class NegotiationTests: XCTestCase {
         var respondCalls: [(action: String, counterPrice: Double?)] = []
         var replyCalls: [(messageId: String, recipientId: String)] = []
         var sendOfferCalls: [(listingIds: [String], discount: String)] = []
+        // US-1510: injectable failures.
+        var eligibleError: Error?
+        var respondError: Error?
 
         init(
             offers: [BestOffer] = [], messages: [BuyerMessage] = [],
@@ -149,9 +198,13 @@ final class NegotiationTests: XCTestCase {
 
         func offers() async throws -> [BestOffer] { offersList }
         func messages() async throws -> [BuyerMessage] { messagesList }
-        func eligibleItems() async throws -> [EligibleNegotiationItem] { eligible }
+        func eligibleItems() async throws -> [EligibleNegotiationItem] {
+            if let eligibleError { throw eligibleError }
+            return eligible
+        }
 
         func respond(bestOfferId: String, itemId: String, action: String, counterPrice: Double?, message: String?) async throws {
+            if let respondError { throw respondError }
             respondCalls.append((action, counterPrice))
             // US-1238: mirror real eBay semantics — only Accept/Decline are
             // terminal server-side; a Counter leaves the offer open.

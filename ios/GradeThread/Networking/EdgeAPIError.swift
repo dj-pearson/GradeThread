@@ -28,6 +28,16 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     /// workspace was revoked mid-session. Distinct from `.unauthorized` so the
     /// client can clear the stale scope and recover under the personal tenant.
     case workspaceAccessRevoked
+    /// US-1510: the server declared this capability unavailable on the current
+    /// eBay connection (501 `{ code: "feature_unavailable" }`) — e.g. send-offer
+    /// while the production keyset lacks the sell.negotiation scope. Distinct
+    /// from `.serverError` so surfaces can render a calm "not available yet"
+    /// state instead of a failure, and skip retries (it can't succeed).
+    case featureUnavailable(detail: String?)
+    /// US-1510: acting on a best offer that's no longer open (409
+    /// `{ code: "offer_not_open" }` — expired, retracted, or answered elsewhere).
+    /// Distinct so the inbox can refresh itself instead of showing a raw error.
+    case offerNotOpen
 
     public var errorDescription: String? {
         switch self {
@@ -52,6 +62,10 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return "Unexpected response from server: \(message)"
         case .network(let message):
             return "Network error: \(message)"
+        case .featureUnavailable(let detail):
+            return detail ?? "This feature isn't available yet."
+        case .offerNotOpen:
+            return "This offer is no longer available — it may have expired or already been answered."
         }
     }
 
@@ -87,6 +101,14 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         // `.unauthorized`) skip the futile token-refresh + retry.
         if statusCode == 403, payload?.discriminator == "email_unverified" {
             return .emailUnverified
+        }
+        // US-1510: capability gates. Keyed on the discriminator (not just the
+        // status) so the mapping survives a future status tweak on the edge.
+        if payload?.discriminator == "feature_unavailable" {
+            return .featureUnavailable(detail: detail)
+        }
+        if payload?.discriminator == "offer_not_open" {
+            return .offerNotOpen
         }
         switch statusCode {
         case 401, 403: return .unauthorized

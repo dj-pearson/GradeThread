@@ -33,6 +33,9 @@ struct PublishDialog: View {
 
     @State private var phase: Phase = .validating
     @State private var showingSafari = false
+    /// US-828/US-1511: aspect values the server will omit from the eBay payload
+    /// (value-validation), shown as composer warnings. Set by runValidate.
+    @State private var aspectWarnings: [String] = []
     private let service = EbayPublishService()
 
     private enum Phase: Equatable {
@@ -95,7 +98,8 @@ struct PublishDialog: View {
                 inventoryItemId: inventoryItemId,
                 acquiredCost: acquiredCost,
                 pushLabel: relist ? "Relist on eBay" : "Push to eBay",
-                showRelistWarning: listingActive
+                showRelistWarning: listingActive,
+                aspectWarnings: aspectWarnings
             ) { edits in
                 Task { await runPush(edits: edits, summary: summary) }
             }
@@ -205,6 +209,19 @@ struct PublishDialog: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+            if response.syncPending {
+                // US-783/US-1511: the listing IS live but the local bookkeeping
+                // write was queued for the next sync — without this line the item
+                // not flipping to "listed" in-app reads as a failed publish.
+                Label(
+                    "It\u{2019}s live on eBay — FlipDesk is finishing the sync here, so it may take a moment to show as listed.",
+                    systemImage: "clock.arrow.2.circlepath"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .accessibilityElement(children: .combine)
+            }
             HStack(spacing: 10) {
                 Button {
                     showingSafari = true
@@ -307,6 +324,9 @@ struct PublishDialog: View {
         let outcome = await service.validate(inventoryItemId: inventoryItemId)
         switch outcome {
         case .validated(let response):
+            // US-828/US-1511: warnings ride alongside the summary — they don't
+            // block, but the seller should see "X won't be sent" BEFORE pushing.
+            aspectWarnings = (response.aspectDiagnostics ?? []).map(\.warningLine)
             if response.blockers.isEmpty, let summary = response.summary {
                 phase = .readyToPush(summary)
             } else {
@@ -446,6 +466,9 @@ private struct ComposerForm: View {
     /// When true, show a banner warning that the item is still live and
     /// relisting ends the current listing + creates a new one.
     var showRelistWarning: Bool = false
+    /// US-828/US-1511: "X won't be sent" lines from the validate pre-flight —
+    /// non-blocking, but the seller should see them before committing.
+    var aspectWarnings: [String] = []
     let onPush: (ComposerEdits) -> Void
 
     /// US-981: proactively gate the push button when offline so it shows an
@@ -579,6 +602,7 @@ private struct ComposerForm: View {
         acquiredCost: Double?,
         pushLabel: String = "Push to eBay",
         showRelistWarning: Bool = false,
+        aspectWarnings: [String] = [],
         onPush: @escaping (ComposerEdits) -> Void
     ) {
         self.summary = summary
@@ -586,6 +610,7 @@ private struct ComposerForm: View {
         self.acquiredCost = acquiredCost
         self.pushLabel = pushLabel
         self.showRelistWarning = showRelistWarning
+        self.aspectWarnings = aspectWarnings
         self.onPush = onPush
         _title = State(initialValue: String(summary.title.prefix(Self.titleLimit)))
         _condition = State(initialValue: EbayCondition.resolve(summary.condition))
@@ -612,6 +637,26 @@ private struct ComposerForm: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityElement(children: .combine)
+                }
+
+                if !aspectWarnings.isEmpty {
+                    // US-828/US-1511: values the server will drop from the eBay
+                    // payload — shown up front so "why isn't Material on my
+                    // listing?" never needs a support round-trip.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Some specifics won\u{2019}t be sent", systemImage: "exclamationmark.triangle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.brandAmber)
+                        ForEach(aspectWarnings, id: \.self) { line in
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(Color.brandAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+                    .accessibilityElement(children: .combine)
                 }
 
                 aiCopyButton

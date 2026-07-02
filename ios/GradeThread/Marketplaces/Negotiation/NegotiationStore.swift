@@ -16,6 +16,22 @@ final class NegotiationStore {
     var actionError: String?
     var actionBanner: String?
 
+    /// US-1510: what an eligible-listings probe learned. `.unavailable` means the
+    /// server said send-offer can't work on this connection (missing negotiation
+    /// scope, 501 feature_unavailable) — categorically different from a transient
+    /// `.failed`, which may succeed on retry.
+    enum EligibleCheck: Equatable {
+        case count(Int)
+        case unavailable
+        case failed
+    }
+
+    /// US-1510: sticky once the server reports feature_unavailable, so the
+    /// send-offer toolbar entry can hide on subsequent visits instead of walking
+    /// the user into a dead end again. Reset only on a successful probe (the
+    /// feature reactivates automatically when the scope lands — US-1421).
+    private(set) var sendOfferUnavailable = false
+
     init(service: NegotiationProviding = NegotiationService()) {
         self.service = service
     }
@@ -73,6 +89,16 @@ final class NegotiationStore {
             HapticFeedback.success()
             await loadOffers()
             return true
+        } catch EdgeAPIError.offerNotOpen {
+            // US-1510: the offer expired / was answered elsewhere while it sat in
+            // a stale inbox. Not a failure to retry — tell the user calmly, drop
+            // the dead row, and refresh so the list reflects reality. Returns
+            // true so an open counter sheet dismisses (retrying can't succeed).
+            offers.removeAll { $0.bestOfferId == offer.bestOfferId }
+            actionBanner = "This offer is no longer open — refreshing your offers."
+            HapticFeedback.warning()
+            await loadOffers()
+            return true
         } catch {
             actionError = error.localizedDescription
             HapticFeedback.error()
@@ -93,12 +119,20 @@ final class NegotiationStore {
 
     /// US-1238: count listings eligible for a seller-initiated offer so the send
     /// sheet can show how many buyers the blast will reach before confirming.
-    /// Returns nil on failure so the sheet can degrade to a generic confirmation.
-    func eligibleCount() async -> Int? {
+    /// US-1510: the result distinguishes "the feature isn't available on this
+    /// connection" (server 501 feature_unavailable — sending is a guaranteed
+    /// failure, so the sheet must NOT say "you can still send") from a transient
+    /// failure (unknown — degrade to the generic confirmation).
+    func checkEligible() async -> EligibleCheck {
         do {
-            return try await service.eligibleItems().count
+            let count = try await service.eligibleItems().count
+            sendOfferUnavailable = false
+            return .count(count)
+        } catch EdgeAPIError.featureUnavailable {
+            sendOfferUnavailable = true
+            return .unavailable
         } catch {
-            return nil
+            return .failed
         }
     }
 
@@ -119,6 +153,13 @@ final class NegotiationStore {
             actionBanner = "Sent \(discountPercentage)% offers to interested buyers on \(eligible.count) listing\(eligible.count == 1 ? "" : "s")."
             HapticFeedback.success()
             return true
+        } catch let error as EdgeAPIError {
+            // US-1510: a capability gate isn't a retryable failure — remember it
+            // so the surface hides, and let errorDescription carry the calm copy.
+            if case .featureUnavailable = error { sendOfferUnavailable = true }
+            actionError = error.localizedDescription
+            HapticFeedback.error()
+            return false
         } catch {
             actionError = error.localizedDescription
             HapticFeedback.error()

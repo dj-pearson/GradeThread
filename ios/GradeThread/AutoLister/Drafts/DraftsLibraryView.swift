@@ -431,6 +431,16 @@ private struct DraftLibraryRow: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            if let publishError = draft.publishError, !publishError.isEmpty {
+                // US-1511: a scheduled/AutoLister publish failed and the draft
+                // landed back here carrying the mapped reason — surface it so the
+                // failure isn't invisible on iOS (web has shown this since US-321).
+                Label(publishError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(Color.brandRed)
+                    .lineLimit(2)
+                    .accessibilityLabel("Last publish failed: \(publishError)")
+            }
         }
         .padding(.vertical, 2)
     }

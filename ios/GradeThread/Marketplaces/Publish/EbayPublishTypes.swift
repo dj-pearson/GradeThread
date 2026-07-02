@@ -7,6 +7,26 @@ struct ValidateResponse: Decodable, Equatable {
     let ok: Bool
     let blockers: [String]
     let summary: PublishSummary?
+    /// US-828/US-1511: aspect values the server will OMIT from the eBay payload
+    /// for value-validation reasons — the composer warns "X won't be sent" up
+    /// front (the web has shown these since US-828; iOS silently dropped them).
+    /// Optional — older edge responses may omit the field.
+    let aspectDiagnostics: [AspectDiagnostic]?
+}
+
+/// US-828: one omitted-aspect diagnostic from the publish pre-flight. Keys are
+/// verbatim (this service decodes with a plain JSONDecoder).
+struct AspectDiagnostic: Decodable, Equatable {
+    let aspect: String
+    let omittedValues: [String]
+    let reason: String?
+
+    /// One warning line for the composer, e.g.
+    /// `Material: "vegan leather" won't be sent (not an accepted eBay value).`
+    var warningLine: String {
+        let values = omittedValues.map { "\u{201C}\($0)\u{201D}" }.joined(separator: ", ")
+        return "\(aspect): \(values) won\u{2019}t be sent (not an accepted eBay value)."
+    }
 }
 
 /// Snapshot of what the push will send to eBay. Surfaced in the
@@ -86,6 +106,11 @@ struct PushResponse: Decodable, Equatable {
     let listingURL: String
     let offerId: String
     let sku: String
+    /// US-783/US-1511: true when the listing went LIVE on eBay but the local
+    /// bookkeeping write failed and was queued for the next sync (a reconcile
+    /// marker exists). The success card must say "live, syncing shortly" so the
+    /// item not yet reading "listed" in-app doesn't look like a failed publish.
+    let syncPending: Bool
 
     private enum CodingKeys: String, CodingKey {
         case ok
@@ -93,6 +118,29 @@ struct PushResponse: Decodable, Equatable {
         case listingURL = "listing_url"
         case offerId = "offer_id"
         case sku
+        case syncPending = "sync_pending"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try c.decode(Bool.self, forKey: .ok)
+        listingId = try c.decode(String.self, forKey: .listingId)
+        listingURL = try c.decode(String.self, forKey: .listingURL)
+        offerId = try c.decode(String.self, forKey: .offerId)
+        sku = try c.decode(String.self, forKey: .sku)
+        // Older edge responses omit it — absent means the local write succeeded.
+        syncPending = try c.decodeIfPresent(Bool.self, forKey: .syncPending) ?? false
+    }
+
+    /// Memberwise init for tests / previews (the Decodable init above replaces
+    /// the synthesized one).
+    init(ok: Bool, listingId: String, listingURL: String, offerId: String, sku: String, syncPending: Bool = false) {
+        self.ok = ok
+        self.listingId = listingId
+        self.listingURL = listingURL
+        self.offerId = offerId
+        self.sku = sku
+        self.syncPending = syncPending
     }
 }
 

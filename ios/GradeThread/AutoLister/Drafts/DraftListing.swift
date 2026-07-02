@@ -22,6 +22,11 @@ struct DraftListing: Identifiable, Decodable, Equatable {
     /// Provenance marker (US-1086): `"gradethread"` | `"ebay"`. AutoLister drafts
     /// are always GradeThread-originated; the field is decoded for completeness.
     let listingOrigin: String?
+    /// US-1511: last publish failure recorded on this draft (US-1079's
+    /// `publish_error`, mapped to a short user-facing message server-side).
+    /// A scheduled/AutoLister publish that failed lands back in `draft` status
+    /// carrying this — without it the failure was invisible on iOS.
+    let publishError: String?
 
     /// Parsed `created_at` for sorting/display; distantPast on miss. Handles
     /// ISO 8601 with or without fractional seconds (PostgREST emits both).
@@ -49,6 +54,7 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         case priceIsEstimated = "price_is_estimated"
         case createdAt = "created_at"
         case listingOrigin = "listing_origin"
+        case publishError = "publish_error"
     }
 
     init(from decoder: Decoder) throws {
@@ -69,6 +75,7 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         priceIsEstimated = try c.decodeIfPresent(Bool.self, forKey: .priceIsEstimated)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         listingOrigin = try c.decodeIfPresent(String.self, forKey: .listingOrigin)
+        publishError = try c.decodeIfPresent(String.self, forKey: .publishError)
     }
 
     /// Memberwise initializer for tests/previews.
@@ -87,7 +94,8 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         batchId: String? = nil,
         priceIsEstimated: Bool? = nil,
         createdAt: String? = nil,
-        listingOrigin: String? = nil
+        listingOrigin: String? = nil,
+        publishError: String? = nil
     ) {
         self.id = id
         self.inventoryItemId = inventoryItemId
@@ -104,6 +112,7 @@ struct DraftListing: Identifiable, Decodable, Equatable {
         self.priceIsEstimated = priceIsEstimated
         self.createdAt = createdAt
         self.listingOrigin = listingOrigin
+        self.publishError = publishError
     }
 
     private static func lenientDouble(

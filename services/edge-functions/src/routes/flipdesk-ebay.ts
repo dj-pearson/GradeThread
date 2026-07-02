@@ -52,6 +52,7 @@ import {
   isAnalyticsAccessDenied,
   getUserIdentityFromToken,
   isEbayConfigured,
+  isNegotiationScopeAvailable,
   isOfferAlreadyExistsError,
   listAllOffers,
   listOffersForSku,
@@ -155,7 +156,11 @@ import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
-import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts";
+import {
+  EBAY_PUBLISH_GENERIC_FIX,
+  ebayFailureDetail,
+  mapEbayError,
+} from "../lib/ebay-error-map.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog, writeSystemAuditLog } from "../lib/audit-log.ts";
 import { getSetting } from "../lib/system-settings.ts";
@@ -3992,8 +3997,11 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
     return c.json(
       {
         error: "eBay rejected the price update.",
-        detail:
-          err instanceof Error ? err.message.slice(0, 500) : String(err),
+        // US-1511: mapped/human detail only — raw blob stays in the log above.
+        detail: ebayFailureDetail(
+          err,
+          "eBay rejected the price update. Check the price is valid for this listing and try again.",
+        ),
       },
       502
     );
@@ -5046,8 +5054,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       return c.json(
         {
           error: "eBay rejected the revision.",
-          detail:
-            err instanceof Error ? err.message.slice(0, 500) : String(err),
+          // US-1511: mapped/human detail only (mirrors the publish path's
+          // US-567 contract) — the raw eBay blob stays in the log above.
+          detail: ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX),
         },
         422
       );
@@ -5083,8 +5092,8 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       return c.json(
         {
           error: "eBay rejected the offer revision.",
-          detail:
-            err instanceof Error ? err.message.slice(0, 500) : String(err),
+          // US-1511: mapped/human detail only — raw blob stays in the log above.
+          detail: ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX),
         },
         422
       );
@@ -5352,8 +5361,11 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
         return c.json(
           {
             error: "eBay rejected the end-listing call. Please try again.",
-            detail:
-              err instanceof Error ? err.message.slice(0, 500) : String(err),
+            // US-1511: mapped/human detail only — raw blob stays in the log above.
+            detail: ebayFailureDetail(
+              err,
+              "eBay couldn't end this listing just now. It's still live — try again in a moment.",
+            ),
           },
           502
         );
@@ -6760,14 +6772,61 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
     return c.json({ ok: true, best_offer_id: bestOfferId, action });
   } catch (err) {
     console.error("[flipdesk-ebay] respondToBestOffer failed:", err);
-    return c.json({ error: "eBay rejected the best-offer response.", detail: String(err) }, 502);
+    // US-1510: an offer that was accepted/declined/expired elsewhere (buyer
+    // retracted, another device responded, timer ran out) is a STALE-VIEW
+    // problem, not a server failure — return a machine-readable 409 so the
+    // client can show "no longer open" and refresh its inbox.
+    if (isBestOfferNotOpenError(err)) {
+      return c.json({
+        error:
+          "This offer is no longer open — it may have expired or already been answered.",
+        code: "offer_not_open",
+      }, 409);
+    }
+    // US-1511: human-readable detail only (raw Trading blob stays in the log).
+    return c.json({
+      error: "eBay rejected the best-offer response.",
+      detail:
+        "eBay couldn't apply this response. Refresh the offers list and try again.",
+    }, 502);
   }
 });
+
+// US-1510: Trading's RespondToBestOffer failure LongMessages for an offer that
+// isn't actionable anymore. Message-based (the XML error ids aren't parsed onto
+// the thrown error), so match the stable phrasings conservatively.
+function isBestOfferNotOpenError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /no longer|expired|already (been )?(accepted|declined|countered|responded)|not (a )?valid best offer|invalid best offer|best offer .*(ended|closed)/i
+    .test(msg);
+}
+
+// US-1510: the sell.negotiation scope is deliberately absent from the production
+// consent (see getScopes in ebay-client.ts) — every /sell/negotiation call 403s
+// there. Gate the send-offer surfaces on a distinct machine-readable code so
+// clients can render "Not available yet" instead of round-tripping into a
+// guaranteed failure. The feature reactivates automatically once the scope is
+// re-added (US-1421) — this check reads the live scope list, not a flag.
+const NEGOTIATION_UNAVAILABLE = {
+  error:
+    "Sending offers to interested buyers isn't available yet on this eBay connection.",
+  code: "feature_unavailable" as const,
+};
+
+// A runtime 403 from /sell/negotiation means THIS connection's token lacks the
+// scope even though the deployment requests it (e.g. consented before the scope
+// was added) — same client treatment as the deployment-level gate.
+function isScopeForbidden(err: unknown): boolean {
+  return (err as { status?: number } | null)?.status === 403;
+}
 
 // GET /negotiation/eligible — listings eligible for a send-offer-to-buyers.
 flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  if (!isNegotiationScopeAvailable()) {
+    return c.json(NEGOTIATION_UNAVAILABLE, 501);
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   try {
@@ -6850,6 +6909,9 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
     return c.json({ items });
   } catch (err) {
     console.error("[flipdesk-ebay] findEligibleNegotiationItems failed:", err);
+    // US-1510: a token without the scope (consented pre-scope) reads the same
+    // to the client as the deployment-level gate above.
+    if (isScopeForbidden(err)) return c.json(NEGOTIATION_UNAVAILABLE, 501);
     return c.json({ error: "Couldn't load eligible listings from eBay." }, 502);
   }
 });
@@ -6859,6 +6921,9 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
 flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  if (!isNegotiationScopeAvailable()) {
+    return c.json(NEGOTIATION_UNAVAILABLE, 501);
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   let body: { listing_ids?: unknown; discount_percentage?: unknown; message?: unknown };
@@ -6894,7 +6959,16 @@ flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
     return c.json({ ok: true, count: listingIds.length });
   } catch (err) {
     console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", err);
-    return c.json({ error: "eBay rejected the offer.", detail: String(err) }, 502);
+    // US-1510: pre-scope token → same clean gate as the deployment-level check.
+    if (isScopeForbidden(err)) return c.json(NEGOTIATION_UNAVAILABLE, 501);
+    // US-1511: mapped/human detail only — the raw blob stays in the log above.
+    return c.json({
+      error: "eBay rejected the offer.",
+      detail: ebayFailureDetail(
+        err,
+        "eBay declined to send this offer. The listing may no longer be eligible — refresh and try again.",
+      ),
+    }, 502);
   }
 });
 

@@ -9107,8 +9107,8 @@
         "Incoming Best Offers (Trading API) remain unaffected."
       ],
       "priority": 2381,
-      "passes": false,
-      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] A reviewer poking Negotiation hits the broken Send today. Small edge change + small iOS gate."
+      "passes": true,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] A reviewer poking Negotiation hits the broken Send today. Small edge change + small iOS gate. [DONE 2026-07-02] Edge: isNegotiationScopeAvailable() gate -> /negotiation/eligible + /send-offer return 501 {code:feature_unavailable} (also on runtime 403 from a pre-scope token); respond maps not-actionable Trading failures (expired/answered elsewhere) to 409 {code:offer_not_open}. iOS: EdgeAPIError gained .featureUnavailable/.offerNotOpen (discriminator-keyed); NegotiationStore.checkEligible() distinguishes unavailable (sticky sendOfferUnavailable -> toolbar entry hides; auto-clears on a later successful probe) from transient .failed; SendOfferSheet shows calm not-available-yet copy with Send disabled and only keeps you-can-still-send for transient failures; respond on offerNotOpen -> friendly banner + row dropped + inbox reload + sheet dismisses. Incoming Best Offers (Trading) unaffected. Unit tests added (NegotiationTests)."
     },
     {
       "id": "US-1511",
@@ -9121,8 +9121,8 @@
         "publish_error is mirrored into LocalListing via sync and surfaced in the drafts library (reason badge or row subtitle)."
       ],
       "priority": 2380,
-      "passes": false,
-      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Bundles the response-fidelity gaps: mostly decode + display work against fields the server already returns."
+      "passes": true,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Bundles the response-fidelity gaps: mostly decode + display work against fields the server already returns. [DONE 2026-07-02] Edge: new ebayFailureDetail(err, generic) (ebay-error-map.ts, tested) routes revise x2 / price / end / send-offer / respond failure detail through the US-567 mapped messages with op-specific generics - raw eBay blobs stay in server logs only. iOS: PushResponse decodes sync_pending (success card shows live-on-eBay-syncing-shortly line); ValidateResponse decodes aspectDiagnostics -> amber composer warnings via AspectDiagnostic.warningLine; LocalListing gained publishError (additive optional on single-version SwiftData schema V1 - safe) synced via listingColumns+SyncMergeActor (server-owned copy); DraftListing/DraftsService decode publish_error and DraftLibraryRow shows the failure line so scheduled/AutoLister publish failures are visible on iOS."
     },
     {
       "id": "US-1512",

@@ -311,7 +311,7 @@ final class DraftsTests: XCTestCase {
         func validate(inventoryItemId: String) async -> PublishOutcome {
             validated.append(inventoryItemId)
             return validateOutcomes[inventoryItemId]
-                ?? .validated(ValidateResponse(ok: true, blockers: [], summary: nil))
+                ?? .validated(ValidateResponse(ok: true, blockers: [], summary: nil, aspectDiagnostics: nil))
         }
 
         func push(inventoryItemId: String, relist: Bool) async -> PublishOutcome {

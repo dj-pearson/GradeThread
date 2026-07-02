@@ -213,6 +213,17 @@ function getScopes(): string {
   );
 }
 
+// US-1510: whether this deployment's OAuth consent requests the sell.negotiation
+// scope. The default scope list above deliberately omits it (the production
+// keyset isn't licensed for it — requesting it fails the whole consent screen),
+// so unless EBAY_SCOPES explicitly includes it, every /sell/negotiation call is
+// a guaranteed 403. The send-offer surfaces gate on this to return a clean
+// `feature_unavailable` instead of letting clients round-trip into that 403.
+// Incoming Best Offers (Trading API, sell scope) are NOT affected by this.
+export function isNegotiationScopeAvailable(): boolean {
+  return getScopes().includes("api_scope/sell.negotiation");
+}
+
 function basicAuthHeader(): string {
   const appId = readEnv("EBAY_APP_ID");
   const certId = readEnv("EBAY_CERT_ID");

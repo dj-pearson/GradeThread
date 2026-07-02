@@ -8833,3 +8833,47 @@ escapes); ItemCanvasView brace structure re-read. iOS CI on push is the compile 
 ⚠️ MIGRATION 00338 is on origin/main (0230db73 was pushed) but NOT yet applied to prod — this
 commit stays LOCAL until the user applies it + OKs the push (edge redeploy before applying
 would trip the schema guard after the grace window).
+
+## 2026-07-02 (cont.) — US-1510 + US-1511 COMPLETE (passes:true) — send-offer unavailable state + eBay error/response fidelity
+No migration. Files: edge ebay-client.ts, ebay-error-map.ts (+test), flipdesk-ebay.ts; ios
+EdgeAPIError.swift, NegotiationStore/InboxView/Tests, EbayPublishTypes.swift, PublishDialog.swift,
+LocalListing.swift, SyncEngine.swift, SyncMergeActor.swift, DraftListing/DraftsService/
+DraftsLibraryView.swift, DraftsTests.swift.
+
+US-1510 (send-offer gating + stale offers):
+- Edge: isNegotiationScopeAvailable() reads the LIVE scope list (sell.negotiation is
+  deliberately absent from the production consent) → /negotiation/eligible + /send-offer
+  return 501 {code:"feature_unavailable"} up front, and a runtime 403 (pre-scope token) maps
+  to the same. Respond maps not-actionable Trading failures (expired / answered elsewhere /
+  invalid best offer, message-matched conservatively) to 409 {code:"offer_not_open"}.
+- iOS: EdgeAPIError gained .featureUnavailable(detail:)/.offerNotOpen, keyed on the body
+  discriminator (survives an edge status tweak). NegotiationStore.checkEligible() returns
+  .count/.unavailable/.failed; unavailable is STICKY (sendOfferUnavailable) so the toolbar
+  "Send offer" hides on later visits, and auto-clears when a probe succeeds (US-1421 scopes).
+  SendOfferSheet: unavailable → hourglass "isn't available yet… switches on automatically"
+  copy + Send disabled; the old "you can still send" now only shows for TRANSIENT failures.
+  respond on offerNotOpen → warning haptic + "no longer open — refreshing your offers"
+  banner (not actionError), dead row dropped, inbox reloaded, counter sheet dismisses.
+  Incoming Best Offers stay untouched (Trading API scope, per AC).
+US-1511 (error/response fidelity):
+- Edge: ebayFailureDetail(err, generic) in ebay-error-map.ts extends the US-567 contract to
+  the non-publish paths — mapped errorId message when one matches, else an OP-SPECIFIC generic;
+  the raw "eBay POST /sell/… failed (400): {json}" blob now never leaves the server logs.
+  Wired into revise (both 422 branches), price, end, send-offer, respond. 2 new unit tests.
+- iOS PushResponse decodes sync_pending (custom Decodable init, absent→false; memberwise init
+  kept for tests) → success card adds "live on eBay — FlipDesk is finishing the sync here" so
+  a US-783 partial success no longer reads as a failed publish.
+- iOS ValidateResponse decodes aspectDiagnostics ({aspect, omittedValues, reason}, verbatim
+  keys — this service uses a plain JSONDecoder) → amber "Some specifics won't be sent" box in
+  the composer with per-aspect lines (web parity with US-828).
+- publish_error mirror: LocalListing gained `var publishError: String?` — ADDITIVE OPTIONAL on
+  the single-version SwiftData schema V1 (the safe pre-prod pattern; no new VersionedSchema).
+  Synced via listingColumns + SyncMergeActor verbatim copy (server-owned; column exists since
+  00052 so the select can't 400). DraftListing/DraftsService also decode publish_error and
+  DraftLibraryRow shows a red "last publish failed: reason" line — scheduled/AutoLister publish
+  failures are finally visible on iOS.
+VERIFICATION: deno lint clean (4 files); FULL edge suite 2455 passed / 0 failed / 69 ignored
+(includes the 2 new ebayFailureDetail tests); iOS no-ungated-print OK; curly-quote-delimiter +
+brace-balance scans clean on all 13 touched Swift files; stale-reference grep clean
+(eligibleCount()→checkEligible() rename fully propagated incl. NegotiationTests fake).
+Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous two.

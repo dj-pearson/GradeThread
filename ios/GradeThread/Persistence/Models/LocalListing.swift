@@ -39,6 +39,13 @@ final class LocalListing {
     /// before the column was backfilled — fall back to `platformOfferId != nil` heuristic.
     var listingOrigin: String?
 
+    /// US-1511: last outbound-push failure (publish/revise), mapped to a short
+    /// user-facing message server-side (US-1079's `listings.publish_error`).
+    /// Server-owned — the sync copies it verbatim; a successful push clears it.
+    /// Nil = no recorded failure. Lets a scheduled/AutoLister publish failure
+    /// surface on iOS (previously web-only, US-321 badge).
+    var publishError: String?
+
     /// US-1249: marks a row carrying a pending local edit to a GradeThread-owned
     /// editable field (price/status) not yet pushed to the server. While set, the
     /// merge keeps the local value for those fields instead of clobbering it with
