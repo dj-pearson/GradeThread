@@ -8545,3 +8545,45 @@ stuck-create routes through the deferral guard; queued photo mutation carries so
 VERIFICATION (this host): brace/paren/bracket balance clean on the 4 touched files;
 no-ungated-print + no-bare-strings + no-default-shared-session OK. iOS CI (xcodebuild
 test on macOS) is the build + unit-test gate. No migration.
+
+## 2026-07-02 (cont.) — US-1497 iOS in-flight guards on money/marketplace mutations — COMPLETE (passes:true) — NO MIGRATION
+Double-tap / re-entry guards on mutation flows that enqueued a bare Task with no
+synchronous busy state (the CounterOfferSheet `isSubmitting` idiom). Files:
+PublishDialog.swift, BulkGradeStore.swift, PostSaleStore.swift, PostSaleView.swift,
+ItemCanvasView.swift, SnapStore.swift, DraftsLibraryStore.swift, DraftsBulkEditStore.swift,
++ PostSaleReentryTests.swift. All stores are @MainActor @Observable, so a guard+flag flip
+before the first await reliably blocks re-entry.
+
+(H1) PublishDialog "Push to eBay": `runPush` now guards `phase != .pushing` at entry, AND
+ComposerForm folds a synchronous `@State isPushing` into `pushDisabled` (set true on tap
+before onPush). In relist mode each push ends+recreates the live listing, so a double-tap
+would have made a duplicate live listing / reset watchers. (isPushing needs no manual
+reset — the form is torn down the moment phase→.pushing and rebuilt fresh on retry.)
+
+(H2) Bulk grade submit: BulkGradeStore.canSubmit now includes `phase != .submitting`, which
+feeds both `.disabled(!canSubmit)` and the existing top-of-submit() guard (phase=.submitting
+is set synchronously before the first await) — a double-tap can't double-consume included
+grades.
+
+(3) Returns Approve: was fire-and-forget while Decline/Refund confirmed. Added a
+`.approveReturn` case to PostSaleView's PendingAction so Approve routes through the SAME
+confirmation dialog; PostSaleStore.decide + refundReturn gained a per-returnId re-entry guard
+(`decidingReturnIds`) so the irreversible, money-moving decision can't fire twice.
+
+(4) Duplicate item: ItemCanvasView gained `@State isDuplicating` — button guards + disables,
+duplicateItem() resets via defer. A slow-connection re-tap no longer creates several copies.
+Snap evaluate: SnapStore.evaluate gained a `guard !isLoading` entry guard (defense behind
+`.disabled(!canEvaluate)`).
+
+(5) Drafts stores: defensive entry guards added — DraftsLibraryStore.publishSelected/applyBulk
+(`guard !isPublishing`/`guard !isApplying`) and DraftsBulkEditStore.save/publishSelected
+(`guard !isSaving`/`guard !isPublishing`, with isPublishing now set at the TOP so the pre-
+publish save() hop can't be re-entered).
+
+Tests (PostSaleReentryTests): a deterministic continuation-gated concurrency test proves a
+second approve for the SAME return while one is in flight is dropped (service called once),
+and that two DIFFERENT returns are not blocked by each other (per-returnId keying).
+VERIFICATION (this host): brace/paren/bracket balance clean on all 9 touched files;
+no-ungated-print + no-bare-strings + no-default-shared-session OK. New test auto-included via
+project.yml's `- path: GradeThreadTests` glob (XcodeGen regenerates in CI). iOS CI is the
+build + unit-test gate. No migration.

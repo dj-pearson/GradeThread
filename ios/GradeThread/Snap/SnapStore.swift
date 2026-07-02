@@ -37,6 +37,10 @@ final class SnapStore {
     var canEvaluate: Bool { image != nil && !isLoading }
 
     func evaluate() async {
+        // US-1497: synchronous re-entry guard (defense behind `.disabled(!canEvaluate)`)
+        // so a double-tap can't fire a second free evaluation before the first's
+        // `isLoading` disables the button.
+        guard !isLoading else { return }
         guard let img = image else {
             errorMessage = "Couldn't read that photo. Try another."
             return

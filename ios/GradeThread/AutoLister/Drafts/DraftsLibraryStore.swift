@@ -115,6 +115,9 @@ final class DraftsLibraryStore {
     /// fields are owned by eBay, US-1086). Reloads from server truth at the end
     /// so the rows reflect what actually persisted.
     func applyBulk(_ change: DraftBulkMutation.FieldChange) async {
+        // US-1497: defensive entry guard (behind UI disabling) so a re-tap can't
+        // run a second bulk apply concurrently.
+        guard !isApplying else { return }
         let targets = drafts.filter { selected.contains($0.id) }
         guard !targets.isEmpty else { return }
         isApplying = true
@@ -187,6 +190,9 @@ final class DraftsLibraryStore {
         // evaluated in the caller's nonisolated context, but EbayPublishService's
         // init is @MainActor — construct it inside this @MainActor method body
         // instead (same pattern as DraftsBulkEditStore.publishSelected).
+        // US-1497: defensive entry guard (behind UI disabling) so a re-tap can't
+        // publish the selection twice.
+        guard !isPublishing else { return [] }
         let publish = publisher ?? EbayPublishService()
         let targets = drafts.filter { selected.contains($0.id) }
         guard !targets.isEmpty else { return [] }

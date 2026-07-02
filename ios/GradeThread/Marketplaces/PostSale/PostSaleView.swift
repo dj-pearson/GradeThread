@@ -29,6 +29,9 @@ struct PostSaleView: View {
     /// confirmed before it runs. The associated value carries the target row.
     private enum PendingAction: Identifiable {
         case acceptDispute(EbayPaymentDispute)
+        // US-1497: Approve now routes through the same confirmation dialog as the
+        // other irreversible return decisions (it was fire-and-forget before).
+        case approveReturn(EbayReturn)
         case declineReturn(EbayReturn)
         case refundReturn(EbayReturn)
         case approveCancellation(EbayCancellation)
@@ -37,6 +40,7 @@ struct PostSaleView: View {
         var id: String {
             switch self {
             case .acceptDispute(let d): return "acceptDispute-\(d.id)"
+            case .approveReturn(let r): return "approveReturn-\(r.id)"
             case .declineReturn(let r): return "declineReturn-\(r.id)"
             case .refundReturn(let r): return "refundReturn-\(r.id)"
             case .approveCancellation(let c): return "approveCancellation-\(c.id)"
@@ -47,6 +51,7 @@ struct PostSaleView: View {
         var confirmTitle: String {
             switch self {
             case .acceptDispute: return "Accept & refund?"
+            case .approveReturn: return "Approve return?"
             case .declineReturn: return "Decline return?"
             case .refundReturn: return "Refund buyer?"
             case .approveCancellation: return "Approve & cancel order?"
@@ -57,6 +62,7 @@ struct PostSaleView: View {
         var confirmButton: String {
             switch self {
             case .acceptDispute: return "Accept & refund"
+            case .approveReturn: return "Approve"
             case .declineReturn: return "Decline"
             case .refundReturn: return "Refund"
             case .approveCancellation: return "Approve & cancel"
@@ -69,6 +75,8 @@ struct PostSaleView: View {
             case .acceptDispute(let d):
                 let amount = d.amount?.formatted(.currency(code: d.currency ?? "USD"))
                 return "This refunds the buyer\(amount.map { " \($0)" } ?? "") and closes the dispute. This can't be undone."
+            case .approveReturn:
+                return "This approves the buyer's return request. This can't be undone."
             case .declineReturn:
                 return "This declines the buyer's return request. This can't be undone."
             case .refundReturn:
@@ -260,7 +268,7 @@ struct PostSaleView: View {
             HStack(spacing: 10) {
                 Button("Decline", role: .destructive) { pendingAction = .declineReturn(r) }
                     .buttonStyle(.bordered)
-                Button("Approve") { Task { await store.approveReturn(r) } }
+                Button("Approve") { pendingAction = .approveReturn(r) }
                     .buttonStyle(.bordered)
                 Button("Refund") { pendingAction = .refundReturn(r) }
                     .buttonStyle(.borderedProminent)
@@ -324,6 +332,7 @@ struct PostSaleView: View {
     private func perform(_ action: PendingAction) async {
         switch action {
         case .acceptDispute(let d): await store.acceptDispute(d)
+        case .approveReturn(let r): await store.approveReturn(r)
         case .declineReturn(let r): await store.declineReturn(r)
         case .refundReturn(let r): await store.refundReturn(r)
         case .approveCancellation(let c): await store.approveCancellation(c)

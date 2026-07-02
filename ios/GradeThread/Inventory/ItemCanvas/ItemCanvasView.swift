@@ -64,6 +64,9 @@ struct ItemCanvasView: View {
     // US-687: camera capture straight into this item.
     @State private var showingCameraCapture = false
     @State private var isAddingPhotos = false
+    // US-1497: guards the server-side item duplicate so a slow-connection re-tap
+    // can't create several copies.
+    @State private var isDuplicating = false
     @State private var actionToast: String?
     // Duplicate-SKU merge: when a save trips idx_inventory_items_user_sku we
     // fetch the record that owns the SKU and offer to merge instead of
@@ -280,10 +283,13 @@ struct ItemCanvasView: View {
                     Label("Add from library", systemImage: "photo.badge.plus")
                 }
                 Button {
+                    guard !isDuplicating else { return }
+                    isDuplicating = true
                     Task { await duplicateItem() }
                 } label: {
                     Label("Duplicate item", systemImage: "plus.square.on.square")
                 }
+                .disabled(isDuplicating)
                 if let certURL = certificateShareURL {
                     ShareLink(item: certURL) {
                         Label("Share certificate", systemImage: "square.and.arrow.up")
@@ -1669,6 +1675,9 @@ struct ItemCanvasView: View {
 
     /// Server-side duplicate of the item's core fields (not photos or grade).
     private func duplicateItem() async {
+        // US-1497: clear the in-flight guard set synchronously by the button when
+        // the duplicate finishes (success or failure), re-enabling the control.
+        defer { isDuplicating = false }
         struct Insert: Encodable {
             let user_id: String
             let title: String

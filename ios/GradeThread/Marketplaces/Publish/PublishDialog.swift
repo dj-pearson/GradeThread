@@ -330,6 +330,12 @@ struct PublishDialog: View {
     }
 
     private func runPush(edits: ComposerEdits, summary: PublishSummary) async {
+        // US-1497: entry guard — a second push while one is already in flight is
+        // dropped. In relist mode each push ends+recreates the live listing, so a
+        // double-tap would create a duplicate live listing (watchers reset). The
+        // composer also folds a synchronous `isPushing` into `pushDisabled`; this
+        // is the defense in depth for the async window before that flips.
+        guard phase != .pushing else { return }
         // The composer state we restore if a transient failure forces a retry,
         // so the user never re-types title/condition/description (US-1006).
         let resume = RetryAction.resumeComposer(PublishSummary.merging(edits, into: summary))
@@ -456,6 +462,14 @@ private struct ComposerForm: View {
     /// bounced to the canvas; otherwise the price stays read-only (the canvas is
     /// its home) and this just mirrors the summary value.
     @State private var priceInput: String
+
+    // US-1497: synchronous in-flight guard (the CounterOfferSheet isSubmitting
+    // pattern). Set true on tap BEFORE `onPush`, so the button disables in the
+    // same run loop and a fast second tap can't fire a second push (which in
+    // relist mode would end+recreate the live listing → duplicate/watcher reset).
+    // No manual reset: this form is torn down the moment the push starts (the
+    // parent switches to the `.pushing` card) and rebuilt fresh on any retry.
+    @State private var isPushing = false
 
     // US-1264: template-applied fields that aren't free-text composer inputs.
     // They're set by `apply(_:)` and ride along in `ComposerEdits` so the push's
@@ -653,8 +667,13 @@ private struct ComposerForm: View {
                     OfflineNotice(intent: .blocked, detail: "to publish to eBay")
                 }
 
-                let pushDisabled = trimmedTitle.isEmpty || priceInvalid || NetworkMonitor.isOffline(networkMonitor)
+                let pushDisabled = trimmedTitle.isEmpty || priceInvalid
+                    || NetworkMonitor.isOffline(networkMonitor) || isPushing
                 Button {
+                    // US-1497: flip the guard synchronously before handing off, so
+                    // the button is disabled before the async push even starts.
+                    guard !isPushing else { return }
+                    isPushing = true
                     onPush(ComposerEdits(
                         title: trimmedTitle,
                         condition: condition,

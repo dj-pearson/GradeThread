@@ -23,6 +23,12 @@ final class PostSaleStore {
     /// look frozen with the picker already dismissed).
     private(set) var evidenceUploadingId: String?
 
+    /// US-1497: returnIds with an approve/decline/refund decision in flight, so a
+    /// double-tap (or a re-tap after the confirmation dialog) can't fire the same
+    /// irreversible, money-moving decision twice. Set is keyed per-return so two
+    /// different returns can still be decided concurrently.
+    private var decidingReturnIds: Set<String> = []
+
     /// US-1146: a dispute-evidence upload that failed, retained so the UI can
     /// offer an explicit Retry rather than losing the (non-idempotent, so
     /// not-auto-retried) upload behind a dismissed error toast.
@@ -78,6 +84,11 @@ final class PostSaleStore {
     func declineReturn(_ r: EbayReturn) async { await decide(r, decision: "decline") }
 
     private func decide(_ r: EbayReturn, decision: String) async {
+        // US-1497: re-entry guard — a second approve/decline for the same return
+        // while one is in flight is dropped (the decision is irreversible).
+        guard !decidingReturnIds.contains(r.returnId) else { return }
+        decidingReturnIds.insert(r.returnId)
+        defer { decidingReturnIds.remove(r.returnId) }
         do {
             try await service.decideReturn(returnId: r.returnId, decision: decision, orderId: r.orderId)
             actionBanner = "Return \(decision)d."
@@ -88,6 +99,10 @@ final class PostSaleStore {
     }
 
     func refundReturn(_ r: EbayReturn) async {
+        // US-1497: same per-return re-entry guard for the (money-moving) refund.
+        guard !decidingReturnIds.contains(r.returnId) else { return }
+        decidingReturnIds.insert(r.returnId)
+        defer { decidingReturnIds.remove(r.returnId) }
         do {
             try await service.refundReturn(returnId: r.returnId, orderId: r.orderId)
             returns.removeAll { $0.returnId == r.returnId }

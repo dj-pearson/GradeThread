@@ -8923,7 +8923,7 @@
         "A defensive entry guard is added to DraftsLibraryStore.publishSelected/applyBulk and DraftsBulkEditStore.publishSelected/save (currently protected only by UI disabling)."
       ],
       "priority": 2394,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] H1/H2 are marketplace/money-integrity; the rest are the same 10-line pattern already used in CounterOfferSheet."
     },
     {

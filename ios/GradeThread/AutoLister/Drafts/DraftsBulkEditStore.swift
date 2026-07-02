@@ -281,6 +281,9 @@ final class DraftsBulkEditStore {
     // MARK: - Save
 
     func save() async {
+        // US-1497: defensive entry guard (behind UI disabling) so a re-tap can't
+        // run a second save concurrently.
+        guard !isSaving else { return }
         let dirty = rows.filter(\.dirty)
         guard !dirty.isEmpty else { return }
         isSaving = true
@@ -376,6 +379,12 @@ final class DraftsBulkEditStore {
         let publish = publish ?? EbayPublishService()
         let targets = rows.filter { targetIds.contains($0.id) }
         guard !targets.isEmpty else { return }
+        // US-1497: defensive entry guard set at the TOP (not after the save() hop
+        // below) so a re-tap during the pre-publish save can't start a second
+        // publish. `isPublishing` covers the whole operation now.
+        guard !isPublishing else { return }
+        isPublishing = true
+        defer { isPublishing = false }
         // US-1242: don't dead-end on "Save your changes before publishing" — that
         // generic block never said WHICH rows were unsaved. The user already
         // confirmed publish, so persist the unsaved targeted rows first
@@ -390,8 +399,6 @@ final class DraftsBulkEditStore {
                 return
             }
         }
-        isPublishing = true
-        defer { isPublishing = false }
 
         var ok = 0
         var fails: [String] = []

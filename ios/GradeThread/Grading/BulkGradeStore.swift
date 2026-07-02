@@ -54,7 +54,10 @@ final class BulkGradeStore {
     /// We submit only the ready items, so the gate is "at least one ready
     /// AND the credits cover them" — not the all-or-nothing `can_submit`.
     var canSubmit: Bool {
-        !readyItems.isEmpty && !(validation?.limitExceeded ?? true)
+        // US-1497: `phase != .submitting` folds the in-flight state into the
+        // button's `.disabled(!canSubmit)` AND the top-of-`submit()` guard, so a
+        // double-tap can't submit (and double-consume the included grades) twice.
+        !readyItems.isEmpty && !(validation?.limitExceeded ?? true) && phase != .submitting
     }
 
     // MARK: - Flow
