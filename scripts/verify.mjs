@@ -59,8 +59,11 @@ function run(name, cmd, opts = {}) {
 if (on("web")) {
   run("web: eslint", "npm run lint");
   run("web: tsc -b", "npx tsc -b");
-  run("web: vitest + coverage", "npm run test:coverage");
+  // Build BEFORE vitest: the prerender suite validates dist/, and CI runs it
+  // after `npm run build`. Testing first would check a STALE dist — any newly
+  // registered public route reads as "missing" until the next local build.
   run("web: production build (incl. prerender)", "npm run build");
+  run("web: vitest + coverage", "npm run test:coverage");
   run("web: bundle-size budget + code-splitting", "node scripts/check-bundle-budget.mjs");
   run("web: npm audit (high)", "npm audit --audit-level=high");
 }
