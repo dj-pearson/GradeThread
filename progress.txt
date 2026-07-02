@@ -8217,3 +8217,22 @@ more blind iOS work. Web fixes also go live then (no migrations to apply).
 NEXT (if continuing iOS): US-1520 (2371, perf — parallelize sync pull + kill the
 photos-relationship N+1) — a PERF REFACTOR, higher-risk blind; or the lower-risk
 sync-correctness set US-1516/1515/1514. US-1523 still deferred (macOS lockfile).
+
+## 2026-07-01 (cont.) — US-1516 iOS member-tenant item write — NOW COMPLETE (passes:true)
+A workspace MEMBER adding an item via the PHOTO-first intake (PhotoIntakeView)
+wrote it under user_id = SELF, so it landed in the member's PERSONAL tenant, was
+never returned by the owner-scoped sync pull, and the local mirror got pruned on
+the next full backfill ("I added an item and it disappeared"). DetailsIntake was
+ALREADY correct (US-670 uses WorkspaceScope.tenantOwnerId) — only PhotoIntakeView
+diverged. Fix: PhotoIntakeView.startIntakeFlow now computes
+ownerId = WorkspaceScope.tenantOwnerId(selfId: userId) and uses it for BOTH the
+server ItemInsert.user_id AND the LocalInventoryItem mirror; photo uploads keep
+the member's OWN uid for the storage folder (per-user-folder storage RLS =
+auth.uid()). RLS verified safe: personal insert passes 00002 (auth.uid()=user_id)
++ is_workspace_member_with_role returns true for self; member→owner insert passes
+00042 (listing_manager+). item_photos INSERT has a workspace-member policy
+(indirect via the item's owner) so photo linkage survives. NO MIGRATION.
+
+VERIFICATION (this host): curly-quote scan clean; RLS reasoned against 00002/00042
+policies + is_workspace_member_with_role body. Can't compile Swift — iOS CI (macOS)
+is the gate.

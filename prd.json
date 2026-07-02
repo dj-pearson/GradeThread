@@ -9190,7 +9190,7 @@
         "Photo uploads/storage paths for member-created items use the correct owner folder (per-user-folder RLS) — confirm the {userId}/ path rule vs workspace writes and document the decision."
       ],
       "priority": 2375,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Behavior decision + RLS check required — verify the storage path rule before changing it (US-276 RLS is per-user-folder)."
     },
     {

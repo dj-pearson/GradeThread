@@ -28,6 +28,7 @@ Stories completed so far this loop are **code-only** (no schema changes):
 | US-1518 (photo thumbnail tier — edge job) | none | none |
 | US-1522 (iOS UX dead-end sweep, 8 fixes) | none | none |
 | US-1521 (iOS auth/signup polish) | none | none |
+| US-1516 (iOS member-tenant item write) | none | none |
 
 `EXPECTED_SCHEMA_VERSION` unchanged at **00331**; latest migration file is
 `00331_fix_users_guard_bogus_moderation_cols.sql`. Next migration, when one is

@@ -768,9 +768,19 @@ struct PhotoIntakeView: View {
         // Postgres) attach to the server/lowercase row, so you get a duplicate:
         // one item WITH photos (lowercase) and one WITHOUT (uppercase mirror).
         let newItemId = UUID().uuidString.lowercased()
+        // US-1516: a workspace MEMBER adding an item while viewing a shared
+        // workspace must write it under the OWNER's tenant (mirrors web/edge +
+        // DetailsIntake's US-670 path). Writing it under `self` landed it in the
+        // member's PERSONAL tenant — never returned by the owner-scoped sync pull,
+        // and the local mirror got pruned on the next full backfill ("I added an
+        // item and it disappeared"). Personal workspace: tenantOwnerId falls back
+        // to self. RLS: the 00042 member INSERT policy (listing_manager+) permits
+        // the owner-scoped write. Photo uploads below still use the member's OWN
+        // uid for the storage folder (per-user-folder storage RLS = auth.uid()).
+        let ownerId = WorkspaceScope.tenantOwnerId(selfId: userId)
         let payload = ItemInsert(
             id: newItemId,
-            user_id: userId,
+            user_id: ownerId,
             title: "Untitled item",
             status: "cataloged"
         )
@@ -804,9 +814,11 @@ struct PhotoIntakeView: View {
         // post-intake deep link lands on the item's canvas (not the list). The
         // next sync pull upserts it by id; it won't be pruned as stale because
         // it already exists server-side.
+        // US-1516: mirror under the SAME (owner) tenant as the server row so the
+        // owner-scoped pull reconciles it instead of pruning it as stale.
         let localItem = LocalInventoryItem(
             id: newItemId,
-            userId: userId,
+            userId: ownerId,
             title: "Untitled item",
             status: "cataloged"
         )
