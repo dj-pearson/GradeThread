@@ -26,13 +26,20 @@
 //   • routes/api-keys.ts          — Professional/Enterprise check → requireFlipdesk({ feature: 'apiAccess' })
 //   • routes/api-v1.ts            — PLAN_LIMITS → requireFlipdesk({ capacity: { kind: 'includedGrades' } })
 //
-// Also wire into (not yet plan-gated):
-//   • inventory create/listing-publish → { capacity: { kind: 'activeListings' } }
-//   • marketplace connect             → { capacity: { kind: 'marketplaces' } }
-//   • bulk actions endpoints          → { feature: 'bulkActions' }
-//   • scheduled actions endpoints     → { feature: 'scheduledActions' }
-//   • reconciliation endpoints        → { feature: 'reconciliation' }
-//   • sub-account invite              → { feature: 'subAccounts' }
+// Now wired (kept here as the enforcement index):
+//   • listing-publish (eBay + AutoLister)  → { capacity: { kind: 'activeListings' } }
+//   • marketplace connect (eBay/Shopify/Depop) → { capacity: { kind: 'marketplaces' } }
+//   • bulk actions (AI bulk-extract, eBay bulk-edit + bulk-price-quantity) → { feature: 'bulkActions' }
+//   • scheduled actions (automation rules create/update/run + the hourly cron,
+//     via featureAllowedForUser so a downgrade stops running rules) → { feature: 'scheduledActions' }
+//   • reconciliation endpoints         → { feature: 'reconciliation' }
+//   • sub-account invite               → { feature: 'subAccounts' }
+//   • api key create                   → { feature: 'apiAccess' }
+//
+// Note: `autoRelist` is a plan flag with NO distinct server code path — the
+// automation engine's end_listing action (→ item back to 'drafted' for manual
+// relist) is the closest behavior and is already covered by scheduledActions.
+// `prioritySupport` is an SLA/routing attribute, not a runtime gate.
 
 import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
@@ -227,6 +234,34 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
   }
 
   return null;
+}
+
+/**
+ * Non-HTTP feature check: does `userId`'s EFFECTIVE plan grant `feature`?
+ *
+ * Same resolution as requireFlipdesk (super_admin bypass; paused / expired-trial
+ * / past-due-past-grace → Free caps), for callers with no Hono context — e.g. a
+ * cron loop that must SKIP owners whose plan no longer includes a gated feature,
+ * so a downgrade actually stops the paid behavior instead of grandfathering it.
+ * Fails CLOSED (returns false) when the user can't be loaded.
+ */
+export async function featureAllowedForUser(
+  userId: string,
+  feature: FeatureKey,
+  deps: Pick<PlanGateDeps, "loadUser"> = defaultDeps,
+): Promise<boolean> {
+  const user = await deps.loadUser(userId);
+  if (!user) return false;
+  if (user.role === "super_admin") return true;
+  const effectivePlan = effectivePlanFor(
+    user.flipdesk_plan,
+    user.subscription_status,
+    user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
+  ) as FlipdeskPlan;
+  const matrix = await getPlanMatrix();
+  return matrix[effectivePlan].gateFlags[feature] === true;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

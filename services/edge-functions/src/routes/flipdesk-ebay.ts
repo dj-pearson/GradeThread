@@ -4005,6 +4005,9 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  // Bulk multi-listing actions are a Pro+ feature (US-208).
+  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId });
+  if (gate) return gate;
   let body: { updates?: unknown };
   try {
     body = await c.req.json();
@@ -4141,6 +4144,9 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
 // per-item outcome (ok | blocked | error) so a partial-failure batch is legible.
 flipdeskEbayRoutes.post("/listings/bulk-edit", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  // Bulk multi-listing actions are a Pro+ feature (US-208).
+  const gate = await requireFlipdesk(c, { feature: "bulkActions", userId });
+  if (gate) return gate;
   let body: { listing_ids?: unknown; edit?: unknown };
   try {
     body = await c.req.json();

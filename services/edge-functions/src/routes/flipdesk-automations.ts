@@ -10,6 +10,7 @@ import {
   withdrawOffer,
 } from "../lib/ebay-client.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
+import { featureAllowedForUser, requireFlipdesk } from "../lib/plan-gate.ts";
 import {
   type AutomationAction,
   type AutomationFacts,
@@ -405,6 +406,9 @@ flipdeskAutomationsRoutes.get("/rules", async (c) => {
 // ── POST /rules ───────────────────────────────────────────────────
 flipdeskAutomationsRoutes.post("/rules", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  // Scheduled price-drop/promo/end rules are a Pro+ feature (US-208).
+  const gate = await requireFlipdesk(c, { feature: "scheduledActions", userId: ownerId });
+  if (gate) return gate;
   let body: unknown;
   try {
     body = await c.req.json();
@@ -425,6 +429,8 @@ flipdeskAutomationsRoutes.post("/rules", async (c) => {
 // ── PUT /rules/:id ────────────────────────────────────────────────
 flipdeskAutomationsRoutes.put("/rules/:id", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const gate = await requireFlipdesk(c, { feature: "scheduledActions", userId: ownerId });
+  if (gate) return gate;
   const id = c.req.param("id");
   let body: unknown;
   try {
@@ -552,6 +558,8 @@ flipdeskAutomationsRoutes.get("/rules/:id/actions", async (c) => {
 // immediately instead of waiting for the hourly cron.
 flipdeskAutomationsRoutes.post("/run", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const gate = await requireFlipdesk(c, { feature: "scheduledActions", userId: ownerId });
+  if (gate) return gate;
   // Shares the repricing kill-switch — same domain (automated price changes).
   if (!(await isFeatureEnabled("repricing"))) {
     return c.json({ ok: false, skipped: true, reason: "feature_disabled" });
@@ -584,7 +592,15 @@ export async function handleAutomationRulesCron(c: Context): Promise<Response> {
     );
     let applied = 0;
     let ownersRun = 0;
+    let ownersSkippedPlan = 0;
     for (const ownerId of owners) {
+      // Don't grandfather a paid feature: if the owner has since dropped below
+      // the plan that grants scheduledActions (downgrade / cancel / paused /
+      // expired trial), skip their rules instead of running them for free.
+      if (!(await featureAllowedForUser(ownerId, "scheduledActions"))) {
+        ownersSkippedPlan++;
+        continue;
+      }
       try {
         const r = await runRulesForOwner(ownerId);
         applied += r.applied;
@@ -597,7 +613,12 @@ export async function handleAutomationRulesCron(c: Context): Promise<Response> {
         );
       }
     }
-    return c.json({ ok: true, owners_run: ownersRun, applied });
+    return c.json({
+      ok: true,
+      owners_run: ownersRun,
+      owners_skipped_plan: ownersSkippedPlan,
+      applied,
+    });
   } finally {
     await lock.release();
   }

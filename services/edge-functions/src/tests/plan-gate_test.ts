@@ -8,6 +8,7 @@
 import { assert, assertEquals } from "@std/assert";
 import type { Context } from "hono";
 import {
+  featureAllowedForUser,
   type PlanGateDeps,
   type PlanGateUser,
   requireFlipdesk,
@@ -461,4 +462,49 @@ Deno.test("regular admin role is still gated (bypass is super_admin only)", asyn
   assert(resp !== null);
   assertEquals(resp!.status, 402);
   assertEquals((await bodyOf(resp!)).error, "FEATURE_LOCKED");
+});
+
+// ── featureAllowedForUser (non-HTTP cron gate, US-208 follow-up) ──────
+// getPlanMatrix() fails safe to the compiled FALLBACK_MATRIX with no DB, so
+// these assert against the compiled gate flags. loadUser is injected.
+function loadUserDep(u: PlanGateUser | null): Pick<PlanGateDeps, "loadUser"> {
+  return { loadUser: () => Promise.resolve(u) };
+}
+
+Deno.test("featureAllowedForUser: Free lacks scheduledActions, Pro has it", async () => {
+  assertEquals(
+    await featureAllowedForUser("u1", "scheduledActions", loadUserDep(user({ flipdesk_plan: "free" }))),
+    false,
+  );
+  assertEquals(
+    await featureAllowedForUser("u1", "scheduledActions", loadUserDep(user({ flipdesk_plan: "pro" }))),
+    true,
+  );
+});
+
+Deno.test("featureAllowedForUser: paused Pro drops to Free (grandfather leak closed)", async () => {
+  // A Pro user whose sub is paused resolves to Free caps → the cron must skip.
+  assertEquals(
+    await featureAllowedForUser(
+      "u1",
+      "scheduledActions",
+      loadUserDep(user({ flipdesk_plan: "pro", subscription_status: "paused" })),
+    ),
+    false,
+  );
+});
+
+Deno.test("featureAllowedForUser: super_admin bypasses; unknown user fails closed", async () => {
+  assertEquals(
+    await featureAllowedForUser(
+      "u1",
+      "scheduledActions",
+      loadUserDep(user({ flipdesk_plan: "free", role: "super_admin" })),
+    ),
+    true,
+  );
+  assertEquals(
+    await featureAllowedForUser("u1", "scheduledActions", loadUserDep(null)),
+    false,
+  );
 });
