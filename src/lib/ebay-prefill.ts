@@ -329,8 +329,9 @@ export function projectColumnAspects(
   return { aspects, sources };
 }
 
-// The item COLUMN an aspect name is two-way synced with (brand/size/color/
-// material/style), or null for AI-/attribute-/free-typed aspects. Drives the
+// The item FIELD an aspect name is two-way synced with — a structured column
+// (brand/size/color/material/style) or a US-821 canonical attribute key
+// (department, pattern, …) — or null for AI-/free-typed aspects. Drives the
 // editor's "synced with item field" hint so sellers know one entry feeds both.
 export function syncedItemFieldFor(
   aspectName: string,
@@ -339,12 +340,49 @@ export function syncedItemFieldFor(
   const lname = aspectName.trim().toLowerCase();
   if (!lname) return null;
   for (const entry of ASPECT_REGISTRY.entries) {
-    if (entry.source !== "column" || !entry.column) continue;
+    const field =
+      entry.source === "column" ? entry.column : entry.attribute;
+    if (!field) continue;
     if (effectiveCandidates(entry, category).includes(lname)) {
-      return entry.column;
+      return field;
     }
   }
   return null;
+}
+
+// Item-page projection for the US-821 canonical attributes — the attribute
+// counterpart of projectColumnAspects. `changed` holds ONLY the attribute keys
+// the seller edited this session (new value, or null for an explicit clear);
+// untouched attributes never move their aspects, so an AI-/manually-set aspect
+// with no backing attribute isn't clobbered by a mere resave. A changed value
+// OVERWRITES its aspect (provenance → inventory_derived); a cleared one drops
+// it. Returns NEW maps (inputs untouched).
+export function projectAttributeAspects(
+  changed: Record<string, string | string[] | null>,
+  existingAspects: Record<string, string[]>,
+  existingSources: AspectSourceMap,
+): { aspects: Record<string, string[]>; sources: AspectSourceMap } {
+  const aspects: Record<string, string[]> = { ...existingAspects };
+  const sources: AspectSourceMap = { ...existingSources };
+  for (const [key, raw] of Object.entries(changed)) {
+    const entry = ASPECT_REGISTRY.entries.find(
+      (e) => e.source === "attribute" && e.attribute === key,
+    );
+    if (!entry) continue;
+    const name = entry.aspects[0];
+    if (!name) continue;
+    const values = (Array.isArray(raw) ? raw : raw != null ? [raw] : [])
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+    if (values.length > 0) {
+      aspects[name] = entry.multi ? values : [values[0]!];
+      sources[name] = "inventory_derived";
+    } else {
+      delete aspects[name];
+      delete sources[name];
+    }
+  }
+  return { aspects, sources };
 }
 
 // The write-back a specifics-editor save owes the item: column patches +

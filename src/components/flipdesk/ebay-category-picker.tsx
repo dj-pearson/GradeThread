@@ -850,9 +850,9 @@ function AspectField({
         {syncedField && (
           <span
             className="rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground"
-            title={`Synced with the item's ${syncedField} field — editing either one updates both on save.`}
+            title={`Synced with the item's ${syncedField.replace(/_/g, " ")} field — editing either one updates both on save.`}
           >
-            ⇄ {syncedField}
+            ⇄ {syncedField.replace(/_/g, " ")}
           </span>
         )}
         {/* US-825: provenance badge — AI / Auto (derived) / You (manual). */}

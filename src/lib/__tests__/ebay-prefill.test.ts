@@ -6,6 +6,7 @@ import {
   deriveAspectsFromItem,
   inferDepartment,
   mapEbayCondition,
+  projectAttributeAspects,
   projectColumnAspects,
   reverseProjectAspectColumns,
   syncedItemFieldFor,
@@ -309,8 +310,53 @@ describe("syncedItemFieldFor", () => {
     expect(syncedItemFieldFor("US Shoe Size", "clothing")).toBeNull();
   });
 
-  it("returns null for attribute-backed / unknown aspects", () => {
-    expect(syncedItemFieldFor("Department", "clothing")).toBeNull();
+  it("maps attribute-backed aspects to their canonical keys", () => {
+    expect(syncedItemFieldFor("Department", "clothing")).toBe("department");
+    expect(syncedItemFieldFor("Care Instructions", "clothing")).toBe("garment_care");
+  });
+
+  it("returns null for unknown aspects", () => {
     expect(syncedItemFieldFor("Occasion", "clothing")).toBeNull();
+  });
+});
+
+describe("projectAttributeAspects (item Details fields own their aspects)", () => {
+  it("a changed attribute overwrites its aspect and stamps inventory_derived", () => {
+    const { aspects, sources } = projectAttributeAspects(
+      { department: "Men", features: ["Pockets", "Lined"] },
+      { Department: ["Women"], Brand: ["Nike"] },
+      { Department: "manual", Brand: "inventory_derived" },
+    );
+    expect(aspects).toEqual({
+      Department: ["Men"],
+      Features: ["Pockets", "Lined"],
+      Brand: ["Nike"],
+    });
+    expect(sources.Department).toBe("inventory_derived");
+    expect(sources.Brand).toBe("inventory_derived");
+  });
+
+  it("a cleared attribute drops its aspect + source", () => {
+    const { aspects, sources } = projectAttributeAspects(
+      { pattern: null },
+      { Pattern: ["Striped"], Department: ["Men"] },
+      { Pattern: "manual", Department: "ai_extracted" },
+    );
+    expect(aspects).toEqual({ Department: ["Men"] });
+    expect(sources).toEqual({ Department: "ai_extracted" });
+  });
+
+  it("untouched attributes never move their aspects; inputs not mutated", () => {
+    const existing = { Department: ["Men"] };
+    const existingSources = { Department: "manual" as const };
+    const { aspects } = projectAttributeAspects({}, existing, existingSources);
+    expect(aspects).toEqual({ Department: ["Men"] });
+    expect(existing).toEqual({ Department: ["Men"] });
+    expect(existingSources).toEqual({ Department: "manual" });
+  });
+
+  it("unknown keys are ignored", () => {
+    const { aspects } = projectAttributeAspects({ nonsense: "x" }, {}, {});
+    expect(aspects).toEqual({});
   });
 });

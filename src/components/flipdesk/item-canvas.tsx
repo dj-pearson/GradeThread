@@ -63,6 +63,7 @@ import {
   GARMENT_TYPES,
   GARMENT_CATEGORIES,
   REQUIRED_PHOTO_TYPES,
+  EBAY_DEPARTMENT_OPTIONS,
 } from "@/lib/constants";
 import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 import { useEbayReviseListing, type ReviseListingPatch } from "@/hooks/use-ebay";
@@ -86,7 +87,10 @@ import {
   rankOf,
   type NextActionKind,
 } from "@/lib/workflow";
-import { projectColumnAspects } from "@/lib/ebay-prefill";
+import {
+  projectAttributeAspects,
+  projectColumnAspects,
+} from "@/lib/ebay-prefill";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { deriveListingOrigin } from "@/lib/listing-origin";
@@ -142,6 +146,80 @@ const AI_FIELD_LABELS: Record<string, string> = {
   description: "Description",
 };
 
+// US-821 canonical attributes surfaced as first-class item fields (Details
+// section). Values live in inventory_items.attributes; the keys the seller
+// edits are projected onto the eBay aspect map on save (projectAttributeAspects)
+// the same way the structured columns are — single-entry, no duplicate typing
+// in the eBay specifics editor. `clothingOnly` fields hide for categories
+// where they'd be noise; `options` feed a datalist (suggestions, not a cage —
+// publish-time validation reconciles against eBay's real allowed list).
+const ATTRIBUTE_FIELD_DEFS: {
+  key: string;
+  label: string;
+  clothingOnly?: boolean;
+  options?: string[];
+  multi?: boolean;
+  placeholder?: string;
+}[] = [
+  {
+    key: "department",
+    label: "Department",
+    options: EBAY_DEPARTMENT_OPTIONS.map((o) => o.value),
+  },
+  {
+    key: "size_type",
+    label: "Size Type",
+    clothingOnly: true,
+    options: ["Regular", "Petite", "Plus", "Juniors", "Tall", "Big & Tall", "Maternity"],
+  },
+  { key: "sleeve_length", label: "Sleeve Length", clothingOnly: true },
+  { key: "neckline", label: "Neckline", clothingOnly: true },
+  { key: "pattern", label: "Pattern" },
+  { key: "fit", label: "Fit", clothingOnly: true },
+  { key: "closure", label: "Closure", clothingOnly: true },
+  { key: "garment_care", label: "Garment Care", clothingOnly: true },
+  { key: "country_of_manufacture", label: "Country of Manufacture" },
+  { key: "vintage", label: "Vintage", options: ["Yes", "No"] },
+  { key: "theme", label: "Theme" },
+  { key: "mpn", label: "MPN" },
+  {
+    key: "features",
+    label: "Features",
+    multi: true,
+    placeholder: "Pockets, Lined, Hooded — comma-separated",
+  },
+];
+
+// String-form (editable) view of the attributes jsonb — `features` joins to a
+// comma list; everything else passes through.
+function attrStringsFrom(
+  raw: Record<string, string | string[]> | null,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const def of ATTRIBUTE_FIELD_DEFS) {
+    const v = raw?.[def.key];
+    if (v == null) continue;
+    out[def.key] = Array.isArray(v) ? v.join(", ") : String(v);
+  }
+  return out;
+}
+
+// Parse one edited string back to its stored attribute value (null = clear).
+function attrValueFrom(
+  def: (typeof ATTRIBUTE_FIELD_DEFS)[number],
+  s: string,
+): string | string[] | null {
+  if (def.multi) {
+    const arr = s
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    return arr.length > 0 ? arr : null;
+  }
+  const t = s.trim();
+  return t === "" ? null : t;
+}
+
 interface Props {
   item: ItemFullRow;
   // Called after a successful save / duplicate / relist. The dialog wrapper
@@ -179,6 +257,9 @@ type EditState = {
   target_price: string;
   comp_set: ItemComp[];
   measurements: Record<string, number | string>;
+  // US-821 canonical attributes in editable string form (features = comma
+  // list). Not on the items_full view — lazy-loaded like color/material.
+  attributes: Record<string, string>;
 };
 
 function toState(item: ItemFullRow): EditState {
@@ -209,6 +290,8 @@ function toState(item: ItemFullRow): EditState {
       item.measurements && typeof item.measurements === "object"
         ? item.measurements
         : {},
+    // attributes are not in the items_full view — loaded separately.
+    attributes: {},
   };
 }
 
@@ -293,6 +376,13 @@ export function ItemCanvas({
   // items_full view, so not on `item`). Captured when they load so buildEbayPatch
   // can tell whether the seller actually changed them and trigger the eBay sync.
   const loadedExtras = useRef({ color: "", material: "" });
+  // Baseline for the lazy-loaded US-821 attributes: the raw jsonb (so a save
+  // preserves keys this form doesn't surface) + the string form the inputs
+  // edit (so persist/buildEbayPatch can tell which keys actually changed).
+  const loadedAttrs = useRef<{
+    raw: Record<string, string | string[]>;
+    strings: Record<string, string>;
+  }>({ raw: {}, strings: {} });
   // Shared with <PhotoManager>: set true when a photo edit (reorder/retag/
   // rotate/delete) is made this session. Lets "Save & sync" push photo-only
   // changes (a rotate alone otherwise produced no eBay patch) and, once pushed,
@@ -392,7 +482,8 @@ export function ItemCanvas({
   // US-1088: Size AI — estimate a missing/cut-off size from the item's photos
   // (esp. measurement / flat-lay shots) vs the brand's sizing. Fills the Size
   // field; the button is only shown while Size is blank, so it disappears once
-  // applied. Gender is surfaced in the toast (no dedicated gender field yet).
+  // applied. A recognized gender also fills a BLANK Department detail field
+  // (never overwriting one the seller set).
   async function runSizeAi() {
     try {
       const r = await sizeAi.mutateAsync({ item_id: item.id });
@@ -403,6 +494,12 @@ export function ItemCanvas({
         return;
       }
       patch("size", r.size);
+      if (r.gender && (state.attributes.department ?? "").trim() === "") {
+        const dept = EBAY_DEPARTMENT_OPTIONS.find(
+          (o) => o.value.toLowerCase() === r.gender!.trim().toLowerCase(),
+        );
+        if (dept) patchAttr("department", dept.value);
+      }
       const genderNote = r.gender ? ` · ${r.gender}` : "";
       if (r.low_confidence) {
         toast.info(`Best guess: ${r.size}${genderNote}`, {
@@ -441,7 +538,9 @@ export function ItemCanvas({
     let cancelled = false;
     void supabase
       .from("inventory_items")
-      .select("color, material, garment_type, garment_category, ai_field_sources")
+      .select(
+        "color, material, garment_type, garment_category, attributes, ai_field_sources",
+      )
       .eq("id", item.id)
       .single()
       .then(({ data }) => {
@@ -451,11 +550,16 @@ export function ItemCanvas({
           material: string | null;
           garment_type: GarmentType | null;
           garment_category: GarmentCategory | null;
+          attributes: Record<string, string | string[]> | null;
           ai_field_sources: ItemFullRow["ai_field_sources"];
         };
         loadedExtras.current = {
           color: row.color ?? "",
           material: row.material ?? "",
+        };
+        loadedAttrs.current = {
+          raw: row.attributes ?? {},
+          strings: attrStringsFrom(row.attributes),
         };
         setState((s) => {
           // US-1423: if grading's garment fields were never captured at catalog,
@@ -474,6 +578,7 @@ export function ItemCanvas({
             garment_type: row.garment_type ?? derived.garment_type ?? "",
             garment_category:
               row.garment_category ?? derived.garment_category ?? "",
+            attributes: attrStringsFrom(row.attributes),
           };
         });
         setHeavy((h) => ({
@@ -518,6 +623,10 @@ export function ItemCanvas({
       next.delete(k);
       return next;
     });
+  }
+
+  function patchAttr(key: string, v: string) {
+    setState((s) => ({ ...s, attributes: { ...s.attributes, [key]: v } }));
   }
 
   async function handleCompleteWithAi() {
@@ -687,6 +796,27 @@ export function ItemCanvas({
       update.ai_enriched_at = new Date().toISOString();
     }
 
+    // US-821 attributes surfaced as first-class fields: persist ONLY the keys
+    // the seller edited this session (vs the lazy-loaded baseline), merged over
+    // the raw jsonb so keys this form doesn't surface survive. The changed keys
+    // also project onto the aspect maps below, alongside the columns.
+    const changedAttrs: Record<string, string | string[] | null> = {};
+    for (const def of ATTRIBUTE_FIELD_DEFS) {
+      const now = (s.attributes[def.key] ?? "").trim();
+      const before = (loadedAttrs.current.strings[def.key] ?? "").trim();
+      if (now !== before) changedAttrs[def.key] = attrValueFrom(def, now);
+    }
+    const mergedAttrs: Record<string, string | string[]> = {
+      ...loadedAttrs.current.raw,
+    };
+    if (Object.keys(changedAttrs).length > 0) {
+      for (const [k, v] of Object.entries(changedAttrs)) {
+        if (v == null) delete mergedAttrs[k];
+        else mergedAttrs[k] = v;
+      }
+      update.attributes = mergedAttrs;
+    }
+
     // The structured columns own their eBay item specifics: project the current
     // Brand/Size/Color/Material/Style onto the stored aspect map on EVERY save so
     // the eBay specifics editor never needs a second, duplicate entry. Mirrors the
@@ -714,14 +844,30 @@ export function ItemCanvas({
       aspRow?.ebay_aspects ?? {},
       aspRow?.ebay_aspect_sources ?? {},
     );
-    update.ebay_aspects = projected.aspects;
-    update.ebay_aspect_sources = projected.sources;
+    // Attribute edits (Department, Pattern, …) project too — but only the
+    // changed keys, so an aspect with no backing attribute isn't touched.
+    const invFinal = projectAttributeAspects(
+      changedAttrs,
+      projected.aspects,
+      projected.sources,
+    );
+    update.ebay_aspects = invFinal.aspects;
+    update.ebay_aspect_sources = invFinal.sources;
 
     const { error } = await supabase
       .from("inventory_items")
       .update(update as never)
       .eq("id", item.id);
     if (error) throw error;
+
+    // Refresh the attribute baseline so a second save in the same session
+    // diffs against what's now stored (and doesn't re-apply stale merges).
+    if (Object.keys(changedAttrs).length > 0) {
+      loadedAttrs.current = {
+        raw: mergedAttrs,
+        strings: attrStringsFrom(mergedAttrs),
+      };
+    }
 
     // Keep the per-listing canonical copy (listings.item_specifics_override, which
     // publish reads FIRST) in lockstep with the inventory mirror — otherwise a
@@ -741,11 +887,12 @@ export function ItemCanvas({
         lstRow?.item_specifics_override ?? {},
         lstRow?.item_specifics_sources ?? {},
       );
+      const lpFinal = projectAttributeAspects(changedAttrs, lp.aspects, lp.sources);
       await supabase
         .from("listings")
         .update({
-          item_specifics_override: lp.aspects,
-          item_specifics_sources: lp.sources,
+          item_specifics_override: lpFinal.aspects,
+          item_specifics_sources: lpFinal.sources,
         } as never)
         .eq("id", item.listing_id);
     }
@@ -787,7 +934,14 @@ export function ItemCanvas({
       state.color.trim() !== loadedExtras.current.color.trim() ||
       state.material.trim() !== loadedExtras.current.material.trim() ||
       state.item_category !== ((item.category as string | null) ?? "") ||
-      state.condition_notes.trim() !== (item.notes ?? "").trim();
+      state.condition_notes.trim() !== (item.notes ?? "").trim() ||
+      // US-821 attributes feed the eBay specifics too (Department, Pattern, …)
+      // — an edit must trigger the inventory re-PUT like a column edit does.
+      ATTRIBUTE_FIELD_DEFS.some(
+        (d) =>
+          (state.attributes[d.key] ?? "").trim() !==
+          (loadedAttrs.current.strings[d.key] ?? "").trim(),
+      );
     if (
       patch.title === undefined &&
       patch.description === undefined &&
@@ -1392,6 +1546,30 @@ export function ItemCanvas({
           />
         </div>
 
+        <div id="canvas-details" className="space-y-2 scroll-mt-4">
+          <Label>Details</Label>
+          <p className="text-xs text-muted-foreground">
+            Optional specifics — Department, Pattern, and friends. Entered once
+            here they flow straight into the eBay item specifics (and edits
+            there sync back), so nothing is typed twice.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {ATTRIBUTE_FIELD_DEFS.filter(
+              (d) => !d.clothingOnly || state.item_category === "clothing",
+            ).map((d) => (
+              <AttributeField
+                key={d.key}
+                fieldKey={d.key}
+                label={d.label}
+                value={state.attributes[d.key] ?? ""}
+                options={d.options}
+                placeholder={d.placeholder}
+                onChange={(v) => patchAttr(d.key, v)}
+              />
+            ))}
+          </div>
+        </div>
+
         <div id="canvas-measurements" className="space-y-2 scroll-mt-4">
           <Label>Measurements</Label>
           <MeasurementForm
@@ -1702,6 +1880,45 @@ export function ItemCanvas({
         onClose={() => setRecordSaleItem(null)}
       />
     </>
+  );
+}
+
+// One US-821 attribute input — free text with option suggestions (datalist),
+// so eBay's common values are one click away without blocking rarer ones.
+function AttributeField({
+  fieldKey,
+  label,
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  fieldKey: string;
+  label: string;
+  value: string;
+  options?: string[];
+  placeholder?: string;
+  onChange: (v: string) => void;
+}) {
+  const listId =
+    options && options.length > 0 ? `attr-options-${fieldKey}` : undefined;
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        list={listId}
+        placeholder={placeholder}
+      />
+      {listId && (
+        <datalist id={listId}>
+          {options!.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+      )}
+    </div>
   );
 }
 
