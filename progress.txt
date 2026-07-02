@@ -8049,3 +8049,23 @@ ebay-bulk. PublishDialog.swift curly-scan clean. iOS gate = macOS CI.
 US-1502 (grade), US-1503 (measurements), US-1504 (price), US-1505 (specifics
 string[]), US-1506 (End truthfulness). All code-only, verified, committed locally,
 NOT pushed. PENDING_MIGRATIONS.md: nothing to apply.
+
+### Loop checkpoint 4 (2026-07-01) — 5 stories verified & committed locally (NOT pushed)
+8 commits ahead of origin (US-1505/1506/1502/1503/1504 + checkpoints). ALL code-only,
+PENDING_MIGRATIONS.md empty, schema 00331. The eBay coherence cluster is DONE.
+
+### NEXT UP — options (pick highest-value verifiable-here first)
+- US-1518 (2373) Photo thumbnail tier — populate thumbnail_url at upload + backfill.
+  thumbnail_url COLUMN ALREADY EXISTS on item_photos; story is POPULATE + backfill,
+  likely NO migration. Verifiable-here parts: (a) inventory rows/board cards load
+  thumbnail tier (already read thumbnail_url ?? photo_url); (b) an idempotent edge
+  backfill script/scheduled task (document how to run); (c) signed-URL handling
+  covers thumbnail objects; (d) US-276 validation/metadata-strip on the thumbnail
+  object. NOT verifiable here: the client-side 2nd-encode (iOS/web upload paths).
+  Check flipdesk-autolister.ts:735 (the ONLY current writer of thumbnail_url).
+- iOS-only audit backlog US-1491..1500, 1507..1523 — well-specified bug fixes
+  (exact file:line + root cause in each notes field), but macOS-CI-verified ONLY
+  on this Windows host. Good for "iOS bugless" but do carefully (curly-scan +
+  type-reasoning; can't compile). Systemic theme = the "cross-form class"
+  (publish-time snapshots shadowing later edits) per ios-deep-dive-audit memory.
+- eBay feature stories US-1421/1447/1448/1474/1477 = BLOCKED on live eBay scopes/creds.
