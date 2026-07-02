@@ -871,8 +871,11 @@ private struct ComposerForm: View {
     /// Price entry. When the validated draft has no usable price the seller can
     /// set it right here — a zero-price draft used to dead-end the dialog with
     /// "set a price on the item canvas" and a disabled Push, bouncing them out of
-    /// the flow. When a price IS already set it stays read-only (the canvas is the
-    /// price's home, US-1190) and this just displays it.
+    /// the flow. When a price IS already set this displays it read-only: the
+    /// number shown is the server-RESOLVED publish price (US-1504 — a real
+    /// item.target_price wins over an AutoLister AI estimate, so this is never the
+    /// stale estimate once the seller set a target), and the item canvas / target
+    /// price is where you change it.
     @ViewBuilder
     private var priceSection: some View {
         VStack(alignment: .leading, spacing: 6) {

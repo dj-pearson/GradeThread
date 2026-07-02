@@ -8020,3 +8020,32 @@ Two sub-bugs, one "which price wins" rule at both ends:
  Heavy iOS (PublishDialog) + edge. After US-1504: iOS audit backlog US-1491..1500
  (macOS-CI-only) + US-1518 photo-thumbnail (thumbnail_url column already exists;
  it's a POPULATE + backfill story, likely still no migration).
+
+## 2026-07-01 (cont.) — US-1504 price coherence — NOW COMPLETE (passes:true)
+Two sub-bugs, one "which price wins" rule at both ends:
+ - AC1 (publish prefers target over an estimate): extracted a pure
+   resolvePublishPrice(listingPrice, priceIsEstimated, targetPrice) — when the
+   draft listing_price is an AI ESTIMATE (price_is_estimated) and the seller set a
+   real target, the TARGET wins; a non-estimate draft price still leads; target is
+   the fallback. Added price_is_estimated to the PublishListing type + publish
+   listing select. Because the validate summary.priceValue IS priceNumber, the
+   composer now DISPLAYS the resolved price too (no stale-$25 read-only).
+ - AC2 (badge no longer inverts): POST /listings/:id/price AND the bulk
+   price/quantity handler now mirror a successful reprice onto
+   inventory_items.target_price (added inventory_item_id to the bulk select +
+   items). The canvas badge (target_price vs live listing price) stays truthful;
+   re-saving the canvas won't revert the live price.
+ - AC3: corrected the misleading PublishDialog price comment (was "canvas is the
+   price's home" — now documents the resolved-price / target-wins rule).
+ - AC4 is a manual check (can't drive the app here); resolvePublishPrice is
+   unit-tested (5 cases, publish-price-priority_test.ts).
+NO MIGRATION (price_is_estimated already existed since 00052).
+
+VERIFICATION (this host): deno check clean; deno lint clean; 27 passed / 0 failed
+across publish-price-priority + ebay-grade-promotion + offer-already-ended +
+ebay-bulk. PublishDialog.swift curly-scan clean. iOS gate = macOS CI.
+
+### MILESTONE: the entire 2026-07-01 iOS-audit eBay COHERENCE CLUSTER is done —
+US-1502 (grade), US-1503 (measurements), US-1504 (price), US-1505 (specifics
+string[]), US-1506 (End truthfulness). All code-only, verified, committed locally,
+NOT pushed. PENDING_MIGRATIONS.md: nothing to apply.

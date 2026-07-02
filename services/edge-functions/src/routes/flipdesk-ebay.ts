@@ -3957,6 +3957,18 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
     .update({ listing_price: price })
     .eq("id", listingId);
 
+  // US-1504: mirror the new live price onto the item's target_price so the canvas
+  // "price not pushed to eBay" badge (which compares target_price vs the live
+  // listing price) doesn't invert after an eBay-side reprice — and re-saving the
+  // canvas won't revert the live price to a stale target.
+  if (row.listing.inventory_item_id) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ target_price: price })
+      .eq("id", row.listing.inventory_item_id)
+      .eq("user_id", userId);
+  }
+
   return c.json({ ok: true, listing_id: listingId, price });
 });
 
@@ -4003,18 +4015,21 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
   const { data: rows } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, platform_offer_id, inventory_items!inner(user_id, sku)",
+      "id, platform_offer_id, inventory_item_id, inventory_items!inner(user_id, sku)",
     )
     .in("id", listingIds)
     .eq("inventory_items.user_id", userId);
   const owned = (rows ?? []) as unknown as Array<{
     id: string;
     platform_offer_id: string | null;
+    inventory_item_id: string | null;
     inventory_items: { user_id: string; sku: string | null };
   }>;
 
   const results: Array<{ listing_id: string; ok: boolean; error?: string }> = [];
-  const items: Array<PriceQtyUpdate & { listingId: string }> = [];
+  const items: Array<
+    PriceQtyUpdate & { listingId: string; itemId: string | null }
+  > = [];
   for (const lid of listingIds) {
     const row = owned.find((r) => r.id === lid);
     const want = wanted.get(lid)!;
@@ -4028,7 +4043,14 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
       results.push({ listing_id: lid, ok: false, error: "Listing has no eBay offer/SKU" });
       continue;
     }
-    items.push({ listingId: lid, sku, offerId, priceValue: want.price, quantity: want.quantity });
+    items.push({
+      listingId: lid,
+      itemId: row.inventory_item_id,
+      sku,
+      offerId,
+      priceValue: want.price,
+      quantity: want.quantity,
+    });
   }
 
   for (const batch of chunk(items, EBAY_BULK_MAX)) {
@@ -4064,6 +4086,16 @@ flipdeskEbayRoutes.post("/listings/bulk-price-quantity", async (c) => {
     if (b.quantity != null) patch.quantity = b.quantity;
     if (Object.keys(patch).length > 0) {
       await supabaseAdmin.from("listings").update(patch as never).eq("id", b.listingId);
+    }
+    // US-1504: mirror a successful reprice onto the item's target_price so the
+    // canvas "not pushed to eBay" badge stays truthful (see the single-price
+    // handler). Only when the price actually changed.
+    if (b.priceValue != null && b.itemId) {
+      await supabaseAdmin
+        .from("inventory_items")
+        .update({ target_price: b.priceValue })
+        .eq("id", b.itemId)
+        .eq("user_id", userId);
     }
   }
 
@@ -6778,6 +6810,25 @@ type LoadListingResult =
 
 // Loads a local listings row by id and verifies the user owns the parent
 // inventory_item (the listings table doesn't have a user_id column).
+// US-1504: the single "which price wins" rule at publish. An AutoLister draft's
+// listing_price may be an AI ESTIMATE (no eBay comps); when the seller set a real
+// target price, the TARGET wins over the estimate — otherwise we'd publish at the
+// stale estimate ($25) after the seller chose $40. A non-estimate draft price
+// (seller-edited in the composer) leads; target is the fallback. Returns null
+// when neither is a usable (> 0) price.
+export function resolvePublishPrice(
+  listingPrice: number | null,
+  priceIsEstimated: boolean,
+  targetPrice: number | null,
+): number | null {
+  const listingUsable = listingPrice != null && listingPrice > 0;
+  const targetUsable = targetPrice != null && targetPrice > 0;
+  if (targetUsable && priceIsEstimated) return targetPrice;
+  if (listingUsable) return listingPrice;
+  if (targetUsable) return targetPrice;
+  return null;
+}
+
 async function loadListingOwned(
   listingId: string,
   userId: string
@@ -6966,6 +7017,10 @@ interface PublishListing {
   listing_title: string | null;
   listing_description: string | null;
   listing_price: number | null;
+  // US-312/US-1504: true when listing_price is the AI ESTIMATE (no eBay comps),
+  // not a seller-chosen price. At publish, a real item.target_price wins over an
+  // estimate so we never list at a stale estimate after the seller set a target.
+  price_is_estimated: boolean | null;
   // US-319/320/321: edits made in the composer/bulk editor must reach eBay.
   // These mirror the columns added in 00052_autolister_schema.sql.
   ebay_condition: string | null;
@@ -7508,7 +7563,7 @@ export async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
+      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -7787,13 +7842,11 @@ export async function assemblePublishContext(
   // the user already priced. (list_price isn't a real column on
   // inventory_items — only an alias on the items_full view — so it's not in
   // the fallback chain.)
-  const priceNumber =
-    (listing?.listing_price != null && listing.listing_price > 0
-      ? listing.listing_price
-      : null) ??
-    (item.target_price != null && item.target_price > 0
-      ? item.target_price
-      : null);
+  const priceNumber = resolvePublishPrice(
+    listing?.listing_price ?? null,
+    listing?.price_is_estimated === true,
+    item.target_price ?? null,
+  );
   if (!priceNumber || priceNumber <= 0) {
     blockers.push("Set a target price.");
   }

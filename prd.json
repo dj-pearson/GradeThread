@@ -9023,7 +9023,7 @@
         "Manual check: AutoLister draft at estimate → set target price → publish uses the target; bulk reprice → canvas shows the new price with no false badge."
       ],
       "priority": 2387,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] One coherent 'which price wins' rule, applied at both ends. Edge + iOS."
     },
     {
