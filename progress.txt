@@ -8280,3 +8280,15 @@ watching iOS CI run 28561998938. PENDING_MIGRATIONS.md empty (all code-only so f
 NEXT once CI green: US-1515 (needs the item_photos.updated_at MIGRATION 00332 +
 merge-return refactor) or another lower-risk iOS story. Pausing new blind iOS edits
 until CI confirms this batch compiles.
+
+### iOS CI GREEN (2026-07-01) — batch validated
+iOS CI run 28561998938 = SUCCESS (build + test + UI tests). All 4 iOS stories
+(US-1522/1521/1516/1514) + the validListingURL scope fix now compile + pass on
+macOS. origin/main = 4cd7a497. The CI-gated flow worked: 1 scope error caught +
+fixed. 10 stories shipped & validated this session (6 web/edge + 4 iOS).
+NEXT: US-1515 as a focused iteration — it needs migration 00332
+(item_photos.updated_at + set_updated_at trigger + backfill) PACKAGED in
+PENDING_MIGRATIONS.md (held, not pushed, until user applies it), plus the
+SyncWatermark cursor change (item_photos/sales/expenses → updated_at + bump
+schemaVersion for a one-time full backfill) and the merge-return-value refactor
+(gate watermark.advance on merge SUCCESS). First migration of the session.
