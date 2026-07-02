@@ -320,7 +320,11 @@ actor SyncMergeActor {
             // Server-authoritative fields (refresh every sync).
             local.category = remote.category
             local.amount = remote.amount
-            local.spentOn = SyncEngine.parseDate(remote.spent_on)
+            // US-1494: use the date-only-aware helper (matches the insert path).
+            // parseDate handles only ISO date-TIME and falls back to `.now` for a
+            // date-only "yyyy-MM-dd" spent_on, so every delta-pulled expense was
+            // being clobbered to today — corrupting Money month totals.
+            local.spentOn = remote.spentOnDate
             local.expenseDescription = remote.description
             local.inventoryItemId = remote.inventory_item_id
             local.listingId = remote.listing_id

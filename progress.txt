@@ -8332,3 +8332,25 @@ bucket via readBucket; the only gap was the missing UPDATE RLS).
 VERIFICATION (this host): deno check clean; schema-version_test 12/0 (00333 bump +
 footer). Purely a prod-RLS migration — apply 00333 to prod and the rotate works
 immediately (no app rebuild needed).
+
+## 2026-07-02 (cont.) — US-1494 iOS expense data integrity — COMPLETE (passes:true) — held (no migration, stacks behind 00332/00333)
+Three fixes:
+ - (1) SyncMergeActor.mergeExpenses UPDATE path used SyncEngine.parseDate(remote
+   .spent_on) which falls back to .now for a date-only "yyyy-MM-dd" → every
+   delta-pulled expense clobbered to today (Money month totals corrupted). Now uses
+   remote.spentOnDate (the date-only-aware helper the INSERT path already used).
+ - (2) Offline-created expenses duplicated: OfflineMutationQueue.enqueueCreate
+   UNCONDITIONALLY overwrote the payload's minted lowercase id with a fresh
+   UPPERCASE default → server row id != local mirror id → dup until delete-recon.
+   Fixed: default id lowercased; NEVER overwrite an id already in the payload (use
+   payload id when present, else the lowercased param); targetId/return match.
+   ExpenseStore now also passes id: id explicitly.
+ - (3) thisMonthTotal bucketed with Calendar.current but spent_on is parsed at UTC
+   midnight → boundary-day expenses landed in the wrong month. Now buckets with a
+   UTC calendar (ExpenseStore.bucketingCalendar) so parse + bucket share a zone.
+ - AC4: 2 new ExpenseSyncTests (enqueueCreate preserves the client id / no dup;
+   default id lowercased). Date-only spentOnDate parse already covered by an
+   existing test.
+VERIFICATION (this host): curly-scan clean on all touched Swift; existing
+thisMonthTotal test passes an explicit calendar (unaffected by the default change).
+iOS macOS CI is the build gate (runs after the held migration batch is pushed).

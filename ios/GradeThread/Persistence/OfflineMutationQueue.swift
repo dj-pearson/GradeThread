@@ -33,16 +33,27 @@ enum OfflineMutationQueue {
     static func enqueueCreate(
         kind: MutationKind,
         payload: some Encodable,
-        id: String = UUID().uuidString,
+        // US-1494: lowercased to match Postgres `uuid` normalization — an
+        // UPPERCASE client id misses the case-sensitive sync-merge lookup on
+        // pull-back and duplicates the row.
+        id: String = UUID().uuidString.lowercased(),
         in context: ModelContext
     ) -> String? {
         guard let base = try? JSONEncoder().encode(payload),
               var dict = (try? JSONSerialization.jsonObject(with: base)) as? [String: Any]
         else { return nil }
-        dict["id"] = id
+        // US-1494: NEVER overwrite an id the payload already minted. Callers like
+        // ExpenseStore encode a lowercase client id into the payload AND mirror it
+        // locally under that id; overwriting it here with a fresh (uppercase)
+        // default made the replayed server row's id differ from the local mirror →
+        // a DUPLICATE row until delete-reconciliation. Use the payload's id when
+        // present; otherwise the (lowercased) parameter.
+        let existingId = (dict["id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let resolvedId = existingId ?? id
+        dict["id"] = resolvedId
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
-        insert(LocalPendingMutation(kind: kind, payload: data, targetId: id), in: context)
-        return id
+        insert(LocalPendingMutation(kind: kind, payload: data, targetId: resolvedId), in: context)
+        return resolvedId
     }
 
     /// Queue an UPDATE against an existing server row `targetId`. Returns false

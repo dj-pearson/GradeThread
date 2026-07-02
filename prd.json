@@ -8879,7 +8879,7 @@
         "Unit tests: date-only spent_on round-trips through merge unchanged; offline create replays under the same id as the local mirror (no duplicate)."
       ],
       "priority": 2397,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Two of these are one-line fixes with account-wide data impact. The uppercase-id path is the last residue of the 379e01c1 uuid-case bug class."
     },
     {

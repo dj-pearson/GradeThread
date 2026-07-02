@@ -30,8 +30,19 @@ final class ExpenseStore {
         return []
     }
 
+    /// A UTC calendar so month bucketing matches how `spent_on` is anchored.
+    /// US-1494: `spent_on` is a date-only column parsed at UTC midnight
+    /// (RemoteExpenseRow.spentOnDate). Bucketing with `Calendar.current` put a
+    /// boundary-day expense (e.g. the 1st) into the wrong month for users behind/
+    /// ahead of UTC. Parsing AND bucketing in the same zone (UTC) keeps them aligned.
+    static let bucketingCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return c
+    }()
+
     /// Sum of expenses dated in the current calendar month.
-    func thisMonthTotal(now: Date = .now, calendar: Calendar = .current) -> Double {
+    func thisMonthTotal(now: Date = .now, calendar: Calendar = ExpenseStore.bucketingCalendar) -> Double {
         guard let startOfMonth = calendar.date(
             from: calendar.dateComponents([.year, .month], from: now)
         ) else { return 0 }
@@ -120,8 +131,10 @@ final class ExpenseStore {
             guard OfflineMutationQueue.shouldQueue(error) else {
                 return .failed(FriendlyErrorCopy.actionMessage(for: error, fallback: "Couldn't save the expense. Please try again."))
             }
+            // US-1494: pass the SAME lowercase id the local mirror uses so the
+            // offline replay upserts that row instead of minting a new one.
             _ = OfflineMutationQueue.enqueueCreate(
-                kind: .createExpense, payload: row, in: queueContext
+                kind: .createExpense, payload: row, id: id, in: queueContext
             )
             mirrorCreated(
                 id: id, category: category.rawValue, description: cleanDescription,

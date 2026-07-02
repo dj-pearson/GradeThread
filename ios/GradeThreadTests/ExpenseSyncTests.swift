@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import GradeThread
 
 /// US-750: expenses now sync into the shared SwiftData cache via the same
@@ -54,5 +55,50 @@ final class ExpenseSyncTests: XCTestCase {
         let rows = SyncEngine.decodeExpensesResiliently(Data(json.utf8))
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.id, "a")
+    }
+
+    // MARK: - US-1494: offline-create id preservation (no duplicate)
+
+    @MainActor
+    private func inMemoryContext() throws -> ModelContext {
+        let schema = Schema([LocalPendingMutation.self])
+        let config = ModelConfiguration(
+            schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none
+        )
+        return ModelContext(try ModelContainer(for: schema, configurations: config))
+    }
+
+    @MainActor
+    func test_enqueueCreate_preservesPayloadClientId_noDuplicate() throws {
+        let ctx = try inMemoryContext()
+        struct ExpensePayload: Encodable { let id: String; let amount: Double }
+        let clientId = "abc-1234-lower"
+
+        let returned = OfflineMutationQueue.enqueueCreate(
+            kind: .createExpense,
+            payload: ExpensePayload(id: clientId, amount: 5),
+            id: clientId,
+            in: ctx
+        )
+        // Returned + persisted targetId + payload id must all stay the client id —
+        // otherwise the replayed server row's id differs from the local mirror and
+        // a DUPLICATE expense appears (the US-1494 bug).
+        XCTAssertEqual(returned, clientId)
+        let muts = try ctx.fetch(FetchDescriptor<LocalPendingMutation>())
+        XCTAssertEqual(muts.count, 1)
+        XCTAssertEqual(muts.first?.targetId, clientId)
+        let dict = try JSONSerialization.jsonObject(with: muts.first!.payload) as? [String: Any]
+        XCTAssertEqual(dict?["id"] as? String, clientId)
+    }
+
+    @MainActor
+    func test_enqueueCreate_defaultId_isLowercased() throws {
+        let ctx = try inMemoryContext()
+        struct NoId: Encodable { let amount: Double }
+        let returned = OfflineMutationQueue.enqueueCreate(
+            kind: .createExpense, payload: NoId(amount: 1), in: ctx
+        )
+        XCTAssertNotNil(returned)
+        XCTAssertEqual(returned, returned?.lowercased())
     }
 }

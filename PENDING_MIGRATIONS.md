@@ -42,6 +42,8 @@ pure prod-RLS fix (no code depends on it, but keep the schema-version in lockste
 
 ---
 
+| US-1494 (iOS expense date integrity) | none | none | (held behind 00332/00333)
+
 ### Earlier stories this loop — code-only (already pushed, no schema changes)
 
 | Story | Migration? | Schema bump? |
