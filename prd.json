@@ -9615,7 +9615,7 @@
     {
       "id": "US-1544",
       "priority": 2346,
-      "passes": false,
+      "passes": true,
       "title": "AI group-boundary verification: suggest merges/splits/moves before generating",
       "description": "As a seller, after auto-grouping I want a cheap AI vision pass to sanity-check the proposed groups — 'groups 3 and 4 look like the same jacket: merge?', 'photo 5 in group 2 looks like a different item: move it?' — so grouping mistakes are caught BEFORE I spend AI actions generating wrong drafts. Today the server has zero grouping awareness: /classify-photos only tags roles within one already-formed group.",
       "acceptanceCriteria": [
@@ -9629,7 +9629,7 @@
         "US-1540",
         "US-1543"
       ],
-      "notes": "[P1][Edge+Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: verified NO server-side grouping exists (agent sweep of services/edge-functions/src — /classify-photos at flipdesk-autolister.ts:900 and lib/ai-photo-roles.ts operate on ONE pre-formed group; ai-listing.ts:1220 comment confirms client owns grouping). Boundary-pair comparison keeps cost O(groups) not O(photos^2). Model: LIGHTWEIGHT_AI_MODEL claude-haiku-4-5 (lib/ai-config.ts:12-13) with cascade escalation (lib/ai-action-cascade.ts). iOS consumption is [[US-1548]]."
+      "notes": "[P1][Edge+Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: verified NO server-side grouping exists (agent sweep of services/edge-functions/src — /classify-photos at flipdesk-autolister.ts:900 and lib/ai-photo-roles.ts operate on ONE pre-formed group; ai-listing.ts:1220 comment confirms client owns grouping). Boundary-pair comparison keeps cost O(groups) not O(photos^2). Model: LIGHTWEIGHT_AI_MODEL claude-haiku-4-5 (lib/ai-config.ts:12-13) with cascade escalation (lib/ai-action-cascade.ts). iOS consumption is [[US-1548]]. [COMPLETION 2026-07-02] Endpoint-level auth/tenant cases live in tenant-isolation_test.ts (env-gated live suite); cap enforced via sampling truncation (tested pure) + a groups cap at MAX_BATCH_ITEMS. Browser pass (chips render, Apply/dismiss, silent post-autogroup run) queued with the other AutoLister manual passes."
     },
     {
       "id": "US-1545",

@@ -9177,3 +9177,33 @@ VERIFICATION: vitest FULL suite 1114/1114 (11 new lib tests); npx tsc -b green; 
 pass queued for next check-in. NOTE: story grounding claimed no dnd-kit in repo - wrong; it
 was already a dep used by 5 surfaces, so no new dependency was added.
 Still LOCAL-ONLY; queues behind held migration 00339.
+
+=== 2026-07-02 (loop): US-1544 (AI group-boundary verification) ===
+- NEW edge lib ai-group-verify.ts: sampleGroupsForVerify (first/middle/last per group -
+  boundary shots tell the story, cost stays O(groups); takes groups in order until the
+  40-photo budget, reports truncated + groupsCovered), ONE vision call with photos labeled
+  G<n>-P<n> + a suggest_group_fixes tool (merge/split/move, confidence, reason), and
+  normalizeGroupSuggestions (numbers/labels -> caller ids; drops malformed/oob/self-refs;
+  clamps confidence). Runs under the US-1065 runActionCascade: lightweight model first,
+  escalates only when the cheap pass cannot produce a parseable suggestions array.
+  enterAiFeature(autolister_verify_groups) for US-894 spend attribution. <2 coverable
+  groups short-circuits with model:none (no AI call, not metered).
+- NEW route POST /api/flipdesk/autolister/verify-groups: ordered groups of staged storage
+  paths; EVERY path checked against ${ownerId}/_staging/ BEFORE any DB/AI work (403 on
+  foreign); groups capped at MAX_BATCH_ITEMS; requireFlipdesk autolister + checkQuota;
+  increment_ai_actions only when a vision call ran; shared autolister POST limiter. Writes
+  NOTHING.
+- tenant-isolation_test.ts: new live-gated case - B posting a foreign _staging path to
+  verify-groups must be denied.
+- Web autolister.tsx: Verify groups toolbar button (1 AI action, disabled <2 groups) +
+  SILENT auto-run right after auto-group (passes the just-created groups explicitly; only
+  toasts when something was flagged; degenerate branch skips it). Suggestions render as
+  amber dismissible chips on the affected group (move chips on the SOURCE only) with reason
+  tooltip + confidence %; Apply routes through the US-1543 undoable mutations (merge/move/
+  split-to-new-group) so every applied suggestion is one-click undoable; never auto-applied.
+TESTS: 5 new deno tests (sampling + normalization). FULL edge suite 2464/0/70; web
+1114/1114; tsc -b green; eslint clean; npm run build green.
+NOTE: commit 7f8b6d5a accidentally included a stray services/edge-functions/progress.txt
+(PowerShell cwd drift) - removed in the follow-up commit; prd/progress updates landed there
+too.
+Still LOCAL-ONLY; queues behind held migration 00339.
