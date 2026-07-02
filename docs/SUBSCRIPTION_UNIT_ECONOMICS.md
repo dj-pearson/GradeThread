@@ -132,12 +132,14 @@ drops the AutoLister/content per-action cost ~3×.
 2. **Closed the enforcement holes** — `scheduledActions` + `bulkActions` now gate
    at 402, and the automation cron skips downgraded owners (§2).
 
-**Remaining lever (not yet done):**
+**Built, shipped OFF (opt-in):**
 
-3. **Land the Haiku routing from US-1065** — route AutoLister + Content to Haiku
-   behind a value gate (~3× cheaper) and tune the grading cascade. This closes the
-   pathological all-vision tail (§5) and widens every tier's margin. Biggest
-   single win still on the table.
+3. **Haiku→Sonnet quality-gated cascade for AutoLister** (`ai-action-cascade.ts`,
+   migration `00337`) — runs Haiku first and revises on Sonnet only when the
+   result is weak/missing/errored. ~3× cheaper on the confident majority; closes
+   the pathological all-vision tail (§5). Enable deploy-free via
+   `ai_action_model_cascade.enabled = true` once Haiku output is spot-checked.
+   Extending the same wrapper to the Content/copy flows is the remaining step.
 
 The `ai_budgets` per-feature guardrail (US-895) remains the hard backstop that
 makes any cap safe in practice.

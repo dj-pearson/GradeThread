@@ -21,6 +21,7 @@ import {
   isCachingEnabled,
 } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
+import { getActionCascadeConfig, runActionCascade } from "./ai-action-cascade.ts";
 import {
   estimateCost,
   extractEbayAspects,
@@ -432,7 +433,6 @@ export async function generateListingFields(
     throw new Error("generateListingFields requires at least one photo");
   }
 
-  const model = getDefaultModel(); // vision-capable
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
   const prompt = await resolveListingPrompt(input.promptSelectKey ?? null);
@@ -483,6 +483,60 @@ export async function generateListingFields(
     ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
     : { type: "text", text: prompt.text };
 
+  // US-1065: quality-gated Haiku→Sonnet cascade (config-driven, OFF by default,
+  // so behavior is a single default-model pass until an operator enables it).
+  // Runs the cheap model first and re-runs on the stronger model ONLY when the
+  // first pass is low-confidence, missing a category, has no item-specifics, or
+  // errored. Both passes are tagged to the "autolister" feature for spend
+  // attribution (enterAiFeature above wraps this whole call).
+  const cascade = await getActionCascadeConfig();
+  const { result } = await runActionCascade<ListingGenResult>({
+    config: cascade,
+    runOn: (model) =>
+      callListingModel(model, {
+        client,
+        content,
+        systemBlock,
+        temperature,
+        promptVersion: prompt.versionName,
+      }),
+    assess: (r) => {
+      if (r.listing.confidence < cascade.confidenceThreshold) {
+        return {
+          sufficient: false,
+          reason: `low_confidence:${r.listing.confidence.toFixed(2)}`,
+        };
+      }
+      if (!r.listing.suggested_category_query) {
+        return { sufficient: false, reason: "missing_category" };
+      }
+      if (Object.keys(r.listing.item_specifics).length === 0) {
+        return { sufficient: false, reason: "no_item_specifics" };
+      }
+      return { sufficient: true, reason: "ok" };
+    },
+    onEscalate: ({ from, to, reason }) =>
+      console.warn(`[AI Listing][cascade] escalate ${from} → ${to} (${reason})`),
+  });
+  return result;
+}
+
+// One tool-forced create_ebay_listing call on `model`, parsed into a
+// ListingGenResult. Extracted so the cascade in generateListingFields can run it
+// on the cheap model first and re-run on the stronger model when needed; the
+// prompt/content/system are built once by the caller and passed in.
+interface ListingCallInputs {
+  client: Anthropic;
+  content: Anthropic.ContentBlockParam[];
+  systemBlock: Anthropic.TextBlockParam;
+  temperature: number | undefined;
+  promptVersion: string;
+}
+
+async function callListingModel(
+  model: string,
+  { client, content, systemBlock, temperature, promptVersion }: ListingCallInputs,
+): Promise<ListingGenResult> {
   // Retry transient Anthropic rate-limit / overload (429/529/5xx) with
   // exponential backoff so one momentary limit doesn't fail the whole batch.
   const response = await withRetry(
@@ -561,7 +615,7 @@ export async function generateListingFields(
   return {
     listing,
     model,
-    promptVersion: prompt.versionName,
+    promptVersion,
     tokensIn:
       response.usage.input_tokens +
       (response.usage.cache_read_input_tokens ?? 0) +

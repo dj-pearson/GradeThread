@@ -121,9 +121,13 @@ AI cost is structurally a rounding error against subscription revenue.
 
 ## 5. Recommendations (priority order)
 
-1. **Route AutoLister and Content to haiku** behind a value/ambiguity gate (set
-   `current_model` in `ai_feature_economics` once qualified; the cascade pattern
-   in `model-routing.ts` is the template). Biggest absolute saving.
+1. **Route AutoLister and Content to haiku** behind a quality gate. **Built for
+   AutoLister** as a Haiku→Sonnet *quality-gated cascade* (`ai-action-cascade.ts`
+   + `generateListingFields`): Haiku first, re-run on Sonnet only when the result
+   is low-confidence / missing a category / has no item-specifics / errors.
+   Shipped OFF — enable deploy-free by setting `ai_action_model_cascade.enabled =
+   true` (system_settings, migration `00337`) after spot-checking Haiku output.
+   Content is the remaining flow to route. Biggest absolute saving.
 2. **Keep grading & authenticity on sonnet**; instead tune the **grading cascade**
    (US-1066) escalation threshold to push more of the confident majority onto the
    haiku first pass. This cuts grading cost with zero pricing/quality risk.
