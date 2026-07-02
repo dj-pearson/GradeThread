@@ -927,9 +927,9 @@ export async function endMarkdownSale(
 // Beyond markdown sales, eBay's item_promotion covers ORDER_DISCOUNT (spend $X
 // get Y off the order), VOLUME_DISCOUNT (buy N get a discount) and CODED_COUPON.
 // Chunk 1 is the READ side — list the seller's existing item promotions so
-// FlipDesk surfaces them. The create/update bodies for each type are intricate
-// and are added (with a live-eBay smoke test) in a follow-up; a wrong write body
-// would just eBay-4xx, so we don't ship a guessed one here.
+// FlipDesk surfaces them. The WRITE side (typed body builders + create/update/
+// delete wrappers) is chunk 2 below; see its header for what's still gated on a
+// live-eBay smoke test before it's wired to a mutating route.
 
 export interface EbayItemPromotion {
   promotionId: string;

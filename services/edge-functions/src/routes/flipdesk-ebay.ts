@@ -4,7 +4,11 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { SENSITIVE_ITEM_PHOTO_TYPES } from "../lib/item-photo-storage.ts";
 import { maybeFireImmediateConsignorPayout } from "../lib/consignor-payout.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
-import { applyColumnAspects, resolveItemAspects } from "../lib/aspect-registry.ts";
+import {
+  applyColumnAspects,
+  resolveItemAspects,
+  reverseColumnAspects,
+} from "../lib/aspect-registry.ts";
 import type { RegistryAspect, RegistryItem } from "../lib/aspect-registry.ts";
 import {
   applyMeasurementsBlock,
@@ -4748,7 +4752,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
-        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_category_id, measurements"
+        "id, user_id, title, brand, size, color, material, style, item_category, attributes, sku, description, condition_notes, grade_value, grade_label, certificate_url, ebay_aspects, ebay_aspect_sources, ebay_category_id, measurements"
       )
       .eq("id", itemId)
       .maybeSingle();
@@ -4773,6 +4777,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       grade_label: string | null;
       certificate_url: string | null;
       ebay_aspects: Record<string, string[]> | null;
+      ebay_aspect_sources: Record<string, string> | null;
       ebay_category_id: string | null;
       measurements: Measurements;
     };
@@ -4786,7 +4791,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     const { data: listingRow } = await supabaseAdmin
       .from("listings")
       .select(
-        "platform_category_id, item_specifics_override, ebay_condition, ebay_condition_description",
+        "platform_category_id, item_specifics_override, item_specifics_sources, ebay_condition, ebay_condition_description",
       )
       .eq("id", listingId)
       .maybeSingle();
@@ -4811,6 +4816,36 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         if (Array.isArray(raw)) reviseAspectList = raw as AspectSpecRaw[];
       } catch (err) {
         console.error("[flipdesk-ebay] revise aspect spec fetch failed:", err);
+      }
+    }
+    // Reverse column sync (mirrors assemblePublishContext): fold MANUAL
+    // specifics edits back into their columns before the columns are
+    // re-asserted below — otherwise a Brand typed in a specifics editor is
+    // clobbered by the stale column on every revise.
+    {
+      const overrideSources = (listingRow as {
+        item_specifics_override?: Record<string, unknown> | null;
+        item_specifics_sources?: Record<string, string> | null;
+      } | null);
+      const aspectSources = ((overrideSources?.item_specifics_override != null
+        ? overrideSources.item_specifics_sources
+        : item.ebay_aspect_sources) ?? {}) as Record<string, string | undefined>;
+      const writeBack = reverseColumnAspects(
+        item as unknown as RegistryItem,
+        baseAspects,
+        aspectSources,
+      );
+      if (Object.keys(writeBack).length > 0) {
+        Object.assign(item, writeBack);
+        const { error: wbErr } = await supabaseAdmin
+          .from("inventory_items")
+          .update(writeBack as never)
+          .eq("id", itemId);
+        if (wbErr) {
+          console.error(
+            `[flipdesk-ebay] revise column write-back failed for ${itemId}: ${wbErr.message}`,
+          );
+        }
       }
     }
     const aspects = forceColumnAspects(
@@ -7663,6 +7698,36 @@ export async function assemblePublishContext(
     (listing?.item_specifics_override as Record<string, unknown> | null) ??
       (item.ebay_aspects as Record<string, unknown> | null),
   );
+  // Reverse column sync: a MANUAL Brand/Size/Color/Material/Style edit in a
+  // specifics editor (composer, bulk edit, iOS) is the newest human intent for
+  // that shared field — fold it back into the item column BEFORE
+  // forceColumnAspects below re-asserts the columns, or the stale column would
+  // clobber the edit and the seller would face the double-entry it was meant to
+  // fix. AI-extracted values only fill blank columns; derived/unattributed
+  // values never flow back. Pick the provenance map that pairs with whichever
+  // store aspectMap came from.
+  {
+    const aspectSources = ((listing?.item_specifics_override != null
+      ? listing.item_specifics_sources
+      : item.ebay_aspect_sources) ?? {}) as Record<string, string | undefined>;
+    const writeBack = reverseColumnAspects(
+      item as unknown as RegistryItem,
+      aspectMap,
+      aspectSources,
+    );
+    if (Object.keys(writeBack).length > 0) {
+      Object.assign(item, writeBack); // downstream projection reads the new values
+      const { error: wbErr } = await supabaseAdmin
+        .from("inventory_items")
+        .update(writeBack as never)
+        .eq("id", itemId);
+      if (wbErr) {
+        console.error(
+          `[flipdesk-ebay] publish column write-back failed for ${itemId}: ${wbErr.message}`,
+        );
+      }
+    }
+  }
   let requiredMissing: string[] = [];
   // US-828: aspects the publish path declined to send for VALUE-validation
   // reasons (a SELECTION_ONLY value not in eBay's allowed set, even after the

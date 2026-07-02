@@ -376,3 +376,66 @@ export function applyColumnAspects(
   }
   return out;
 }
+
+/** The item columns that own an eBay aspect (the registry's column entries). */
+export type ColumnAspectField = "brand" | "size" | "color" | "material" | "style";
+
+/**
+ * REVERSE projection: fold aspect-map edits back into the structured columns,
+ * so Brand/Size/Color/Material/Style stay SINGLE-ENTRY. The columns are the
+ * write-authority (columnAspectProjection force-overwrites their aspects), so
+ * an aspect edit that never reaches its column is silently clobbered on the
+ * next publish/revise — this closes that loop. Provenance decides what flows
+ * back:
+ *  - "manual"       — the seller typed it in a specifics editor. Newest human
+ *                     intent: fills an empty column AND overwrites a differing
+ *                     one.
+ *  - "ai_extracted" — fills an EMPTY column only (same fill-if-blank rule the
+ *                     inbound eBay/CSV merges use); never overwrites.
+ *  - "inventory_derived" / unknown — never written back (it either came FROM
+ *                     the column, or we can't attribute it — writing it back
+ *                     could resurrect stale data).
+ * Aspect names match case-insensitively against the entry's candidates (per-
+ * category extras first, e.g. shoes "US Shoe Size" → size). Absent/blank
+ * aspects never clear a column — a category spec that simply lacks the aspect
+ * is indistinguishable from an intentional clear; blanking stays a main-page
+ * action. Returns only the columns that actually change.
+ */
+export function reverseColumnAspects(
+  item: RegistryItem,
+  aspects: Record<string, string[]>,
+  sources: Record<string, string | undefined> | null | undefined,
+): Partial<Record<ColumnAspectField, string>> {
+  const src = sources ?? {};
+  const byLower = new Map<string, string>();
+  for (const key of Object.keys(aspects)) {
+    const l = key.trim().toLowerCase();
+    if (l && !byLower.has(l)) byLower.set(l, key);
+  }
+  const patch: Partial<Record<ColumnAspectField, string>> = {};
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column" || !entry.column) continue;
+    let matchedKey: string | undefined;
+    for (const cand of effectiveCandidates(entry, item.item_category ?? null)) {
+      const key = byLower.get(cand);
+      if (key && (aspects[key]?.length ?? 0) > 0) {
+        matchedKey = key;
+        break;
+      }
+    }
+    if (!matchedKey) continue;
+    const value = (aspects[matchedKey]![0] ?? "").trim();
+    if (!value) continue;
+    const provenance = src[matchedKey];
+    const raw = (item as unknown as Record<string, unknown>)[entry.column];
+    const current = typeof raw === "string" ? raw.trim() : "";
+    if (current === "") {
+      if (provenance === "manual" || provenance === "ai_extracted") {
+        patch[entry.column as ColumnAspectField] = value;
+      }
+    } else if (provenance === "manual" && value !== current) {
+      patch[entry.column as ColumnAspectField] = value;
+    }
+  }
+  return patch;
+}

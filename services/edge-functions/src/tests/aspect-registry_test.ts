@@ -13,6 +13,7 @@ import {
   type RegistryAspect,
   type RegistryItem,
   resolveItemAspects,
+  reverseColumnAspects,
 } from "../lib/aspect-registry.ts";
 
 // Helpers to build aspect specs tersely.
@@ -289,4 +290,78 @@ Deno.test("registry: every entry has a key, source, and at least one aspect cand
     if (e.source === "column") assertEquals(typeof e.column, "string");
     if (e.source === "attribute") assertEquals(typeof e.attribute, "string");
   }
+});
+
+// ── reverseColumnAspects (aspect edits flow back to their columns) ──────────
+
+Deno.test("reverse: a MANUAL aspect edit overwrites a differing column", () => {
+  const item: RegistryItem = { item_category: "clothing", brand: "Nike", size: "M" };
+  assertEquals(
+    reverseColumnAspects(
+      item,
+      { Brand: ["Adidas"], Size: ["M"] },
+      { Brand: "manual", Size: "manual" },
+    ),
+    { brand: "Adidas" }, // Size unchanged → no patch entry
+  );
+});
+
+Deno.test("reverse: manual and AI values fill a BLANK column", () => {
+  const item: RegistryItem = { item_category: "clothing", brand: null, color: "" };
+  assertEquals(
+    reverseColumnAspects(
+      item,
+      { Brand: ["Levi's"], Colour: ["Indigo"] },
+      { Brand: "manual", Colour: "ai_extracted" },
+    ),
+    { brand: "Levi's", color: "Indigo" },
+  );
+});
+
+Deno.test("reverse: AI never overwrites a populated column", () => {
+  const item: RegistryItem = { item_category: "clothing", brand: "Nike" };
+  assertEquals(
+    reverseColumnAspects(item, { Brand: ["Adidas"] }, { Brand: "ai_extracted" }),
+    {},
+  );
+});
+
+Deno.test("reverse: derived / unattributed values never flow back", () => {
+  const item: RegistryItem = { item_category: "clothing", brand: "Nike", size: null };
+  assertEquals(
+    reverseColumnAspects(
+      item,
+      // "Medium" is the normalized projection of size "M" — writing it back
+      // would churn the column; unattributed Brand could be a stale mirror.
+      { Size: ["Medium"], Brand: ["Adidas"] },
+      { Size: "inventory_derived" },
+    ),
+    {},
+  );
+});
+
+Deno.test("reverse: synonym + per-vertical candidates match (US Shoe Size → size)", () => {
+  const item: RegistryItem = { item_category: "shoes", size: "9", material: "Suede" };
+  assertEquals(
+    reverseColumnAspects(
+      item,
+      { "US Shoe Size": ["10"], "Upper Material": ["Leather"] },
+      { "US Shoe Size": "manual", "Upper Material": "manual" },
+    ),
+    { size: "10", material: "Leather" },
+  );
+});
+
+Deno.test("reverse: blank/absent aspects never clear a column", () => {
+  const item: RegistryItem = { item_category: "clothing", brand: "Nike" };
+  assertEquals(reverseColumnAspects(item, { Brand: [""] }, { Brand: "manual" }), {});
+  assertEquals(reverseColumnAspects(item, {}, {}), {});
+});
+
+Deno.test("reverse: attribute-backed aspects (Department etc.) are ignored", () => {
+  const item: RegistryItem = { item_category: "clothing" };
+  assertEquals(
+    reverseColumnAspects(item, { Department: ["Men"] }, { Department: "manual" }),
+    {},
+  );
 });

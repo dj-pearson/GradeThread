@@ -7,6 +7,8 @@ import {
   inferDepartment,
   mapEbayCondition,
   projectColumnAspects,
+  reverseProjectAspectColumns,
+  syncedItemFieldFor,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 import type { EbayAspect } from "@/hooks/use-ebay";
@@ -210,5 +212,105 @@ describe("mapEbayCondition", () => {
     expect(mapEbayCondition(9.0, null)).toBe("LIKE_NEW");
     expect(mapEbayCondition(7.5, null)).toBe("USED_EXCELLENT");
     expect(mapEbayCondition(null, null)).toBe("USED_EXCELLENT");
+  });
+});
+
+describe("reverseProjectAspectColumns (specifics edits flow back to the item)", () => {
+  it("manual aspect edit overwrites a differing column; unchanged ones skipped", () => {
+    const { columns, attributes } = reverseProjectAspectColumns(
+      { ...base, brand: "Nike", size: "M" },
+      { Brand: ["Adidas"], Size: ["M"] },
+      { Brand: "manual", Size: "manual" },
+    );
+    expect(columns).toEqual({ brand: "Adidas" });
+    expect(attributes).toEqual({});
+  });
+
+  it("manual and AI values fill a blank column; AI never overwrites", () => {
+    const filled = reverseProjectAspectColumns(
+      base,
+      { Brand: ["Levi's"], Colour: ["Indigo"] },
+      { Brand: "manual", Colour: "ai_extracted" },
+    );
+    expect(filled.columns).toEqual({ brand: "Levi's", color: "Indigo" });
+    const populated = reverseProjectAspectColumns(
+      { ...base, brand: "Nike" },
+      { Brand: ["Adidas"] },
+      { Brand: "ai_extracted" },
+    );
+    expect(populated.columns).toEqual({});
+  });
+
+  it("derived / unattributed values never flow back", () => {
+    // "Medium" is the normalized projection of size "M" — writing it back would
+    // churn the column; an unattributed Brand could be a stale mirror.
+    const { columns } = reverseProjectAspectColumns(
+      { ...base, brand: "Nike", size: "M" },
+      { Size: ["Medium"], Brand: ["Adidas"] },
+      { Size: "inventory_derived" },
+    );
+    expect(columns).toEqual({});
+  });
+
+  it("per-vertical synonyms match (shoes: US Shoe Size → size column)", () => {
+    const { columns } = reverseProjectAspectColumns(
+      { ...base, item_category: "shoes", size: "9" },
+      { "US Shoe Size": ["10"] },
+      { "US Shoe Size": "manual" },
+    );
+    expect(columns).toEqual({ size: "10" });
+  });
+
+  it("attribute-backed aspects write back to canonical attribute keys", () => {
+    const { columns, attributes } = reverseProjectAspectColumns(
+      { ...base, attributes: { pattern: "Solid" } },
+      {
+        Department: ["Men"],
+        Pattern: ["Striped"],
+        Features: ["Pockets", "Lined"],
+      },
+      { Department: "manual", Pattern: "manual", Features: "ai_extracted" },
+    );
+    expect(columns).toEqual({});
+    expect(attributes).toEqual({
+      department: "Men",
+      pattern: "Striped",
+      features: ["Pockets", "Lined"], // multi entry keeps all values
+    });
+  });
+
+  it("AI attribute values fill only blank attributes", () => {
+    const { attributes } = reverseProjectAspectColumns(
+      { ...base, attributes: { department: "Women" } },
+      { Department: ["Men"] },
+      { Department: "ai_extracted" },
+    );
+    expect(attributes).toEqual({});
+  });
+
+  it("blank/absent aspects never clear a field", () => {
+    const { columns, attributes } = reverseProjectAspectColumns(
+      { ...base, brand: "Nike" },
+      { Brand: [" "] },
+      { Brand: "manual" },
+    );
+    expect(columns).toEqual({});
+    expect(attributes).toEqual({});
+  });
+});
+
+describe("syncedItemFieldFor", () => {
+  it("maps column-backed aspect names (incl. synonyms + verticals)", () => {
+    expect(syncedItemFieldFor("Brand", "clothing")).toBe("brand");
+    expect(syncedItemFieldFor("Colour", "clothing")).toBe("color");
+    expect(syncedItemFieldFor("Fabric Type", "clothing")).toBe("material");
+    expect(syncedItemFieldFor("US Shoe Size", "shoes")).toBe("size");
+    // shoes-only candidate doesn't apply to clothing
+    expect(syncedItemFieldFor("US Shoe Size", "clothing")).toBeNull();
+  });
+
+  it("returns null for attribute-backed / unknown aspects", () => {
+    expect(syncedItemFieldFor("Department", "clothing")).toBeNull();
+    expect(syncedItemFieldFor("Occasion", "clothing")).toBeNull();
   });
 });

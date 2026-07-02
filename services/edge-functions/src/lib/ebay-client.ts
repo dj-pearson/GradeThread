@@ -158,9 +158,9 @@ export function apiHost(): string {
     : "https://api.sandbox.ebay.com";
 }
 
-// eBay routes some Sell APIs through a separate "apiz" host. Currently
-// Finances + Analytics — the rest of our calls (Inventory, Fulfillment,
-// Account, Taxonomy, Browse, Trading) all sit on apiHost().
+// eBay routes some Sell APIs through a separate "apiz" host. Currently only
+// Finances — everything else we call (Inventory, Fulfillment, Account,
+// Analytics, Taxonomy, Browse, Trading) sits on apiHost().
 export function apizHost(): string {
   return getEbayEnv() === "production"
     ? "https://apiz.ebay.com"
@@ -187,6 +187,13 @@ function getScopes(): string {
       // reconnect — old tokens 403 the Analytics API, which the performance sync
       // detects and flags (marketplace_connections.analytics_access_denied).
       "https://api.ebay.com/oauth/api_scope/sell.analytics.readonly",
+      // Required by ALL /sell/fulfillment/v1/payment_dispute* methods
+      // (ebay-disputes.ts). eBay scopes the payment_dispute resource to its own
+      // dedicated scope — sell.fulfillment does NOT cover it, despite the shared
+      // URL prefix. Generally available (not eBay-gated). Users connected BEFORE
+      // this scope was added must reconnect at /oauth/start — their tokens
+      // insufficient-scope every dispute read/accept/contest call.
+      "https://api.ebay.com/oauth/api_scope/sell.payment.dispute",
       // NOTE: the two eBay-restricted scopes below are intentionally NOT
       // requested. They are granted in Sandbox but NOT on our Production
       // keyset (eBay gates them behind extra licensing/contracts), so

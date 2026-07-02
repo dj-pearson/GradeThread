@@ -9,9 +9,12 @@
 //
 // These methods are part of the Sell Fulfillment API
 // (/sell/fulfillment/v1/payment_dispute) and use the standard Bearer user token —
-// the same auth the rest of the Sell APIs use. The scope is expected to be the
-// already-granted `sell.fulfillment`; if eBay returns insufficient-scope, add
-// `sell.payment.dispute` to EBAY_SCOPES and have sellers re-consent (AC4).
+// the same auth the rest of the Sell APIs use. Despite the shared URL prefix,
+// the payment_dispute resource is scoped to the DEDICATED
+// `sell.payment.dispute` OAuth scope (NOT `sell.fulfillment`) — it is in the
+// default getScopes() list (ebay-client.ts). Sellers whose consent predates
+// that scope must reconnect at /oauth/start or every call here returns
+// insufficient-scope.
 
 import { fetchWithTimeout } from "./circuit-breaker.ts";
 import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";

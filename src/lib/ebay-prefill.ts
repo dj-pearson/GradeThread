@@ -329,6 +329,107 @@ export function projectColumnAspects(
   return { aspects, sources };
 }
 
+// The item COLUMN an aspect name is two-way synced with (brand/size/color/
+// material/style), or null for AI-/attribute-/free-typed aspects. Drives the
+// editor's "synced with item field" hint so sellers know one entry feeds both.
+export function syncedItemFieldFor(
+  aspectName: string,
+  category: string | null,
+): string | null {
+  const lname = aspectName.trim().toLowerCase();
+  if (!lname) return null;
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column" || !entry.column) continue;
+    if (effectiveCandidates(entry, category).includes(lname)) {
+      return entry.column;
+    }
+  }
+  return null;
+}
+
+// The write-back a specifics-editor save owes the item: column patches +
+// changed canonical-attribute keys (caller merges the latter over the item's
+// existing `attributes` jsonb before persisting).
+export interface AspectWriteBack {
+  columns: Partial<
+    Record<"brand" | "size" | "color" | "material" | "style", string>
+  >;
+  attributes: Record<string, string | string[]>;
+}
+
+// REVERSE projection — the other half of projectColumnAspects, so shared
+// values are SINGLE-ENTRY in both directions. The item's structured fields own
+// their eBay specifics (the edge force-projects columns at publish/revise), so
+// an aspect edit that never reaches its backing field is clobbered by the stale
+// field on the next save/publish. This folds specifics-editor edits back:
+//   • provenance "manual"        → the seller typed it: fills an EMPTY backing
+//     field and overwrites a DIFFERING one (newest human intent wins; the edge
+//     applies the same rule at publish via reverseColumnAspects).
+//   • provenance "ai_extracted"  → fill-if-blank only (same rule as the inbound
+//     eBay/CSV merges) — AI never overwrites something a human entered.
+//   • "inventory_derived"/absent → never written back; it either came FROM the
+//     field (possibly normalized, e.g. "M" → "Medium" — writing that back would
+//     churn the column) or can't be attributed.
+// Covers BOTH registry sources: column entries (brand/size/color/material/
+// style) and US-821 attribute entries (Department, Pattern, Fit, …), so a
+// manually-picked Department finally persists to attributes.department and
+// survives category changes / relists. Absent or blank aspects never clear a
+// field — a category spec without the aspect is indistinguishable from an
+// intentional clear; blanking stays a main-listing-page action.
+export function reverseProjectAspectColumns(
+  item: ItemAspectSource,
+  aspects: Record<string, string[]>,
+  // Loosely typed: DB-loaded provenance maps arrive as Record<string, string>.
+  sources: Record<string, string | undefined>,
+): AspectWriteBack {
+  const byLower = new Map<string, string>();
+  for (const key of Object.keys(aspects)) {
+    const l = key.trim().toLowerCase();
+    if (l && !byLower.has(l)) byLower.set(l, key);
+  }
+  const columns: AspectWriteBack["columns"] = {};
+  const attributes: AspectWriteBack["attributes"] = {};
+  const category = item.item_category ?? null;
+  for (const entry of ASPECT_REGISTRY.entries) {
+    let matchedKey: string | undefined;
+    for (const cand of effectiveCandidates(entry, category)) {
+      const key = byLower.get(cand);
+      if (key && (aspects[key]?.length ?? 0) > 0) {
+        matchedKey = key;
+        break;
+      }
+    }
+    if (!matchedKey) continue;
+    const values = aspects[matchedKey]!
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+    if (values.length === 0) continue;
+    const provenance = sources[matchedKey];
+    if (provenance !== "manual" && provenance !== "ai_extracted") continue;
+
+    if (entry.source === "column" && entry.column) {
+      const raw = (item as unknown as Record<string, unknown>)[entry.column];
+      const current = typeof raw === "string" ? raw.trim() : "";
+      const next = values[0]!;
+      if (current === "" || (provenance === "manual" && next !== current)) {
+        columns[entry.column as keyof AspectWriteBack["columns"]] = next;
+      }
+    } else if (entry.source === "attribute" && entry.attribute) {
+      const raw = item.attributes?.[entry.attribute];
+      const currentArr = (Array.isArray(raw) ? raw : raw != null ? [raw] : [])
+        .map((v) => String(v).trim())
+        .filter((v) => v.length > 0);
+      const next = entry.multi ? values : [values[0]!];
+      const differs = next.join(" ") !== currentArr.join(" ");
+      const blank = currentArr.length === 0;
+      if ((blank || provenance === "manual") && differs) {
+        attributes[entry.attribute] = entry.multi ? next : next[0]!;
+      }
+    }
+  }
+  return { columns, attributes };
+}
+
 // Grade → eBay condition mapping — mirrors the server's mapEbayCondition,
 // which is what publish falls back to when no condition was chosen. Surfacing
 // it in the composer makes the eventual publish value visible and editable.

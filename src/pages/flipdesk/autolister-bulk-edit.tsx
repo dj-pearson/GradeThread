@@ -50,6 +50,8 @@ import {
   textChanged,
   type ListingAiSnapshot,
 } from "@/lib/listing-ai-diff";
+import { reverseProjectAspectColumns } from "@/lib/ebay-prefill";
+import { pruneSources, type AspectSourceMap } from "@/lib/aspect-provenance";
 
 // AutoLister bulk spreadsheet editor (US-320). Edit a whole generated batch in
 // a grid — inline title/price/condition/quantity/best-offer — with bulk-apply
@@ -77,6 +79,9 @@ interface DraftRow {
   scheduled_publish_at: string | null;
   platform_category_id: string | null;
   item_specifics_override: Record<string, string[]> | null;
+  // US-825 provenance parallel to item_specifics_override — read so a bulk
+  // Brand/Size/Color edit can be stamped "manual" without losing AI stamps.
+  item_specifics_sources: AspectSourceMap | null;
   ai_generated_snapshot: ListingAiSnapshot | null;
   // US-553: comp-derived price range (p25/p75) for the "median comp − X%" rule.
   price_range_low_cents: number | null;
@@ -136,6 +141,12 @@ interface EditRow {
   size: string;
   color: string;
   specifics: Record<string, string[]>;
+  // Saved provenance for the override (US-825), carried through the save.
+  sources: AspectSourceMap;
+  // The inline aspects as loaded — a field that differs from its seed at save
+  // time was edited by the seller THIS session, so it's stamped "manual" and
+  // reverse-synced to the item (single-entry rule).
+  seedInline: { department: string; brand: string; size: string; color: string };
   // US-551: the AI's original draft, snapshotted at generation. Drives the
   // per-field diff chips + revert-to-AI. Null for manually-created drafts.
   ai: ListingAiSnapshot | null;
@@ -176,7 +187,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_description, listing_price, ebay_condition, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot, price_range_low_cents, price_range_high_cents, shipping_policy_id, payment_policy_id, return_policy_id",
+          "id, inventory_item_id, listing_title, listing_description, listing_price, ebay_condition, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, scheduled_publish_at, platform_category_id, item_specifics_override, item_specifics_sources, ai_generated_snapshot, price_range_low_cents, price_range_high_cents, shipping_policy_id, payment_policy_id, return_policy_id",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -197,6 +208,10 @@ export function FlipdeskAutolisterBulkEditPage() {
     brand: string;
     size: string;
     color: string;
+    material: string;
+    style: string;
+    itemCategory: string | null;
+    attributes: Record<string, string | string[]> | null;
     // US-553: cost basis (acquired_price) backs the forward P&L / margin column.
     cost: number | null;
   };
@@ -206,7 +221,9 @@ export function FlipdeskAutolisterBulkEditPage() {
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("inventory_items")
-        .select("id, title, brand, size, color, acquired_price")
+        .select(
+          "id, title, brand, size, color, material, style, item_category, attributes, acquired_price",
+        )
         .in("id", itemIds);
       const map: Record<string, ItemAttrs> = {};
       for (
@@ -217,6 +234,10 @@ export function FlipdeskAutolisterBulkEditPage() {
             brand: string | null;
             size: string | null;
             color: string | null;
+            material: string | null;
+            style: string | null;
+            item_category: string | null;
+            attributes: Record<string, string | string[]> | null;
             acquired_price: number | null;
           }
         >
@@ -226,6 +247,10 @@ export function FlipdeskAutolisterBulkEditPage() {
           brand: r.brand ?? "",
           size: r.size ?? "",
           color: r.color ?? "",
+          material: r.material ?? "",
+          style: r.style ?? "",
+          itemCategory: r.item_category,
+          attributes: r.attributes,
           cost: r.acquired_price,
         };
       }
@@ -340,6 +365,13 @@ export function FlipdeskAutolisterBulkEditPage() {
           size: Size?.[0] ?? "",
           color: Color?.[0] ?? "",
           specifics: rest,
+          sources: r.item_specifics_sources ?? {},
+          seedInline: {
+            department: Department?.[0] ?? "",
+            brand: Brand?.[0] ?? "",
+            size: Size?.[0] ?? "",
+            color: Color?.[0] ?? "",
+          },
           ai: r.ai_generated_snapshot ?? null,
           compLow:
             r.price_range_low_cents != null ? r.price_range_low_cents / 100 : null,
@@ -761,6 +793,24 @@ export function FlipdeskAutolisterBulkEditPage() {
     setOrDrop("Brand", r.brand);
     setOrDrop("Size", r.size);
     setOrDrop("Color", r.color);
+    // US-825: stamp the inline aspects the seller changed THIS session (value
+    // differs from its load-time seed) as "manual", merged over the saved
+    // provenance and pruned to keys that still hold a value. Without the stamp
+    // a bulk-typed Brand stays unattributed and the publish path's column
+    // re-assert would clobber it with the stale item column.
+    const mergedSources: AspectSourceMap = { ...r.sources };
+    const inline = [
+      ["Department", r.department, r.seedInline.department],
+      ["Brand", r.brand, r.seedInline.brand],
+      ["Size", r.size, r.seedInline.size],
+      ["Color", r.color, r.seedInline.color],
+    ] as const;
+    for (const [key, value, seed] of inline) {
+      if (value.trim() && value.trim() !== seed.trim()) {
+        mergedSources[key] = "manual";
+      }
+    }
+    const prunedSources = pruneSources(mergedSources, mergedSpecifics);
     const { error: upErr } = await supabase
       .from("listings")
       .update({
@@ -778,6 +828,7 @@ export function FlipdeskAutolisterBulkEditPage() {
         platform_category_id: r.categoryId.trim() || null,
         item_specifics_override:
           Object.keys(mergedSpecifics).length > 0 ? mergedSpecifics : null,
+        item_specifics_sources: prunedSources,
         shipping_policy_id: r.shippingPolicyId || null,
         payment_policy_id: r.paymentPolicyId || null,
         return_policy_id: r.returnPolicyId || null,
@@ -785,6 +836,41 @@ export function FlipdeskAutolisterBulkEditPage() {
       } as never)
       .eq("id", r.id);
     if (upErr) throw upErr;
+
+    // Reverse-sync shared fields (single-entry rule, same helper the composer
+    // save uses): a manual Brand/Size/Color flows back to its item column and
+    // Department into the canonical attributes, so the seller never re-enters
+    // them on the item page — and the next column re-assert can't undo them.
+    const attrs = itemAttrs[r.itemId];
+    if (attrs) {
+      const wb = reverseProjectAspectColumns(
+        {
+          title: null,
+          brand: attrs.brand || null,
+          size: attrs.size || null,
+          color: attrs.color || null,
+          material: attrs.material || null,
+          style: attrs.style || null,
+          description: null,
+          condition_notes: null,
+          item_category: attrs.itemCategory,
+          attributes: attrs.attributes,
+        },
+        mergedSpecifics,
+        prunedSources,
+      );
+      const patch: Record<string, unknown> = { ...wb.columns };
+      if (Object.keys(wb.attributes).length > 0) {
+        patch.attributes = { ...(attrs.attributes ?? {}), ...wb.attributes };
+      }
+      if (Object.keys(patch).length > 0) {
+        const { error: wbErr } = await supabase
+          .from("inventory_items")
+          .update(patch as never)
+          .eq("id", r.itemId);
+        if (wbErr) throw wbErr;
+      }
+    }
   }
 
   async function saveAll() {
@@ -827,9 +913,15 @@ export function FlipdeskAutolisterBulkEditPage() {
         );
       }
       if (failures.length === 0) {
-        // Everything saved — safe to refetch the server's truth.
+        // Everything saved — safe to refetch the server's truth. items_full +
+        // the attrs cache refresh too, since the reverse-sync may have updated
+        // item columns/attributes.
         await qc.invalidateQueries({
           queryKey: ["autolister_batch_drafts", batchId],
+        });
+        await qc.invalidateQueries({ queryKey: ["items_full"] });
+        await qc.invalidateQueries({
+          queryKey: ["autolister_bulk_item_attrs", batchId],
         });
         toast.success(
           `Saved ${succeeded.size} listing${succeeded.size === 1 ? "" : "s"}.`,
