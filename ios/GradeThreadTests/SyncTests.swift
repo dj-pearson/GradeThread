@@ -368,10 +368,14 @@ final class SyncTests: XCTestCase {
     }
 
     func test_watermark_cursorColumns() {
+        // US-1515: sales + item_photos gained updated_at (migration 00332), so
+        // EVERY table now deltas on updated_at (edits move the cursor, not just
+        // inserts). flipdesk_expenses had updated_at since 00019; disputes since
+        // US-819.
         XCTAssertEqual(SyncWatermark.Table.inventoryItems.cursorColumn, "updated_at")
-        XCTAssertEqual(SyncWatermark.Table.itemPhotos.cursorColumn, "created_at")
-        XCTAssertEqual(SyncWatermark.Table.sales.cursorColumn, "created_at")
-        // US-819: disputes carry an updated_at (status change bumps it).
+        XCTAssertEqual(SyncWatermark.Table.itemPhotos.cursorColumn, "updated_at")
+        XCTAssertEqual(SyncWatermark.Table.sales.cursorColumn, "updated_at")
+        XCTAssertEqual(SyncWatermark.Table.expenses.cursorColumn, "updated_at")
         XCTAssertEqual(SyncWatermark.Table.disputes.cursorColumn, "updated_at")
     }
 
