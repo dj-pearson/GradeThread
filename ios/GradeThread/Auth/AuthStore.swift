@@ -31,6 +31,13 @@ public final class AuthStore {
     /// for toast presentation; the next successful action clears it.
     public var lastError: Error?
 
+    /// US-1492: set true when GoTrue emits `.passwordRecovery` (the user opened a
+    /// "Forgot password?" email link and its recovery session is now live). The
+    /// shell watches this to auto-present ``ChangePasswordSheet`` so the user
+    /// actually sets a NEW password instead of being silently signed in with the
+    /// OLD one still valid. Cleared by the shell when the sheet is dismissed.
+    public var passwordRecoveryRequested = false
+
     private var streamTask: Task<Void, Never>?
 
     public init() {}
@@ -219,7 +226,19 @@ public final class AuthStore {
             return true
         }()
         guard Self.isAcceptableAuthCallback(url: url, allowCustomScheme: allowCustomScheme) else { return }
-        _ = try? await SupabaseShared.client.auth.session(from: url)
+        // US-1492: surface exchange failures instead of swallowing them with
+        // `try?`. An expired / already-used link, or a PKCE verifier mismatch
+        // (guaranteed cross-device or after a reinstall), otherwise foregrounded
+        // the app to NOTHING — the reviewer taps the email link and the screen
+        // just sits there. On success the auth-state stream drives the phase (and
+        // `.passwordRecovery` presents the change-password sheet); on failure we
+        // put an actionable error on `lastError`, which LoginView renders.
+        do {
+            _ = try await SupabaseShared.client.auth.session(from: url)
+            lastError = nil
+        } catch {
+            lastError = error
+        }
     }
 
     /// Strict scheme+host+path matcher for the auth callback (US-988). Pure and
@@ -308,7 +327,9 @@ public final class AuthStore {
         }
     }
 
-    private func apply(event: AuthChangeEvent, session: Session?) {
+    // `internal` (not `private`) so the @MainActor unit tests can drive event
+    // handling directly without the live SDK stream (US-1492).
+    func apply(event: AuthChangeEvent, session: Session?) {
         switch event {
         case .initialSession, .signedIn, .tokenRefreshed, .userUpdated:
             if let user = session?.user {
@@ -329,9 +350,15 @@ public final class AuthStore {
             Telemetry.clearUser()
             AppleCredentialMonitor.clear()
         case .passwordRecovery:
-            // Recovery flows pop the user back to LoginView; let the next
-            // event drive the actual phase change.
-            break
+            // US-1492: a "Forgot password?" link exchange emits this event with a
+            // live recovery session. Previously we did nothing here — so the user
+            // was silently left in the app with their OLD password still valid,
+            // never prompted to set a new one (the whole point of the reset).
+            // Flag it so the shell auto-presents ChangePasswordSheet against this
+            // live session. We deliberately DON'T flip `phase` here: the sheet is
+            // presented over whatever surface is showing, and a successful
+            // `updatePassword` emits `.userUpdated`, which drives the phase.
+            passwordRecoveryRequested = true
         @unknown default:
             break
         }

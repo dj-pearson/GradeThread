@@ -126,6 +126,12 @@ struct PhotoRotateService {
         photo.thumbnailURL = newThumbnailURL
         photo.width = newWidth
         photo.height = newHeight
+        // Bump the local cache-buster so the display refetches the rotated bytes.
+        // Public photos already bust via the new `?v=` in `newPhotoURL`, but a
+        // private photo (tag/tag_2/certificate) keeps an empty `photoURL` and is
+        // re-signed from the unchanged path — so without this every thumbnail
+        // cache key stays identical and the rotation silently no-ops on screen.
+        photo.localCacheToken &+= 1
         // Mark the parent item changed — mirrors PhotoEditService.applyLocalOrder
         // (reorder/delete). Without this a rotate-only edit never bumps the item's
         // updatedAt, so the sync engine + any "needs sync" affordance treat the

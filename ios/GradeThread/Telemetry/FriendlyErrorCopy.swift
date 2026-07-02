@@ -34,6 +34,12 @@ enum FriendlyErrorCopy {
         /// US-1521: GoTrue rejected the password for the project's password
         /// policy (weak_password).
         case weakPassword
+        /// US-1492: an auth-callback link exchange failed because the link is
+        /// expired / already used, or the PKCE code-verifier didn't match (opening
+        /// the link on a different device than requested it, or after a reinstall).
+        /// Recovery is "request a new link," so it gets its own actionable copy
+        /// instead of the generic "something went wrong" dead-end.
+        case expiredLink
         case generic
     }
 
@@ -134,6 +140,22 @@ enum FriendlyErrorCopy {
             || lower.contains("password should contain") {
             return .weakPassword
         }
+        // US-1492: a failed auth-callback exchange — an expired/used OTP link, or a
+        // PKCE code-verifier mismatch (opening the link on a different device than
+        // requested it, or after a reinstall). GoTrue surfaces these under several
+        // shapes across versions, so match the stable substrings.
+        if lower.contains("otp_expired")
+            || lower.contains("invalid or has expired")
+            || lower.contains("token has expired or is invalid")
+            || lower.contains("flow_state_not_found")
+            || lower.contains("flow state")
+            || lower.contains("code verifier")
+            || lower.contains("code_verifier")
+            || lower.contains("bad_code_verifier")
+            || lower.contains("invalid_grant")
+            || lower.contains("pkce") {
+            return .expiredLink
+        }
         return .generic
     }
 
@@ -168,6 +190,11 @@ enum FriendlyErrorCopy {
             return "That email already has an account — sign in or reset your password."
         case .weakPassword:
             return "That password doesn't meet the requirements. Try a longer one with a mix of letters, numbers, and symbols."
+        case .expiredLink:
+            // US-1492: names BOTH recovery paths — a fresh reset email, or signing
+            // in to trigger the resend-confirmation card — so an expired link is
+            // never a dead-end regardless of which kind of link it was.
+            return "This link expired or was already used. Request a new reset email from “Forgot password?”, or sign in to resend a confirmation link."
         case .generic:
             return "Something went wrong. Please try again."
         }
@@ -188,7 +215,7 @@ enum FriendlyErrorCopy {
             // generic "Couldn't save your item. Please try again." dead-end, which
             // was the relocated Guideline 2.1 rejection on the save/intake path.
             return Self.confirmEmailMessage
-        case .invalidCredentials, .generic, .userAlreadyExists, .weakPassword:
+        case .invalidCredentials, .generic, .userAlreadyExists, .weakPassword, .expiredLink:
             return fallback
         }
     }

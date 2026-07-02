@@ -123,4 +123,41 @@ final class PhotoStorageBucketTests: XCTestCase {
             "https://api.gradethread.com/storage/v1/object/sign/submission-images/u/i/tag_1.jpg?token=ey.signed"
         )
     }
+
+    // MARK: - Rotate cache-busting (private photos)
+    //
+    // A rotate rewrites the bytes at the SAME signed path, so the signed URL is
+    // byte-identical and every URL-keyed client thumbnail cache would keep serving
+    // the pre-rotation pixels — the "tag rotate silently does nothing" bug. The
+    // fix busts those caches with the photo's local token WITHOUT disturbing the
+    // signed `token` the server validates.
+
+    func test_cacheBusted_token0_leavesURLUnchanged() {
+        let url = URL(string: "https://api.gradethread.com/storage/v1/object/sign/submission-images/u/i/tag_1.jpg?token=ey.signed")!
+        XCTAssertEqual(PhotoSignedURLProvider.cacheBusted(url, token: 0)?.absoluteString, url.absoluteString)
+    }
+
+    func test_cacheBusted_nilURL_returnsNil() {
+        XCTAssertNil(PhotoSignedURLProvider.cacheBusted(nil, token: 5))
+    }
+
+    func test_cacheBusted_appendsToken_preservesSignedToken_andChangesString() throws {
+        let url = URL(string: "https://api.gradethread.com/storage/v1/object/sign/submission-images/u/i/tag_1.jpg?token=ey.signed")!
+        let busted = try XCTUnwrap(PhotoSignedURLProvider.cacheBusted(url, token: 3))
+        let items = try XCTUnwrap(URLComponents(url: busted, resolvingAgainstBaseURL: false)?.queryItems)
+        // The signed token the server validates must survive untouched...
+        XCTAssertEqual(items.first(where: { $0.name == "token" })?.value, "ey.signed")
+        // ...and the bust param must be present so the cache key differs.
+        XCTAssertEqual(items.first(where: { $0.name == "_cb" })?.value, "3")
+        XCTAssertNotEqual(busted.absoluteString, url.absoluteString,
+                          "busted URL must differ so URL-keyed thumbnail caches miss and refetch")
+    }
+
+    func test_cacheBusted_distinctTokens_yieldDistinctURLs() {
+        let url = URL(string: "https://api.gradethread.com/storage/v1/object/sign/submission-images/u/i/tag_1.jpg?token=ey.signed")!
+        let first = PhotoSignedURLProvider.cacheBusted(url, token: 1)
+        let second = PhotoSignedURLProvider.cacheBusted(url, token: 2)
+        XCTAssertNotEqual(first?.absoluteString, second?.absoluteString,
+                          "each rotate must produce a distinct URL so a second rotate also refetches")
+    }
 }

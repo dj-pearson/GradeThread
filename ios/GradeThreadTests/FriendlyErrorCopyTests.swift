@@ -109,6 +109,45 @@ final class FriendlyErrorCopyTests: XCTestCase {
         XCTAssertEqual(FriendlyErrorCopy.kind(for: err), .rateLimited)
     }
 
+    // MARK: - Expired / cross-device auth-callback link (US-1492)
+
+    /// A used/expired reset or confirmation link, and a PKCE code-verifier
+    /// mismatch (opening the link on a different device / after reinstall), must
+    /// classify as `.expiredLink` so handleAuthCallback's surfaced error reads as
+    /// actionable copy instead of the generic "something went wrong" dead-end.
+    func test_expiredLink_recognisesGoTrueVariants() {
+        for message in [
+            "Email link is invalid or has expired",
+            "otp_expired",
+            "Token has expired or is invalid",
+            "invalid flow state, no valid flow state found",
+            "both auth code and code verifier should be non-empty",
+            "invalid_grant: bad_code_verifier",
+        ] {
+            let err = goTrueError(message)
+            XCTAssertEqual(
+                FriendlyErrorCopy.kind(for: err), .expiredLink,
+                "expected \(message) to classify as expiredLink")
+        }
+    }
+
+    /// The expired-link copy is actionable and names a recovery path (a new
+    /// reset email / resend), never the bare generic line.
+    func test_expiredLink_authMessage_isActionable() {
+        let copy = FriendlyErrorCopy.authMessage(for: goTrueError("otp_expired"))
+        XCTAssertNotEqual(copy, "Something went wrong. Please try again.")
+        XCTAssertTrue(copy.lowercased().contains("expired"))
+        XCTAssertTrue(copy.lowercased().contains("password") || copy.lowercased().contains("resend"))
+    }
+
+    /// An expired link is NOT offline and NOT email-not-confirmed — it's its own
+    /// kind, so it doesn't get queued or the wrong card.
+    func test_expiredLink_isNotOfflineOrUnconfirmed() {
+        let err = goTrueError("Email link is invalid or has expired")
+        XCTAssertFalse(FriendlyErrorCopy.isOffline(err))
+        XCTAssertFalse(FriendlyErrorCopy.isEmailNotConfirmed(err))
+    }
+
     // MARK: - Email-not-confirmed classification helper (US-810)
 
     /// US-810: `isEmailNotConfirmed` is the signal LoginView uses to swap in the

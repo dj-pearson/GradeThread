@@ -58,6 +58,24 @@ actor PhotoSignedURLProvider {
     /// the ≤900s bound (US-979 AC).
     var requestedTTLSeconds: Int { ttl }
 
+    /// Appends a photo's local cache token as an ignored `_cb` query param so an
+    /// in-place-rotated private photo busts the client thumbnail caches. The
+    /// signed path (and thus the URL, cached ~10 min) is unchanged by a rotate,
+    /// so every cache keyed on the URL string would otherwise serve the
+    /// pre-rotation pixels. Supabase validates only the `token` JWT (it signs the
+    /// path + expiry, not the query string) and ignores `_cb`, so the server
+    /// still returns the freshly rotated bytes. No-op at token 0 (never rotated)
+    /// or a nil URL. `static` (non-isolated) so display code can call it
+    /// synchronously without awaiting the actor.
+    static func cacheBusted(_ url: URL?, token: Int) -> URL? {
+        guard let url, token != 0 else { return url }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        var items = components?.queryItems ?? []
+        items.append(URLQueryItem(name: "_cb", value: String(token)))
+        components?.queryItems = items
+        return components?.url ?? url
+    }
+
     /// A displayable URL for a persisted photo. Public-bucket photos return
     /// their permanent `publicURL`; private-bucket photos resolve a cached
     /// signed URL from `storagePath` (nil if it can't be minted).

@@ -249,9 +249,11 @@ struct ItemGradeReportSheet: View {
     }
 
     /// Stable signature of the photo set so the resolver re-runs only when the
-    /// photos (or their storage paths) actually change.
+    /// photos (or their storage paths) actually change. Includes `localCacheToken`
+    /// so an in-place rotate of a private-bucket photo (whose URL string never
+    /// changes) still re-resolves and refetches instead of showing stale pixels.
     private var photoSignature: String {
-        photos.map { "\($0.id)|\($0.photoType)|\($0.storagePath ?? "")|\($0.thumbnailURL ?? $0.photoURL)" }
+        photos.map { "\($0.id)|\($0.photoType)|\($0.storagePath ?? "")|\($0.thumbnailURL ?? $0.photoURL)|\($0.localCacheToken)" }
             .joined(separator: ",")
     }
 
@@ -270,11 +272,15 @@ struct ItemGradeReportSheet: View {
             if bucket == PhotoStorageBucket.publicBucket {
                 resolved = URL(string: photo.thumbnailURL ?? photo.photoURL)
             } else {
-                resolved = await PhotoSignedURLProvider.shared.displayURL(
+                let signed = await PhotoSignedURLProvider.shared.displayURL(
                     bucket: bucket,
                     storagePath: photo.storagePath,
                     publicURL: photo.thumbnailURL ?? photo.photoURL
                 )
+                // Bust the client thumbnail caches for an in-place-rotated private
+                // photo — the signed path (and so the URL) is unchanged, so append
+                // the local token as an ignored `_cb` query param.
+                resolved = PhotoSignedURLProvider.cacheBusted(signed, token: photo.localCacheToken)
             }
             if let resolved { urls.append(resolved) }
         }

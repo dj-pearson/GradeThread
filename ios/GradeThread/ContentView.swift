@@ -427,10 +427,22 @@ struct ProtectedRouteShell: View {
         // present the paywall directly — its prices/products resolve from the
         // scheme's attached `GradeThread.storekit` configuration, so the purchase
         // flow is exercised offline without a backend session. No-op in production.
-        if UITestSupport.directToPaywall {
-            NavigationStack { PaywallView(userId: UITestSupport.stubUserId) }
-        } else {
-            routedBody
+        Group {
+            if UITestSupport.directToPaywall {
+                NavigationStack { PaywallView(userId: UITestSupport.stubUserId) }
+            } else {
+                routedBody
+            }
+        }
+        // US-1492: a "Forgot password?" email link exchange emits `.passwordRecovery`
+        // with a live recovery session. Auto-present the change-password sheet over
+        // whatever surface is showing (login or the main shell) so the user actually
+        // sets a NEW password instead of being silently signed in with the old one.
+        .sheet(isPresented: Binding(
+            get: { authStore.passwordRecoveryRequested },
+            set: { authStore.passwordRecoveryRequested = $0 }
+        )) {
+            ChangePasswordSheet()
         }
     }
 

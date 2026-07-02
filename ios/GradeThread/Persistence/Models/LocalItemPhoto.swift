@@ -33,6 +33,18 @@ final class LocalItemPhoto {
     var bytes: Int?
     var sortOrder: Int
 
+    /// Local-only cache-buster, bumped whenever the bytes at ``storagePath`` are
+    /// rewritten in place (rotate). Private-bucket photos (tag/tag_2/certificate)
+    /// keep an EMPTY ``photoURL`` and are displayed via a signed URL keyed only on
+    /// the path, so a rotate leaves every URL string unchanged and the thumbnail
+    /// caches (``ItemPhotoThumbnail``/``CachedThumbnail``/``ThumbnailLoader``)
+    /// keep serving the STALE pixels — the rotation appears to silently no-op.
+    /// Threading this token into the display key + the signed URL's query busts
+    /// those caches without changing what the server sees. Public photos bust via
+    /// a `?v=` query on ``photoURL`` instead and don't need this. Never synced to
+    /// the server (a fresh pull re-downloads the already-rotated bytes at token 0).
+    var localCacheToken: Int = 0
+
     var createdAt: Date
 
     /// True when this photo was captured offline and not yet uploaded. The
