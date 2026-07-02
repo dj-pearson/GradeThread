@@ -13,7 +13,24 @@
 
 ---
 
-## Status: ⚠️ 2 PENDING MIGRATIONS — apply `00332` then `00333` before pushing
+## ⚠️ STATUS UPDATE — commits PUSHED; migrations still must be APPLIED to prod
+
+`origin/main` now includes US-1515 (`00332`) + US-1524 (`00333`). **Pushing to git
+is NOT the same as applying the SQL to prod.** No immediate breakage from the push
+alone (the edge only re-reads the schema version on a Coolify redeploy, and the new
+iOS build isn't released yet) — BUT you must apply `00332` + `00333` to prod BEFORE:
+  • redeploying the edge (its boot guard now expects `00333`; DB at `00331` →
+    schema-guard failure after the ~40s grace window), and
+  • releasing the new iOS build (US-1515 queries `updated_at` on sales/item_photos;
+    missing column → PostgREST 400 on those syncs).
+  • To fix the **Tag-rotation 400 now**, apply `00333` (independent of `00332`).
+
+Apply order + steps below. Once applied, tell me and I'll push the remaining
+code-only commit (US-1494).
+
+---
+
+## Original packaging note (apply `00332` then `00333`)
 
 Apply IN ORDER (both idempotent, both end with the `applied_migrations` footer).
 `EXPECTED_SCHEMA_VERSION` is bumped **00331 → 00333** (edge `schema-version.ts`).
