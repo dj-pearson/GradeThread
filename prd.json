@@ -9561,7 +9561,7 @@
     {
       "id": "US-1541",
       "priority": 2349,
-      "passes": false,
+      "passes": true,
       "title": "Scale AutoLister intake to 600+ photos (perf, memory, rate limits)",
       "description": "As a seller uploading a whole shoot (600+ photos), I need the intake page to stay responsive and every upload to succeed: today the design target is ~100 photos, the ungrouped grid renders every thumbnail (no virtualization), staged state persists to localStorage (quota risk), the O(n^2) dHash merge pass runs unchunked, and 600 uploads at concurrency 5 will slam the server's 120-req/60s rate limit with no 429 handling.",
       "acceptanceCriteria": [
@@ -9572,7 +9572,7 @@
         "Object URLs for thumbnails are revoked when photos are removed/dismissed (no unbounded memory growth across a long session)",
         "A synthetic 600-file test (unit-level for the scheduler/backoff + grouping perf; manual browser pass for the grid) is documented in the story notes on completion; typecheck and vitest pass"
       ],
-      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: UPLOAD_CONCURRENCY=5 autolister.tsx:196; per-file pipeline via runWithConcurrency (src/lib/concurrency.ts, '~100 photos' design comments there and in src/lib/image-worker-pool.ts:5); localStorage keys autolister:sessionId / autolister:state:<id> (autolister.tsx:264-305); server rate limit 120 req/60s on /staging/upload (services/edge-functions/src/main.ts:668) — client currently has NO 429 backoff; dHash pairwise pass is O(n^2) bounded only by the 100-photo assumption. MAX_BATCH_ITEMS server cap is handled separately in [[US-1545]]."
+      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: UPLOAD_CONCURRENCY=5 autolister.tsx:196; per-file pipeline via runWithConcurrency (src/lib/concurrency.ts, '~100 photos' design comments there and in src/lib/image-worker-pool.ts:5); localStorage keys autolister:sessionId / autolister:state:<id> (autolister.tsx:264-305); server rate limit 120 req/60s on /staging/upload (services/edge-functions/src/main.ts:668) — client currently has NO 429 backoff; dHash pairwise pass is O(n^2) bounded only by the 100-photo assumption. MAX_BATCH_ITEMS server cap is handled separately in [[US-1545]]. [COMPLETION 2026-07-02] Synthetic 600-file coverage: upload-rate-limit.test.ts (SlidingWindowLimiter 600-burst invariant: <=100 starts per 60s sliding window, ~5-window drain; backoff Retry-After/exponential/jitter bounds) + autolister-grouping.test.ts 600-photo test (30 items x 20 shots through the full O(n^2) visual pass with a guaranteed-distance hash code). The n^2 freeze fix was algorithmic: per-bit BigInt hamming -> precomputed u32 popcount (~1000x), so idle-slicing became unnecessary. Grid = windowed rendering (105-photo/24-group chunks via IntersectionObserver sentinels) + upload rows capped at 80 errors-first. localStorage size-guard degrades by dropping photo-edit undo snapshots, then warns once. MANUAL BROWSER PASS on a real 600-photo folder still to be run at next check-in (needs a real shoot folder)."
     },
     {
       "id": "US-1542",

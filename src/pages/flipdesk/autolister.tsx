@@ -48,6 +48,13 @@ import {
   compareByProvenance,
   type GroupablePhoto,
 } from "@/lib/autolister-grouping";
+import {
+  backoffDelayMs,
+  RATE_LIMIT_MAX_ATTEMPTS,
+  RateLimitedError,
+  SlidingWindowLimiter,
+  sleep,
+} from "@/lib/upload-rate-limit";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { removeImageBackground, type BgMode } from "@/lib/background-removal";
 import { useStartAutolisterBatch, useRunCoverQa } from "@/hooks/use-autolister";
@@ -177,6 +184,13 @@ async function uploadStagingPhoto(
     }
     throw err;
   }
+  // US-1541: a 429 is the server pacing us, not a per-file failure — surface
+  // it as a typed error so the pipeline backs off (Retry-After honored) and
+  // retries automatically instead of showing a terminal-looking error.
+  if (res.status === 429) {
+    const retryAfter = Number.parseInt(res.headers.get("Retry-After") ?? "", 10);
+    throw new RateLimitedError(Number.isFinite(retryAfter) ? retryAfter : null);
+  }
   const data = (await res.json().catch(() => ({}))) as {
     error?: string;
     storage_path?: string;
@@ -222,6 +236,41 @@ interface UploadTask {
 // workers), so lanes above that overlap network uploads with compression.
 const UPLOAD_CONCURRENCY = 5;
 
+// US-1541: pace upload STARTS under the edge's 120/60s staging-upload budget
+// (with headroom for retries/another tab). Module-level so every lane — and a
+// retry pass — shares the same window.
+const uploadLimiter = new SlidingWindowLimiter();
+
+// US-1541: run one paced, 429-aware upload. Waits for a rate slot before each
+// attempt, and on a 429 backs off (server Retry-After when given, else
+// exponential, always jittered) and retries in place — a rate limit is the
+// server pacing us, never a per-file failure until retries run out.
+async function uploadStagingPhotoPaced(
+  session: string,
+  full: Blob,
+  thumb: Blob | null,
+): Promise<StagedUploadResult> {
+  for (let attempt = 0; ; attempt++) {
+    const delay = uploadLimiter.acquireDelayMs();
+    if (delay > 0) await sleep(delay);
+    try {
+      return await uploadStagingPhoto(session, full, thumb);
+    } catch (err) {
+      if (err instanceof RateLimitedError) {
+        if (attempt < RATE_LIMIT_MAX_ATTEMPTS - 1) {
+          await sleep(backoffDelayMs(attempt, err.retryAfterSeconds));
+          continue;
+        }
+        // Retries exhausted — keep it retryable with honest copy.
+        throw new Error(
+          "The server is rate-limiting uploads — wait a minute, then tap Retry failed.",
+        );
+      }
+      throw err;
+    }
+  }
+}
+
 // Aggregate per-batch accounting for the summary toasts.
 interface BatchStats {
   ok: number;
@@ -256,6 +305,45 @@ function stagedSortName(p: StagedPhoto): string | null {
     if (parts.length >= 3) return parts.slice(0, -2).join("|");
   }
   return null;
+}
+
+// US-1541: windowed rendering for the two unbounded sections. A 600-photo
+// session used to mount every thumbnail tile (and every group card) at once —
+// the initial render froze the tab. Only the first chunk mounts; scrolling the
+// sentinel into view raises the window. 105 is divisible by the grid's 3/5/7
+// column counts, so every breakpoint windows on full rows.
+const GRID_CHUNK = 105;
+const GROUPS_CHUNK = 24;
+// Cap on visible per-file upload rows — 600 progress bars is its own jank.
+// Errors always render (they need action); the aggregate header carries totals.
+const UPLOAD_ROWS_CAP = 80;
+
+function LoadMoreSentinel({
+  label,
+  onMore,
+}: {
+  label: string;
+  onMore: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onMore();
+      },
+      // Start mounting the next chunk well before the user reaches the end.
+      { rootMargin: "600px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onMore]);
+  return (
+    <div ref={ref} className="py-2 text-center text-xs text-muted-foreground">
+      {label}
+    </div>
+  );
 }
 
 // Staging thumbnails on a big batch (600 photos) arrive as one HTTP/2 burst
@@ -383,6 +471,9 @@ export function FlipdeskAutolisterPage() {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  // US-1541: windowed-rendering limits (raised by the LoadMoreSentinels).
+  const [ungroupedLimit, setUngroupedLimit] = useState(GRID_CHUNK);
+  const [groupsLimit, setGroupsLimit] = useState(GROUPS_CHUNK);
   // Group ids created by the LAST auto-group run so it can be undone as one
   // action (those photos return to Ungrouped; manually-made groups survive).
   // In-memory only: a mis-grouped but persisted session is reset via
@@ -465,7 +556,13 @@ export function FlipdeskAutolisterPage() {
     for (const h of hashes) inflightDedup.current.hashes.delete(h);
   }, [staged]);
 
-  // Persist whenever staged / groups change.
+  // Persist whenever staged / groups change. US-1541: size-guarded — a 600-
+  // photo session's JSON is normally well under quota, but the per-photo
+  // `original` snapshots (pre-edit revert data) can inflate it. On a quota
+  // error, degrade gracefully: retry WITHOUT the snapshots (losing only the
+  // ability to revert edits after a reload), and warn once instead of
+  // silently dropping session recovery.
+  const persistWarnedRef = useRef(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -473,8 +570,33 @@ export function FlipdeskAutolisterPage() {
         storageKey,
         JSON.stringify({ staged, groups }),
       );
+      return;
     } catch {
-      /* quota or disabled storage — best-effort */
+      /* fall through to the slimmed retry */
+    }
+    try {
+      const slimmed = staged.map((p) => {
+        const copy = { ...p };
+        delete copy.original;
+        return copy;
+      });
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({ staged: slimmed, groups }),
+      );
+      if (!persistWarnedRef.current) {
+        persistWarnedRef.current = true;
+        toast.warning(
+          "This session is too large to save fully — it will still restore after a reload, but photo-edit undo snapshots won't.",
+        );
+      }
+    } catch {
+      if (!persistWarnedRef.current) {
+        persistWarnedRef.current = true;
+        toast.warning(
+          "Couldn't save this session locally (storage is full or disabled) — a reload will lose the grouping. Uploaded photos are safe on the server.",
+        );
+      }
     }
   }, [staged, groups, storageKey]);
 
@@ -700,8 +822,9 @@ export function FlipdeskAutolisterPage() {
       // US-529: server-side validated upload (sniff + caps + EXIF strip). On
       // the compress-failure fallback `body` is the raw original — the
       // server's metadata strip guarantees no GPS EXIF lands in storage.
+      // US-1541: paced under the server's rate budget + auto-backoff on 429.
       patchTask(id, { status: "uploading", progress: 65 });
-      const up = await uploadStagingPhoto(sessionId.current, body, thumbBlob);
+      const up = await uploadStagingPhotoPaced(sessionId.current, body, thumbBlob);
 
       setStaged((prev) => [
         ...prev,
@@ -1904,9 +2027,18 @@ export function FlipdeskAutolisterPage() {
         <Card className="p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-medium">
-              {uploading > 0
-                ? `Uploading ${uploadTasks.filter((t) => t.status === "done" || t.status === "error").length} of ${uploadTasks.length}…`
-                : `${uploadTasks.filter((t) => t.status === "error").length} photo${uploadTasks.filter((t) => t.status === "error").length === 1 ? "" : "s"} failed`}
+              {(() => {
+                // US-1541: honest aggregate — "X of N uploaded — Y failed".
+                const done = uploadTasks.filter((t) => t.status === "done").length;
+                const failed = uploadTasks.filter((t) => t.status === "error").length;
+                const failedSuffix = failed > 0 ? ` — ${failed} failed` : "";
+                if (uploading > 0) {
+                  return `${done} of ${uploadTasks.length} uploaded${failedSuffix}…`;
+                }
+                return failed > 0
+                  ? `${failed} photo${failed === 1 ? "" : "s"} failed`
+                  : `All ${done} uploaded.`;
+              })()}
             </span>
             {uploading === 0 && (
               <div className="flex items-center gap-2">
@@ -1933,7 +2065,19 @@ export function FlipdeskAutolisterPage() {
             )}
           </div>
           <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
-            {uploadTasks.map((t) => (
+            {/* US-1541: cap the per-file rows — 600 live progress bars is its
+                own jank. Errors surface first (they need action); completed
+                rows are summarized by the header, and overflow by the footer. */}
+            {(() => {
+              const errors = uploadTasks.filter((t) => t.status === "error");
+              const inFlight = uploadTasks.filter(
+                (t) => t.status !== "error" && t.status !== "done",
+              );
+              const visible = [...errors, ...inFlight].slice(0, UPLOAD_ROWS_CAP);
+              const hidden = errors.length + inFlight.length - visible.length;
+              return (
+                <>
+                  {visible.map((t) => (
               <div key={t.id} className="flex items-center gap-2 text-xs">
                 <span className="w-36 shrink-0 truncate sm:w-48" title={t.name}>
                   {t.name}
@@ -1978,7 +2122,15 @@ export function FlipdeskAutolisterPage() {
                   </>
                 )}
               </div>
-            ))}
+                  ))}
+                  {hidden > 0 && (
+                    <p className="pt-1 text-center text-xs text-muted-foreground">
+                      …plus {hidden} more in the queue.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </Card>
       )}
@@ -2117,7 +2269,7 @@ export function FlipdeskAutolisterPage() {
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
-            {ungroupedSorted.map((p) => {
+            {ungroupedSorted.slice(0, ungroupedLimit).map((p) => {
               const bgInFlight = bgProcessing.has(p.id);
               const enhancingInFlight = enhancing.has(p.id);
               const processing = bgInFlight || enhancingInFlight;
@@ -2214,6 +2366,12 @@ export function FlipdeskAutolisterPage() {
             })}
           </div>
         )}
+        {ungroupedLimit < ungroupedSorted.length && (
+          <LoadMoreSentinel
+            label={`Showing ${ungroupedLimit} of ${ungroupedSorted.length} photos — scroll for more`}
+            onMore={() => setUngroupedLimit((l) => l + GRID_CHUNK)}
+          />
+        )}
       </div>
 
       {/* Groups */}
@@ -2263,7 +2421,7 @@ export function FlipdeskAutolisterPage() {
               </Button>
             </div>
           </div>
-          {groups.map((g) => (
+          {groups.slice(0, groupsLimit).map((g) => (
             <Card key={g.id} className="p-3">
               <div className="mb-2 flex items-center gap-2">
                 <input
@@ -2414,6 +2572,12 @@ export function FlipdeskAutolisterPage() {
               </div>
             </Card>
           ))}
+          {groupsLimit < groups.length && (
+            <LoadMoreSentinel
+              label={`Showing ${groupsLimit} of ${groups.length} groups — scroll for more`}
+              onMore={() => setGroupsLimit((l) => l + GROUPS_CHUNK)}
+            />
+          )}
         </div>
       )}
 

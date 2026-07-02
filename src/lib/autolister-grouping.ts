@@ -36,25 +36,42 @@ export interface AutoGroup {
   coverId: string;
 }
 
+const PHASH_RE = /^[0-9a-f]{16}$/i;
+
+/** A 64-bit dHash split into two u32 halves for fast XOR/popcount. */
+interface ParsedHash {
+  hi: number;
+  lo: number;
+}
+
+function parsePhash(hash: string | null | undefined): ParsedHash | null {
+  if (!hash || !PHASH_RE.test(hash)) return null;
+  return {
+    hi: Number.parseInt(hash.slice(0, 8), 16),
+    lo: Number.parseInt(hash.slice(8), 16),
+  };
+}
+
+// Classic 32-bit popcount (SWAR). All intermediates stay exact in JS numbers.
+function popcount32(v: number): number {
+  v = v - ((v >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (v * 0x01010101) >>> 24;
+}
+
 /**
  * Hamming distance between two 16-hex-char (64-bit) dHashes. Returns the max
  * (64) for a missing/malformed hash so an unknown pair is never treated as
- * similar.
+ * similar. US-1541: integer popcount over two u32 halves — the old per-bit
+ * BigInt loop cost ~64 BigInt ops per pair, which at a 600-photo O(n²) pass
+ * (~180k pairs) was a seconds-long main-thread freeze.
  */
 export function hammingHex(a: string, b: string): number {
-  if (!a || !b || a.length !== 16 || b.length !== 16) return 64;
-  let x: bigint;
-  try {
-    x = BigInt("0x" + a) ^ BigInt("0x" + b);
-  } catch {
-    return 64;
-  }
-  let dist = 0;
-  while (x > 0n) {
-    dist += Number(x & 1n);
-    x >>= 1n;
-  }
-  return dist;
+  const pa = parsePhash(a);
+  const pb = parsePhash(b);
+  if (!pa || !pb) return 64;
+  return popcount32((pa.hi ^ pb.hi) >>> 0) + popcount32((pa.lo ^ pb.lo) >>> 0);
 }
 
 // dHash distance at/below which two photos are treated as the same shot, so
@@ -63,20 +80,27 @@ export function hammingHex(a: string, b: string): number {
 export const VISUAL_MERGE_MAX_DISTANCE = 10;
 
 /**
- * Build "similar" pairs from dHash proximity. O(n^2) over the staged set, which
- * is bounded by the 100-photo batch cap — fine in practice.
+ * Build "similar" pairs from dHash proximity. O(n²) over the staged set —
+ * US-1541: each hash parses ONCE up front and the pairwise inner loop is pure
+ * integer XOR+popcount (~ns per pair), so even a 600-photo session (~180k
+ * pairs) completes in single-digit milliseconds without slicing.
  */
 export function visualPairs(
   photos: GroupablePhoto[],
   maxDistance: number = VISUAL_MERGE_MAX_DISTANCE,
 ): SimilarPair[] {
+  const parsed = photos.map((p) => parsePhash(p.phash));
   const pairs: SimilarPair[] = [];
   for (let i = 0; i < photos.length; i++) {
+    const pa = parsed[i];
+    if (!pa) continue;
     for (let j = i + 1; j < photos.length; j++) {
-      const a = photos[i]!;
-      const b = photos[j]!;
-      if (a.phash && b.phash && hammingHex(a.phash, b.phash) <= maxDistance) {
-        pairs.push({ a: a.id, b: b.id });
+      const pb = parsed[j];
+      if (!pb) continue;
+      const dist =
+        popcount32((pa.hi ^ pb.hi) >>> 0) + popcount32((pa.lo ^ pb.lo) >>> 0);
+      if (dist <= maxDistance) {
+        pairs.push({ a: photos[i]!.id, b: photos[j]!.id });
       }
     }
   }

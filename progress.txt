@@ -9047,3 +9047,40 @@ comparator ordering). 48/48 grouping+cluster tests pass.
 VERIFICATION: vitest green; npx tsc -b green; eslint clean on touched files; edge
 schema-version_test 12/12 (validates 00339 sync + footer); deno lint clean.
 COMMIT HELD LOCALLY - contains migration 00339 (standing rule: user applies to prod first).
+
+=== 2026-07-02 (session cont.): US-1541 (scale AutoLister intake to 600+ photos) ===
+- NEW src/lib/upload-rate-limit.ts: SlidingWindowLimiter (paces request STARTS - reserves
+  slots so N concurrent lanes share one window; 100/60s budget under the edge 120/60s cap),
+  backoffDelayMs (server Retry-After preferred, else exponential 1s..30s, always +0-25%
+  jitter), RateLimitedError, RATE_LIMIT_MAX_ATTEMPTS=4. Server rateLimiter is fixed-window
+  buckets, so equality-spaced schedules are safe.
+- autolister.tsx: uploadStagingPhoto now converts HTTP 429 -> RateLimitedError (Retry-After
+  parsed); new uploadStagingPhotoPaced wraps every upload with limiter.acquireDelayMs() +
+  backoff retry loop (max 4 attempts; exhausted -> retryable error with honest copy).
+  Aggregate header now reads "X of N uploaded - Y failed..." (was mislabeled done+error
+  count), with an "All N uploaded." resting state.
+- O(n^2) dHash freeze KILLED algorithmically: hammingHex rewritten from a per-bit BigInt
+  loop (64 BigInt ops/pair -> seconds at 600 photos/180k pairs) to precomputed 2xu32 +
+  SWAR popcount (~ns/pair, single-digit ms at 600); visualPairs parses each hash ONCE.
+  Malformed 16-char hashes rejected by regex (parseInt would silently partial-parse).
+  Idle-slicing/worker chunking deliberately NOT added - the constant dropped ~1000x, so
+  there is no main-thread freeze left to slice (documented in prd notes).
+- Windowed rendering: ungrouped grid mounts 105 tiles (divisible by the 3/5/7 breakpoint
+  columns) and groups list 24 cards, each growing via IntersectionObserver LoadMoreSentinel
+  (rootMargin 600px); per-file upload rows capped at 80, errors first, "+N more in the
+  queue" footer, done rows summarized by the header. (VirtualList row-virtualizer didn't fit
+  a responsive multi-column grid; windowing is the sanctioned "or equivalent".)
+- localStorage persistence size-guarded: on quota error, retry with `original` (photo-edit
+  undo) snapshots stripped; if still failing, warn once - staged photos remain safe on the
+  server either way. (Full IndexedDB move deferred - session JSON at 600 photos is ~0.5MB,
+  far under quota; the guard covers the snapshot-inflated edge.)
+- Object-URL audit (AC5): the only createObjectURL in the intake path is media-intake.ts's
+  video-frame extraction, revoked in `finally`; staged thumbnails are server URLs. No leak
+  to fix - verified, documented.
+TESTS: upload-rate-limit.test.ts (8: pacing, window slide, 600-burst sliding-window
+invariant + bounded drain, monotone scheduling, backoff bounds); grouping 600-photo test
+(30 items x 20 shots, guaranteed-distance hash code so the visual pass cannot false-merge)
++ hammingHex fast-path cross-checks incl. malformed-hash rejection.
+VERIFICATION: vitest 36/36 on the two suites; npx tsc -b green; eslint clean. Manual
+browser pass on a real 600-photo folder deferred to next check-in (noted in prd).
+Still LOCAL-ONLY; this commit is code-only but queues behind held migration 00339.

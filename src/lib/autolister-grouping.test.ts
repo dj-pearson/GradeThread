@@ -277,6 +277,58 @@ describe("autoGroupPhotos — filename-sequence grouping (US-1540)", () => {
   });
 });
 
+// US-1541: 600-photo scale — grouping stays correct (and, with the integer
+// popcount fast path, completes without a main-thread freeze; the old per-bit
+// BigInt hamming took seconds over the ~180k pairs this produces).
+describe("autoGroupPhotos — 600-photo session (US-1541)", () => {
+  // Per-item hash with GUARANTEED pairwise distance: 5 index bits, each
+  // expanded to a 12-bit ("fff"/"000") segment + a trailing pad nibble. Two
+  // distinct items differ in ≥ 1 index bit ⇒ hamming ≥ 12 > the merge
+  // threshold (10), so the visual pass can never falsely merge items, while
+  // same-item shots share the hash exactly (distance 0 → always merged).
+  function itemHash(item: number): string {
+    let hash = "";
+    for (let bit = 0; bit < 5; bit++) {
+      hash += (item >> bit) & 1 ? "fff" : "000";
+    }
+    return `${hash}0`;
+  }
+
+  it("groups 600 photos (30 items × 20 shots) correctly through the O(n²) visual pass", () => {
+    const photos: GroupablePhoto[] = [];
+    const base = Date.parse("2024-01-01T09:00:00Z");
+    for (let item = 0; item < 30; item++) {
+      for (let shot = 0; shot < 20; shot++) {
+        photos.push({
+          id: `i${item}-s${shot}`,
+          // 5s between shots (< the 30s gap), 10min between items (≫ gap).
+          capturedAt: new Date(base + item * 600_000 + shot * 5_000),
+          phash: itemHash(item),
+          sourceName: `IMG_${String(item * 20 + shot).padStart(4, "0")}.jpg`,
+        });
+      }
+    }
+    const groups = autoGroupPhotos(photos);
+    expect(groups).toHaveLength(30);
+    expect(groups.every((g) => g.photoIds.length === 20)).toBe(true);
+    // Spot-check integrity: first group is item 0's shots in shot order.
+    expect(groups[0]!.photoIds.slice(0, 3)).toEqual(["i0-s0", "i0-s1", "i0-s2"]);
+    // The guaranteed-distance code really is > the merge threshold.
+    expect(hammingHex(itemHash(0), itemHash(1))).toBeGreaterThan(
+      VISUAL_MERGE_MAX_DISTANCE,
+    );
+  });
+
+  it("hammingHex fast path matches known distances and rejects malformed hashes", () => {
+    // Cross-check a few distances against hand-computed XOR popcounts.
+    expect(hammingHex("ffffffffffffffff", "0000000000000000")).toBe(64);
+    expect(hammingHex("00000000000000ff", "0000000000000000")).toBe(8);
+    expect(hammingHex("8000000000000001", "0000000000000000")).toBe(2);
+    // Malformed-but-16-chars must be rejected, not partially parsed.
+    expect(hammingHex("0000zzzz0000zzzz", "0000000000000000")).toBe(64);
+  });
+});
+
 describe("compareByProvenance (US-1540 grid ordering)", () => {
   it("orders by capture time first, unknown times last", () => {
     const early = { capturedAt: new Date("2024-01-01T10:00:00Z"), sourceName: "IMG_9999.jpg" };
