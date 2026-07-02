@@ -12,7 +12,10 @@ import SwiftUI
 /// dropped from the probe output itself (see ``ConnectionDiagnostics``) so even
 /// an internal build can't leak it.
 struct DiagnosticsSection: View {
-    @Query private var localItems: [LocalInventoryItem]
+    // US-1520: the probe only needs a COUNT — the previous unfiltered @Query
+    // materialized (and live-observed) the entire items table just for `.count`
+    // whenever Settings rendered. fetchCount at tap time instead.
+    @Environment(\.modelContext) private var modelContext
     @State private var output = ""
     @State private var running = false
 
@@ -38,7 +41,10 @@ struct DiagnosticsSection: View {
             Button {
                 Task {
                     running = true
-                    output = await ConnectionDiagnostics().run(localItemCount: localItems.count)
+                    let count = (try? modelContext.fetchCount(
+                        FetchDescriptor<LocalInventoryItem>()
+                    )) ?? 0
+                    output = await ConnectionDiagnostics().run(localItemCount: count)
                     running = false
                 }
             } label: {

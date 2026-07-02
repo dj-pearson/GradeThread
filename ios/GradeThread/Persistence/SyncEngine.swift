@@ -344,11 +344,19 @@ actor SyncEngine {
 
         // sales / expenses / inventory_items are user-scoped; listings +
         // item_photos have no user_id column (RLS scopes them via the parent item).
-        let itemIds = await fetchServerIds(table: "inventory_items", scopeUserId: ownerId)
-        let saleIds = await fetchServerIds(table: "sales", scopeUserId: ownerId)
-        let expenseIds = await fetchServerIds(table: "flipdesk_expenses", scopeUserId: ownerId)
-        let listingIds = await fetchServerIds(table: "listings", scopeUserId: nil)
-        let photoIds = await fetchServerIds(table: "item_photos", scopeUserId: nil)
+        // US-1520: the five id-scans are independent reads — run them
+        // concurrently instead of stacking five sequential paginated RTTs onto
+        // the pull they follow.
+        async let itemIdsTask = fetchServerIds(table: "inventory_items", scopeUserId: ownerId)
+        async let saleIdsTask = fetchServerIds(table: "sales", scopeUserId: ownerId)
+        async let expenseIdsTask = fetchServerIds(table: "flipdesk_expenses", scopeUserId: ownerId)
+        async let listingIdsTask = fetchServerIds(table: "listings", scopeUserId: nil)
+        async let photoIdsTask = fetchServerIds(table: "item_photos", scopeUserId: nil)
+        let itemIds = await itemIdsTask
+        let saleIds = await saleIdsTask
+        let expenseIds = await expenseIdsTask
+        let listingIds = await listingIdsTask
+        let photoIds = await photoIdsTask
 
         // All fetches failed (offline) → don't touch the mirror or the throttle.
         guard itemIds != nil || saleIds != nil || expenseIds != nil
@@ -686,13 +694,20 @@ actor SyncEngine {
             created_at = (try? c.decode(String.self, forKey: .created_at)) ?? ""
         }
 
-        /// Parsed `spent_on` — date-only first (what the column is), ISO fallback.
-        var spentOnDate: Date {
+        /// US-1520: configured once — DateFormatter construction is expensive and
+        /// this used to run per expense row per merge. DateFormatter is
+        /// documented thread-safe on modern OS versions once configured.
+        private static let dateOnlyFormatter: DateFormatter = {
             let dateOnly = DateFormatter()
             dateOnly.locale = Locale(identifier: "en_US_POSIX")
             dateOnly.timeZone = TimeZone(identifier: "UTC")
             dateOnly.dateFormat = "yyyy-MM-dd"
-            if let d = dateOnly.date(from: spent_on) { return d }
+            return dateOnly
+        }()
+
+        /// Parsed `spent_on` — date-only first (what the column is), ISO fallback.
+        var spentOnDate: Date {
+            if let d = Self.dateOnlyFormatter.date(from: spent_on) { return d }
             return SyncEngine.parseDate(spent_on)
         }
     }
@@ -706,10 +721,27 @@ actor SyncEngine {
             let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
             let ownerId = WorkspaceScope.activeOwnerId ?? selfId
 
-            // Items — delta on updated_at, paginated (US-633).
+            // Read every watermark up front, before any fetch starts (US-1520) —
+            // cursor semantics are unchanged from the serial pull.
             let itemWatermark = watermark.value(for: .inventoryItems)
             let isFullItemSync = (itemWatermark == nil)
-            let itemsFetch = try await paginatedFetch(
+            let photoWatermark = watermark.value(for: .itemPhotos)
+            let isFullPhotoSync = (photoWatermark == nil)
+            let saleWatermark = watermark.value(for: .sales)
+            let expenseWatermark = watermark.value(for: .expenses)
+            let listingWatermark = watermark.value(for: .listings)
+            let disputeWatermark = watermark.value(for: .disputes)
+
+            // US-1520: the six per-table fetches are independent — only the MERGE
+            // order matters, and that stays sequential in `performPull`. Running
+            // them concurrently (`async let`; the actor is released at every
+            // network await, so the requests genuinely overlap) drops pull
+            // wall-time from the sum of 6 sequential paginated round-trips to
+            // roughly the slowest table.
+            //
+            // Items — delta on updated_at, paginated (US-633). The one FATAL
+            // fetch: its failure fails the pull.
+            async let itemsTask = paginatedFetch(
                 table: "inventory_items",
                 columns: Self.itemColumns,
                 cursor: SyncWatermark.Table.inventoryItems.cursorColumn,
@@ -718,15 +750,12 @@ actor SyncEngine {
                 decode: Self.decodeItemsResiliently,
                 idOf: { $0.id }
             )
-            let items = itemsFetch.rows
 
             // Photos + sales are BEST-EFFORT (a failure must not blank the
             // already-decoded inventory) and are themselves delta-scoped, so we
             // no longer short-circuit on an empty items delta — photos/sales can
             // change without an item change.
-            let photoWatermark = watermark.value(for: .itemPhotos)
-            let isFullPhotoSync = (photoWatermark == nil)
-            let photosFetch = try? await paginatedFetch(
+            async let photosTask = paginatedFetch(
                 table: "item_photos",
                 columns: Self.photoColumns,
                 cursor: SyncWatermark.Table.itemPhotos.cursorColumn,
@@ -734,32 +763,29 @@ actor SyncEngine {
                 decode: Self.decodePhotosResiliently,
                 idOf: { $0.id }
             )
-            let photos = photosFetch?.rows ?? []
 
-            let salesFetch = try? await paginatedFetch(
+            async let salesTask = paginatedFetch(
                 table: "sales",
                 columns: Self.saleColumns,
                 cursor: SyncWatermark.Table.sales.cursorColumn,
-                watermark: watermark.value(for: .sales),
+                watermark: saleWatermark,
                 scopeUserId: ownerId,
                 decode: Self.decodeSalesResiliently,
                 idOf: { $0.id }
             )
-            let sales = salesFetch?.rows ?? []
 
             // US-750: operating expenses — best-effort + delta-scoped, mirrored
             // into the shared cache so the Money tab no longer needs a separate
             // server fetch (ExpenseStore.refresh).
-            let expensesFetch = try? await paginatedFetch(
+            async let expensesTask = paginatedFetch(
                 table: "flipdesk_expenses",
                 columns: Self.expenseColumns,
                 cursor: SyncWatermark.Table.expenses.cursorColumn,
-                watermark: watermark.value(for: .expenses),
+                watermark: expenseWatermark,
                 scopeUserId: ownerId,
                 decode: Self.decodeExpensesResiliently,
                 idOf: { $0.id }
             )
-            let expenses = expensesFetch?.rows ?? []
 
             // US-1221: listings — best-effort + delta-scoped on `updated_at`
             // (the one table that used to be re-fetched in full every pass,
@@ -769,15 +795,14 @@ actor SyncEngine {
             // the cached LocalListing rows in the merge, not from this fetch.
             // NOTE: no scopeUserId — `listings` has no user_id column; RLS
             // scopes it through the parent inventory_items row.
-            let listingsFetch = try? await paginatedFetch(
+            async let listingsTask = paginatedFetch(
                 table: "listings",
                 columns: Self.listingColumns,
                 cursor: SyncWatermark.Table.listings.cursorColumn,
-                watermark: watermark.value(for: .listings),
+                watermark: listingWatermark,
                 decode: Self.decodeListingsResiliently,
                 idOf: { $0.id }
             )
-            let listingRows = listingsFetch?.rows ?? []
 
             // US-819: disputes — best-effort + delta-scoped on updated_at. A
             // dispute's `user_id` is the FILER (the signed-in user), not the
@@ -785,15 +810,27 @@ actor SyncEngine {
             // — so scope by `selfId`, NOT `ownerId`. One bounded query, NOT a
             // per-row fetch: the merge maps each row onto its item by
             // grade_report_id.
-            let disputesFetch = try? await paginatedFetch(
+            async let disputesTask = paginatedFetch(
                 table: "disputes",
                 columns: Self.disputeColumns,
                 cursor: SyncWatermark.Table.disputes.cursorColumn,
-                watermark: watermark.value(for: .disputes),
+                watermark: disputeWatermark,
                 scopeUserId: selfId,
                 decode: Self.decodeDisputesResiliently,
                 idOf: { $0.id }
             )
+
+            let itemsFetch = try await itemsTask
+            let items = itemsFetch.rows
+            let photosFetch = try? await photosTask
+            let photos = photosFetch?.rows ?? []
+            let salesFetch = try? await salesTask
+            let sales = salesFetch?.rows ?? []
+            let expensesFetch = try? await expensesTask
+            let expenses = expensesFetch?.rows ?? []
+            let listingsFetch = try? await listingsTask
+            let listingRows = listingsFetch?.rows ?? []
+            let disputesFetch = try? await disputesTask
             let disputes = disputesFetch?.rows ?? []
 
             return .success(PullPayload(

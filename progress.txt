@@ -8973,3 +8973,37 @@ touched files; stale-reference grep clean (matched*/isEmptyResult/titlesByItemId
 AC4 capture-feel check is Mac-gated (no simulator on this host) - iOS CI compiles, manual device
 check deferred. No web/edge changes.
 Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous ones.
+
+=== 2026-07-02 (session cont.): US-1520 (iOS perf: parallel sync pull + photo-facet N+1) ===
+- SyncEngine.pullRemote: the six per-table paginated fetches (items/photos/sales/expenses/
+  listings/disputes) now run CONCURRENTLY via async let - the engine is an actor, so each
+  network await releases it and the requests genuinely overlap; pull wall-time ~= slowest
+  table instead of the sum of 6 sequential RTT chains. All watermarks are read up front
+  (before any fetch), merge application in performPull stays strictly sequential
+  (items->photos->sales->expenses->listings->disputes), items remains the one FATAL fetch
+  (its throw fails the pull; the other five stay try? best-effort), and the US-1210 drop-safe
+  cursor plumbing is untouched - cursor/watermark semantics identical.
+- reconcileDeletesIfDue: the five id-scans (fetchServerIds) also run concurrently (async let).
+- RemoteExpenseRow.spentOnDate: per-row DateFormatter -> configured-once static (thread-safe
+  once configured; was constructed per expense row per merge).
+- Photo facet N+1: InventoryFilter.apply/matches gain photoItemIds: Set<String>? (soldDates
+  pattern; default nil keeps old behavior + existing tests). InventoryListView computes the
+  set ONLY while a photo facet is active, via ONE FetchDescriptor<LocalItemPhoto> with
+  propertiesToFetch=[.inventoryItemId], memoized in a new InventoryDerivation.photoItemIds
+  slot keyed on itemsSignature (same staleness contract as the filtered-list memo, which
+  already gated the hasPhotos reads). No more per-item lazy photos relationship faulting in
+  the with/missing-photo facet over the full catalog. InventoryRow's per-visible-row
+  hasPhotos read left as-is (bounded by visible cells; AC targets filters).
+- LOW extra: DiagnosticsSection dropped its unfiltered @Query (materialized + live-observed
+  the whole items table for a .count whenever Settings rendered) -> modelContext.fetchCount
+  at tap time.
+TESTS: AdvancedInventoryFilterTests.test_matches_photoState_prefersPrecomputedIdSet (the set
+must WIN over the relationship - proven with opposite truths). Existing sync/filter suites
+unchanged and still compile against the defaulted new params; iOS CI runs them.
+VERIFICATION: iOS no-ungated-print OK; brace/paren scans clean on all 6 touched files; no
+stale localItems/matched* references. Swift-concurrency note: async let initializers omit
+try (errors surface at the try await read site, per SE-0317).
+US-1523 (supabase-swift pin + Package.resolved) DEFERRED for now: generating a valid
+Package.resolved requires an Xcode dependency resolve (macOS-only) - flagged for a Mac
+session or CI-assisted generation rather than hand-authoring pin SHAs.
+Still LOCAL-ONLY (00338 pending prod apply); commit held with the previous ones.

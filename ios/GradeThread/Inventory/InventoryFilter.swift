@@ -40,6 +40,11 @@ public enum InventoryFilter {
     ///     step if it matches the local token search *or* its id is in this set
     ///     — this is how iOS catches matches on fields the local cache doesn't
     ///     mirror (e.g. server-side `description`).
+    ///   - photoItemIds: US-1520 — item ids with at least one cached photo,
+    ///     precomputed by the caller in ONE `LocalItemPhoto` pass. When supplied,
+    ///     the photo facet checks set membership instead of faulting every
+    ///     item's lazy `photos` relationship (a main-thread stall applying the
+    ///     facet on a large catalog). nil = fall back to the relationship.
     static func apply(
         _ items: [LocalInventoryItem],
         stage: InventoryStage,
@@ -48,10 +53,13 @@ public enum InventoryFilter {
         criteria: InventoryFilterCriteria,
         now: Date = .now,
         soldDates: [String: Date] = [:],
-        serverSearchIds: Set<String>? = nil
+        serverSearchIds: Set<String>? = nil,
+        photoItemIds: Set<String>? = nil
     ) -> [LocalInventoryItem] {
         let staged = items.filter { stage.matchingStatuses.contains($0.status) }
-        let faceted = staged.filter { matches($0, criteria, now: now, soldDates: soldDates) }
+        let faceted = staged.filter {
+            matches($0, criteria, now: now, soldDates: soldDates, photoItemIds: photoItemIds)
+        }
         let searched = filter(faceted, search: search, serverSearchIds: serverSearchIds)
         return searched.sorted(by: sort.isOrdered)
     }
@@ -71,7 +79,8 @@ public enum InventoryFilter {
         _ item: LocalInventoryItem,
         _ criteria: InventoryFilterCriteria,
         now: Date = .now,
-        soldDates: [String: Date] = [:]
+        soldDates: [String: Date] = [:],
+        photoItemIds: Set<String>? = nil
     ) -> Bool {
         if !criteria.brands.isEmpty {
             guard let b = item.brand?.facetTrimmed, criteria.brands.contains(b) else { return false }
@@ -113,11 +122,13 @@ public enum InventoryFilter {
         }
 
         switch criteria.photoState {
-        // US-994: presence from the photos relationship, not the primaryPhotoURL
-        // cache (which drifts when the cover lags the actual photo set).
+        // US-994: presence from the photo ROWS, not the primaryPhotoURL cache
+        // (which drifts when the cover lags the actual photo set). US-1520:
+        // prefer the caller's precomputed id set (one LocalItemPhoto pass) over
+        // per-item relationship faulting.
         case .any:          break
-        case .withPhoto:    if !item.hasPhotos { return false }
-        case .missingPhoto: if item.hasPhotos { return false }
+        case .withPhoto:    if !itemHasPhotos(item, photoItemIds) { return false }
+        case .missingPhoto: if itemHasPhotos(item, photoItemIds) { return false }
         }
 
         if let days = criteria.dateAdded.days {
@@ -139,6 +150,15 @@ public enum InventoryFilter {
         if !criteria.ruleQuery.matches(item, now: now) { return false }
 
         return true
+    }
+
+    /// US-1520: photo presence from the precomputed id set when supplied,
+    /// falling back to the (per-item relationship-faulting) `hasPhotos` for
+    /// callers/tests that don't provide one.
+    private static func itemHasPhotos(
+        _ item: LocalInventoryItem, _ photoItemIds: Set<String>?
+    ) -> Bool {
+        photoItemIds?.contains(item.id) ?? item.hasPhotos
     }
 
     /// Full-text-style search (US-1052). Tokenizes the query on whitespace /

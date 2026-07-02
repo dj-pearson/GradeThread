@@ -9247,7 +9247,7 @@
         "spentOnDate's DateFormatter is cached static."
       ],
       "priority": 2371,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Cuts pull-to-refresh and first-sync latency roughly in half on cellular."
     },
     {

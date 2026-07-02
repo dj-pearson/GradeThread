@@ -144,6 +144,25 @@ final class AdvancedInventoryFilterTests: XCTestCase {
         XCTAssertTrue(InventoryFilter.matches(without, c))
     }
 
+    /// US-1520: when the caller supplies the precomputed photo-bearing id set
+    /// (one LocalItemPhoto pass), the facet consults IT — not the per-item lazy
+    /// `photos` relationship. Proven by giving the set the OPPOSITE of the
+    /// relationship truth: the set must win.
+    func test_matches_photoState_prefersPrecomputedIdSet() throws {
+        let ctx = ModelContext(try makeContainer())
+        let item = makeItem(id: "w", context: ctx)   // no photo relationship
+
+        var c = InventoryFilterCriteria(); c.photoState = .withPhoto
+        // The set says this item HAS a photo → passes despite the empty relationship.
+        XCTAssertTrue(InventoryFilter.matches(item, c, photoItemIds: ["w"]))
+        // The set says it doesn't → filtered out.
+        XCTAssertFalse(InventoryFilter.matches(item, c, photoItemIds: []))
+
+        c.photoState = .missingPhoto
+        XCTAssertFalse(InventoryFilter.matches(item, c, photoItemIds: ["w"]))
+        XCTAssertTrue(InventoryFilter.matches(item, c, photoItemIds: []))
+    }
+
     func test_matches_dateAdded_windowsOnCreatedAt() throws {
         let ctx = ModelContext(try makeContainer())
         let now = Date(timeIntervalSince1970: 1_000_000)

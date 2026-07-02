@@ -36,6 +36,10 @@ final class InventoryDerivation {
     private var facetsKey: Int?
     private var facetsValue: InventoryFacets = .empty
 
+    // US-1520: item ids with at least one cached photo, for the photo facet.
+    private var photoItemIdsKey: Int?
+    private var photoItemIdsValue: Set<String> = []
+
     // MARK: - Instrumentation (for tests)
 
     /// Number of times the full filter+sort pass actually executed.
@@ -78,6 +82,20 @@ final class InventoryDerivation {
             facetsPassCount += 1
         }
         return facetsValue
+    }
+
+    /// US-1520: cached photo-bearing item id set (one `LocalItemPhoto` id pass),
+    /// recomputing only on `key` change. Feeds the photo facet so
+    /// ``InventoryFilter/matches`` never faults each item's lazy `photos`
+    /// relationship. Same staleness contract as the filter memo: the items
+    /// signature gates it, and a photo change reaches the list via the same
+    /// signals that already refresh the filtered list.
+    func photoItemIds(key: Int, _ compute: () -> Set<String>) -> Set<String> {
+        if photoItemIdsKey != key {
+            photoItemIdsKey = key
+            photoItemIdsValue = compute()
+        }
+        return photoItemIdsValue
     }
 
     // MARK: - Cache keys (pure, shared with the view + unit-testable)

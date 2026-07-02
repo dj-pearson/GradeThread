@@ -504,7 +504,8 @@ struct InventoryListView: View {
                 sort: sortOption,
                 criteria: criteria,
                 soldDates: soldDates,
-                serverSearchIds: searchService.matchedItemIds
+                serverSearchIds: searchService.matchedItemIds,
+                photoItemIds: photoItemIds(for: criteria)
             )
         }
     }
@@ -734,7 +735,8 @@ struct InventoryListView: View {
                 sort: sortOption,
                 criteria: criteria,
                 soldDates: soldDates,
-                serverSearchIds: searchService.matchedItemIds
+                serverSearchIds: searchService.matchedItemIds,
+                photoItemIds: photoItemIds(for: criteria)
             )
         }
     }
@@ -756,6 +758,23 @@ struct InventoryListView: View {
     /// `sources.id` → display name, for the source facet + active chips.
     private var sourceNames: [String: String] {
         Dictionary(sources.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// US-1520: item ids with at least one cached photo — ONE id-level
+    /// `LocalItemPhoto` fetch instead of faulting every item's lazy `photos`
+    /// relationship inside the facet filter (a main-thread stall applying the
+    /// with/missing-photo facet on a large catalog). Only materialized while a
+    /// photo facet is active; memoized on the items signature (the same
+    /// staleness contract the filtered-list memo already has).
+    private func photoItemIds(for criteria: InventoryFilterCriteria) -> Set<String>? {
+        guard criteria.photoState != .any else { return nil }
+        return derivation.photoItemIds(key: itemsSignature) {
+            var descriptor = FetchDescriptor<LocalItemPhoto>()
+            // Only the FK is needed — don't materialize URLs/dimensions.
+            descriptor.propertiesToFetch = [\.inventoryItemId]
+            let photos = (try? modelContext.fetch(descriptor)) ?? []
+            return Set(photos.map(\.inventoryItemId))
+        }
     }
 
     /// `inventory_item_id` → most-recent linked sale date, for the sale-date
@@ -796,7 +815,8 @@ struct InventoryListView: View {
             sort: sortOption,
             criteria: candidate,
             soldDates: soldDates,
-            serverSearchIds: searchService.matchedItemIds
+            serverSearchIds: searchService.matchedItemIds,
+            photoItemIds: photoItemIds(for: candidate)
         ).count
     }
 
