@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": 1525,
+  "nextId": 1538,
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -9306,6 +9306,196 @@
         "Rotating a tag/certificate photo succeeds (overwrite allowed); members can rotate owner tag photos; members still cannot DELETE."
       ],
       "notes": "[USER-REPORTED 2026-07-02] Root-caused from the RLS asymmetry (submission-images had no UPDATE policy). Fix = migration 00333. No iOS code change (rotate already targets the right bucket)."
+    },
+    {
+      "id": "US-1525",
+      "priority": 2340,
+      "passes": false,
+      "title": "AI Autolister research epic — from 'read the photos' to 'know the product' (identify named styles like Lululemon ABC Pant)",
+      "description": "As a reseller using Add (iOS) / Complete-with-AI (web), I want the AI to RESEARCH my item — not just transcribe what is visible — so a Lululemon tag + a photo of jogger-style pants becomes 'Lululemon ABC Pant Classic, Warpstreme' with the style name flowing into the title, description, and eBay item specifics. Today lib/ai-extract.ts SYSTEM_PROMPT hard-rules 'Never guess … use ONLY what the photos/text support', which suppresses the model's own product knowledge entirely: no style/RN code reading, no named-style identification, no eBay catalog cross-check, and no learning from user corrections. This umbrella tracks US-1526..US-1531.",
+      "acceptanceCriteria": [
+        "Two knowledge tiers with separate provenance: OBSERVED fields (read off photos/text, current never-guess rule stays) vs RESEARCHED fields (product identification informed by model knowledge + code lookups + marketplace cross-reference), each with its own confidence and clearly labeled in web + iOS UI",
+        "Identification quality target: for mainstream brands with a legible tag (Lululemon, Nike, Patagonia, Levi's), the pipeline proposes a named style/product line with calibrated confidence instead of leaving 'style' blank",
+        "Research output is applied end-to-end: title, description, ebay_category_query, and the eBay aspects pass all consume the identified style",
+        "No regression to observed-field precision: extraction acceptance rate (ai_enrichment_log accepted_fields) for brand/size/color does not drop after rollout"
+      ],
+      "notes": "[P1][AI/Autolister][Epic] [AI-refine audit 2026-07-01] Grounding: services/edge-functions/src/lib/ai-extract.ts (SYSTEM_PROMPT ~189-237, extractItemFields ~546, extractEbayAspects ~921), routes/flipdesk-ai.ts POST /extract (~196-470, background runEbayAspectsPhase ~757), ios/GradeThread/AIExtract/AIExtractionManager.swift, src/components/flipdesk/ai-fill-panel.tsx. Children: US-1526 codes, US-1527 identification pass, US-1528 eBay Browse cross-ref, US-1529 apply-to-listing, US-1530 cross-photo reasoning, US-1531 correction loop."
+    },
+    {
+      "id": "US-1526",
+      "priority": 2339,
+      "passes": false,
+      "title": "Extract style/product codes from tag photos (style #, RN, CA, UPC/SKU) as first-class fields",
+      "description": "Care/brand tags carry machine-readable identity the extractor currently ignores: brand style numbers (e.g. Lululemon LW7DVCS), RN numbers (US FTC manufacturer registry), CA numbers, and UPC/SKU barcodes on retail tags. As a reseller I want these read into structured fields so downstream identification (US-1527/1528) has hard anchors instead of only visual guesswork. Add style_code, rn_number, upc to the extract_item_fields tool schema + EXTRACT_FIELDS in lib/ai-extract.ts, with prompt guidance that tag/tag_2 photos are the source and partial/uncertain reads get low confidence rather than omission (a fuzzy code is still a useful search key).",
+      "acceptanceCriteria": [
+        "extract_item_fields schema + decodeExtraction handle style_code / rn_number / upc (string fields, low-confidence-preferred-over-omit prompt rule for codes ONLY, keeping never-guess for everything else)",
+        "SYSTEM_PROMPT tag-photo guidance names these code formats explicitly (style number near size/fiber block, 'RN 12345' pattern, barcode digits) and says to transcribe digits verbatim, never normalize",
+        "Codes persist into inventory_items.attributes with ai_field_sources provenance and appear in the web AiFillPanel + iOS review UI",
+        "Deno tests: decode fixtures with codes present/absent/garbled; existing extract tests stay green"
+      ],
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525. Cheap, pure-prompt+schema change inside the existing single extract call (max_tokens 2500 has headroom; bump if needed). RN numbers resolve manufacturers via the model's knowledge of the FTC registry — useful when the brand wordmark is unreadable."
+    },
+    {
+      "id": "US-1527",
+      "priority": 2338,
+      "passes": false,
+      "title": "Product identification pass: name the style/model (ABC Pant, Commission Pant) with research-tier provenance",
+      "description": "As a reseller I want the AI to say WHAT the item is, not just describe it: given brand (tag), silhouette/details (front/back/detail photos), fabric (care label), and any codes (US-1526), identify the named style/product line — e.g. 'Lululemon ABC Pant Classic' vs 'Commission Pant' (gusset, waistband construction, pocket layout differ visibly). Implement as a research-tier field set in the SAME extract call (identified_style, product_line, fabric_technology, msrp_estimate_cents, identification_rationale, identification_confidence) with prompt language that EXPLICITLY authorizes informed identification from the model's product knowledge for these fields only — carving them out of the 'Never guess' rule — while requiring the rationale to cite which photo evidence supports the ID and returning nothing below a confidence floor. Distinct provenance value (e.g. source:'research') in ai_field_sources so UI can badge it.",
+      "acceptanceCriteria": [
+        "extract_item_fields returns the research-tier fields; decodeExtraction validates them; identification_confidence < 0.5 → fields dropped server-side",
+        "SYSTEM_PROMPT gains a clearly-scoped RESEARCH section: identification uses model knowledge anchored on brand + codes + construction details across ALL photos; observed fields keep the never-guess rule verbatim",
+        "identified_style feeds the style field suggestion (research provenance) instead of leaving style empty when no style name is printed on the tag",
+        "Web AiFillPanel + iOS AIFillReview show an 'Identified' badge with rationale tooltip/disclosure so the user can verify before accepting; acceptance recorded per existing accepted_fields flow",
+        "Eval fixture set: ≥10 known-item test cases (JSON transcripts of expected IDs for common Lululemon/Nike/Patagonia styles) asserting schema decode + confidence-floor behavior"
+      ],
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; builds on US-1526 codes. THE core story for the user's Lululemon ABC/Commission Pant ask. Keep it in the single extract call (latency budget: Add flow already runs 20-40s; do not add a serial second call on the foreground path). msrp_estimate is context for the seller + description, never auto-applied to price."
+    },
+    {
+      "id": "US-1528",
+      "priority": 2337,
+      "passes": false,
+      "title": "eBay Browse cross-reference: confirm/refine the identification against live marketplace listings",
+      "description": "As a reseller I want the AI's style identification validated against reality: after extract returns brand + identified_style/style_code, query the existing eBay Browse integration (flipdesk-ebay.ts comps section / lib/sold-comps.ts) with 'brand + style_code' and 'brand + identified_style', and score agreement between the top result titles and the proposed identification. High agreement boosts identification_confidence and harvests recurring title keywords (colorway names, fabric tech, fit descriptors) as suggested title keywords; zero hits demotes confidence and flags the ID as unverified. Runs in the existing BACKGROUND enrichment phase (alongside runEbayAspectsPhase in flipdesk-ai.ts) so the foreground Add flow pays no latency.",
+      "acceptanceCriteria": [
+        "New background step after extract when item_id present: Browse search on style_code and/or identified_style, cheap token-overlap agreement scoring (no extra AI call for scoring), result persisted to inventory_items.attributes (e.g. identification_verified: true/false, market_title_keywords[])",
+        "Agreement adjusts the stored identification confidence in ai_field_sources; UI badge upgrades from 'Identified' to 'Verified on eBay' when confirmed",
+        "Browse failures/no-connection degrade silently (identification stays unverified; no user-facing error); respects existing eBay API quotas and works with the app-level (non-user) Browse token if available, else skips",
+        "Deno tests with mocked Browse responses: confirm boost, refute demote, empty-result skip"
+      ],
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; depends on US-1527. Reuses the Browse client that already powers comps (useGradeBandedPrice) — this is identification-validation, deliberately separate from pricing. Keyword harvest also improves title SEO for US-1529."
+    },
+    {
+      "id": "US-1529",
+      "priority": 2336,
+      "passes": false,
+      "title": "Apply research to the listing: identified style in title, description, category query, and eBay aspects",
+      "description": "Identification is only valuable if it lands in the listing. As a reseller I want the identified style to flow everywhere a buyer searches: title ('Lululemon ABC Pant Classic 32x32 Warpstreme Navy' — style name is a top search token), description (product line, fabric technology, MSRP context: 'retails ~$128'), ebay_category_query, and the extractEbayAspects pass (Style/Model/Product Line aspects currently guess from photos alone). Update LISTING_SYSTEM_PROMPT + the extract description rule in lib/ai-extract.ts to consume research-tier fields when present (labeled honestly — 'identified as', never fabricated specifics), and pass identified_style/product_line into buildAspectTool input for the aspects call.",
+      "acceptanceCriteria": [
+        "Title composition (both the extract-call title and generateListingCopy) leads brand + identified style name when identification exists at accepted confidence; falls back to current behavior otherwise",
+        "Description template can include product line, fabric technology, and MSRP context, phrased as identification not certainty when unverified; never overrides condition-honesty rules",
+        "extractEbayAspects input includes the research fields so Style/Model/Product Line/Fabric Type aspects fill from the identification instead of being omitted",
+        "iOS + web show the enriched title/description through the existing suggestion-review flows (no new UI beyond the US-1527 badge); user edits still win",
+        "Regression: items WITHOUT identification produce byte-identical prompts/behavior to today (guarded by tests)"
+      ],
+      "notes": "[P1][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525; depends on US-1527 (US-1528 keywords optional enhancement). This is the 'combined it will come up with all of the details of the listing and apply that' half of the user's ask."
+    },
+    {
+      "id": "US-1530",
+      "priority": 2335,
+      "passes": false,
+      "title": "Holistic cross-photo reasoning: joint-evidence synthesis + conflict surfacing in the extract prompt and UI",
+      "description": "All ≤8 photos already go to Claude in ONE call, but the prompt assigns photos siloed jobs ('tag photos → brand/size; front → color; detail → condition') which reads as per-photo lanes rather than one item reasoned about jointly. As a reseller I want the model instructed to synthesize ACROSS photos: tag fiber content should inform what the front-photo sheen means, a detail shot of a gusset should refine the garment_type from the front shot, and disagreements (tag says M, printed size on waistband says 8) must land in the existing conflicts[] array instead of a silent coin-flip. Also verify conflicts[] is actually surfaced: decodeExtraction parses it, but confirm/add rendering in web AiFillPanel and iOS review so the user sees 'photos disagree' instead of a wrong confident value.",
+      "acceptanceCriteria": [
+        "SYSTEM_PROMPT gains an explicit cross-photo synthesis section: treat all photos as ONE item, corroborate each field against every photo that bears on it, prefer tag/label text over visual inference when they conflict, and emit conflicts[] entries (field, values, which photos) for real disagreements",
+        "Per-field confidence reflects corroboration (multiple photos agree → higher; single blurry source → lower) — stated in the prompt, spot-checked in eval fixtures",
+        "conflicts[] renders in web AiFillPanel (inline warning per conflicted field) and iOS AI review sheet; conflicted fields are never auto-applied regardless of confidence",
+        "Deno decode tests for conflict entries; UI tests (vitest) for conflict rendering"
+      ],
+      "notes": "[P2][AI/Autolister] [AI-refine audit 2026-07-01] Child of US-1525. The 'factor in the photos as a whole and not separate items' half of the ask. Mostly prompt + UI wiring; the transport is already holistic (buildPhotoContent inlines all photos in one messages.create)."
+    },
+    {
+      "id": "US-1531",
+      "priority": 2334,
+      "passes": false,
+      "title": "Extraction correction-capture loop: log AI-suggested vs user-final values and report per-field accuracy",
+      "description": "Grading has a full AI-vs-human delta pipeline (accuracy-tracking.ts); extraction has nothing — PATCH /api/flipdesk/ai/log/:id records only WHICH fields were accepted, not what the user changed them TO. As the GradeThread team we want (AI value → user-corrected value) pairs so we can see that e.g. 'style' is wrong 40% of the time on Nike items and fix the prompt. Extend ai_enrichment_log with corrected_fields jsonb {field: {suggested, final}}; web item-canvas and iOS AIItemFieldWriter report the final value when a user edits an AI-filled field within the review window; add an admin accuracy view (per-field correction rate, by brand/category, by prompt/model version) parallel to the grading calibration panel.",
+      "acceptanceCriteria": [
+        "Migration: ai_enrichment_log.corrected_fields jsonb (idempotent, schema-version bump + self-record footer per US-1108)",
+        "Web: AiFillPanel/item-canvas capture the user's final value for fields that had an AI suggestion (fire-and-forget PATCH, extends recordAiAcceptance); iOS: AIFillReviewStore edits reported the same way",
+        "Edge PATCH /log/:id accepts corrected_fields, tenant-scoped per US-268",
+        "Admin surface (extend existing admin AI/ops area) shows per-field suggestion→correction rates filterable by item_category/brand/model; no PII beyond field values the user already typed",
+        "This becomes the measurement baseline for US-1526..1530 (identification acceptance/correction tracked from day one)"
+      ],
+      "notes": "[P2][AI/Autolister][Analytics] [AI-refine audit 2026-07-01] Child of US-1525. Do FIRST or alongside the research stories so their impact is measurable. Comment trail: flipdesk-ai.ts ~1648 (accepted_fields, 'US-167 acceptance rate'), src/hooks/use-ai-extract.ts recordAiAcceptance."
+    },
+    {
+      "id": "US-1532",
+      "priority": 2333,
+      "passes": false,
+      "title": "Certified Grades accuracy epic — reference-grounded grading (know how the item is SUPPOSED to look)",
+      "description": "As GradeThread we sell trust in the number, so the grader must judge condition against how THIS garment left the factory — not against a generic clothing rubric. Today ai-grading.ts feeds photos + static hand-written category strings (GARMENT_TYPE/CATEGORY_CRITERIA); there is no brand/style baseline, no fabric-specific criteria beyond those strings, the few-shot learnings block is EMPTY unless an operator hand-assembles a set (getActiveExemplarBlock → ''), no peer-norm sanity check, and the composite stage never re-sees pixels. The calibration machinery (prompt versioning, golden-set eval gate, canary, claim signals, shadow grading) already exists — these stories feed it real knowledge and turn the loops on. Umbrella for US-1533..US-1537.",
+      "acceptanceCriteria": [
+        "Grading prompts receive per-item reference context: garment baseline (US-1533) + fabric-specific criteria (US-1534) when derivable",
+        "Past learnings flow by default: exemplar sets auto-assembled from human corrections + approved claims and eval-gated on a schedule (US-1535)",
+        "Every prompt change ships through the existing gate: ai_prompt_versions + runEval pass (EVAL_MAX_MAE/EVAL_MIN_AGREEMENT) before activation, canary rollout for risky changes",
+        "Success metric: per-factor MAE and intentional_misread_rate (accuracy-tracking.ts computeAccuracySummary) improve vs the pre-epic baseline; dispute rate (grade_outcomes) does not rise"
+      ],
+      "notes": "[P1][AI/Grading][Epic] [AI-refine audit 2026-07-01] Grounding: services/edge-functions/src/lib/ai-grading.ts (SYSTEM_PROMPT ~401, GARMENT_*_CRITERIA ~280-315, exemplar injection ~1617-1623), few-shot-exemplars.ts, grading-eval.ts (activation gate), accuracy-tracking.ts (MAE/misread/claims/outcomes), canary-rollout.ts, grading-shadow.ts. Children: US-1533 baselines, US-1534 fabric criteria, US-1535 exemplar loop, US-1536 peer norms, US-1537 composite visual check."
+    },
+    {
+      "id": "US-1533",
+      "priority": 2332,
+      "passes": false,
+      "title": "Garment baseline knowledge layer: as-manufactured expectation briefs injected into the grading prompt",
+      "description": "DESIGN_VS_DEFECT_PRINCIPLE tells the grader to 'grade against as-manufactured state' but never says what that state IS for this item. As a seller of a Lululemon Define Jacket I want the grader to know Luon fabric norms (matte, prone to pilling at friction points), that raw hems on brand-X tees are factory, and that a waxed jacket's patina is intentional. Build a garment_baselines table (brand + garment_category [+ style when identified] → short expectation brief: fabric character, intentional distressing/finish, common honest-wear points, known failure modes) generated ONCE by an AI call on first encounter and cached; inject the brief into buildUserPrompt (per-image) and the composite prompt as TRUSTED reference context (distinct from the fenced untrusted seller text). Baselines describe expectations only — prompt must state they never excuse actual damage.",
+      "acceptanceCriteria": [
+        "Migration: garment_baselines (brand, garment_category, style nullable, brief text, model/prompt version, created_at; unique key) — idempotent + schema-version bump + footer",
+        "Lazy generation path (service-role, quota-exempt internal call) with cache-first read; generation failure → grade proceeds exactly as today (baseline strictly additive)",
+        "Per-image and composite prompts inject the brief in a clearly-labeled REFERENCE BASELINE block with guardrail language ('expectations for this garment as manufactured; visible damage still scores as damage')",
+        "Ships as a new prompt version through the golden-set eval gate + canary (not a silent hot change); shadow-grade comparison on live traffic before full rollout",
+        "Admin visibility: baseline text viewable/editable from the review UI so reviewers can correct a bad baseline (edit invalidates cache row)"
+      ],
+      "notes": "[P1][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. THE 'review it on how it is supposed to look' story. Brand is currently fenced/untrusted for scoring — baselines re-introduce brand knowledge through a TRUSTED server-generated channel, which preserves the prompt-injection defense (seller text still can't move scores)."
+    },
+    {
+      "id": "US-1534",
+      "priority": 2331,
+      "passes": false,
+      "title": "Fabric-aware grading criteria from the care label (fiber content → material-specific rubric)",
+      "description": "The pipeline already requires a label photo and the per-image pass reads it, but fiber content never changes the grading criteria — cashmere is judged by the same words as polyester. As a buyer I want pilling on a 100% cashmere sweater weighed differently (expected with wear, partly remediable with a comb) than pilling on a tech fleece (signals heavy wear), denim fade distinguished from whiskering, and elastane degradation (bagging/loss of recovery) checked when the label shows spandex. Have the label-photo analysis emit structured fiber_content; map fibers to a FABRIC_CRITERIA table (wool/cashmere, cotton/denim, synthetics, silk, leather/suede, blends) of material-specific wear norms + failure modes; inject the matching block into the per-image prompts for the other photos and into the composite.",
+      "acceptanceCriteria": [
+        "Per-image schema for label/label_2 adds fiber_content (array of {fiber, pct}); parse hardened against unreadable labels (omit, never guess)",
+        "FABRIC_CRITERIA static map keyed by dominant fiber class, written to the same tone/format as GARMENT_CATEGORY_CRITERIA; injected only when fiber_content was read (additive, no behavior change otherwise)",
+        "Pipeline ordering: label image analyzed first (or criteria applied at composite stage if per-image parallelism must be preserved — decide and document in code)",
+        "New prompt version through eval gate; golden-set gains ≥5 fabric-sensitive cases (cashmere pilling, denim fade vs whisker, elastane bagging) tagged for per-tag breakdown",
+        "grade_report factors' rationale mentions fabric-appropriate reasoning in shadow-run spot checks"
+      ],
+      "notes": "[P1][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. Note the parallelism tension: per-image calls run via Promise.allSettled, so label-first sequencing costs latency — the composite-stage injection fallback keeps parallelism and still fixes the final weighting. Fabric criteria also feed the Fabric Condition 30% factor directly."
+    },
+    {
+      "id": "US-1535",
+      "priority": 2330,
+      "passes": false,
+      "title": "Turn on the learnings loop: scheduled auto-assembly + eval + one-click activation of few-shot exemplar sets",
+      "description": "The past-learnings machinery exists end-to-end (few-shot-exemplars.ts mines human corrections into a text block; grading-eval.ts gates activation; ai-grading.ts injects the active block) but ships OFF: getActiveExemplarBlock returns '' unless an operator manually assembles, evals, and activates a set — so months of human reviews and approved guarantee claims teach the grader nothing. As the GradeThread team we want a scheduled job (Coolify scheduled task hitting an internal admin endpoint, consistent with existing schedulers) that: assembles candidate exemplar sets from fresh high-signal corrections (intentional_misread rows, deltas ≥ threshold, approved-claim signals via claim-accuracy), auto-runs the golden-set eval, and on pass notifies admins with a one-click activate (auto-activate only behind an explicit setting). Add per-category scoping so denim misread lessons attach to denim grades.",
+      "acceptanceCriteria": [
+        "Scheduled assembly endpoint (service-role, MFA-exempt internal auth consistent with existing cron endpoints) producing versioned candidate sets; idempotent per correction window",
+        "Eval auto-run on each candidate; failing sets parked with the failing-tag breakdown visible in admin; passing sets → admin notification + activate button; optional system_settings flag for auto-activation",
+        "Category-scoped exemplar sets supported end-to-end (assembly filter → storage → getActiveExemplarBlock selection by the submission's garment_category, falling back to global)",
+        "Exemplar volume guardrails: max block token size, most-recent-N selection, dedupe by defect signature",
+        "Metrics: exemplar-set lineage recorded (which corrections/claims fed it); accuracy summary comparable before/after activation via existing per-prompt-version slicing"
+      ],
+      "notes": "[P1][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. Highest leverage-to-effort in the epic: all hard parts are built; this is orchestration + scheduling + admin UX. 'Leveraging past learnings' from the user's ask literally = making this loop run by default."
+    },
+    {
+      "id": "US-1536",
+      "priority": 2329,
+      "passes": false,
+      "title": "Peer-norm sanity check: compare each grade to similar past grades and flag outliers to review",
+      "description": "As a grading-quality safeguard I want each fresh composite grade compared against the distribution of past FINAL grades (human-adjusted where reviewed) for similar items — same garment_category (+ brand when available) with a similar defect profile (count × max severity bucket) — so a 9.0 on a jacket whose defect profile historically lands at 6.5 gets confidence-capped and routed to human review with the peer context shown to the reviewer ('similar items: median 6.5, n=23'). Pure SQL/statistics post-processing in grading-pipeline.ts after compositeGrade — no extra AI call, no effect when sample size is thin (n < 10, mirroring the transparency-page gate).",
+      "acceptanceCriteria": [
+        "Deterministic peer-profile query (indexed; add migration for any needed index) computing median/IQR of final grades for the (category, defect-count-bucket, max-severity) cell; brand-refined when ≥10 brand samples",
+        "Overall grade outside the peer IQR by a configurable margin → confidence cap (pattern-matched to DEFECT_DIVERGENCE handling) + needs_human_review with a peer_norm reason",
+        "Reviewer UI (admin/reviews.tsx) shows the peer distribution line for flagged grades",
+        "Config keys via the system_settings registry (margin, min sample n, enable/disable; default ON with conservative margin)",
+        "Tests: synthetic distributions → flag/no-flag; thin-sample no-op; confidence-cap composes correctly with existing caps (min of caps)"
+      ],
+      "notes": "[P2][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. 'Similar listings' from the user's ask, applied where it is safest — as a review-routing check, not as prompt input (feeding peer grades INTO the prompt would anchor the model; this keeps the assessment independent and audits it after)."
+    },
+    {
+      "id": "US-1537",
+      "priority": 2328,
+      "passes": false,
+      "title": "Composite visual verification: final synthesis re-sees key photos before sealing the grade",
+      "description": "The composite stage — where the final overall grade, tier, and report text are produced — is text-only: it synthesizes per-image JSON and never re-sees pixels, so cross-photo visual contradictions (front analysis says 'no visible flaws' while the defect crop shows a stain that is ALSO faintly visible on the front) cannot be caught. As a grading-accuracy improvement, attach a bounded photo set to the composite call — front + back + up to 2 worst-defect images (reusing the Forensic add-on's cropDefectRegion for zoomed crops) — with prompt instructions to VERIFY the drafted per-image findings against the photos as a whole: confirm each major defect is/isn't corroborated by other angles, and check the overall visual impression is consistent with the computed tier before finalizing factor scores. Config-gated (system_settings, default canary-only) since it adds vision tokens to every grade.",
+      "acceptanceCriteria": [
+        "compositeGrade optionally accepts image blocks (front/back/worst defects, ≤4 images) with a verification-focused prompt addition; deterministic image selection (required types + highest-severity defects)",
+        "Verification can adjust factor scores within the existing machinery (defect-weighting min-blend and code-side weighted-overall recompute still apply; rounding lockstep untouched)",
+        "Discrepancies found at verification (per-image finding not corroborated / new finding visible) are recorded on the report and lower confidence per existing policy",
+        "Cost control: config keys for enable + max images; token/cost delta measured via existing ai cost logging before default-on",
+        "Ships as new composite prompt version through eval gate + canary + shadow comparison; golden-set MAE must not regress"
+      ],
+      "notes": "[P2][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. The 'factor in the photos as a whole' ask applied to grading. Composite max_tokens 3072 and prompt-cached system block already in place; incremental cost is the image tokens — hence canary-gated rollout with cost measurement."
     }
   ]
 }
