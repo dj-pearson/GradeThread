@@ -162,6 +162,66 @@ do **not** reset while paused.
 
 ---
 
+## 9. Changing price or running a promotion
+
+**The number a customer *sees* and the amount Stripe *charges* come from different
+places. Keep them straight or you'll advertise one price and bill another.**
+
+| Thing | Source of truth | Notes |
+|---|---|---|
+| Public pricing page (`src/pages/marketing/pricing.tsx`) | **compiled `FLIPDESK_PLANS.priceMonthlyCents`** (`src/lib/constants.ts`) | Prerendered for SEO — cannot read the DB at runtime. Only changes on a **frontend redeploy**. |
+| In-app plan comparison (`flipdesk-plan-comparison.tsx`) | **DB `pricing_plans.price_monthly_cents`** via `usePricingPlans()` | Deploy-free, but **display only**. |
+| In-app plan picker / landing | compiled `FLIPDESK_PLANS` | Frontend redeploy. |
+| **What Stripe actually charges** | **`pricing_plans.stripe_price_monthly` / `stripe_price_yearly`** (a Stripe **Price ID**), read by `getFlipdeskPriceIds()` in `payments.ts` | The `price_*_cents` column is **NOT** used for billing. |
+
+> ⚠️ **Editing `price_monthly_cents` in admin changes the displayed number on
+> DB-driven surfaces but does NOT change what Stripe bills** (that's the Stripe
+> Price ID). Never "run a promo" by editing the cents column — you'll create a
+> display-vs-charge mismatch and the public page won't move at all.
+
+### 9a. Run a promotion (temporary discount) — the correct way
+
+Use a **Stripe coupon / promotion code**. This is already wired — every FlipDesk
+Checkout Session sets `allow_promotion_codes: true` (`payments.ts`), and the code
+already pre-applies referral / drip coupons (`sessionParams.discounts`).
+
+1. **Stripe Dashboard → Products → Coupons → Create** (e.g. `20% off, 3 months`,
+   or a fixed amount). Optionally create a **promotion code** (a customer-facing
+   string like `LAUNCH20`) tied to that coupon.
+2. **Hand out the code** — customers enter it in the Checkout promo-code box
+   (works today, zero code change), **or** pre-apply it for one-click conversion
+   the way referral coupons are (set `discounts` and drop `allow_promotion_codes`
+   for that session — Stripe rejects both together; see `payments.ts` ~L419-447).
+3. Base Price and every displayed price **stay put**; the discount only hits the
+   actual charge. Advertise the promo in marketing copy separately if you want it
+   on the public page.
+
+No constant edits, no redeploy, no display/charge drift. This is the default
+mechanism for anything time-boxed.
+
+### 9b. Change a base price permanently
+
+A base price change must move **all four** in one coordinated release, or displays
+and charges diverge:
+
+1. **Stripe:** create a **new Price** on the existing Product (Prices are
+   immutable — you never edit an existing one). Copy its `price_...` ID.
+2. **Billing (DB or env):** point `pricing_plans.stripe_price_monthly` /
+   `_yearly` at the new Price ID (deploy-free via admin), or the
+   `STRIPE_PRICE_FLIPDESK_*` env fallback.
+3. **DB display:** update `pricing_plans.price_monthly_cents` /
+   `price_yearly_cents` to match (the in-app comparison number).
+4. **Compiled constant + doc:** update `FLIPDESK_PLANS.priceMonthlyCents` in
+   `src/lib/constants.ts` (the public page + picker + landing) **and the tier
+   table in §1 of this doc**, then **redeploy the frontend**.
+
+Migration/regenerate note: `scripts/setup-stripe-pricing.mjs` (US-203) generates
+the Stripe catalog from the same numbers — keep it in sync. Existing subscribers
+keep their grandfathered Price until they change plans; Stripe does not
+retroactively reprice them.
+
+---
+
 ## Appendix A — Competitor benchmarks (context for future tweaks)
 
 Captured at design time so future pricing changes have a reference point.
