@@ -2009,13 +2009,17 @@ export interface InventoryItemPayload {
 export async function createOrReplaceInventoryItem(
   userId: string,
   sku: string,
-  payload: InventoryItemPayload
+  payload: InventoryItemPayload,
+  // US-1507: revise re-PUTs must run under the connection that owns the listing
+  // (null → primary), or a multi-store seller's re-PUT lands on the wrong account.
+  connectionId?: string,
 ): Promise<void> {
   // PUT is idempotent; safe to re-run on retries.
   await fetchAuthed<unknown>(
     userId,
     `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-    { method: "PUT", body: JSON.stringify(payload) }
+    { method: "PUT", body: JSON.stringify(payload) },
+    connectionId,
   );
 }
 
@@ -3924,6 +3928,9 @@ export async function sendOfferToInterestedBuyers(
     discountPercentage?: string;
     durationHours?: number;
   },
+  // US-1507: send via the connection that owns these listings (null → primary).
+  // The route groups listing ids per connection before calling.
+  connectionId?: string,
 ): Promise<void> {
   const offers = args.listingIds.map((id) => ({
     offeredItems: [{ listingId: id, quantity: 1, discountPercentage: args.discountPercentage }],
@@ -3942,5 +3949,6 @@ export async function sendOfferToInterestedBuyers(
         allowCounterOffer: true,
       }),
     },
+    connectionId,
   );
 }

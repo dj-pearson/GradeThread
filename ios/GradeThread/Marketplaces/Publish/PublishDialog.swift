@@ -524,6 +524,19 @@ private struct ComposerForm: View {
         }
     }
 
+    /// US-1507: resolve which eBay store this publish will list on. Only shown
+    /// when more than one store is connected — single-store sellers don't need
+    /// telling. Mirrors BulkPricingStore.loadAccountContext (US-1216).
+    private func loadPublishAccountNote() async {
+        guard let accounts = try? await BulkPricingService().ebayAccounts(),
+              accounts.count > 1,
+              let name = (accounts.first(where: \.isPrimary) ?? accounts.first)?.displayName
+        else { return }
+        publishAccountNote = showRelistWarning
+            ? "The new listing goes live on \(name) (your primary store). Change it in Marketplaces \u{2192} eBay accounts."
+            : "This will list on \(name) (your primary store). Change it in Marketplaces \u{2192} eBay accounts."
+    }
+
     /// US-1167 / type-check budget: build the comp line outside the view body so
     /// the (large) ComposerForm body stays simple. Returns nil when there are no
     /// usable comps.
@@ -543,6 +556,14 @@ private struct ComposerForm: View {
         }
         return "Active comps: median \(amount) across \(stats.count) listing\(plural)"
     }
+
+    // US-1507: multi-store sellers — name the eBay store this publish targets.
+    // Publishing always resolves the PRIMARY connection (per-listing threading
+    // only applies to listings that already exist), so without this note a
+    // seller with two stores can unknowingly list on the wrong one. Same
+    // US-1216 pattern (and account source) as the bulk-pricing editor;
+    // best-effort — a lookup failure just leaves the banner hidden.
+    @State private var publishAccountNote: String?
 
     // US-674: listing templates, selectable to pre-fill the draft.
     @State private var templateStore = TemplateStore()
@@ -582,6 +603,15 @@ private struct ComposerForm: View {
             VStack(alignment: .leading, spacing: 14) {
                 if showRelistWarning {
                     relistWarningBanner
+                }
+
+                if let note = publishAccountNote {
+                    // US-1507: which store this listing goes live on.
+                    Label(note, systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
                 }
 
                 aiCopyButton
@@ -708,6 +738,7 @@ private struct ComposerForm: View {
         // caption (conditionally rendered) — so the lookup fires even when there
         // are no comps yet to show / the price section's layout changes.
         .task { await loadComps() }
+        .task { await loadPublishAccountNote() }
         // US-972: applying a template overwrites the condition note (and adds
         // boilerplate to the description) — confirm before replacing the user's
         // existing content rather than silently clobbering it.

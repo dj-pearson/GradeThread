@@ -121,13 +121,38 @@ public final class ReconciliationService {
     /// then flips match_status + matched_item_id. A listing-mirror failure
     /// surfaces as `.failed` (the upsert is select-then-insert/update, so a retry
     /// can't duplicate the row).
+    ///
+    /// US-1509: refuses to attach a SECOND active eBay listing to an item that
+    /// already has one under a different eBay item id — that's how duplicate
+    /// active rows are born, which then feed the wrong-row bulk-action class.
+    /// Re-linking the SAME listing id stays allowed (the mirror upsert is
+    /// idempotent). On success the item's status advances to "listed",
+    /// consistent with `createItem` (eBay says it's live).
     public func link(
         orphan: OrphanEbayListing,
         toExistingItemId itemId: String
     ) async -> ReconciliationOutcome {
         do {
+            struct ActiveRow: Decodable { let platform_listing_id: String? }
+            let active: [ActiveRow] = try await supabase
+                .from("listings")
+                .select("platform_listing_id")
+                .eq("inventory_item_id", value: itemId)
+                .eq("platform", value: "ebay")
+                .eq("is_active", value: true)
+                .execute()
+                .value
+            if active.contains(where: { $0.platform_listing_id != orphan.ebayItemId }) {
+                return ReconciliationOutcome(
+                    orphanId: orphan.id,
+                    kind: .failed(message: "That item already has an active eBay listing. Link this listing to a different item, or end the item\u{2019}s existing listing first.")
+                )
+            }
             try await upsertEbayListingRow(forItemId: itemId, from: orphan)
             try await markMatched(orphanId: orphan.id, matchedItemId: itemId)
+            // Best-effort like the US-751 mirror: a status-write blip must not
+            // strand the completed link — the next eBay sync reconciles it too.
+            try? await markItemListed(itemId: itemId)
             return ReconciliationOutcome(orphanId: orphan.id, kind: .linked(itemId: itemId))
         } catch {
             return ReconciliationOutcome(orphanId: orphan.id, kind: .failed(message: error.localizedDescription))
@@ -313,6 +338,20 @@ public final class ReconciliationService {
                 ))
                 .execute()
         }
+    }
+
+    /// US-1509: advance a just-linked item to "listed", matching the status
+    /// `createItem` starts created items in — eBay says the listing is live, so
+    /// the item must not linger in a pre-list pipeline stage (where the canvas
+    /// offers a publish CTA that would double-list it). RLS scopes the row to
+    /// the signed-in user.
+    private func markItemListed(itemId: String) async throws {
+        struct Update: Encodable { let status = "listed" }
+        try await supabase
+            .from("inventory_items")
+            .update(Update())
+            .eq("id", value: itemId)
+            .execute()
     }
 
     private func markMatched(orphanId: String, matchedItemId: String) async throws {

@@ -715,6 +715,15 @@ struct ItemCanvasView: View {
                                 .fontWeight(.semibold)
                         }
                     }
+                    // US-1509: no Relist for eBay-originated listings. GradeThread
+                    // never published them, so it can't end the live listing first
+                    // (no offer id) — relisting would leave the original live AND
+                    // corrupt its local mirror with the new listing's identity.
+                    // The edge rejects it too (409); hiding the button here keeps
+                    // the promise in the composer copy honest.
+                    Text("Relist isn\u{2019}t available for listings created on eBay. To relist, end it on eBay and use Sell Similar there.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else {
                     // GradeThread-originated: editing folded into Save & Sync.
                     HStack(spacing: 5) {
@@ -730,20 +739,21 @@ struct ItemCanvasView: View {
                     Text("Edits here sync to eBay when you tap \u{201C}Save & Sync\u{201D}.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
 
-                // Relist as a NEW listing: ends the current live listing and
-                // publishes a fresh one (new eBay item #). The publish sheet
-                // warns before it does this.
-                Button {
-                    AppRouter.haptic()
-                    // US-1514: funnel through saveThenPublish (like the primary
-                    // publish CTA) so unsaved canvas edits are persisted BEFORE
-                    // the publish/relist path reads server state — otherwise a
-                    // dirty-draft edit is silently dropped from the relisted item.
-                    Task { await saveThenPublish() }
-                } label: {
-                    Label("Relist as new listing", systemImage: "arrow.triangle.2.circlepath")
+                    // Relist as a NEW listing: ends the current live listing and
+                    // publishes a fresh one (new eBay item #). The publish sheet
+                    // warns before it does this. US-1509: GradeThread-originated
+                    // only — see the eBay-originated branch above.
+                    Button {
+                        AppRouter.haptic()
+                        // US-1514: funnel through saveThenPublish (like the primary
+                        // publish CTA) so unsaved canvas edits are persisted BEFORE
+                        // the publish/relist path reads server state — otherwise a
+                        // dirty-draft edit is silently dropped from the relisted item.
+                        Task { await saveThenPublish() }
+                    } label: {
+                        Label("Relist as new listing", systemImage: "arrow.triangle.2.circlepath")
+                    }
                 }
             }
         } header: {

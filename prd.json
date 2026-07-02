@@ -9065,8 +9065,8 @@
         "Until/unless per-listing threading fully lands, mismatch surfaces (US-1216-style banner) appear on publish/end, not just bulk pricing."
       ],
       "priority": 2384,
-      "passes": false,
-      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The structural multi-account item. Edge-first — iOS/web both inherit the fix."
+      "passes": true,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] The structural multi-account item. Edge-first — iOS/web both inherit the fix. [DONE 2026-07-02] Migration 00338 (listings.marketplace_connection_id) + publish stamps it; getConnectionAccessToken threads revise (inventory re-PUT + offer PUT), end, price, grade-resync, relist-withdraw, and negotiation mutations (respond via the listing connection; send-offer grouped per owning connection). Inactive/gone connection -> same no-connection message -> friendly reconnect 409. iOS Disconnect via edge /disconnect (prior session). New us1507-connection-threading_test.ts locks per-id+tenant-scoped resolution, primary fallback, and the friendly error. iOS PublishDialog names the target store when >1 account (US-1216 pattern); end/revise/price thread per-listing server-side so no mismatch surface remains there."
     },
     {
       "id": "US-1508",
@@ -9093,8 +9093,8 @@
         "Edge test covers relist-on-imported-listing rejection."
       ],
       "priority": 2382,
-      "passes": false,
-      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Prevents the duplicate-live-listing class that then feeds the wrong-row bulk-action bug."
+      "passes": true,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Prevents the duplicate-live-listing class that then feeds the wrong-row bulk-action bug. [DONE 2026-07-02] iOS Relist button now only renders for GradeThread-originated listings (explanatory copy on eBay-originated). Server: /listings/:id/relist 409s ebay-origin (prior session) AND assemblePublishContext drops an eBay-origin mirror row from the publish context (fresh INSERT, never repurposes the mirror) + blocks publish outright with a pointed blocker while that mirror is LIVE - this also covers the iOS relist path, which goes through /listings/push relist:true, not the /relist route. ReconciliationService.link blocks attaching a second active eBay listing (different item id) to an item and advances item.status to listed like createItem."
     },
     {
       "id": "US-1510",

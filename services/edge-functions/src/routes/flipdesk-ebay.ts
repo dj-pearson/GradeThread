@@ -5031,7 +5031,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         condition: reviseCondition,
         conditionDescription: reviseConditionDescription,
         availability: { shipToLocationAvailability: { quantity: 1 } },
-      });
+      },
+        // US-1507: revise via the listing's own connection (null → primary).
+        row.listing.marketplace_connection_id ?? undefined);
     } catch (err) {
       console.error("[flipdesk-ebay] revise inventory_item failed:", err);
       // US-1079: persist the failure on the listing (publish_error/
@@ -5068,7 +5070,9 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
           : (reviseGradeDesc ?? undefined),
         availableQuantity: hasQty ? (nextQty as number) : undefined,
         categoryId: resyncFields && reviseCategoryId ? reviseCategoryId : undefined,
-      });
+      },
+        // US-1507: revise via the listing's own connection (null → primary).
+        row.listing.marketplace_connection_id ?? undefined);
     } catch (err) {
       console.error("[flipdesk-ebay] revise offer failed:", err);
       // US-1079: persist the failure on the listing (publish_error/
@@ -5561,18 +5565,28 @@ export async function publishItemForOwner(
   if (opts.relist) {
     const { data: liveRow } = await supabaseAdmin
       .from("listings")
-      .select("platform_offer_id, is_active, listing_status")
+      .select("platform_offer_id, is_active, listing_status, marketplace_connection_id")
       .eq("inventory_item_id", itemId)
       .eq("platform", "ebay")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     const live = liveRow as
-      | { platform_offer_id: string | null; is_active: boolean | null; listing_status: string | null }
+      | {
+        platform_offer_id: string | null;
+        is_active: boolean | null;
+        listing_status: string | null;
+        marketplace_connection_id: string | null;
+      }
       | null;
     if (live?.platform_offer_id) {
       try {
-        await withdrawOffer(ownerId, live.platform_offer_id);
+        // US-1507: withdraw via the OLD listing's own connection (null → primary).
+        await withdrawOffer(
+          ownerId,
+          live.platform_offer_id,
+          live.marketplace_connection_id ?? undefined,
+        );
       } catch (err) {
         if (!isOfferAlreadyEndedError(err)) {
           // Unexpected failure — proceed anyway; publish will adopt rather than
@@ -6636,6 +6650,35 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
 // No cross-tenant id is accepted from the body for reads, and respond/reply act
 // against the caller's eBay account — there is no way to target another tenant.
 
+// US-1507: map eBay platform listing ids → the local listing's connection id so
+// negotiation mutations run under the account that owns each listing. Ids with
+// no local row (created outside GradeThread) or a legacy null connection map to
+// undefined → the primary connection, the pre-1507 behavior. Tenant-scoped.
+async function connectionIdsByPlatformListingId(
+  userId: string,
+  platformListingIds: string[],
+): Promise<Map<string, string | undefined>> {
+  const out = new Map<string, string | undefined>();
+  if (platformListingIds.length === 0) return out;
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select("platform_listing_id, marketplace_connection_id")
+    .eq("user_id", userId)
+    .eq("platform", "ebay")
+    .in("platform_listing_id", platformListingIds);
+  for (
+    const row of (data ?? []) as Array<{
+      platform_listing_id: string | null;
+      marketplace_connection_id: string | null;
+    }>
+  ) {
+    if (row.platform_listing_id) {
+      out.set(row.platform_listing_id, row.marketplace_connection_id ?? undefined);
+    }
+  }
+  return out;
+}
+
 // GET /negotiation/offers — incoming best offers across the seller's listings.
 flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
   if (!isEbayConfigured()) {
@@ -6685,6 +6728,9 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
     }
   }
   try {
+    // US-1507: respond via the connection that owns this listing when a local
+    // row records it; unknown/legacy listings keep the primary connection.
+    const connByListing = await connectionIdsByPlatformListingId(userId, [itemId]);
     await respondToBestOffer(userId, {
       itemId,
       bestOfferId,
@@ -6694,7 +6740,7 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
         ? Number(body.counter_quantity)
         : undefined,
       sellerMessage: typeof body.message === "string" ? body.message : undefined,
-    });
+    }, connByListing.get(itemId));
     // US-1055: notify the owner that this offer was accepted/declined/countered.
     // Useful for workspace teams (a member may have responded) and for an audit
     // trail across devices. Deduped per (offer, action) so a retry can't double-
@@ -6828,12 +6874,23 @@ flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
     return c.json({ error: "listing_ids must be a non-empty array" }, 400);
   }
   try {
-    await sendOfferToInterestedBuyers(userId, {
-      listingIds,
-      discountPercentage:
-        typeof body.discount_percentage === "string" ? body.discount_percentage : undefined,
-      message: typeof body.message === "string" ? body.message : undefined,
-    });
+    // US-1507: group listings by their owning connection and send one offer batch
+    // per account — a mixed multi-store selection otherwise pushes every offer
+    // through the primary token and eBay rejects the foreign listings.
+    const connByListing = await connectionIdsByPlatformListingId(userId, listingIds);
+    const groups = new Map<string | undefined, string[]>();
+    for (const id of listingIds) {
+      const key = connByListing.get(id);
+      groups.set(key, [...(groups.get(key) ?? []), id]);
+    }
+    for (const [connectionId, ids] of groups) {
+      await sendOfferToInterestedBuyers(userId, {
+        listingIds: ids,
+        discountPercentage:
+          typeof body.discount_percentage === "string" ? body.discount_percentage : undefined,
+        message: typeof body.message === "string" ? body.message : undefined,
+      }, connectionId);
+    }
     return c.json({ ok: true, count: listingIds.length });
   } catch (err) {
     console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", err);
@@ -7185,6 +7242,14 @@ interface PublishListing {
   auction_buy_it_now_price_cents: number | null;
   auction_duration: string | null;
   variations: ListingVariations | null;
+  // US-1509: provenance + live-state signals so publish never repurposes a row
+  // that mirrors an eBay-native listing (deriveListingOrigin inputs + is_active).
+  listing_origin: string | null;
+  listing_status: string | null;
+  is_active: boolean | null;
+  platform_listing_id: string | null;
+  batch_id: string | null;
+  synced_to_ebay_at: string | null;
 }
 
 interface PublishContextOk {
@@ -7416,7 +7481,7 @@ export async function resyncGradeToLiveListing(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, platform_offer_id, platform_category_id, item_specifics_override, ebay_condition, ebay_condition_description, listing_description, listing_status, listing_origin",
+      "id, listing_title, platform_offer_id, platform_category_id, item_specifics_override, ebay_condition, ebay_condition_description, listing_description, listing_status, listing_origin, marketplace_connection_id",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -7437,6 +7502,7 @@ export async function resyncGradeToLiveListing(
         listing_description: string | null;
         listing_status: string | null;
         listing_origin: string | null;
+        marketplace_connection_id: string | null;
       }
     | null;
   if (!listing?.platform_offer_id) {
@@ -7531,6 +7597,8 @@ export async function resyncGradeToLiveListing(
   // 6) Push to eBay. On failure, persist it on the listing (US-1079 retry banner)
   //    and report back — the caller keeps grade completion succeeding regardless.
   try {
+    // US-1507: push via the listing's own connection (null → primary).
+    const connId = listing.marketplace_connection_id ?? undefined;
     await createOrReplaceInventoryItem(userId, sku, {
       product: {
         title: finalTitle,
@@ -7546,11 +7614,11 @@ export async function resyncGradeToLiveListing(
       condition,
       conditionDescription,
       availability: { shipToLocationAvailability: { quantity: 1 } },
-    });
+    }, connId);
     await updateOfferFields(userId, offerId, {
       listingDescription: promotedDesc,
       categoryId: categoryId ?? undefined,
-    });
+    }, connId);
   } catch (err) {
     console.error("[flipdesk-ebay] grade-resync eBay push failed:", err);
     await persistReviseFailure(listing.id, err);
@@ -7687,14 +7755,44 @@ export async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
+      "id, listing_title, listing_description, listing_price, price_is_estimated, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, item_specifics_sources, scheduled_publish_at, badge_enabled, slab_image_mode, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, promo_mode, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations, listing_origin, listing_status, is_active, platform_listing_id, batch_id, synced_to_ebay_at",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const listing = (listingRow as PublishListing | null) ?? null;
+  let listing = (listingRow as PublishListing | null) ?? null;
+
+  // US-1509: an eBay-ORIGINATED row is a read-only mirror of a listing that
+  // lives natively on eBay — publish must never source draft fields from it and,
+  // above all, never repurpose it in step 5 (that corrupted the mirror while the
+  // real listing stayed live, yielding duplicate live listings). Drop it from
+  // the context so a publish inserts a FRESH row; if the mirror is still LIVE,
+  // block the publish outright — listing the same item again is exactly the
+  // duplicate-live-listing class this guard exists to prevent.
+  let liveEbayMirrorBlocker: string | null = null;
+  if (listing) {
+    const rowOrigin = deriveListingOrigin({
+      listing_origin: listing.listing_origin,
+      platform: "ebay",
+      platform_listing_id: listing.platform_listing_id,
+      batch_id: listing.batch_id,
+      synced_to_ebay_at: listing.synced_to_ebay_at,
+    });
+    if (rowOrigin === "ebay") {
+      const live = listing.is_active === true ||
+        listing.listing_status === "active" ||
+        listing.listing_status === "relisted";
+      if (live) {
+        liveEbayMirrorBlocker =
+          "This item is already live on eBay (a listing created on eBay). " +
+          "End it on eBay or unlink it before publishing from FlipDesk — " +
+          "publishing again would create a duplicate live listing.";
+      }
+      listing = null;
+    }
+  }
 
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
@@ -7719,6 +7817,8 @@ export async function assemblePublishContext(
   });
 
   const blockers: string[] = [];
+  // US-1509: surfaced first — nothing else matters while the item is already live.
+  if (liveEbayMirrorBlocker) blockers.push(liveEbayMirrorBlocker);
   // Category resolution: listing-row override wins (AutoLister writes here);
   // fall back to inventory_items for legacy / single-item composer flows.
   let categoryId = listing?.platform_category_id ?? item.ebay_category_id ?? null;

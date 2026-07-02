@@ -8777,3 +8777,59 @@ listings with a 409 (deriveListingOrigin === 'ebay'), mirroring the revise guard
 prevents the duplicate-live-listing class. Edge test us1507-relist-guard_test.ts covers it.
 REMAINING for US-1509: iOS Relist-button hide/disable for eBay-origin listings (AC1 client
 half), and the orphan-link guard in ReconciliationService.link (AC3). Left passes:false.
+
+## 2026-07-02 (cont.) — US-1507 + US-1509 COMPLETE (passes:true) — remaining threading, non-primary test, publish banner, iOS relist gate, orphan-link guard (+ iOS 1.0.2 bump)
+Closes out both stories on top of the 0230db73 foundation. Files: edge ebay-client.ts,
+ebay-trading.ts, flipdesk-ebay.ts, tests/us1507-connection-threading_test.ts (NEW); ios
+ItemCanvasView.swift, PublishDialog.swift, ReconciliationService.swift, project.yml. No new
+migration (00338 from the prior commit is the pending one).
+
+US-1507 (finished):
+- Revise threads the listing's connection: createOrReplaceInventoryItem gained an optional
+  connectionId (→ fetchAuthed) and the /listings/:id/revise handler passes
+  row.listing.marketplace_connection_id to BOTH the inventory re-PUT and updateOfferFields.
+  resyncGradeToLiveListing (grade-resync push) threads it too, as does the relist pre-publish
+  withdrawOffer (acts on the OLD listing → its connection).
+- Negotiation threading: tradingCall/respondToBestOffer (ebay-trading.ts) +
+  sendOfferToInterestedBuyers (ebay-client.ts) accept an optional connectionId. New
+  connectionIdsByPlatformListingId helper (tenant-scoped) maps eBay listing ids → owning
+  connection; /negotiation/offers/:id/respond resolves the listing's connection, and
+  /negotiation/send-offer GROUPS listing ids per owning connection (one send per account —
+  a mixed multi-store selection used to push everything through the primary token).
+  Account-level GETs (offers list / eligible / messages) stay on the primary by design (no
+  listing context).
+- (AC2) NEW edge test us1507-connection-threading_test.ts: stubs fetch BEFORE the ebay-client
+  import (supabase-js binds fetch at client creation) and drives the REAL seam — getOffer with
+  connectionId → per-id + user_id + is_active=eq.true PostgREST lookup + the NON-primary
+  bearer on the eBay call; without connectionId → is_primary-ordered lookup + primary bearer;
+  gone/inactive connection → the friendly isNoEbayConnectionError message (reconnect 409, not
+  a 500). Uses real AES-GCM ciphertexts via encryptToken + a test EDGE_ENCRYPTION_KEY.
+- (AC4) iOS PublishDialog composer: US-1216-style banner naming the PRIMARY store when >1
+  active account ("This will list on X…" / relist variant), via BulkPricingService
+  .ebayAccounts(), best-effort. Publish is the one op that inherently resolves the primary;
+  end/revise/price/negotiation now thread per-listing server-side, so no false banner there.
+US-1509 (finished):
+- iOS Relist button (ItemCanvasView listings section) renders ONLY for GradeThread-originated
+  listings; the eBay-originated branch explains why ("end on eBay and use Sell Similar").
+- KEY FINDING: the iOS relist path goes through POST /listings/push {relist:true}, NOT
+  /listings/:id/relist — so the prior session's 409 alone didn't cover iOS. Now
+  assemblePublishContext selects origin/live signals on the most-recent listings row and, when
+  it's an eBay-ORIGIN mirror: drops it from the publish context (publish INSERTS a fresh row —
+  never repurposes/corrupts the mirror) and, if the mirror is LIVE, adds a publish blocker
+  ("already live on eBay… would create a duplicate live listing") → validate + push + AutoLister
+  auto-publish all refuse. Ended mirrors: publish proceeds with a fresh row, mirror preserved.
+- ReconciliationService.link: blocks attaching an orphan to an item that ALREADY has an active
+  eBay listing under a DIFFERENT eBay item id (pointed .failed message; same-id re-link stays
+  idempotent), then advances item.status → "listed" (markItemListed, best-effort) consistent
+  with createItem — a linked-live item no longer lingers pre-list where the canvas offers a
+  double-listing publish CTA.
+ALSO: iOS MARKETING_VERSION bumped 1.0.1 → 1.0.2 in ios/project.yml (user request, for the next
+GitHub iOS Release; XcodeGen regenerates ShareExtension/Info.plist from $(MARKETING_VERSION),
+so the stale hardcoded 0.1.0 there is overwritten at generation).
+VERIFICATION (this host — deno now installed locally): deno lint (4 touched files) clean;
+deno check src/main.ts clean; FULL edge suite 2453 passed / 0 failed / 69 ignored (includes the
+3 new threading tests); iOS no-ungated-print OK; curly-quote scan clean (new strings use \u
+escapes); ItemCanvasView brace structure re-read. iOS CI on push is the compile gate.
+⚠️ MIGRATION 00338 is on origin/main (0230db73 was pushed) but NOT yet applied to prod — this
+commit stays LOCAL until the user applies it + OKs the push (edge redeploy before applying
+would trip the schema guard after the grace window).

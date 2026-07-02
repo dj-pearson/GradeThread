@@ -16,6 +16,7 @@
 
 import { XMLParser } from "fast-xml-parser";
 import {
+  getConnectionAccessToken,
   getEbayEnv,
   getMarketplaceId,
   getUserAccessToken,
@@ -428,12 +429,17 @@ export async function getItemSpecifics(
 // surfaces. Shared call helper keeps the headers in one place.
 
 /// Makes one Trading API call and returns the raw XML text + HTTP status.
+/// US-1507: `connectionId` auths via that specific connection (the account that
+/// owns the listing being acted on); omitted → the user's primary connection.
 async function tradingCall(
   userId: string,
   callName: string,
   body: string,
+  connectionId?: string,
 ): Promise<{ ok: boolean; status: number; text: string }> {
-  const token = await getUserAccessToken(userId);
+  const token = connectionId
+    ? await getConnectionAccessToken(connectionId, userId)
+    : await getUserAccessToken(userId);
   const { appId, certId, devId } = devEnv();
   const res = await fetch(`${tradingHost()}/ws/api.dll`, {
     method: "POST",
@@ -555,6 +561,9 @@ export async function respondToBestOffer(
     counterQuantity?: number;
     sellerMessage?: string;
   },
+  // US-1507: respond via the connection that owns the listing (null → primary),
+  // so a multi-store seller's accept/counter lands on the account eBay expects.
+  connectionId?: string,
 ): Promise<void> {
   const lines = [
     `<?xml version="1.0" encoding="utf-8"?>`,
@@ -581,6 +590,7 @@ export async function respondToBestOffer(
     userId,
     "RespondToBestOffer",
     lines.join("\n"),
+    connectionId,
   );
   if (!ok) {
     throw new Error(`eBay RespondToBestOffer failed (${status}): ${text.slice(0, 300)}`);

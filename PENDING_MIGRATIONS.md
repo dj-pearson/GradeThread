@@ -1,5 +1,26 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 📌 CURRENT STATE — 2026-07-02 (US-1507/1509 completion session)
+
+Everything through migration **00338** is already ON `origin/main` (0230db73 was
+pushed). What's outstanding is **applying to prod**, not pushing:
+
+- **`00338_listings_marketplace_connection_id.sql`** (US-1507) — nullable
+  `listings.marketplace_connection_id` FK + partial index; idempotent + self-record
+  footer; `EXPECTED_SCHEMA_VERSION` is at **00338**. Legacy rows stay null (edge
+  falls back to the primary connection). Safe to apply any time; MUST be applied
+  before the next edge redeploy (boot guard expects 00338).
+- If `00332`–`00337` haven't been applied yet either, apply them first — every
+  migration is idempotent, so the simplest path is `scripts/apply-prod-migrations.sh`
+  (or run 00332→00338 in order), then `NOTIFY pgrst, 'reload schema';`, then
+  redeploy the edge.
+
+**Held locally (NOT pushed):** 17e8b614 (autolister watchdogs) + this session's
+US-1507/1509 completion commit — both code-only, no new migration. They stay local
+until you apply 00338 (+ any earlier stragglers) and say "OK to push".
+
+---
+
 > Running package for the pre-launch loop. As of the latest push (af1b3d74), local main == origin/main and ALL committed stories are code-only (no migrations). Future migrations will be listed here for you to apply before the next push. At
 > check-in, apply any migrations below to prod (DB → edge → frontend order per
 > DEPLOY.md), redeploy the edge (Coolify), then give the OK to `git push`.
