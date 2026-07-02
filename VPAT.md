@@ -14,12 +14,12 @@
 
 **GradeThread** (web application) and **GradeThread for iOS** (native iOS application), including the embedded **FlipDesk** reseller-management surface.
 
-- Web application version: `<fill at release — e.g. package.json version>`
-- iOS application version: `<fill at release — CFBundleShortVersionString>`
+- Web application version: 1.0.0
+- iOS application version: 1.0.1
 
 ## Report Date
 
-`<fill on finalization — e.g. June 29, 2026>`
+July 2, 2026
 
 ## Product Description
 
@@ -30,6 +30,8 @@ GradeThread is a SaaS platform for standardized, AI-powered condition grading of
 Pearson Media LLC — accessibility@gradethread.com
 
 ## Notes
+
+**Regulatory status (internal record).** Pearson Media LLC is a microenterprise (fewer than 10 employees and under €2M annual turnover) and, as a service provider, qualifies for the microenterprise exemption under the European Accessibility Act (Directive (EU) 2019/882). Notwithstanding that exemption, GradeThread **voluntarily** targets and self-reports WCAG 2.1 Level AA conformance, both as a matter of policy and because other applicable frameworks — notably the U.S. Americans with Disabilities Act (Title III), which contains no small-business exemption for web accessibility — are unaffected by the EAA microenterprise status. This report is maintained as evidence of that voluntary conformance; the exemption is not asserted publicly.
 
 This report covers two distinct platforms with separate conformance characteristics. Where a criterion's conformance differs between the **Web** and **iOS** platform, both are stated in the *Remarks and Explanations* column. Criteria relating to pre-recorded and live time-based media (audio/video) are marked **Not Applicable**: neither platform ships pre-recorded audio or video content. The only media surfaces are live device-camera viewfinders (barcode and photo capture), which are muted, carry no audio track, and present no synchronized pre-recorded content.
 

@@ -82,6 +82,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/terms": "2026-04-01",
   "/cookies": "2026-04-01",
   "/acceptable-use": "2026-04-01",
+  "/refund": "2026-07-02",
+  "/imprint": "2026-07-02",
   "/dpa": "2026-04-01",
   "/subprocessors": "2026-04-01",
   "/dmca": "2026-04-01",
@@ -354,6 +356,22 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "Acceptable Use Policy",
     description:
       "What is and isn't allowed when using GradeThread's clothing-grading and reseller platform.",
+    changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    path: "/refund",
+    title: "Refund & Cancellation Policy",
+    description:
+      "How GradeThread and FlipDesk subscriptions, per-grade purchases, and credits are billed, cancelled, and refunded — including EU/UK consumer rights.",
+    changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    path: "/imprint",
+    title: "Imprint / Legal Notice",
+    description:
+      "Provider identification and legal notice for GradeThread, operated by Pearson Media LLC (Impressum).",
     changefreq: "yearly",
     priority: 0.3,
   },

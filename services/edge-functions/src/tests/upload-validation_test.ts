@@ -1,5 +1,5 @@
 // US-276: upload validation + EXIF/GPS strip unit tests. Pure byte logic.
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   sniffImageFormat,
   validateImageUpload,
@@ -367,4 +367,29 @@ Deno.test("strip is a no-op (stripped=false) when there's no metadata", () => {
   ]);
   const { stripped } = stripImageMetadata(clean, "png");
   assertEquals(stripped, false);
+});
+
+// HEIC must never be silently passed through: its ISOBMFF EXIF (incl. GPS) can't
+// be stripped in pure TS, so stripImageMetadata throws rather than store live
+// GPS. Every upload path rejects HEIC at validateImageUpload(); this guards the
+// case where a future caller widens `allow` and forgets that invariant.
+Deno.test("stripImageMetadata throws on HEIC instead of leaking GPS", () => {
+  const heic = new Uint8Array(16);
+  heic.set([...new TextEncoder().encode("\0\0\0ftypheic")], 0);
+  assertThrows(
+    () => stripImageMetadata(heic, "heic"),
+    Error,
+    "HEIC",
+  );
+});
+
+// Belt-and-suspenders: the actual upload paths reject HEIC before strip is ever
+// reached, so the throw above is unreachable in production today.
+Deno.test("validateImageUpload rejects HEIC for the standard allowlist", () => {
+  const heic = new Uint8Array(16);
+  // ISOBMFF: bytes 4-7 = "ftyp", bytes 8-11 = brand "heic".
+  heic.set([...new TextEncoder().encode("ftypheic")], 4);
+  const r = validateImageUpload(heic, { allow: ["jpeg", "png", "webp"] });
+  assert(!r.ok);
+  if (!r.ok) assert(r.reason.includes("not allowed"));
 });

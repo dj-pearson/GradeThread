@@ -24,6 +24,12 @@ function loadSentry(): Promise<SentryModule> {
  * monitoring runs under legitimate interest, so it's not gated by the cookie
  * banner. A crash in the first few ms before the chunk resolves is the accepted
  * trade for keeping it off the critical path.
+ *
+ * ⚠️ Privacy (GDPR): `sendDefaultPii` is FALSE. Sentry must not auto-attach the
+ * end-user IP address or request headers — the IP is personal data and we run
+ * this without prior consent for EU visitors under legitimate interest, which
+ * only holds if we minimise. `beforeSend` also hard-nulls any IP that an
+ * integration might still populate. Do NOT flip this back to `true`.
  */
 export function initSentry(): void {
   const dsn = import.meta.env.VITE_SENTRY_DSN;
@@ -33,8 +39,21 @@ export function initSentry(): void {
       dsn,
       integrations: [Sentry.browserTracingIntegration()],
       tracesSampleRate: 0.1,
-      sendDefaultPii: true,
+      sendDefaultPii: false,
       release: import.meta.env.VITE_RELEASE_SHA,
+      // Defence-in-depth: strip the IP even if something sets it, so no raw
+      // end-user IP ever reaches Sentry regardless of SDK defaults.
+      beforeSend(event) {
+        if (event.user) {
+          delete event.user.ip_address;
+          if (Object.keys(event.user).length === 0) delete event.user;
+        }
+        if (event.request?.headers) {
+          delete event.request.headers["X-Forwarded-For"];
+          delete event.request.headers["x-forwarded-for"];
+        }
+        return event;
+      },
     });
   });
 }

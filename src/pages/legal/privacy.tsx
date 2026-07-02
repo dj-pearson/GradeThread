@@ -114,9 +114,16 @@ export function PrivacyPage() {
           <Link to="/cookies">Cookie Policy</Link>.
         </li>
         <li>
-          <strong>Diagnostic data.</strong> Crash reports, stack traces, and
-          performance metrics collected through our error-monitoring provider
-          (Sentry).
+          <strong>Diagnostic data.</strong> Crash reports and stack traces
+          collected through our error-monitoring provider (Sentry), which we
+          configure to minimize personal data &mdash; it does not collect your
+          IP address or attach default personal data.
+        </li>
+        <li>
+          <strong>Approximate location.</strong> We derive a coarse country
+          (and, in the US, state) from your IP address at our CDN edge solely to
+          show you the correct cookie-consent experience for your region. We do
+          not store this signal for that purpose.
         </li>
       </ul>
 
@@ -445,10 +452,13 @@ export function PrivacyPage() {
 
       <h2 id="children">11. Children</h2>
       <p>
-        The Service is not directed to children under 13 (or under 16 in the
-        EEA/UK), and we do not knowingly collect personal information from
-        them. If you believe a child has provided us information, contact us
-        and we will delete it.
+        The Service is intended for adults. You must be at least 18 years old to
+        use it (see our <Link to="/terms">Terms of Service</Link>). The Service
+        is not directed to children, and we do not knowingly collect personal
+        information from anyone under 18. If you believe a minor has provided us
+        information, contact{" "}
+        <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a> and
+        we will delete it.
       </p>
 
       <h2 id="changes">12. Changes to this policy</h2>

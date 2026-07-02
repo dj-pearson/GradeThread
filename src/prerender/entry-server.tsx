@@ -27,6 +27,8 @@ import { PrivacyPage } from "@/pages/legal/privacy";
 import { TermsPage } from "@/pages/legal/terms";
 import { CookiesPage } from "@/pages/legal/cookies";
 import { AcceptableUsePage } from "@/pages/legal/acceptable-use";
+import { RefundPage } from "@/pages/legal/refund";
+import { ImprintPage } from "@/pages/legal/imprint";
 import { DpaPage } from "@/pages/legal/dpa";
 import { SubprocessorsPage } from "@/pages/legal/subprocessors";
 import { DmcaPage } from "@/pages/legal/dmca";
@@ -95,6 +97,8 @@ const PAGES: Record<string, React.ReactNode> = {
   "/terms": <TermsPage />,
   "/cookies": <CookiesPage />,
   "/acceptable-use": <AcceptableUsePage />,
+  "/refund": <RefundPage />,
+  "/imprint": <ImprintPage />,
   "/dpa": <DpaPage />,
   "/subprocessors": <SubprocessorsPage />,
   "/dmca": <DmcaPage />,

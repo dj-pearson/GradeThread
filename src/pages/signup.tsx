@@ -377,7 +377,11 @@ export function SignupPage() {
             onExpire={() => setCaptchaToken(null)}
             resetSignal={captchaReset}
           />
-          {/* US-377: affirmative clickwrap — gates the submit button below. */}
+          {/* US-377: affirmative clickwrap — gates the submit button below. The
+              age affirmation rides on the same checkbox so an under-18 account
+              can't be created without a separate birthdate gate. 18 matches the
+              eligibility floor in Terms §1 (paid contracts + reselling); it also
+              keeps us clear of GDPR Art. 8 child-consent and COPPA entirely. */}
           <label htmlFor="legal-consent" className="flex items-start gap-2.5 text-xs text-muted-foreground">
             <input
               id="legal-consent"
@@ -387,7 +391,7 @@ export function SignupPage() {
               className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer accent-brand-red"
             />
             <span>
-              I agree to the{" "}
+              I confirm I'm at least 18 years old, and I agree to the{" "}
               <Link to="/terms" target="_blank" className="underline hover:text-foreground">
                 Terms of Service
               </Link>{" "}

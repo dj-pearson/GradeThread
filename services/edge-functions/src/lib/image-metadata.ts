@@ -4,8 +4,17 @@
 // text/eXIf chunks, and WebP EXIF/XMP chunks. We strip those carriers in pure
 // TS (no image decoder) so a stored/served photo can't leak where or on what
 // device it was taken. The pixel data is preserved byte-for-byte — only
-// metadata segments are dropped. Unknown/HEIC formats pass through unchanged
-// (the private grading bucket doesn't accept HEIC; flipdesk transcodes it).
+// metadata segments are dropped.
+//
+// HEIC is the exception: its EXIF lives in an ISOBMFF `meta` box that we cannot
+// strip without a full box parser, and HEIC embeds GPS the same way JPEG does.
+// Every upload path therefore rejects HEIC at validateImageUpload() (allow:
+// jpeg/png/webp) and the client transcodes HEIC before upload, so a HEIC verdict
+// should never reach this function. To keep that guarantee load-bearing rather
+// than a silent assumption, we THROW on HEIC instead of passing it through — a
+// future caller that widened `allow` to admit HEIC would fail loudly here
+// instead of quietly storing a photo with live GPS coordinates. Do NOT downgrade
+// this to a passthrough.
 import type { ImageFormat } from "./upload-validation.ts";
 
 export interface StripResult {
@@ -131,7 +140,8 @@ function stripWebp(b: Uint8Array): StripResult {
   return { bytes: out, stripped: true };
 }
 
-// Strip metadata for a known format. Falls back to passthrough for HEIC/unknown.
+// Strip metadata for a known format. Throws on HEIC (see the header note): we
+// cannot strip its ISOBMFF EXIF/GPS in pure TS, so no path may store it.
 export function stripImageMetadata(
   bytes: Uint8Array,
   format: ImageFormat,
@@ -143,7 +153,10 @@ export function stripImageMetadata(
       return stripPng(bytes);
     case "webp":
       return stripWebp(bytes);
-    default:
-      return { bytes, stripped: false };
+    case "heic":
+      throw new Error(
+        "stripImageMetadata: HEIC cannot be metadata-stripped (GPS/EXIF would " +
+          "leak). Reject HEIC at validateImageUpload() and transcode upstream.",
+      );
   }
 }

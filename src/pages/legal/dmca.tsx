@@ -32,10 +32,13 @@ export function DmcaPage() {
       </p>
       <p>
         DMCA Agent, Pearson Media LLC<br />
+        7888 Beechtree Ln<br />
+        West Des Moines, IA 50266, United States<br />
         Email: <a href="mailto:dmca@gradethread.com">dmca@gradethread.com</a>
-        <br />
-        Postal address: see our registered address in the email footer of any
-        GradeThread message, or request it from the address above.
+      </p>
+      <p>
+        Our full provider details are also on the{" "}
+        <Link to="/imprint">Imprint / Legal Notice</Link> page.
       </p>
 
       <h2 id="notice">3. Elements of a valid notice</h2>

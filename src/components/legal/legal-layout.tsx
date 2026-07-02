@@ -5,6 +5,7 @@ import { SEO } from "@/components/seo";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbLd, organizationLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
+import { openCookiePreferences } from "@/lib/cookie-preferences";
 
 interface LegalLayoutProps {
   title: string;
@@ -19,10 +20,12 @@ const legalNav = [
   { to: "/terms", label: "Terms of Service" },
   { to: "/cookies", label: "Cookie Policy" },
   { to: "/acceptable-use", label: "Acceptable Use" },
+  { to: "/refund", label: "Refund & Cancellation" },
   { to: "/dpa", label: "Data Processing Addendum" },
   { to: "/subprocessors", label: "Subprocessors" },
   { to: "/dmca", label: "Copyright / DMCA" },
   { to: "/accessibility", label: "Accessibility" },
+  { to: "/imprint", label: "Imprint / Legal Notice" },
 ];
 
 export function LegalLayout({
@@ -146,6 +149,13 @@ export function LegalLayout({
                 {item.label}
               </Link>
             ))}
+            <button
+              type="button"
+              onClick={openCookiePreferences}
+              className="hover:text-foreground"
+            >
+              Cookie settings
+            </button>
           </nav>
           <p>&copy; {new Date().getFullYear()} Pearson Media LLC</p>
         </div>

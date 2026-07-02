@@ -10,6 +10,7 @@ import {
   type JsonLd,
 } from "@/lib/seo/json-ld";
 import { SITE_URL, ogImageForRoute } from "@/lib/seo/public-routes";
+import { openCookiePreferences } from "@/lib/cookie-preferences";
 
 interface MarketingLayoutProps {
   title: string;
@@ -169,6 +170,9 @@ export function MarketingLayout({
               <Link to="/acceptable-use" className="hover:text-foreground">
                 Acceptable Use
               </Link>
+              <Link to="/refund" className="hover:text-foreground">
+                Refunds
+              </Link>
               <Link to="/accessibility" className="hover:text-foreground">
                 Accessibility
               </Link>
@@ -181,9 +185,19 @@ export function MarketingLayout({
               <Link to="/dpa" className="hover:text-foreground">
                 DPA
               </Link>
+              <Link to="/imprint" className="hover:text-foreground">
+                Imprint
+              </Link>
               <Link to="/status" className="hover:text-foreground">
                 Status
               </Link>
+              <button
+                type="button"
+                onClick={openCookiePreferences}
+                className="hover:text-foreground"
+              >
+                Cookie settings
+              </button>
             </nav>
             <p className="text-xs text-muted-foreground">
               &copy; {new Date().getFullYear()} Pearson Media LLC. All rights

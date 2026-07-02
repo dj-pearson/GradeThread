@@ -31,7 +31,8 @@
     "/rss.xml",
     "/robots.txt",
     "/llms.txt",
-    "/csp-report"
+    "/csp-report",
+    "/geo.json"
   ],
   "exclude": [
     "/assets/*"

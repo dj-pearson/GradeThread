@@ -15,12 +15,16 @@ import { AccessibilityPage } from "@/pages/legal/accessibility";
 import { DmcaPage } from "@/pages/legal/dmca";
 import { SubprocessorsPage } from "@/pages/legal/subprocessors";
 import { DpaPage } from "@/pages/legal/dpa";
+import { RefundPage } from "@/pages/legal/refund";
+import { ImprintPage } from "@/pages/legal/imprint";
 
 const PAGES: Array<[string, React.ReactNode]> = [
   ["accessibility", <AccessibilityPage key="a" />],
   ["dmca", <DmcaPage key="d" />],
   ["subprocessors", <SubprocessorsPage key="s" />],
   ["dpa", <DpaPage key="p" />],
+  ["refund", <RefundPage key="r" />],
+  ["imprint", <ImprintPage key="i" />],
 ];
 
 async function violations(node: React.ReactNode) {

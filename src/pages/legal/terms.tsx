@@ -32,8 +32,14 @@ export function TermsPage() {
       <p>
         You must be at least 18 years old (or the age of majority in your
         jurisdiction) and able to form a binding contract to use the Service.
-        If you use the Service on behalf of a business, you represent that you
-        have authority to bind that business to these Terms.
+        The Service is not directed to children, and we do not knowingly
+        collect personal data from anyone under 18. If you believe a minor has
+        provided us personal data, contact{" "}
+        <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>{" "}
+        and we will delete it. When you create an account you confirm that you
+        meet this age requirement. If you use the Service on behalf of a
+        business, you represent that you have authority to bind that business to
+        these Terms.
       </p>
       <p>
         You are responsible for the accuracy of the information you provide,
