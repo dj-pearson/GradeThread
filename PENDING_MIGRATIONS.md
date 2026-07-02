@@ -1,7 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-> Running package for the current pre-launch loop. Local `main` is **N commits
-> ahead of `origin/main` and intentionally NOT pushed** until you review. At
+> Running package for the pre-launch loop. As of the latest push (af1b3d74), local main == origin/main and ALL committed stories are code-only (no migrations). Future migrations will be listed here for you to apply before the next push. At
 > check-in, apply any migrations below to prod (DB → edge → frontend order per
 > DEPLOY.md), redeploy the edge (Coolify), then give the OK to `git push`.
 
@@ -29,6 +28,7 @@ Stories completed so far this loop are **code-only** (no schema changes):
 | US-1522 (iOS UX dead-end sweep, 8 fixes) | none | none |
 | US-1521 (iOS auth/signup polish) | none | none |
 | US-1516 (iOS member-tenant item write) | none | none |
+| US-1514 (iOS stale-read gating) | none | none |
 
 `EXPECTED_SCHEMA_VERSION` unchanged at **00331**; latest migration file is
 `00331_fix_users_guard_bogus_moderation_cols.sql`. Next migration, when one is

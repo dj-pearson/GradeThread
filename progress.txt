@@ -8245,3 +8245,29 @@ pushing at next check-in to let iOS CI compile-check before more iOS work.
 NEXT (lower-risk iOS): US-1515 (sync coverage — watermark on updated_at + don't
 advance cursor on failed save) or US-1514 (stale-read gating). DEFER US-1520 (perf/
 concurrency refactor) + US-1523 (macOS lockfile) until CI validates the batch.
+
+## 2026-07-01 (cont.) — iOS CI CAUGHT a build break + US-1514 done
+The pushed batch (18 commits) FAILED iOS CI: "type 'PublishDialog' has no member
+'validListingURL'" — US-1522's helper landed in the nested ComposerForm struct but
+was called via Self. from PublishDialog's body. Fixed: moved to a file-private free
+function. (Verified LoginView, ItemCanvasView, AuthStore are each single-struct so
+no other cross-struct-scope refs from this batch.) This is the exact class of bug
+Windows can't catch — iOS CI is the gate, working as intended.
+
+US-1514 stale-read gating — COMPLETE (passes:true):
+ - Specifics editor opened against unsaved canvas edits (reads the SAVED server
+   row) → same field two values on screen. Gated: specificsSection NavigationLink
+   .disabled when state.isDirty + a red "Save your changes first" footer.
+ - "Relist as new listing" set showingPublishDialog directly (skipped the dirty-
+   draft save) while the primary CTA funnels through saveThenPublish(). Relist now
+   also calls saveThenPublish() so unsaved edits persist before publish reads
+   server state.
+NO MIGRATION.
+
+### US-1515 DEFERRED — NEEDS A MIGRATION (first of the session)
+Investigated: item_photos has NO updated_at column/trigger (sales/flipdesk_expenses
+do). So US-1515 part (1) (delta on updated_at so edits sync) requires a migration to
+add updated_at + set_updated_at trigger (+ backfill) to item_photos (00332). Part (2)
+= gate watermark.advance on merge SUCCESS (SyncMergeActor merges currently return
+Void + saveOrLog swallows failures) — a real merge-return-value refactor. Do this as
+a focused iteration WITH the migration packaged in PENDING_MIGRATIONS.md.

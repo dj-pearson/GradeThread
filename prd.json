@@ -9162,7 +9162,7 @@
         "Regression check: canvas edit → immediately open specifics editor → the editor reflects the new value."
       ],
       "priority": 2377,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Small, surgical; pairs with the dirty-form-guards story."
     },
     {

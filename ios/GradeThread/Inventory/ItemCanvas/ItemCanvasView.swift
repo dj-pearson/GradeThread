@@ -731,7 +731,11 @@ struct ItemCanvasView: View {
                 // warns before it does this.
                 Button {
                     AppRouter.haptic()
-                    showingPublishDialog = true
+                    // US-1514: funnel through saveThenPublish (like the primary
+                    // publish CTA) so unsaved canvas edits are persisted BEFORE
+                    // the publish/relist path reads server state — otherwise a
+                    // dirty-draft edit is silently dropped from the relisted item.
+                    Task { await saveThenPublish() }
                 } label: {
                     Label("Relist as new listing", systemImage: "arrow.triangle.2.circlepath")
                 }
@@ -748,17 +752,30 @@ struct ItemCanvasView: View {
     /// specifics are category-driven and block publish when missing, so this
     /// sits just above the publish action.
     private var specificsSection: some View {
-        Section {
+        // US-1514: the specifics editor reads the SAVED server row, so opening it
+        // with unsaved canvas edits shows/derives STALE values (e.g. typing a new
+        // Brand, then opening specifics, shows the OLD brand — the same field with
+        // two values on screen). Gate entry on a clean canvas: disable while dirty
+        // and tell the user to save first.
+        let isDirty = state?.isDirty == true
+        return Section {
             NavigationLink {
                 EbayCategorySpecificsView(itemId: item.id, liveListingId: gtLiveListing?.id)
             } label: {
                 Label("Category & item specifics", systemImage: "list.bullet.rectangle")
             }
+            .disabled(isDirty)
         } header: {
             Text("eBay listing")
         } footer: {
-            Text("Set the eBay category and required item specifics so the listing can publish.")
-                .font(.caption)
+            if isDirty {
+                Text("Save your changes first — the specifics editor reads the saved item, so it would otherwise show stale values.")
+                    .font(.caption)
+                    .foregroundStyle(Color.brandRed)
+            } else {
+                Text("Set the eBay category and required item specifics so the listing can publish.")
+                    .font(.caption)
+            }
         }
     }
 
