@@ -9207,3 +9207,27 @@ NOTE: commit 7f8b6d5a accidentally included a stray services/edge-functions/prog
 (PowerShell cwd drift) - removed in the follow-up commit; prd/progress updates landed there
 too.
 Still LOCAL-ONLY; queues behind held migration 00339.
+
+=== 2026-07-02 (loop): US-1546 (pre-generate review checkpoint) ===
+- Sticky summary bar (top-16, backdrop-blur) whenever the session has content: N photos -
+  M listings to generate - K ungrouped (amber when >0) - ~M AI actions of R left (US-1545
+  aiActionsRemaining). Below it, up to 8 warning chips (+N more note).
+- groupWarnings memo (AC2): single-photo groups, oversized (>12 photos, "two items?"),
+  cover QA score < COVER_QA_REVIEW_THRESHOLD=60 ("reshoot recommended"), and unresolved
+  US-1544 AI suggestions. Every warning is a button -> scrollToGroup: raises the US-1541
+  groups render window when the target is beyond it (setGroupsLimit to the covering chunk),
+  closes the dialog, then smooth-scrolls to the new id anchor on GroupDropZone
+  (group-card-<id>).
+- Generate now opens a confirm Dialog instead of firing immediately: title "Generate M
+  listings?", quota line (flips to "won't fit - trim or upgrade" when over), scrollable
+  warning list (same jump links), and - when K>0 - a destructive-tinted "K photos will NOT
+  be listed" acknowledgment checkbox that gates the Generate button. "Keep editing"
+  cancels. generate() itself unchanged.
+- AC4: the trigger button keeps the exact existing disabled gates (busy / 0 groups /
+  uploads in flight / entitlement), so the dialog can never bypass them.
+VERIFICATION: vitest 1114/1114 (102 files); npx tsc -b green; eslint clean; npm run build
+green (47 pages). Browser pass (warnings render/jump, ack blocks, generate proceeds)
+queued with the other AutoLister manual passes.
+WEB SIDE OF THE US-1538 EPIC NOW COMPLETE (1539/40/41/42/43/44/45/46); remaining children
+are iOS parity (US-1547, US-1548).
+Still LOCAL-ONLY; queues behind held migration 00339.

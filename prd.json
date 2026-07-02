@@ -9649,7 +9649,7 @@
     {
       "id": "US-1546",
       "priority": 2344,
-      "passes": false,
+      "passes": true,
       "title": "Pre-generate review checkpoint: summary, suspicious-group warnings, explicit confirm",
       "description": "As a seller about to spend one AI action per listing, I want a final checkpoint that makes the batch state obvious — how many groups, how many photos left ungrouped, which groups look wrong — and requires me to explicitly confirm, so I never generate 120 drafts off a bad grouping. Today Generate fires immediately with no summary and silently ignores ungrouped photos.",
       "acceptanceCriteria": [

@@ -59,6 +59,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   movePhotosToGroup,
   reorderWithinGroup,
 } from "@/lib/autolister-group-edits";
@@ -304,7 +312,12 @@ function MovePhotoMenu({
 function GroupDropZone({ groupId, children }: { groupId: string; children: ReactNode }) {
   const { isOver, setNodeRef } = useDroppable({ id: `group:${groupId}` });
   return (
-    <div ref={setNodeRef} className={cn("rounded-xl", isOver && "ring-2 ring-primary/60")}>
+    <div
+      ref={setNodeRef}
+      // US-1546: scroll anchor for the checkpoint's warning links.
+      id={`group-card-${groupId}`}
+      className={cn("rounded-xl", isOver && "ring-2 ring-primary/60")}
+    >
       {children}
     </div>
   );
@@ -503,6 +516,10 @@ export function FlipdeskAutolisterPage() {
   // auto-applied — rendered as dismissible chips on the affected groups.
   const [groupSuggestions, setGroupSuggestions] = useState<GroupSuggestionRow[]>([]);
   const [verifyingGroups, setVerifyingGroups] = useState(false);
+  // US-1546: pre-generate checkpoint — Generate opens this confirm dialog;
+  // when photos would be left ungrouped, an explicit acknowledgment gates it.
+  const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
+  const [ackUngrouped, setAckUngrouped] = useState(false);
   // US-535: studio background. Mode for the one-tap clean, photos currently
   // being segmented, a batch-busy flag, and one-time model-download progress.
   const [bgMode, setBgMode] = useState<BgMode>("white");
@@ -1368,6 +1385,79 @@ export function FlipdeskAutolisterPage() {
     setGroupSuggestions((prev) => prev.filter((s) => s.id !== id));
   }
 
+  // ── US-1546: pre-generate checkpoint ───────────────────────────────
+
+  /** Groups that will actually generate (non-empty). */
+  const listableCount = groups.filter((g) => g.photoIds.length > 0).length;
+
+  /** US-1546 AC2: suspicious groups, each linkable/scrollable. */
+  interface GroupWarning {
+    key: string;
+    groupId: string;
+    label: string;
+  }
+  const groupWarnings = useMemo<GroupWarning[]>(() => {
+    const warnings: GroupWarning[] = [];
+    const nameOf = (g: Group) => g.name || "Untitled group";
+    for (const g of groups) {
+      if (g.photoIds.length === 1) {
+        warnings.push({
+          key: `single-${g.id}`,
+          groupId: g.id,
+          label: `“${nameOf(g)}” has a single photo`,
+        });
+      } else if (g.photoIds.length > 12) {
+        warnings.push({
+          key: `big-${g.id}`,
+          groupId: g.id,
+          label: `“${nameOf(g)}” has ${g.photoIds.length} photos — two items?`,
+        });
+      }
+      const score = coverScores[g.coverId];
+      if (score != null && score >= 0 && score < COVER_QA_REVIEW_THRESHOLD) {
+        warnings.push({
+          key: `cover-${g.id}`,
+          groupId: g.id,
+          label: `“${nameOf(g)}” cover scored ${score} — reshoot recommended`,
+        });
+      }
+    }
+    // Unresolved US-1544 AI suggestions count as open questions.
+    for (const s of groupSuggestions) {
+      const g = groups.find((x) => x.id === s.group_ids[0]);
+      if (!g) continue;
+      warnings.push({
+        key: `ai-${s.id}`,
+        groupId: g.id,
+        label: `AI suggestion open on “${nameOf(g)}” (${s.type})`,
+      });
+    }
+    return warnings;
+  }, [groups, coverScores, groupSuggestions]);
+
+  /** Scroll to a group card, raising the render window when it's beyond it. */
+  function scrollToGroup(groupId: string) {
+    const idx = groups.findIndex((g) => g.id === groupId);
+    if (idx >= 0 && idx >= groupsLimit) {
+      setGroupsLimit(Math.ceil((idx + 1) / GROUPS_CHUNK) * GROUPS_CHUNK);
+    }
+    setConfirmGenerateOpen(false);
+    // Let the window expansion commit before scrolling.
+    setTimeout(() => {
+      document
+        .getElementById(`group-card-${groupId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  }
+
+  /** Generate button → checkpoint dialog (the button's own disabled state
+   * already enforces the busy / no-groups / uploads-in-flight / entitlement
+   * gates, so opening never bypasses them). */
+  function openGenerateConfirm() {
+    setAckUngrouped(false);
+    setConfirmGenerateOpen(true);
+  }
+
   /** Apply one suggestion via the US-1543 undoable mutations. */
   function applySuggestion(s: GroupSuggestionRow) {
     if (s.type === "merge") {
@@ -1828,7 +1918,7 @@ export function FlipdeskAutolisterPage() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <Button
-            onClick={generate}
+            onClick={openGenerateConfirm}
             disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
             size="lg"
           >
@@ -1873,6 +1963,50 @@ export function FlipdeskAutolisterPage() {
           )}
         </div>
       </div>
+
+      {/* US-1546: sticky batch summary — the state of play stays visible while
+          scrolling a 600-photo session, with warning chips that jump to the
+          offending group. */}
+      {(staged.length > 0 || groups.length > 0) && (
+        <div className="sticky top-16 z-20 rounded-lg border bg-background/95 px-3 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span>
+              <span className="font-semibold">{staged.length}</span> photo{staged.length === 1 ? "" : "s"}
+            </span>
+            <span>
+              <span className="font-semibold">{listableCount}</span> listing{listableCount === 1 ? "" : "s"} to generate
+            </span>
+            <span className={cn(ungrouped.length > 0 && "text-amber-700 dark:text-amber-300")}>
+              <span className="font-semibold">{ungrouped.length}</span> ungrouped
+            </span>
+            <span className="text-muted-foreground">
+              ~{listableCount} AI action{listableCount === 1 ? "" : "s"}
+              {aiActionsRemaining != null ? ` of ${aiActionsRemaining} left` : ""}
+            </span>
+          </div>
+          {groupWarnings.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {groupWarnings.slice(0, 8).map((w) => (
+                <button
+                  key={w.key}
+                  type="button"
+                  onClick={() => scrollToGroup(w.groupId)}
+                  className="inline-flex max-w-72 items-center gap-1 truncate rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-500/20 dark:text-amber-200"
+                  title={`${w.label} — click to jump to the group`}
+                >
+                  <Camera className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{w.label}</span>
+                </button>
+              ))}
+              {groupWarnings.length > 8 && (
+                <span className="self-center text-xs text-muted-foreground">
+                  +{groupWarnings.length - 8} more in the Generate checkpoint
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* US-957: pre-generation cover-QA advisory. Non-blocking — it never
           disables Generate, it just nudges a reshoot to save AI quota. */}
@@ -2669,6 +2803,78 @@ export function FlipdeskAutolisterPage() {
           Your grouped listings will appear here.
         </div>
       )}
+
+      {/* US-1546: the pre-generate checkpoint — a final look at the batch
+          before one AI action per listing is spent, with an explicit
+          acknowledgment when photos would be left behind. */}
+      <Dialog open={confirmGenerateOpen} onOpenChange={setConfirmGenerateOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Generate {listableCount} listing{listableCount === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              {staged.length} photo{staged.length === 1 ? "" : "s"} staged · ~
+              {listableCount} AI action{listableCount === 1 ? "" : "s"}
+              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}
+              {aiActionsRemaining != null && listableCount > aiActionsRemaining
+                ? " — this batch won't fit; trim it or upgrade."
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {groupWarnings.length > 0 && (
+            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                {groupWarnings.length} thing{groupWarnings.length === 1 ? "" : "s"} worth a look first:
+              </p>
+              {groupWarnings.map((w) => (
+                <button
+                  key={w.key}
+                  type="button"
+                  onClick={() => scrollToGroup(w.groupId)}
+                  className="block w-full truncate text-left text-xs text-amber-800 underline-offset-2 hover:underline dark:text-amber-200"
+                >
+                  • {w.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {ungrouped.length > 0 && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm">
+              <input
+                type="checkbox"
+                checked={ackUngrouped}
+                onChange={(e) => setAckUngrouped(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+              />
+              <span>
+                <span className="font-medium">
+                  {ungrouped.length} photo{ungrouped.length === 1 ? "" : "s"} will NOT be listed
+                </span>{" "}
+                — they're still ungrouped. Generate anyway; they stay staged here.
+              </span>
+            </label>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmGenerateOpen(false)}>
+              Keep editing
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmGenerateOpen(false);
+                void generate();
+              }}
+              disabled={ungrouped.length > 0 && !ackUngrouped}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate {listableCount} listing{listableCount === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* US-534: crop/rotate/straighten one staged photo. Edits re-enter the
           stage pipeline so both the AI input and the published image use them. */}
