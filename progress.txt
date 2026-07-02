@@ -9150,3 +9150,30 @@ suite 2459 passed / 0 failed / 69 ignored. npx tsc -b green; eslint clean.
 NOTE for check-in: reliability test now needs --allow-net --allow-read (module graph pulls
 imagescript wasm at import) - the full-suite invocation already grants these.
 Still LOCAL-ONLY; queues behind held migration 00339.
+
+=== 2026-07-02 (loop): US-1543 (drag-and-drop grouping workbench) ===
+- NEW src/lib/autolister-group-edits.ts (pure, 11 tests): movePhotosToGroup (cross-group /
+  ungrouped-in / back-to-ungrouped, optional beforePhotoId positional insert -> manualOrder,
+  cover repair, empty-group dissolution, moved-out role pruning, SAME-reference no-op
+  detection) + reorderWithinGroup (marks manualOrder). Fixed a real bug the tests caught:
+  positional rearrange-in-place was misdetected as a no-op.
+- autolister.tsx: one DndContext spans the ungrouped grid + group cards (closestCenter;
+  PointerSensor distance 6 + KeyboardSensor). Tiles wrap in PhotoDragTile - drag via a
+  dedicated GripVertical handle button (the photo-manager US-416 pattern: keyboard-operable,
+  existing tile buttons untouched); grouped tiles double as positional drop targets
+  (photo:<id>), group cards as append targets (group:<id>), the Ungrouped section as the
+  ungroup target. Multi-select drag moves the whole selection.
+- Non-pointer fallback (AC3): MovePhotoMenu (FolderInput trigger) on BOTH tile kinds - New
+  group / Ungrouped / every other group; also the reach-around for groups beyond the US-1541
+  render window (sentinel copy points at it).
+- Single-level undo (AC4): applyGroupEdit snapshots prev groups + toasts with Undo; wired
+  into create-from-selection, merge, drag/menu moves, remove-from-group (now routed through
+  the shared move transform), delete-group, ungroup-all, and reorder. No-op edits (same-ref
+  return from the lib) skip snapshot+toast.
+- generate(): manualOrder groups write the hand-placed photoIds order as sort_order (cover
+  still first; roles still label photo_type) - role-derived order otherwise (unchanged).
+VERIFICATION: vitest FULL suite 1114/1114 (11 new lib tests); npx tsc -b green; eslint
+(incl. jsx-a11y) clean; npm run build green (prerender 47 pages). Browser drag/keyboard/undo
+pass queued for next check-in. NOTE: story grounding claimed no dnd-kit in repo - wrong; it
+was already a dep used by 5 surfaces, so no new dependency was added.
+Still LOCAL-ONLY; queues behind held migration 00339.

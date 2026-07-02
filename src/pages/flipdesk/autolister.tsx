@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -22,6 +22,8 @@ import {
   RotateCcw,
   Camera,
   Ungroup,
+  GripVertical,
+  FolderInput,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -37,6 +39,29 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { processStagedImage } from "@/lib/image-worker-pool";
 import { isVideoFile } from "@/lib/media-intake";
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  movePhotosToGroup,
+  reorderWithinGroup,
+} from "@/lib/autolister-group-edits";
 import {
   autoGroupPhotos,
   compareByProvenance,
@@ -93,6 +118,10 @@ interface Group {
   // photoId -> role. Optional so sessions persisted before US-533 (and freshly
   // created groups) round-trip; a missing entry falls back to "detail".
   roles?: Record<string, PhotoRole>;
+  // US-1543: true once the seller hand-placed photos (drag-reorder or a
+  // positional drop): generate() then writes the photoIds order as sort_order
+  // (cover still first) instead of the role-derived order. Roles are kept.
+  manualOrder?: boolean;
 }
 
 // Sort key for the name sort. Pre-sourceName photos recover the filename from
@@ -142,6 +171,139 @@ function LoadMoreSentinel({
   return (
     <div ref={ref} className="py-2 text-center text-xs text-muted-foreground">
       {label}
+    </div>
+  );
+}
+
+// ── US-1543: drag-and-drop grouping workbench pieces ─────────────────
+
+/**
+ * One photo tile as a drag source (via the GripVertical handle — the
+ * photo-manager pattern, so the tile's own buttons keep working and the handle
+ * is the keyboard-operable a11y affordance: focus it, Space lifts, arrows
+ * move, Space drops) and, inside a group, a positional drop target so dropping
+ * ON a tile inserts there (reorder / cross-group placement).
+ */
+function PhotoDragTile({
+  photoId,
+  groupId,
+  className,
+  children,
+}: {
+  photoId: string;
+  /** null = the tile lives in the Ungrouped grid. */
+  groupId: string | null;
+  className?: string;
+  children: ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    isDragging,
+  } = useDraggable({ id: photoId, data: { fromGroupId: groupId } });
+  // Ungrouped tiles aren't positional targets — their order is provenance-
+  // derived (US-1540), so dropping "between" them means nothing.
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `photo:${photoId}`,
+    data: { groupId },
+    disabled: groupId == null,
+  });
+  return (
+    <div
+      ref={(el) => {
+        setDragRef(el);
+        setDropRef(el);
+      }}
+      className={cn(
+        className,
+        isDragging && "opacity-40",
+        groupId != null && isOver && "ring-2 ring-primary",
+      )}
+    >
+      {children}
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={groupId == null ? "Drag to add to a group" : "Drag to move or reorder"}
+        title="Drag to move"
+        className="absolute left-1 top-7 z-10 cursor-grab rounded bg-black/55 p-1 text-white opacity-0 focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100"
+      >
+        <GripVertical className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+/** Non-pointer fallback for moving a photo: a "Move to…" menu (US-1543 AC3). */
+function MovePhotoMenu({
+  photoId,
+  currentGroupId,
+  groups,
+  onMove,
+  onNewGroup,
+  className,
+}: {
+  photoId: string;
+  currentGroupId: string | null;
+  groups: Group[];
+  onMove: (photoId: string, targetGroupId: string | null) => void;
+  onNewGroup: (photoId: string) => void;
+  className?: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Move to group"
+          title="Move to group…"
+          className={cn(
+            "z-10 rounded-full bg-black/55 p-1 text-white opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+            className,
+          )}
+        >
+          <FolderInput className="h-3 w-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-64 w-56 overflow-y-auto">
+        <DropdownMenuLabel>Move photo to</DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => onNewGroup(photoId)}>New group</DropdownMenuItem>
+        {currentGroupId != null && (
+          <DropdownMenuItem onClick={() => onMove(photoId, null)}>
+            Ungrouped
+          </DropdownMenuItem>
+        )}
+        {groups.some((g) => g.id !== currentGroupId) && <DropdownMenuSeparator />}
+        {groups
+          .filter((g) => g.id !== currentGroupId)
+          .map((g) => (
+            <DropdownMenuItem key={g.id} onClick={() => onMove(photoId, g.id)}>
+              <span className="truncate">{g.name || "Untitled group"}</span>
+            </DropdownMenuItem>
+          ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** A group card as a drop target: dropping anywhere on it appends the photos. */
+function GroupDropZone({ groupId, children }: { groupId: string; children: ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id: `group:${groupId}` });
+  return (
+    <div ref={setNodeRef} className={cn("rounded-xl", isOver && "ring-2 ring-primary/60")}>
+      {children}
+    </div>
+  );
+}
+
+/** The Ungrouped section as a drop target: dropping here ungroups the photos. */
+function UngroupedDropZone({ children }: { children: ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id: "ungrouped" });
+  return (
+    <div ref={setNodeRef} className={cn("rounded-lg", isOver && "ring-2 ring-primary/60")}>
+      {children}
     </div>
   );
 }
@@ -1032,18 +1194,133 @@ export function FlipdeskAutolisterPage() {
     }
   }
 
+  // ── US-1543: undoable grouping mutations + drag-and-drop ───────────
+
+  /** Snapshot for single-level undo of the LAST grouping mutation. */
+  const undoGroupsRef = useRef<Group[] | null>(null);
+
+  /**
+   * Apply a grouping mutation with single-level undo: snapshots the previous
+   * groups and offers Undo on the toast. `apply` must return the SAME array
+   * reference on a no-op (the autolister-group-edits helpers do) so nothing is
+   * snapshotted or toasted for nothing. Returns whether it applied.
+   */
+  function applyGroupEdit(label: string, apply: (prev: Group[]) => Group[]): boolean {
+    const next = apply(groups);
+    if (next === groups) return false;
+    undoGroupsRef.current = groups;
+    setGroups(next);
+    toast.success(label, {
+      action: { label: "Undo", onClick: undoLastGroupEdit },
+    });
+    return true;
+  }
+
+  function undoLastGroupEdit() {
+    const snapshot = undoGroupsRef.current;
+    if (!snapshot) return;
+    undoGroupsRef.current = null;
+    setGroups(snapshot);
+    // Group ids may have come or gone — reset the group selection to be safe.
+    setSelectedGroups(new Set());
+    toast.success("Grouping change undone.");
+  }
+
+  const groupNameOf = (id: string | null) =>
+    id == null ? "Ungrouped" : (groups.find((g) => g.id === id)?.name || "the group");
+
+  /** Move photos (drag or menu). Clears the photo selection on success. */
+  function movePhotos(
+    photoIds: string[],
+    targetGroupId: string | null,
+    beforePhotoId: string | null = null,
+  ) {
+    const label =
+      `Moved ${photoIds.length === 1 ? "photo" : `${photoIds.length} photos`} to ` +
+      `${groupNameOf(targetGroupId)}.`;
+    if (
+      applyGroupEdit(label, (prev) =>
+        movePhotosToGroup(prev, photoIds, targetGroupId, beforePhotoId),
+      )
+    ) {
+      setSelected(new Set());
+    }
+  }
+
+  /** "New group" from the move menu: pull the photo out of any group first. */
+  function newGroupFromPhoto(photoId: string) {
+    applyGroupEdit("New group created.", (prev) => {
+      const cleared = movePhotosToGroup(prev, [photoId], null);
+      return [
+        ...cleared,
+        {
+          id: crypto.randomUUID(),
+          name: `Item ${prev.length + 1}`,
+          photoIds: [photoId],
+          coverId: photoId,
+        },
+      ];
+    });
+  }
+
+  // US-1543 sensors: the drag handle is a real button, so the pointer sensor
+  // needs a small travel threshold (a plain click still focuses/does nothing
+  // destructive) and the keyboard sensor makes it operable without a pointer.
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  function onGroupDragEnd(e: DragEndEvent) {
+    const activeId = String(e.active.id);
+    const overId = e.over ? String(e.over.id) : null;
+    if (!overId) return;
+    const fromGroupId =
+      (e.active.data.current as { fromGroupId?: string | null } | undefined)
+        ?.fromGroupId ?? null;
+    // Multi-select drag: dragging a selected tile moves the whole selection.
+    const movingIds = selected.has(activeId) ? Array.from(selected) : [activeId];
+
+    if (overId === "ungrouped") {
+      movePhotos(movingIds, null);
+      return;
+    }
+    if (overId.startsWith("group:")) {
+      movePhotos(movingIds, overId.slice("group:".length));
+      return;
+    }
+    if (overId.startsWith("photo:")) {
+      const anchorId = overId.slice("photo:".length);
+      if (anchorId === activeId) return;
+      const targetGroupId =
+        (e.over?.data.current as { groupId?: string | null } | undefined)?.groupId ??
+        null;
+      if (!targetGroupId) return;
+      if (movingIds.length === 1 && fromGroupId === targetGroupId) {
+        applyGroupEdit("Photo order updated.", (prev) =>
+          reorderWithinGroup(prev, targetGroupId, activeId, anchorId),
+        );
+      } else {
+        movePhotos(movingIds, targetGroupId, anchorId);
+      }
+    }
+  }
+
   function createGroupFromSelection() {
     const ids = Array.from(selected).filter((id) => !groupedIds.has(id));
     if (ids.length === 0) return;
-    setGroups((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        name: `Item ${prev.length + 1}`,
-        photoIds: ids,
-        coverId: ids[0]!,
-      },
-    ]);
+    applyGroupEdit(
+      `Group created from ${ids.length} photo${ids.length === 1 ? "" : "s"}.`,
+      (prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          name: `Item ${prev.length + 1}`,
+          photoIds: ids,
+          coverId: ids[0]!,
+        },
+      ],
+    );
     setSelected(new Set());
   }
 
@@ -1115,12 +1392,13 @@ export function FlipdeskAutolisterPage() {
   // deleted). This is the escape hatch when a bad grouping was already
   // persisted to the session (the undo snapshot doesn't survive a reload).
   function ungroupAll() {
-    setGroups([]);
+    // US-1543: undoable like every other grouping mutation.
+    applyGroupEdit(
+      "All groups dissolved — photos are back in Ungrouped (shown in shooting order).",
+      (prev) => (prev.length === 0 ? prev : []),
+    );
     setSelectedGroups(new Set());
     setLastAutoGroupIds(null);
-    toast.success(
-      "All groups dissolved — photos are back in Ungrouped. Sort by name or time, then regroup.",
-    );
   }
 
   function updateGroup(id: string, patch: Partial<Group>) {
@@ -1223,39 +1501,33 @@ export function FlipdeskAutolisterPage() {
   }
 
   function removePhotoFromGroup(groupId: string, photoId: string) {
-    setGroups((prev) =>
-      prev
-        .map((g) => {
-          if (g.id !== groupId) return g;
-          const photoIds = g.photoIds.filter((p) => p !== photoId);
-          return {
-            ...g,
-            photoIds,
-            coverId: g.coverId === photoId ? (photoIds[0] ?? "") : g.coverId,
-          };
-        })
-        .filter((g) => g.photoIds.length > 0),
+    // US-1543: routed through the shared move transform (cover repair, empty-
+    // group dissolution, role pruning) with single-level undo.
+    void groupId;
+    applyGroupEdit("Photo moved back to Ungrouped.", (prev) =>
+      movePhotosToGroup(prev, [photoId], null),
     );
   }
 
   function deleteGroup(groupId: string) {
-    setGroups((prev) => prev.filter((g) => g.id !== groupId));
+    applyGroupEdit("Group deleted — its photos are back in Ungrouped.", (prev) =>
+      prev.filter((g) => g.id !== groupId),
+    );
   }
 
   // US-317: merge two or more groups. Keeps the first group's name and cover,
   // concatenates the rest's photos. Called when 2+ groups are checkbox-selected
-  // via the group toolbar's "Merge selected" action.
+  // via the group toolbar's "Merge selected" action. US-1543: undoable.
   function mergeGroups(groupIds: string[]) {
     if (groupIds.length < 2) return;
-    setGroups((prev) => {
+    applyGroupEdit(`Merged ${groupIds.length} groups.`, (prev) => {
       const survivors = prev.filter((g) => !groupIds.includes(g.id));
       const merged = prev.filter((g) => groupIds.includes(g.id));
       if (merged.length < 2) return prev;
       const allIds = Array.from(new Set(merged.flatMap((g) => g.photoIds)));
       const head = merged[0]!;
       const combined: Group = {
-        id: head.id,
-        name: head.name,
+        ...head,
         photoIds: allIds,
         coverId: allIds.includes(head.coverId) ? head.coverId : (allIds[0] ?? ""),
       };
@@ -1265,6 +1537,7 @@ export function FlipdeskAutolisterPage() {
       out.splice(Math.min(headIdx, out.length), 0, combined);
       return out;
     });
+    setSelectedGroups(new Set());
   }
 
   // US-317: clear the persisted session AFTER a successful generate so we
@@ -1297,12 +1570,17 @@ export function FlipdeskAutolisterPage() {
         // US-533: cover first (front), then the rest ordered by role
         // (back → tag → detail → defect). photo_type carries the assigned role
         // so the eBay gallery is well-ordered and labeled, not all "detail".
+        // US-1543: once the seller hand-placed photos (drag-reorder /
+        // positional drop), THEIR order wins — it becomes sort_order verbatim
+        // (cover still first; roles still label each photo).
         const roleOf = (p: StagedPhoto): PhotoRole =>
           p.id === g.coverId ? "front" : (g.roles?.[p.id] ?? "detail");
         const ordered = [...photos].sort((a, b) => {
           if (a.id === g.coverId) return -1;
           if (b.id === g.coverId) return 1;
-          return ROLE_ORDER[roleOf(a)] - ROLE_ORDER[roleOf(b)];
+          return g.manualOrder
+            ? g.photoIds.indexOf(a.id) - g.photoIds.indexOf(b.id)
+            : ROLE_ORDER[roleOf(a)] - ROLE_ORDER[roleOf(b)];
         });
 
         // SKU binding: if the seller gave a SKU that already exists in their
@@ -1799,6 +2077,14 @@ export function FlipdeskAutolisterPage() {
         </Card>
       )}
 
+      {/* US-1543: one DnD context spans the ungrouped grid and the group
+          cards, so photos drag between all of them (handle = grip icon;
+          keyboard: focus the grip, Space lifts, arrows move, Space drops). */}
+      <DndContext
+        sensors={dndSensors}
+        collisionDetection={closestCenter}
+        onDragEnd={onGroupDragEnd}
+      >
       {/* Ungrouped staging area */}
       <div>
         <div className="mb-2 flex items-center justify-between">
@@ -1847,11 +2133,12 @@ export function FlipdeskAutolisterPage() {
             )}
           </div>
         </div>
+        <UngroupedDropZone>
         {ungrouped.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
             {staged.length === 0
               ? "No photos yet — upload some above."
-              : "All photos are grouped. Generate when ready."}
+              : "All photos are grouped. Generate when ready — or drag one here to ungroup it."}
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
@@ -1861,8 +2148,10 @@ export function FlipdeskAutolisterPage() {
               const processing = bgInFlight || enhancingInFlight;
               const cleaned = !!p.original;
               return (
-                <div
+                <PhotoDragTile
                   key={p.id}
+                  photoId={p.id}
+                  groupId={null}
                   className={cn(
                     "group relative aspect-square overflow-hidden rounded-md border-2",
                     selected.has(p.id)
@@ -1942,12 +2231,21 @@ export function FlipdeskAutolisterPage() {
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
+                  {/* US-1543: non-pointer fallback for adding to a group. */}
+                  <MovePhotoMenu
+                    photoId={p.id}
+                    currentGroupId={null}
+                    groups={groups}
+                    onMove={(pid, target) => movePhotos([pid], target)}
+                    onNewGroup={newGroupFromPhoto}
+                    className="absolute left-7 top-1"
+                  />
                   {processing && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
                       <Loader2 className="h-5 w-5 animate-spin text-white" />
                     </div>
                   )}
-                </div>
+                </PhotoDragTile>
               );
             })}
           </div>
@@ -1958,6 +2256,7 @@ export function FlipdeskAutolisterPage() {
             onMore={() => setUngroupedLimit((l) => l + GRID_CHUNK)}
           />
         )}
+        </UngroupedDropZone>
       </div>
 
       {/* Groups */}
@@ -2008,7 +2307,8 @@ export function FlipdeskAutolisterPage() {
             </div>
           </div>
           {groups.slice(0, groupsLimit).map((g) => (
-            <Card key={g.id} className="p-3">
+            <GroupDropZone key={g.id} groupId={g.id}>
+            <Card className="p-3">
               <div className="mb-2 flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -2088,8 +2388,10 @@ export function FlipdeskAutolisterPage() {
                   if (!p) return null;
                   const isCover = g.coverId === pid;
                   return (
-                    <div
+                    <PhotoDragTile
                       key={pid}
+                      photoId={pid}
+                      groupId={g.id}
                       className={cn(
                         "group relative aspect-square overflow-hidden rounded-md border-2",
                         isCover ? "border-brand-red" : "border-transparent",
@@ -2123,6 +2425,15 @@ export function FlipdeskAutolisterPage() {
                       >
                         <X className="h-3 w-3" />
                       </button>
+                      {/* US-1543: non-pointer fallback for moving between groups. */}
+                      <MovePhotoMenu
+                        photoId={pid}
+                        currentGroupId={g.id}
+                        groups={groups}
+                        onMove={(photoId, target) => movePhotos([photoId], target)}
+                        onNewGroup={newGroupFromPhoto}
+                        className="absolute bottom-6 right-1"
+                      />
                       {/* US-534: crop/rotate/straighten */}
                       <button
                         type="button"
@@ -2152,20 +2463,22 @@ export function FlipdeskAutolisterPage() {
                           <option value="defect">Defect</option>
                         </select>
                       )}
-                    </div>
+                    </PhotoDragTile>
                   );
                 })}
               </div>
             </Card>
+            </GroupDropZone>
           ))}
           {groupsLimit < groups.length && (
             <LoadMoreSentinel
-              label={`Showing ${groupsLimit} of ${groups.length} groups — scroll for more`}
+              label={`Showing ${groupsLimit} of ${groups.length} groups — scroll for more (use a photo's Move menu to reach unrendered groups)`}
               onMore={() => setGroupsLimit((l) => l + GROUPS_CHUNK)}
             />
           )}
         </div>
       )}
+      </DndContext>
 
       {staged.length === 0 && groups.length === 0 && (
         <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">

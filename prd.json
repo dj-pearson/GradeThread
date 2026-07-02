@@ -9596,7 +9596,7 @@
     {
       "id": "US-1543",
       "priority": 2347,
-      "passes": false,
+      "passes": true,
       "title": "Drag-and-drop grouping workbench (move photos between groups, reorder, undo)",
       "description": "As a seller reviewing auto-grouped photos, I want to fix mistakes directly: drag a photo from one group to another, drag ungrouped photos into a group, drag to reorder within a group, and undo a wrong move. Today there is NO drag-and-drop (the only DnD is file upload), no move-photo-between-groups affordance at all (only remove-then-regroup), and no undo for grouping actions.",
       "acceptanceCriteria": [
@@ -9610,7 +9610,7 @@
       "dependsOn": [
         "US-1541"
       ],
-      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: verified no @dnd-kit/react-dnd in the repo; grouping UI is checkbox-select + 'New group from selected' + merge + per-photo X only (autolister.tsx:1093-1276); photo order is role-derived (ROLE_ORDER autolister.tsx:94-100) with cover-first at generate() (:1305-1314). Depends on [[US-1541]] because DnD must interoperate with virtualized lists. Pre-generate checkpoint that consumes this UX is [[US-1546]]."
+      "notes": "[P1][Web/AutoLister] [bulk-intake deep dive 2026-07-02] Grounding: verified no @dnd-kit/react-dnd in the repo; grouping UI is checkbox-select + 'New group from selected' + merge + per-photo X only (autolister.tsx:1093-1276); photo order is role-derived (ROLE_ORDER autolister.tsx:94-100) with cover-first at generate() (:1305-1314). Depends on [[US-1541]] because DnD must interoperate with virtualized lists. Pre-generate checkpoint that consumes this UX is [[US-1546]]. [COMPLETION 2026-07-02] dnd-kit was ALREADY in the repo (audit grounding wrong) - mirrored the photo-manager handle pattern + reconcile droppable pattern. Manual browser pass (drag between groups, reorder, keyboard move via grip handle, undo) queued for next check-in with US-1541/1542 passes."
     },
     {
       "id": "US-1544",
