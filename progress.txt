@@ -8315,3 +8315,20 @@ First migration story of the session. HELD locally (NOT pushed) until user appli
 VERIFICATION (this host): deno check clean (schema-version 00332); schema-version_test
 12/0 (bump + footer consistent); curly-scan clean on all touched Swift; iOS macOS CI
 is the build gate (will run after the user applies 00332 + I push).
+
+## 2026-07-02 — US-1524 (user-reported) Tag/Certificate photo rotation 400 — FIXED (passes:true) — ⚠️ HELD (migration 00333)
+User reported: rotating the "Garment Tag" photo 400s; all other photos rotate fine.
+Diagnosed (definitive): PhotoRotateService re-uploads rotated bytes with
+x-upsert=true → an UPDATE on storage.objects. The PRIVATE submission-images bucket
+(sensitive tag/tag_2/certificate photos) had per-user-folder INSERT/SELECT/DELETE
+(00001) + workspace-member INSERT/SELECT (00042) but NO UPDATE policy → the
+upsert-overwrite was RLS-denied → HTTP 400. Public item-photos rotates fine (owner
+UPDATE 00017 + member UPDATE 00042). Not visible in edge logs because it's a
+Storage/Kong (api.gradethread.com) RLS denial, not a Hono edge request.
+Fix: migration 00333 adds owner + workspace-member UPDATE policies for
+submission-images, mirroring the item-photos patterns. EXPECTED_SCHEMA_VERSION
+00332→00333. NO iOS CODE CHANGE (PhotoRotateService already targets the right
+bucket via readBucket; the only gap was the missing UPDATE RLS).
+VERIFICATION (this host): deno check clean; schema-version_test 12/0 (00333 bump +
+footer). Purely a prod-RLS migration — apply 00333 to prod and the rotate works
+immediately (no app rebuild needed).
