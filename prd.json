@@ -9480,7 +9480,7 @@
         "Config keys via the system_settings registry (margin, min sample n, enable/disable; default ON with conservative margin)",
         "Tests: synthetic distributions → flag/no-flag; thin-sample no-op; confidence-cap composes correctly with existing caps (min of caps)"
       ],
-      "notes": "[P2][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. 'Similar listings' from the user's ask, applied where it is safest — as a review-routing check, not as prompt input (feeding peer grades INTO the prompt would anchor the model; this keeps the assessment independent and audits it after)."
+      "notes": "[P2][AI/Grading] [AI-refine audit 2026-07-01] Child of US-1532. 'Similar listings' from the user's ask, applied where it is safest — as a review-routing check, not as prompt input (feeding peer grades INTO the prompt would anchor the model; this keeps the assessment independent and audits it after). [CHUNK 1 2026-07-01: pure peer-norm statistics core landed — services/edge-functions/src/lib/peer-norm.ts (computePeerQuartiles, evaluatePeerNorm with enabled/minSampleSize/iqrMarginPoints config, PEER_NORM_CONFIDENCE_CAP=0.7, composeConfidenceCap min-of-caps). 9 deno tests. STILL OPEN (passes false): peer-profile SQL query (+ index migration), grading-pipeline.ts wiring after compositeGrade, reviewer UI line in admin/reviews.tsx, and system_settings config keys.]"
     },
     {
       "id": "US-1537",
