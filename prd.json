@@ -8952,7 +8952,7 @@
         "deleteAccount gets the same local-first + error-surfacing treatment."
       ],
       "priority": 2392,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Auth H4 + buttons M3 + auth L4 combined — one flow, one session."
     },
     {

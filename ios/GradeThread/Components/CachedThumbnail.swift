@@ -104,6 +104,8 @@ final class ThumbnailLoader {
 
     private let cache = NSCache<NSString, UIImage>()
     private let session: URLSession
+    /// Retained so ``purge()`` can wipe the on-disk bytes directly (US-1499).
+    private let urlCache: URLCache
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -112,12 +114,23 @@ final class ThumbnailLoader {
         // tap-to-retry state rather than spin ~60s per thumbnail.
         config.timeoutIntervalForRequest = 20
         config.requestCachePolicy = .returnCacheDataElseLoad
-        config.urlCache = URLCache(
+        let urlCache = URLCache(
             memoryCapacity: 16 * 1024 * 1024,
             diskCapacity: 128 * 1024 * 1024
         )
+        config.urlCache = urlCache
+        self.urlCache = urlCache
         session = URLSession(configuration: config)
         cache.countLimit = 400
+    }
+
+    /// US-1499: drops every cached thumbnail — decoded images (memory) AND the
+    /// disk-backed byte cache — so one account's photos don't persist at rest or
+    /// in memory across accounts on a shared device. Called on sign-out / account
+    /// deletion. NSCache + URLCache are thread-safe, so this is callable anywhere.
+    func purge() {
+        cache.removeAllObjects()
+        urlCache.removeAllCachedResponses()
     }
 
     private func key(_ url: URL, _ maxPixel: CGFloat) -> NSString {

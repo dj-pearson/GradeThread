@@ -8587,3 +8587,39 @@ VERIFICATION (this host): brace/paren/bracket balance clean on all 9 touched fil
 no-ungated-print + no-bare-strings + no-default-shared-session OK. New test auto-included via
 project.yml's `- path: GradeThreadTests` glob (XcodeGen regenerates in CI). iOS CI is the
 build + unit-test gate. No migration.
+
+## 2026-07-02 (cont.) — US-1499 iOS sign-out robustness (local-first, no permanent spinner, cross-account cache purge) — COMPLETE (passes:true) — NO MIGRATION
+Files: AuthStore.swift, ContentView.swift, Components/CachedThumbnail.swift.
+
+Root cause: AuthStore.signOut() called `auth.signOut()` FIRST and only wiped local
+state on success. supabase-swift propagates transport errors, so an offline sign-out
+threw, the local wipe was skipped, phase stayed .signedIn, and ContentView set
+signingOut=true and never reset it → a permanently-disabled Sign-out row with an eternal
+ProgressView and zero feedback. Separately, the ThumbnailLoader disk URLCache was never
+purged, so photo bytes persisted at rest across accounts on a shared device.
+
+- (AC1) signOut() is now LOCAL-FIRST: clears keychain + AppleCredentialMonitor, drives
+  `phase = .signedOut` (which tears the shell down to LoginView and runs the ContentView
+  .signedOut cleanup) REGARDLESS of network, then does the server revoke best-effort
+  (`try? await auth.signOut()`). Airplane-mode sign-out now fully signs out.
+- (AC2) The Settings Sign-out button resets `signingOut` after the await (defense — with
+  local-first the phase always changes and the view is torn down anyway, so the spinner
+  can never stick). Sign-out is now infallible locally, so there's no failure state left
+  to strand the UI; a residual error would surface on LoginView (which renders lastError).
+- (AC3) ThumbnailLoader gained `purge()` (NSCache.removeAllObjects + URLCache
+  .removeAllCachedResponses; retained the URLCache as a property to wipe disk bytes). It's
+  called from the single ContentView `.signedOut` choke point, so EVERY sign-out path —
+  explicit, account deletion, token-expiry, Apple-credential-revoke — purges the cache.
+- (AC4) deleteAccount() also drives `phase = .signedOut` locally after the RPC succeeds
+  (immediate UI transition + triggers the same cache purge); it still THROWS on RPC
+  failure so DeleteAccountSheet keeps the user on the confirmation screen with a surfaced
+  error (already wired). Account deletion is inherently server-first (can't delete
+  offline), but the local teardown + UI transition are now immediate.
+
+No unit test added: signOut/deleteAccount are coupled to the live Supabase SDK + keychain
+(no clean injection seam; the existing AuthStore tests drive `apply(event:)` directly), and
+the change is a local-first reordering + a cache purge. Verified by compile + code review;
+existing AuthStore/auth-callback tests still exercise the surrounding surface.
+VERIFICATION (this host): comment/string-aware brace balance clean on all 3 touched files;
+no-ungated-print + no-bare-strings + no-default-shared-session OK. iOS CI is the build gate.
+No migration.

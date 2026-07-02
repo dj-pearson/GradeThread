@@ -136,6 +136,12 @@ struct ContentView: View {
                     // US-694: wipe any lingering financial/account exports so
                     // the next user can't read the previous user's exports.
                     SecureTempFile.sweep()
+                    // US-1499: purge the thumbnail byte/image cache so one
+                    // account's photos don't persist at rest (disk URLCache) or in
+                    // memory across accounts on a shared device. This choke point
+                    // covers every sign-out path — explicit sign-out, account
+                    // deletion, and token-expiry / Apple-credential-revoke.
+                    ThumbnailLoader.shared.purge()
                     PushService.shared.clearTokenOnSignOut()
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
@@ -1568,7 +1574,15 @@ struct SettingsView: View {
                 ) {
                     Button("Sign out", role: .destructive) {
                         signingOut = true
-                        Task { await authStore.signOut() }
+                        // US-1499: reset the spinner when the call returns. Sign-out
+                        // is now local-first (always flips phase to .signedOut, which
+                        // tears this view down), but resetting defensively means the
+                        // row never sticks on a permanent ProgressView even if the
+                        // phase somehow didn't change.
+                        Task {
+                            await authStore.signOut()
+                            signingOut = false
+                        }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {

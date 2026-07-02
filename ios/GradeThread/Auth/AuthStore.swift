@@ -278,15 +278,29 @@ public final class AuthStore {
     }
 
     public func signOut() async {
-        await run {
-            try await SupabaseShared.client.auth.signOut()
-            // Belt-and-suspenders: even if the SDK skipped a cleanup branch,
-            // wipe the keychain bucket. Idempotent.
-            try? KeychainLocalStorage().removeAll()
-            // US-1172: forget the tracked Apple credential id so a later
-            // non-Apple sign-in doesn't inherit a stale revocation check.
-            AppleCredentialMonitor.clear()
-        }
+        // US-1499: LOCAL-FIRST sign-out. supabase-swift propagates transport errors
+        // from `auth.signOut()`, so doing the server revoke FIRST left an offline
+        // (airplane-mode) user stuck signed-in — the throw skipped the local wipe,
+        // `phase` stayed `.signedIn`, and the Settings row sat on a permanent
+        // spinner with no feedback. Now the local session/keychain/state are cleared
+        // and the phase is driven to `.signedOut` REGARDLESS of network; the server
+        // revoke is best-effort.
+        // 1) Local teardown — always runs.
+        try? KeychainLocalStorage().removeAll()
+        // US-1172: forget the tracked Apple credential id so a later non-Apple
+        // sign-in doesn't inherit a stale revocation check.
+        AppleCredentialMonitor.clear()
+        // 2) Leave the signed-in UI immediately instead of waiting on the network
+        //    auth-state stream (which never arrives offline). The `.signedOut`
+        //    phase change drives the shell to LoginView AND runs the ContentView
+        //    cleanup (workspace scope, sync cursors, thumbnail cache — US-1493/1499).
+        phase = .signedOut
+        Telemetry.clearUser()
+        lastError = nil
+        // 3) Best-effort server-side revoke; an offline failure is non-fatal since
+        //    we're already locally signed out. (When online this also emits
+        //    `.signedOut`, which re-applies the same idempotent teardown.)
+        try? await SupabaseShared.client.auth.signOut()
     }
 
     /// Permanently deletes the signed-in user's account (US-194). Calls
@@ -316,6 +330,14 @@ public final class AuthStore {
         // .signedOut phase-change also clears it, but deleteAccount can race the
         // auth-state stream, so clear here too (idempotent).
         WorkspaceScope.clear()
+        // US-1499: drive the phase to .signedOut locally instead of waiting on the
+        // (best-effort, possibly-offline) auth-state stream — the account is gone
+        // server-side, so the UI must leave immediately. This also runs the
+        // ContentView `.signedOut` cleanup (thumbnail cache purge et al.). Only
+        // reached on RPC success; an RPC failure threw above and kept the user on
+        // the confirmation sheet with a surfaced error.
+        phase = .signedOut
+        Telemetry.clearUser()
     }
 
     // MARK: - Internals
