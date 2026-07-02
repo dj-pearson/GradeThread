@@ -38,13 +38,13 @@ struct SyncWatermark {
         /// of from a whole-table fetch every pass.
         case listings = "listings"
 
-        /// The timestamp column the delta filter compares against.
-        var cursorColumn: String {
-            switch self {
-            case .inventoryItems, .disputes, .listings: return "updated_at"
-            case .itemPhotos, .sales, .expenses: return "created_at"
-            }
-        }
+        /// The timestamp column the delta filter compares against. US-1515: every
+        /// synced table now has an `updated_at` bumped on edit (sales + item_photos
+        /// gained one in migration 00332; flipdesk_expenses had one since 00019),
+        /// so ALL tables delta on `updated_at` — a server-side EDIT (sale
+        /// correction, photo retag/reorder) now moves the cursor and reaches the
+        /// device, instead of only inserts (created_at) doing so.
+        var cursorColumn: String { "updated_at" }
     }
 
     private let defaults: UserDefaults
@@ -62,7 +62,10 @@ struct SyncWatermark {
     ///   v4 (US-819): items now sync `grade_report_id` and disputes sync into the
     ///   cache — force a one-time full backfill so existing installs populate the
     ///   linkage + dispute badges.
-    private static let currentSchemaVersion = 4
+    ///   v5 (US-1515): sales / item_photos / expenses now delta on `updated_at`
+    ///   instead of `created_at` — force a one-time full backfill so existing
+    ///   installs re-pull every row onto the new cursor and stop missing edits.
+    private static let currentSchemaVersion = 5
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

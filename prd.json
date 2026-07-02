@@ -9176,7 +9176,7 @@
         "Unit tests: an updated sale row is re-pulled; a failed merge save does not advance the watermark."
       ],
       "priority": 2376,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Root of a whole family of 'iOS shows old data' reports. Migration follows MIGRATIONS.md/US-1108 conventions."
     },
     {

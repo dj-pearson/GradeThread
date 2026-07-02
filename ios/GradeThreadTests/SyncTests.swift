@@ -1116,6 +1116,20 @@ final class SyncTests: XCTestCase {
         )
         return try ModelContainer(for: schema, configurations: config)
     }
+
+    // MARK: - US-1515: delta cursor column
+
+    func test_allSyncTables_deltaOnUpdatedAt() {
+        // US-1515: every synced table deltas on updated_at so a server EDIT (sale
+        // correction, photo retag/reorder) reaches iOS, not just inserts. sales +
+        // item_photos gained updated_at in migration 00332.
+        for table in SyncWatermark.Table.allCases {
+            XCTAssertEqual(
+                table.cursorColumn, "updated_at",
+                "\(table.rawValue) must delta on updated_at (US-1515)"
+            )
+        }
+    }
 }
 
 /// Thread-safe call counter for the ``ConnectivityDebouncer`` tests — the

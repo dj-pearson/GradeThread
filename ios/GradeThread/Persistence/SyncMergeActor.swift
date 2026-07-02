@@ -47,12 +47,17 @@ actor SyncMergeActor {
     /// A listing-only change (no item edit) refreshes the price via
     /// ``mergeListings(_:)``'s sibling call, so the cache no longer needs the
     /// item's `updated_at` to bump for a price change to land.
+    /// US-1515: returns whether the SwiftData save SUCCEEDED, so pull() can skip
+    /// advancing this table's watermark when the merge didn't persist (a swallowed
+    /// save failure previously advanced the cursor anyway, permanently losing the
+    /// unsaved rows below it). @discardableResult so non-pull callers are unchanged.
+    @discardableResult
     func mergeItems(
         _ items: [SyncEngine.RemoteInventoryItem],
         primaryPhotos: [String: SyncEngine.RemoteItemPhoto],
         prune: Bool
-    ) {
-        guard !items.isEmpty || prune else { return }
+    ) -> Bool {
+        guard !items.isEmpty || prune else { return true }
         lastMergeFetchedRowCount = 0
         let remoteIds = Set(items.map(\.id))
         // Delta (prune == false): fetch only the rows this payload touches, so a
@@ -124,13 +129,14 @@ actor SyncMergeActor {
                 "Sync kept \(dirtyConflicts) locally-edited item(s) over a newer server row (dirty-wins)",
                 category: "sync")
         }
-        modelContext.saveOrLog("mergeItems")
+        return modelContext.saveOrLog("mergeItems")
     }
 
     /// Upserts item photos. `prune` is true ONLY on a full backfill — in delta
     /// mode `remotePhotos` is just the new rows, so pruning locals not in the
-    /// set would wrongly wipe the whole strip.
-    func mergePhotos(_ remotePhotos: [SyncEngine.RemoteItemPhoto], prune: Bool) {
+    /// set would wrongly wipe the whole strip. US-1515: returns save success.
+    @discardableResult
+    func mergePhotos(_ remotePhotos: [SyncEngine.RemoteItemPhoto], prune: Bool) -> Bool {
         lastMergeFetchedRowCount = 0
         let remoteIds = Set(remotePhotos.map(\.id))
         // Delta: only the photo rows this payload touches; full backfill needs
@@ -200,7 +206,7 @@ actor SyncMergeActor {
             }
             clearCoversForEmptiedItems(deletedItemIds.subtracting(survivingItemIds))
         }
-        modelContext.saveOrLog("mergePhotos")
+        return modelContext.saveOrLog("mergePhotos")
     }
 
     /// US-1249: drops the cached `primaryPhotoURL` of every item in `itemIds`.
@@ -219,8 +225,9 @@ actor SyncMergeActor {
 
     /// Upserts the user's sales. No pruning — a sale that disappears
     /// server-side is rare and harmless to keep locally.
-    func mergeSales(_ remoteSales: [SyncEngine.RemoteSaleRow]) {
-        guard !remoteSales.isEmpty else { return }
+    @discardableResult
+    func mergeSales(_ remoteSales: [SyncEngine.RemoteSaleRow]) -> Bool {
+        guard !remoteSales.isEmpty else { return true }
         lastMergeFetchedRowCount = 0
         // Sales never prune, so this is always a delta: fetch only the rows the
         // payload touches instead of every sale the user has ever made.
@@ -277,7 +284,7 @@ actor SyncMergeActor {
             // sale-level net excludes it (costBasis: 0).
             local.netProfit = SalePnL.net(local, costBasis: 0)
         }
-        modelContext.saveOrLog("mergeSales")
+        return modelContext.saveOrLog("mergeSales")
     }
 
     /// Upserts the local mirror of `flipdesk_expenses` (US-750) so the Money tab
@@ -285,8 +292,9 @@ actor SyncMergeActor {
     /// authoritative for amount/category/date and the 00266 attribution links.
     /// Like sales, expenses never prune, so this is always a delta over the rows
     /// the payload touches.
-    func mergeExpenses(_ remoteExpenses: [SyncEngine.RemoteExpenseRow]) {
-        guard !remoteExpenses.isEmpty else { return }
+    @discardableResult
+    func mergeExpenses(_ remoteExpenses: [SyncEngine.RemoteExpenseRow]) -> Bool {
+        guard !remoteExpenses.isEmpty else { return true }
         lastMergeFetchedRowCount = 0
         let ids = Array(Set(remoteExpenses.map(\.id)))
         let existing = fetchCounting(
@@ -317,7 +325,7 @@ actor SyncMergeActor {
             local.inventoryItemId = remote.inventory_item_id
             local.listingId = remote.listing_id
         }
-        modelContext.saveOrLog("mergeExpenses")
+        return modelContext.saveOrLog("mergeExpenses")
     }
 
     /// Upserts the local mirror of `listings` so the item canvas can resolve a
@@ -325,8 +333,9 @@ actor SyncMergeActor {
     /// and an Edit-on-eBay link. Server is authoritative for marketplace fields
     /// (status, price, offer id). Not pruned: the listings fetch is bounded per
     /// pass, so deleting locals absent from one page could wrongly drop rows.
-    func mergeListings(_ remoteListings: [SyncEngine.RemoteListing]) {
-        guard !remoteListings.isEmpty else { return }
+    @discardableResult
+    func mergeListings(_ remoteListings: [SyncEngine.RemoteListing]) -> Bool {
+        guard !remoteListings.isEmpty else { return true }
         lastMergeFetchedRowCount = 0
         // US-1221: listings now delta on `updated_at` (no longer a whole-table
         // pull every pass). Deletes propagate via the periodic id-reconciliation
@@ -389,7 +398,7 @@ actor SyncMergeActor {
         // ALL cached listings for the affected items, so the latest wins.
         applyLatestListingPrices(forItemIds: remoteListings.map(\.inventory_item_id))
 
-        modelContext.saveOrLog("mergeListings")
+        return modelContext.saveOrLog("mergeListings")
     }
 
     /// US-1221: derives each item's market listing price from the cached
@@ -447,8 +456,9 @@ actor SyncMergeActor {
     /// item — looked up by the indexed `gradeReportId`. Bounded by the number of
     /// CHANGED disputes in this delta (usually 0), never by the grades-list size,
     /// so there is no per-row N+1.
-    func mergeDisputes(_ remoteDisputes: [SyncEngine.RemoteDispute]) {
-        guard !remoteDisputes.isEmpty else { return }
+    @discardableResult
+    func mergeDisputes(_ remoteDisputes: [SyncEngine.RemoteDispute]) -> Bool {
+        guard !remoteDisputes.isEmpty else { return true }
         lastMergeFetchedRowCount = 0
 
         // Latest status per grade_report_id within this delta. A report can carry
@@ -472,7 +482,7 @@ actor SyncMergeActor {
                 item.disputeStatus = latest.status
             }
         }
-        modelContext.saveOrLog("mergeDisputes")
+        return modelContext.saveOrLog("mergeDisputes")
     }
 
     // MARK: - Delete reconciliation (US-1221)

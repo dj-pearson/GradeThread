@@ -13,9 +13,28 @@
 
 ---
 
-## Status: ✅ NO PENDING MIGRATIONS
+## Status: ⚠️ 1 PENDING MIGRATION — apply `00332` before pushing US-1515
 
-Stories completed so far this loop are **code-only** (no schema changes):
+**`supabase/migrations/00332_sales_item_photos_updated_at.sql`** (US-1515) —
+adds `updated_at` (+ `set_updated_at` trigger + backfill + delta index) to
+`public.sales` and `public.item_photos` so the iOS sync can delta them on EDITS.
+Idempotent; ends with the `applied_migrations` self-record footer.
+`EXPECTED_SCHEMA_VERSION` bumped **00331 → 00332** (edge `schema-version.ts`) in
+the same commit.
+
+**To apply (before I push the US-1515 commit):**
+1. Apply `00332` to prod (idempotent) — via `scripts/apply-prod-migrations.sh` or
+   run the SQL directly.
+2. `NOTIFY pgrst, 'reload schema';` (new columns).
+3. Redeploy the edge (Coolify) so its boot guard sees `00332`.
+4. Tell me "OK to push" — I'll push the held US-1515 commit (+ any later ones).
+
+The US-1515 commit is **held locally, NOT pushed**, until you apply `00332` (its
+iOS code queries `updated_at` on sales/item_photos — that column must exist first).
+
+---
+
+### Earlier stories this loop — code-only (already pushed, no schema changes)
 
 | Story | Migration? | Schema bump? |
 |-------|-----------|--------------|

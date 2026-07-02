@@ -166,19 +166,25 @@ actor SyncEngine {
         switch await pullRemote() {
         case .success(let payload):
             // Merge on the background actor (US-634) — never blocks the UI.
-            await mergeActor.mergeItems(
+            // US-1515: capture each merge's SAVE SUCCESS so a swallowed SwiftData
+            // save failure (disk pressure / constraint) no longer advances that
+            // table's cursor past rows it never persisted — which would lose them
+            // permanently (the next delta pull's `gt(cursor)` skips them). A failed
+            // merge keeps its cursor put so the rows are re-fetched + re-merged next
+            // pass.
+            let itemsOk = await mergeActor.mergeItems(
                 payload.items,
                 primaryPhotos: payload.primaryPhotos,
                 prune: payload.isFullItemSync
             )
-            await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
-            await mergeActor.mergeSales(payload.sales)
-            await mergeActor.mergeExpenses(payload.expenses)
-            await mergeActor.mergeListings(payload.listings)
+            let photosOk = await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
+            let salesOk = await mergeActor.mergeSales(payload.sales)
+            let expensesOk = await mergeActor.mergeExpenses(payload.expenses)
+            let listingsOk = await mergeActor.mergeListings(payload.listings)
             // US-819: stamp each item's dispute status from the changed disputes.
             // Runs after mergeItems so the items (and their grade_report_id) are
             // already present for the grade_report_id → item mapping.
-            await mergeActor.mergeDisputes(payload.disputes)
+            let disputesOk = await mergeActor.mergeDisputes(payload.disputes)
 
             // Advance watermarks ONLY after a successful merge (US-633) so a
             // dropped pass re-fetches the missed rows next time. US-1210: each
@@ -186,12 +192,13 @@ actor SyncEngine {
             // resilient decoder silently dropped, so an undecodable low-timestamp
             // row keeps the cursor behind it and is re-fetched (and re-decoded)
             // on the next delta pull instead of being lost below the watermark.
-            watermark.advance(.inventoryItems, to: payload.itemCursor)
-            watermark.advance(.itemPhotos, to: payload.photoCursor)
-            watermark.advance(.sales, to: payload.saleCursor)
-            watermark.advance(.expenses, to: payload.expenseCursor)
-            watermark.advance(.disputes, to: payload.disputeCursor)
-            watermark.advance(.listings, to: payload.listingCursor)
+            // US-1515: additionally gated on the per-table merge SAVE success.
+            if itemsOk { watermark.advance(.inventoryItems, to: payload.itemCursor) }
+            if photosOk { watermark.advance(.itemPhotos, to: payload.photoCursor) }
+            if salesOk { watermark.advance(.sales, to: payload.saleCursor) }
+            if expensesOk { watermark.advance(.expenses, to: payload.expenseCursor) }
+            if disputesOk { watermark.advance(.disputes, to: payload.disputeCursor) }
+            if listingsOk { watermark.advance(.listings, to: payload.listingCursor) }
             lastPullError = nil
 
             // US-1221: prune rows deleted server-side (the watermark delta only
@@ -738,6 +745,16 @@ actor SyncEngine {
     /// When `idOf` is supplied, each page's raw JSON is scanned (US-1210) to
     /// record the `cursor` value of every row and whether it decoded, so the
     /// caller can compute a drop-safe watermark.
+    // US-1515 AC3 (keyset pagination) DEFERRED — documented risk: this uses bare
+    // offset paging (`.range(offset, offset+pageSize)`) within a single pass. If
+    // the server INSERTS/DELETES a matching row between two page requests of the
+    // same pass, offsets shift and a row can be skipped or duplicated within that
+    // pass. Bounded by `maxRowsPerPass`, and mitigated because (a) the drop-safe
+    // watermark (US-1210) never advances past an undecoded row and (b) the delta
+    // filter `gt(cursor, watermark)` re-fetches anything missed on the NEXT pass —
+    // so a mid-pass shift self-heals rather than losing data. Revisit as keyset
+    // pagination on (cursor, id) with a gte-overlap + id-dedupe if pass-internal
+    // churn ever proves material.
     private func paginatedFetch<T>(
         table: String,
         columns: String,
@@ -835,14 +852,14 @@ actor SyncEngine {
         "id,user_id,title,brand,sku,size,color,material,status,item_category,garment_type,garment_category,description,style,sourced_by,acquired_date,container,comp_set,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,grade_report_id,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
-        "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"
+        "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at,updated_at"
 
     private static let saleColumns =
-        "id,inventory_item_id,sale_price,platform_fees,payment_processing_fees,shipping_collected,shipping_cost,grading_cost,other_costs,tax,net_profit,status,sale_date,buyer_username,created_at"
+        "id,inventory_item_id,sale_price,platform_fees,payment_processing_fees,shipping_collected,shipping_cost,grading_cost,other_costs,tax,net_profit,status,sale_date,buyer_username,created_at,updated_at"
 
     // US-750 / 00266: includes the inventory_item_id + listing_id attribution links.
     private static let expenseColumns =
-        "id,category,description,amount,spent_on,inventory_item_id,listing_id,created_at"
+        "id,category,description,amount,spent_on,inventory_item_id,listing_id,created_at,updated_at"
 
     /// Full listings projection. Drives BOTH the cached market (listing) price
     /// per item AND the local LocalListing mirror that the item canvas reads to

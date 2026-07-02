@@ -8292,3 +8292,26 @@ PENDING_MIGRATIONS.md (held, not pushed, until user applies it), plus the
 SyncWatermark cursor change (item_photos/sales/expenses → updated_at + bump
 schemaVersion for a one-time full backfill) and the merge-return-value refactor
 (gate watermark.advance on merge SUCCESS). First migration of the session.
+
+## 2026-07-01 (cont.) — US-1515 sync coverage — COMPLETE (passes:true) — ⚠️ HELD (migration 00332)
+First migration story of the session. HELD locally (NOT pushed) until user applies
+00332 (iOS queries updated_at on sales/item_photos — column must exist first).
+ - AC1: migration 00332 adds updated_at + set_updated_at trigger + backfill + delta
+   index to sales + item_photos (flipdesk_expenses already had it since 00019).
+   EXPECTED_SCHEMA_VERSION 00331→00332. iOS SyncWatermark.cursorColumn now ALWAYS
+   "updated_at" (all tables); schemaVersion 4→5 (one-time full backfill on upgrade);
+   SyncEngine photo/sale/expense SELECT columns gained updated_at (cursor reads the
+   raw row).
+ - AC2: all 6 SyncMergeActor merge fns now @discardableResult -> Bool (return
+   saveOrLog success); SyncEngine.pull gates each watermark.advance on its merge's
+   save success — a swallowed SwiftData save no longer advances the cursor past
+   unpersisted rows (which permanently lost them).
+ - AC3 (keyset pagination): DEFERRED with a documented risk comment in
+   paginatedFetch (offset paging; mid-pass churn self-heals via the drop-safe
+   watermark + gt re-fetch next pass).
+ - AC4: SyncTests.test_allSyncTables_deltaOnUpdatedAt (cursor column). The
+   failed-merge-no-advance path is structurally enforced by the AC2 gating (a unit
+   test needs a save-failing ModelContext harness — noted, not built).
+VERIFICATION (this host): deno check clean (schema-version 00332); schema-version_test
+12/0 (bump + footer consistent); curly-scan clean on all touched Swift; iOS macOS CI
+is the build gate (will run after the user applies 00332 + I push).
