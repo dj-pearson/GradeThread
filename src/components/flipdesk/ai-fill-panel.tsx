@@ -128,6 +128,10 @@ export function AiFillPanel({
   function handleApply() {
     if (!result) return;
     const accepted: AcceptedField[] = [];
+    // US-1531: for an accepted field whose final value differs from the AI's
+    // suggestion, capture the (suggested → final) pair so per-field extraction
+    // accuracy can be measured. Only edited-away-from-AI fields are corrections.
+    const correctedFields: Record<string, { suggested: string; final: string }> = {};
 
     for (const [field, sug] of rows) {
       if (!accept[field]) continue;
@@ -139,6 +143,9 @@ export function AiFillPanel({
         source: sug.source,
         confidence: sug.confidence,
       });
+      if (value !== sug.value.trim()) {
+        correctedFields[field] = { suggested: sug.value, final: value };
+      }
     }
 
     for (const conflict of result.conflicts) {
@@ -158,7 +165,7 @@ export function AiFillPanel({
     if (result.log_id) {
       const acceptedMap: Record<string, string> = {};
       for (const a of accepted) acceptedMap[a.field] = a.value;
-      void recordAiAcceptance(result.log_id, acceptedMap);
+      void recordAiAcceptance(result.log_id, acceptedMap, correctedFields);
     }
 
     onApply(accepted);
