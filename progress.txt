@@ -8236,3 +8236,12 @@ auth.uid()). RLS verified safe: personal insert passes 00002 (auth.uid()=user_id
 VERIFICATION (this host): curly-quote scan clean; RLS reasoned against 00002/00042
 policies + is_workspace_member_with_role body. Can't compile Swift — iOS CI (macOS)
 is the gate.
+
+### Loop checkpoint 9 (2026-07-01) — 9 stories verified & committed locally (NOT pushed)
+17 commits ahead. Web/edge: US-1505/1506/1502/1503/1504/1518. iOS: US-1522, 1521, 1516.
+ALL code-only, PENDING_MIGRATIONS.md empty, schema 00331.
+⚠️ 3 iOS stories now stacked blind (macOS CI unvalidated). STRONGLY recommend
+pushing at next check-in to let iOS CI compile-check before more iOS work.
+NEXT (lower-risk iOS): US-1515 (sync coverage — watermark on updated_at + don't
+advance cursor on failed save) or US-1514 (stale-read gating). DEFER US-1520 (perf/
+concurrency refactor) + US-1523 (macOS lockfile) until CI validates the batch.
