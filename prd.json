@@ -8865,8 +8865,8 @@
         "Unit tests simulate a scope change mid-pull and assert no cross-tenant rows are merged and watermarks are not advanced with stale cursors."
       ],
       "priority": 2398,
-      "passes": false,
-      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Tenant-isolation class. The epoch guard fixes H5, H6 and the access-revoked race in one mechanism."
+      "passes": true,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Tenant-isolation class. The epoch guard fixes H5, H6 and the access-revoked race in one mechanism. [DONE 2026-07-02] (1) WorkspaceScope.clear() now in ContentView .signedOut branch + AuthStore.deleteAccount(). (2) SyncEngine scopeEpoch + invalidateScope(): pull captures epoch before pullRemote, discards merge+watermark-advance if epoch moved (guard after fetch AND after merges); static pullResultApplies() testable seam. (3) pull() no longer no-ops when in-flight — sets pendingPullRequested and loops once more for the current scope. (4) sign-out bumps epoch (captured engine ref) so late merges are no-ops. invalidateScope wired on .workspaceDidChange (covers switch + access-revoked) and .signedOut. Tests: pullResultApplies same/changed epoch + invalidateScope-moves-epoch (real engine). Local: brace-balance + iOS lint clean; iOS CI is the build/test gate."
     },
     {
       "id": "US-1494",

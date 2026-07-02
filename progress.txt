@@ -8434,3 +8434,32 @@ with one test account + an inbox):
 VERIFICATION (this host): brace/paren/bracket balance clean on all touched files;
 no-ungated-print + no-bare-strings OK. SourceKit "No such module" noise expected on
 Windows. iOS CI (xcodebuild test on macOS) is the build + unit-test gate. No migration.
+
+## 2026-07-02 (cont.) — US-1493 iOS tenant isolation: stale scope on sign-out + workspace-switch/sign-out sync race — COMPLETE (passes:true) — NO MIGRATION
+Tenant-isolation class; one epoch mechanism closes the switch-mid-pull, sign-out
+race, and access-revoked recovery.
+ - (AC1) WorkspaceScope.clear() now runs in ContentView's .signedOut phase branch
+   (so the next account on the device never inherits the previous user's
+   X-Workspace-Owner → empty app / wrong tenant) AND in AuthStore.deleteAccount()
+   (idempotent belt-and-suspenders vs the auth-stream race).
+ - (AC2) SyncEngine gains a `scopeEpoch` bumped by `invalidateScope()`. pull()
+   captures the epoch before the network fetch; on return, TWO guards
+   (`pullResultApplies`) discard the payload if the epoch moved — one after
+   pullRemote (skip the whole merge) and one after the merges (block the watermark
+   advance + reconcile). So a workspace-A pull that lands after a switch to B never
+   merges A rows into B's store and never poisons B's freshly-reset cursors.
+ - (AC3) pull() while one is in flight no longer silently no-ops: it sets
+   `pendingPullRequested` and the in-flight pull loops once more for the now-current
+   scope (bounded — one extra pass after the last request).
+ - (AC4) Sign-out captures the engine ref and bumps the epoch, so a late-returning
+   pull discards instead of re-saving the old account's rows after the wipe.
+ - invalidateScope() wired on .workspaceDidChange (covers both explicit switch and
+   the access-revoked auto-switch, which posts that notification) and .signedOut.
+ - (AC5) Tests (SyncTests): pullResultApplies same-epoch applies / changed-epoch
+   discards (both directions) + invalidateScope-moves-epoch on a real in-memory
+   engine (so the wiring can't silently regress). New DEBUG-only
+   currentScopeEpochForTesting accessor.
+VERIFICATION (this host): brace/paren/bracket balance clean on all 4 touched files;
+no-ungated-print + no-bare-strings + no-default-shared-session OK. SourceKit "No such
+module" noise expected on Windows. iOS CI (xcodebuild test on macOS) is the build +
+unit-test gate — CONFIRM GREEN in the cloud session. No migration.

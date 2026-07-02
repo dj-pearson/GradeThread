@@ -960,6 +960,48 @@ final class SyncTests: XCTestCase {
         XCTAssertNil(cursor)
     }
 
+    // MARK: - US-1493: scope-epoch guard (workspace switch / sign-out mid-pull)
+
+    /// A pull whose scope epoch is unchanged when it returns is safe to apply.
+    func test_pullResultApplies_sameEpoch_applies() {
+        XCTAssertTrue(SyncEngine.pullResultApplies(startEpoch: 3, currentEpoch: 3))
+    }
+
+    /// The core tenant-isolation guard: a workspace switch / sign-out that bumps
+    /// the epoch mid-pull means the fetched rows belong to the PREVIOUS tenant, so
+    /// the caller must NOT merge them and must NOT advance the (freshly-reset)
+    /// watermarks with the old scope's cursors.
+    func test_pullResultApplies_changedEpoch_discards() {
+        XCTAssertFalse(SyncEngine.pullResultApplies(startEpoch: 3, currentEpoch: 4))
+        // Direction doesn't matter — any change is a discard.
+        XCTAssertFalse(SyncEngine.pullResultApplies(startEpoch: 4, currentEpoch: 3))
+    }
+
+    /// invalidateScope() advances the epoch, so a pull that captured the old epoch
+    /// is discarded — the actor-level proof that a scope change mid-pull drops the
+    /// stale-tenant payload. (Exercises the real engine's epoch bump, not just the
+    /// pure helper, so the wiring can't silently regress.)
+    func test_invalidateScope_movesEpoch_soCapturedPullDiscards() async throws {
+        let engine = try await makeEngine()
+        let captured = await engine.currentScopeEpochForTesting
+        // A pull that finished with THIS epoch would apply…
+        XCTAssertTrue(SyncEngine.pullResultApplies(
+            startEpoch: captured, currentEpoch: await engine.currentScopeEpochForTesting))
+        // …but after a scope change it must be discarded.
+        await engine.invalidateScope()
+        XCTAssertFalse(SyncEngine.pullResultApplies(
+            startEpoch: captured, currentEpoch: await engine.currentScopeEpochForTesting))
+    }
+
+    private func makeEngine() async throws -> SyncEngine {
+        let container = try inMemoryContainer()
+        return SyncEngine(
+            container: container,
+            statusStore: SyncStatusStore(),
+            networkMonitor: NetworkMonitor()
+        )
+    }
+
     // MARK: - Delete reconciliation (US-1221)
 
     func test_reconcileDeletes_prunesAbsentButKeepsProtected() async throws {

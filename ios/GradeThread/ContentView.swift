@@ -103,6 +103,18 @@ struct ContentView: View {
                     // US-1156: replay a deep link that arrived during sign-in.
                     if let queued = pendingDeepLink.take() { handleDeepLink(queued) }
                 case .signedOut:
+                    // US-1493: drop the active workspace scope so the NEXT account
+                    // on this device never inherits the previous user's
+                    // X-Workspace-Owner header (which showed them an empty app or
+                    // the wrong tenant). And bump the engine's scope epoch so any
+                    // pull still in flight for the signed-out account discards its
+                    // merge + cursor advance rather than re-saving those rows after
+                    // the wipe below (a tenant leak on shared devices).
+                    WorkspaceScope.clear()
+                    // Capture the engine strongly so the epoch bump still runs even
+                    // though `syncEngine` is set to nil below — a late-returning pull
+                    // must see the bumped epoch and discard.
+                    if let engine = syncEngine { Task { await engine.invalidateScope() } }
                     // Reset the delta-sync cursors (US-633) so the next account
                     // does a clean full backfill instead of inheriting this
                     // user's watermark.
@@ -145,6 +157,12 @@ struct ContentView: View {
             // and re-pull the new workspace's data (scoped in pullRemote).
             .onReceive(NotificationCenter.default.publisher(for: .workspaceDidChange)) { _ in
                 Task {
+                    // US-1493: bump the scope epoch FIRST so any pull already in
+                    // flight for the previous workspace discards its merge + cursor
+                    // advance (and re-runs for the new scope) instead of leaking the
+                    // old tenant's rows into the freshly-wiped store / poisoning the
+                    // reset watermarks.
+                    await syncEngine?.invalidateScope()
                     // US-1211 AC3: drain the prior workspace's queued writes BEFORE
                     // re-scoping so a mutation queued under the old workspace can't
                     // carry into the new workspace's first sync pass. flushPending

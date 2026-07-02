@@ -311,6 +311,11 @@ public final class AuthStore {
         // would spuriously sign the new user out once Apple reports the orphaned
         // id as notFound/revoked.
         AppleCredentialMonitor.clear()
+        // US-1493: drop the active workspace scope so a fresh sign-in on this
+        // device can't inherit the deleted account's X-Workspace-Owner. The
+        // .signedOut phase-change also clears it, but deleteAccount can race the
+        // auth-state stream, so clear here too (idempotent).
+        WorkspaceScope.clear()
     }
 
     // MARK: - Internals

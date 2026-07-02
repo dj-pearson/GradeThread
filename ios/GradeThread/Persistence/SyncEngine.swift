@@ -46,6 +46,20 @@ actor SyncEngine {
 
     private var isPulling = false
     private var isFlushing = false
+
+    /// US-1493: monotonic tenant-scope generation. Bumped by ``invalidateScope()``
+    /// on every scope change (workspace switch, membership-revoked recovery,
+    /// sign-out). A pull captures the epoch at the start of its network fetch; if
+    /// the epoch has moved by the time the fetch returns, the freshly-pulled rows
+    /// belong to the PREVIOUS tenant — merging them into a store now showing the
+    /// new tenant (and advancing the just-reset watermarks with the old cursors)
+    /// is the cross-tenant-leak / permanently-missing-data bug. The guard discards
+    /// both the merge and the watermark advance in that case.
+    private var scopeEpoch = 0
+    /// US-1493: set when ``pull()`` is called while one is already in flight.
+    /// Instead of silently no-oping (which drops the re-pull the new scope needs),
+    /// the in-flight pull loops once more for the current scope when it finishes.
+    private var pendingPullRequested = false
     /// US-1147: set by ``stop()`` so an in-flight flush stops dequeuing further
     /// mutations at a clean boundary (each replay is idempotent, so the one
     /// in-flight is safe to let finish or re-run next launch).
@@ -154,17 +168,74 @@ actor SyncEngine {
         watermark.resetAll()
     }
 
+    /// US-1493: advance the tenant-scope generation. MUST be called on every
+    /// scope change — workspace switch, membership-revoked recovery, sign-out —
+    /// so an in-flight pull for the OLD scope discards its merge + watermark
+    /// advance instead of poisoning the new tenant's freshly-wiped store/cursors.
+    /// Cheap + synchronous within the actor, so callers can await it before
+    /// wiping the cache and re-pulling.
+    func invalidateScope() {
+        scopeEpoch &+= 1
+    }
+
+    #if DEBUG
+    /// Test-only: read the current scope epoch so a unit test can prove
+    /// ``invalidateScope()`` moves it (and thus a captured-epoch pull discards).
+    var currentScopeEpochForTesting: Int { scopeEpoch }
+    #endif
+
+    /// US-1493: whether a completed pull's results may be applied. False when the
+    /// scope epoch moved while the fetch was in flight (a workspace switch /
+    /// sign-out mid-pull) — the rows belong to the previous tenant, so neither the
+    /// merge nor the watermark advance may run. Pure + static so the mid-pull race
+    /// is unit-testable without standing up the actor + network.
+    static func pullResultApplies(startEpoch: Int, currentEpoch: Int) -> Bool {
+        startEpoch == currentEpoch
+    }
+
     // MARK: - Pull (incremental)
 
     func pull() async {
-        guard !isPulling else { return }
+        // US-1493: a pull requested while one is in flight no longer silently
+        // no-ops (which dropped the re-pull a workspace switch needs). Mark that
+        // another pass is wanted; the in-flight pull loops once more for the
+        // now-current scope when it finishes.
+        guard !isPulling else {
+            pendingPullRequested = true
+            return
+        }
         isPulling = true
         defer { isPulling = false }
 
+        var runAgain = true
+        while runAgain {
+            pendingPullRequested = false
+            await performPull(startEpoch: scopeEpoch)
+            // Re-run if a scope change (or any caller) requested a pull while this
+            // one was in flight — the follow-up runs for the current scope.
+            runAgain = pendingPullRequested
+        }
+    }
+
+    /// One pull pass, tagged with the scope epoch captured before the network
+    /// fetch (US-1493). If the epoch moves while the fetch is in flight, the pulled
+    /// rows are the previous tenant's — the guard below discards the merge and the
+    /// watermark advance so they can't leak into the new tenant's store/cursors.
+    private func performPull(startEpoch: Int) async {
         await statusStore.set(.syncing)
 
         switch await pullRemote() {
         case .success(let payload):
+            // US-1493: scope changed mid-fetch (workspace switch / sign-out) →
+            // these rows belong to the previous tenant. Discard the whole payload:
+            // do NOT merge them into the now-rescoped store, and do NOT advance the
+            // freshly-reset watermarks with the old scope's cursors (which would
+            // make the new tenant look permanently missing data). A follow-up pull
+            // for the new scope runs via the queue loop above.
+            guard Self.pullResultApplies(startEpoch: startEpoch, currentEpoch: scopeEpoch) else {
+                lastPullError = nil
+                break
+            }
             // Merge on the background actor (US-634) — never blocks the UI.
             // US-1515: capture each merge's SAVE SUCCESS so a swallowed SwiftData
             // save failure (disk pressure / constraint) no longer advances that
@@ -193,6 +264,16 @@ actor SyncEngine {
             // row keeps the cursor behind it and is re-fetched (and re-decoded)
             // on the next delta pull instead of being lost below the watermark.
             // US-1515: additionally gated on the per-table merge SAVE success.
+            // US-1493: re-check the epoch after the merges — a switch/sign-out that
+            // landed DURING the merge must still block the watermark advance, or the
+            // new tenant's just-reset cursors get poisoned with the old scope's
+            // values and the new tenant looks permanently missing data. (The
+            // reconcile prune is likewise skipped — it would prune against the old
+            // scope's id set.)
+            guard Self.pullResultApplies(startEpoch: startEpoch, currentEpoch: scopeEpoch) else {
+                lastPullError = nil
+                break
+            }
             if itemsOk { watermark.advance(.inventoryItems, to: payload.itemCursor) }
             if photosOk { watermark.advance(.itemPhotos, to: payload.photoCursor) }
             if salesOk { watermark.advance(.sales, to: payload.saleCursor) }
