@@ -14,6 +14,11 @@ import SwiftUI
 @MainActor
 @Observable
 public final class AuthStore {
+    // US-1521: legal-acceptance versions recorded at signup. Keep IN SYNC with the
+    // web (src/lib/constants.ts LEGAL_VERSIONS) and the edge mirror (legal.ts).
+    static let legalTosVersion = "2026-04-01"
+    static let legalPrivacyVersion = "2026-04-01"
+
     public enum Phase: Equatable {
         case loading       // initial bootstrap before .initialSession fires
         case signedOut
@@ -67,6 +72,17 @@ public final class AuthStore {
             if let fullName, !fullName.isEmpty {
                 data["full_name"] = .string(fullName)
             }
+            // US-1521: match the web signup — record legal-acceptance versions so
+            // the 00142 trigger writes the legal_acceptances row + the users
+            // tos_version/privacy_version columns (iOS previously sent neither, so
+            // an iOS-signed-up account looked like it never accepted the legal
+            // terms). Keep these IN SYNC with web src/lib/constants.ts
+            // LEGAL_VERSIONS and the edge legal.ts mirror.
+            data["tos_version"] = .string(Self.legalTosVersion)
+            data["privacy_version"] = .string(Self.legalPrivacyVersion)
+            data["legal_accepted_at"] = .string(
+                ISO8601DateFormatter().string(from: Date())
+            )
             _ = try await SupabaseShared.client.auth.signUp(
                 email: email,
                 password: password,
@@ -133,6 +149,24 @@ public final class AuthStore {
                 _ = try? await SupabaseShared.client.auth.update(
                     user: UserAttributes(data: ["full_name": .string(name)])
                 )
+                // US-1521: handle_new_user created the public.users profile from a
+                // NAME-LESS Apple token and there's no metadata→profile sync
+                // trigger, so every Apple-first account had a NULL profile name
+                // (workspace pickers showed "Shared workspace"). Write it straight
+                // to public.users too — self-update RLS permits `full_name` (it's
+                // not a protected column, see 00076). Best-effort; only runs on the
+                // first grant (later sign-ins have fullName == nil), so it never
+                // clobbers a name the user later changed.
+                if let uid = SupabaseShared.client.auth.currentUser?.id {
+                    struct NamePatch: Encodable { let full_name: String }
+                    // Postgres normalizes uuid to lowercase; pass the lowercased
+                    // string form so the row match is exact.
+                    _ = try? await SupabaseShared.client
+                        .from("users")
+                        .update(NamePatch(full_name: name))
+                        .eq("id", value: uid.uuidString.lowercased())
+                        .execute()
+                }
             }
             // US-804: a first-time Apple grant supplies the name, which is our
             // reliable signal that this is a brand-new account — mark the device

@@ -27,6 +27,13 @@ enum FriendlyErrorCopy {
         /// rather than the generic fallback (the relocated Guideline 2.1 reject).
         case emailUnverified
         case rateLimited
+        /// US-1521: signup rejected because the email already has an account.
+        /// GoTrue often OBFUSCATES this as a fake success ("check your email"),
+        /// but when it does surface the error, map it to actionable copy.
+        case userAlreadyExists
+        /// US-1521: GoTrue rejected the password for the project's password
+        /// policy (weak_password).
+        case weakPassword
         case generic
     }
 
@@ -111,6 +118,22 @@ enum FriendlyErrorCopy {
             || lower.contains("over_email_send_rate_limit") {
             return .rateLimited
         }
+        // US-1521: a duplicate-email signup that DOES surface an error (vs the
+        // obfuscated fake-success) — map to actionable "sign in / reset" copy.
+        if lower.contains("user already registered")
+            || lower.contains("already registered")
+            || lower.contains("user_already_exists")
+            || lower.contains("email_exists")
+            || lower.contains("already been registered") {
+            return .userAlreadyExists
+        }
+        // US-1521: GoTrue password-policy rejection.
+        if lower.contains("weak_password")
+            || lower.contains("password should be")
+            || lower.contains("password is too weak")
+            || lower.contains("password should contain") {
+            return .weakPassword
+        }
         return .generic
     }
 
@@ -141,6 +164,10 @@ enum FriendlyErrorCopy {
             return Self.confirmEmailMessage
         case .rateLimited:
             return "Too many attempts. Please wait a moment and try again."
+        case .userAlreadyExists:
+            return "That email already has an account — sign in or reset your password."
+        case .weakPassword:
+            return "That password doesn't meet the requirements. Try a longer one with a mix of letters, numbers, and symbols."
         case .generic:
             return "Something went wrong. Please try again."
         }
@@ -161,7 +188,7 @@ enum FriendlyErrorCopy {
             // generic "Couldn't save your item. Please try again." dead-end, which
             // was the relocated Guideline 2.1 rejection on the save/intake path.
             return Self.confirmEmailMessage
-        case .invalidCredentials, .generic:
+        case .invalidCredentials, .generic, .userAlreadyExists, .weakPassword:
             return fallback
         }
     }

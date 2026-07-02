@@ -9262,7 +9262,7 @@
         "iOS signup passes tos_version/privacy_version metadata matching web."
       ],
       "priority": 2370,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] First-screen polish + two data-correctness fixes; all small, one surface."
     },
     {

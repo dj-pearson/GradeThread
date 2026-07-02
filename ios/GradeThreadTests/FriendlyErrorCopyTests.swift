@@ -210,4 +210,29 @@ final class FriendlyErrorCopyTests: XCTestCase {
         XCTAssertTrue(detail.contains(NSURLErrorDomain))
         XCTAssertTrue(detail.contains("←"))
     }
+
+    // MARK: - US-1521: duplicate-email + weak-password mapping
+
+    func test_userAlreadyExists_mapsToActionableCopy() {
+        let err = NSError(
+            domain: "GoTrue", code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "User already registered"]
+        )
+        XCTAssertEqual(FriendlyErrorCopy.kind(for: err), .userAlreadyExists)
+        XCTAssertTrue(
+            FriendlyErrorCopy.authMessage(for: err).lowercased()
+                .contains("already has an account")
+        )
+    }
+
+    func test_weakPassword_mapsToActionableCopy() {
+        let err = NSError(
+            domain: "GoTrue", code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "weak_password: password should be at least 8 characters"]
+        )
+        XCTAssertEqual(FriendlyErrorCopy.kind(for: err), .weakPassword)
+        XCTAssertTrue(
+            FriendlyErrorCopy.authMessage(for: err).lowercased().contains("password")
+        )
+    }
 }

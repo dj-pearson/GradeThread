@@ -22,6 +22,14 @@ struct LoginView: View {
     @State private var isSubmitting = false
     @State private var infoMessage: String?
     @State private var captchaRequest: CaptchaRequest?
+    /// US-1521: the Turnstile widget's own actionable message, shown verbatim
+    /// instead of being flattened to the generic "Something went wrong." copy.
+    @State private var captchaErrorText: String?
+
+    /// US-1521: focus chain so Return advances the fields (the app's first screen
+    /// previously had no keyboard submit wiring at all).
+    private enum Field: Hashable { case fullName, email, password }
+    @FocusState private var focusedField: Field?
 
     /// US-810: the address the most recent sign-in was attempted with, captured
     /// at submit time so the "confirm your email" guidance + resend keep naming
@@ -57,6 +65,9 @@ struct LoginView: View {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                // US-1521: don't carry a stale error/info across a Sign in↔Sign up
+                // switch (a "wrong password" from sign-in lingering over signup).
+                .onChange(of: mode) { _, _ in clearAuthMessages() }
 
                 fields
 
@@ -78,7 +89,13 @@ struct LoginView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
-                if isUnconfirmedSignIn {
+                if let captchaErrorText {
+                    // US-1521: the Turnstile widget's own actionable message.
+                    Text(captchaErrorText)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                } else if isUnconfirmedSignIn {
                     // US-810: an unconfirmed account gets dedicated guidance +
                     // a resend action instead of the bare error line.
                     unconfirmedEmailCard
@@ -134,9 +151,16 @@ struct LoginView: View {
                     .textContentType(.name)
                     .textInputAutocapitalization(.words)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .fullName)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .email }
             }
             TextField("Email", text: $email)
                 .accessibilityIdentifier("login.email") // US-1173: stable UI-test selector
+                .focused($focusedField, equals: .email)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .password }
+                .onChange(of: email) { _, _ in clearAuthMessages() }
                 .keyboardType(.emailAddress)
                 // `.username` (not `.emailAddress`) is the login-identity content
                 // type AutoFill pairs with `.password` to surface a saved
@@ -152,6 +176,10 @@ struct LoginView: View {
             }
             SecureField("Password", text: $password)
                 .accessibilityIdentifier("login.password") // US-1173: stable UI-test selector
+                .focused($focusedField, equals: .password)
+                .submitLabel(.go)
+                .onSubmit { if canSubmit { Task { await submit() } } }
+                .onChange(of: password) { _, _ in clearAuthMessages() }
                 .textContentType(mode == .signUp ? .newPassword : .password)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityHint(passwordValidationHint.map { Text($0) } ?? Text(""))
@@ -233,6 +261,10 @@ struct LoginView: View {
             }
             .signInWithAppleButtonStyle(.black)
             .accessibilityIdentifier("login.apple") // US-1173: stable UI-test selector
+            // US-1521: don't allow a second exchange (or an email submit) to race
+            // an in-flight Apple sign-in.
+            .disabled(isSubmitting)
+            .opacity(isSubmitting ? 0.5 : 1)
             .frame(height: Self.socialButtonHeight)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             // The native button already exposes the `.button` trait and a
@@ -360,6 +392,7 @@ struct LoginView: View {
 
         infoMessage = nil
         resendInfo = nil
+        captchaErrorText = nil
         let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
         // US-810: remember the address this attempt used so the unconfirmed-email
         // guidance + resend keep naming the right inbox.
@@ -390,7 +423,10 @@ struct LoginView: View {
             // sent a confirmation email. Surface a one-liner — the auth-state
             // stream will flip phase once they confirm.
             if authStore.lastError == nil {
-                infoMessage = "Check your email to confirm your account."
+                // US-1521: GoTrue OBFUSCATES a duplicate-email signup as a fake
+                // success (no mail is ever sent), so the copy must cover that case
+                // rather than promising a confirmation email that won't arrive.
+                infoMessage = "If that email is new, check your inbox for a confirmation link. Already have an account? Sign in or reset your password instead."
             } else {
                 reportAuthFailure(context: "sign_up")
             }
@@ -484,7 +520,20 @@ struct LoginView: View {
     /// a real widget failure routes through the visible error region.
     private func handleCaptchaFailure(_ error: Error) {
         if case Captcha.Error.cancelled = error { return }
-        authStore.lastError = error
+        // US-1521: Captcha.Error is a LocalizedError with an ACTIONABLE widget
+        // message; show it verbatim instead of routing through authMessage, which
+        // flattened every captcha failure to the generic "Something went wrong."
+        captchaErrorText = (error as? LocalizedError)?.errorDescription
+            ?? error.localizedDescription
+    }
+
+    /// US-1521: clear any stale error/info so a message from a prior attempt
+    /// doesn't linger over new input (on Sign in↔Sign up toggle or a field edit).
+    private func clearAuthMessages() {
+        authStore.lastError = nil
+        infoMessage = nil
+        resendInfo = nil
+        captchaErrorText = nil
     }
 
     /// Handles the result of the native Sign in with Apple button. On success,
@@ -511,8 +560,16 @@ struct LoginView: View {
             // email/password sign-in would inherit.
             let appleUserId = credential.user
             Task {
+                // US-1521: reflect the in-flight exchange — disables the email
+                // Sign-in button (via isSubmitting) so it isn't tappable mid-Apple
+                // -exchange, and clears any stale captcha error.
+                isSubmitting = true
+                captchaErrorText = nil
+                defer {
+                    isSubmitting = false
+                    appleNonce = nil
+                }
                 await authStore.signInWithApple(idToken: idToken, nonce: nonce, appleUserId: appleUserId, fullName: fullName)
-                appleNonce = nil
             }
         case .failure(let error):
             appleNonce = nil

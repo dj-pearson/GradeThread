@@ -8180,3 +8180,30 @@ Now in the iOS backlog (macOS CI gate). NEXT: US-1521 (2370, iOS auth/signup pol
 Apple name never reaches the profile + duplicate-account), then US-1520 (2371, perf:
 parallelize sync pull + photos-relationship N+1), US-1517 (2374, memoize O(n²)
 Sales/global-search). US-1523 still deferred (AC1 needs macOS Package.resolved).
+
+## 2026-07-01 (cont.) — US-1521 iOS auth/signup polish — NOW COMPLETE (passes:true)
+ - AC1 Apple name → public.users: signInWithApple now also writes full_name to
+   public.users (client update; self-update RLS permits full_name — not a protected
+   column per 00076). Fixes NULL-name Apple accounts (workspace pickers showed
+   "Shared workspace"). Only runs on the first grant (fullName!=nil) → no clobber.
+   NO MIGRATION (client upsert path chosen over a trigger).
+ - AC2 duplicate email: FriendlyErrorCopy gained .userAlreadyExists ("That email
+   already has an account — sign in or reset…"); signup SUCCESS copy softened to
+   cover GoTrue's obfuscated fake-success ("If that email is new… Already have an
+   account? Sign in or reset").
+ - AC3 focus chain: LoginView Field enum + @FocusState; .submitLabel(.next/.go) +
+   .onSubmit advance/submit on all fields. Errors/info clear on mode toggle
+   (.onChange(of: mode)) AND field edit (email/password onChange → clearAuthMessages).
+ - AC4: Apple sign-in sets isSubmitting (email + Apple buttons disabled + spinner
+   during exchange). Turnstile error passes through verbatim (Captcha.Error is
+   LocalizedError; new captchaErrorText @State shown instead of the flattened
+   "Something went wrong."). weak_password → FriendlyErrorCopy.weakPassword copy.
+ - AC5: iOS signup sends tos_version/privacy_version/legal_accepted_at metadata
+   (matches web LEGAL_VERSIONS 2026-04-01; migration 00142 trigger consumes it).
+   Constants on AuthStore, commented to keep in sync with web + edge legal.ts.
+ - Tests: 2 new FriendlyErrorCopyTests (userAlreadyExists, weakPassword mapping).
+NO MIGRATION.
+
+VERIFICATION (this host): curly-quote scan clean on AuthStore, FriendlyErrorCopy,
+LoginView, FriendlyErrorCopyTests. Kind switches (authMessage/actionMessage) kept
+exhaustive with the 2 new cases. Can't compile Swift — iOS CI (macOS) is the gate.
