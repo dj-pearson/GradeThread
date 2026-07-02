@@ -118,6 +118,7 @@ import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleAppstoreExpirySweepCron } from "./lib/appstore/expiry-sweep.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
+import { handleThumbnailBackfillCron } from "./routes/jobs-thumbnail-backfill.ts";
 import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
 import { handleAffiliatePayoutsCron } from "./routes/jobs-affiliate-payouts.ts";
 import { handleJourneyTickCron } from "./routes/jobs-journey-tick.ts";
@@ -885,6 +886,9 @@ app.post("/api/jobs/autolister-reclaim", (c) => handleAutolisterReclaimCron(c));
 // US-559 bulk-publish reclaim sweeper. Same job-secret gating; resumes durable
 // publish batches whose worker died mid-run so nothing is stranded.
 app.post("/api/jobs/publish-batch-reclaim", (c) => handlePublishBatchReclaimCron(c));
+// US-1518 thumbnail backfill. Generates 320px thumbnails for item_photos missing
+// one (existing photos + new iOS uploads); drain-to-zero scheduler. Same gate.
+app.post("/api/jobs/thumbnail-backfill", (c) => handleThumbnailBackfillCron(c));
 app.route("/api/admin", adminBillingRoutes);
 // US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
 app.route("/api/admin/feature-flags", adminFlagsRoutes);

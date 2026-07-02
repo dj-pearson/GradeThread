@@ -1,0 +1,145 @@
+// US-1518: thumbnail backfill cron.
+//
+// InventoryRow / board cards load `thumbnail_url ?? photo_url`, but only the web
+// upload path (photo-uploader.tsx, client-side) and the AutoLister ever WRITE
+// thumbnail_url. Normal iOS uploads leave it null, so every 56pt cell downloads
+// the full ~450–500KB 1600px JPEG — a 300-item scroll can transfer >100MB against
+// a ~700KB/s self-hosted backend with Cloudflare Image Resizing disabled.
+//
+// This job generates a 320px JPEG thumbnail server-side for item_photos rows that
+// lack one, and writes thumbnail_url + thumbnail_storage_path. It covers BOTH the
+// one-time backfill of existing photos AND new iOS uploads (AC1's sanctioned "or
+// an edge job" alternative — the iOS foreground uploader is deliberately ONE PUT
+// per photo against fragile storage, so we don't add a second client PUT).
+//
+// SENSITIVE photos (tag/tag_2/certificate — private submission-images bucket,
+// empty photo_url) are SKIPPED: their thumbnails must not become public objects
+// (AC3 keeps private-bucket rules intact), and the inventory row never shows them
+// via photo_url anyway.
+//
+// Idempotent (only NULL-thumbnail rows), bounded per run, overlap-locked. Mounted
+// in main.ts as POST /api/jobs/thumbnail-backfill, gated by X-Internal-Job-Secret.
+// Run it on a Coolify scheduled task (e.g. every 5 min):
+//   curl -fsS -X POST https://functions.gradethread.com/api/jobs/thumbnail-backfill \
+//     -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET"
+// Returns { processed, failed, remaining } — schedule until `remaining` hits 0 for
+// the initial backfill; steady-state it keeps new iOS photos covered.
+
+import type { Context } from "hono";
+import { supabaseAdmin } from "../lib/supabase.ts";
+import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
+import {
+  downloadItemPhoto,
+  ITEM_PHOTOS_BUCKET,
+  SENSITIVE_ITEM_PHOTO_TYPES,
+} from "../lib/item-photo-storage.ts";
+import { generateThumbnail, thumbnailStoragePath } from "../lib/thumbnail.ts";
+
+// Bounded so one run is a short, predictable unit of work (each row = a full-image
+// download + decode + resize + thumb upload). The scheduler drains the backlog
+// across runs; `remaining` tells it when to stop.
+const BATCH_LIMIT = 100;
+
+interface PhotoRow {
+  id: string;
+  storage_path: string | null;
+  photo_type: string | null;
+}
+
+export async function handleThumbnailBackfillCron(c: Context): Promise<Response> {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const lock = await acquireJobLock("thumbnail-backfill", 300);
+  if (!lock.acquired) {
+    return c.json({ ok: true, skipped: true, reason: lock.reason });
+  }
+  try {
+    const sensitive = [...SENSITIVE_ITEM_PHOTO_TYPES];
+    // Non-sensitive, public-bucket photos still missing a thumbnail. photo_url
+    // must be non-empty (sensitive photos carry ""), and photo_type excludes the
+    // private slots explicitly (defense in depth).
+    const { data, error } = await supabaseAdmin
+      .from("item_photos")
+      .select("id, storage_path, photo_type")
+      .is("thumbnail_url", null)
+      .neq("photo_url", "")
+      .not("photo_type", "in", `(${sensitive.join(",")})`)
+      .not("storage_path", "is", null)
+      .limit(BATCH_LIMIT);
+
+    if (error) {
+      console.error("[jobs-thumbnail-backfill] query failed:", error.message);
+      return c.json({ error: "Query failed" }, 500);
+    }
+    const rows = (data ?? []) as PhotoRow[];
+
+    let processed = 0;
+    let failed = 0;
+    for (const row of rows) {
+      if (!row.storage_path) continue;
+      try {
+        const dl = await downloadItemPhoto(row.storage_path, row.photo_type);
+        if ("error" in dl) {
+          console.warn(
+            `[jobs-thumbnail-backfill] download failed for ${row.id}: ${dl.error}`,
+          );
+          failed++;
+          continue;
+        }
+        const srcBytes = new Uint8Array(await dl.blob.arrayBuffer());
+        const thumb = await generateThumbnail(srcBytes);
+
+        const thumbPath = thumbnailStoragePath(row.storage_path);
+        const { error: upErr } = await supabaseAdmin.storage
+          .from(ITEM_PHOTOS_BUCKET)
+          .upload(thumbPath, thumb.bytes, {
+            upsert: true,
+            contentType: "image/jpeg",
+          });
+        if (upErr) {
+          console.warn(
+            `[jobs-thumbnail-backfill] thumb upload failed for ${row.id}: ${upErr.message}`,
+          );
+          failed++;
+          continue;
+        }
+        const thumbUrl = supabaseAdmin.storage
+          .from(ITEM_PHOTOS_BUCKET)
+          .getPublicUrl(thumbPath).data.publicUrl;
+
+        const { error: updErr } = await supabaseAdmin
+          .from("item_photos")
+          .update({
+            thumbnail_url: thumbUrl,
+            thumbnail_storage_path: thumbPath,
+          })
+          .eq("id", row.id);
+        if (updErr) {
+          console.warn(
+            `[jobs-thumbnail-backfill] row update failed for ${row.id}: ${updErr.message}`,
+          );
+          failed++;
+          continue;
+        }
+        processed++;
+      } catch (err) {
+        console.warn(
+          `[jobs-thumbnail-backfill] unexpected error for ${row.id}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        failed++;
+      }
+    }
+
+    // `remaining` is only known to be >0 when we filled the batch; a short batch
+    // means we drained the current backlog. (An exact count would need a second
+    // COUNT query every run — not worth it for a drain-to-zero scheduler.)
+    const remaining = rows.length >= BATCH_LIMIT ? "more" : 0;
+    return c.json({ ok: true, processed, failed, remaining });
+  } finally {
+    await lock.release();
+  }
+}

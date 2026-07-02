@@ -9219,7 +9219,7 @@
         "Upload validation/metadata-strip rules (US-276) apply to the thumbnail object too."
       ],
       "priority": 2373,
-      "passes": false,
+      "passes": true,
       "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Biggest network/perceived-speed win on the most-used screen. Touches iOS + web upload paths + edge; scope the backfill small."
     },
     {

@@ -8069,3 +8069,35 @@ PENDING_MIGRATIONS.md empty, schema 00331. The eBay coherence cluster is DONE.
   type-reasoning; can't compile). Systemic theme = the "cross-form class"
   (publish-time snapshots shadowing later edits) per ios-deep-dive-audit memory.
 - eBay feature stories US-1421/1447/1448/1474/1477 = BLOCKED on live eBay scopes/creds.
+
+## 2026-07-01 (cont.) — US-1518 photo thumbnail tier — NOW COMPLETE (passes:true)
+Normal iOS uploads never populated item_photos.thumbnail_url, so 56pt inventory
+cells downloaded full ~450-500KB 1600px JPEGs (300-item scroll >100MB). Web upload
+path ALREADY generates a 320w client thumbnail (photo-uploader.tsx) — the gap was
+iOS + existing photos. Chose the EDGE JOB (AC1's sanctioned "or an edge job")
+rather than a second client PUT: the iOS foreground uploader is deliberately ONE
+PUT per photo against fragile self-hosted storage (aborts under concurrency — see
+PhotoUploadService comments + memory), so adding a client thumbnail PUT is high-
+risk and unverifiable on Windows. Server-side is verifiable + touches nothing
+fragile. Implemented:
+ - lib/thumbnail.ts: generateThumbnail() via imagescript (already a dep, used by
+   defect-annotations) — decode → cap LONGEST edge to 320px → encodeJPEG(70).
+   Re-encode from pixels = EXIF-free output (AC5). + thumbnailStoragePath() derives
+   {owner}/{item}/thumbs/{name}.jpg (preserves owner folder for storage RLS).
+ - routes/jobs-thumbnail-backfill.ts: POST /api/jobs/thumbnail-backfill (job-secret
+   gated, job-lock, bounded 100/run, drain-to-zero via `remaining`). Finds
+   item_photos WHERE thumbnail_url IS NULL AND photo_url != '' AND photo_type NOT
+   IN (sensitive) → download (downloadItemPhoto, both buckets) → generate → upload
+   to item-photos → write thumbnail_url + thumbnail_storage_path. Idempotent (AC2).
+   SENSITIVE photos (tag/tag_2/certificate, private bucket, empty photo_url) SKIPPED
+   so no public thumbnail for private imagery (AC3). getPublicUrl for item-photos.
+   Covers BOTH backfill AND ongoing new-iOS-photo coverage. Registered in main.ts.
+ - Doc: run via a Coolify scheduled task (curl the endpoint w/ X-Internal-Job-Secret,
+   every ~5m; drain until remaining=0 for backfill). Documented in the handler header.
+ - AC4: inventory rows/board cards already load thumbnail_url ?? photo_url (web +
+   iOS InventoryRow.swift). No client change needed.
+NO MIGRATION (thumbnail_url + thumbnail_storage_path columns already exist).
+
+VERIFICATION (this host): deno check src/main.ts clean; deno lint clean; 4/4
+thumbnail_test pass (landscape/portrait longest-edge cap, no-upscale, path derive).
+No iOS code touched (server-side approach) → no iOS build risk.
