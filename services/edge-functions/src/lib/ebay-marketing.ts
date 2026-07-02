@@ -991,3 +991,151 @@ export async function getMarkdownSale(
   );
   return body;
 }
+
+// ── US-1448 chunk 2: create/update item promotions ──────────────────
+//
+// The WRITE side chunk-1 deferred. Pure, correct-by-construction body-builders
+// (like buildMarkdownPromotionBody) + thin POST/PUT wrappers, following eBay's
+// documented ItemPromotion schema. Per the docs:
+//   • ORDER_DISCOUNT → percentage/amount off the ORDER once a spend threshold is
+//     met (discountSpecification.minAmount); REQUIRES a promotionImageUrl.
+//   • VOLUME_DISCOUNT → percentage off each item once N are bought
+//     (discountSpecification.numberOfItems); NO promotionImageUrl.
+//   • CODED_COUPON → percentage off item with a unique 8–15 alphanumeric coupon
+//     code (couponConfiguration); REQUIRES a promotionImageUrl.
+// The builder ENFORCES those required inputs so a caller can't emit a body eBay
+// would 4xx. ⚠️ Not yet wired to a mutating route / the aging auto-coupon
+// pipeline (AC2) — that needs a live-eBay smoke test + a promotion-image source.
+
+export type ItemPromotionType =
+  | "ORDER_DISCOUNT"
+  | "VOLUME_DISCOUNT"
+  | "CODED_COUPON";
+
+export interface ItemPromotionInput {
+  type: ItemPromotionType;
+  name: string;
+  /** Listings the promotion targets (INVENTORY_BY_VALUE). */
+  listingIds: string[];
+  /** Discount percent; clamped to the shared markdown bounds (5–70). */
+  percentOff: number;
+  /** ORDER_DISCOUNT: minimum order spend that unlocks the discount. Required. */
+  minSpend?: { value: string; currency: string };
+  /** VOLUME_DISCOUNT: quantity that unlocks the per-item discount (buy N; ≥2). */
+  buyQuantity?: number;
+  /** Required by eBay for ORDER_DISCOUNT + CODED_COUPON (not VOLUME_DISCOUNT). */
+  promotionImageUrl?: string;
+  /** CODED_COUPON: 8–15 alphanumeric code, unique across eBay. Required. */
+  couponCode?: string;
+  startDate?: string;
+  endDate?: string;
+  priority?: string;
+}
+
+const COUPON_CODE_RE = /^[A-Za-z0-9]{8,15}$/;
+
+/** Build an item_promotion request body per type. Pure + unit-tested; throws a
+ *  clear error when a type's eBay-required input is missing. */
+export function buildItemPromotionBody(
+  input: ItemPromotionInput,
+): Record<string, unknown> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Item promotion requires a name.");
+  if (input.listingIds.length === 0) {
+    throw new Error("Item promotion requires at least one listing.");
+  }
+  const pct = clampMarkdownPct(input.percentOff).toFixed(1);
+
+  const needsImage = input.type === "ORDER_DISCOUNT" ||
+    input.type === "CODED_COUPON";
+  if (needsImage && !input.promotionImageUrl) {
+    throw new Error(`${input.type} requires a promotionImageUrl.`);
+  }
+  if (
+    input.type === "CODED_COUPON" &&
+    (!input.couponCode || !COUPON_CODE_RE.test(input.couponCode))
+  ) {
+    throw new Error(
+      "CODED_COUPON requires an 8–15 character alphanumeric couponCode.",
+    );
+  }
+
+  // Order discounts take a percentage off the whole order; item + coupon
+  // discounts take it off each qualifying item.
+  const discountBenefit = input.type === "ORDER_DISCOUNT"
+    ? { percentageOffOrder: pct }
+    : { percentageOffItem: pct };
+
+  const discountSpecification: Record<string, unknown> = {};
+  if (input.type === "ORDER_DISCOUNT") {
+    if (!input.minSpend) {
+      throw new Error("ORDER_DISCOUNT requires a minSpend threshold.");
+    }
+    discountSpecification.minAmount = input.minSpend;
+  } else if (input.type === "VOLUME_DISCOUNT") {
+    discountSpecification.numberOfItems = Math.max(2, input.buyQuantity ?? 2);
+  }
+
+  const body: Record<string, unknown> = {
+    name: name.slice(0, 90),
+    marketplaceId: getMarketplaceId(),
+    promotionType: input.type,
+    promotionStatus: input.startDate ? "SCHEDULED" : "RUNNING",
+    applyDiscountToAllInventory: false,
+    inventoryCriterion: {
+      inventoryCriterionType: "INVENTORY_BY_VALUE",
+      listingIds: input.listingIds,
+    },
+    discountRules: [{ discountBenefit, discountSpecification, ruleOrder: 1 }],
+    priority: input.priority ?? "1",
+  };
+  if (needsImage) body.promotionImageUrl = input.promotionImageUrl;
+  if (input.type === "CODED_COUPON") {
+    body.couponConfiguration = {
+      couponType: "PUBLIC_CODED_COUPON",
+      couponCode: input.couponCode,
+    };
+  }
+  if (input.startDate) body.startDate = input.startDate;
+  if (input.endDate) body.endDate = input.endDate;
+  return body;
+}
+
+/** Create a Promotions Manager item promotion. Returns the new promotion id. */
+export async function createItemPromotion(
+  userId: string,
+  input: ItemPromotionInput,
+): Promise<string | null> {
+  const { body, location } = await marketingFetch<{ promotionId?: string }>(
+    userId,
+    `/sell/marketing/v1/item_promotion`,
+    { method: "POST", body: JSON.stringify(buildItemPromotionBody(input)) },
+  );
+  return body?.promotionId ?? promotionIdFromLocation(location);
+}
+
+/** Update an existing item promotion in place (eBay PUT replaces the whole
+ *  promotion; the id stays in the URL so watchers keep the same promotion). */
+export async function updateItemPromotion(
+  userId: string,
+  promotionId: string,
+  input: ItemPromotionInput,
+): Promise<void> {
+  await marketingFetch<unknown>(
+    userId,
+    `/sell/marketing/v1/item_promotion/${encodeURIComponent(promotionId)}`,
+    { method: "PUT", body: JSON.stringify(buildItemPromotionBody(input)) },
+  );
+}
+
+/** End (delete) an item promotion. Analog of endMarkdownSale. */
+export async function deleteItemPromotion(
+  userId: string,
+  promotionId: string,
+): Promise<void> {
+  await marketingFetch<unknown>(
+    userId,
+    `/sell/marketing/v1/item_promotion/${encodeURIComponent(promotionId)}`,
+    { method: "DELETE" },
+  );
+}

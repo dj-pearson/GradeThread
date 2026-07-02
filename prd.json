@@ -8308,7 +8308,7 @@
       ],
       "priority": 2082,
       "passes": false,
-      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-marketing.ts:673-721 (markdown only); https://developer.ebay.com/api-docs/sell/marketing/resources/methods"
+      "notes": "[PRE-LAUNCH AUDIT 2026-06-30 · MEDIUM · ebay · ebay coverage audit] Evidence: ebay-marketing.ts:673-721 (markdown only); https://developer.ebay.com/api-docs/sell/marketing/resources/methods [CHUNK 2 2026-07-01: AC1 write API added in ebay-marketing.ts — buildItemPromotionBody (pure, correct-by-construction per eBay ItemPromotion schema) + createItemPromotion/updateItemPromotion/deleteItemPromotion for ORDER_DISCOUNT/VOLUME_DISCOUNT/CODED_COUPON; builder enforces eBay-required inputs (promotionImageUrl for ORDER_DISCOUNT+CODED_COUPON, unique 8-15 alphanumeric couponCode for CODED_COUPON, minSpend for ORDER_DISCOUNT). 7 deno tests (ebay-item-promotion_test.ts). STILL OPEN (passes stays false): AC2 aging tie-in (auto-coupon items >90d) needs a scheduled pipeline + a promotion-image source; and the write path needs a live-eBay smoke test before a mutating route/UI is wired (per chunk-1 note). getItemPromotions (chunk 1) already lists.]"
     },
     {
       "id": "US-1449",
