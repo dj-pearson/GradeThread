@@ -209,6 +209,13 @@ targets:
       # type 'WidgetSnapshot' to expected argument type 'WidgetSnapshot?'").
     dependencies:
       - target: GradeThread
+      # US-1492: AuthStoreRecoveryTests constructs Supabase's `AuthChangeEvent`
+      # to drive AuthStore.apply directly. `@testable import GradeThread` only
+      # re-exports GradeThread's own symbols, so the SDK module must be linked
+      # here too. Package deps are shared (no double-compile), unlike `- path:`
+      # sources — safe to add.
+      - package: Supabase
+        product: Supabase
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.tests

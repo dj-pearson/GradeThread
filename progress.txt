@@ -8406,3 +8406,31 @@ VERIFICATION (this host): no-ungated-print / no-bare-strings / no-default-shared
 session all OK; brace/paren/bracket balance clean on all 8 touched files. SourceKit
 "No such module" noise is expected on Windows (no iOS SDK). iOS macOS CI is the build
 + test gate. No migration → safe to push.
+
+## 2026-07-02 (cont.) — US-1492 iOS password-reset dead-end + silent auth-callback — COMPLETE (passes:true) — NO MIGRATION
+Two App-Review-class runtime bugs on the auth-callback path (both minutes-to-hit
+with one test account + an inbox):
+ - "Forgot password?" → email link → user was silently signed in with the OLD
+   password still valid; ChangePasswordSheet was never presented. Now AuthStore
+   .passwordRecovery raises `passwordRecoveryRequested`; ProtectedRouteShell
+   auto-presents ChangePasswordSheet over whatever surface shows (login or main
+   shell), and the presentation binding clears the flag on dismiss. Deliberately
+   does NOT flip phase — a successful updatePassword drives it via .userUpdated.
+   The stale AuthStore.swift comment that described non-existent behavior is fixed.
+ - handleAuthCallback exchanged the recovery/confirm URL with `_ = try? await`, so
+   an expired/used link or a PKCE code-verifier mismatch (guaranteed cross-device
+   or after reinstall) foregrounded the app to NOTHING. Now do/catch → sets
+   `lastError`, which LoginView already renders. New FriendlyErrorCopy `.expiredLink`
+   kind matches otp_expired / "invalid or has expired" / flow_state / code_verifier
+   / invalid_grant / pkce → actionable copy naming BOTH recovery paths (new reset
+   email via Forgot password?, or sign in to resend a confirmation link).
+ - Tests: AuthStoreRecoveryTests (apply(.passwordRecovery) raises flag + leaves
+   phase unchanged; .signedOut sets phase without a recovery request) — apply() made
+   `internal` for the test seam; FriendlyErrorCopyTests expiredLink cases (variant
+   recognition, actionable copy, not-offline/not-unconfirmed).
+ - project.yml: GradeThreadTests now links the Supabase package (product) so the
+   test can construct AuthChangeEvent; package deps are shared (no double-compile,
+   unlike `- path:` sources).
+VERIFICATION (this host): brace/paren/bracket balance clean on all touched files;
+no-ungated-print + no-bare-strings OK. SourceKit "No such module" noise expected on
+Windows. iOS CI (xcodebuild test on macOS) is the build + unit-test gate. No migration.

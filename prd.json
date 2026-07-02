@@ -8850,8 +8850,8 @@
         "The stale comment at AuthStore.swift:297-300 is corrected to match real behavior."
       ],
       "priority": 2399,
-      "passes": false,
-      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Both are minutes-to-hit reviewer flows with one test account and an email inbox (the exact 2.1-class runtime bug Apple keeps finding)."
+      "passes": true,
+      "notes": "[AUDIT 2026-07-01 · iOS deep-dive, 7 parallel static sweeps] Both are minutes-to-hit reviewer flows with one test account and an email inbox (the exact 2.1-class runtime bug Apple keeps finding). [DONE 2026-07-02] .passwordRecovery now raises authStore.passwordRecoveryRequested; ProtectedRouteShell auto-presents ChangePasswordSheet over login/main-shell (binding clears the flag on dismiss). handleAuthCallback exchange is do/catch → lastError (rendered by LoginView). New FriendlyErrorCopy .expiredLink kind (otp_expired/flow_state/code_verifier/invalid_grant/pkce) → actionable copy naming reset + resend paths. Stale AuthStore.swift:297-300 comment corrected. apply() made internal for tests. Tests: AuthStoreRecoveryTests (passwordRecovery flag + phase-unchanged + signedOut) and FriendlyErrorCopy expiredLink cases. project.yml: test target links Supabase package (for AuthChangeEvent). Local: brace-balance + iOS lint clean; iOS CI is the build/test gate."
     },
     {
       "id": "US-1493",
