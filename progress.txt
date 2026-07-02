@@ -8122,3 +8122,25 @@ code-only, PENDING_MIGRATIONS.md empty, schema 00331. Do NOT push until user OKs
   Systemic theme = the "cross-form class" (publish-time snapshots shadow later edits).
 RECOMMEND surfacing to the user at next check-in: web frontier cleared; continuing
 into iOS (CI-gated). Could also spot-check US-1477 for a creds-free slice.
+
+### Loop direction (user decision 2026-07-01): CONTINUE INTO iOS BACKLOG (CI-gated)
+User chose to keep shipping iOS audit fixes; macOS iOS CI is the verification gate
+(can't compile Swift on this Windows host). Approach: ONE story at a time, careful
+type-reasoning + curly-quote scan.
+
+### NEXT UP — iOS story selection note
+- US-1523 (2368) is PARTIALLY macOS-BLOCKED: AC1 needs a committed Package.resolved,
+  which requires Xcode/SPM resolution (macOS) — can't generate on Windows. Its
+  Swift-only ACs are doable: AC2 (SupabaseShared.currentAccessToken:86-93 must
+  distinguish no-session from a TRANSIENT refresh failure — NSURLErrorDomain etc. →
+  network-error/retry, never "session expired", never send unauthenticated), AC3
+  (PlanSelectionState.markPendingEligibility AuthStore.swift:80 + ContentView.swift:
+  711-718 is device-global → key it to the signed-up user id), AC4 (GoTrue
+  weak_password → actionable copy). DEFER the full story until a macOS session can
+  commit the lockfile; OR do ACs 2-4 now + pin project.yml exact version + add the
+  CI drift-guard, and leave AC1's lockfile-commit as the one macOS follow-up.
+- CLEANER pure-Swift picks (no macOS artifact) for the next iteration, by priority:
+  US-1522 (2369, blank sheets on expired session — nil-guard dead-ends), US-1521
+  (2370, Apple name never reaches profile + duplicate-account), US-1520 (2371, perf:
+  parallelize sync pull + kill photos-relationship N+1), US-1517 (2374, memoize
+  O(n²) Sales/global-search derivations). Recommend US-1522 next (UX/reviewer bug).
