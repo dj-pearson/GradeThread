@@ -8722,3 +8722,58 @@ VERIFICATION (this host): brace balance clean on all 6 files (SyncTests via the 
 string-aware one trips on the triple-quoted JSON fixtures); no-ungated-print + no-bare-strings +
 no-default-shared-session OK. No other exhaustive MutationKind switch exists beyond apply() +
 PendingChangesView.title (both updated). iOS CI is the build + unit-test gate. No migration.
+
+## 2026-07-02 (cont.) — US-1507 iOS/edge eBay multi-account: per-listing connection + migration + local-first disconnect — SUBSTANTIAL (passes:false — see remaining) — ⚠️ MIGRATION 00338
+User OK'd the migration ("ready to apply it when I see it"). This lands the foundational
+column + the core token threading + the disconnect fix. Files: supabase/migrations/00338_*.sql
+(NEW), edge schema-version.ts, edge ebay-client.ts, edge flipdesk-ebay.ts, edge
+tests/us1507-relist-guard_test.ts (NEW), ios EbayConnectionService.swift.
+
+MIGRATION 00338_listings_marketplace_connection_id.sql: adds nullable
+`listings.marketplace_connection_id uuid references marketplace_connections(id) on delete
+set null` + a partial index, idempotent, with the US-1108 self-record footer ('00338');
+EXPECTED_SCHEMA_VERSION bumped 00337→00338 in the same commit. Legacy/imported rows stay
+null → the edge token resolver falls back to the primary connection (behavior unchanged);
+new FlipDesk publishes stamp their connection. No backfill (historical rows don't reliably
+know their publishing account).
+
+DONE:
+- Edge token resolver: new getConnectionAccessToken(connectionId, userId) (scoped to the
+  caller so a listing can't borrow another user's grant; throws the same "No active eBay
+  connection" message so isNoEbayConnectionError surfaces the friendly 409). Extracted the
+  shared refresh core into tokenFromConnectionRow (getUserAccessToken behavior byte-for-byte
+  unchanged). Threaded an optional connectionId through fetchAuthed/fetchAuthedOnce and the
+  offer helpers getOffer/updateOfferPrice/updateOfferFields/withdrawOffer (null → primary).
+- (AC1 price+end) The price (/listings/:id/price) and end (DELETE /listings/:id) handlers now
+  resolve the token via the LISTING's connection (row.listing.marketplace_connection_id ??
+  primary). loadListingOwned selects marketplace_connection_id + listing_origin.
+- Persist at publish: both listingPayloads (single-SKU + variation) stamp
+  marketplace_connection_id = ctx.connectionId (PublishContextOk gained connectionId, set from
+  the primary conn assemblePublishContext already resolves).
+- (AC3) iOS disconnect: replaced the direct-DB update (which OMITTED the nil token columns —
+  supabase-swift's encodeIfPresent left the encrypted tokens at rest — and never revoked
+  upstream) with EdgeAPI POST /api/flipdesk/ebay/disconnect. The edge endpoint now accepts an
+  optional connection_id so it scopes the revoke+scrub to the single tapped account
+  (multi-account safe; no body → all, backward compatible).
+- Edge test us1507-relist-guard_test.ts (see US-1509 note): locks deriveListingOrigin's
+  imported→'ebay' vs FlipDesk→'gradethread' decision.
+
+REMAINING (follow-up — the migration is safe to apply now; the column is already written at
+publish + read for price/end):
+- AC1 revise + negotiation token threading (the revise re-PUT path + respond/send-offer are
+  deeper — they still use the primary connection). The persisted column + resolver are now in
+  place for a focused follow-up.
+- AC2 new edge test "acting on a listing owned by a non-primary connection" — belongs in the
+  env-gated tenant-isolation integration suite (no in-process supabase mock exists to unit it).
+- AC4 US-1216-style mismatch banner on the publish/end iOS surfaces (the interim safety while
+  revise/negotiation threading lands).
+VERIFICATION: iOS no-ungated-print/no-default-shared-session OK; EbayConnectionService brace
+balance clean. Edge = deno check/lint/test via the "CI" GitHub Actions workflow (no local deno);
+migration = the db lane (no local Docker). Monitoring both after push.
+
+## 2026-07-02 (cont.) — US-1509 (PARTIAL, passes:false) — server relist guard + edge test landed alongside US-1507
+Implemented AC1's SERVER half: POST /listings/:id/relist now rejects eBay-ORIGINATED (imported)
+listings with a 409 (deriveListingOrigin === 'ebay'), mirroring the revise guard (US-1080) —
+prevents the duplicate-live-listing class. Edge test us1507-relist-guard_test.ts covers it.
+REMAINING for US-1509: iOS Relist-button hide/disable for eBay-origin listings (AC1 client
+half), and the orphan-link guard in ReconciliationService.link (AC3). Left passes:false.

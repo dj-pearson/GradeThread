@@ -454,12 +454,28 @@ flipdeskEbayRoutes.post("/disconnect", async (c) => {
     | undefined;
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
-  const { data: rows, error: loadErr } = await supabaseAdmin
+  // US-1507: a specific connection to disconnect. iOS (multi-account) sends this
+  // so it disconnects only the tapped account; when absent, disconnect ALL the
+  // user's active eBay connections (the historical single-account behavior). Both
+  // paths stay tenant-scoped by user_id.
+  let connectionId: string | undefined;
+  try {
+    const body = (await c.req.json()) as { connection_id?: unknown } | null;
+    if (body && typeof body.connection_id === "string" && body.connection_id) {
+      connectionId = body.connection_id;
+    }
+  } catch {
+    // No/invalid body → disconnect all (backward compatible).
+  }
+
+  let loadQuery = supabaseAdmin
     .from("marketplace_connections")
     .select("id, refresh_token_encrypted, access_token_encrypted")
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true);
+  if (connectionId) loadQuery = loadQuery.eq("id", connectionId);
+  const { data: rows, error: loadErr } = await loadQuery;
   if (loadErr) {
     return c.json({ error: "Could not load eBay connection." }, 500);
   }
@@ -493,7 +509,7 @@ flipdeskEbayRoutes.post("/disconnect", async (c) => {
     }
   }
 
-  const { error: deactErr } = await supabaseAdmin
+  let deactQuery = supabaseAdmin
     .from("marketplace_connections")
     .update({
       is_active: false,
@@ -504,6 +520,9 @@ flipdeskEbayRoutes.post("/disconnect", async (c) => {
     })
     .eq("user_id", userId)
     .eq("marketplace", "ebay");
+  // US-1507: scope the deactivation to the requested connection when given.
+  if (connectionId) deactQuery = deactQuery.eq("id", connectionId);
+  const { error: deactErr } = await deactQuery;
   if (deactErr) {
     return c.json({ error: "Could not disconnect eBay." }, 500);
   }
@@ -3963,7 +3982,11 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
   }
 
   try {
-    await updateOfferPrice(userId, row.listing.platform_offer_id, price);
+    // US-1507: price the offer via the listing's own connection (null → primary).
+    await updateOfferPrice(
+      userId, row.listing.platform_offer_id, price, "USD",
+      row.listing.marketplace_connection_id ?? undefined,
+    );
   } catch (err) {
     console.error("[flipdesk-ebay] updateOfferPrice failed:", err);
     return c.json(
@@ -5295,7 +5318,11 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
   let note: string | null = null;
   if (row.listing.platform_offer_id) {
     try {
-      await withdrawOffer(userId, row.listing.platform_offer_id);
+      // US-1507: end via the account that owns the listing (null → primary).
+      await withdrawOffer(
+        userId, row.listing.platform_offer_id,
+        row.listing.marketplace_connection_id ?? undefined,
+      );
       endedOnEbay = true;
     } catch (err) {
       // US-1506: a disconnected eBay account throws BEFORE the withdraw runs, so
@@ -5748,6 +5775,9 @@ export async function publishItemForOwner(
       platform: "ebay" as const,
       // US-1077: published from FlipDesk → GradeThread-originated.
       listing_origin: "gradethread" as const,
+      // US-1507: stamp the connection that published this so a later revise/end/
+      // price acts via the SAME account even after the primary is switched.
+      marketplace_connection_id: ctx.connectionId,
       platform_listing_id: listingId,
       platform_offer_id: offerId,
       platform_category_id: ctx.summary.categoryId,
@@ -6062,6 +6092,8 @@ async function publishVariationListing(args: {
     platform: "ebay" as const,
     // US-1077: published from FlipDesk → GradeThread-originated.
     listing_origin: "gradethread" as const,
+    // US-1507: stamp the publishing connection (see single-SKU payload above).
+    marketplace_connection_id: ctx.connectionId,
     platform_listing_id: listingId,
     platform_category_id: ctx.summary.categoryId,
     listing_url: url,
@@ -6225,6 +6257,27 @@ flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
 
   const row = await loadListingOwned(listingId, userId);
   if (!row.ok) return c.json(row.error, row.status);
+  // US-1507: refuse to relist an eBay-ORIGINATED (imported) listing. The withdraw
+  // needs a platform_offer_id we never have for imported rows, so the old live
+  // listing would never end AND the re-publish would upsert onto this same row —
+  // repurposing the mirror of a still-live eBay-native listing into a duplicate
+  // GradeThread listing with a corrupted mirror. Mirror the revise guard (US-1080)
+  // and the iOS-side hide, defense in depth.
+  const relistOrigin = deriveListingOrigin({
+    platform: "ebay",
+    platform_listing_id: row.listing.platform_listing_id,
+    batch_id: row.listing.batch_id,
+    synced_to_ebay_at: row.listing.synced_to_ebay_at,
+  });
+  if (relistOrigin === "ebay") {
+    return c.json(
+      {
+        error:
+          "This listing was created on eBay, not in FlipDesk, so it can't be relisted here. End it on eBay (or in FlipDesk) and create a fresh FlipDesk listing to sell it again.",
+      },
+      409,
+    );
+  }
   if (!row.listing.inventory_item_id) {
     return c.json(
       { error: "This listing is not linked to an inventory item; cannot relist." },
@@ -6863,6 +6916,11 @@ interface ListingRowForManage {
   // GradeThread) and lock eBay-owned fields on eBay-originated listings.
   batch_id: string | null;
   synced_to_ebay_at: string | null;
+  // US-1507: the connection that owns this listing (null on legacy/imported rows
+  // → callers fall back to the primary connection) + the stored origin so the
+  // relist guard can reject imported listings without re-deriving from signals.
+  marketplace_connection_id: string | null;
+  listing_origin: "ebay" | "gradethread" | null;
 }
 
 type LoadListingResult =
@@ -6897,7 +6955,7 @@ async function loadListingOwned(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, inventory_items!inner(user_id)"
+      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, batch_id, synced_to_ebay_at, marketplace_connection_id, listing_origin, inventory_items!inner(user_id)"
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -6921,6 +6979,8 @@ async function loadListingOwned(
       listing_description: row.listing_description,
       batch_id: row.batch_id,
       synced_to_ebay_at: row.synced_to_ebay_at,
+      marketplace_connection_id: row.marketplace_connection_id,
+      listing_origin: row.listing_origin,
     },
   };
 }
@@ -7129,6 +7189,9 @@ interface PublishListing {
 
 interface PublishContextOk {
   ok: true;
+  // US-1507: the eBay connection this publish resolves to (primary), persisted onto
+  // the listings row so a later revise/end/price acts via the SAME account.
+  connectionId: string;
   item: PublishItem;
   listing: PublishListing | null;
   photos: PublishPhoto[];
@@ -8134,6 +8197,8 @@ export async function assemblePublishContext(
 
   return {
     ok: true,
+    // US-1507: the connection publish resolved to (see the conn lookup above).
+    connectionId: conn.id as string,
     item,
     listing,
     photos: photosWithUrl,

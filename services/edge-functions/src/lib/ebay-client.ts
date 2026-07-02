@@ -896,6 +896,55 @@ export async function getUserAccessToken(userId: string): Promise<string> {
     throw new Error("No active eBay connection for this user.");
   }
 
+  return await tokenFromConnectionRow(row as EbayConnectionTokenRow, userId);
+}
+
+// US-1507: the marketplace_connections columns tokenFromConnectionRow needs.
+type EbayConnectionTokenRow = {
+  id: string;
+  access_token_encrypted: string | null;
+  refresh_token_encrypted: string | null;
+  token_expires_at: string | null;
+  account_handle?: string | null;
+  external_account_id?: string | null;
+};
+
+// US-1507: resolve a valid access token for a SPECIFIC eBay connection — the one
+// that owns a listing — scoped to the caller so a listing can never borrow another
+// user's grant. Throws the SAME "No active eBay connection" message getUserAccessToken
+// uses, so end/price/revise's isNoEbayConnectionError branch surfaces the friendly
+// "reconnect this account" 409 instead of a raw 500 when that connection is gone.
+export async function getConnectionAccessToken(
+  connectionId: string,
+  userId: string,
+): Promise<string> {
+  const { data: row, error } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select(
+      "id, access_token_encrypted, refresh_token_encrypted, token_expires_at, account_handle, external_account_id"
+    )
+    .eq("id", connectionId)
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Failed to load eBay connection: ${error.message}`);
+  }
+  if (!row) {
+    throw new Error("No active eBay connection for this user.");
+  }
+  return await tokenFromConnectionRow(row as EbayConnectionTokenRow, userId);
+}
+
+// Shared token-refresh core (US-1507 extraction): given a connection row, return a
+// valid access token, refreshing (and opportunistically backfilling account handle
+// / external id) when it expires within 60s. Behavior is byte-for-byte the previous
+// getUserAccessToken tail — just callable for a non-primary connection too.
+async function tokenFromConnectionRow(
+  row: EbayConnectionTokenRow,
+  userId: string,
+): Promise<string> {
   const expiresAt = row.token_expires_at
     ? new Date(row.token_expires_at).getTime()
     : 0;
@@ -1397,21 +1446,30 @@ function parseRetryAfter(header: string | null): number | null {
 async function fetchAuthed<T>(
   userId: string,
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
+  // US-1507: when set, the request is authed via THIS connection's token (the
+  // account that owns the listing) instead of the user's current primary. Callers
+  // that lack a listing (or have a legacy row with a null connection id) omit it
+  // and keep the primary-connection behavior.
+  connectionId?: string,
 ): Promise<T> {
   // US-499: breaker OUTSIDE retry so a fully-retried-then-failed call counts as
   // one failure; only transient errors trip it (isFailure: isRetryableError).
   return await ebayBreaker().execute(() =>
-    withRetry(() => fetchAuthedOnce<T>(userId, path, init))
+    withRetry(() => fetchAuthedOnce<T>(userId, path, init, connectionId))
   );
 }
 
 async function fetchAuthedOnce<T>(
   userId: string,
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
+  connectionId?: string,
 ): Promise<T> {
-  const token = await getUserAccessToken(userId);
+  // US-1507: prefer the listing's own connection; fall back to the primary.
+  const token = connectionId
+    ? await getConnectionAccessToken(connectionId, userId)
+    : await getUserAccessToken(userId);
   const locale = localeForMarketplace();
   const res = await fetchWithTimeout(`${apiHost()}${path}`, {
     ...init,
@@ -2242,11 +2300,15 @@ export async function getPublishedListingId(
 // supported, so we round-trip the current state and patch only the price.
 export async function getOffer(
   userId: string,
-  offerId: string
+  offerId: string,
+  // US-1507: act via the listing's own connection when known (null → primary).
+  connectionId?: string,
 ): Promise<Record<string, unknown>> {
   return await fetchAuthed<Record<string, unknown>>(
     userId,
-    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
+    undefined,
+    connectionId,
   );
 }
 
@@ -2254,9 +2316,10 @@ export async function updateOfferPrice(
   userId: string,
   offerId: string,
   priceValue: number,
-  currency: string = "USD"
+  currency: string = "USD",
+  connectionId?: string,
 ): Promise<void> {
-  const current = await getOffer(userId, offerId);
+  const current = await getOffer(userId, offerId, connectionId);
   // Read-modify-write: keep every field eBay returned and overwrite the
   // price. If pricingSummary is missing we create it; that should not
   // happen for a previously-published offer but covers brand-new drafts.
@@ -2271,7 +2334,8 @@ export async function updateOfferPrice(
   await fetchAuthed<unknown>(
     userId,
     `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
-    { method: "PUT", body: JSON.stringify(current) }
+    { method: "PUT", body: JSON.stringify(current) },
+    connectionId,
   );
 }
 
@@ -2293,9 +2357,11 @@ export async function updateOfferFields(
     // revise that only re-PUTs the inventory item would leave the live listing
     // in its original category.
     categoryId?: string;
-  }
+  },
+  // US-1507: revise via the listing's own connection when known (null → primary).
+  connectionId?: string,
 ): Promise<void> {
-  const current = await getOffer(userId, offerId);
+  const current = await getOffer(userId, offerId, connectionId);
 
   if (patch.price !== undefined) {
     const pricingSummary =
@@ -2322,7 +2388,8 @@ export async function updateOfferFields(
   await fetchAuthed<unknown>(
     userId,
     `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
-    { method: "PUT", body: JSON.stringify(current) }
+    { method: "PUT", body: JSON.stringify(current) },
+    connectionId,
   );
 }
 
@@ -2373,12 +2440,15 @@ export async function syncExistingOffer(
 // record itself stays, so a future re-publish reuses the same offerId.
 export async function withdrawOffer(
   userId: string,
-  offerId: string
+  offerId: string,
+  // US-1507: end the listing via the account that owns it (null → primary).
+  connectionId?: string,
 ): Promise<void> {
   await fetchAuthed<unknown>(
     userId,
     `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/withdraw`,
-    { method: "POST" }
+    { method: "POST" },
+    connectionId,
   );
 }
 

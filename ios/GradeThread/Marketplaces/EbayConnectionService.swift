@@ -124,27 +124,22 @@ public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
         throw ConnectionError.noActiveConnection
     }
 
-    /// Disconnects via direct supabase update — sets is_active=false and
-    /// scrubs the encrypted token columns. The server-side cron + refresh
-    /// worker will skip the row going forward.
+    /// Disconnects an eBay connection via the edge `POST /disconnect` (US-1507).
+    ///
+    /// The old path did a DIRECT supabase update with nil token fields — but
+    /// supabase-swift's synthesized Encodable OMITS a nil optional, so only
+    /// `is_active=false` was written and the encrypted access/refresh tokens
+    /// LINGERED in the row at rest, and the eBay grant was never revoked upstream.
+    /// The edge endpoint revokes the grant at eBay AND nulls the token columns;
+    /// `connection_id` scopes it to the single tapped account (multi-account safe).
     public func disconnect(connectionId: String, userId: String) async throws {
-        struct Disconnect: Encodable {
-            let is_active: Bool
-            let access_token_encrypted: String?
-            let refresh_token_encrypted: String?
-        }
-        try await supabase
-            .from("marketplace_connections")
-            .update(Disconnect(
-                is_active: false,
-                access_token_encrypted: nil,
-                refresh_token_encrypted: nil
-            ))
-            .eq("id", value: connectionId)
-            // US-660 / explicit-scoping rule: never update a row by id alone on
-            // a multi-tenant table — pin it to the caller's user_id too.
-            .eq("user_id", value: userId)
-            .execute()
+        struct Body: Encodable { let connection_id: String }
+        struct DisconnectResponse: Decodable { let ok: Bool }
+        _ = userId  // authorization is the caller's session on the edge; kept for the protocol signature
+        let _: DisconnectResponse = try await EdgeAPI.shared.postJSON(
+            "/api/flipdesk/ebay/disconnect",
+            body: Body(connection_id: connectionId)
+        )
     }
 
     /// Fetches the user's current active eBay connection if one exists.
